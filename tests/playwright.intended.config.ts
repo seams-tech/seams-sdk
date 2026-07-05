@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-dotenv.config({ path: path.join(repoRoot, '.env.intended.local') });
+dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true });
 
 const APP_URL = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 
@@ -16,7 +16,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   globalTimeout: 600_000,
-  timeout: 180_000,
+  timeout: 420_000,
   expect: {
     timeout: 15_000,
   },

@@ -278,7 +278,7 @@ type ExpectedPasskeyRegistrationUser = {
       wallet-binding invariant.
 - [x] Validation:
       `pnpm -C packages/sdk-web build:sdk`;
-      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/refactor83CapabilitySubjects.guard.unit.test.ts unit/walletIframeHost.registrationActivation.unit.test.ts --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/registrationCapabilitySubjects.guard.unit.test.ts unit/walletIframeHost.registrationActivation.unit.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test wallet-iframe/router.registrationActivation.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test lit-components/passkey-registration-btn.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
@@ -298,7 +298,7 @@ type ExpectedPasskeyRegistrationUser = {
       `pnpm -C packages/sdk-web build:sdk`;
       `pnpm -C apps/seams-site -s typecheck`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
-      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/refactor83CapabilitySubjects.guard.unit.test.ts --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line`;
       `git diff --check`.
 ## Implementation Review: July 3, 2026
 

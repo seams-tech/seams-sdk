@@ -8,15 +8,12 @@ second-review type simplifications are recorded in
 [Decided Type Simplifications](#decided-type-simplifications) and tracked in
 their owning phases.
 
-Status: implementation complete for Phases 1-9. Phase 10 runtime validation is
-in progress; Passkey registration/unlock/sign/export browser contracts pass
-locally. Runtime validation opened Phase 10A for canonical lane inventory and
-selection cleanup, then Phase 10B for extracting the shared typed
-canonicalization kernel across ECDSA and Ed25519. The Phase 10B review split
-write-side retirement into Phase 10C: fact writes and current-session commits
-are different lifecycle transitions, and only commits retire predecessors.
-Deployment and CI/intended-behavior gating are deferred to Phase 11 until
-manual runtime testing is complete.
+Status: implementation complete for Phases 1-10C for Passkey and Google SSO
+Email OTP accounts. Manual browser validation passed registration, wallet
+unlock, NEAR/Tempo/Arc signing, NEAR/Tempo/Arc step-up signing, and
+Ed25519/ECDSA key export. Direct Email OTP challenge validation remains open
+only if that path stays a supported product entrypoint. Deployment and
+CI/intended-behavior promotion remain deferred to Phase 11.
 
 Parent plan: [Cloudflare D1 Migration Plan](./refactor-82-cloudflare-D1-migration.md)
 
@@ -1895,7 +1892,7 @@ Tracking:
 - [x] Delete AuthService-era registration authority branches (delete
       candidates listed below). Focused guard evidence on July 3:
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts
-./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
+./unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep
 "Cloudflare D1 runtime does not revive legacy registration
 modes|AuthService wallet registration does not revive legacy
 registration modes|AuthService-backed Router API route harnesses stay
@@ -2182,7 +2179,7 @@ Tracking:
 - [x] Delete obsolete AuthService/passkey-only route semantics.
   - July 3 guard audit complete: generic Ed25519 registration no longer has
     passkey-only RP-ID helper paths, and
-    `refactor82CloudflareD1Runtime.guard.unit.test.ts` rejects the old D1 and
+    `cloudflareD1RuntimeBoundaries.guard.unit.test.ts` rejects the old D1 and
     AuthService-era `rpId` registration authority hooks.
 - [x] Delete the obsolete generic Router A/B ECDSA key-identities route; the
       inventory boundary is wallet-scoped
@@ -2465,7 +2462,7 @@ Tracking:
       (obsolete Router API relayer harnesses are deleted; see journal).
       Focused guard evidence on July 3:
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts
-./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
+./unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep
 "AuthService-backed Router API route harnesses stay deleted"
 --reporter=line` passes. Current `passkey-only` source hits are
       canonical account-auth fixtures or guard messages, not obsolete behavior
@@ -2514,9 +2511,10 @@ playwright.unit.config.ts ./unit/walletAuthAuthority.shared.unit.test.ts
 
 ## Phase 10: Manual Runtime Validation
 
-Status: in progress. Passkey registration and unlock browser-runtime contracts
-pass locally; Email OTP manual/browser runtime validation remains open. This
-phase is intentionally outside the implementation closure for Phases 1-9.
+Status: complete for Passkey and Google SSO Email OTP manual browser-runtime
+validation. Direct Email OTP challenge validation remains open if that path is
+kept as a supported product entrypoint. This phase is intentionally outside the
+implementation closure for Phases 1-9.
 The Email OTP contracts require a local Google ID token through
 `SEAMS_INTENDED_GOOGLE_ID_TOKEN`; without that credential the intended harness
 cannot start either Email OTP runtime flow.
@@ -2568,9 +2566,10 @@ unit/walletRegistrationPrepareTransport.unit.test.ts --reporter=line`.
       binding id. Focused coverage:
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts
 unit/emailOtpEmailHash.unit.test.ts --reporter=line`.
-- [ ] Manually verify Google SSO Email OTP registration, unlock, sign, and
-      export. Requires `SEAMS_INTENDED_GOOGLE_ID_TOKEN`, refreshed through
-      `pnpm refresh:intended-google-token`.
+- [x] Manually verify Google SSO Email OTP registration, unlock, sign, and
+      export. July 4, 2026 local browser validation passed registration,
+      wallet unlock, NEAR/Tempo/Arc signing, NEAR/Tempo/Arc step-up signing
+      across repeated rounds, and Ed25519/ECDSA key export.
 - [ ] Manually verify direct Email OTP challenge registration, unlock, sign,
       and export. Requires `SEAMS_INTENDED_GOOGLE_ID_TOKEN`, refreshed through
       `pnpm refresh:intended-google-token`, in the current intended harness.

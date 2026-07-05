@@ -56,6 +56,7 @@ const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId: toWalletId('alice.testnet'),
   signingRootId: 'signing-root-1',
   signingRootVersion: 'v1',
+  chainTargetKey: 'evm:eip155:1',
 });
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpWorkerHandle: Extract<

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId, requireWalletKeyId } from '@shared/signing-lanes';
 import {
-  buildSharedKeyTargetCompletion,
+  buildConfiguredTargetKeyCompletion,
   configuredTargetThresholdEcdsaWarmKey,
   parseActiveEcdsaSignerRecordForUnlock,
   planUnlockEcdsaWarmup,
@@ -66,9 +66,10 @@ function profileSigner(args: {
 }): AccountSignerRecord {
   const chainTarget = args.chainTarget ?? EVM_TARGET;
   const keyHandle = args.keyHandle ?? 'ehss-key-shared';
+  const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
   return {
     profileId: WALLET_ID,
-    chainIdKey: thresholdEcdsaChainTargetKey(chainTarget),
+    chainIdKey: targetKey,
     accountAddress: OWNER_ADDRESS,
     signerId: args.signerId ?? `signer-${thresholdEcdsaChainTargetKey(chainTarget)}`,
     signerSlot: 1,
@@ -86,11 +87,18 @@ function profileSigner(args: {
         ? {}
         : {
             sharedEvmFamilyKey: {
+            walletId: WALLET_ID,
+            rpId: RP_ID,
+            keyScope: 'evm-family',
+            keyHandle,
+            evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
               walletId: WALLET_ID,
-              rpId: RP_ID,
-              keyScope: 'evm-family',
-              ecdsaThresholdKeyId: 'ehss-shared',
               signingRootId: 'project:dev',
+              signingRootVersion: 'default',
+              chainTargetKey: targetKey,
+            }),
+            ecdsaThresholdKeyId: 'ehss-shared',
+            signingRootId: 'project:dev',
               signingRootVersion: 'default',
               participantIds: [1, 2],
               thresholdOwnerAddress: OWNER_ADDRESS,
@@ -133,7 +141,7 @@ function parseKeyFactsInventoryRequired(
 function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaSessionRecord {
   return {
     walletId: WALLET_ID,
-    walletKeyId: requireWalletKeyId('wallet-key-unlock-warmup'),
+    walletKeyId: requireWalletKeyId(active.walletKey.evmFamilySigningKeySlotId),
     chainTarget: active.chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: active.walletKey.keyHandle,
@@ -152,7 +160,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
       },
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: WALLET_ID,
-        walletKeyId: 'wallet-key-unlock-warmup',
+        evmFamilySigningKeySlotId: active.walletKey.evmFamilySigningKeySlotId,
         chainTarget: active.chainTarget,
         keyHandle: active.walletKey.keyHandle,
         ecdsaThresholdKeyId: 'ehss-shared',
@@ -233,9 +241,39 @@ test.describe('unlock ECDSA warm-up planner', () => {
     expect(result.readyTargets[1].localSessionRecord).toBeUndefined();
   });
 
-  test('completes configured targets from one shared EVM-family wallet key', () => {
-    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET }));
-    const result = buildSharedKeyTargetCompletion({
+  test('completes configured targets from per-target ECDSA wallet keys', () => {
+    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ehss-key-arc' }));
+    const tempo = parseActive(
+      profileSigner({ chainTarget: TEMPO_TARGET, keyHandle: 'ehss-key-tempo' }),
+    );
+    const result = buildConfiguredTargetKeyCompletion({
+      context: {
+        ecdsaKeys: [
+          configuredTargetThresholdEcdsaWarmKey({
+            chainTarget: EVM_TARGET,
+            keyHandle: evm.walletKey.keyHandle,
+            key: evmFamilyEcdsaWalletKeyToIdentity(evm.walletKey),
+          }),
+          configuredTargetThresholdEcdsaWarmKey({
+            chainTarget: TEMPO_TARGET,
+            keyHandle: tempo.walletKey.keyHandle,
+            key: evmFamilyEcdsaWalletKeyToIdentity(tempo.walletKey),
+          }),
+        ],
+      },
+      configuredTargets: [{ chainTarget: EVM_TARGET }, { chainTarget: TEMPO_TARGET }],
+    });
+
+    expect(result.kind).toBe('complete_configured_target_keys');
+    if (result.kind !== 'complete_configured_target_keys') throw new Error('expected complete targets');
+    expect(result.context.ecdsaKeys.map((key) => key.targetKey).sort()).toEqual(
+      [thresholdEcdsaChainTargetKey(EVM_TARGET), thresholdEcdsaChainTargetKey(TEMPO_TARGET)].sort(),
+    );
+  });
+
+  test('reports missing configured target key facts without cloning another target identity', () => {
+    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ehss-key-arc' }));
+    const result = buildConfiguredTargetKeyCompletion({
       context: {
         ecdsaKeys: [
           configuredTargetThresholdEcdsaWarmKey({
@@ -248,11 +286,10 @@ test.describe('unlock ECDSA warm-up planner', () => {
       configuredTargets: [{ chainTarget: EVM_TARGET }, { chainTarget: TEMPO_TARGET }],
     });
 
-    expect(result.kind).toBe('complete_shared_key_targets');
-    if (result.kind !== 'complete_shared_key_targets') throw new Error('expected complete targets');
-    expect(result.context.ecdsaKeys.map((key) => key.targetKey).sort()).toEqual(
-      [thresholdEcdsaChainTargetKey(EVM_TARGET), thresholdEcdsaChainTargetKey(TEMPO_TARGET)].sort(),
-    );
+    expect(result).toEqual({
+      kind: 'missing_configured_target_keys',
+      missingTargets: [thresholdEcdsaChainTargetKey(TEMPO_TARGET)],
+    });
   });
 
   test('keeps key-handle-only active signers in key-facts inventory until explicit inventory auth exists', () => {

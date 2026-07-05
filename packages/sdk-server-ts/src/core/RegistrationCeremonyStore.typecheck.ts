@@ -4,12 +4,15 @@ import {
   implicitNearAccountProvisioning,
   registrationEd25519AuthorityScope,
   registrationIntentGrantFromString,
+  registrationSignerPlanFromSelection,
   walletIdFromString,
   type AddAuthMethodIntentV1,
   type RegistrationIntentV1,
+  type RegistrationSignerPlan,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { buildStoredWalletRegistrationPreparedContext } from './RegistrationCeremonyStore';
 import type {
   ConsumedAddAuthMethodIntent,
   ConsumedRegistrationIntent,
@@ -49,6 +52,11 @@ function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
   return result.value;
 }
 
+function unwrapRegistrationSignerPlan(result: ReturnType<typeof registrationSignerPlanFromSelection>): RegistrationSignerPlan {
+  if (!result.ok) throw new Error('invalid type fixture signer plan');
+  return result.value;
+}
+
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
 const intentNearEd25519Signer = {
@@ -69,6 +77,10 @@ const intent = {
   },
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
+
+const intentSignerPlan = unwrapRegistrationSignerPlan(
+  registrationSignerPlanFromSelection(intent.signerSelection),
+);
 
 const passkeyAuthority = {
   kind: 'passkey',
@@ -180,12 +192,21 @@ const preparedEd25519 = {
   serverState: preparedEd25519ServerState,
 } satisfies StoredEd25519RegistrationPrepared;
 
+const preparedContext = buildStoredWalletRegistrationPreparedContext({
+  signingRootId: 'project:env',
+  signingRootVersion: 'default',
+  runtimePolicyScope: null,
+  ecdsaChainTargets: null,
+});
+
 const preparationBase = {
   registrationPreparationId: 'wrp_123' as RegistrationPreparationId,
   registrationIntentGrant: allocatedIntent.grant,
   registrationIntentDigestB64u: allocatedIntent.digestB64u,
   intent,
   authority: passkeyAuthority,
+  signerPlan: intentSignerPlan,
+  preparedContext,
   orgId: allocatedIntent.orgId,
   expectedOrigin: 'https://wallet.example.test',
   signingRootId: 'project:env',
@@ -268,23 +289,27 @@ const failedRegistration = {
 
 const ecdsaPrepare = {
   kind: 'evm_family_ecdsa_keygen',
-  chainTargets: [ecdsaChainTarget],
-  prepare: {
-    formatVersion: 'ecdsa-hss-role-local',
-    walletId: String(intent.walletId),
-    evmFamilySigningKeySlotId: 'wallet-key-registration',
-    ecdsaThresholdKeyId: 'ek_registration',
-    signingRootId: 'project:env',
-    signingRootVersion: 'default',
-    keyScope: 'evm-family',
-    relayerKeyId: 'rk_registration',
-    requestId: 'ecdsa-registration-request',
-    thresholdSessionId: 'threshold-session',
-    signingGrantId: 'signing-grant',
-    ttlMs: 300_000,
-    remainingUses: 10,
-    participantIds: [1, 2],
-  },
+  targets: [
+    {
+      chainTarget: ecdsaChainTarget,
+      prepare: {
+        formatVersion: 'ecdsa-hss-role-local',
+        walletId: String(intent.walletId),
+        evmFamilySigningKeySlotId: 'wallet-key-registration',
+        ecdsaThresholdKeyId: 'ek_registration',
+        signingRootId: 'project:env',
+        signingRootVersion: 'default',
+        keyScope: 'evm-family',
+        relayerKeyId: 'rk_registration',
+        requestId: 'ecdsa-registration-request',
+        thresholdSessionId: 'threshold-session',
+        signingGrantId: 'signing-grant',
+        ttlMs: 300_000,
+        remainingUses: 10,
+        participantIds: [1, 2],
+      },
+    },
+  ],
 } satisfies WalletRegistrationEcdsaPreparePayload;
 
 const ecdsaBootstrap = {
@@ -345,7 +370,12 @@ const respondedEcdsa = {
   hssKind: ecdsaPrepare.kind,
   kind: 'ecdsa_responded',
   responded: {
-    bootstrap: ecdsaBootstrap,
+    bootstraps: [
+      {
+        chainTarget: ecdsaChainTarget,
+        bootstrap: ecdsaBootstrap,
+      },
+    ],
   },
 } satisfies StoredEcdsaRegistrationResponded;
 
@@ -363,6 +393,8 @@ void ({
   registrationCeremonyId: 'wrc_123',
   intent,
   digestB64u: 'digest',
+  signerPlan: intentSignerPlan,
+  preparedContext,
   orgId: 'org',
   expiresAtMs: 1,
   authority: passkeyAuthority,
@@ -373,6 +405,8 @@ void ({
   registrationCeremonyId: 'wrc_123',
   intent,
   digestB64u: 'digest',
+  signerPlan: intentSignerPlan,
+  preparedContext,
   orgId: 'org',
   expiresAtMs: 1,
   // @ts-expect-error pre-finalize registration state stores RegistrationAuthority, not wallet-bound WalletAuthAuthority.
@@ -384,6 +418,8 @@ void ({
   registrationCeremonyId: 'wrc_123',
   intent,
   digestB64u: 'digest',
+  signerPlan: intentSignerPlan,
+  preparedContext,
   orgId: 'org',
   expiresAtMs: 1,
   authority: passkeyAuthority,
@@ -395,6 +431,8 @@ for (const signerState of [finalizingEd25519, completedEd25519, failedRegistrati
     registrationCeremonyId: 'wrc_123',
     intent,
     digestB64u: 'digest',
+    signerPlan: intentSignerPlan,
+    preparedContext,
     orgId: 'org',
     expiresAtMs: 1,
     authority: passkeyAuthority,
@@ -407,6 +445,8 @@ for (const signerState of [preparedEcdsa, respondedEcdsa, completedEcdsa]) {
     registrationCeremonyId: 'wrc_ecdsa',
     intent,
     digestB64u: 'digest',
+    signerPlan: intentSignerPlan,
+    preparedContext,
     orgId: 'org',
     expiresAtMs: 1,
     authority: passkeyAuthority,
@@ -560,6 +600,8 @@ void ({
   registrationCeremonyId: 'wrc_123',
   intent,
   digestB64u: 'digest',
+  signerPlan: intentSignerPlan,
+  preparedContext,
   orgId: 'org',
   expiresAtMs: 1,
   authority: passkeyAuthority,

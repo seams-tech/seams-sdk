@@ -1,5 +1,10 @@
 import React from 'react';
-import { ActionType, useSeams, type RegistrationResult } from '@seams/sdk/react';
+import {
+  ActionType,
+  useSeams,
+  type GoogleEmailOtpWalletAuthEcdsaTargets,
+  type RegistrationResult,
+} from '@seams/sdk/react';
 import {
   encodeSignedTransactionBase64,
   nearAccountRefFromAccountId,
@@ -17,7 +22,9 @@ type IntendedActionName =
   | 'signTempoTransaction'
   | 'signArcEvmTransaction'
   | 'exportEd25519Key'
-  | 'exportEcdsaKey';
+  | 'exportEcdsaKey'
+  | 'startEmailRecovery'
+  | 'finalizeEmailRecovery';
 
 type IntendedLifecycleEvent = {
   index: number;
@@ -44,10 +51,77 @@ type IntendedEcdsaTargetKeySummary = {
   thresholdOwnerAddress: string;
 };
 
-type IntendedEcdsaTargetKeysSummary = {
-  tempo: IntendedEcdsaTargetKeySummary;
-  arcEvm: IntendedEcdsaTargetKeySummary;
+type IntendedEcdsaTargetProfileName = 'none' | 'tempo' | 'tempo_arc';
+
+type IntendedEcdsaTargetKeysSummary =
+  | {
+      kind: 'none';
+      tempo?: never;
+      arcEvm?: never;
+    }
+  | {
+      kind: 'tempo';
+      tempo: IntendedEcdsaTargetKeySummary;
+      arcEvm?: never;
+    }
+  | {
+      kind: 'tempo_arc';
+      tempo: IntendedEcdsaTargetKeySummary;
+      arcEvm: IntendedEcdsaTargetKeySummary;
+    };
+
+type IntendedEmailOtpEcdsaTargetProfile =
+  | {
+      kind: 'none';
+      sdkTargets: Extract<GoogleEmailOtpWalletAuthEcdsaTargets, { kind: 'none' }>;
+      chainTargets: readonly [];
+    }
+  | {
+      kind: 'tempo';
+      sdkTargets: Extract<GoogleEmailOtpWalletAuthEcdsaTargets, { kind: 'explicit' }>;
+      chainTargets: readonly [ThresholdEcdsaChainTarget];
+    }
+  | {
+      kind: 'tempo_arc';
+      sdkTargets: Extract<GoogleEmailOtpWalletAuthEcdsaTargets, { kind: 'explicit' }>;
+      chainTargets: readonly [ThresholdEcdsaChainTarget, ThresholdEcdsaChainTarget];
+    };
+
+type IntendedPasskeyEcdsaTargetProfile = {
+  kind: IntendedEcdsaTargetProfileName;
 };
+
+type IntendedEcdsaSignerProvisioningDefaults = ReturnType<
+  typeof useSeams
+>['seams']['configs']['signing']['thresholdEcdsa']['provisioningDefaults'];
+
+type IntendedEcdsaSessionSummary =
+  | {
+      ecdsaTargetProfile: 'none';
+      thresholdEcdsaEthereumAddress?: never;
+      thresholdEcdsaPublicKeyB64u?: never;
+    }
+  | {
+      ecdsaTargetProfile: 'tempo';
+      thresholdEcdsaEthereumAddress: string;
+      thresholdEcdsaPublicKeyB64u: string;
+    }
+  | {
+      ecdsaTargetProfile: 'tempo_arc';
+      thresholdEcdsaEthereumAddress?: never;
+      thresholdEcdsaPublicKeyB64u?: never;
+    };
+
+type IntendedEcdsaSummary =
+  | (Extract<IntendedEcdsaSessionSummary, { ecdsaTargetProfile: 'none' }> & {
+      ecdsaTargetKeys: Extract<IntendedEcdsaTargetKeysSummary, { kind: 'none' }>;
+    })
+  | (Extract<IntendedEcdsaSessionSummary, { ecdsaTargetProfile: 'tempo' }> & {
+      ecdsaTargetKeys: Extract<IntendedEcdsaTargetKeysSummary, { kind: 'tempo' }>;
+    })
+  | (Extract<IntendedEcdsaSessionSummary, { ecdsaTargetProfile: 'tempo_arc' }> & {
+      ecdsaTargetKeys: Extract<IntendedEcdsaTargetKeysSummary, { kind: 'tempo_arc' }>;
+    });
 
 type IntendedActionSuccess = {
   status: 'success';
@@ -75,13 +149,9 @@ type PasskeyRegistrationCoreSummary = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   operationalPublicKey: string;
-  thresholdEcdsaEthereumAddress: string;
-  thresholdEcdsaPublicKeyB64u: string;
-};
+} & IntendedEcdsaSessionSummary;
 
-type PasskeyRegistrationResultSummary = PasskeyRegistrationCoreSummary & {
-  ecdsaTargetKeys: IntendedEcdsaTargetKeysSummary;
-};
+type PasskeyRegistrationResultSummary = PasskeyRegistrationCoreSummary & IntendedEcdsaSummary;
 
 type EmailOtpRegistrationCoreSummary = {
   kind: 'email_otp_registration_success';
@@ -89,15 +159,11 @@ type EmailOtpRegistrationCoreSummary = {
   walletId: string;
   nearAccountId: string;
   operationalPublicKey: string;
-  thresholdEcdsaEthereumAddress: string;
-  thresholdEcdsaPublicKeyB64u: string;
   signingSessionStatus: string;
   remainingUses: number | null;
-};
+} & IntendedEcdsaSessionSummary;
 
-type EmailOtpRegistrationResultSummary = EmailOtpRegistrationCoreSummary & {
-  ecdsaTargetKeys: IntendedEcdsaTargetKeysSummary;
-};
+type EmailOtpRegistrationResultSummary = EmailOtpRegistrationCoreSummary & IntendedEcdsaSummary;
 
 type NearSigningResultSummary = {
   kind: 'near_sign_success';
@@ -121,15 +187,11 @@ type EmailOtpUnlockCoreSummary = {
   walletId: string;
   nearAccountId: string;
   operationalPublicKey: string;
-  thresholdEcdsaEthereumAddress: string;
-  thresholdEcdsaPublicKeyB64u: string;
   signingSessionStatus: string;
   remainingUses: number | null;
-};
+} & IntendedEcdsaSessionSummary;
 
-type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & {
-  ecdsaTargetKeys: IntendedEcdsaTargetKeysSummary;
-};
+type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSummary;
 
 type TempoSigningResultSummary = {
   kind: 'tempo_sign_success';
@@ -159,6 +221,22 @@ type EcdsaExportResultSummary = {
   chainId: number;
 };
 
+type EmailRecoveryStartResultSummary = {
+  kind: 'email_recovery_start_success';
+  walletId: string;
+  nearAccountId: string;
+  nearPublicKey: string;
+  mailtoUrl: string;
+  ecdsaTargetKeys: IntendedEcdsaTargetKeysSummary;
+};
+
+type EmailRecoveryFinalizeResultSummary = {
+  kind: 'email_recovery_finalize_success';
+  walletId: string;
+  nearAccountId: string;
+  nearPublicKey: string;
+};
+
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | EmailOtpRegistrationResultSummary
@@ -168,13 +246,16 @@ type IntendedActionResult =
   | TempoSigningResultSummary
   | ArcEvmSigningResultSummary
   | Ed25519ExportResultSummary
-  | EcdsaExportResultSummary;
+  | EcdsaExportResultSummary
+  | EmailRecoveryStartResultSummary
+  | EmailRecoveryFinalizeResultSummary;
 
 type IntendedPageState = {
   action: IntendedActionState;
   events: readonly IntendedLifecycleEvent[];
   walletId: string;
   nearAccountId: string | null;
+  recoveryNearPublicKey: string | null;
 };
 
 type IntendedPageAction =
@@ -202,12 +283,18 @@ type IntendedPageQuery = {
   walletId: string;
   nearAccountId: string | null;
   googleIdToken: string | null;
+  recoveryNearPublicKey: string | null;
+  passkeyEcdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
+  emailOtpEcdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
 };
 
 type IntendedPageControllerArgs = {
   walletId: string;
   nearAccountId: string | null;
   googleIdToken: string | null;
+  recoveryNearPublicKey: string | null;
+  passkeyEcdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
+  emailOtpEcdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
   seams: ReturnType<typeof useSeams>['seams'];
   registerPasskey: ReturnType<typeof useSeams>['registerPasskey'];
   refreshLoginState: ReturnType<typeof useSeams>['refreshLoginState'];
@@ -278,6 +365,7 @@ function initialIntendedPageState(query: IntendedPageQuery): IntendedPageState {
     events: [],
     walletId: query.walletId,
     nearAccountId: query.nearAccountId,
+    recoveryNearPublicKey: null,
   };
 }
 
@@ -293,6 +381,9 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
     walletId: state.walletId,
     nearAccountId: state.nearAccountId,
     googleIdToken: query.googleIdToken,
+    recoveryNearPublicKey: state.recoveryNearPublicKey,
+    passkeyEcdsaTargetProfile: query.passkeyEcdsaTargetProfile,
+    emailOtpEcdsaTargetProfile: query.emailOtpEcdsaTargetProfile,
     seams: seamsContext.seams,
     registerPasskey: seamsContext.registerPasskey,
     refreshLoginState: seamsContext.refreshLoginState,
@@ -401,6 +492,24 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           >
             Export ECDSA
           </button>
+          <button
+            type="button"
+            data-testid="intended-start-email-recovery"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runStartEmailRecovery}
+            style={buttonStyle}
+          >
+            Start Recovery
+          </button>
+          <button
+            type="button"
+            data-testid="intended-finalize-email-recovery"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runFinalizeEmailRecovery}
+            style={buttonStyle}
+          >
+            Finalize Recovery
+          </button>
         </div>
         <output
           data-testid="intended-action-status"
@@ -425,6 +534,12 @@ class IntendedPageController {
 
   private readonly googleIdToken: string | null;
 
+  private readonly recoveryNearPublicKey: string | null;
+
+  private readonly passkeyEcdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
+
+  private readonly emailOtpEcdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
+
   private readonly seams: ReturnType<typeof useSeams>['seams'];
 
   private readonly registerPasskey: ReturnType<typeof useSeams>['registerPasskey'];
@@ -437,6 +552,9 @@ class IntendedPageController {
     this.walletId = args.walletId;
     this.nearAccountId = args.nearAccountId;
     this.googleIdToken = args.googleIdToken;
+    this.recoveryNearPublicKey = args.recoveryNearPublicKey;
+    this.passkeyEcdsaTargetProfile = args.passkeyEcdsaTargetProfile;
+    this.emailOtpEcdsaTargetProfile = args.emailOtpEcdsaTargetProfile;
     this.seams = args.seams;
     this.registerPasskey = args.registerPasskey;
     this.refreshLoginState = args.refreshLoginState;
@@ -479,6 +597,14 @@ class IntendedPageController {
     void this.exportEcdsaKey();
   };
 
+  runStartEmailRecovery = (): void => {
+    void this.startEmailRecovery();
+  };
+
+  runFinalizeEmailRecovery = (): void => {
+    void this.finalizeEmailRecovery();
+  };
+
   private async registerPasskeyWallet(): Promise<void> {
     const action: IntendedActionName = 'registerPasskeyWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -488,20 +614,30 @@ class IntendedPageController {
           kind: 'provided',
           walletId: toWalletId(this.walletId),
         },
+        signerOptions: passkeySignerOptionsForProfile({
+          defaults: this.seams.configs.signing.thresholdEcdsa.provisioningDefaults,
+          profile: this.passkeyEcdsaTargetProfile,
+        }),
         onEvent: this.recordLifecycleEvent,
       });
-      const registration = assertPasskeyRegistrationSucceeded(result, this.walletId);
+      const registration = assertPasskeyRegistrationSucceeded({
+        result,
+        expectedWalletId: this.walletId,
+        ecdsaTargetProfile: this.passkeyEcdsaTargetProfile,
+      });
       await this.refreshLoginState(registration.walletId);
-      const ecdsaTargetKeys = await this.readEcdsaTargetKeys();
+      const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.passkeyEcdsaTargetProfile.kind);
+      const ecdsa = assertEcdsaTargetKeysForSession({
+        session: registration,
+        ecdsaTargetKeys,
+      });
       const summary: PasskeyRegistrationResultSummary = {
         kind: registration.kind,
         walletId: registration.walletId,
         nearAccountId: registration.nearAccountId,
         nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
         operationalPublicKey: registration.operationalPublicKey,
-        thresholdEcdsaEthereumAddress: registration.thresholdEcdsaEthereumAddress,
-        thresholdEcdsaPublicKeyB64u: registration.thresholdEcdsaPublicKeyB64u,
-        ecdsaTargetKeys,
+        ...ecdsa,
       };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
@@ -517,18 +653,20 @@ class IntendedPageController {
       this.walletId = registration.walletId;
       this.nearAccountId = registration.nearAccountId;
       await this.refreshLoginState(this.walletId);
-      const ecdsaTargetKeys = await this.readEcdsaTargetKeys();
+      const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
+      const ecdsa = assertEcdsaTargetKeysForSession({
+        session: registration,
+        ecdsaTargetKeys,
+      });
       const summary: EmailOtpRegistrationResultSummary = {
         kind: registration.kind,
         initialWalletId: registration.initialWalletId,
         walletId: registration.walletId,
         nearAccountId: registration.nearAccountId,
         operationalPublicKey: registration.operationalPublicKey,
-        thresholdEcdsaEthereumAddress: registration.thresholdEcdsaEthereumAddress,
-        thresholdEcdsaPublicKeyB64u: registration.thresholdEcdsaPublicKeyB64u,
-        ecdsaTargetKeys,
         signingSessionStatus: registration.signingSessionStatus,
         remainingUses: registration.remainingUses,
+        ...ecdsa,
       };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
@@ -568,17 +706,19 @@ class IntendedPageController {
     try {
       const unlock = await this.unlockEmailOtpWalletWithPublicSdk();
       await this.refreshLoginState(unlock.walletId);
-      const ecdsaTargetKeys = await this.readEcdsaTargetKeys();
+      const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
+      const ecdsa = assertEcdsaTargetKeysForSession({
+        session: unlock,
+        ecdsaTargetKeys,
+      });
       const summary: EmailOtpUnlockResultSummary = {
         kind: unlock.kind,
         walletId: unlock.walletId,
         nearAccountId: unlock.nearAccountId,
         operationalPublicKey: unlock.operationalPublicKey,
-        thresholdEcdsaEthereumAddress: unlock.thresholdEcdsaEthereumAddress,
-        thresholdEcdsaPublicKeyB64u: unlock.thresholdEcdsaPublicKeyB64u,
-        ecdsaTargetKeys,
         signingSessionStatus: unlock.signingSessionStatus,
         remainingUses: unlock.remainingUses,
+        ...ecdsa,
       };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
@@ -630,20 +770,103 @@ class IntendedPageController {
     }
   }
 
-  private async readEcdsaTargetKeys(): Promise<IntendedEcdsaTargetKeysSummary> {
+  private async startEmailRecovery(): Promise<void> {
+    const action: IntendedActionName = 'startEmailRecovery';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const nearAccountId = requireNearAccountId(this.nearAccountId);
+      const recovery = await this.seams.recovery.startEmailRecovery({
+        walletId: this.walletId,
+        options: {
+          onEvent: this.recordLifecycleEvent,
+        },
+      });
+      const nearPublicKey = requireNonEmptyString(
+        recovery.nearPublicKey,
+        'Email recovery nearPublicKey',
+      );
+      const mailtoUrl = requireNonEmptyString(recovery.mailtoUrl, 'Email recovery mailtoUrl');
+      const ecdsaTargetKeys = await this.readEcdsaTargetKeys('tempo_arc');
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'email_recovery_start_success',
+          walletId: this.walletId,
+          nearAccountId,
+          nearPublicKey,
+          mailtoUrl,
+          ecdsaTargetKeys,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async finalizeEmailRecovery(): Promise<void> {
+    const action: IntendedActionName = 'finalizeEmailRecovery';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const nearAccountId = requireNearAccountId(this.nearAccountId);
+      const nearPublicKey = requireNonEmptyString(
+        this.recoveryNearPublicKey,
+        'Email recovery nearPublicKey',
+      );
+      await this.seams.recovery.finalizeEmailRecovery({
+        walletId: this.walletId,
+        nearPublicKey,
+        options: {
+          onEvent: this.recordLifecycleEvent,
+        },
+      });
+      await this.refreshLoginState(this.walletId);
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'email_recovery_finalize_success',
+          walletId: this.walletId,
+          nearAccountId,
+          nearPublicKey,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async readEcdsaTargetKeys(
+    profile: IntendedEcdsaTargetProfileName,
+  ): Promise<IntendedEcdsaTargetKeysSummary> {
     const walletSession = walletSessionRefFromSession({
       walletId: this.walletId,
       walletSessionUserId: this.walletId,
     });
-    const tempo = await this.resolveEcdsaTargetKey({
-      chain: 'tempo',
-      walletSession,
-    });
-    const arcEvm = await this.resolveEcdsaTargetKey({
-      chain: 'arc_evm',
-      walletSession,
-    });
-    return { tempo, arcEvm };
+    switch (profile) {
+      case 'none':
+        return { kind: 'none' };
+      case 'tempo': {
+        const tempo = await this.resolveEcdsaTargetKey({
+          chain: 'tempo',
+          walletSession,
+        });
+        return { kind: 'tempo', tempo };
+      }
+      case 'tempo_arc': {
+        const tempo = await this.resolveEcdsaTargetKey({
+          chain: 'tempo',
+          walletSession,
+        });
+        const arcEvm = await this.resolveEcdsaTargetKey({
+          chain: 'arc_evm',
+          walletSession,
+        });
+        return { kind: 'tempo_arc', tempo, arcEvm };
+      }
+      default:
+        return assertNever(profile);
+    }
   }
 
   private async resolveEcdsaTargetKey(input: {
@@ -709,16 +932,13 @@ class IntendedPageController {
     };
   }
 
-  private async registerEmailOtpWalletWithPublicSdk(): Promise<EmailOtpRegistrationResultSummary> {
+  private async registerEmailOtpWalletWithPublicSdk(): Promise<EmailOtpRegistrationCoreSummary> {
     const idToken = requireGoogleIdToken(this.googleIdToken);
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'register',
       sessionKind: 'jwt',
-      ecdsaTargets: {
-        kind: 'explicit',
-        targets: [INTENDED_TEMPO_CHAIN_TARGET, INTENDED_ARC_EVM_CHAIN_TARGET],
-      },
+      ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
     });
@@ -738,19 +958,20 @@ class IntendedPageController {
     if (!completed.ok) {
       throw new Error(completed.error.message);
     }
-    return assertEmailOtpRegistrationCompleted(completed.value, initialWalletId);
+    return assertEmailOtpRegistrationCompleted({
+      completed: completed.value,
+      initialWalletId,
+      ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
+    });
   }
 
-  private async unlockEmailOtpWalletWithPublicSdk(): Promise<EmailOtpUnlockResultSummary> {
+  private async unlockEmailOtpWalletWithPublicSdk(): Promise<EmailOtpUnlockCoreSummary> {
     const idToken = requireGoogleIdToken(this.googleIdToken);
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'login',
       sessionKind: 'jwt',
-      ecdsaTargets: {
-        kind: 'explicit',
-        targets: [INTENDED_TEMPO_CHAIN_TARGET, INTENDED_ARC_EVM_CHAIN_TARGET],
-      },
+      ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
     });
@@ -776,7 +997,11 @@ class IntendedPageController {
     if (!submitted.ok) {
       throw new Error(submitted.error.message);
     }
-    return assertEmailOtpUnlockSucceeded(submitted.value, this.walletId);
+    return assertEmailOtpUnlockSucceeded({
+      result: submitted.value,
+      expectedWalletId: this.walletId,
+      ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
+    });
   }
 
   readEmailOtpCodeForChallenge = async (input: IntendedEmailOtpCodeRequest): Promise<string> => {
@@ -992,6 +1217,7 @@ function intendedPageReducer(
         action: { status: 'success', action: action.action, result: action.result },
         walletId: intendedActionResultWalletId(action.result) || state.walletId,
         nearAccountId: intendedActionResultNearAccountId(action.result) || state.nearAccountId,
+        recoveryNearPublicKey: intendedActionResultRecoveryNearPublicKey(action.result),
       };
     case 'action_failed':
       return {
@@ -1025,6 +1251,8 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
     case 'ecdsa_export_success':
+    case 'email_recovery_start_success':
+    case 'email_recovery_finalize_success':
       return result.walletId;
     default:
       return assertNever(result);
@@ -1039,9 +1267,31 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
+    case 'email_recovery_start_success':
+    case 'email_recovery_finalize_success':
       return result.nearAccountId;
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
+    case 'ecdsa_export_success':
+      return null;
+    default:
+      return assertNever(result);
+  }
+}
+
+function intendedActionResultRecoveryNearPublicKey(result: IntendedActionResult): string | null {
+  switch (result.kind) {
+    case 'email_recovery_start_success':
+    case 'email_recovery_finalize_success':
+      return result.nearPublicKey;
+    case 'passkey_registration_success':
+    case 'email_otp_registration_success':
+    case 'near_sign_success':
+    case 'passkey_unlock_success':
+    case 'email_otp_unlock_success':
+    case 'tempo_sign_success':
+    case 'arc_evm_sign_success':
+    case 'ed25519_export_success':
     case 'ecdsa_export_success':
       return null;
     default:
@@ -1056,6 +1306,9 @@ function readIntendedPageQuery(): IntendedPageQuery {
       walletId: 'unknown-wallet',
       nearAccountId: null,
       googleIdToken: null,
+      recoveryNearPublicKey: null,
+      passkeyEcdsaTargetProfile: defaultPasskeyEcdsaTargetProfile(),
+      emailOtpEcdsaTargetProfile: defaultEmailOtpEcdsaTargetProfile(),
     };
   }
   const params = new URLSearchParams(window.location.search);
@@ -1064,7 +1317,119 @@ function readIntendedPageQuery(): IntendedPageQuery {
     walletId: stringParam(params, 'walletId', 'unknown-wallet'),
     nearAccountId: optionalStringParam(params, 'nearAccountId'),
     googleIdToken: optionalStringParam(params, 'googleIdToken'),
+    recoveryNearPublicKey: optionalStringParam(params, 'recoveryNearPublicKey'),
+    passkeyEcdsaTargetProfile: passkeyEcdsaTargetProfileFromQuery(params),
+    emailOtpEcdsaTargetProfile: emailOtpEcdsaTargetProfileFromQuery(params),
   };
+}
+
+function defaultPasskeyEcdsaTargetProfile(): IntendedPasskeyEcdsaTargetProfile {
+  return { kind: 'tempo_arc' };
+}
+
+function defaultEmailOtpEcdsaTargetProfile(): IntendedEmailOtpEcdsaTargetProfile {
+  return {
+    kind: 'tempo_arc',
+    sdkTargets: {
+      kind: 'explicit',
+      targets: [INTENDED_TEMPO_CHAIN_TARGET, INTENDED_ARC_EVM_CHAIN_TARGET],
+    },
+    chainTargets: [INTENDED_TEMPO_CHAIN_TARGET, INTENDED_ARC_EVM_CHAIN_TARGET],
+  };
+}
+
+function passkeyEcdsaTargetProfileFromQuery(
+  params: URLSearchParams,
+): IntendedPasskeyEcdsaTargetProfile {
+  const name = stringParam(params, 'passkeyEcdsaTargetProfile', 'tempo_arc');
+  return {
+    kind: parseEcdsaTargetProfileName(name, 'passkeyEcdsaTargetProfile'),
+  };
+}
+
+function emailOtpEcdsaTargetProfileFromQuery(
+  params: URLSearchParams,
+): IntendedEmailOtpEcdsaTargetProfile {
+  const name = stringParam(params, 'emailOtpEcdsaTargetProfile', 'tempo_arc');
+  const profile = parseEcdsaTargetProfileName(name, 'emailOtpEcdsaTargetProfile');
+  switch (profile) {
+    case 'none':
+      return {
+        kind: 'none',
+        sdkTargets: { kind: 'none' },
+        chainTargets: [],
+      };
+    case 'tempo':
+      return {
+        kind: 'tempo',
+        sdkTargets: {
+          kind: 'explicit',
+          targets: [INTENDED_TEMPO_CHAIN_TARGET],
+        },
+        chainTargets: [INTENDED_TEMPO_CHAIN_TARGET],
+      };
+    case 'tempo_arc':
+      return defaultEmailOtpEcdsaTargetProfile();
+    default:
+      return assertNever(profile);
+  }
+}
+
+function parseEcdsaTargetProfileName(
+  value: string,
+  label: string,
+): IntendedEcdsaTargetProfileName {
+  switch (value) {
+    case 'none':
+    case 'tempo':
+    case 'tempo_arc':
+      return value;
+    default:
+      throw new Error(`Unknown ${label}: ${value}`);
+  }
+}
+
+function passkeySignerOptionsForProfile(args: {
+  defaults: IntendedEcdsaSignerProvisioningDefaults;
+  profile: IntendedPasskeyEcdsaTargetProfile;
+}): IntendedEcdsaSignerProvisioningDefaults {
+  switch (args.profile.kind) {
+    case 'none':
+      return {
+        tempo: {
+          ...args.defaults.tempo,
+          enabled: false,
+        },
+        evm: {
+          ...args.defaults.evm,
+          enabled: false,
+        },
+      };
+    case 'tempo':
+      return {
+        tempo: {
+          ...args.defaults.tempo,
+          enabled: true,
+        },
+        evm: {
+          ...args.defaults.evm,
+          enabled: false,
+        },
+      };
+    case 'tempo_arc':
+      return {
+        tempo: {
+          ...args.defaults.tempo,
+          enabled: true,
+        },
+        evm: {
+          ...args.defaults.evm,
+          enabled: true,
+        },
+      };
+    default:
+      return assertNever(args.profile.kind);
+  }
 }
 
 function stringParam(params: URLSearchParams, key: string, fallback: string): string {
@@ -1090,10 +1455,12 @@ function actionNameFromState(state: IntendedActionState): string {
   }
 }
 
-function assertPasskeyRegistrationSucceeded(
-  result: RegistrationResult,
-  expectedWalletId: string,
-): PasskeyRegistrationCoreSummary {
+function assertPasskeyRegistrationSucceeded(args: {
+  result: RegistrationResult;
+  expectedWalletId: string;
+  ecdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
+}): PasskeyRegistrationCoreSummary {
+  const result = args.result;
   if (!result.success) {
     throw new Error(result.error || 'Passkey registration failed');
   }
@@ -1101,7 +1468,7 @@ function assertPasskeyRegistrationSucceeded(
     throw new Error(`Passkey registration returned unexpected result kind: ${result.kind}`);
   }
   const walletId = String(result.walletId || '').trim();
-  if (walletId !== expectedWalletId) {
+  if (walletId !== args.expectedWalletId) {
     throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
   }
   const nearAccountId = String(result.nearAccountId || '').trim();
@@ -1116,26 +1483,116 @@ function assertPasskeyRegistrationSucceeded(
   if (!operationalPublicKey) {
     throw new Error('Passkey registration did not return an operational public key');
   }
-  const thresholdEcdsaEthereumAddress = String(result.thresholdEcdsaEthereumAddress || '').trim();
-  if (!thresholdEcdsaEthereumAddress) {
-    throw new Error('Passkey registration did not return a threshold ECDSA address');
-  }
-  const thresholdEcdsaPublicKeyB64u = String(result.thresholdEcdsaPublicKeyB64u || '').trim();
-  if (!thresholdEcdsaPublicKeyB64u) {
-    throw new Error('Passkey registration did not return a threshold ECDSA public key');
-  }
+  const ecdsa = assertEcdsaSessionSummary({
+    ecdsaTargetProfile: args.ecdsaTargetProfile,
+    source: result,
+    label: 'Passkey registration',
+  });
   return {
     kind: 'passkey_registration_success',
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     operationalPublicKey,
+    ...ecdsa,
+  };
+}
+
+type EcdsaSessionFields = {
+  thresholdEcdsaEthereumAddress?: string | null;
+  thresholdEcdsaPublicKeyB64u?: string | null;
+};
+
+function assertEcdsaSessionSummary(args: {
+  ecdsaTargetProfile: { kind: IntendedEcdsaTargetProfileName };
+  source: EcdsaSessionFields;
+  label: string;
+}): IntendedEcdsaSessionSummary {
+  const profile = args.ecdsaTargetProfile.kind;
+  switch (profile) {
+    case 'none':
+      return {
+        ecdsaTargetProfile: 'none',
+      };
+    case 'tempo': {
+      const ecdsa = requireThresholdEcdsaSessionFields(args);
+      return {
+        ecdsaTargetProfile: 'tempo',
+        thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
+      };
+    }
+    case 'tempo_arc': {
+      return {
+        ecdsaTargetProfile: 'tempo_arc',
+      };
+    }
+    default:
+      return assertNever(profile);
+  }
+}
+
+function requireThresholdEcdsaSessionFields(args: {
+  source: EcdsaSessionFields;
+  label: string;
+}): Extract<
+  IntendedEcdsaSessionSummary,
+  { ecdsaTargetProfile: 'tempo' }
+> {
+  const thresholdEcdsaEthereumAddress = String(
+    args.source.thresholdEcdsaEthereumAddress || '',
+  ).trim();
+  if (!thresholdEcdsaEthereumAddress) {
+    throw new Error(`${args.label} did not return a threshold ECDSA address`);
+  }
+  const thresholdEcdsaPublicKeyB64u = String(args.source.thresholdEcdsaPublicKeyB64u || '').trim();
+  if (!thresholdEcdsaPublicKeyB64u) {
+    throw new Error(`${args.label} did not return a threshold ECDSA public key`);
+  }
+  return {
+    ecdsaTargetProfile: 'tempo',
     thresholdEcdsaEthereumAddress,
     thresholdEcdsaPublicKeyB64u,
   };
 }
 
-function assertEmailOtpRegistrationCompleted(
+function assertEcdsaTargetKeysForSession(args: {
+  session: IntendedEcdsaSessionSummary;
+  ecdsaTargetKeys: IntendedEcdsaTargetKeysSummary;
+}): IntendedEcdsaSummary {
+  switch (args.session.ecdsaTargetProfile) {
+    case 'none':
+      if (args.ecdsaTargetKeys.kind !== 'none') {
+        throw new Error(`ECDSA target key profile mismatch: ${args.ecdsaTargetKeys.kind}`);
+      }
+      return {
+        ecdsaTargetProfile: 'none',
+        ecdsaTargetKeys: args.ecdsaTargetKeys,
+      };
+    case 'tempo':
+      if (args.ecdsaTargetKeys.kind !== 'tempo') {
+        throw new Error(`ECDSA target key profile mismatch: ${args.ecdsaTargetKeys.kind}`);
+      }
+      return {
+        ecdsaTargetProfile: 'tempo',
+        thresholdEcdsaEthereumAddress: args.session.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: args.session.thresholdEcdsaPublicKeyB64u,
+        ecdsaTargetKeys: args.ecdsaTargetKeys,
+      };
+    case 'tempo_arc':
+      if (args.ecdsaTargetKeys.kind !== 'tempo_arc') {
+        throw new Error(`ECDSA target key profile mismatch: ${args.ecdsaTargetKeys.kind}`);
+      }
+      return {
+        ecdsaTargetProfile: 'tempo_arc',
+        ecdsaTargetKeys: args.ecdsaTargetKeys,
+      };
+    default:
+      return assertNever(args.session);
+  }
+}
+
+function assertEmailOtpRegistrationCompleted(args: {
   completed: {
     walletId: string;
     session: {
@@ -1151,14 +1608,16 @@ function assertEmailOtpRegistrationCompleted(
         remainingUses?: number;
       } | null;
     };
-  },
-  initialWalletId: string,
-): EmailOtpRegistrationCoreSummary {
+  };
+  initialWalletId: string;
+  ecdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
+}): EmailOtpRegistrationCoreSummary {
+  const completed = args.completed;
   const walletId = String(completed.walletId || '').trim();
   if (!walletId) {
     throw new Error('Email OTP registration did not return walletId');
   }
-  if (walletId === initialWalletId) {
+  if (walletId === args.initialWalletId) {
     throw new Error('Email OTP registration reroll returned the initial walletId');
   }
   const sessionWalletId = String(completed.session.login.walletId || '').trim();
@@ -1173,18 +1632,11 @@ function assertEmailOtpRegistrationCompleted(
   if (!operationalPublicKey) {
     throw new Error('Email OTP registration did not return an operational public key');
   }
-  const thresholdEcdsaEthereumAddress = String(
-    completed.session.login.thresholdEcdsaEthereumAddress || '',
-  ).trim();
-  if (!thresholdEcdsaEthereumAddress) {
-    throw new Error('Email OTP registration did not return a threshold ECDSA address');
-  }
-  const thresholdEcdsaPublicKeyB64u = String(
-    completed.session.login.thresholdEcdsaPublicKeyB64u || '',
-  ).trim();
-  if (!thresholdEcdsaPublicKeyB64u) {
-    throw new Error('Email OTP registration did not return a threshold ECDSA public key');
-  }
+  const ecdsa = assertEcdsaSessionSummary({
+    ecdsaTargetProfile: args.ecdsaTargetProfile,
+    source: completed.session.login,
+    label: 'Email OTP registration',
+  });
   const signingSessionStatus = String(completed.session.signingSession?.status || '').trim();
   if (signingSessionStatus !== 'active') {
     throw new Error(
@@ -1193,18 +1645,17 @@ function assertEmailOtpRegistrationCompleted(
   }
   return {
     kind: 'email_otp_registration_success',
-    initialWalletId,
+    initialWalletId: args.initialWalletId,
     walletId,
     nearAccountId,
     operationalPublicKey,
-    thresholdEcdsaEthereumAddress,
-    thresholdEcdsaPublicKeyB64u,
     signingSessionStatus,
     remainingUses: normalizeOptionalNumber(completed.session.signingSession?.remainingUses),
+    ...ecdsa,
   };
 }
 
-function assertEmailOtpUnlockSucceeded(
+function assertEmailOtpUnlockSucceeded(args: {
   result: {
     walletId: string;
     session: {
@@ -1220,11 +1671,13 @@ function assertEmailOtpUnlockSucceeded(
         remainingUses?: number;
       } | null;
     };
-  },
-  expectedWalletId: string,
-): EmailOtpUnlockCoreSummary {
+  };
+  expectedWalletId: string;
+  ecdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
+}): EmailOtpUnlockCoreSummary {
+  const result = args.result;
   const walletId = String(result.walletId || '').trim();
-  if (walletId !== expectedWalletId) {
+  if (walletId !== args.expectedWalletId) {
     throw new Error(`Email OTP unlock wallet mismatch: ${walletId}`);
   }
   const sessionWalletId = String(result.session.login.walletId || '').trim();
@@ -1239,18 +1692,11 @@ function assertEmailOtpUnlockSucceeded(
   if (!operationalPublicKey) {
     throw new Error('Email OTP unlock did not return an operational public key');
   }
-  const thresholdEcdsaEthereumAddress = String(
-    result.session.login.thresholdEcdsaEthereumAddress || '',
-  ).trim();
-  if (!thresholdEcdsaEthereumAddress) {
-    throw new Error('Email OTP unlock did not return a threshold ECDSA address');
-  }
-  const thresholdEcdsaPublicKeyB64u = String(
-    result.session.login.thresholdEcdsaPublicKeyB64u || '',
-  ).trim();
-  if (!thresholdEcdsaPublicKeyB64u) {
-    throw new Error('Email OTP unlock did not return a threshold ECDSA public key');
-  }
+  const ecdsa = assertEcdsaSessionSummary({
+    ecdsaTargetProfile: args.ecdsaTargetProfile,
+    source: result.session.login,
+    label: 'Email OTP unlock',
+  });
   const signingSessionStatus = String(result.session.signingSession?.status || '').trim();
   if (signingSessionStatus !== 'active') {
     throw new Error(
@@ -1262,10 +1708,9 @@ function assertEmailOtpUnlockSucceeded(
     walletId,
     nearAccountId,
     operationalPublicKey,
-    thresholdEcdsaEthereumAddress,
-    thresholdEcdsaPublicKeyB64u,
     signingSessionStatus,
     remainingUses: normalizeOptionalNumber(result.session.signingSession?.remainingUses),
+    ...ecdsa,
   };
 }
 

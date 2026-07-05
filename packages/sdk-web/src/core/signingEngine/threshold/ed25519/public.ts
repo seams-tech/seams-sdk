@@ -2,12 +2,15 @@ import {
   buildThresholdEd25519SeedExportArtifactFromHssReport as buildThresholdEd25519SeedExportArtifactFromHssReportValue,
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
   deriveThresholdEd25519HssClientInputsFromCredential as deriveThresholdEd25519HssClientInputsFromCredentialValue,
+  deriveThresholdEd25519HssClientInputsFromCredentialAndContext as deriveThresholdEd25519HssClientInputsFromCredentialAndContextValue,
   deriveThresholdEd25519HssClientInputsFromPrfFirst as deriveThresholdEd25519HssClientInputsFromPrfFirstValue,
   openThresholdEd25519HssSeedOutput as openThresholdEd25519HssSeedOutputValue,
+  prepareThresholdEd25519HssClientCeremonyFromCanonicalContext as prepareThresholdEd25519HssClientCeremonyFromCanonicalContextValue,
   prepareThresholdEd25519HssClientCeremonyFromCredential as prepareThresholdEd25519HssClientCeremonyFromCredentialValue,
   prepareThresholdEd25519HssClientCeremonyFromPrfFirst as prepareThresholdEd25519HssClientCeremonyFromPrfFirstValue,
   runThresholdEd25519HssCeremonyWithMaterialHandle as runThresholdEd25519HssCeremonyWithMaterialHandleValue,
   runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
+  storeThresholdEd25519WorkerMaterialFromFinalizedHssReport as storeThresholdEd25519WorkerMaterialFromFinalizedHssReportValue,
   type ThresholdEd25519LifecycleDeps,
 } from './hssLifecycle';
 import {
@@ -36,11 +39,25 @@ export function deriveThresholdEd25519HssClientInputsFromCredential(
   return deriveThresholdEd25519HssClientInputsFromCredentialValue(deps, args);
 }
 
+export function deriveThresholdEd25519HssClientInputsFromCredentialAndContext(
+  deps: ThresholdEd25519PublicDeps,
+  args: Parameters<typeof deriveThresholdEd25519HssClientInputsFromCredentialAndContextValue>[1],
+): ReturnType<typeof deriveThresholdEd25519HssClientInputsFromCredentialAndContextValue> {
+  return deriveThresholdEd25519HssClientInputsFromCredentialAndContextValue(deps, args);
+}
+
 export function deriveThresholdEd25519HssClientInputsFromPrfFirst(
   deps: ThresholdEd25519PublicDeps,
   args: Parameters<typeof deriveThresholdEd25519HssClientInputsFromPrfFirstValue>[1],
 ): ReturnType<typeof deriveThresholdEd25519HssClientInputsFromPrfFirstValue> {
   return deriveThresholdEd25519HssClientInputsFromPrfFirstValue(deps, args);
+}
+
+export function prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
+  deps: ThresholdEd25519PublicDeps,
+  args: Parameters<typeof prepareThresholdEd25519HssClientCeremonyFromCanonicalContextValue>[1],
+): ReturnType<typeof prepareThresholdEd25519HssClientCeremonyFromCanonicalContextValue> {
+  return prepareThresholdEd25519HssClientCeremonyFromCanonicalContextValue(deps, args);
 }
 
 export function prepareThresholdEd25519HssClientCeremonyFromCredential(
@@ -137,6 +154,19 @@ export function runThresholdEd25519HssCeremonyWithMaterialHandle(
   >,
 ): ReturnType<typeof runThresholdEd25519HssCeremonyWithMaterialHandleValue> {
   return runThresholdEd25519HssCeremonyWithMaterialHandleValue({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof storeThresholdEd25519WorkerMaterialFromFinalizedHssReportValue>[0],
+    'workerCtx'
+  >,
+): ReturnType<typeof storeThresholdEd25519WorkerMaterialFromFinalizedHssReportValue> {
+  return storeThresholdEd25519WorkerMaterialFromFinalizedHssReportValue({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });

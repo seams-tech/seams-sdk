@@ -2,7 +2,7 @@ import type {
   NearEd25519EmailOtpMaterialRestoreAuthorization,
   NearEd25519EmailOtpRecoveryCodeUnsealAuthorization,
 } from '@/core/signingEngine/interfaces/near';
-import type { RouterAbEd25519WorkerMaterialRestoreAuthorization } from './ed25519SigningMaterialReadiness';
+import type { RouterAbEd25519WorkerMaterialRestoreAuthorization } from '../../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 
 const recoveryCodeUnsealAuthorization: NearEd25519EmailOtpRecoveryCodeUnsealAuthorization = {
   kind: 'recovery_code_material_authorization_handle_v1',

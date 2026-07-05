@@ -1031,10 +1031,18 @@ export async function signRouterAbEcdsaHssDigestWithPool(args: {
   participantIds: number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
-  expiresAtMs?: number;
+  expiresAtMs: number;
   workerCtx: WorkerOperationContext;
 }): Promise<RouterAbEcdsaHssCoordinatorResult> {
   const signingIdentity = routerAbEcdsaHssSigningIdentityFromScope(args.scope);
+  const expiresAtMs = Math.floor(Number(args.expiresAtMs));
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      code: 'invalid_pool_fill_expiry',
+      message: 'Router A/B ECDSA-HSS pool fill expiry is unavailable or expired',
+    };
+  }
   const firstAttempt = await signRouterAbEcdsaHssDigestWithPoolHit({
     relayerUrl: args.relayerUrl,
     scope: args.scope,
@@ -1044,15 +1052,11 @@ export async function signRouterAbEcdsaHssDigestWithPool(args: {
     participantIds: args.participantIds,
     clientParticipantId: args.clientParticipantId,
     relayerParticipantId: args.relayerParticipantId,
-    expiresAtMs: args.expiresAtMs,
+    expiresAtMs,
     workerCtx: args.workerCtx,
   });
   if (firstAttempt.ok || firstAttempt.code !== 'pool_empty') return firstAttempt;
 
-  const expiresAtMs =
-    Number.isSafeInteger(args.expiresAtMs) && Number(args.expiresAtMs) > Date.now()
-      ? Math.floor(Number(args.expiresAtMs))
-      : Date.now() + ROUTER_AB_ECDSA_HSS_SIGNING_TTL_MS;
   const refill = await refillRouterAbEcdsaHssClientPresignaturePool({
     relayerUrl: args.relayerUrl,
     keyHandle: args.keyHandle,

@@ -1316,7 +1316,7 @@ relayer/cloudflare-router.test.ts relayer/express-router.test.ts --grep
 relayer/email-recovery.prepare.test.ts --reporter=line`,
       `pnpm --dir packages/sdk-server-ts build`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
 - [x] Ed25519 wallet-registration prepare is mounted for D1 through the structural
       `ed25519RegistrationPrepare: { authService }` route option. The D1 service
@@ -1324,7 +1324,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
       `ed25519_and_ecdsa` registration flow; sponsored named NEAR account creation
       still needs a D1 relayer transaction adapter before it can be enabled.
 - [x] Core orchestration receives domain-store ports instead of raw persistence
-      bindings. `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts`
+      bindings. `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts`
       now guards `AuthService`, `SessionService`, threshold signing orchestration,
       signing handlers, and Router A/B threshold orchestration against storage
       imports, raw D1 binding/statement types, raw Durable Object binding/stub
@@ -1364,7 +1364,7 @@ Closure checks:
       Evidence: the high-risk D1 adapter coverage matrix below records the direct
       tenant-scope, idempotency, lifecycle, lease, and corrupt-row checks.
 - [x] Confirm route-owned staging persistence has no local Postgres dependency.
-      Evidence: `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts`
+      Evidence: `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts`
       proves the Cloudflare runtime graph stays D1/DO-only at persistence
       boundaries and that sdk-server runtime Postgres adapters are absent.
       `tests/relayer/console-router.test.ts` proves the Cloudflare console router
@@ -1634,7 +1634,7 @@ unit/walletSessionBudgetReservation.store.unit.test.ts --reporter=line` passed
       after adding the Cloudflare Durable Object `consumeUseCountOnce` contract,
       with 11 tests passed and 2 external-backend tests skipped.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` passed
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` passed
       with 10 source-guard tests, including the core-orchestration domain-store
       port guard.
 - [x] `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
@@ -1646,7 +1646,7 @@ relayer/console-router.test.ts --grep "rejects Postgres tenant routes"
 --reporter=line` passed, proving Cloudflare console routes reject Postgres tenant
       routes before route-owned persistence can run. `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 10 source-guard tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata with
@@ -1764,7 +1764,7 @@ Work:
       checks after the Router API rename and current worktree drift. Validation
       passed on June 29, 2026: `pnpm --dir tests exec playwright test -c
   playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests, and `node --check` for
       `packages/sdk-server-ts/scripts/d1-staging-*.mjs` plus
       `packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs`. This is
@@ -2066,7 +2066,7 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       runbook. The Refactor 82 guard now checks that this README cannot drift
       back to default-JWT or success-only custody evidence. Validation passed:
       `pnpm --dir tests exec playwright test -c
-  playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+  playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
   --reporter=line` with 46 tests passing, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Tightened final-evidence runbook coverage. The runbook test now asserts
@@ -2090,7 +2090,7 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       `console_`/`signer_` prefix-only fixture scopes. The Refactor 82 guard now
       blocks that stale wording from returning. Validation passed: `pnpm --dir
   tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with
       47 tests passing, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Aligned the SDK server staging README and Phase 6 decision text with the
@@ -2100,7 +2100,7 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       the exact command shape before mutating staging or trusting endpoint
       evidence. The Refactor 82 guard now checks these README snippets.
       Validation passed: `pnpm --dir tests exec playwright test -c
-  playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+  playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
   --reporter=line` with 48 tests passing, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Hardened signer-custody evidence redaction before live staging. Response
@@ -2234,7 +2234,7 @@ service`; VoiceID's current server adapter moved from
       `node --check
       apps/web-server/scripts/generate-signing-session-seal-keys.mjs`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, `git diff --check`, and a direct scan
       proving the old label remains only in the guard's forbidden-token list.
@@ -2243,7 +2243,7 @@ service`; VoiceID's current server adapter moved from
       the public `relayer.url` config field. The stale-name guard now scans
       `packages/sdk-web/README.md` and rejects the old example host. Validation
       passed: `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, `git diff --check`, and a direct scan
       proving `router-api-server.example.com` remains only in the guard's
@@ -2258,7 +2258,7 @@ service`; VoiceID's current server adapter moved from
       `router-api app sessions`. Validation passed: direct scans over those docs for
       `createRelaySession`, `RELAY_BASE_URL`, `router-api app sessions`, and
       standalone Relay/router-api wording; `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests; `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`; and `git diff --check`.
       Follow-up cleanup aligned the active API-key plan and SDK-facing example
@@ -2273,7 +2273,7 @@ service`; VoiceID's current server adapter moved from
       `router-api.example.com` plus `relayer server`. Validation passed: focused
       stale scans over the API-key doc and touched SDK comments; `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests; `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       --noEmit`; and `git diff --check`.
       Follow-up cleanup extended the same stale-host guard to the Rust
@@ -2296,7 +2296,7 @@ service`; VoiceID's current server adapter moved from
       `override Router API URL`, and `must use Router API surface`. Validation passed:
       focused stale scans over `packages/sdk-server-ts/src` and
       `packages/sdk-web/src`, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, `pnpm --dir packages/sdk-server-ts
       type-check`, `pnpm --dir packages/sdk-web type-check`, and
@@ -2308,13 +2308,13 @@ service`; VoiceID's current server adapter moved from
       `apps/web-server/.env.example` and rejects `RELAY_API_KEY_AUTH_ENABLED`.
       Validation passed: hidden-file scan proving the old env var remains only in
       the guard deny-list, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, `pnpm -s type-check:router-server`,
       and `git diff --check`.
       Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/cloudflareD1ConsoleServices.unit.test.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line` with
       58 tests, `pnpm -C voiceId test` with 127 tests, `pnpm --dir tests exec
@@ -2329,7 +2329,7 @@ tsc -p tsconfig.playwright.json --noEmit`, `git diff --check`, and focused
       rejects those stale sponsorship/prepaid doc strings so the old Postgres
       settlement story cannot return. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 30
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 30
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted `rg` scan for the stale absolute
       path, Postgres adapter paths, and Postgres settlement/index wording.
@@ -2340,7 +2340,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 30
       82 guard now rejects old absolute workspace links plus `server/src` and
       `examples/seams-site` link targets in that doc. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 31
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 31
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted `rg` scan for the stale absolute
       path and old link targets.
@@ -2352,7 +2352,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 31
       rejects old simple-threshold-signer absolute links and active
       `Postgres billing` wording in those two current billing docs. Validation
       passed: `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 32
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 32
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted `rg` scan for the stale absolute
       links and active Postgres billing phrases.
@@ -2361,7 +2361,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 32
       gas-sponsorship prepaid, and gas-and-signing policy doc guards now share the
       same boundary scanner instead of each carrying its own read/loop body.
       Validation passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 32 tests, `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Replaced stale policy-engine plan references that still described current
@@ -2373,7 +2373,7 @@ tsconfig.playwright.json --noEmit`, and `git diff --check`.
       `server/src` / `examples/seams-site` link targets, and active
       Postgres-policy-storage wording in that doc. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 33
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 33
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted `rg` scan for the stale policy
       doc links and Postgres policy phrases.
@@ -2384,7 +2384,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 33
       modules. The Refactor 82 guard now rejects old absolute workspace links and
       old `server/src` / `examples/seams-site` link targets in that doc.
       Validation passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 34 tests, `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`, `git diff --check`, plus a direct targeted
       `rg` scan for the stale sponsorship-policy links.
@@ -2395,7 +2395,7 @@ tsconfig.playwright.json --noEmit`, `git diff --check`, plus a direct targeted
       existing billing-cleanup guard now also rejects old `server/src` and
       `examples/seams-site` references in that doc. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 34
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 34
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted `rg` scan for stale
       billing-cleanup paths and old relayer suite names.
@@ -2409,7 +2409,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 34
       The Refactor 82 guard now rejects `examples/seams-site` and the removed
       VitePress config path in those active docs. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 41
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 41
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted stale-path scan.
 - [x] Replaced stale schema/topology documentation that still described the
@@ -2425,7 +2425,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 41
       context, Postgres org/billing isolation, and advisory-lock wording in those
       active docs. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 41
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 41
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted stale-topology scan.
 - [x] Replaced stale onboarding and API-key validation labels that still described
@@ -2439,7 +2439,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 41
       doc, plus `Postgres persistence tests` and `Postgres tests:` in the API-key
       doc. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 42
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted stale-validation-label scan.
 - [x] Replaced stale current-service labels that still described policy, key
@@ -2455,7 +2455,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 42
       `Postgres tests no longer clean up` in those active docs. Validation
       passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 42
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted stale-service-label scan.
 - [x] Replaced stale router-api-server/example-router-api labels in current docs. The
@@ -2466,7 +2466,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 42
       rejects `example router-api`, `router-api-server demo`, and `active router-api-server
       Postgres automation` in those active docs. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 42
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted router-api-label scan.
 - [x] Added `packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs` and
@@ -2554,7 +2554,7 @@ playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
       symbols in active router docs, source, tests, SDK server staging scripts, and
       the checked-in Wrangler staging templates. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`; the
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`; the
       full Phase 6 staging script/session cluster with 110 tests; `pnpm --dir
 packages/sdk-server-ts type-check`; `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`; `node --check
@@ -2668,7 +2668,7 @@ unit/d1StagingSession.unit.test.ts --reporter=line` passed with 6 tests.
 unit/cloudflareD1ConsoleServices.unit.test.ts --grep "console-only|service
 bundle wires|sponsored EVM" --reporter=line` passed with 4 tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 13 source-guard tests.
 - [x] `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
 tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
@@ -2873,7 +2873,7 @@ Work:
       `TenantStorageRoute` escape-hatch contract. Validation passed:
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       direct `find packages/sdk-server-ts/src -iname '*postgres*'`, and direct
       stale-symbol scans for `pg` runtime imports and Postgres service factories.
 - [x] Delete Cloudflare runtime imports of mixed console/signer barrels when a
@@ -2898,13 +2898,13 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
       helper. Validation passed:
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`, a direct
       stale-harness and stale-migration-helper scan under `tests`, and
       `git diff --check`. Completion check passed again with
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       and a direct duplicate-helper scan that found the SQLite-backed D1 harness
       only in `tests/helpers/sqliteD1.ts`, and the D1 runtime helpers only in
       `packages/sdk-server-ts/src/storage/d1Sql.ts`.
@@ -2922,7 +2922,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       storage boundary. Validation passed: `pnpm --dir packages/sdk-server-ts
 type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
 --noEmit`, `pnpm --dir tests exec playwright test -c
-	playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+	playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 	--reporter=line`, the stale-helper scan, and `git diff --check`.
 - [x] Remove redundant database-family prefixes from D1 object names. Because
       console and signer data now live in separate D1 databases, table/index/trigger
@@ -2955,7 +2955,7 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
   relayer/console-d1-adapters.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check` for the touched files.
 - [x] Push invariants into D1 schema where practical: `NOT NULL`, `UNIQUE`,
       deterministic primary keys, lifecycle-state checks, and foreign-key-like
@@ -3640,7 +3640,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
   unit/registrationIntentAllocation.unit.test.ts --grep
   "combined|ECDSA-only|add-signer" --reporter=line` with 8 tests,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, an `rg` scan for the stale all-equal
       key-handle predicate, and `git diff --check`.
@@ -3665,7 +3665,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       `packages`, `tests`, `apps`, `voiceId`, and `docs` excluding the guard file
       and this plan found no matches; `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 16 tests.
 - [x] Removed the last stale Router API rename references from active handoff docs.
       `docs/deployment/infra.md` now points at
@@ -3673,7 +3673,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       `sdkRouterApiExtension.ts`. The stale-name guard now scans both docs.
       Validation passed: `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "stale staging and
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "stale staging and
 relayer names" --reporter=line`, direct stale-name `rg` scan excluding the guard
       and this plan, and `git diff --check`.
 - [x] Deleted optional live-Postgres console-router suites from
@@ -4079,7 +4079,7 @@ packages/sdk-server-ts type-check`, `pnpm -s type-check:router-server`, the
       Slice diff: 125 insertions and 557 deletions across the guard and the two
       deleted scripts. Validation passed: `pnpm --dir tests exec playwright test
 -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       stale scans for the deleted script names outside this plan and for Postgres
       seed tokens under `crates/router-ab-dev/scripts`, and the app/package/crate/test
       `POSTGRES_URL` inventory now finds only negative tests, type fixtures, and
@@ -4123,7 +4123,7 @@ sqlite_seed`, `cargo fmt --manifest-path crates/router-ab-core/Cargo.toml`,
       `postgres.ts`, `account Postgres slice`, and stale `console_*` account table
       names in that doc. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 35
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 35
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       targeted stale scan for those account-settings patterns, and
       `git diff --check`.
@@ -4138,7 +4138,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 35
       references. Observability-doc slice diff: 83 insertions and 82 deletions.
       Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 36
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 36
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       targeted stale scan for the observability-doc patterns, and
       `git diff --check`.
@@ -4154,7 +4154,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 36
       references in that doc. Generalized sponsorship doc slice diff: 44
       insertions and 44 deletions. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 37
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 37
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       targeted stale scan for the generalized sponsorship doc patterns, markdown
       absolute-link existence check for that doc, and `git diff --check`.
@@ -4170,7 +4170,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 37
       those docs. Schema/dashboard doc slice diff: 45 insertions and 45
       deletions. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 38
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 38
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       targeted stale scan for the schema/dashboard patterns, and
       `git diff --check`.
@@ -4184,7 +4184,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 38
       diff: 49 insertions and 50 deletions across the docs, plus focused guard
       coverage. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 39
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 39
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       targeted stale scan for the policy table-name patterns, and
       `git diff --check`.
@@ -4198,7 +4198,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 39
       Billing/sponsorship table-name doc slice diff: 168 insertions and 159
       deletions across the docs, plus focused guard coverage. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 39
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 39
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       targeted stale scan for the billing/sponsorship table-name patterns, and
       `git diff --check`.
@@ -4259,7 +4259,7 @@ unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts
       `pnpm -s type-check:router-server`, `pnpm -C apps/web-server exec tsc
 --noEmit`, and `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/refactor51bPackageInstallSmoke.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`.
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`.
       Stale scans find no console Postgres implementation files and no remaining
       `createPostgresConsole*`, `ensureConsole*Postgres`, `runPostgresConsole*`,
       or `PostgresConsole*` source symbols outside the tenant-route type fixture,
@@ -4392,7 +4392,7 @@ playwright.relayer.config.ts relayer/console-billing.service.test.ts
 --reporter=line`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/walletScopedLookups.guard.unit.test.ts
 unit/registrationIntentDigest.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       stale scans for `createPostgresConsoleBillingService` in the billing service
       test and direct `isValidAccountId` usage in production Cloudflare `d1*.ts`
       modules.
@@ -4454,7 +4454,7 @@ finalization|runtime snapshot outbox claim lease" --reporter=line`, and
 relayer/signing-session-seal-router.test.ts --grep "idempotency env
 resolver" --reporter=line`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/signingSessionSeal.idempotencyRecords.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/refactor76BrandedKeys.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
 - [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
@@ -4470,7 +4470,7 @@ tests/unit/refactor58OtpRegistrationSlim.guard.unit.test.ts`, and
 - [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/walletStore.unit.test.ts unit/walletAuthMethodStore.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "signer wallet metadata and auth
 methods are scoped by tenant environment" --reporter=line`, and the stale
@@ -4478,7 +4478,7 @@ methods are scoped by tenant environment" --reporter=line`, and the stale
 - [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/webauthnStoreFactories.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata
 with tenant scope" --reporter=line`, and the stale WebAuthn Postgres
@@ -4487,7 +4487,7 @@ with tenant scope" --reporter=line`, and the stale WebAuthn Postgres
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/recoveryStoreFactories.unit.test.ts unit/recoverySessionStore.unit.test.ts
 unit/recoveryExecutionStore.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "tracks recovery
 sessions and executions" --reporter=line`, and the stale recovery Postgres
@@ -4500,13 +4500,13 @@ unit/identityStore.unit.test.ts --reporter=line`, `git diff --check`, and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/registrationCeremonyStore.unit.test.ts --reporter=line`, `pnpm --dir
 tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `git diff --check`, and the stale registration ceremony Postgres
       helper/table inventories returned no matches.
 - [x] Validation passed after renaming the web-server demo JWT issuer from
       `router-api-worker-demo` to `router-api-worker-demo` without a compatibility
       alias: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
 --noEmit`, `pnpm -s type-check:router-server`, focused
       `router-api-worker-demo|router-api-worker-demo` inventory, and
@@ -4518,7 +4518,7 @@ playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
       and `Router API mock` wording in the test setup helpers, with no compatibility
       alias because those helpers have no external callers. Validation passed:
       `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
 --noEmit`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/seamsWeb.setTheme.unit.test.ts
@@ -4534,7 +4534,7 @@ unit/passkeyAuthMenu.accountAvailability.unit.test.ts --reporter=line`, focused
       This removed 612 lines of dead setup scaffolding and replaced the stale
       README pointer with a guard that fails if either file returns. Validation
       passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
 --noEmit`, explicit deleted-file/no-reference inventory, and
       `git diff --check`.
@@ -4548,7 +4548,7 @@ playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts
 unit/d1StagingResourceInventory.script.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       focused stale evidence-ID inventory, and `git diff --check`.
 - [x] Completed the broader Phase 6 Router API staging-manifest contract rename.
@@ -4575,7 +4575,7 @@ unit/d1StagingTimeTravelBookmark.script.unit.test.ts
 unit/d1StagingReconciliation.script.unit.test.ts
 unit/d1StagingR2RestoreDrill.script.unit.test.ts
 unit/d1StagingSession.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with
       170 tests passing, `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`, `pnpm -s type-check:router-server`, focused
       stale staging-token inventories, and `git diff --check`.
@@ -4588,7 +4588,7 @@ tsconfig.playwright.json --noEmit`, `pnpm -s type-check:router-server`, focused
       `JWT_ISSUER=relay`, `dev-relay-jwt-secret`, `The relay verifies`, and the
       old local relay-process wording). Validation passed: `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 43
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 43
       tests passing, focused stale public-config wording inventory, and
       `git diff --check`.
 - [x] Tightened the server package README session integration surface from a
@@ -4596,7 +4596,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 43
       contract. The Refactor 82 guard now rejects the stale wording across active
       Router API text paths. Validation passed: `pnpm --dir tests exec playwright
 test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 43
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 43
       tests passing, a focused stale compatibility wording scan, and
       `git diff --check`.
 - [x] Removed stale "legacy prefix" wording from the active server default-config
@@ -4604,7 +4604,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 43
       current published threshold keyspace prefix. The Refactor 82 guard now scans
       `packages/sdk-server-ts/src/core/defaultConfigsServer.ts` for the old phrase.
       Validation passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 43 tests passing, a focused stale-prefix scan, and
       `git diff --check`.
 - [x] Removed stale "legacy `code_source`" wording from the server-side contract
@@ -4612,13 +4612,13 @@ playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
       `request_execution` field and rejects `code_source` directly. The Refactor
       82 guard now rejects the old phrase in active source. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 43
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 43
       tests passing, a focused stale phrase scan, and `git diff --check`.
 - [x] Tightened the threshold Durable Object config comment from "compatible with
       the SDK's threshold store protocol" to "implementing the SDK's threshold
       store protocol." The Refactor 82 guard now rejects the old phrase in active
       source. Validation passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 43 tests passing, a focused stale phrase scan, and
       `git diff --check`.
 - [x] Replaced stale compatibility-test wording in the email encryption boundary
@@ -4626,13 +4626,13 @@ playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
       warning while avoiding compatibility-path language in active server source.
       The Refactor 82 guard now rejects the old phrase. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 43
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 43
       tests passing, a focused phrase scan, and `git diff --check`.
 - [x] Renamed the email encryption test file from the old compat filename to
       `emailEncryptionOutlayerInteroperability.test.ts`, updated its test labels
       and skip messages, and added a guard that rejects the old file path and
       stale labels. Validation passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 43 tests passing,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, a direct
       old-path absence check, a focused stale filename/text scan, and
@@ -4651,7 +4651,7 @@ playwright.unit.config.ts unit/emailEncryptionOutlayerInteroperability.test.ts
       `pnpm --dir packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
 --pretty false`, `pnpm --dir packages/sdk-server-ts exec tsc -p
 tsconfig.build.json --pretty false`, `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 43 tests passing, a direct old-path absence check, and
       `git diff --check`.
 - [x] Deleted stale "scaffolding" comments from the current Threshold Ed25519
@@ -4660,7 +4660,7 @@ playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
       production source so current runtime code is not described as temporary
       migration scaffolding. Validation passed: `pnpm --dir tests exec playwright
   test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 45 tests passing, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, a direct `rg "scaffolding"
   packages/sdk-server-ts/src` scan, and `git diff --check`.
@@ -4670,7 +4670,7 @@ Exit criteria:
 - [x] `rg "POSTGRES_URL|CONSOLE_POSTGRES_URL|BILLING_POSTGRES_URL"` finds only
       negative tests, type fixtures, and source guards.
       Evidence: outside this Refactor 82 plan, the exact env-token inventory now
-      returns only `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts`,
+      returns only `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts`,
       `tests/unit/webServer.consoleConfig.unit.test.ts`, and
       `packages/sdk-server-ts/src/core/ThresholdService/stores/ThresholdStoreConfig.typecheck.ts`.
       There are no app, package, crate, local-dev script, or architecture-doc
@@ -4692,7 +4692,7 @@ Exit criteria:
       intentional webhook terminal `no-op` branch in
       `packages/sdk-server-ts/src/console/webhooks/shared.ts`. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`; the
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`; the
       full Phase 6 staging script/session cluster with 110 tests; `pnpm --dir
 packages/sdk-server-ts type-check`; `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`; and `git diff --check`.
@@ -4703,7 +4703,7 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
       forbidden-token declarations.
 - [x] No Cloudflare runtime request path carries an `enabled`, `unavailable`, or
       disabled-service option for legacy behavior.
-      Evidence: `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts`
+      Evidence: `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts`
       scans runtime router source, excluding typecheck fixtures, for the old
       `emailRecovery: { enabled: true }`, `ed25519RegistrationPrepare:
 { enabled: true }`, and `signingSessionSeal: { enabled: true }` route
@@ -5188,7 +5188,7 @@ unit/addWalletSigner.orchestration.unit.test.ts --grep "near.registerNearWallet 
 Phase 8 public/demo request-construction guard evidence:
 
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "public/demo registration request construction"
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "public/demo registration request construction"
 --reporter=line` passed after adding the signer-set terminology guard.
 - [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit` passed
       after the guard helper was added.
@@ -5196,7 +5196,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "public/demo regist
 Phase 8 SDK signer-set filename cleanup validation evidence:
 
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "SDK registration
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "SDK registration
 helper files use signer-set filenames|public/demo registration request
 construction|public registration type surfaces" --reporter=line` passed with 3
       guard tests after adding the stale-filename guard.
@@ -5279,7 +5279,7 @@ Phase 8 durable registration-intent state validation evidence:
   unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line` passed
       with 30 D1 Router API auth service tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 24 source-guard tests, including the new durable intent writer
       guard.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -5305,14 +5305,14 @@ Phase 8 durable registration-intent state validation evidence:
       with 23 Google Email OTP registration/login flow tests after the precompute
       fixture and explicit-target assertions moved to signer-set scope.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 25 source-guard tests after SDK RPC legacy conversion was
       deleted.
 
 Phase 8 D1 runtime legacy-registration source-guard evidence:
 
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "legacy registration modes"
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "legacy registration modes"
 --reporter=line` passed after expanding the D1 runtime guard from
       `combined_registration` to all legacy wallet-registration mode literals.
 
@@ -5332,7 +5332,7 @@ unit/relayWalletRegistration.boundary.unit.test.ts
 unit/registrationSignerSetNormalization.unit.test.ts --reporter=line`
       passed with 80 focused registration route and normalization tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "AuthService wallet registration|legacy registration modes"
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "AuthService wallet registration|legacy registration modes"
 --reporter=line` passed after adding the `AuthService` legacy-mode guard.
 - [x] `rg -n "ed25519_and_ecdsa|ed25519_only|ecdsa_only"
 packages/sdk-server-ts/src/core/AuthService.ts` returned no matches.
@@ -5375,7 +5375,7 @@ Phase 8 legacy registration-mode API deletion evidence:
   unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`
       passed with 30 D1 auth service tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 25 source-guard tests, including the legacy registration-mode
       guards.
 - [x] `USE_RELAY_SERVER=0 pnpm --dir tests exec playwright test
@@ -5423,7 +5423,7 @@ unit/registrationCeremonyStore.unit.test.ts --reporter=line` passed with 79
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA wallet registration|starts and responds to combined Ed25519 and ECDSA registration|starts and responds to Ed25519-only signer-set registration|responds to ECDSA wallet registration|finalizes ECDSA wallet registration"
 --reporter=line` passed with 5 focused D1 registration lifecycle tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "combined registration state|legacy registration modes|AuthService wallet registration"
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "combined registration state|legacy registration modes|AuthService wallet registration"
 --reporter=line` passed after adding the production combined-state guard.
 - [x] `rg -n "combined_registration|StoredCombinedRegistrationState"
 packages/sdk-server-ts/src packages/shared-ts/src -g '*.{ts,tsx}'` returned no
@@ -5475,9 +5475,9 @@ Phase 8 registration branch split evidence:
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA wallet registration|starts and responds to combined Ed25519 and ECDSA registration|starts and responds to Ed25519-only signer-set registration|responds to ECDSA wallet registration|finalizes ECDSA wallet registration"
 --reporter=line` with 5 focused D1 lifecycle tests;
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "NEAR Ed25519|EVM-family ECDSA registration branch prepare|combined registration state|legacy registration modes|AuthService wallet registration"
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "NEAR Ed25519|EVM-family ECDSA registration branch prepare|combined registration state|legacy registration modes|AuthService wallet registration"
 --reporter=line` with 5 guard tests; `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --grep "wallet add-signer|NEAR Ed25519|EVM-family ECDSA registration branch
 prepare|combined registration state|legacy registration modes|AuthService wallet
 registration" --reporter=line` with 6 guard tests; `pnpm --dir tests exec
@@ -5494,7 +5494,7 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
   signer-set registration|starts ECDSA wallet registration ceremonies"
   --reporter=line` passed with 4 D1 registration tests, and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "NEAR
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "NEAR
   Ed25519|EVM-family ECDSA registration branch prepare|combined registration
   state|legacy registration modes|AuthService wallet registration|D1 wallet
   add-signer" --reporter=line` passed with 6 guard tests. The first attempt
@@ -5635,7 +5635,7 @@ Guards and tests:
       stale result and the SDK retries by starting a new init.
 - [x] Add an idempotency test proving duplicate step/final writes do not create
       duplicate presignatures.
-- [x] Update `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` so
+- [x] Update `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` so
       Router API Worker source rejects:
       `localRouterApiEcdsaPoolFillLiveSessionsCache`,
       `routerApiStagingEcdsaPoolFillLiveSessionsCache`,
@@ -5667,7 +5667,7 @@ July 3, 2026 validation evidence:
 - [x] Focused local D1/DO route smoke:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA-HSS pool-fill routes" --reporter=line`.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-    unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+    unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
     unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`
       passed with 64 tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
@@ -5677,7 +5677,7 @@ July 3, 2026 validation evidence:
 
 Validation evidence: July 3, 2026 non-smoke checks passed:
 `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line` with 64
 tests, `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line` with 7 passed
@@ -5858,7 +5858,7 @@ Acceptance scans:
       `AuthService` for console sign-in, but Router API routes must not mount it.
 - [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|createAddAuthMethodIntent|startWalletAddSigner|finalizeWalletAddSigner|startWalletAddAuthMethod|finalizeWalletAddAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
       has no Router API lifecycle implementation hits.
-- [x] `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` rejects the
+- [x] `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` rejects the
       old port derivation, old route mounting, and duplicate non-D1 lifecycle
       implementations.
 
@@ -5873,7 +5873,7 @@ now defines explicit Router API method request/response contracts without
 importing or deriving from `AuthService`. Validation passed:
 `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 52
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 52
 tests, and `git diff --check`.
 
 ### Phase 12: Collapse Legacy AuthService Router API Surface
@@ -6086,7 +6086,7 @@ Known old-shape inventory to remove or narrow:
       consume/failure normalization. July 3 progress: the D1
       `consumeEmailOtpGrant` path also stopped requiring/matching
       `sessionHash` and `appSessionVersion`; the D1 recovery-grant binding is
-      now guarded by `unit/refactor82CloudflareD1Runtime.guard.unit.test.ts`
+      now guarded by `unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts`
       with the focused grep `D1 Email OTP recovery grants`. The split
       AuthService `emailOtpGrant` and `emailOtpRecoveryKeys` modules are now
       guarded by `AuthService Email OTP grants bind to stable authority fields`,
@@ -6218,10 +6218,10 @@ Validation:
 
 - [x] `pnpm --dir packages/sdk-server-ts type-check`
 - [x] `pnpm build:sdk`
-- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       July 3 follow-up: the full guard passes 56 tests after deleting the
       generic Router API method helpers and obsolete AuthService route harnesses.
-- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "D1 Email OTP recovery grants" --reporter=line`
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "D1 Email OTP recovery grants" --reporter=line`
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata" --reporter=line`
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.persistedRecords.unit.test.ts --reporter=line`
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.presignStore.unit.test.ts --reporter=line`
@@ -6244,7 +6244,7 @@ Validation:
       tests pass. July 3 D1 factory cleanup validation: the same 34-test D1
       Router API file and 15-test console file pass after deleting the
       monolithic D1 implementation class, and
-      `unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` guards against
+      `unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` guards against
       restoring the class or flat async facade methods. July 3 82B progress:
       `unit/relayWalletRegistration.intentModes.unit.test.ts` and
       `unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` pass after
@@ -6326,7 +6326,7 @@ Minimum checks before first D1 staging deploy:
       unit/sponsorshipPricing.d1.unit.test.ts
       unit/router.sponsoredEvmCallCloudflare.unit.test.ts --reporter=line` and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "sponsored pricing" --reporter=line`.
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "sponsored pricing" --reporter=line`.
 - [x] Local D1 backup/restore drill:
 
 ```bash
@@ -6521,7 +6521,7 @@ unit/walletAuthMethodStore.unit.test.ts --reporter=line`, and a direct
       unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts --reporter=line`
       with 6 tests, `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, `git diff --check`, and a direct scan
       proving `HssWalletId` remains only in the self-hosted worker source guard.
@@ -6670,7 +6670,7 @@ unit/registrationCeremonyStore.unit.test.ts --reporter=line`, and `git diff
       215-line cleanup. Validation passed: `pnpm --dir packages/sdk-server-ts
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`. Persisted Email OTP wallet enrollment, auth-state,
       challenge, grant, unlock-challenge, and recovery-escrow row parsers/builders
       moved to
@@ -6691,7 +6691,7 @@ playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "stores wallet
 registration intents" --reporter=line`, `pnpm --dir tests exec playwright
 test -c playwright.unit.config.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`. Google Email OTP registration-attempt row parsing,
       runtime-scope matching, offer response shaping, and attempt lifecycle record
       builders moved to
@@ -7001,7 +7001,7 @@ Email OTP enrollment|delivers Email OTP through configured provider|fails
       registration Email OTP enrollment|issues and verifies device recovery Email
       OTP challenges|enforces Email OTP challenge rate limits" --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP server-seal cipher creation moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`.
@@ -7172,7 +7172,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       --grep "identity mapping|Google Email OTP registration|Google Email OTP
       login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright
       test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       WebAuthn D1 persistence moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnStore.ts`. The store
@@ -7342,7 +7342,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       strengthened the Refactor 82 runtime guard to follow dynamic `import()`
       dependencies. Validation passed: `pnpm --dir packages/sdk-server-ts
       type-check`, `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "verifies Google OIDC
       tokens and links identity|starts, reuses, and restarts Google Email OTP
@@ -7376,7 +7376,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       Email OTP registration|completed Google Email OTP registration|dev cleanup"
       --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP challenge verification moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeVerifier.ts`.
@@ -7403,7 +7403,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       rate limits|adds Email OTP wallet auth methods" --reporter=line`,
       `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP challenge issuance moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeIssuer.ts`.
@@ -7429,7 +7429,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       rate limits|delivers Email OTP through configured provider|fails closed when
       Email OTP provider is missing" --reporter=line`, `pnpm --dir
       packages/sdk-server-ts build`, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line`, and `git diff --check`.
       Email OTP recovery and grant handling moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts`.
@@ -7460,7 +7460,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       unlock proofs once|verifies registration Email OTP enrollment"
       --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Google and generic OIDC verification orchestration moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1OidcVerificationService.ts`.
@@ -7485,7 +7485,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       playwright.relayer.config.ts relayer/oidc-exchange.authservice.test.ts
       --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       App-session, recovery-session, and recovery-execution orchestration moved
       to `packages/sdk-server-ts/src/router/cloudflare/d1SessionService.ts`.
@@ -7512,7 +7512,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       --grep "returns invalid_session_version for stale app session version"
       --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       WebAuthn login, authenticator listing, sync-account option construction,
       authentication assertion verification, login verification, and sync-account
@@ -7536,7 +7536,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       "WebAuthn|authenticator|sync account|reads signer metadata" --reporter=line`,
       `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Wallet auth-method orchestration moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodService.ts`.
@@ -7562,7 +7562,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       --reporter=line`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts
       unit/router.relayRouteSurface.unit.test.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep
       "registration|add-auth|revoke|auth method|WebAuthn|Email OTP|signer
@@ -7587,7 +7587,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       ceremonies|finalizes ECDSA|responds to ECDSA|starts ECDSA|add signer"
       --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Threshold signing facade cleanup moved D1 relayer metadata, D1 empty ECDSA
       key-inventory responses, HSS bootstrap forwarding, client-root-proof
@@ -7607,7 +7607,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep
       "threshold|key facts|relayer|signer metadata" --reporter=line`, `pnpm --dir
       packages/sdk-server-ts build`, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line`, and `git diff --check`.
       Registration-intent allocation moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts`.
@@ -7629,7 +7629,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       registration intents|registration intent|add-signer intent|add-auth-method
       intent|server-allocated wallet" --reporter=line`, `pnpm --dir packages/sdk-server-ts
       build`, `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Add-auth-method ceremony start/finalize moved into
       `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodService.ts`.
@@ -7651,7 +7651,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       Email OTP wallet auth methods|wallet auth methods" --reporter=line`,
       `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP challenge-facing orchestration moved to
       `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeService.ts`.
@@ -7674,7 +7674,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       ownership|existing-account Ed25519|Email OTP challenge|Email OTP
       enrollment|Google Email OTP|WebAuthn login" --reporter=line`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Relay facade type-alias scaffolding was collapsed into generic
       `RelayInput` and `RelayResult` helpers. The cleanup deleted the one-off
@@ -7702,7 +7702,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       relayer/email-otp.authservice.test.ts --grep "Email OTP enrollment reads
       require tenant scope|Email OTP strong-auth gate flips" --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Deleted the stale `CloudflareD1RouterApiAuthService.getThresholdRelayerAccount`
       facade method. The threshold runtime still keeps its internal helper, but
@@ -7765,7 +7765,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       binding. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Recovery ingress cleanup centralized the duplicated `/recover-email`
       execution tracking flow in `recoveryExecutionTracking.ts` and removed the
@@ -7890,7 +7890,7 @@ unit/signingRootSecretShare.persistedRecords.unit.test.ts --reporter=line`.
       Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm
 --dir tests exec playwright test -c playwright.unit.config.ts
 unit/nearPublicKeyStore.unit.test.ts
-unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "signer NEAR public key metadata
 is scoped in D1" --reporter=line`.
@@ -7965,7 +7965,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
   unit/thresholdEd25519.presignStore.unit.test.ts
       unit/walletScopedLookups.guard.unit.test.ts
   unit/registrationIntentDigest.unit.test.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       and `git diff --check`.
       The next cleanup deleted the partial Postgres wallet-session backend and
       its table bootstrap/reset references. The Ed25519 wallet-session, ECDSA
@@ -7975,7 +7975,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
     exec playwright test -c playwright.unit.config.ts
     unit/walletSessionBudgetReservation.store.unit.test.ts
     unit/thresholdEcdsa.persistedRecords.unit.test.ts
-    unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+    unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       and `git diff --check`.
       The next cleanup deleted the partial Postgres ECDSA presign backend,
       its active Postgres schema bootstrap, its local reset references, and the
@@ -7985,7 +7985,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
     playwright test -c playwright.unit.config.ts
     unit/thresholdEcdsa.persistedRecords.unit.test.ts
-    unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+    unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
         unit/walletScopedLookups.guard.unit.test.ts
     unit/walletSessionBudgetReservation.store.unit.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
@@ -7998,7 +7998,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/routerAbNormalSigningAdmissionStore.unit.test.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`,
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       and `git diff --check`.
       The next cleanup deleted the unused shared Postgres schema initializer,
       the stale `AuthService` startup schema warmup, and the obsolete local
@@ -8009,7 +8009,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       playwright test -c playwright.unit.config.ts
           unit/walletScopedLookups.guard.unit.test.ts
       unit/registrationIntentDigest.unit.test.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       unit/routerAbNormalSigningAdmissionStore.unit.test.ts
       unit/thresholdEcdsa.persistedRecords.unit.test.ts
       unit/walletSessionBudgetReservation.store.unit.test.ts --reporter=line`,
@@ -8043,7 +8043,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       `pnpm -s type-check:router-server`, `pnpm --dir packages/sdk-server-ts
           type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/webServer.consoleConfig.unit.test.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       unit/routerAbNormalSigningAdmissionStore.unit.test.ts --reporter=line`,
       stale-symbol scans for removed signer/split Postgres commands and
       env knobs, and `git diff --check`.
@@ -8075,7 +8075,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       `apps/web-server/package.json` scripts, so the removed local Postgres
       helper tooling cannot be reintroduced without failing the Refactor 82
       runtime guard. Validation passed: `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, and `git diff --check`.
       The next cleanup renamed the Playwright Router API test-server harness away
@@ -8087,7 +8087,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       path cannot silently drift back to the old server naming or filesystem
       layout. Validation passed: `node --check` for the three test-server harness
       scripts, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+      playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, stale harness-name scans, and
       `git diff --check`.
@@ -8119,7 +8119,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       type-check:router-server`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/webServer.consoleConfig.unit.test.ts
       unit/webServer.stripeBillingProvider.unit.test.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+      unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 49 tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       --noEmit`, `pnpm --dir packages/sdk-server-ts type-check`, a focused
       Refactor 82 guard rerun with 43 tests, stale web-server naming scans, and
@@ -8141,7 +8141,7 @@ type-check`, and `git diff --check`.
       that rejects the old `enabled: true` capability shapes outside typecheck
       fixtures. Validation passed: `pnpm --dir packages/sdk-server-ts
 type-check`, `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/router.relayRouteSurface.unit.test.ts
 unit/router.routeDefinitions.unit.test.ts --reporter=line` with 19 tests
       passing, and `git diff --check`.
@@ -8274,7 +8274,7 @@ relayer/console-router.test.ts --grep "rejects Postgres tenant routes"
       Evidence: the Cloudflare runtime inventory now finds no Postgres runtime/env
       references except the intentional `d1ConsoleServices.typecheck.ts` fixture
       proving D1 adapters reject Postgres routes. The Refactor 82 runtime guard in
-      `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` blocks
+      `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` blocks
       Cloudflare runtime imports of Postgres storage, mixed console barrels, console
       Postgres adapters, and the Postgres env-token family (`POSTGRES_URL`,
       `CONSOLE_POSTGRES_URL`, migration URLs, billing/outbox/webhook cron
@@ -8299,7 +8299,7 @@ relayer/console-router.test.ts --grep "rejects Postgres tenant routes"
       rejection test are gone. Local persistence seed plans now produce SQLite
       statements for the D1-compatible dev harness only.
       Validation passed: `pnpm --dir tests exec playwright test -c
-playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/router.relayRouteSurface.unit.test.ts unit/router.routeDefinitions.unit.test.ts
 --reporter=line`, `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,

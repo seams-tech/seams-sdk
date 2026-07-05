@@ -131,10 +131,24 @@ seed_wasm_pack_cache_if_empty() {
   fi
 }
 
+normalize_wasm_opt_cache_layout() {
+  local cache_root="$1"
+  local wasm_opt_dir
+  for wasm_opt_dir in "$cache_root"/wasm-opt-*; do
+    if [ ! -d "$wasm_opt_dir" ]; then
+      continue
+    fi
+    if [ -x "$wasm_opt_dir/bin/wasm-opt" ] && [ ! -e "$wasm_opt_dir/wasm-opt" ]; then
+      ln -s "bin/wasm-opt" "$wasm_opt_dir/wasm-opt"
+    fi
+  done
+}
+
 ensure_wasm_pack_cache() {
   local target_cache
   if [ -n "${WASM_PACK_CACHE:-}" ]; then
     mkdir -p "$WASM_PACK_CACHE"
+    normalize_wasm_opt_cache_layout "$WASM_PACK_CACHE"
     return 0
   fi
 
@@ -143,6 +157,7 @@ ensure_wasm_pack_cache() {
   target_cache="${WASM_PACK_CACHE_ROOT:-$repo_root/.tooling/wasm-pack-cache}"
   mkdir -p "$target_cache"
   seed_wasm_pack_cache_if_empty "$target_cache"
+  normalize_wasm_opt_cache_layout "$target_cache"
   export WASM_PACK_CACHE="$target_cache"
   echo "[wasm-toolchain] WASM_PACK_CACHE=$WASM_PACK_CACHE"
 }

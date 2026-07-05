@@ -145,7 +145,7 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
   signingRootId: string;
   signingRootVersion: string;
   contextBinding32B64u: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: string;
   serverPublicKey33B64u: string;
   thresholdPublicKey33B64u: string;
   ethereumAddress: string;
@@ -175,7 +175,7 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
           context,
           public_identity: {
             context_binding_b64u: args.contextBinding32B64u,
-            client_public_key33_b64u: args.clientPublicKey33B64u,
+            client_public_key33_b64u: args.hssClientSharePublicKey33B64u,
             server_public_key33_b64u: args.serverPublicKey33B64u,
             threshold_public_key33_b64u: args.thresholdPublicKey33B64u,
             ethereum_address20_b64u: encodeEthereumAddress20B64u(args.ethereumAddress),
@@ -399,6 +399,7 @@ function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionRequest): s
     deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId: args.walletId,
       runtimePolicyScope: args.runtimePolicyScope,
+      chainTarget: args.chainTarget,
     }),
   );
 }
@@ -790,7 +791,8 @@ export async function activateEcdsaSession(
     signingRootId: bootstrap.signingRootId,
     signingRootVersion: bootstrap.signingRootVersion,
     contextBinding32B64u: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-    clientPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.hssClientSharePublicKey33B64u,
+    hssClientSharePublicKey33B64u:
+      ecdsaRoleLocalReadyRecord.publicFacts.hssClientSharePublicKey33B64u,
     serverPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.relayerPublicKey33B64u,
     thresholdPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.groupPublicKey33B64u,
     ethereumAddress: thresholdOwnerAddress,

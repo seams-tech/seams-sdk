@@ -32,7 +32,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -139,7 +148,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -279,7 +297,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -438,7 +465,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -570,7 +606,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -680,7 +725,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -739,7 +793,11 @@ test.describe('Seams wallet device selection', () => {
               signerKind: 'threshold-ed25519',
               signerAuthMethod: 'email_otp',
               signerSource: 'email_otp_registration',
-              metadata: { relayerKeyId: 'new', source: 'email_otp' },
+              metadata: {
+                nearEd25519SigningKeyId: 'near-ed25519:slot-replace-new',
+                relayerKeyId: 'new',
+                source: 'email_otp',
+              },
             },
             activationPolicy: {
               mode: 'reuse_existing',
@@ -834,7 +892,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -894,6 +961,9 @@ test.describe('Seams wallet device selection', () => {
             signerKind: 'threshold-ed25519',
             signerAuthMethod: 'email_otp',
             signerSource: 'email_otp_registration',
+            metadata: {
+              nearEd25519SigningKeyId: 'near-ed25519:slot-preserve-email',
+            },
           },
           activationPolicy: {
             mode: 'allocate_next_free',
@@ -945,6 +1015,162 @@ test.describe('Seams wallet device selection', () => {
     });
   });
 
+  test('activateAccountSigner recovery replacement retires prior ECDSA wallet-chain signer', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.unifiedDB);
+
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`ecdsa-recovery-replacement-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const profileId = 'wallet-recovery-ecdsa';
+        const chainIdKey = 'evm:eip155:5042002';
+        const chainTarget = {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 5042002,
+          networkSlug: 'arc-testnet',
+        };
+        const oldOwner = '0x1111111111111111111111111111111111111111';
+        const newOwner = '0x2222222222222222222222222222222222222222';
+        const ecdsaMetadata = (owner: string, label: string) => ({
+          accountModel: 'threshold-ecdsa',
+          accountAddress: owner,
+          ownerAddress: owner,
+          thresholdOwnerAddress: owner,
+          keyScope: 'evm-family',
+          keyHandle: `key-${label}`,
+          walletId: profileId,
+          evmFamilySigningKeySlotId: `slot-${label}`,
+          ecdsaThresholdKeyId: `threshold-${label}`,
+          signingRootId: 'signing-root',
+          signingRootVersion: 'default',
+          relayerKeyId: `relayer-${label}`,
+          relayerVerifyingShareB64u: `share-${label}`,
+          thresholdEcdsaPublicKeyB64u: `public-${label}`,
+          participantIds: [1, 2],
+          chainTarget,
+          targetMembership: {
+            targetKey: chainIdKey,
+            chainTarget,
+          },
+          sharedEvmFamilyKey: {
+            walletId: profileId,
+            evmFamilySigningKeySlotId: `slot-${label}`,
+            keyScope: 'evm-family',
+            keyHandle: `key-${label}`,
+            ecdsaThresholdKeyId: `threshold-${label}`,
+            signingRootId: 'signing-root',
+            signingRootVersion: 'default',
+            participantIds: [1, 2],
+            thresholdOwnerAddress: owner,
+            thresholdEcdsaPublicKeyB64u: `public-${label}`,
+          },
+          chainId: 5042002,
+        });
+
+        await db.upsertProfile({ profileId, defaultSignerSlot: 1 });
+        await db.activateAccountSigner({
+          account: {
+            profileId,
+            chainIdKey,
+            accountAddress: oldOwner,
+            accountModel: 'threshold-ecdsa',
+          },
+          signer: {
+            signerId: oldOwner,
+            signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata: ecdsaMetadata(oldOwner, 'old'),
+          },
+          activationPolicy: { mode: 'allocate_next_free' },
+          preferredSlot: 1,
+          mutation: { routeThroughOutbox: false },
+        });
+
+        await db.activateAccountSigner({
+          account: {
+            profileId,
+            chainIdKey,
+            accountAddress: newOwner,
+            accountModel: 'threshold-ecdsa',
+          },
+          signer: {
+            signerId: newOwner,
+            signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata: ecdsaMetadata(newOwner, 'new'),
+          },
+          activationPolicy: {
+            mode: 'replace_profile_chain_kind',
+            signerSlot: 1,
+            replacedSignerKind: 'threshold-ecdsa',
+            revocationReason: 'email_recovery_replacement',
+          },
+          preferredSlot: 1,
+          mutation: { routeThroughOutbox: false },
+        });
+
+        const oldSigner = await db.getAccountSigner({
+          chainIdKey,
+          accountAddress: oldOwner,
+          signerId: oldOwner,
+        });
+        const newSigner = await db.getAccountSigner({
+          chainIdKey,
+          accountAddress: newOwner,
+          signerId: newOwner,
+        });
+        const activeWalletSigners = await db.listActiveWalletSigners({
+          walletId: profileId,
+          signerFamily: 'ecdsa',
+        });
+        const selected = await db.getActiveWalletSignerForChainTarget({
+          walletId: profileId,
+          chainTarget,
+        });
+
+        return {
+          oldSigner: {
+            status: oldSigner?.status,
+            revocationReason: oldSigner?.revocationReason,
+          },
+          newSigner: {
+            status: newSigner?.status,
+            signerSlot: newSigner?.signerSlot,
+            signerId: newSigner?.signerId,
+          },
+          activeWalletSignerIds: activeWalletSigners.map((signer: any) => signer.signerId),
+          selectedSignerId: selected?.signerId,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      oldSigner: {
+        status: 'revoked',
+        revocationReason: 'email_recovery_replacement',
+      },
+      newSigner: {
+        status: 'active',
+        signerSlot: 1,
+        signerId: '0x2222222222222222222222222222222222222222',
+      },
+      activeWalletSignerIds: ['0x2222222222222222222222222222222222222222'],
+      selectedSignerId: '0x2222222222222222222222222222222222222222',
+    });
+  });
+
   test('activateAccountSigner can defer active slot cutover', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
@@ -964,7 +1190,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1021,6 +1256,9 @@ test.describe('Seams wallet device selection', () => {
             signerKind: 'threshold-ed25519',
             signerAuthMethod: 'email_otp',
             signerSource: 'email_otp_registration',
+            metadata: {
+              nearEd25519SigningKeyId: 'near-ed25519:rotation-candidate',
+            },
           },
           activationPolicy: {
             mode: 'allocate_next_free',
@@ -1085,7 +1323,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1120,7 +1367,11 @@ test.describe('Seams wallet device selection', () => {
               signerKind: 'threshold-ed25519',
               signerAuthMethod: 'email_otp',
               signerSource: 'email_otp_registration',
-              metadata: { label, signerMaterialFingerprint: 'same-material' },
+              metadata: {
+                label,
+                nearEd25519SigningKeyId: 'near-ed25519:same-material-idempotent',
+                signerMaterialFingerprint: 'same-material',
+              },
             },
             activationPolicy: {
               mode: 'reuse_existing',
@@ -1167,7 +1418,11 @@ test.describe('Seams wallet device selection', () => {
         signerSlot: 1,
       },
       activeSignerCount: 1,
-      signerMetadata: { label: 'second', signerMaterialFingerprint: 'same-material' },
+      signerMetadata: {
+        label: 'second',
+        nearEd25519SigningKeyId: 'near-ed25519:same-material-idempotent',
+        signerMaterialFingerprint: 'same-material',
+      },
     });
   });
 
@@ -1192,7 +1447,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1230,6 +1494,7 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: 'email_otp',
             signerSource: 'email_otp_registration',
             metadata: {
+              nearEd25519SigningKeyId: 'near-ed25519:first-material',
               operationalPublicKey: 'ed25519:first',
               signerMaterialFingerprint: 'first-material',
             },
@@ -1258,6 +1523,7 @@ test.describe('Seams wallet device selection', () => {
               signerAuthMethod: 'email_otp',
               signerSource: 'email_otp_registration',
               metadata: {
+                nearEd25519SigningKeyId: 'near-ed25519:second-material',
                 operationalPublicKey: 'ed25519:second',
                 signerMaterialFingerprint: 'second-material',
               },
@@ -1293,6 +1559,7 @@ test.describe('Seams wallet device selection', () => {
     expect(result.first).toEqual({ signerSlot: 1 });
     expect(result.errorCode).toBe('signer_lifecycle_material_mismatch');
     expect(result.signerMetadata).toEqual({
+      nearEd25519SigningKeyId: 'near-ed25519:first-material',
       operationalPublicKey: 'ed25519:first',
       signerMaterialFingerprint: 'first-material',
     });
@@ -1322,7 +1589,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1370,6 +1646,7 @@ test.describe('Seams wallet device selection', () => {
               signerSource: 'email_otp_registration',
               metadata: {
                 label,
+                nearEd25519SigningKeyId: 'near-ed25519:partial-activation',
                 relayerKeyId: 'partial-rk',
                 keyVersion: 'threshold-ed25519-hss-v1',
                 signerMaterialFingerprint: 'partial-material',
@@ -1471,7 +1748,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1519,6 +1805,7 @@ test.describe('Seams wallet device selection', () => {
               signerSource: 'email_otp_registration',
               metadata: {
                 label,
+                nearEd25519SigningKeyId: 'near-ed25519:partial-session',
                 relayerKeyId: 'session-rk',
                 keyVersion: 'threshold-ed25519-hss-v1',
                 signerMaterialFingerprint: 'session-material',
@@ -1634,7 +1921,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1758,7 +2054,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,
@@ -1842,7 +2147,16 @@ test.describe('Seams wallet device selection', () => {
             signerAuthMethod: input.signerAuthMethod,
             signerSource: input.signerSource,
           };
-          if (input.metadata) signer.metadata = input.metadata;
+          if (input.signerKind === 'threshold-ed25519') {
+            signer.metadata = {
+              nearEd25519SigningKeyId:
+                input.nearEd25519SigningKeyId ||
+                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
+              ...(input.metadata || {}),
+            };
+          } else if (input.metadata) {
+            signer.metadata = input.metadata;
+          }
           const request: any = {
             account: {
               profileId: input.profileId,

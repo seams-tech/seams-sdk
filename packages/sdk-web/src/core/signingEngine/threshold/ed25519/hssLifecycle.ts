@@ -36,6 +36,8 @@ import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../crypto/ed25519WrapKeySa
 import {
   resolveThresholdEd25519HssClientOutputMaskHandle,
   validateThresholdEd25519HssOutputProjectionPolicy,
+  type ThresholdEd25519HssClientOutputMaskContext,
+  type ThresholdEd25519HssClientOutputMaskOperation,
   type ThresholdEd25519HssOutputProjectionPolicy,
 } from './clientOutputMask';
 import {
@@ -143,6 +145,22 @@ export type CompleteThresholdEd25519HssMaterialHandleCeremonyResult =
       signingMaterial?: never;
     };
 
+export type StoreThresholdEd25519WorkerMaterialFromFinalizedHssReportResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      signingMaterial: ThresholdEd25519WorkerMaterialStoredResult;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'store_worker_material_failed';
+      message: string;
+      signingMaterial?: never;
+    };
+
 export type PrepareThresholdEd25519HssServerCeremonyWithSessionResult =
   | {
       ok: true;
@@ -167,8 +185,30 @@ export type ThresholdEd25519HssSessionOperation =
   | 'tx_signing'
   | 'link_device'
   | 'email_recovery'
+  | 'registration_material_restore'
   | 'warm_session_reconstruction'
   | 'explicit_key_export';
+
+function assertNeverThresholdEd25519HssSessionOperation(value: never): never {
+  throw new Error(`Unsupported threshold Ed25519 HSS session operation: ${String(value)}`);
+}
+
+function clientOutputMaskOperationForSessionOperation(
+  operation: ThresholdEd25519HssSessionOperation,
+): ThresholdEd25519HssClientOutputMaskOperation {
+  switch (operation) {
+    case 'tx_signing':
+    case 'link_device':
+    case 'email_recovery':
+    case 'warm_session_reconstruction':
+    case 'explicit_key_export':
+      return operation;
+    case 'registration_material_restore':
+      return 'registration';
+    default:
+      return assertNeverThresholdEd25519HssSessionOperation(operation);
+  }
+}
 
 export type RespondThresholdEd25519HssServerCeremonyWithSessionResult =
   | {
@@ -345,7 +385,7 @@ async function prepareClientOwnedEvaluatorMaskHandle(args: {
   outputProjection: ThresholdEd25519HssOutputProjectionPolicy;
   context: ThresholdEd25519HssCanonicalContext;
   contextBindingB64u: string;
-  operation: ThresholdEd25519HssSessionOperation;
+  operation: ThresholdEd25519HssClientOutputMaskOperation;
   relayerKeyId: string;
   workerCtx: WorkerOperationContext;
 }): Promise<string> {
@@ -555,6 +595,50 @@ export async function deriveThresholdEd25519HssClientInputsFromPrfFirst(
   }
 }
 
+export async function deriveThresholdEd25519HssClientInputsFromCredentialAndContext(
+  deps: ThresholdEd25519LifecycleDeps,
+  args: {
+    credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
+    hssContext: ThresholdEd25519HssCanonicalContext;
+  },
+): Promise<DeriveThresholdEd25519HssClientInputsResult> {
+  try {
+    const prfFirstB64u = requirePrfFirstB64uFromCredential(args.credential);
+    const sessionId = deps.createSessionId('threshold-ed25519-hss-client-inputs');
+    const derived = await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
+      sessionId,
+      applicationBindingDigestB64u: args.hssContext.applicationBindingDigestB64u,
+      participantIds: args.hssContext.participantIds,
+      prfFirstB64u,
+    });
+    if (!derived.success) {
+      return {
+        ok: false,
+        code: 'derive_client_inputs_failed',
+        message: String(derived.error || 'Failed to derive threshold Ed25519 HSS client inputs'),
+      };
+    }
+    assertMatchingThresholdEd25519HssDerivedContext({
+      expected: args.hssContext,
+      actual: derived,
+    });
+    return {
+      ok: true,
+      hssContext: args.hssContext,
+      contextBindingB64u: derived.contextBindingB64u,
+      yClientB64u: derived.yClientB64u,
+      tauClientB64u: derived.tauClientB64u,
+    };
+  } catch (error: unknown) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return {
+      ok: false,
+      code: 'derive_client_inputs_failed',
+      message,
+    };
+  }
+}
+
 export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
@@ -590,6 +674,32 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
       message,
     };
   }
+}
+
+export async function prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
+  deps: ThresholdEd25519LifecycleDeps,
+  args: {
+    credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
+    hssContext: ThresholdEd25519HssCanonicalContext;
+    onProgress?: (message: string) => void;
+  },
+): Promise<PrepareThresholdEd25519HssClientCeremonyResult> {
+  args.onProgress?.('Deriving threshold Ed25519 client inputs from canonical HSS context...');
+  const derived = await deriveThresholdEd25519HssClientInputsFromCredentialAndContext(deps, args);
+  if (!derived.ok) {
+    return {
+      ok: false,
+      code: derived.code,
+      message: derived.message,
+    };
+  }
+  return {
+    ok: true,
+    hssContext: derived.hssContext,
+    contextBindingB64u: derived.contextBindingB64u,
+    yClientB64u: derived.yClientB64u,
+    tauClientB64u: derived.tauClientB64u,
+  };
 }
 
 export async function prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
@@ -970,7 +1080,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     outputProjection: args.outputProjection,
     context: args.context,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-    operation: args.operation,
+    operation: clientOutputMaskOperationForSessionOperation(args.operation),
     relayerKeyId: args.relayerKeyId,
     workerCtx: args.workerCtx,
   });
@@ -1051,6 +1161,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
   walletSessionJwt: string;
   relayerKeyId: string;
   operation: ThresholdEd25519HssSessionOperation;
+  clientOutputMaskOperation: ThresholdEd25519HssClientOutputMaskOperation;
   context: ThresholdEd25519HssCanonicalContext;
   clientInputs: ThresholdEd25519HssClientInputs;
   outputProjection: ThresholdEd25519HssOutputProjectionPolicy;
@@ -1092,7 +1203,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     outputProjection: args.outputProjection,
     context: args.context,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-    operation: args.operation,
+    operation: args.clientOutputMaskOperation,
     relayerKeyId: args.relayerKeyId,
     workerCtx: args.workerCtx,
   });
@@ -1160,7 +1271,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     context: {
       ...args.context,
       contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-      operation: args.operation,
+      operation: args.clientOutputMaskOperation,
       relayerKeyId: args.relayerKeyId,
     },
     workerCtx: args.workerCtx,
@@ -1212,6 +1323,93 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     finalizedReport: finalized.finalizedReport,
     signingMaterial,
   };
+}
+
+export async function storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(args: {
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+  clientOutputMask: {
+    policy: ThresholdEd25519HssOutputProjectionPolicy;
+    context: ThresholdEd25519HssClientOutputMaskContext;
+  };
+  materialBinding: {
+    thresholdSessionId: string;
+    signingGrantId: string;
+    signingRootId: string;
+    signingRootVersion: string;
+    expiresAtMs: number;
+    nearAccountId: string;
+    signerSlot: number;
+    relayerKeyId: string;
+    participantIds: number[];
+    createdAtMs: number;
+    signingWorkerId: string;
+  };
+  preparedSealAuthorization: ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult;
+  workerCtx: WorkerOperationContext;
+}): Promise<StoreThresholdEd25519WorkerMaterialFromFinalizedHssReportResult> {
+  const contextBindingB64u = String(args.preparedSession.contextBindingB64u || '').trim();
+  try {
+    if (!contextBindingB64u) {
+      throw new Error('HSS prepared session is missing context binding');
+    }
+    if (String(args.finalizedReport.contextBindingB64u || '').trim() !== contextBindingB64u) {
+      throw new Error('HSS finalized report context binding mismatch');
+    }
+    const clientOutputMessageB64u = String(args.finalizedReport.clientOutputMessageB64u || '').trim();
+    if (!clientOutputMessageB64u) {
+      throw new Error('HSS finalized report is missing client output');
+    }
+    const clientOutputMaskHandle = await resolveThresholdEd25519HssClientOutputMaskHandle({
+      policy: args.clientOutputMask.policy,
+      context: args.clientOutputMask.context,
+      workerCtx: args.workerCtx,
+    });
+    const signingMaterial = await storeThresholdEd25519WorkerMaterialFromHssOutputNearSignerWasm({
+      evaluatorDriverStateB64u: args.preparedSession.evaluatorDriverStateB64u,
+      clientOutputMessageB64u,
+      clientOutputMaskHandle,
+      expectedContextBindingB64u: contextBindingB64u,
+      nearAccountId: args.materialBinding.nearAccountId,
+      signerSlot: args.materialBinding.signerSlot,
+      signingRootId: args.materialBinding.signingRootId,
+      signingRootVersion: args.materialBinding.signingRootVersion,
+      relayerKeyId: args.materialBinding.relayerKeyId,
+      participantIds: args.materialBinding.participantIds,
+      createdAtMs: args.materialBinding.createdAtMs,
+      sealAuthorization: args.preparedSealAuthorization.sealAuthorization,
+      workerCtx: args.workerCtx,
+    });
+    if (!signingMaterial.ok) {
+      return {
+        ok: false,
+        contextBindingB64u,
+        code: 'store_worker_material_failed',
+        message: signingMaterial.message,
+      };
+    }
+    if (signingMaterial.materialKeyId !== args.preparedSealAuthorization.materialKeyId) {
+      return {
+        ok: false,
+        contextBindingB64u,
+        code: 'store_worker_material_failed',
+        message: 'HSS worker material key id mismatch after store',
+      };
+    }
+    return {
+      ok: true,
+      contextBindingB64u,
+      signingMaterial,
+    };
+  } catch (error: unknown) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return {
+      ok: false,
+      contextBindingB64u,
+      code: 'store_worker_material_failed',
+      message,
+    };
+  }
 }
 
 export async function openThresholdEd25519HssSeedOutput(args: {

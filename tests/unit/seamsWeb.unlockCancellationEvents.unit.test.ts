@@ -14,6 +14,7 @@ import {
   thresholdEd25519SessionRecordKeyFromRecord,
   upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 
 const UNLOCK_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const UNLOCK_WALLET_ID = 'frost-unlock-k7p9m2';
@@ -38,6 +39,10 @@ function seedUnlockPasskeyWalletBinding(): void {
     remainingUses: 1,
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
+    routerAbNormalSigning: {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId: 'signing-worker-test',
+    },
     source: 'login',
   });
 }

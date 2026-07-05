@@ -624,7 +624,7 @@ Implementation inventory:
   - `tests/unit/thresholdEcdsa.*.unit.test.ts`
   - `tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
   - `tests/unit/refactor79ExactSigningLane.guard.unit.test.ts`
-  - `tests/unit/refactor83CapabilitySubjects.guard.unit.test.ts`
+  - `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts`
   - `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`
   - `tests/relayer/threshold-ecdsa.signature-harness.test.ts`
 

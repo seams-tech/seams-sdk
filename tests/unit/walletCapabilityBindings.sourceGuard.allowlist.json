@@ -7,58 +7,10 @@
       "disposition": "permanent-boundary: shared domain parser constructs the brand after validation."
     },
     {
-      "file": "packages/sdk-server-ts/src/core/AuthService.ts",
-      "pattern": "as-wallet-id",
-      "reason": "Server boundary parser normalizes verified wallet id strings.",
-      "disposition": "permanent-boundary: server request/service boundary normalizes raw wallet ids."
-    },
-    {
-      "file": "packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts",
-      "pattern": "as-wallet-id",
-      "reason": "Persistence boundary parser normalizes stored wallet id strings.",
-      "disposition": "permanent-boundary: registration persistence boundary normalizes stored wallet ids."
-    },
-    {
-      "file": "packages/sdk-server-ts/src/core/WalletStore.ts",
-      "pattern": "as-wallet-id",
-      "reason": "Persistence boundary parser normalizes wallet store keys.",
-      "disposition": "permanent-boundary: wallet store boundary normalizes durable wallet keys."
-    },
-    {
       "file": "packages/sdk-web/src/SeamsWeb/SeamsWeb.ts",
       "pattern": "account-id-from-wallet-id",
       "reason": "Public recovery/result compatibility field; wallet-scoped domain input remains walletId.",
       "disposition": "remove-with-next-public-api-major: delete retained accountId result/event compatibility."
-    },
-    {
-      "file": "packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts",
-      "pattern": "account-id-from-wallet-id",
-      "reason": "Public sync compatibility field preserved at the result/event boundary.",
-      "disposition": "remove-with-next-public-api-major: delete retained sync accountId compatibility."
-    },
-    {
-      "file": "packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts",
-      "pattern": "account-id-from-wallet-id",
-      "reason": "Public recovery event compatibility field preserved at the result/event boundary.",
-      "disposition": "remove-with-next-public-api-major: delete retained recovery accountId compatibility."
-    },
-    {
-      "file": "packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts",
-      "pattern": "account-id-from-wallet-id",
-      "reason": "Existing Ed25519 lane port names accountId; Refactor 79 owns exact lane field rename.",
-      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
-    },
-    {
-      "file": "packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts",
-      "pattern": "account-id-from-wallet-id",
-      "reason": "Existing exact-lane identity uses accountId for wallet-scoped lane owner; Refactor 79 owns field rename.",
-      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
-    },
-    {
-      "file": "packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts",
-      "pattern": "account-id-from-wallet-id",
-      "reason": "Existing signing-session auth lane identity uses accountId for wallet owner; Refactor 79 owns field rename.",
-      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
     },
     {
       "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts",

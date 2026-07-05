@@ -14,6 +14,17 @@ Updated: July 4, 2026 — Phase 5 reframed as the exhaustive test ledger
 (`keep`/`replace`/`delete`/`blocked_on_coverage`) with the pruning ownership
 map, the zero-importer helper rule, and deletion accounting. Phase 8 added:
 the gated legacy-suite deletion sweep from the July 4 suite survey.
+Updated: July 5, 2026 — the five-spec intended contract is green locally and
+under the managed CI launcher. `pnpm -C tests run test:intended:ci` refreshed a
+service-account Google OIDC token, started the intended stack, and passed all
+five lifecycle specs in 4.5m. Focused passkey registration, Email OTP
+registration, and recovery reruns also pass against a clean managed stack. The
+remaining Refactor 88 work is deletion accounting and owner-plan-gated cleanup,
+not an open lifecycle-contract failure. Supporting gates are green:
+`check:refactor88-test-ledger:complete` reports
+`scope=414 ledger_existing=414 ledger_deleted=52 missing=0`, and
+`test:source-guards` passes all standalone checks plus 190/190 Playwright
+source-profile tests.
 
 Status: in progress.
 
@@ -97,7 +108,7 @@ matcher table inside the harness:
   matcher table in the same change. 82B's typed-failure replacements, 0F's
   diagnostics renames, and 90 B3's budget-subsystem deletion all hit this
   table.
-- Contract specs are phrased in user-visible vocabulary so the four specs
+- Contract specs are phrased in user-visible vocabulary so the lifecycle specs
   survive internal renames: "budget" in the specs means *remaining spend*,
   which becomes grant-use consumption after 90 B3 with no spec change.
 
@@ -127,7 +138,7 @@ wallet iframe messages, worker material persistence, or Router API responses.
 
 ## Minimal Contract Matrix
 
-Keep this suite small. The E2E contract is four lifecycle specs total. Each spec
+Keep this suite small. The E2E contract is five lifecycle specs total. Each spec
 must exercise real Ed25519 and ECDSA behaviour, but step-up and export assertions
 belong inside these lifecycle specs rather than separate test files.
 
@@ -137,6 +148,7 @@ belong inside these lifecycle specs rather than separate test files.
 | Passkey unlock lifecycle | unlock warms NEAR and configured ECDSA targets; NEAR, Tempo, and Arc/EVM sign without another prompt while budget remains; after budget exhaustion, step-up uses passkey and the first post-step-up NEAR and ECDSA transaction succeeds |
 | Email OTP registration lifecycle | registration sends one OTP; wallet-name reroll does not send another OTP; NEAR, Tempo, and Arc/EVM sign without another OTP while budget remains; Ed25519 and ECDSA export require fresh export OTP and succeed |
 | Email OTP unlock lifecycle | unlock sends one wallet-unlock OTP; unlock warms NEAR and configured ECDSA targets; NEAR, Tempo, and Arc/EVM sign without another OTP while budget remains; after budget exhaustion, step-up uses Email OTP and the first post-step-up NEAR and ECDSA transaction succeeds |
+| Email recovery lifecycle | email recovery prepares and finalizes through public recovery APIs; recovered NEAR, Tempo, and Arc/EVM signing succeeds through the real browser/runtime surfaces |
 
 Cross-row assertions:
 
@@ -152,9 +164,16 @@ Cross-row assertions:
 - The first transaction after step-up must succeed. A failure followed by a
   successful retry is a test failure.
 
-Deferred fifth spec: the recovery lifecycle (email recovery, recovery-code
-restore, and device-escrow restore into signing) is the named next spec
-candidate — see Exit Criteria for its promotion trigger.
+Fifth spec: the recovery lifecycle starts with email recovery into signing.
+Recovery-code restore and device-escrow restore remain named follow-up coverage
+inside the same lifecycle family. July 4, 2026 update: local D1 Router startup
+now mounts `/email-recovery/prepare` and `/email-recovery/ecdsa/respond` with a
+structural `RouterApiOptions.emailRecovery` prepare-only service, and the local
+worker smoke test rejects malformed prepare requests with HTTP 400 instead of a
+route-level 404. July 5, 2026 update: the intended harness now drives and
+passes the email-recovery-to-signing lifecycle under intended CI; the remaining
+recovery cleanup task is to retire or reclassify the older
+`blocked_on_coverage(recovery)` ledger rows.
 
 ## Detailed Contract Specs
 
@@ -277,6 +296,7 @@ tests/e2e/intended-behaviours/
   passkey.unlock.contract.test.ts
   email-otp.registration.contract.test.ts
   email-otp.unlock.contract.test.ts
+  recovery.email.contract.test.ts
 ```
 
 Add named commands at the repo root:
@@ -441,11 +461,11 @@ A mandatory gate that flakes gets bypassed. Rules:
   optimization to earn later.
 - Generous per-stage timeouts that emit the compact failure trace on expiry;
   no bare Playwright timeout errors.
-- Wall-clock budget: the full four-spec suite targets under ~10 minutes
+- Wall-clock budget: the full lifecycle suite targets under ~10 minutes
   locally. If it grows past that, cut setup cost — do not cut specs.
 - Quarantine rule: a flaky contract test is a P0 bug in the product or the
   harness. Never `.skip`, never retry-annotate, never "known flaky".
-- Source guard: `tests/unit/refactor88IntendedE2e.guard.unit.test.ts` rejects
+- Source guard: `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` rejects
   local skip/focus/retry annotations under
   `tests/e2e/intended-behaviours/**`.
 
@@ -567,18 +587,15 @@ Current live validation:
 - Re-run on July 4, 2026 after starting the Vite site on port 3600 behind the
   existing local Caddy/router stack: the same passkey registration + unlock
   intended command passed 2/2 in 1.3m.
-- Cross-chain mutation proof uncovered a target-identity prerequisite: a local
-  scratch mutation that attempted to make Arc/EVM reuse Tempo ECDSA material
-  still passed because the current registration result reports the same
-  `thresholdOwnerAddress` for Tempo (`chainId=42431`) and Arc/EVM
-  (`chainId=5042002`) through the shared `evm-family` key scope. The scratch
-  seed and diagnostic test print were restored. The
-  `cross_chain_ecdsa_material_reuse` proof remains open until target-specific
-  ECDSA registration/provisioning gives Tempo and Arc/EVM distinct
-  owner/public-key facts, or the contract adds an explicit target-distinctness
-  failure that the product is ready to satisfy.
-- `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/refactor88IntendedE2e.guard.unit.test.ts --reporter=line`
-  passes 55/55 after the active-source retired-setup import guard,
+- Earlier cross-chain mutation proof uncovered a target-identity prerequisite:
+  the harness could only observe wrong-material reuse once Tempo and Arc/EVM
+  registration/provisioning exposed target-specific owner/public-key facts.
+  That prerequisite is now satisfied by the target-specific ECDSA registration
+  work. On July 5, 2026, a scratch mutation that reported the Tempo key as the
+  Arc/EVM registered key made both passkey intended contracts fail with
+  `Arc/EVM recovered signer mismatch`; the scratch mutation was restored.
+- `pnpm -C tests run check:intended-behaviour-contract-boundaries` passes after
+  the active-source retired-setup import guard,
   Refactor 89 retired-cleanup ledger guard,
   sibling-plan pre-merge gate guard, setup-surface cleanup guard,
   suite-wall-clock-budget guard, and action-start fail-fast guard were added.
@@ -636,13 +653,17 @@ Current live validation:
   `pnpm -C apps/seams-site run vite`. The Router launcher owns the single local
   Caddy process for app, wallet, docs, and Router origins; CI startup does not
   run the broader `pnpm site` command because that would create a second Caddy
-  owner. After the HTTPS site and intended page pass their internal checks, the
-  startup script exposes a local HTTP Playwright webServer readiness sentinel
-  at `http://127.0.0.1:37888/readyz`. This keeps Playwright's readiness probe
-  off the self-signed app-origin certificate while still preventing tests from
-  racing ahead of Router/site readiness. The CI config uses Playwright graceful
-  shutdown so the startup script can terminate nested Router, Caddy, Vite, and
-  workerd children instead of leaving the intended ports occupied after a run.
+  owner. The launcher verifies representative SDK `dist` artifacts after
+  `build:sdk-full`, clears the site Vite optimizer cache, and asks the site
+  Vite server to serve the SDK modules used by the intended page before
+  publishing readiness. After the HTTPS site and intended page pass their
+  internal checks, the startup script exposes a local HTTP Playwright webServer
+  readiness sentinel at `http://127.0.0.1:37888/readyz`. This keeps Playwright's
+  readiness probe off the self-signed app-origin certificate while still
+  preventing tests from racing ahead of Router/site readiness. The CI config
+  uses Playwright graceful shutdown so the startup script can terminate nested
+  Router, Caddy, Vite, and workerd children instead of leaving the intended
+  ports occupied after a run.
 - The hidden `/__intended-e2e` route is now guarded by
   `FRONTEND_CONFIG.enableIntendedE2E`: local dev keeps the public-SDK harness
   available, CI opts in explicitly, and production builds do not expose the
@@ -650,6 +671,8 @@ Current live validation:
 - `pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts --list`
   lists the four intended contracts from the CI config without starting
   services.
+- Re-run on July 4, 2026 after SDK-dist readiness hardening:
+  `pnpm test:intended:ci` passed all four intended contracts in 4.3 minutes.
 - The old `benchmark:registration-flow*` scripts and runner files are removed.
   The benchmark depended on the deleted
   `tests/e2e/thresholdEd25519.testUtils` managed-registration mock harness;
@@ -668,29 +691,29 @@ Current live validation:
   Email OTP rows are `blocked_email_otp_token`, and
   `cross_chain_ecdsa_material_reuse` is `blocked_product_identity`.
 - Validation after adding proof statuses: `pnpm check:intended-mutation-self-check`
-  reports manifest ok, `unit/refactor88IntendedE2e.guard.unit.test.ts` passes
+  reports manifest ok, `unit/intendedBehaviourContracts.guard.unit.test.ts` passes
   36/36 in 1.8s, and the TypeScript/whitespace checks pass.
 - Preflight rows now print each row's `phase3bProof.status` as `status=...`,
   so blocked output identifies Email OTP token setup separately from the
   cross-chain ECDSA product-identity blocker.
 - Validation after adding preflight status output: `pnpm check:intended-mutation-self-check`
-  reports manifest ok, `unit/refactor88IntendedE2e.guard.unit.test.ts` passes
+  reports manifest ok, `unit/intendedBehaviourContracts.guard.unit.test.ts` passes
   36/36 in 1.8s, and the TypeScript/whitespace checks pass.
 - Re-run after adding machine-checked `unblockRequirement` fields to blocked
   Phase 3B proof rows: `pnpm check:intended-mutation-self-check` reports
-  manifest ok, `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 37/37
+  manifest ok, `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 37/37
   in 1.8s, and the TypeScript check passes.
 - Re-run after adding proof-status counts to the manifest check:
   `pnpm check:intended-mutation-self-check` reports
   `blocked_email_otp_token=2 blocked_product_identity=1 detected=1`;
-  `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 37/37 in 1.8s, and
+  `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 37/37 in 1.8s, and
   the TypeScript check passes.
 - Added `pnpm check:intended-mutation-self-check:complete` as the explicit
   Phase 3B completion gate. It requires every selected mutation row to be
   `detected` and prints each blocked row's `unblockRequirement` when the proof
   ledger is still incomplete.
 - Validation after adding the completion gate: `pnpm check:intended-mutation-self-check`
-  passes, `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 37/37 in
+  passes, `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 37/37 in
   1.8s, and the TypeScript check passes. `pnpm check:intended-mutation-self-check:complete`
   exits nonzero as expected while the ledger remains
   `blocked_email_otp_token=2 blocked_product_identity=1 detected=1`, printing
@@ -712,14 +735,14 @@ Current live validation:
   exits nonzero as expected with the local site/fresh-startup/product-identity
   blockers and prints the manifest `unblock:` requirement.
 - Re-run after adding the fake AuthService quarantine guard:
-  `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 37/37 in 1.8s,
+  `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 37/37 in 1.8s,
   and the TypeScript check passes.
 - Re-run on July 4, 2026 after tightening the completion-gate evidence:
   `pnpm check:intended-mutation-self-check` passes with
   `blocked_email_otp_token=2 blocked_product_identity=1 detected=1`;
   `pnpm check:intended-mutation-self-check:complete -- --mutation first_post_step_up_transaction_failure`
   passes and prints the detected proof evidence;
-  `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 37/37 in 1.7s;
+  `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 37/37 in 1.7s;
   `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit --pretty false`
   and `git diff --check` pass. Full
   `pnpm check:intended-mutation-self-check:complete` exits nonzero as expected
@@ -765,26 +788,26 @@ Current live validation:
   and tying the remaining generic e2e bootstrap allowlist to the retained
   boundary audit: `pnpm check:intended-mutation-self-check` reports
   `blocked_email_otp_token=2 blocked_product_identity=1 detected=1`;
-  `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 39/39 in 1.9s;
+  `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 39/39 in 1.9s;
   `node --check tests/scripts/check-intended-mutation-self-check.mjs`,
   `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit --pretty false`,
   and `git diff --check` pass.
 - Re-run after adding retained-boundary audit rows for all
   `tests/lit-components/*.test.ts` component browser tests and guarding that
-  every current Lit component test stays classified: `unit/refactor88IntendedE2e.guard.unit.test.ts`
+  every current Lit component test stays classified: `unit/intendedBehaviourContracts.guard.unit.test.ts`
   passes 40/40 in 1.9s; TypeScript and whitespace checks pass.
 - Re-run after adding retained-boundary audit rows for the remaining
   `SeamsWeb` browser setup unit tests and guarding that future
   `seamsWeb.*` files using `setupBasicPasskeyTest` stay explicitly
-  classified: `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 41/41 in
+  classified: `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 41/41 in
   1.9s; TypeScript and whitespace checks pass.
 - Re-run after adding retained-boundary audit rows for every
   `tests/unit/confirmTxFlow*.test.ts` browser unit and guarding that the
-  confirm-flow family stays fully classified: `unit/refactor88IntendedE2e.guard.unit.test.ts`
+  confirm-flow family stays fully classified: `unit/intendedBehaviourContracts.guard.unit.test.ts`
   passes 42/42 in 1.9s; TypeScript and whitespace checks pass.
 - Re-run after classifying every remaining `setupBasicPasskeyTest` consumer as
   retained boundary coverage and adding the aggregate generic-bootstrap audit:
-  `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 43/43 in 1.8s;
+  `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 43/43 in 1.8s;
   `pnpm check:intended-mutation-self-check` reports
   `blocked_email_otp_token=2 blocked_product_identity=1 detected=1`;
   TypeScript and whitespace checks pass.
@@ -796,7 +819,7 @@ Current live validation:
   the Refactor 88 guard suite, TypeScript, and whitespace checks pass.
 - Re-run after moving `test:integration:signing` onto the Vite-only browser
   setup and guarding it away from the fake relay server path:
-  `unit/refactor88IntendedE2e.guard.unit.test.ts` passes 44/44; TypeScript and
+  `unit/intendedBehaviourContracts.guard.unit.test.ts` passes 44/44; TypeScript and
   whitespace checks pass.
 - Re-run after excluding intended contracts from the generic Playwright config:
   the Refactor 88 guard suite passes 45/45; generic
@@ -887,6 +910,203 @@ Current live validation:
   Tempo and Arc/EVM EVM-family owner/fingerprint identity. When that product
   assertion changes, the guard forces this row to become a detected mutation
   proof instead of letting the blocker go stale.
+- Stabilization checkpoint, July 4, 2026: after backing out the premature
+  recovery fifth-spec probe, the stable four-contract suite remains green.
+  `pnpm test:intended:ci` refreshed/accepted `.env.intended.local`, started
+  managed router/site services, and passed the four intended contracts in
+  4.3m. `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+  ./unit/intendedBehaviourContracts.guard.unit.test.ts --reporter=line` passed
+  55/55, `pnpm -C tests check:refactor88-test-ledger:complete` reported
+  `scope=455 ledger_existing=455 ledger_deleted=6 missing=0`, and
+  `pnpm -C tests check:intended-mutation-self-check` reported
+  `blocked_email_otp_token=0 blocked_product_identity=1 detected=3`.
+  `git diff --check` also passed. The attempted recovery spec failed at
+  `/email-recovery/prepare` with HTTP 404 because the local D1 Router API did
+  not yet configure the `RouterApiOptions.emailRecovery` route family; that
+  historical blocker was resolved by mounting the local prepare-only recovery
+  route family.
+- Current validation, July 5, 2026: the cross-chain scratch mutation made both
+  passkey intended contracts fail with `Arc/EVM recovered signer mismatch`.
+  Restored source then passed the same CI-managed passkey contract pair. The
+  mutation manifest records all four Phase 3B rows as `detected`, so
+  `pnpm check:intended-mutation-self-check:complete` is now the live completion
+  gate instead of a known-blocker report.
+- Re-run after reconciling Refactor 89 durable guard classifications with this
+  Phase 5 ledger: `pnpm -C tests check:refactor88-test-ledger:complete`
+  reported `scope=455 ledger_existing=455 ledger_deleted=6 missing=0`; the
+  Refactor 88 guard suite passed 55/55; the durable guard subset
+  (`authSecretTerminology`, `nonceCoordinator.durableArchitecture`,
+  `stableExperimentalExportBoundaries`, `thresholdEcdsa.behavior`, and
+  `thresholdEd25519PresignNonceLifecycle`) passed 24/24; and `git diff --check`
+  passed.
+- Re-run after mounting local D1 Email Recovery prepare/respond routes through
+  a structural prepare-only `RouterApiOptions.emailRecovery` service:
+  `pnpm -C packages/sdk-server-ts run build` passed;
+  `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/cloudflareD1ConsoleServices.unit.test.ts --reporter=line`
+  passed 15/15; `pnpm -C tests run check:refactor88-test-ledger:complete`
+  reported `scope=442 ledger_existing=442 ledger_deleted=19 missing=0`;
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  572/572 source-profile tests; and `git diff --check` passed.
+- Re-run after deleting the Playwright auth terminology guard and moving its
+  invariant to `tests/scripts/check-auth-secret-terminology.mjs`:
+  `node --check tests/scripts/check-auth-secret-terminology.mjs` passed;
+  `pnpm -C tests run check:auth-secret-terminology` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=441 ledger_existing=441 ledger_deleted=20 missing=0`; and
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  571/571 source-profile tests.
+- Re-run after deleting the Playwright legacy facade-name and WebAuthn
+  origin-policy guards and moving their invariants to standalone source checks:
+  `node --check` plus focused `pnpm -C tests run check:legacy-seams-web-facade-names`
+  and `pnpm -C tests run check:webauthn-origin-policy` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=439 ledger_existing=439 ledger_deleted=22 missing=0`; and
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  568/568 source-profile tests.
+- Re-run after deleting the Playwright Ed25519 presign nonce lifecycle guard,
+  moving its burn-order and CSPRNG handle assertions to
+  `tests/scripts/check-threshold-ed25519-presign-nonce-lifecycle.mjs`, and
+  resolving the exposed Ed25519 material-readiness ownership drift by moving
+  wallet-session material readiness/state helpers into
+  `session/warmCapabilities`: `node --check
+  tests/scripts/check-threshold-ed25519-presign-nonce-lifecycle.mjs` passed;
+  `pnpm -C tests run check:threshold-ed25519-presign-nonce-lifecycle` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=438 ledger_existing=438 ledger_deleted=23 missing=0`;
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  566/566 source-profile tests; and `git diff --check` passed.
+- Re-run after deleting the Playwright ECDSA HSS behavior guard and moving its
+  source assertions into
+  `tests/scripts/check-threshold-ecdsa-hss-boundaries.mjs`:
+  `node --check tests/scripts/check-threshold-ecdsa-hss-boundaries.mjs`
+  passed; `pnpm -C tests run check:threshold-ecdsa-hss-boundaries` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=437 ledger_existing=437 ledger_deleted=24 missing=0`;
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  561/561 source-profile tests; and `git diff --check` passed.
+- Re-run after deleting the Playwright Router A/B wallet-session claim boundary
+  guard and moving its source assertions into
+  `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`:
+  `node --check
+  tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`
+  passed; `pnpm -C tests run
+  check:router-ab-server-wallet-session-claim-boundaries` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=436 ledger_existing=436 ledger_deleted=25 missing=0`; and
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  557/557 source-profile tests.
+- Re-run after deleting the Playwright headless Google Email OTP flow-boundary
+  guard and moving its source assertions into
+  `tests/scripts/check-headless-google-email-otp-flow-boundaries.mjs`:
+  `node --check
+  tests/scripts/check-headless-google-email-otp-flow-boundaries.mjs` passed;
+  `pnpm -C tests run check:headless-google-email-otp-flow-boundaries` passed;
+  `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+  unit/googleEmailOtpWalletAuthFlow.unit.test.ts
+  unit/googleEmailOtpWalletIframeHandles.unit.test.ts --reporter=line` passed
+  37/37; `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=435 ledger_existing=435 ledger_deleted=26 missing=0`; and
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  551/551 source-profile tests.
+- Re-run after deleting the Playwright Email OTP registration boundary guard
+  and moving its source assertions into
+  `tests/scripts/check-email-otp-registration-boundaries.mjs`: `node --check
+  tests/scripts/check-email-otp-registration-boundaries.mjs` passed; `pnpm -C
+  tests run check:email-otp-registration-boundaries` passed; `pnpm -C tests
+  exec playwright test -c playwright.unit.config.ts
+  unit/googleEmailOtpWalletAuthFlow.unit.test.ts
+  unit/googleEmailOtpWalletIframeHandles.unit.test.ts
+  unit/emailOtpRegistrationRoute.unit.test.ts --reporter=line` passed 42/42;
+  the intended contract source guard was refreshed to the current
+  `EmailOtpRegistrationCoreSummary` and `EmailOtpUnlockCoreSummary` page
+  result type names; `pnpm -C tests run check:refactor88-test-ledger:complete`
+  reported `scope=434 ledger_existing=434 ledger_deleted=27 missing=0`; and
+  `pnpm -C tests run test:source-guards` passed after `build:sdk-full` with
+  543/543 source-profile tests.
+- Re-run after deleting the Playwright account signer lifecycle guard and
+  moving its source assertions into
+  `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`: `node --check
+  tests/scripts/check-account-signer-lifecycle-boundaries.mjs` passed; `pnpm
+  -C tests run check:account-signer-lifecycle-boundaries` passed; and `pnpm
+  -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=433 ledger_existing=433 ledger_deleted=28 missing=0`; `pnpm -C
+  tests run test:source-guards` passed after `build:sdk-full` with 541/541
+  source-profile tests.
+- Re-run after the latest Refactor 89 source-guard cleanup through
+  `tests/unit/exactLookupNoFallbackBoundaries.guard.unit.test.ts`: `pnpm -C
+  tests run check:exact-lookup-no-fallback-boundaries` passed; `pnpm -C tests
+  run check:refactor88-test-ledger:complete` reported
+  `scope=430 ledger_existing=430 ledger_deleted=31 missing=0`; `git diff
+  --check` passed; and `pnpm -C tests run test:source-guards` passed after
+  `build:sdk-full` with 508/508 source-profile tests.
+- Re-run after the Refactor 89 key-material source-guard cleanup:
+  `pnpm -C tests run check:key-material-branding-boundaries` passed; `pnpm -C
+  tests run check:refactor88-test-ledger:complete` reported
+  `scope=429 ledger_existing=429 ledger_deleted=32 missing=0`; `git diff
+  --check` passed; the Email OTP registration source check and intended
+  action-result discriminant guard were refreshed to current source anchors;
+  and `pnpm -C tests run test:source-guards` passed after `build:sdk-full`
+  with 499/499 source-profile tests.
+- Re-run after the Refactor 89 route/lifecycle source-guard cleanup:
+  `pnpm -C tests run check:route-lifecycle-domain-boundaries` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=428 ledger_existing=428 ledger_deleted=33 missing=0`; `git diff
+  --check` passed; and `pnpm -C tests run test:source-guards` passed after
+  `build:sdk-full` with 484/484 source-profile tests.
+- Re-run after the Refactor 89 threshold Ed25519 NEAR signing queue
+  source-guard cleanup: `pnpm -C tests run
+  check:threshold-ed25519-near-signing-queue` passed; `pnpm -C tests run
+  check:refactor88-test-ledger:complete` reported
+  `scope=427 ledger_existing=427 ledger_deleted=34 missing=0`; `git diff
+  --check` passed; and `pnpm -C tests run test:source-guards` passed after
+  `build:sdk-full` with 468/468 source-profile tests.
+- Re-run after the Refactor 89 wallet capability binding source-guard cleanup:
+  `pnpm -C tests run check:wallet-capability-bindings-source-guard` passed;
+  `pnpm -C tests run check:refactor88-test-ledger:complete` reported
+  `scope=426 ledger_existing=426 ledger_deleted=35 missing=0`; `git diff
+  --check` passed; and `pnpm -C tests run test:source-guards` passed after
+  `build:sdk-full` with 468/468 source-profile tests. A later pass pruned stale
+  wallet capability allowlist entries and added stale-entry rejection to the
+  standalone check; the focused command passes with ten live entries remaining.
+  Follow-up validation stabilized the aggregate gate by running
+  `build:sdk-full` before standalone source scripts, retrying fresh WASM output
+  existence checks in `build-wasm.sh`, and removing the public signer-worker
+  type entry's runtime import of generated NEAR signer JS. `pnpm -C
+  packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passed;
+  `pnpm -C packages/sdk-web run build:sdk-full` passed; `pnpm -C tests run
+  test:source-guards` passed with 408/408 source-profile tests; `pnpm -C tests
+  run check:refactor88-test-ledger:complete` reported
+  `scope=420 ledger_existing=420 ledger_deleted=44 missing=0`; and `git diff
+  --check` passed.
+- Re-run after the Refactor 89 signing-engine architecture source-guard
+  cleanup: `pnpm -C tests run
+  check:signing-engine-architecture-boundaries` passed; `pnpm -C tests run
+  check:refactor88-test-ledger:complete` reported
+  `scope=421 ledger_existing=421 ledger_deleted=40 missing=0`; `git diff
+  --check` passed; and `pnpm -C tests run test:source-guards` passed after
+  `build:sdk-full` with 431/431 source-profile tests.
+- Stabilization re-run after retargeting stale Email OTP enrollment references
+  to the current `prewarmedRegistrationMaterial` / worker-enrollment boundary:
+  `node --check tests/scripts/check-cross-platform-boundaries.mjs` passed;
+  `node tests/scripts/check-cross-platform-boundaries.mjs` passed; `node
+  --check tests/scripts/check-email-otp-recovery-code-leakage.mjs` passed;
+  `node tests/scripts/check-email-otp-recovery-code-leakage.mjs` passed;
+  `pnpm -C tests exec playwright test -c playwright.source.config.ts
+  unit/ed25519HssMaterialBoundaries.guard.unit.test.ts --reporter=line` passed
+  26/26; `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+  unit/seamsWeb.emailOtp.unit.test.ts --reporter=line` passed 8/8; and
+  `pnpm -C tests run test:source-guards` passed end-to-end after
+  `build:sdk-full` with 408/408 source-profile tests. The Refactor 88 ledger
+  completeness check reported `scope=421 ledger_existing=421 ledger_deleted=44 missing=0`
+  after adding the retained D1 registration ECDSA wallet-key row.
+- Current validation, July 5, 2026: `pnpm -C tests run test:intended:ci`
+  refreshed the service-account Google token and passed all five intended
+  lifecycle contracts in 4.5m. Focused clean-stack checks passed for passkey
+  registration (34.3s), Email OTP registration (39.7s), and recovery email
+  (30.6s). `pnpm -C tests run check:refactor88-test-ledger:complete` reports
+  `scope=414 ledger_existing=414 ledger_deleted=52 missing=0`, and
+  `pnpm -C tests run test:source-guards` passes all standalone scripts plus
+  190/190 Playwright source-profile tests.
 
 ### Phase 3B: Prove The Gate Can Fail
 
@@ -950,7 +1170,7 @@ Tracking:
   passkey-only proof rows can be preflighted while Email OTP rows wait for
   `SEAMS_INTENDED_GOOGLE_ID_TOKEN`.
 - [x] Guard the manifest in
-  `tests/unit/refactor88IntendedE2e.guard.unit.test.ts` so rows cannot be
+  `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` so rows cannot be
   dropped or drift away from the live harness, each seeded regression keeps
   runnable proof commands, and expected failure oracles remain exact enough to
   match observed compact traces.
@@ -1007,12 +1227,16 @@ Tracking:
   fresh export OTP made `email-otp.registration.contract.test.ts` fail with
   `ECDSA export did not fill a fresh Email OTP export authorization`; rebuilding
   from restored source made the same contract pass 1/1 in 45.2s.
-- [ ] Run `cross_chain_ecdsa_material_reuse` on a scratch branch against Tempo
-  and Arc/EVM signing. Blocked locally on target-identity separation: the
-  current passkey registration contract reports identical Tempo and Arc/EVM
-  `thresholdOwnerAddress` values through the shared `evm-family` key scope, so
-  wrong-material reuse cannot be observed through recovered-signer mismatch
-  yet.
+- [x] Run `cross_chain_ecdsa_material_reuse` on a scratch branch against Tempo
+  and Arc/EVM signing. On July 5, 2026, a local scratch mutation made the
+  intended page report the Tempo target key as the Arc/EVM registered key while
+  leaving actual Arc/EVM signing intact. Both
+  `passkey.registration.contract.test.ts` and
+  `passkey.unlock.contract.test.ts` failed with
+  `Arc/EVM recovered signer mismatch` under
+  `pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line`.
+  Restoring the scratch mutation made the same CI-managed passkey contract pair
+  pass again.
 
 ### Phase 4: CI Startup
 
@@ -1023,10 +1247,11 @@ Tracking:
     `tests/scripts/start-intended-services.mjs` to build fresh SDK artifacts,
     reset local persisted state, start `pnpm router -- --fresh`, wait for
     Router `healthz` and `readyz`, start the app Vite server without starting a
-    second Caddy process, wait for the site and intended page, publish the local
-    HTTP readiness sentinel, then run the same four intended contracts.
-    Playwright sends graceful `SIGTERM` on teardown so the launcher can sweep
-    nested local service children before exit.
+    second Caddy process, verify the site can serve the intended SDK module
+    graph from freshly built `dist`, wait for the site and intended page,
+    publish the local HTTP readiness sentinel, then run the same four intended
+    contracts. Playwright sends graceful `SIGTERM` on teardown so the launcher
+    can sweep nested local service children before exit.
 - [x] Keep local mode unchanged.
 
 ### Phase 5: Test Ledger And Mocked Runtime Fixture Audit
@@ -1078,28 +1303,28 @@ Classify each test as one of:
 - delete: mocked fixture only preserves obsolete or internal runtime shape
 - blocked_on_coverage(coverage): mocked and due for deletion, but its
   behaviour is not yet covered by real-infrastructure tests. The row names
-  the covering coverage — the deferred recovery spec, an 82B Phase 8 item, or
-  a Refactor 86 smoke — and the batch moves to `replace` when that coverage
-  lands. A growing `blocked_on_coverage(recovery)` batch is a promotion
-  signal for the fifth (recovery) spec, alongside any new recovery
-  regression.
+  the covering coverage — an 82B Phase 8 item, a Refactor 86 smoke, or another
+  named owner-plan gate — and the batch moves to `replace` when that coverage
+  lands. The former recovery batch has moved to replacement cleanup after the
+  fifth intended spec landed.
 
 Initial audit:
 
 | Target | Classification | Reason |
 | --- | --- | --- |
-| `tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts` | deleted | Used `setupBasicPasskeyTest`, `__testOverrides`, mocked SDK methods, mocked chain responses, and demo component mounting to approximate registration -> signing. The passkey intended contracts now cover that lifecycle with real Router API, wallet iframe, IndexedDB, D1/DO, and workers. Guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. |
-| `tests/e2e/docs.thresholdSigningActions.smoke.test.ts` | deleted | Mounted docs/demo components against a mocked logged-in SDK surface. The passkey intended contracts now cover NEAR, Tempo, and Arc/EVM signing as lifecycle authority. Guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. |
-| `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts` | deleted | Mounted the demo login menu with fake SDK hooks through production `__testOverrides` props. The test kept a broad fake-SDK injection path alive while checking wiring that is now either public UI behaviour or intended lifecycle coverage. The demo components no longer expose `__testOverrides`; guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. |
-| `tests/unit/seamsWeb.loginThresholdWarm.unit.test.ts` | deleted | Built a large in-memory lane/session fixture graph for unlock -> warm signing behaviour. The lifecycle coverage now lives in the passkey and Email OTP intended contracts; retained boundary coverage exists in focused tests for pending Ed25519 login reads, `passkey_assertion` session exchange normalization, implicit NEAR identity handling, and warm-session policy. Guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. |
-| `tests/unit/helpers/warmSessionStore.fixtures.ts` | deleted | Former broad fixture module fed large runtime-shape helpers into mocked warm-session tests and was a recurring refactor tax. Cleanup passes split generic ECDSA chain-target/bootstrap helpers, signing-session record store/reset/seed helpers, touch-confirm/status fixtures, and the remaining warm-session service builder into focused helpers. Guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. |
+| `tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts` | deleted | Used `setupBasicPasskeyTest`, `__testOverrides`, mocked SDK methods, mocked chain responses, and demo component mounting to approximate registration -> signing. The passkey intended contracts now cover that lifecycle with real Router API, wallet iframe, IndexedDB, D1/DO, and workers. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
+| `tests/e2e/docs.thresholdSigningActions.smoke.test.ts` | deleted | Mounted docs/demo components against a mocked logged-in SDK surface. The passkey intended contracts now cover NEAR, Tempo, and Arc/EVM signing as lifecycle authority. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
+| `tests/unit/intendedBehaviourContracts.guard.unit.test.ts` | deleted | Deleted 2,347-line Refactor 88 intended-behaviour Playwright source guard after moving lifecycle contract shape, retired mocked-surface, retained audit, OIDC/startup, runtime oracle, and mutation proof source checks into `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`, wired through `pnpm -C tests run check:intended-behaviour-contract-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts` | deleted | Mounted the demo login menu with fake SDK hooks through production `__testOverrides` props. The test kept a broad fake-SDK injection path alive while checking wiring that is now either public UI behaviour or intended lifecycle coverage. The demo components no longer expose `__testOverrides`; guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
+| `tests/unit/seamsWeb.loginThresholdWarm.unit.test.ts` | deleted | Built a large in-memory lane/session fixture graph for unlock -> warm signing behaviour. The lifecycle coverage now lives in the passkey and Email OTP intended contracts; retained boundary coverage exists in focused tests for pending Ed25519 login reads, `passkey_assertion` session exchange normalization, implicit NEAR identity handling, and warm-session policy. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
+| `tests/unit/helpers/warmSessionStore.fixtures.ts` | deleted | Former broad fixture module fed large runtime-shape helpers into mocked warm-session tests and was a recurring refactor tax. Cleanup passes split generic ECDSA chain-target/bootstrap helpers, signing-session record store/reset/seed helpers, touch-confirm/status fixtures, and the remaining warm-session service builder into focused helpers. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
 | `tests/unit/helpers/accountAuth.fixtures.ts` | keep | Account-auth fixture helper with one surviving importer. Retain while `tests/unit/accountAuth.fixtures.unit.test.ts` owns the boundary fixture contract; delete if that importer disappears. |
 | `tests/unit/helpers/availableSigningLanes.fixtures.ts` | keep | Available-signing-lane fixture helper used by duplicate-lane unit tests. It supports focused lane inventory coverage rather than a broad mocked lifecycle graph. |
 | `tests/unit/helpers/d1StagingScriptFixtures.ts` | keep | D1 staging script fixture helper shared by retained staging-script tests. It supports script/runbook coverage outside wallet lifecycle contracts. |
 | `tests/unit/helpers/ecdsaBootstrap.fixtures.ts` | keep | Focused ECDSA bootstrap fixture helper extracted from the deleted warm-session mega-fixture. It is shared by retained ECDSA bootstrap, reconnect, and request-boundary tests. |
 | `tests/unit/helpers/ecdsaChainTarget.fixtures.ts` | keep | Focused ECDSA chain-target helper used by retained ECDSA and warm-session boundary tests. |
-| `tests/unit/helpers/signingEngineArchitectureGuard.ts` | keep | Shared helper for Refactor 89-owned signing-engine architecture guards. Delete with those guard importers if Refactor 89 removes them. |
-| `tests/unit/helpers/signingEngineEcdsaIdentityGuard.ts` | keep | Shared helper for Refactor 89-owned ECDSA identity guards. Delete with those guard importers if Refactor 89 removes them. |
+| `tests/unit/helpers/signingEngineArchitectureGuard.ts` | deleted | Deleted 118-line helper after the final Refactor 89-owned signing-engine architecture Playwright importer moved to `tests/scripts/check-signing-engine-architecture-boundaries.mjs`. |
+| `tests/unit/helpers/signingEngineEcdsaIdentityGuard.ts` | deleted | Deleted 255-line helper after the final Refactor 89-owned ECDSA identity Playwright importer moved to `tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs`. |
 | `tests/unit/helpers/signingSessionRecord.fixtures.ts` | keep | Focused signing-session record fixture helper extracted from the deleted warm-session mega-fixture. It is shared by retained session-store/read-model/request-boundary tests. |
 | `tests/unit/helpers/warmSessionTestServices.fixtures.ts` | keep | Focused warm-session service builder used by retained warm-session store tests. It avoids recreating the deleted broad runtime fixture graph. |
 | `tests/unit/helpers/warmSessionUiConfirm.fixtures.ts` | keep | Focused UI-confirm/status helper used by retained warm-session store and reconnect tests. |
@@ -1112,11 +1337,15 @@ Initial audit:
 | `tests/e2e/dashboard.consoleConfigPages.apiWiring.test.ts` | keep | Dashboard configuration API-wiring browser coverage. It owns console config page integration behaviour, outside the wallet lifecycle contract matrix. |
 | `tests/e2e/dashboard.webhooks.apiWiring.test.ts` | keep | Dashboard webhook API-wiring browser coverage. It validates console webhook page integration behaviour, outside signing lifecycle coverage. |
 | `tests/e2e/intended-behaviours/email-otp.registration.contract.test.ts` | keep | Intended contract spec. It proves Email OTP registration, first NEAR/Tempo/Arc signing, spend exhaustion, step-up, post-step-up signing, and key export through real browser/runtime surfaces. |
+| `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts` | keep | Intended benchmark spec. It measures Email OTP registration through the same public intended harness and real browser/runtime surfaces. |
 | `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts` | keep | Intended contract spec. It proves Email OTP unlock, NEAR/Tempo/Arc signing, spend exhaustion, step-up, post-step-up signing, and key export through real browser/runtime surfaces. |
-| `tests/e2e/intended-behaviours/harness.ts` | keep | Intended contract harness. It owns real-infrastructure browser setup, event capture, signature verification, and prompt-count assertions for the four public lifecycle specs. |
+| `tests/e2e/intended-behaviours/email-otp.unlock.benchmark.test.ts` | keep | Intended benchmark spec. It measures Email OTP registration plus unlock through the same public intended harness and real browser/runtime surfaces. |
+| `tests/e2e/intended-behaviours/harness.ts` | keep | Intended contract harness. It owns real-infrastructure browser setup, event capture, signature verification, and prompt-count assertions for the five public lifecycle specs. |
 | `tests/e2e/intended-behaviours/mutation-self-check.manifest.json` | keep | Mutation proof manifest for the intended suite. It records known regression classes that must make the contract gate fail when reintroduced on scratch branches. |
 | `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts` | keep | Intended contract spec. It proves passkey registration, first NEAR/Tempo/Arc signing, spend exhaustion, step-up, post-step-up signing, and key export through real browser/runtime surfaces. |
+| `tests/e2e/intended-behaviours/passkey.registration.benchmark.test.ts` | keep | Intended benchmark spec. It measures passkey registration through the same public intended harness and real browser/runtime surfaces. |
 | `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts` | keep | Intended contract spec. It proves passkey unlock, NEAR/Tempo/Arc signing, spend exhaustion, step-up, post-step-up signing, and key export through real browser/runtime surfaces. |
+| `tests/e2e/intended-behaviours/recovery.email.contract.test.ts` | keep | Intended contract spec. It proves email recovery restores NEAR, Tempo, and Arc/EVM signing through public browser/runtime surfaces. This spec now owns the recovery lifecycle coverage that unblocks the older recovery cleanup rows. |
 | `tests/e2e/pricing.checkout.apiWiring.test.ts` | keep | Pricing checkout API-wiring browser coverage. It validates console checkout integration behaviour, outside wallet lifecycle authority. |
 | `tests/e2e/theme.colorThemer.validation.test.ts` | keep | Theme validation browser coverage. It verifies dashboard color theme validation and persistence UI behaviour, outside registration/signing lifecycle coverage. |
 | `tests/e2e/wallet-service-headers.test.ts` | keep | Wallet-service header smoke coverage. It validates wallet-origin response headers and remains useful alongside the static-origin and iframe lifecycle checks. |
@@ -1214,7 +1443,7 @@ Initial audit:
 | `tests/relayer/email-otp.authservice.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Email OTP AuthService suite is explicitly named by Phase 8 for rewrite-or-delete against the D1-canonical route-family harness. |
 | `tests/relayer/email-otp.route-helpers.test.ts` | keep | Email OTP route-helper coverage. It validates compact parser/response helper behaviour without carrying a mocked lifecycle fixture graph. |
 | `tests/relayer/email-otp.shamir3pass.test.ts` | keep | Email OTP Shamir 3-pass AuthService coverage. It checks cryptographic/session policy boundaries directly and is not replaced by the intended success flows. |
-| `tests/relayer/email-recovery.prepare.test.ts` | blocked_on_coverage(recovery) | Recovery prepare route coverage still uses `makeFakeAuthService`. Delete or replace after the fifth recovery intended spec covers recovery into signing. |
+| `tests/relayer/email-recovery.prepare.test.ts` | replace | Recovery prepare route coverage still uses `makeFakeAuthService`. The fifth recovery intended spec now covers recovery into signing; delete or replace this route-level fixture when the fake-AuthService relayer batch moves to the D1-canonical harness. |
 | `tests/relayer/express-router.test.ts` | blocked_on_coverage(90 F3 Express route deletion) | Large Express route suite is scheduled to die with the Express route implementations. Phase 8 names this file and records its 4,370-line deletion gate. |
 | `tests/relayer/health-wellknown.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Health and well-known route coverage still shares `makeFakeAuthService`. Keep until the D1 route-family harness can provide narrow service doubles. |
 | `tests/relayer/helpers.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Shared relayer helper module still exports `makeFakeAuthService`. Delete the fake AuthService branch when its last fake route suite is rewritten or deleted; retain only imported HTTP/Cloudflare primitives if still used. |
@@ -1233,9 +1462,9 @@ Initial audit:
 | `tests/relayer/threshold-ecdsa-role-local-passkey-bootstrap.test.ts` | keep | Threshold ECDSA role-local passkey bootstrap coverage. It verifies digest/key derivation and route boundary behaviour outside end-to-end signing lifecycle success. |
 | `tests/relayer/threshold-ecdsa.durable-stores.test.ts` | keep | Threshold ECDSA durable-store coverage. It validates durable object storage, replay guards, and pool/session store behaviour directly. |
 | `tests/relayer/threshold-ed25519.scheme-dispatch.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Threshold Ed25519 scheme-dispatch route coverage still uses `makeFakeAuthService`. Move surviving route-boundary assertions to the D1 route-family harness. |
-| `tests/unit/accountSignerLifecycle.domain.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned lifecycle source check. Refactor 89 Phase 3 owns retirement after discriminated unions, builders, and type fixtures make invalid lifecycle states unrepresentable. |
-| `tests/unit/authSecretTerminology.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned terminology source check. Retire through Refactor 89 once durable type/parser coverage owns secret vocabulary boundaries. |
-| `tests/unit/crossPlatformBoundaries.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned platform-boundary check. Refactor 89 Phase 4 decides whether this becomes durable package-boundary coverage or deletes after build graph checks replace it. |
+| `tests/unit/accountSignerLifecycle.domain.guard.unit.test.ts` | deleted | Deleted 118-line account signer lifecycle Playwright source guard after moving signer lifecycle write-field and shared signer-domain constant checks into `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, wired through `pnpm -C tests run check:account-signer-lifecycle-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/authSecretTerminology.guard.unit.test.ts` | deleted | Durable auth-neutral docs terminology check moved out of Playwright into `tests/scripts/check-auth-secret-terminology.mjs`, wired through `test:source-guards`. |
+| `tests/unit/crossPlatformBoundaries.guard.unit.test.ts` | deleted | Deleted 455-line cross-platform Playwright source guard after its platform API, secret-material, runtime-port, role-local persistence, signer-command schema, and export-material boundary checks moved into `tests/scripts/check-cross-platform-boundaries.mjs`, wired through `pnpm -C tests run check:cross-platform-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/d1StagingEvidenceVerify.script.unit.test.ts` | keep | D1 staging evidence verification script coverage. It validates deployment/runbook tooling outside wallet lifecycle contracts. |
 | `tests/unit/d1StagingFixtureImport.script.unit.test.ts` | keep | D1 staging fixture-import script coverage. It validates staging data import tooling outside mocked runtime lifecycle fixtures. |
 | `tests/unit/d1StagingKekCheck.script.unit.test.ts` | keep | D1 staging KEK check script coverage. It protects deployment secret-readiness tooling outside lifecycle success specs. |
@@ -1243,53 +1472,54 @@ Initial audit:
 | `tests/unit/d1StagingR2RestoreDrill.script.unit.test.ts` | keep | D1 staging R2 restore drill script coverage. It validates backup/restore runbook tooling. |
 | `tests/unit/d1StagingReadiness.script.unit.test.ts` | keep | D1 staging readiness script coverage. It checks staging preflight tooling outside SDK lifecycle behavior. |
 | `tests/unit/d1StagingReconciliation.script.unit.test.ts` | keep | D1 staging reconciliation script coverage. It validates reconciliation tooling for deployment state. |
+| `tests/unit/d1RegistrationCeremonyRecords.ecdsaWalletKeys.unit.test.ts` | keep | D1 registration ceremony record coverage. It verifies target-specific Tempo and Arc/EVM ECDSA wallet-key facts are preserved and duplicate target material is rejected before persistence. |
 | `tests/unit/d1StagingResourceInventory.script.unit.test.ts` | keep | D1 staging resource-inventory script coverage. It validates deployment inventory generation. |
 | `tests/unit/d1StagingRunbook.script.unit.test.ts` | keep | D1 staging runbook script coverage. It validates generated operator steps rather than wallet lifecycle behavior. |
 | `tests/unit/d1StagingSession.unit.test.ts` | keep | D1 staging session helper coverage. It verifies staging session parsing/state for deployment tooling. |
 | `tests/unit/d1StagingSignerCustody.script.unit.test.ts` | keep | D1 staging signer-custody script coverage. It protects custody/runbook checks outside the intended browser flows. |
 | `tests/unit/d1StagingSmoke.script.unit.test.ts` | keep | D1 staging smoke script coverage. It validates smoke-test orchestration for staging resources. |
 | `tests/unit/d1StagingTimeTravelBookmark.script.unit.test.ts` | keep | D1 staging time-travel bookmark script coverage. It validates staging recovery bookmark tooling. |
-| `tests/unit/emailOtpEcdsaBranchIsolation.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned Email OTP/ECDSA branch isolation check. Retire through Refactor 89 once branch-specific builders and boundary tests make cross-branch mixing unrepresentable. |
-| `tests/unit/emailOtpOperationSplit.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned Email OTP operation split check. Refactor 89 owns retirement after typed operation boundaries replace source scans. |
-| `tests/unit/emailOtpRecoveryCodeLeakage.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned recovery-code leakage source check. Retire after durable recovery secret-boundary tests own the invariant. |
-| `tests/unit/emailOtpSigningSession.deviceEscrow.behavior.guard.unit.test.ts` | blocked_on_coverage(recovery) | Device-escrow signing-session guard protects an uncovered recovery lifecycle. Delete or convert after the fifth recovery intended spec covers restore into signing. |
-| `tests/unit/indexedDBConsolidation.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned IndexedDB ownership check. Refactor 89 Phase 4 retires it after schema/repository tests cover persistence boundaries. |
-| `tests/unit/keyExport.behavior.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned key-export behavior check. Retire after intended export contracts plus direct export authorization tests cover the same invariant. |
-| `tests/unit/nonceCoordinator.durableArchitecture.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned durable architecture check. Refactor 89 decides whether this stays as durable package-boundary coverage or is replaced by build graph checks. |
-| `tests/unit/passkeyAuthMenuPublicEntry.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned public entrypoint check for the passkey auth menu. Retire after component/public-entry tests own the invariant. |
-| `tests/unit/passkeyRegistrationRollback.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Guard-owned rollback source check. Delete through Refactor 89 when registration rollback behavior is covered by typed state and direct tests. |
-| `tests/unit/refactor51bPackageExports.unit.test.ts` | keep | Package export contract coverage from Refactor 51B. It verifies public package surfaces and is durable API coverage, not a mocked lifecycle fixture. |
-| `tests/unit/refactor51bPackageInstallSmoke.unit.test.ts` | keep | Package install smoke coverage from Refactor 51B. It verifies package consumability and remains outside the wallet lifecycle contract matrix. |
-| `tests/unit/refactor51bPlatformBoundaries.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered platform boundary guard. Refactor 89 Phase 1 owns retirement once durable package-boundary checks replace it. |
-| `tests/unit/refactor51bRpIdContract.unit.test.ts` | keep | RP ID contract coverage from Refactor 51B. It validates WebAuthn origin/RP ID behavior directly. |
-| `tests/unit/refactor51bRuntimeEntryBundles.unit.test.ts` | keep | Runtime entry bundle coverage from Refactor 51B. It verifies package/runtime entrypoint shape rather than mocked lifecycle behavior. |
-| `tests/unit/refactor51bSeamsWebRename.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered legacy rename guard. Refactor 89 Phase 1 owns deletion after public export tests and source searches prove old names are absent. |
-| `tests/unit/refactor51bWebauthnOriginPolicy.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered WebAuthn origin-policy guard. Refactor 89 Phase 1 owns retirement after parser/unit tests cover origin policy. |
-| `tests/unit/refactor54Simplify.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered simplification guard. It is one of the Phase 8 Refactor 89 checklist candidates and deletes only when its replacement public API/signing-surface coverage is recorded. |
-| `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered headless-auth guard. It is a Refactor 89 Phase 1 cleanup candidate after public API and headless-auth behavior tests own the invariant. |
-| `tests/unit/refactor58OtpRegistrationSlim.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered OTP registration guard. Refactor 89 owns deletion after OTP registration behavior coverage replaces source-shape checks. |
-| `tests/unit/refactor67ReorgFolders.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered folder-layout guard. Refactor 89 owns replacement with package boundary/build graph checks. |
-| `tests/unit/refactor71WalletSessionNaming.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered wallet-session vocabulary guard. Delete through Refactor 89 after public API and route/session parser tests replace it. |
+| `tests/unit/emailOtpEcdsaBranchIsolation.guard.unit.test.ts` | deleted | Deleted 98-line Email OTP ECDSA branch-isolation Playwright source guard after moving central domain-brand ownership, passkey PRF persistence, wallet-subject vocabulary, and temporary diagnostic cleanup checks into `tests/scripts/check-email-otp-ecdsa-branch-isolation.mjs`, wired through `pnpm -C tests run check:email-otp-ecdsa-branch-isolation` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/emailOtpOperationSplit.guard.unit.test.ts` | deleted | Deleted 790-line Email OTP operation split Playwright source guard after moving transaction/export challenge separation, coordinator facade, exact-lane reauth, committed-lane export/sign/step-up, seal-transport, and diagnostics source checks into `tests/scripts/check-email-otp-operation-split.mjs`, wired through `pnpm -C tests run check:email-otp-operation-split` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/emailOtpRecoveryCodeLeakage.guard.unit.test.ts` | deleted | Deleted 186-line recovery-code leakage Playwright source guard after moving generated-key containment, plaintext-backup confinement, iframe exposure, logging/telemetry, storage, brand-cast, and backup-repository checks into `tests/scripts/check-email-otp-recovery-code-leakage.mjs`, wired through `pnpm -C tests run check:email-otp-recovery-code-leakage` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/emailOtpSigningSession.deviceEscrow.behavior.guard.unit.test.ts` | deleted | Deleted 205-line device-escrow Playwright source guard after the fifth recovery intended spec covered email recovery into signing and the surviving device-local `enc_s(S)`, recovery-wrapped escrow, zeroization, and lock-path checks moved into `tests/scripts/check-email-otp-device-escrow-boundaries.mjs`, wired through `pnpm -C tests run check:email-otp-device-escrow-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/indexedDBConsolidation.guard.unit.test.ts` | deleted | Deleted 64-line IndexedDB consolidation Playwright source guard after browser-backed `tests/unit/indexedDBConsolidation.unit.test.ts` owned schema/repository behavior and the remaining raw IndexedDB/clientDB escape checks moved into `tests/scripts/check-indexeddb-consolidation-boundaries.mjs`, wired through `pnpm -C tests run check:indexeddb-consolidation-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/keyExport.behavior.guard.unit.test.ts` | deleted | Deleted 66-line key-export Playwright source guard after intended contracts owned public exact-lane export success and the remaining AccountMenuButton/export-modal source-boundary checks moved into `tests/scripts/check-key-export-boundaries.mjs`, wired through `pnpm -C tests run check:key-export-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/nonceCoordinator.durableArchitecture.guard.unit.test.ts` | keep | Durable nonce coordinator architecture guard retained by Refactor 89. It protects nonce-lane storage/import boundaries unless package-boundary and nonce-lane repository tests replace the same invariant. |
+| `tests/unit/passkeyAuthMenuPublicEntry.guard.unit.test.ts` | deleted | Deleted 37-line PasskeyAuthMenu public-entrypoint source guard after pre-delete `rg` found no product/test use of `passkeyAuthMenuCompat` outside the guard and `tests/unit/packageExports.contract.unit.test.ts` took ownership of the SSR-safe `./react/passkey-auth-menu` public subpath plus compat-key rejection. `PasskeyAuthMenu` shell CSS now stays behind the explicit `@seams/sdk/react/styles` entrypoint so the public subpath imports in Node SSR. Replacement coverage: package export contract plus `tests/unit/passkeyAuthMenu.ssr.unit.test.ts`. |
+| `tests/unit/passkeyRegistrationRollback.guard.unit.test.ts` | deleted | Deleted 61-line passkey-registration rollback Playwright source guard after preserving its rollback-state, signer-set registration, and deleted continuation-auth checks in `tests/scripts/check-passkey-registration-rollback-boundaries.mjs`, wired through `pnpm -C tests run check:passkey-registration-rollback-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/packageExports.contract.unit.test.ts` | keep | Package export contract coverage. It verifies public package surfaces and is durable API coverage, not a mocked lifecycle fixture. |
+| `tests/unit/sdkPackageInstallSmoke.unit.test.ts` | keep | Package install smoke coverage. It verifies package consumability and remains outside the wallet lifecycle contract matrix. |
+| `tests/unit/platformRuntimeBoundaries.guard.unit.test.ts` | deleted | Deleted 348-line platform-runtime Playwright source guard after its runtime, browser adapter, native facade, WalletIframe import, and chain-signer routing boundary checks moved into `tests/scripts/check-platform-runtime-boundaries.mjs`, wired through `pnpm -C tests run check:platform-runtime-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/rpIdContract.unit.test.ts` | keep | RP ID contract coverage. It validates WebAuthn origin/RP ID behavior directly. |
+| `tests/unit/runtimeEntryBundles.unit.test.ts` | keep | Runtime entry bundle coverage. It verifies package/runtime entrypoint shape rather than mocked lifecycle behavior. |
+| `tests/unit/legacySeamsWebFacadeNames.guard.unit.test.ts` | deleted | Legacy SeamsWeb facade-name check moved out of Playwright into `tests/scripts/check-legacy-seams-web-facade-names.mjs`, wired through `test:source-guards`. |
+| `tests/unit/webauthnOriginPolicy.guard.unit.test.ts` | deleted | WebAuthn expected-origin check moved out of Playwright into `tests/scripts/check-webauthn-origin-policy.mjs`, wired through `test:source-guards`. |
+| `tests/unit/seamsWebPublicSurfaceBoundaries.guard.unit.test.ts` | deleted | Deleted 553-line SeamsWeb public-surface Playwright source guard after moving namespace split, signing-surface dependency, root export, import-direction, iframe primitive, auth-method folder, and native-facade checks into `tests/scripts/check-seams-web-public-surface-boundaries.mjs`, wired through `pnpm -C tests run check:seams-web-public-surface-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/headlessGoogleEmailOtpFlowBoundaries.guard.unit.test.ts` | deleted | Deleted 104-line headless Google Email OTP Playwright source guard after `googleEmailOtpWalletAuthFlow`, wallet-iframe handle, and PasskeyAuthMenu headless tests covered runtime paths and the remaining demo/public API/source-boundary checks moved into `tests/scripts/check-headless-google-email-otp-flow-boundaries.mjs`, wired through `pnpm -C tests run check:headless-google-email-otp-flow-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/emailOtpRegistrationBoundaries.guard.unit.test.ts` | deleted | Deleted 167-line Email OTP registration Playwright source guard after Email OTP registration flow, reroll, iframe-handle, route, and parser tests covered runtime paths and the remaining registration/reroll, backup-material, D1 activation-ordering, and parser source-boundary checks moved into `tests/scripts/check-email-otp-registration-boundaries.mjs`, wired through `pnpm -C tests run check:email-otp-registration-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/workspacePackageBoundaries.guard.unit.test.ts` | deleted | Deleted 108-line workspace package-boundary Playwright source guard after moving package-root, type-path, deployable-app import, and native import checks into `tests/scripts/check-workspace-package-boundaries.mjs`, wired through `pnpm -C tests run check:workspace-package-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/walletSessionVocabularyBoundaries.guard.unit.test.ts` | deleted | Deleted 366-line wallet-session vocabulary Playwright source guard after moving old signing-grant name bans, Router A/B Wallet Session JWT claim checks, docs terminology checks, signing auth-token naming checks, and `sessionId` classification allowlists into `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs`, wired through `pnpm -C tests run check:wallet-session-vocabulary-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/refactor73TypeFilename.guard.unit.test.ts` | deleted | Deleted 269-line Refactor-numbered Playwright source guard after moving the type-filename/source-layout rule into `tests/scripts/check-type-filename-source.mjs`, wired through `pnpm -C tests run check:type-filename-source` and `pnpm -C tests run test:source-guards`. |
-| `tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered legacy fallback guard. It is a Phase 8 cleanup candidate once exact lane/session tests cover lookup behavior. |
-| `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered LoginNoHss guard. Refactor 89 owns deletion after generated worker command types and HSS tests cover the boundary. |
-| `tests/unit/refactor76BrandedKeys.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered branded-key guard. Delete through Refactor 89 after constructor/parser tests and type fixtures replace unsafe-cast scans. |
-| `tests/unit/refactor79ExactSigningLane.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered exact-lane guard. Refactor 89 Phase 1 owns retirement after exact-lane builders, behavior tests, and HSS vectors replace source scans. |
-| `tests/unit/refactor80SwitchCase.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered switch-case guard. Refactor 89 owns deletion after parser tests and exhaustive union fixtures cover route/lifecycle control flow. |
-| `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | D1 runtime source guard. Retire after 82B D1-canonical routes and adapter tests make the guarded runtime boundaries structural. |
-| `tests/unit/refactor83CapabilitySubjects.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered capability-subject guard. Refactor 89 ledger owns its retirement after activation/public/message types and component behavior tests replace it. |
-| `tests/unit/refactor8xRegistrationButton.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Refactor-numbered registration-button guard. Delete through Refactor 89 after retained component tests own registration button behavior. |
-| `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Router A/B source guard. Refactor 89 Phase 2 owns retirement after route-definition, SDK relayer, and local/cloudflare parity tests cover active topology. |
-| `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Router A/B wallet-session claim boundary guard. Retire through Refactor 89 after server route parser/JWT claim tests own the boundary. |
-| `tests/unit/signer-worker.guards.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Signer-worker source guard coverage. Refactor 89 decides whether surviving invariants become durable worker protocol tests. |
-| `tests/unit/signerDomain.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Signer-domain source guard. Retire after domain types and parser/type fixtures make invalid signer states unrepresentable. |
-| `tests/unit/signingEngineArchitecture.flows.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Signing-engine architecture guard family. Refactor 89 Phase 4 owns conversion to durable package-boundary tests or deletion. |
-| `tests/unit/signingEngineArchitecture.ownership.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Signing-engine ownership guard. Refactor 89 Phase 4 owns retirement after package/module boundaries enforce ownership. |
-| `tests/unit/signingEngineArchitecture.state.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Signing-engine state guard. Refactor 89 owns retirement after lifecycle state is represented by closed unions and type fixtures. |
-| `tests/unit/signingEngineArchitecture.threshold.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Signing-engine threshold guard. Refactor 89 owns conversion or deletion after threshold module boundaries and protocol tests replace source scans. |
-| `tests/unit/signingEngineEcdsaIdentity.exportAndFixtures.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | ECDSA identity export/fixture guard. Refactor 89 Phase 3 owns deletion after ECDSA identity parser/export tests cover the invariant. |
-| `tests/unit/signingEngineEcdsaIdentity.lifecycle.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | ECDSA identity lifecycle guard. Refactor 89 owns retirement after lifecycle builders and behavior tests replace source scans. |
-| `tests/unit/signingEngineEcdsaIdentity.publicSurfaces.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | ECDSA identity public-surface guard. Refactor 89 owns deletion after public API and parser tests enforce the boundary. |
+| `tests/unit/exactLookupNoFallbackBoundaries.guard.unit.test.ts` | deleted | Deleted 415-line exact lookup / no-fallback Playwright source guard after moving legacy fallback bans, display-only policy fallback checks, exact reconnect planning, duplicate-record/fail-closed lookup assertions, boundary parser fallback checks, typed restore outcomes, and PRF-cache exclusion checks into `tests/scripts/check-exact-lookup-no-fallback-boundaries.mjs`, wired through `pnpm -C tests run check:exact-lookup-no-fallback-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/ed25519HssMaterialBoundaries.guard.unit.test.ts` | deleted | Deleted 1,448-line Ed25519 HSS material-boundary Playwright source guard after moving prepared issuer command, worker-owned handle, raw material marker, restore persistence, recovery-code authorization, and active session-state source checks into `tests/scripts/check-ed25519-hss-material-boundaries.mjs`, wired through `pnpm -C tests run check:ed25519-hss-material-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/keyMaterialBrandingBoundaries.guard.unit.test.ts` | deleted | Deleted 620-line key-material branding Playwright source guard after moving grant-lifecycle, branded key-version parser, ECDSA lifecycle identity, second-tier material brand, WebAuthn RP ID vs NEAR signing-key ID, signing-session seal key, and EVM-family signing key slot checks into `tests/scripts/check-key-material-branding-boundaries.mjs`, wired through `pnpm -C tests run check:key-material-branding-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/exactSigningLaneAuthorityBoundaries.guard.unit.test.ts` | deleted | Deleted 990-line exact signing-lane authority Playwright source guard after moving exact identity, fallback selector, export transport, HSS context, Ed25519 mutation, ECDSA server-record, signer-slot, lane-key, grant-clearing, availability, unsafe-cast, and selected-wallet profile checks into `tests/scripts/check-exact-signing-lane-authority-boundaries.mjs`, wired through `pnpm -C tests run check:exact-signing-lane-authority-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/routeLifecycleDomainBoundaries.guard.unit.test.ts` | deleted | Deleted 588-line route/lifecycle Playwright source guard after moving unsafe-cast bans, normalized confirmation config, type-only imports, nonce lifecycle state, public result branch checks, request parser boundaries, absent link-device routes, auth provider mutation parsing, ECDSA key-identity inventory, legacy Ed25519 HSS branch bans, and threshold/session exchange route parser checks into `tests/scripts/check-route-lifecycle-domain-boundaries.mjs`, wired through `pnpm -C tests run check:route-lifecycle-domain-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` | deleted | Deleted 2,786-line D1 runtime Playwright source guard after moving the D1/DO runtime graph, staging/docs, structural Router API services, registration ceremony split, and HSS/authority boundary checks into `tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs`, wired through `pnpm -C tests run check:cloudflare-d1-runtime-boundaries` and `pnpm -C tests run test:source-guards`. Refactor 82/90 still own the product/runtime cleanup gates named on the retained relayer and budget rows. |
+| `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` | deleted | Deleted 485-line registration/capability subject Playwright source guard after moving role-local ECDSA handle ownership, wallet unlock subject, visible iframe passkey registration, prepared registration route, registration precompute, active-state/persistence-subject, Email OTP commit, and unlock activation-plan checks into `tests/scripts/check-registration-capability-subjects.mjs`, wired through `pnpm -C tests run check:registration-capability-subjects` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/passkeyRegistrationButtonBoundaries.guard.unit.test.ts` | deleted | Deleted 47-line passkey registration-button Playwright source guard after retained Lit component tests owned button behavior and its static import-independence check moved into `tests/scripts/check-passkey-registration-button-boundaries.mjs`, wired through `pnpm -C tests run check:passkey-registration-button-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` | deleted | Deleted 1,181-line Router A/B normal-signing SDK Playwright source guard after moving local topology, Wallet Session request-builder, active material/readiness, route-core, legacy-route, and budget/reconciliation source checks into `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`, wired through `pnpm -C tests run check:router-ab-normal-signing-sdk-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts` | deleted | Deleted 139-line Router A/B wallet-session claim boundary Playwright source guard after moving legacy claim-kind bans, exact claim-builder checks, canonical ECDSA-HSS scope comparison checks, and internal-auth helper checks into `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`, wired through `test:source-guards`. |
+| `tests/unit/signer-worker.guards.test.ts` | keep | Durable signer-worker protocol coverage. Refactor 89 classified the surviving invariants as worker secret-field rejection checks; the file stays under explicit browser/unit validation, not the source-guard profile. |
+| `tests/unit/signerDomain.guard.unit.test.ts` | deleted | Deleted 46-line signer-domain source guard after folding its wallet/signer shared-constant checks into account signer lifecycle coverage. Those checks now live in `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, including the `packages/sdk-web/src/core/types/seams.ts` coverage that was unique to the deleted guard. |
+| `tests/unit/signingEngineArchitecture.flows.guard.unit.test.ts` | deleted | Deleted 380-line signing-engine flow architecture Playwright source guard after moving the source-boundary checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/signingEngineArchitecture.ownership.guard.unit.test.ts` | deleted | Deleted 297-line signing-engine ownership architecture Playwright source guard after moving the README, session-domain, coordinator, and sibling-import checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/signingEngineArchitecture.state.guard.unit.test.ts` | deleted | Deleted 244-line signing-engine state architecture Playwright source guard after moving the selected-lane, lifecycle-state, execution-boundary, and duplicate-shape checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/signingEngineArchitecture.threshold.guard.unit.test.ts` | deleted | Deleted 109-line signing-engine threshold architecture Playwright source guard after moving the threshold/session-boundary and warm-session cache checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/signingEngineEcdsaIdentity.exportAndFixtures.guard.unit.test.ts` | deleted | Deleted 214-line ECDSA export/fixture identity Playwright source guard after moving the source-boundary checks into `tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-ecdsa-identity-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/signingEngineEcdsaIdentity.lifecycle.guard.unit.test.ts` | deleted | Deleted 385-line ECDSA lifecycle identity Playwright source guard after moving lifecycle, parser, logging, activation, cast, and spread checks into `tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-ecdsa-identity-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/signingEngineEcdsaIdentity.publicSurfaces.guard.unit.test.ts` | deleted | Deleted 449-line ECDSA public-surface identity Playwright source guard after moving public API, iframe payload, key-ref, role-local bootstrap, and WASM export checks into `tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-ecdsa-identity-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/signingRootKekProvider.script.unit.test.ts` | keep | Signing-root KEK provider script coverage. It validates deployment secret tooling outside browser lifecycle contracts. |
 | `tests/unit/signingRootRecords.script.unit.test.ts` | keep | Signing-root records script coverage. It validates signing-root persistence/runbook tooling. |
 | `tests/unit/signingRootScope.script.unit.test.ts` | keep | Signing-root scope script coverage. It verifies signing-root scope parsing and deployment script behavior. |
@@ -1299,11 +1529,11 @@ Initial audit:
 | `tests/unit/signingRootSecretStore.script.unit.test.ts` | keep | Signing-root secret store script coverage. It validates secret storage tooling and boundary parsing. |
 | `tests/unit/signingRootSecretWires.script.unit.test.ts` | keep | Signing-root secret wire script coverage. It validates generated wire payloads for signing-root secrets. |
 | `tests/unit/signingRootShareResolver.script.unit.test.ts` | keep | Signing-root share resolver script coverage. It validates deployment-time share resolution. |
-| `tests/unit/stableExperimentalExportBoundaries.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Stable/experimental export guard. Refactor 89 Phase 4 owns retirement after package entrypoint tests enforce the public boundary. |
-| `tests/unit/thresholdEcdsa.behavior.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Threshold ECDSA behavior guard. Retire after direct threshold ECDSA behavior tests and protocol vectors replace source guard assertions. |
-| `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Threshold Ed25519 NEAR signing queue guard. Refactor 89 owns retirement after queue behavior tests and route/parser checks replace source scans. |
-| `tests/unit/thresholdEd25519PresignNonceLifecycle.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Threshold Ed25519 presign nonce lifecycle guard. Retire after direct nonce lifecycle tests own the invariant. |
-| `tests/unit/walletScopedLookups.guard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Wallet-scoped lookup source guard. Refactor 89 Phase 3 owns deletion after exact lookup function tests and type fixtures reject account-scoped fallbacks. |
+| `tests/unit/stableExperimentalExportBoundaries.guard.unit.test.ts` | deleted | Deleted 15-line stable/experimental package export boundary guard after moving the root-internal-export, experimental-directory, and experimental-subpath assertions into `tests/unit/packageExports.contract.unit.test.ts`. Replacement coverage: `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/packageExports.contract.unit.test.ts --reporter=line`. |
+| `tests/unit/thresholdEcdsa.behavior.guard.unit.test.ts` | deleted | Deleted 151-line ECDSA HSS Playwright source guard after moving old-v1 deletion, role-local authorization, refill wiring, and no-export-material checks into `tests/scripts/check-threshold-ecdsa-hss-boundaries.mjs`, wired through `test:source-guards`. |
+| `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts` | deleted | Deleted 462-line threshold Ed25519 NEAR signing queue Playwright source guard after moving queue-wrapper, Email OTP Ed25519 warm-up wait, no ECDSA restore side-effect, material-aware step-up, wallet-session spend recording, passkey unlock restore, worker-material readiness, no raw client-base reads, shared budget consumption, export no-spend, and Router A/B normal-signing checks into `tests/scripts/check-threshold-ed25519-near-signing-queue.mjs`, wired through `pnpm -C tests run check:threshold-ed25519-near-signing-queue` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/thresholdEd25519PresignNonceLifecycle.guard.unit.test.ts` | deleted | Deleted 60-line Ed25519 presign nonce lifecycle Playwright source guard after moving the burn-order and CSPRNG handle assertions into `tests/scripts/check-threshold-ed25519-presign-nonce-lifecycle.mjs`, wired through `test:source-guards`. |
+| `tests/unit/walletScopedLookups.guard.unit.test.ts` | deleted | Deleted 250-line wallet-scoped lookup Playwright source guard after moving the D1 wallet-id parser behavior assertion into `tests/unit/domainIds.boundary.unit.test.ts` and the remaining wallet-scoped lookup / NEAR projection source checks into `tests/scripts/check-wallet-scoped-lookup-boundaries.mjs`, wired through `pnpm -C tests run check:wallet-scoped-lookup-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/activateSigningSessionUseCase.unit.test.ts` | keep | Focused signing-session activation use-case coverage. It validates a compact domain transition outside browser lifecycle success paths. |
 | `tests/unit/addWalletSigner.orchestration.unit.test.ts` | keep | Add-wallet-signer orchestration coverage. It verifies signer mutation sequencing and validation without replaying full registration/signing flows. |
 | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` | keep | AuthService hosted-account privacy coverage. It validates server-side privacy boundaries directly. |
@@ -1515,8 +1745,8 @@ Initial audit:
 | `tests/unit/vite-wallet-corp.unit.test.ts` | keep | Vite wallet CORP coverage. It validates dev-server header behavior for wallet assets. |
 | `tests/unit/walletAuthAuthority.shared.unit.test.ts` | keep | Shared wallet-auth authority coverage. It validates authority construction and parsing. |
 | `tests/unit/walletAuthMethodStore.unit.test.ts` | keep | Wallet auth-method store coverage. It validates persistence behavior for auth methods. |
-| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | blocked_on_coverage(Refactor 89 source guard cleanup) | Source-guard allowlist owned by Refactor 89. Delete when `walletCapabilityBindings.sourceGuard.unit.test.ts` retires or the allowlist reaches zero entries. |
-| `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | blocked_on_coverage(Refactor 89 source guard cleanup) | Wallet capability binding source guard. Refactor 89 Phase 3 owns retirement after binding builders and type fixtures reject invalid wallet/account combinations. |
+| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | blocked_on_coverage(Refactor 89 source guard cleanup) | Source-guard allowlist owned by Refactor 89. Ten documented live entries remain after stale-entry pruning; `tests/scripts/check-wallet-capability-bindings-source-guard.mjs` now rejects allowlist entries with no matching source pattern. Delete when the allowlist reaches zero entries. |
+| `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | deleted | Deleted 272-line wallet capability binding Playwright source guard after moving identity fallback bans, stale unit session fixture checks, optional core identity field checks, and allowlist documentation validation into `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`, wired through `pnpm -C tests run check:wallet-capability-bindings-source-guard` and `pnpm -C tests run test:source-guards`. The allowlist file remains active because the standalone check still consumes it. |
 | `tests/unit/walletIframeHost.configGuards.test.ts` | keep | Wallet iframe host config guard coverage. It validates iframe host config invariants directly. |
 | `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts` | keep | Wallet iframe host Email OTP recovery-code coverage. It validates recovery-code iframe handling. |
 | `tests/unit/walletIframeHost.exportUi.unit.test.ts` | keep | Wallet iframe host export UI coverage. It validates export UI host behavior. |
@@ -1548,10 +1778,10 @@ Initial audit:
 | `tests/unit/webauthnPromptCredentialSelection.unit.test.ts` | keep | WebAuthn prompt credential-selection coverage. It validates credential selection behavior. |
 | `tests/unit/workerTransport.multichainTimeout.unit.test.ts` | keep | Worker transport multichain timeout coverage. It validates timeout behavior across chain-family worker requests. |
 
-Ledger checkpoint, July 4, 2026:
+Ledger checkpoint, July 5, 2026:
 
-- [x] `pnpm -C tests check:refactor88-test-ledger:complete` reports
-  `scope=455 ledger_existing=455 ledger_deleted=6 missing=0`.
+- [x] `pnpm -C tests run check:refactor88-test-ledger:complete` reports
+  `scope=414 ledger_existing=414 ledger_deleted=52 missing=0`.
 - [x] Current `tests/unit/helpers/*.ts` files all have surviving importers; no
   zero-importer helper deletion was available in this inventory pass.
 
@@ -1676,7 +1906,7 @@ Current blocker to deleting the remaining fake AuthService surface:
   the intended-behaviour harness cleanup. Refactor 88 now guards intended
   contracts away from these surfaces while leaving the existing router boundary
   tests intact.
-- `tests/unit/refactor88IntendedE2e.guard.unit.test.ts` now quarantines
+- `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` now quarantines
   `makeFakeAuthService` references to `tests/relayer/**` and two explicit
   Router boundary unit files.
 
@@ -1835,14 +2065,6 @@ Ungated — start now:
       coverage, package-boundary build checks, Refactor 90 vocabulary cleanup,
       HSS/worker command type fixtures, branded parser/type fixtures, and
       route parser/exhaustive-union fixtures.
-- [ ] Split `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts`
-      (6,695 lines — the largest test file in the repo, named after a facade
-      82B already deleted) into per-route-family suites. Delete the
-      facade-era sections and the rows the intended contracts or relayer
-      route suites already prove.
-      Current status: recorded in the Phase 5 ledger as
-      `blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup)` because 82B
-      still lists Phase 11 deployment/CI gate work as open.
 - [x] Delete `tests/setup/webauthn-mocks.ts` (598 lines) after converting its
       remaining consumers to the CDP virtual authenticator; shrink
       `tests/setup/bootstrap.ts` and `tests/setup/cross-origin-headers.ts` to
@@ -1854,6 +2076,15 @@ Ungated — start now:
 
 Gated — each task names its gate and fires in the same change:
 
+- [ ] Gate: Refactor 82 Phase 11/12 lands the D1-canonical route-family
+      harness (`routes-d1` — that harness is an 82 deliverable, not a test
+      chore here). Split
+      `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts` (6,695 lines,
+      the largest test file in the repo, named after a facade 82B already
+      deleted) into per-route-family suites. Delete the facade-era sections and
+      the rows the intended contracts or relayer route suites already prove.
+      Current status: recorded in the Phase 5 ledger as
+      `blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup)`.
 - [ ] Gate: Refactor 90 F3 deletes the Express route implementations
       (Decided Point 11). Delete `tests/relayer/express-router.test.ts`
       (4,370 lines) in that same change.
@@ -1873,12 +2104,17 @@ Gated — each task names its gate and fires in the same change:
       consumption (Decided Point 13). Delete the budget
       reservation/projection/coordinator suites with the subsystem, keeping
       only the operation-fingerprint concurrency coverage that survives.
-- [ ] Gate: the fifth (recovery) intended spec lands. Delete the
-      `blocked_on_coverage(recovery)` ledger batch in that change.
+- [x] Gate: the fifth (recovery) intended spec lands. The recovery lifecycle is
+      now covered by `tests/e2e/intended-behaviours/recovery.email.contract.test.ts`.
+      July 5, 2026 validation: focused recovery passes in 30.6s against a
+      clean managed stack, and `pnpm -C tests run test:intended:ci` passes all
+      five intended contracts in 4.5m. The former
+      `blocked_on_coverage(recovery)` ledger rows are now reclassified to
+      replacement cleanup work.
 
 Phase exit:
 
-- [ ] Every ungated deletion above is done and recorded with file/line
+- [x] Every ungated deletion above is done and recorded with file/line
       counts.
 - [ ] Every gated deletion has its gate named on its ledger rows, and fired
       deletions landed in the same change as their gate.
@@ -1892,14 +2128,14 @@ Phase exit:
 - Refactors touching auth/session/signing/export must run `pnpm test:intended`.
 - Manual testing is used for UX polish, not for discovering lifecycle contract
   regressions.
-- The suite stays at four lifecycle specs unless a new auth factor, a new
-  signer family, or an existing uncovered user-visible lifecycle justifies
-  one. Recovery (email recovery, recovery-code restore, device-escrow restore
-  into signing) is the named fifth-spec candidate, deferred until the four
-  land; any new recovery regression promotes it immediately.
+- The suite stays small: new specs require a new auth factor, a new signer
+  family, or an existing uncovered user-visible lifecycle. Recovery is now the
+  fifth lifecycle spec, starting with email recovery into signing; recovery-code
+  restore and device-escrow restore remain follow-up coverage inside that
+  lifecycle family.
 - `pnpm check:intended-mutation-self-check:complete` must pass before this
-  refactor can be declared complete; current open blockers stay tracked in
-  Phase 3B until every seeded regression row is `detected`.
+  refactor can be declared complete; every Phase 3B seeded regression row now
+  records detected proof evidence.
 - Mocked runtime fixture tests no longer block runtime refactors.
 - The Phase 5 ledger covers every file under the six test directories — no
   unaudited files remain — and deletions are recorded with file/line counts.
@@ -1908,3 +2144,11 @@ Phase exit:
   gated deletion fired in the same change as its named gate.
 - Intended e2e tests have one setup entrypoint and cannot import mocked setup
   helpers.
+- Current supporting validation, July 5, 2026:
+  `pnpm -C packages/sdk-web type-check`,
+  `pnpm -C apps/seams-site run typecheck`,
+  `pnpm -C tests run test:intended:ci`,
+  `pnpm -C tests run check:intended-mutation-self-check:complete`,
+  `pnpm -C tests run check:intended-behaviour-contract-boundaries`,
+  `pnpm -C tests run check:refactor88-test-ledger:complete`, and
+  `pnpm -C tests run test:source-guards` all pass.

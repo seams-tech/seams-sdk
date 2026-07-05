@@ -9,7 +9,19 @@ export const SIGNER_MATERIAL_FINGERPRINT_METADATA_KEY = 'signerMaterialFingerpri
 export type SignerActivationPolicy =
   | { mode: 'reuse_existing'; signerId: string; materialFingerprint: string }
   | { mode: 'allocate_next_free' }
-  | { mode: 'fail_if_occupied'; signerSlot: number };
+  | { mode: 'fail_if_occupied'; signerSlot: number }
+  | {
+      mode: 'replace_slot';
+      signerSlot: number;
+      replacedSignerKind: SignerKind;
+      revocationReason: string;
+    }
+  | {
+      mode: 'replace_profile_chain_kind';
+      signerSlot: number;
+      replacedSignerKind: SignerKind;
+      revocationReason: string;
+    };
 
 export type PlanAccountSignerActivationInput = {
   activeSigners: readonly (Pick<
@@ -220,6 +232,23 @@ export function planAccountSignerActivation(
     );
   }
 
+  if (
+    input.activationPolicy.mode === 'replace_slot' ||
+    input.activationPolicy.mode === 'replace_profile_chain_kind'
+  ) {
+    if (input.activationPolicy.replacedSignerKind !== signerKind) {
+      throw new SignerLifecycleError({
+        code: 'signer_lifecycle_invalid_input',
+        message: 'replacement activation policy signer kind must match signer.signerKind',
+        details: {
+          signerKind,
+          replacedSignerKind: input.activationPolicy.replacedSignerKind,
+        },
+      });
+    }
+    normalizeNonEmpty(input.activationPolicy.revocationReason, 'activationPolicy.revocationReason');
+  }
+
   if (existingSigner) {
     if (input.activationPolicy.mode === 'reuse_existing') {
       assertExistingSignerMaterialMatches({
@@ -266,6 +295,18 @@ export function planAccountSignerActivation(
     }
     return {
       signerSlot,
+    };
+  }
+
+  if (
+    input.activationPolicy.mode === 'replace_slot' ||
+    input.activationPolicy.mode === 'replace_profile_chain_kind'
+  ) {
+    return {
+      signerSlot: normalizeRequiredPositiveInteger(
+        input.activationPolicy.signerSlot,
+        'signerSlot',
+      ),
     };
   }
 

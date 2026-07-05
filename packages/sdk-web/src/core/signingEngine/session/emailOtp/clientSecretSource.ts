@@ -173,3 +173,27 @@ export async function prepareRecoveryCodeUnsealAuthorizationForEmailOtp(args: {
     zeroizeSecretBytes(recoveryCodeSecret32);
   }
 }
+
+export async function prepareEmailOtpEd25519UnlockMaterialAuthorization(args: {
+  materialBindingDigest: string;
+  providerUserId: string;
+  rpId: string;
+  nearAccountId: string;
+  recoveryCodeSecret32B64u: string;
+  expiresAtMs: number;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult> {
+  const recoveryCodeBindingDigest = await recoveryCodeBindingDigestForEmailOtpMaterial({
+    providerUserId: args.providerUserId,
+    rpId: args.rpId,
+    nearAccountId: args.nearAccountId,
+  });
+  return await prepareRecoveryCodeUnsealAuthorizationForEmailOtp({
+    materialBindingDigest: args.materialBindingDigest,
+    providerUserId: args.providerUserId,
+    recoveryCodeBindingDigest,
+    recoveryCodeSecret32B64u: args.recoveryCodeSecret32B64u,
+    expiresAtMs: args.expiresAtMs,
+    workerCtx: args.workerCtx,
+  });
+}

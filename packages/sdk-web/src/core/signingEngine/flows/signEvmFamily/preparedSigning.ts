@@ -16,7 +16,7 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import {
   availableEcdsaSigningLaneAuthMethod,
-  buildReauthAnchorIdentityFromAvailableLane,
+  buildReauthAnchorIdentityFromEcdsaLaneCandidate,
   ecdsaAvailableLaneCandidatesForTarget,
   isConcreteAvailableSigningLane,
 } from '../../session/availability/availableSigningLanes';
@@ -729,7 +729,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         const laneRequiresFreshAuth =
           laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted';
         const reauthAnchor = laneRequiresFreshAuth
-          ? buildReauthAnchorIdentityFromAvailableLane({
+          ? buildReauthAnchorIdentityFromEcdsaLaneCandidate({
               walletId,
               operationId: SigningSessionIds.signingOperation(
                 input.operation?.operationId ||
@@ -746,7 +746,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
                     thresholdSessionId: laneCandidate.thresholdSessionId,
                   },
                 })),
-              lane: selectedAvailableLane,
+              candidate: laneCandidate,
             })
           : null;
         if (laneRequiresFreshAuth && !reauthAnchor) {

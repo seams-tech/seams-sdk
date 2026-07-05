@@ -15,8 +15,11 @@ import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/sessio
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
+  buildOperationUsableThresholdEd25519SessionRecord,
+  buildThresholdEd25519SessionFact,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   thresholdEcdsaLaneCandidateFromSessionRecord,
+  type OperationUsableThresholdEd25519SessionRecord,
   type ThresholdEcdsaSessionRecord,
   upsertThresholdEcdsaSessionFact,
 } from '@/core/signingEngine/session/persistence/records';
@@ -30,6 +33,7 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
   walletSessionRefFromSession,
@@ -75,6 +79,7 @@ import {
   nearEd25519SignerBindingFromRaw,
   type NearEd25519SignerBinding,
 } from '@shared/utils/walletCapabilityBindings';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
@@ -249,10 +254,6 @@ function requireTestEd25519SignerBinding(): NearEd25519SignerBinding {
 }
 
 const TEST_ED25519_SIGNER = requireTestEd25519SignerBinding();
-const TEST_ECDSA_BACKEND_BINDING = {
-  relayerKeyId: 'relayer-key',
-  clientVerifyingShareB64u: 'verifying-share',
-};
 const VALID_ECDSA_PUBLIC_KEY_B64U = Buffer.from(new Uint8Array([2, ...Array(32).fill(1)])).toString(
   'base64url',
 );
@@ -322,6 +323,7 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
   rpId: string;
   chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
   keyHandle: string;
+  evmFamilySigningKeySlotId?: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -337,11 +339,13 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.walletId),
-      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-        walletId: args.walletId,
-        signingRootId: args.signingRootId,
-        signingRootVersion: args.signingRootVersion,
-      }),
+      evmFamilySigningKeySlotId:
+        args.evmFamilySigningKeySlotId ||
+        deriveEvmFamilySigningKeySlotId({
+          walletId: args.walletId,
+          signingRootId: args.signingRootId,
+          signingRootVersion: args.signingRootVersion,
+        }),
       chainTarget: args.chainTarget,
       keyHandle: args.keyHandle,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
@@ -417,6 +421,15 @@ function makeEmailOtpEcdsaRecordForSelection(args: {
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     walletSessionJwt: `${args.thresholdSessionId}-jwt`,
+    routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigningFixture({
+      walletId: TEST_SUBJECT_ID,
+      evmFamilySigningKeySlotId,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+      ethereumAddress,
+      thresholdSessionId: args.thresholdSessionId,
+    }),
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
     emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
@@ -509,6 +522,266 @@ function thresholdEcdsaSessionJwt(args: {
   })}.sig`;
 }
 
+function hexAddress20B64u(address: `0x${string}`): string {
+  const hex = address.replace(/^0x/, '');
+  if (hex.length !== 40) {
+    throw new Error(`invalid ECDSA address fixture: ${address}`);
+  }
+  const bytes = new Uint8Array(20);
+  for (let index = 0; index < bytes.length; index += 1) {
+    const hexByte = hex.slice(index * 2, index * 2 + 2);
+    const value = Number.parseInt(hexByte, 16);
+    if (!Number.isFinite(value)) {
+      throw new Error(`invalid ECDSA address fixture: ${address}`);
+    }
+    bytes[index] = value;
+  }
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function routerAbEcdsaHssNormalSigningFixture(args: {
+  walletId: string;
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  ethereumAddress: `0x${string}`;
+  thresholdSessionId: string;
+  clientVerifyingShareB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
+}): RouterAbEcdsaHssNormalSigningStateV1 {
+  const clientPublicKey33B64u = args.clientVerifyingShareB64u || VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U;
+  const thresholdPublicKey33B64u = args.thresholdEcdsaPublicKeyB64u || VALID_ECDSA_PUBLIC_KEY_B64U;
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      wallet_key_id: args.evmFamilySigningKeySlotId,
+      wallet_id: args.walletId,
+      ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
+      signing_root_id: args.signingRootId,
+      signing_root_version: args.signingRootVersion,
+      context: {
+        application_binding_digest_b64u: VALID_ECDSA_APPLICATION_BINDING_DIGEST_B64U,
+      },
+      public_identity: {
+        context_binding_b64u: VALID_ECDSA_CONTEXT_BINDING_B64U,
+        client_public_key33_b64u: clientPublicKey33B64u,
+        server_public_key33_b64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+        threshold_public_key33_b64u: thresholdPublicKey33B64u,
+        ethereum_address20_b64u: hexAddress20B64u(args.ethereumAddress),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-test',
+        key_epoch: 'worker-epoch-test',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: args.thresholdSessionId,
+    },
+  };
+}
+
+function emailOtpWorkerBackendBindingFixture(args: {
+  walletId: string;
+  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
+  keyHandle: string;
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  ethereumAddress: `0x${string}`;
+  thresholdSessionId: string;
+}) {
+  return {
+    materialKind: 'email_otp_worker_handle' as const,
+    relayerKeyId: 'relayer-key',
+    clientVerifyingShareB64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
+    clientAdditiveShareHandle: {
+      kind: 'email_otp_worker_session' as const,
+      sessionId: `email-otp-worker-${args.thresholdSessionId}`,
+    },
+    ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord({
+      walletId: args.walletId,
+      rpId: 'localhost',
+      chainTarget: args.chainTarget,
+      keyHandle: args.keyHandle,
+      evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      signingRootId: args.signingRootId,
+      signingRootVersion: args.signingRootVersion,
+      ethereumAddress: args.ethereumAddress,
+    }),
+  };
+}
+
+function emailOtpWorkerEcdsaBootstrapFixture(args: {
+  call: any;
+  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
+  evmFamilySigningKeySlotId?: string;
+  remainingUses?: number;
+}) {
+  const payload = args.call.request.payload;
+  const walletId = payload.walletId || 'alice.testnet';
+  const thresholdSessionId = payload.sessionId || 'ecdsa-session';
+  const signingGrantId = payload.signingGrantId || thresholdSessionId;
+  const keyHandle = 'key-handle-ecdsa';
+  const ecdsaThresholdKeyId = 'ecdsa-key';
+  const signingRootId = 'signing-root';
+  const signingRootVersion = 'root-v1';
+  const ethereumAddress = `0x${'33'.repeat(20)}` as `0x${string}`;
+  const evmFamilySigningKeySlotId =
+    args.evmFamilySigningKeySlotId ||
+    deriveEvmFamilySigningKeySlotId({
+      walletId: toWalletId(walletId),
+      signingRootId,
+      signingRootVersion,
+      chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
+    });
+  const routerAbEcdsaHssNormalSigning = routerAbEcdsaHssNormalSigningFixture({
+    walletId,
+    evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    ethereumAddress,
+    thresholdSessionId,
+  });
+  const walletSessionJwt = thresholdEcdsaSessionJwt({
+    walletId,
+    keyHandle,
+    thresholdSessionId,
+    signingGrantId,
+    chainTarget: args.chainTarget,
+  });
+  const remainingUses = args.remainingUses ?? 3;
+  return {
+    thresholdEcdsaKeyRef: {
+      type: 'threshold-ecdsa-secp256k1',
+      userId: walletId,
+      subjectId: payload.subjectId,
+      relayerUrl: payload.relayUrl || 'https://relay.example',
+      keyHandle,
+      evmFamilySigningKeySlotId,
+      ecdsaThresholdKeyId,
+      chainTarget: args.chainTarget,
+      ethereumAddress,
+      thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+      thresholdSessionId,
+      signingGrantId,
+      thresholdSessionKind: 'jwt',
+      walletSessionJwt,
+      participantIds: [1, 3],
+      routerAbEcdsaHssNormalSigning,
+      backendBinding: emailOtpWorkerBackendBindingFixture({
+        walletId,
+        chainTarget: args.chainTarget,
+        keyHandle,
+        evmFamilySigningKeySlotId,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion,
+        ethereumAddress,
+        thresholdSessionId,
+      }),
+    },
+    keygen: {
+      ok: true,
+      evmFamilySigningKeySlotId,
+    },
+    session: {
+      ok: true,
+      thresholdSessionId,
+      sessionId: thresholdSessionId,
+      signingGrantId,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses,
+      jwt: walletSessionJwt,
+    },
+  };
+}
+
+function emailOtpEd25519ProvisioningResultFixture(args: {
+  relayerKeyId: string;
+  keyVersion: string;
+  sessionId: string;
+  signingGrantId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  participantIds: number[];
+  jwt: string;
+  clientVerifyingShareB64u?: string;
+}): {
+  relayerKeyId: string;
+  keyVersion: string;
+  sessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  participantIds: number[];
+  jwt: string;
+  clientVerifyingShareB64u: string;
+  record: OperationUsableThresholdEd25519SessionRecord;
+  reconstructionTimings: { warmCapabilityPersistenceMs: number };
+} {
+  const clientVerifyingShareB64u =
+    args.clientVerifyingShareB64u || 'ed25519-reconstructed-client-verifying-share';
+  const record = buildThresholdEd25519SessionFact({
+    walletId: TEST_SUBJECT_ID,
+    nearAccountId: 'alice.testnet',
+    nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
+    rpId: 'localhost',
+    relayerUrl: 'https://relay.example',
+    relayerKeyId: args.relayerKeyId,
+    participantIds: args.participantIds,
+    signingRootId: 'project:dev',
+    signingRootVersion: 'root',
+    runtimePolicyScope: {
+      orgId: 'org',
+      projectId: 'project',
+      envId: 'dev',
+      signingRootVersion: 'root',
+    },
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
+    sealedWorkerMaterialRef: TEST_ED25519_MATERIAL_KEY_ID,
+    sealedWorkerMaterialB64u: 'sealed-ed25519-worker-material',
+    materialFormatVersion: 'ed25519-worker-material-v1',
+    materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
+    materialCreatedAtMs: Date.now(),
+    signerSlot: 1,
+    routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: args.sessionId,
+    signingGrantId: args.signingGrantId,
+    walletSessionJwt: args.jwt,
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: args.remainingUses,
+    emailOtpAuthContext: emailOtpAuthContextFixture(),
+    source: 'email_otp',
+    updatedAtMs: Date.now(),
+  });
+  const operationUsableRecord = record
+    ? buildOperationUsableThresholdEd25519SessionRecord(record)
+    : null;
+  if (!operationUsableRecord) {
+    throw new Error('invalid operation-usable Ed25519 provisioning fixture');
+  }
+  return {
+    relayerKeyId: args.relayerKeyId,
+    keyVersion: args.keyVersion,
+    sessionId: args.sessionId,
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: args.remainingUses,
+    participantIds: args.participantIds,
+    jwt: args.jwt,
+    clientVerifyingShareB64u,
+    record: operationUsableRecord,
+    reconstructionTimings: { warmCapabilityPersistenceMs: 0 },
+  };
+}
+
 async function roleLocalEcdsaKeyHandle(args: {
   walletId: string;
   rpId: string;
@@ -564,7 +837,7 @@ function buildEcdsaSealedRecordFixture(
   const walletId = args.walletId || 'alice.testnet';
   const signingGrantId = args.signingGrantId || 'wallet-session-1';
   const keyHandle = args.ecdsaRestore?.keyHandle || 'key-handle-ecdsa';
-  const signingRootId = args.signingRootId || 'signing-root';
+  const signingRootId = args.signingRootId || 'signing-root:dev';
   const signingRootParts = signingRootId.includes(':')
     ? signingRootId.split(':')
     : [signingRootId, 'dev'];
@@ -576,6 +849,7 @@ function buildEcdsaSealedRecordFixture(
   };
   const ecdsaRestore: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'] = {
     chainTarget,
+    source: 'email_otp',
     evmFamilySigningKeySlotId:
       args.ecdsaRestore?.evmFamilySigningKeySlotId ||
       deriveEvmFamilySigningKeySlotId({
@@ -605,6 +879,24 @@ function buildEcdsaSealedRecordFixture(
     thresholdEcdsaPublicKeyB64u:
       args.ecdsaRestore?.thresholdEcdsaPublicKeyB64u || VALID_ECDSA_PUBLIC_KEY_B64U,
     participantIds: args.ecdsaRestore?.participantIds || [1, 3],
+    routerAbEcdsaHssNormalSigning:
+      args.ecdsaRestore?.routerAbEcdsaHssNormalSigning ||
+      routerAbEcdsaHssNormalSigningFixture({
+        walletId,
+        evmFamilySigningKeySlotId:
+          args.ecdsaRestore?.evmFamilySigningKeySlotId ||
+          deriveEvmFamilySigningKeySlotId({
+            walletId: toWalletId(walletId),
+            signingRootId,
+            signingRootVersion: args.signingRootVersion || 'root-v1',
+          }),
+        ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
+        signingRootId,
+        signingRootVersion: args.signingRootVersion || 'root-v1',
+        ethereumAddress: (args.ecdsaRestore?.ethereumAddress ||
+          `0x${'33'.repeat(20)}`) as `0x${string}`,
+        thresholdSessionId,
+      }),
     runtimePolicyScope: args.ecdsaRestore?.runtimePolicyScope || runtimePolicyScope,
   };
   const ed25519ThresholdSessionId = args.thresholdSessionIds?.ed25519;
@@ -636,7 +928,7 @@ function buildEcdsaSealedRecordFixture(
     shamirPrimeB64u: args.shamirPrimeB64u || 'prime-b64u',
     signingGrantId,
     thresholdSessionId,
-    thresholdSessionIds: args.thresholdSessionIds,
+    thresholdSessionIds: args.thresholdSessionIds || { ecdsa: thresholdSessionId },
     sealedSecretB64u: args.sealedSecretB64u || 'sealed-session-secret',
     ecdsaRestore,
     ...(ed25519Restore ? { ed25519Restore } : {}),
@@ -667,52 +959,6 @@ function createCoordinator(overrides?: {
 }) {
   const workerCalls: any[] = [];
   let refreshCount = 0;
-  const buildWorkerEcdsaBootstrap = (call: any, chainTarget: any) => {
-    const walletId = call.request.payload.walletId || 'alice.testnet';
-    const thresholdSessionId = call.request.payload.sessionId || 'ecdsa-session';
-    const signingGrantId = call.request.payload.signingGrantId || thresholdSessionId;
-    const keyHandle = 'key-handle-ecdsa';
-    const walletSessionJwt = thresholdEcdsaSessionJwt({
-      walletId,
-      keyHandle,
-      thresholdSessionId,
-      signingGrantId,
-      chainTarget,
-    });
-    return {
-      thresholdEcdsaKeyRef: {
-        type: 'threshold-ecdsa-secp256k1',
-        userId: walletId,
-        subjectId: call.request.payload.subjectId,
-        relayerUrl: call.request.payload.relayUrl,
-        keyHandle,
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        chainTarget,
-        signingRootId: 'signing-root',
-        signingRootVersion: 'root-v1',
-        ethereumAddress: `0x${'33'.repeat(20)}`,
-        thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-        thresholdSessionId,
-        signingGrantId,
-        thresholdSessionKind: 'jwt',
-        walletSessionJwt,
-        participantIds: [1, 3],
-        backendBinding: TEST_ECDSA_BACKEND_BINDING,
-      },
-      keygen: {
-        ok: true,
-        evmFamilySigningKeySlotId: call.request.payload.evmFamilySigningKeySlotId,
-      },
-      session: {
-        ok: true,
-        sessionId: thresholdSessionId,
-        signingGrantId,
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 3,
-        jwt: walletSessionJwt,
-      },
-    };
-  };
   const worker = {
     requestWorkerOperation: async (call: any) => {
       workerCalls.push(call);
@@ -743,8 +989,12 @@ function createCoordinator(overrides?: {
       }
       if (call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle') {
         return {
-          bootstraps: call.request.payload.publicationChainTargets.map((chainTarget: any) =>
-            buildWorkerEcdsaBootstrap(call, chainTarget),
+          bootstraps: call.request.payload.publicationTargetPlans.map((plan: any) =>
+            emailOtpWorkerEcdsaBootstrapFixture({
+              call,
+              chainTarget: plan.chainTarget,
+              evmFamilySigningKeySlotId: plan.evmFamilySigningKeySlotId,
+            }),
           ),
         };
       }
@@ -1598,15 +1848,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       ],
       reconstructEd25519Session: async (args) => {
         ed25519ReconstructionCalls.push(args);
-        return {
+        return emailOtpEd25519ProvisioningResultFixture({
           relayerKeyId: 'relayer-key',
           keyVersion: 'v1',
           sessionId: 'ed-session',
+          signingGrantId: 'wallet-session-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           participantIds: [1, 2],
           jwt: 'threshold-jwt',
-        };
+        });
       },
     });
     const walletSessionJwt = 'threshold-ed25519-jwt';
@@ -2057,51 +2308,14 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         }
         if (call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle') {
           return {
-            bootstraps: call.request.payload.publicationChainTargets.map((chainTarget: any) => ({
-              thresholdEcdsaKeyRef: {
-                type: 'threshold-ecdsa-secp256k1',
-                userId: 'alice.testnet',
-                subjectId: call.request.payload.subjectId,
-                relayerUrl: 'https://relay.example',
-                keyHandle: 'key-handle-ecdsa',
-                ecdsaThresholdKeyId: 'ecdsa-key',
-                chainTarget,
-                signingRootId: 'signing-root',
-                signingRootVersion: 'root-v1',
-                ethereumAddress: `0x${'33'.repeat(20)}`,
-                thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-                thresholdSessionId: 'ecdsa-session',
-                signingGrantId: call.request.payload.signingGrantId,
-                thresholdSessionKind: 'jwt',
-                walletSessionJwt: thresholdEcdsaSessionJwt({
-                  walletId: 'alice.testnet',
-                  keyHandle: 'key-handle-ecdsa',
-                  thresholdSessionId: 'ecdsa-session',
-                  signingGrantId: call.request.payload.signingGrantId,
-                  chainTarget,
-                }),
-                participantIds: [1, 3],
-                backendBinding: TEST_ECDSA_BACKEND_BINDING,
-              },
-              keygen: {
-                ok: true,
-                evmFamilySigningKeySlotId: call.request.payload.evmFamilySigningKeySlotId,
-              },
-              session: {
-                ok: true,
-                sessionId: 'ecdsa-session',
-                signingGrantId: call.request.payload.signingGrantId,
-                expiresAtMs: Date.now() + 60_000,
+            bootstraps: call.request.payload.publicationTargetPlans.map((plan: any) =>
+              emailOtpWorkerEcdsaBootstrapFixture({
+                call,
+                chainTarget: plan.chainTarget,
+                evmFamilySigningKeySlotId: plan.evmFamilySigningKeySlotId,
                 remainingUses: 9,
-                jwt: thresholdEcdsaSessionJwt({
-                  walletId: 'alice.testnet',
-                  keyHandle: 'key-handle-ecdsa',
-                  thresholdSessionId: 'ecdsa-session',
-                  signingGrantId: call.request.payload.signingGrantId,
-                  chainTarget,
-                }),
-              },
-            })),
+              }),
+            ),
           };
         }
         if (call.request?.type === 'sealEmailOtpWarmSessionMaterial') {
@@ -3501,16 +3715,17 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     const { coordinator, ecdsaCommitCalls } = createCoordinator({
       reconstructEd25519Session: async (args) => {
         reconstructionCalls.push(args);
-        return {
+        return emailOtpEd25519ProvisioningResultFixture({
           relayerKeyId: args.ed25519Key.relayerKeyId,
           keyVersion: args.ed25519Key.keyVersion,
           sessionId: 'ed25519-reconstructed-session',
+          signingGrantId: args.signingGrantId,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           participantIds: args.ed25519Key.participantIds,
           jwt: 'ed25519-reconstructed-jwt',
           clientVerifyingShareB64u: 'ed25519-reconstructed-client-verifying-share',
-        };
+        });
       },
     });
     const runtimePolicyScope = {
@@ -3587,16 +3802,17 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       },
       reconstructEd25519Session: async (args) => {
         reconstructionCalls.push(args);
-        return {
+        return emailOtpEd25519ProvisioningResultFixture({
           relayerKeyId: args.ed25519Key.relayerKeyId,
           keyVersion: args.ed25519Key.keyVersion,
           sessionId: 'ed25519-reconstructed-session',
+          signingGrantId: args.signingGrantId,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           participantIds: args.ed25519Key.participantIds,
           jwt: 'ed25519-reconstructed-jwt',
           clientVerifyingShareB64u: 'ed25519-reconstructed-client-verifying-share',
-        };
+        });
       },
     });
     const runtimePolicyScope = {

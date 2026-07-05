@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
-import { existsSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-dotenv.config({ path: path.join(repoRoot, '.env.intended.local') });
+dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true });
 const checkOnly = process.argv.includes('--check');
 const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:9444';
@@ -17,12 +18,53 @@ const projectEnvironmentId =
   process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost';
+const d1LocalPersistPath =
+  process.env.SEAMS_INTENDED_D1_PERSIST_TO ||
+  path.join(tmpdir(), `${path.basename(repoRoot)}-intended-d1`);
+const d1LocalWranglerRuntimeDir =
+  process.env.SEAMS_INTENDED_D1_WRANGLER_RUNTIME_DIR ||
+  path.join(repoRoot, '.runtime', 'wrangler-d1-local');
+const d1LocalWranglerConfigPath =
+  process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG ||
+  path.join(d1LocalWranglerRuntimeDir, 'wrangler.d1-local.toml');
+const siteViteCacheDir =
+  process.env.SEAMS_INTENDED_SITE_VITE_CACHE_DIR ||
+  path.join(tmpdir(), `${path.basename(repoRoot)}-intended-vite-cache`);
 const webServerReadyHost = '127.0.0.1';
 const webServerReadyPort = parseWebServerReadyPort();
 const resetState = process.env.SEAMS_INTENDED_SKIP_STATE_RESET !== '1';
+const skipBuild = process.env.SEAMS_INTENDED_SKIP_BUILD === '1';
 const managedChildren = [];
 let shutdownStarted = false;
 let webServerReadyServer;
+const transientViteCachePaths = ['apps/seams-site/node_modules/.vite'];
+const requiredSdkDistArtifacts = [
+  'packages/sdk-web/dist/esm/advanced.js',
+  'packages/sdk-web/dist/esm/core/config/chains.js',
+  'packages/sdk-web/dist/esm/core/idempotency/createIntentId.js',
+  'packages/sdk-web/dist/esm/core/rpcClients/evm/EvmClient.js',
+  'packages/sdk-web/dist/esm/core/rpcClients/near/NearClient.js',
+  'packages/sdk-web/dist/esm/plugins/vite.js',
+  'packages/sdk-web/dist/esm/react/context/SeamsWebProvider.js',
+  'packages/sdk-web/dist/esm/react/context/index.js',
+  'packages/sdk-web/dist/esm/react/index.js',
+  'packages/sdk-web/dist/esm/react/styles/styles.css',
+  'packages/sdk-web/dist/esm/wasm/near_signer/pkg/wasm_signer_worker.js',
+  'packages/sdk-web/dist/workers/eth-signer.worker.js',
+  'packages/sdk-web/dist/workers/near-signer.worker.js',
+  'packages/sdk-web/dist/workers/tempo-signer.worker.js',
+];
+const requiredSiteModuleGraphArtifacts = [
+  'packages/sdk-web/dist/esm/advanced.js',
+  'packages/sdk-web/dist/esm/core/config/chains.js',
+  'packages/sdk-web/dist/esm/core/idempotency/createIntentId.js',
+  'packages/sdk-web/dist/esm/core/rpcClients/evm/EvmClient.js',
+  'packages/sdk-web/dist/esm/core/rpcClients/near/NearClient.js',
+  'packages/sdk-web/dist/esm/react/context/SeamsWebProvider.js',
+  'packages/sdk-web/dist/esm/react/context/index.js',
+  'packages/sdk-web/dist/esm/react/index.js',
+  'packages/sdk-web/dist/esm/react/styles/styles.css',
+];
 
 await main().catch(failStartup);
 
@@ -34,10 +76,19 @@ async function main() {
   }
 
   installSignalHandlers();
-  buildSdkArtifacts();
+  await terminateManagedProcessLeaksBeforeStartup();
+  if (skipBuild) {
+    console.log('[intended-services] skipping SDK build because SEAMS_INTENDED_SKIP_BUILD=1');
+  } else {
+    buildSdkArtifacts();
+  }
+  assertSdkDistArtifacts();
+  assertD1LocalWasmArtifacts();
+  clearTransientViteCaches();
   if (resetState) {
     resetLocalState();
   }
+  prepareD1LocalWranglerRuntimeConfig();
 
   const router = startRouter();
   await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);
@@ -46,7 +97,9 @@ async function main() {
 
   const site = startSite();
   await waitForHttpOk(appUrl, 'site', 120_000);
+  await waitForSiteModuleGraphArtifacts();
   await waitForHttpOk(intendedPageSmokeUrl(), 'intended page', 60_000);
+  await waitForRouterStability();
   await startWebServerReadyServer();
 
   console.log('[intended-services] site and router are ready');
@@ -77,7 +130,11 @@ function printResolvedConfig() {
         webServerReadyUrl: webServerReadyUrl(),
         projectEnvironmentId,
         publishableKey,
+        d1LocalPersistPath,
+        d1LocalWranglerConfigPath,
+        siteViteCacheDir,
         resetState,
+        skipBuild,
       },
       null,
       2,
@@ -88,17 +145,40 @@ function printResolvedConfig() {
 function resetLocalState() {
   removePath('.router-ab-local');
   removePath('packages/sdk-server-ts/.wrangler/state/seams-d1');
+  removePath('.runtime/intended-d1');
+  removeAbsolutePath(d1LocalPersistPath);
+  removeAbsolutePath(siteViteCacheDir);
 }
 
 function buildSdkArtifacts() {
   runRequiredBuild('sdk', ['run', 'build:sdk-full']);
 }
 
-function runRequiredBuild(label, args) {
+function assertSdkDistArtifacts() {
+  const missingArtifacts = requiredSdkDistArtifacts.filter(isMissingRepoPath);
+  if (missingArtifacts.length > 0) {
+    throw new Error(`SDK build did not emit required artifacts: ${missingArtifacts.join(', ')}`);
+  }
+  console.log(
+    `[intended-services] verified ${requiredSdkDistArtifacts.length} SDK dist artifacts`,
+  );
+}
+
+function clearTransientViteCaches() {
+  for (const relativePath of transientViteCachePaths) {
+    removePath(relativePath);
+  }
+}
+
+function isMissingRepoPath(relativePath) {
+  return !existsSync(path.join(repoRoot, relativePath));
+}
+
+function runRequiredBuild(label, args, env = process.env) {
   console.log(`[intended-services] building ${label}: pnpm ${args.join(' ')}`);
   const result = spawnSync('pnpm', args, {
     cwd: repoRoot,
-    env: process.env,
+    env,
     stdio: 'inherit',
   });
   if (result.error) {
@@ -109,11 +189,32 @@ function runRequiredBuild(label, args) {
   }
 }
 
+function assertD1LocalWasmArtifacts() {
+  console.log('[intended-services] verifying D1 local WASM artifacts');
+  runRequiredBuild('d1-local-wasm', ['-C', 'packages/sdk-server-ts', 'run', 'd1:local:ensure-wasm'], {
+    ...process.env,
+    SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
+  });
+}
+
 function removePath(relativePath) {
   const absolutePath = path.join(repoRoot, relativePath);
+  removeAbsolutePath(absolutePath);
+}
+
+function removeAbsolutePath(absolutePath) {
   if (!existsSync(absolutePath)) return;
-  console.log(`[intended-services] removing ${relativePath}`);
+  console.log(`[intended-services] removing ${path.relative(repoRoot, absolutePath) || absolutePath}`);
   rmSync(absolutePath, { recursive: true, force: true });
+}
+
+async function terminateManagedProcessLeaksBeforeStartup() {
+  const leaks = collectManagedProcessLeaks();
+  if (leaks.length === 0) return;
+  console.log(`[intended-services] terminating ${leaks.length} stale managed processes`);
+  terminateManagedProcessLeaks('SIGTERM');
+  await delay(1_000);
+  terminateManagedProcessLeaks('SIGKILL');
 }
 
 function startSite() {
@@ -121,7 +222,7 @@ function startSite() {
 }
 
 function startRouter() {
-  return spawnManaged('router', ['run', 'router', '--', '--fresh'], process.env);
+  return spawnManaged('router', ['run', 'router', '--', '--fresh'], routerEnv());
 }
 
 function seedLocalConsole() {
@@ -132,6 +233,8 @@ function seedLocalConsole() {
       ...process.env,
       SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
       SEAMS_INTENDED_PUBLISHABLE_KEY: publishableKey,
+      SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
+      SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     },
     stdio: 'inherit',
   });
@@ -153,11 +256,54 @@ function siteEnv() {
     VITE_DOCS_ORIGIN: docsOrigin,
     VITE_RP_ID_BASE: 'localhost',
     VITE_ROR_ALLOWED_ORIGINS: docsOrigin,
+    VITE_CACHE_DIR: siteViteCacheDir,
     VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'local-signing-worker',
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: publishableKey,
     VITE_ENABLE_INTENDED_E2E: '1',
   };
+}
+
+function routerEnv() {
+  return {
+    ...process.env,
+    SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
+    SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
+    SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
+  };
+}
+
+function prepareD1LocalWranglerRuntimeConfig() {
+  mkdirSync(d1LocalWranglerRuntimeDir, { recursive: true });
+  const sourceConfigPath = path.join(repoRoot, 'packages/sdk-server-ts/wrangler.d1-local.toml');
+  const sourceConfig = readFileSync(sourceConfigPath, 'utf8');
+  const runtimeConfig = sourceConfig
+    .replace(
+      'main = "src/router/cloudflare/d1LocalDevWorker.ts"',
+      'main = "../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"',
+    )
+    .replace(
+      'migrations_dir = "migrations/d1-console"',
+      'migrations_dir = "../../packages/sdk-server-ts/migrations/d1-console"',
+    )
+    .replace(
+      'migrations_dir = "migrations/d1-signer"',
+      'migrations_dir = "../../packages/sdk-server-ts/migrations/d1-signer"',
+    );
+  writeFileSync(d1LocalWranglerConfigPath, runtimeConfig);
+
+  const sourceDevVarsPath = path.join(repoRoot, 'packages/sdk-server-ts/.dev.vars');
+  const fallbackDevVarsPath = path.join(repoRoot, 'packages/sdk-server-ts/dev.vars');
+  const runtimeDevVarsPath = path.join(d1LocalWranglerRuntimeDir, '.dev.vars');
+  if (existsSync(sourceDevVarsPath)) {
+    copyFileSync(sourceDevVarsPath, runtimeDevVarsPath);
+  } else if (existsSync(fallbackDevVarsPath)) {
+    copyFileSync(fallbackDevVarsPath, runtimeDevVarsPath);
+  }
+
+  console.log(
+    `[intended-services] prepared D1 local wrangler config at ${path.relative(repoRoot, d1LocalWranglerConfigPath)}`,
+  );
 }
 
 function spawnManaged(label, args, env) {
@@ -277,6 +423,26 @@ async function waitForHttpOk(url, label, timeoutMs) {
     await delay(500);
   }
   throw new Error(`${label} did not become ready at ${url}`);
+}
+
+async function waitForSiteModuleGraphArtifacts() {
+  for (const relativePath of requiredSiteModuleGraphArtifacts) {
+    await waitForHttpOk(siteModuleGraphUrl(relativePath), `sdk module ${relativePath}`, 60_000);
+  }
+}
+
+async function waitForRouterStability() {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    await waitForHttpOk(`${routerUrl}/healthz`, `router healthz stability ${attempt}`, 10_000);
+    await waitForHttpOk(`${routerUrl}/readyz`, `router readyz stability ${attempt}`, 10_000);
+    await delay(500);
+  }
+}
+
+function siteModuleGraphUrl(relativePath) {
+  const absolutePath = path.join(repoRoot, relativePath);
+  const url = new URL(`/@fs${absolutePath}`, appUrl);
+  return url.href;
 }
 
 async function httpOk(url) {

@@ -111,24 +111,16 @@ export type CanonicalThresholdEcdsaWarmSessionContext = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
-export type SharedKeyTargetCompletion =
+export type ConfiguredTargetKeyCompletion =
   | {
-      kind: 'complete_shared_key_targets';
+      kind: 'complete_configured_target_keys';
       context: CanonicalThresholdEcdsaWarmSessionContext;
       missingTargets?: never;
-      keyHandles?: never;
     }
   | {
-      kind: 'duplicate_shared_key_targets';
-      keyHandles: string[];
-      missingTargets?: never;
-      context?: never;
-    }
-  | {
-      kind: 'missing_shared_key';
+      kind: 'missing_configured_target_keys';
       missingTargets: string[];
       context?: never;
-      keyHandles?: never;
     };
 
 export type EcdsaUnlockRuntimeConfig = {
@@ -375,12 +367,12 @@ export function mergeCanonicalThresholdEcdsaWarmSessionContexts(
   };
 }
 
-export function buildSharedKeyTargetCompletion(args: {
+export function buildConfiguredTargetKeyCompletion(args: {
   context: CanonicalThresholdEcdsaWarmSessionContext;
   configuredTargets: readonly { chainTarget: ThresholdEcdsaChainTarget }[];
-}): SharedKeyTargetCompletion {
+}): ConfiguredTargetKeyCompletion {
   if (!args.configuredTargets.length) {
-    return { kind: 'complete_shared_key_targets', context: args.context };
+    return { kind: 'complete_configured_target_keys', context: args.context };
   }
 
   const byTarget = new Map<string, ConfiguredTargetThresholdEcdsaWarmKey>();
@@ -390,64 +382,13 @@ export function buildSharedKeyTargetCompletion(args: {
   const missingTargetKeys = args.configuredTargets
     .map((target) => thresholdEcdsaChainTargetKey(target.chainTarget))
     .filter((targetKey) => !byTarget.has(targetKey));
-  const keyHandles = [
-    ...new Set(
-      [...byTarget.values()].map((key) => String(key.keyHandle || '').trim()).filter(Boolean),
-    ),
-  ];
-  if (keyHandles.length > 1) {
-    return {
-      kind: 'duplicate_shared_key_targets',
-      keyHandles,
-    };
-  }
-  const keyFingerprints = [
-    ...new Set(
-      [...byTarget.values()]
-        .map((key) => (key.key ? deriveEvmFamilyKeyFingerprint(key.key) : ''))
-        .filter(Boolean),
-    ),
-  ];
-  if (keyFingerprints.length > 1) {
-    return {
-      kind: 'duplicate_shared_key_targets',
-      keyHandles,
-    };
-  }
-
-  const sharedKey = [...byTarget.values()].find((key) => key.key)?.key;
-  const sharedKeyHandle = keyHandles[0] || '';
-  if (!sharedKey) {
-    return {
-      kind: 'missing_shared_key',
-      missingTargets: missingTargetKeys.length
-        ? missingTargetKeys
-        : args.configuredTargets.map((target) => thresholdEcdsaChainTargetKey(target.chainTarget)),
-    };
-  }
-  for (const target of args.configuredTargets) {
-    const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
-    const existing = byTarget.get(targetKey);
-    const targetKeyHandle = String(existing?.keyHandle || sharedKeyHandle).trim();
-    if (!targetKeyHandle) {
-      return {
-        kind: 'missing_shared_key',
-        missingTargets: [targetKey],
-      };
-    }
-    byTarget.set(
-      targetKey,
-      configuredTargetThresholdEcdsaWarmKey({
-        chainTarget: target.chainTarget,
-        keyHandle: targetKeyHandle,
-        key: existing?.key || sharedKey,
-      }),
-    );
+  if (missingTargetKeys.length) {
+    return { kind: 'missing_configured_target_keys', missingTargets: missingTargetKeys };
   }
 
   const context: CanonicalThresholdEcdsaWarmSessionContext = {
     ecdsaKeys: collectConfiguredTargetThresholdEcdsaWarmKeys({
-      source: 'configured EVM-family shared-key target completion',
+      source: 'configured ECDSA target completion',
       keys: [...byTarget.values()],
     }),
     ...(args.context.runtimePolicyScope
@@ -462,31 +403,25 @@ export function buildSharedKeyTargetCompletion(args: {
   );
   if (remainingMissingTargets.length) {
     return {
-      kind: 'missing_shared_key',
+      kind: 'missing_configured_target_keys',
       missingTargets: remainingMissingTargets.map((target) =>
         thresholdEcdsaChainTargetKey(target.chainTarget),
       ),
     };
   }
-  return { kind: 'complete_shared_key_targets', context };
+  return { kind: 'complete_configured_target_keys', context };
 }
 
-export function requireCompleteSharedKeyTargetContext(args: {
-  completion: SharedKeyTargetCompletion;
+export function requireCompleteConfiguredTargetKeyContext(args: {
+  completion: ConfiguredTargetKeyCompletion;
   source: string;
 }): CanonicalThresholdEcdsaWarmSessionContext {
   switch (args.completion.kind) {
-    case 'complete_shared_key_targets':
+    case 'complete_configured_target_keys':
       return args.completion.context;
-    case 'duplicate_shared_key_targets':
+    case 'missing_configured_target_keys':
       throw new Error(
-        `[login] threshold ECDSA warm-up received duplicate shared key handles from ${args.source}: ${args.completion.keyHandles.join(
-          ', ',
-        )}`,
-      );
-    case 'missing_shared_key':
-      throw new Error(
-        `[login] threshold ECDSA warm-up could not resolve canonical shared key identity from ${args.source} for ${args.completion.missingTargets.join(
+        `[login] threshold ECDSA warm-up could not resolve configured target key facts from ${args.source} for ${args.completion.missingTargets.join(
           ', ',
         )}`,
       );

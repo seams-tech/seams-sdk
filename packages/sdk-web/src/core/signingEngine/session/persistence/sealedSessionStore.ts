@@ -20,6 +20,10 @@ import {
   type SealedSigningSessionWalletSessionAuth,
 } from '@shared/utils/signingSessionSeal';
 import {
+  normalizeRuntimePolicyScope,
+  signingRootScopeFromRuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
+import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -470,6 +474,19 @@ function normalizeSealedEcdsaRestoreSource(
   }
 }
 
+function signingRootBindingFromStoredRuntimePolicyScope(
+  value: unknown,
+): { signingRootId: string; signingRootVersion: string } | null {
+  try {
+    const scope = signingRootScopeFromRuntimePolicyScope(normalizeRuntimePolicyScope(value));
+    const signingRootId = normalizeOptionalNonEmptyString(scope.signingRootId);
+    const signingRootVersion = normalizeOptionalNonEmptyString(scope.signingRootVersion);
+    return signingRootId && signingRootVersion ? { signingRootId, signingRootVersion } : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeEcdsaRestoreMetadata(
   value: unknown,
 ): SealedSigningSessionEcdsaRestoreMetadata | undefined {
@@ -492,6 +509,31 @@ function normalizeEcdsaRestoreMetadata(
   const source = normalizeSealedEcdsaRestoreSource(obj.source);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
+  const runtimePolicyScope =
+    obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
+      ? obj.runtimePolicyScope
+      : undefined;
+  const runtimeSigningRootBinding =
+    signingRootBindingFromStoredRuntimePolicyScope(runtimePolicyScope);
+  const explicitSigningRootId = normalizeOptionalNonEmptyString(obj.signingRootId);
+  const explicitSigningRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
+  if (
+    explicitSigningRootId &&
+    runtimeSigningRootBinding?.signingRootId &&
+    explicitSigningRootId !== runtimeSigningRootBinding.signingRootId
+  ) {
+    return undefined;
+  }
+  if (
+    explicitSigningRootVersion &&
+    runtimeSigningRootBinding?.signingRootVersion &&
+    explicitSigningRootVersion !== runtimeSigningRootBinding.signingRootVersion
+  ) {
+    return undefined;
+  }
+  const signingRootId = explicitSigningRootId || runtimeSigningRootBinding?.signingRootId || '';
+  const signingRootVersion =
+    explicitSigningRootVersion || runtimeSigningRootBinding?.signingRootVersion || '';
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
@@ -514,6 +556,8 @@ function normalizeEcdsaRestoreMetadata(
     !chainTarget ||
     !source ||
     !walletSessionAuth ||
+    !signingRootId ||
+    !signingRootVersion ||
     !keyHandle ||
     !ethereumAddress ||
     !relayerKeyId ||
@@ -540,6 +584,8 @@ function normalizeEcdsaRestoreMetadata(
   const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
   return {
     chainTarget,
+    signingRootId,
+    signingRootVersion,
     ...authBranch,
     ...walletSessionAuth,
     keyHandle,
@@ -550,9 +596,7 @@ function normalizeEcdsaRestoreMetadata(
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
     participantIds,
     routerAbEcdsaHssNormalSigning,
-    ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
-      ? { runtimePolicyScope: obj.runtimePolicyScope }
-      : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   };
 }
 

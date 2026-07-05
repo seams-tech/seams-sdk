@@ -30,6 +30,8 @@ const validEcdsaSealedSessionRecord = {
     },
     source: 'email_otp',
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root:v1',
+    signingRootId: 'root',
+    signingRootVersion: 'v1',
     providerSubjectId: 'google:alice',
     emailHashHex: 'email-hash',
     sessionKind: 'jwt',
@@ -102,6 +104,22 @@ const invalidEcdsaSealedSessionRecordWithSigningRoot = {
   // @ts-expect-error ECDSA sealed records derive signing root from restore metadata.
 } satisfies SealedSigningSessionRecord;
 void invalidEcdsaSealedSessionRecordWithSigningRoot;
+
+const { signingRootId: _ecdsaRestoreSigningRootId, ...ecdsaRestoreMissingSigningRootId } =
+  validEcdsaSealedSessionRecord.ecdsaRestore;
+// @ts-expect-error ECDSA sealed restore metadata carries signingRootId with the wallet key slot.
+const invalidEcdsaRestoreMissingSigningRootId: SealedSigningSessionEcdsaRestoreMetadata =
+  ecdsaRestoreMissingSigningRootId;
+void invalidEcdsaRestoreMissingSigningRootId;
+
+const {
+  signingRootVersion: _ecdsaRestoreSigningRootVersion,
+  ...ecdsaRestoreMissingSigningRootVersion
+} = validEcdsaSealedSessionRecord.ecdsaRestore;
+// @ts-expect-error ECDSA sealed restore metadata carries signingRootVersion with the wallet key slot.
+const invalidEcdsaRestoreMissingSigningRootVersion: SealedSigningSessionEcdsaRestoreMetadata =
+  ecdsaRestoreMissingSigningRootVersion;
+void invalidEcdsaRestoreMissingSigningRootVersion;
 
 const { walletSessionJwt: _ecdsaRestoreJwt, ...ecdsaRestoreMissingJwt } =
   validEcdsaSealedSessionRecord.ecdsaRestore;

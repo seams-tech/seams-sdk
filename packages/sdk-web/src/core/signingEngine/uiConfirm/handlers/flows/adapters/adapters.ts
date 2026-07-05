@@ -47,11 +47,11 @@ import {
 import type {
   NonceLease,
   PreparedNonceOperationContext,
+  NearExecutionReadiness,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   classifyNearExecutionReadiness,
-  type NearExecutionReadiness,
-} from '@/core/signingEngine/nonce/nearNonceLane';
+} from '@/core/signingEngine/nonce/NonceCoordinator';
 
 function parseReadinessNonce(raw: unknown, fallback: unknown): bigint {
   if (typeof raw === 'bigint') return raw;

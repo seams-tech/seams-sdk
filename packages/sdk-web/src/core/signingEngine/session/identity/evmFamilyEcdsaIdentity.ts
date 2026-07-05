@@ -591,23 +591,27 @@ export function deriveEvmFamilySigningKeySlotId(input: {
   walletId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
+  chainTarget: ThresholdEcdsaChainTarget;
 }): EvmFamilySigningKeySlotId {
   return deriveSharedEvmFamilySigningKeySlotId({
     walletId: toWalletId(input.walletId),
     signingRootId: normalizeSigningRootId(input.signingRootId),
     signingRootVersion: normalizeSigningRootVersion(input.signingRootVersion),
+    chainTargetKey: thresholdEcdsaChainTargetKey(input.chainTarget),
   });
 }
 
 export function deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope(input: {
   walletId: unknown;
   runtimePolicyScope: Parameters<typeof signingRootScopeFromRuntimePolicyScope>[0];
+  chainTarget: ThresholdEcdsaChainTarget;
 }): EvmFamilySigningKeySlotId {
   const signingRoot = signingRootScopeFromRuntimePolicyScope(input.runtimePolicyScope);
   return deriveEvmFamilySigningKeySlotId({
     walletId: input.walletId,
     signingRootId: signingRoot.signingRootId,
     signingRootVersion: signingRoot.signingRootVersion || 'default',
+    chainTarget: input.chainTarget,
   });
 }
 
@@ -1453,6 +1457,7 @@ export function buildEvmFamilyEcdsaKeyIdentityFromRecord(args: {
     walletId: args.record.walletId,
     signingRootId: signingRootBinding.signingRootId,
     signingRootVersion: signingRootBinding.signingRootVersion,
+    chainTargetKey: thresholdEcdsaChainTargetKey(args.record.chainTarget),
     message: '[evm-family-ecdsa] persisted evmFamilySigningKeySlotId mismatches signing-root identity',
   });
   return buildBaseEvmFamilyEcdsaKeyIdentity({
@@ -1470,6 +1475,7 @@ export function buildEvmFamilyEcdsaKeyIdentityFromKeyRef(args: {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
   evmFamilySigningKeySlotId: unknown;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
+  chainTarget: ThresholdEcdsaChainTarget;
   trustedOwnerAddress?: unknown;
 }): EvmFamilyEcdsaKeyIdentity {
   const thresholdOwnerAddress = normalizeThresholdOwnerAddress(args.keyRef.ethereumAddress);
@@ -1492,6 +1498,7 @@ export function buildEvmFamilyEcdsaKeyIdentityFromKeyRef(args: {
     walletId: args.keyRef.userId,
     signingRootId: signingRootBinding.signingRootId,
     signingRootVersion: signingRootBinding.signingRootVersion,
+    chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
     message: '[evm-family-ecdsa] key-ref evmFamilySigningKeySlotId mismatches signing-root identity',
   });
   return buildBaseEvmFamilyEcdsaKeyIdentity({

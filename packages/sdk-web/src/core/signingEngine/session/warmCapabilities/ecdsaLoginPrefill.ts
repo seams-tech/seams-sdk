@@ -38,6 +38,7 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillSkippedReason =
   | 'missing_wallet_session_jwt'
   | 'invalid_session_record'
   | 'warm_session_not_active'
+  | 'warm_session_expiry_unavailable'
   | 'threshold_session_mismatch'
   | 'low_remaining_uses'
   | 'missing_router_ab_ecdsa_hss_state'
@@ -63,6 +64,7 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillResult =
       reason:
         | 'missing_wallet_session_jwt'
         | 'warm_session_not_active'
+        | 'warm_session_expiry_unavailable'
         | 'missing_router_ab_ecdsa_hss_state';
       thresholdSessionId: string;
     }
@@ -118,6 +120,11 @@ function isWarmSessionActive(
   return Boolean(
     status && status.status === 'active' && Number.isFinite(Number(status.remainingUses)),
   );
+}
+
+function activeSessionExpiresAtMs(status: SigningSessionStatus): number | null {
+  const expiresAtMs = Math.floor(Number(status.expiresAtMs));
+  return Number.isSafeInteger(expiresAtMs) && expiresAtMs > Date.now() ? expiresAtMs : null;
 }
 
 export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
@@ -178,8 +185,7 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
       };
     }
 
-    const routerAbPoolFillExpiresAtMs = Math.min(record.expiresAtMs, Date.now() + 60_000);
-    if (!record.routerAbEcdsaHssNormalSigning || routerAbPoolFillExpiresAtMs <= Date.now()) {
+    if (!record.routerAbEcdsaHssNormalSigning || Math.floor(Number(record.expiresAtMs)) <= Date.now()) {
       return {
         status: 'skipped',
         reason: 'missing_router_ab_ecdsa_hss_state',
@@ -218,6 +224,28 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
         reason: 'threshold_session_mismatch',
         thresholdSessionId,
         details: `active=${warmStatus.sessionId}`,
+      };
+    }
+
+    const warmSessionExpiresAtMs = activeSessionExpiresAtMs(warmStatus);
+    if (warmSessionExpiresAtMs === null) {
+      return {
+        status: 'skipped',
+        reason: 'warm_session_expiry_unavailable',
+        thresholdSessionId,
+      };
+    }
+
+    const routerAbPoolFillExpiresAtMs = Math.min(
+      Math.floor(Number(record.expiresAtMs)),
+      warmSessionExpiresAtMs,
+      Date.now() + 60_000,
+    );
+    if (routerAbPoolFillExpiresAtMs <= Date.now()) {
+      return {
+        status: 'skipped',
+        reason: 'warm_session_expiry_unavailable',
+        thresholdSessionId,
       };
     }
 

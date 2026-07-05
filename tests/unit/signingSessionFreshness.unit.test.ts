@@ -1,13 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildVerifiedEcdsaPublicFacts,
   toRpId,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { buildReauthAnchorIdentityFromAvailableLane } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
+import {
+  buildReauthAnchorIdentityFromAvailableLane,
+  buildReauthAnchorIdentityFromEcdsaLaneCandidate,
+} from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
   exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
@@ -35,7 +41,12 @@ import {
   buildSigningBudgetReservationIdentity,
   signingBudgetReservationKey,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 
 const tempoChainTarget = { kind: 'tempo', chainId: 4242, networkSlug: 'tempo-test' } as const;
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -67,12 +78,20 @@ function makeNearLane(args?: { thresholdSessionId?: string }) {
 }
 
 function makeEcdsaKey() {
+  const walletId = toWalletId('freshness-wallet.testnet');
+  const signingRootId = 'proj_test:dev';
+  const signingRootVersion = '1';
   return buildBaseEvmFamilyEcdsaKeyIdentity({
-    walletId: toWalletId('freshness-wallet.testnet'),
-    walletKeyId: 'wallet-key-freshness',
+    walletId,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId,
+      signingRootId,
+      signingRootVersion,
+      chainTargetKey: thresholdEcdsaChainTargetKey(tempoChainTarget),
+    }),
     ecdsaThresholdKeyId: 'ecdsa-threshold-key',
-    signingRootId: 'proj_test:dev',
-    signingRootVersion: '1',
+    signingRootId,
+    signingRootVersion,
     participantIds: [1, 2],
     thresholdOwnerAddress: '0x0000000000000000000000000000000000000042',
   });
@@ -249,13 +268,59 @@ test.describe('step-up freshness identity', () => {
         remainingUses: 0,
         updatedAtMs: 1_800_000_000_000,
       },
-      nowMs: 1_800_000_000_001,
     });
 
     expect(anchor).toMatchObject({
       kind: 'reauth_anchor_identity',
       sourceState: {
         availabilitySource: 'runtime_session_record',
+        storeSource: 'email_otp',
+        retention: 'single_use',
+        remainingUses: 0,
+      },
+      freshness: {
+        kind: 'fresh_step_up_required',
+        reason: 'threshold_session_exhausted',
+      },
+    });
+  });
+
+  test('builds an ECDSA reauth anchor from an exhausted shared Email OTP candidate', () => {
+    const key = makeEcdsaKey();
+    const keyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key');
+    const anchor = buildReauthAnchorIdentityFromEcdsaLaneCandidate({
+      walletId: key.walletId,
+      ...makeOperation(),
+      candidate: {
+        kind: 'lane_candidate',
+        auth: EMAIL_OTP_AUTH,
+        curve: 'ecdsa',
+        chain: 'tempo',
+        walletId: key.walletId,
+        key,
+        keyHandle,
+        chainTarget: tempoChainTarget,
+        signingGrantId: 'wallet-session-ecdsa',
+        thresholdSessionId: 'threshold-session-ecdsa',
+        state: 'exhausted',
+        remainingUses: 3,
+        expiresAtMs: null,
+        updatedAtMs: 1_800_000_000_000,
+        source: 'evm_family_shared_key',
+        sourceChainTarget: {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 5042002,
+          networkSlug: 'arc-testnet',
+        },
+      },
+      nowMs: 1_800_000_000_001,
+    });
+
+    expect(anchor).toMatchObject({
+      kind: 'reauth_anchor_identity',
+      sourceState: {
+        availabilitySource: 'evm_family_shared_key',
         storeSource: 'email_otp',
         retention: 'single_use',
         remainingUses: 0,
@@ -286,6 +351,15 @@ test.describe('step-up freshness identity', () => {
         remainingUses: 1,
         expiresAtMs: 1_700_000_000_000,
         updatedAtMs: 1_700_000_000_001,
+        material: {
+          kind: 'sealed_worker_material',
+          identity: {
+            bindingDigest: parseEd25519WorkerMaterialBindingDigest(
+              'ed25519-freshness-binding-digest',
+            ),
+            materialKeyId: parseEd25519WorkerMaterialKeyId('ed25519-freshness-material-key'),
+          },
+        },
       },
       nowMs: 1_800_000_000_000,
     });

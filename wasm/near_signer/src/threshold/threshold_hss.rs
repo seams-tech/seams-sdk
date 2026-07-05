@@ -1125,6 +1125,9 @@ fn parse_operation(value: &str) -> Result<ServerEvalOperation, String> {
         "txsigning" | "tx_signing" | "sign" => Ok(ServerEvalOperation::TxSigning),
         "linkdevice" | "link_device" => Ok(ServerEvalOperation::LinkDevice),
         "emailrecovery" | "email_recovery" => Ok(ServerEvalOperation::EmailRecovery),
+        "registrationmaterialrestore" | "registration_material_restore" => {
+            Ok(ServerEvalOperation::Registration)
+        }
         "warmsessionreconstruction" | "warm_session_reconstruction" => {
             Ok(ServerEvalOperation::WarmSessionReconstruction)
         }

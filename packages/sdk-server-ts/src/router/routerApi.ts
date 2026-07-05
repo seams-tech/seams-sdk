@@ -4,8 +4,10 @@ import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeI
 import type {
   ThresholdEd25519BootstrapSession,
   ThresholdEd25519AuthorityScope,
+  ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionResponse,
+  ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionResponse,
   ThresholdEd25519HssRespondWithSessionRequest,
@@ -43,7 +45,9 @@ import type {
   ExecuteSignedDelegateResult,
 } from '../delegateAction';
 import type {
+  FinalizeEmailRecoveryEd25519Request,
   PrepareEmailRecoveryRequest,
+  RespondEmailRecoveryEd25519Request,
   RespondEmailRecoveryEcdsaRequest,
 } from './emailRecoveryRequestValidation';
 import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
@@ -187,6 +191,14 @@ export type RouterApiEmailRecoveryResult =
         authorityScope: ThresholdEd25519AuthorityScope;
         participantIds?: number[];
         session?: ThresholdEd25519BootstrapSession;
+        hss?: {
+          ceremonyHandle?: string;
+          preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
+          clientOtOfferMessageB64u?: string;
+          context?: ThresholdEd25519HssCanonicalContext;
+          contextBindingB64u?: string;
+          serverInputDeliveryB64u?: string;
+        };
       };
     }
   | { ok: false; code: string; message: string };
@@ -194,6 +206,12 @@ export type RouterApiEmailRecoveryResult =
 export interface RouterApiEmailRecoveryAuthService {
   prepareEmailRecovery(
     request: PrepareEmailRecoveryRequest,
+  ): Promise<RouterApiEmailRecoveryResult>;
+  respondEmailRecoveryEd25519(
+    request: RespondEmailRecoveryEd25519Request,
+  ): Promise<RouterApiEmailRecoveryResult>;
+  finalizeEmailRecoveryEd25519(
+    request: FinalizeEmailRecoveryEd25519Request,
   ): Promise<RouterApiEmailRecoveryResult>;
   respondEmailRecoveryEcdsa(
     request: RespondEmailRecoveryEcdsaRequest,

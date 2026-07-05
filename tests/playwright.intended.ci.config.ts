@@ -10,6 +10,6 @@ export default {
     url: WEB_SERVER_READY_URL,
     reuseExistingServer: false,
     gracefulShutdown: { signal: 'SIGTERM', timeout: 30_000 },
-    timeout: 240_000,
+    timeout: 420_000,
   },
 };

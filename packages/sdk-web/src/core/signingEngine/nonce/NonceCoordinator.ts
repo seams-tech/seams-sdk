@@ -92,6 +92,10 @@ export {
   evmReserveNonceInputToLane,
   nonceLeaseToRef,
 } from './nonceLaneKeys';
+export {
+  classifyNearExecutionReadiness,
+  type NearExecutionReadiness,
+} from './nearNonceLane';
 import {
   createEvmNonceLaneBlockedError,
   getOrCreateEvmNonceLaneState,

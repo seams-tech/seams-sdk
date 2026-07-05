@@ -940,20 +940,23 @@ function accountSignerRow(record: AccountSignerRecord): WalletSignerRow {
     accountAddress,
     signerId,
   });
+  const isActive = record.status === 'active';
   return {
     wallet_signer_id: walletSignerId({ chainIdKey, accountAddress, signerId }),
     wallet_id: profileId,
     kind: signerKind,
     chain_target_key: mirrors.chainTargetKey,
-    ...(mirrors.nearSignerSlot != null ? { near_signer_slot: mirrors.nearSignerSlot } : {}),
-    ...(mirrors.nearEd25519SigningKeyId
+    ...(isActive && mirrors.nearSignerSlot != null
+      ? { near_signer_slot: mirrors.nearSignerSlot }
+      : {}),
+    ...(isActive && mirrors.nearEd25519SigningKeyId
       ? { near_ed25519_signing_key_id: mirrors.nearEd25519SigningKeyId }
       : {}),
-    ...(mirrors.keyHandle ? { key_handle: mirrors.keyHandle } : {}),
-    ...(mirrors.ecdsaThresholdKeyId
+    ...(isActive && mirrors.keyHandle ? { key_handle: mirrors.keyHandle } : {}),
+    ...(isActive && mirrors.ecdsaThresholdKeyId
       ? { ecdsa_threshold_key_id: mirrors.ecdsaThresholdKeyId }
       : {}),
-    ...(mirrors.thresholdOwnerAddress
+    ...(isActive && mirrors.thresholdOwnerAddress
       ? { threshold_owner_address: mirrors.thresholdOwnerAddress }
       : {}),
     status: record.status,
@@ -991,25 +994,59 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
   } catch {
     return null;
   }
+  const requiresActiveMirrors = record.status === 'active';
   if (record.signerKind === SIGNER_KINDS.thresholdEd25519) {
     if (row.chain_target_key !== undefined && row.chain_target_key !== mirrors.chainTargetKey) {
       return null;
     }
-    if (row.near_signer_slot !== undefined && row.near_signer_slot !== mirrors.nearSignerSlot) {
+    if (requiresActiveMirrors && row.near_signer_slot !== mirrors.nearSignerSlot) {
+      return null;
+    }
+    if (!requiresActiveMirrors && row.near_signer_slot !== undefined && row.near_signer_slot !== mirrors.nearSignerSlot) {
       return null;
     }
     if (
+      requiresActiveMirrors &&
+      row.near_ed25519_signing_key_id !== mirrors.nearEd25519SigningKeyId
+    ) {
+      return null;
+    }
+    if (
+      !requiresActiveMirrors &&
       row.near_ed25519_signing_key_id !== undefined &&
       row.near_ed25519_signing_key_id !== mirrors.nearEd25519SigningKeyId
     ) {
       return null;
     }
-  } else if (row.chain_target_key !== mirrors.chainTargetKey) {
+  } else if (requiresActiveMirrors && row.chain_target_key !== mirrors.chainTargetKey) {
+    return null;
+  } else if (!requiresActiveMirrors && row.chain_target_key !== undefined && row.chain_target_key !== mirrors.chainTargetKey) {
     return null;
   }
-  if (row.key_handle !== mirrors.keyHandle) return null;
-  if (row.ecdsa_threshold_key_id !== mirrors.ecdsaThresholdKeyId) return null;
-  if (row.threshold_owner_address !== mirrors.thresholdOwnerAddress) return null;
+  if (requiresActiveMirrors && row.key_handle !== mirrors.keyHandle) return null;
+  if (!requiresActiveMirrors && row.key_handle !== undefined && row.key_handle !== mirrors.keyHandle) {
+    return null;
+  }
+  if (requiresActiveMirrors && row.ecdsa_threshold_key_id !== mirrors.ecdsaThresholdKeyId) {
+    return null;
+  }
+  if (
+    !requiresActiveMirrors &&
+    row.ecdsa_threshold_key_id !== undefined &&
+    row.ecdsa_threshold_key_id !== mirrors.ecdsaThresholdKeyId
+  ) {
+    return null;
+  }
+  if (requiresActiveMirrors && row.threshold_owner_address !== mirrors.thresholdOwnerAddress) {
+    return null;
+  }
+  if (
+    !requiresActiveMirrors &&
+    row.threshold_owner_address !== undefined &&
+    row.threshold_owner_address !== mirrors.thresholdOwnerAddress
+  ) {
+    return null;
+  }
   if (row.status !== record.status) return null;
   if (row.updated_at !== record.updatedAt) return null;
   return record;
@@ -2014,10 +2051,12 @@ export class SeamsWalletRepositories {
     const activeRows = (await signerStore
       .index(SEAMS_WALLET_INDEXES.status)
       .getAll('active')) as unknown[];
-    const activeSigners = activeRows.flatMap((row) => {
+    const allActiveSigners = activeRows.flatMap((row) => {
       const parsed = parseAccountSignerRow(row);
-      return parsed &&
-        parsed.chainIdKey === chainIdKey &&
+      return parsed ? [parsed] : [];
+    });
+    const activeSigners = allActiveSigners.flatMap((parsed) => {
+      return parsed.chainIdKey === chainIdKey &&
         parsed.accountAddress === accountAddress
         ? [parsed]
         : [];
@@ -2027,6 +2066,26 @@ export class SeamsWalletRepositories {
       signer: { signerId, signerKind, signerAuthMethod, signerSource },
       activationPolicy: input.activationPolicy,
       ...(input.preferredSlot != null ? { preferredSlot: input.preferredSlot } : {}),
+    });
+    const now = Date.now();
+    await this.revokeSignersForReplacement({
+      signerStore,
+      allActiveSigners,
+      accountActiveSigners: activeSigners,
+      profileId,
+      chainIdKey,
+      accountModel,
+      signerId,
+      activationPolicy: input.activationPolicy,
+      now,
+    });
+    const activeSignersForInvariant = this.activeSignersAfterReplacement({
+      allActiveSigners,
+      accountActiveSigners: activeSigners,
+      profileId,
+      chainIdKey,
+      signerId,
+      activationPolicy: input.activationPolicy,
     });
     const existingSigner = parseAccountSignerRow(
       await signerStore.get(walletSignerId({ chainIdKey, accountAddress, signerId })),
@@ -2038,7 +2097,6 @@ export class SeamsWalletRepositories {
         { expectedProfileId: profileId, existingProfileId: existingSigner.profileId },
       );
     }
-    const now = Date.now();
     const signer = this.buildAccountSignerRecord({
       profileId,
       chainIdKey,
@@ -2058,7 +2116,7 @@ export class SeamsWalletRepositories {
       next: signer,
       accountModel,
       existingStatus: existingSigner?.status,
-      activeSigners,
+      activeSigners: activeSignersForInvariant,
     });
     const signerRow = accountSignerRow(signer);
     await deleteConflictingThresholdEcdsaSignerRows({ store: signerStore, nextRow: signerRow });
@@ -2090,6 +2148,101 @@ export class SeamsWalletRepositories {
       );
     }
     return { signer, signerSlot: plan.signerSlot };
+  }
+
+  private activeSignersAfterReplacement(args: {
+    allActiveSigners: AccountSignerRecord[];
+    accountActiveSigners: AccountSignerRecord[];
+    profileId: string;
+    chainIdKey: string;
+    signerId: string;
+    activationPolicy: ActivateAccountSignerInput['activationPolicy'];
+  }): AccountSignerRecord[] {
+    const replacedSignerIds = new Set<string>();
+    for (const signer of this.signersRetiredByActivationPolicy(args)) {
+      replacedSignerIds.add(signer.signerId);
+    }
+    if (replacedSignerIds.size === 0) return args.accountActiveSigners;
+    const retained: AccountSignerRecord[] = [];
+    for (const signer of args.accountActiveSigners) {
+      if (!replacedSignerIds.has(signer.signerId)) retained.push(signer);
+    }
+    return retained;
+  }
+
+  private signersRetiredByActivationPolicy(args: {
+    allActiveSigners: AccountSignerRecord[];
+    accountActiveSigners: AccountSignerRecord[];
+    profileId: string;
+    chainIdKey: string;
+    signerId: string;
+    activationPolicy: ActivateAccountSignerInput['activationPolicy'];
+  }): AccountSignerRecord[] {
+    const retired: AccountSignerRecord[] = [];
+    switch (args.activationPolicy.mode) {
+      case 'replace_slot':
+        for (const signer of args.accountActiveSigners) {
+          if (
+            signer.signerSlot === args.activationPolicy.signerSlot &&
+            signer.signerId !== args.signerId
+          ) {
+            retired.push(signer);
+          }
+        }
+        return retired;
+      case 'replace_profile_chain_kind':
+        for (const signer of args.allActiveSigners) {
+          if (
+            signer.profileId === args.profileId &&
+            signer.chainIdKey === args.chainIdKey &&
+            signer.signerKind === args.activationPolicy.replacedSignerKind &&
+            signer.signerId !== args.signerId
+          ) {
+            retired.push(signer);
+          }
+        }
+        return retired;
+      default:
+        return retired;
+    }
+  }
+
+  private async revokeSignersForReplacement(args: {
+    signerStore: any;
+    allActiveSigners: AccountSignerRecord[];
+    accountActiveSigners: AccountSignerRecord[];
+    profileId: string;
+    chainIdKey: string;
+    accountModel: string;
+    signerId: string;
+    activationPolicy: ActivateAccountSignerInput['activationPolicy'];
+    now: number;
+  }): Promise<void> {
+    const retired = this.signersRetiredByActivationPolicy(args);
+    if (retired.length === 0) return;
+    const revocationReason = toTrimmedString(
+      args.activationPolicy.mode === 'replace_slot' ||
+        args.activationPolicy.mode === 'replace_profile_chain_kind'
+        ? args.activationPolicy.revocationReason
+        : '',
+    );
+    for (const signer of retired) {
+      const revoked = this.buildAccountSignerRecord({
+        ...signer,
+        status: 'revoked',
+        existing: signer,
+        now: args.now,
+        removedAt: args.now,
+        revocationReason,
+      });
+      this.assertSignerWriteInvariants({
+        next: revoked,
+        accountModel: args.accountModel,
+        existingStatus: signer.status,
+        activeSigners: args.accountActiveSigners,
+      });
+      await args.signerStore.put(accountSignerRow(revoked));
+    }
   }
 
   async activateAccountSigner(

@@ -171,12 +171,14 @@ import type {
   GoogleEmailOtpWalletAuthSubmitSuccess,
   RegistrationCapability,
 } from '@/SeamsWeb/signingSurface/types';
+import type { LoginWithEmailOtpEd25519CapabilityInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type {
   PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult,
   PMGoogleEmailOtpWalletAuthRegistrationWireResult,
   PMGoogleEmailOtpWalletAuthSubmitWireResult,
   PMGoogleEmailOtpWalletAuthWireFlow,
   PMGoogleEmailOtpWalletAuthWireResult,
+  PMEmailOtpEd25519CapabilityPayload,
 } from '../shared/messages';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
@@ -347,6 +349,7 @@ function createTerminalProgressForRequest(args: {
     'PM_UNLOCK',
     'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION',
     'PM_REQUEST_EMAIL_OTP_CHALLENGE',
+    'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY',
     'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
   ]);
   const signingRequests = new Set<ParentToChildEnvelope['type']>([
@@ -1813,6 +1816,28 @@ export class WalletIframeRouter {
     const res = await this.post<EmailOtpEcdsaCapabilityResult>(
       {
         type: 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+        payload: wirePayload,
+        options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
+      },
+      {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
+    this.emitLoginStatusFromState(st);
+    return sanitizeEmailOtpIframeResult(res.result);
+  }
+
+  async loginWithEmailOtpEd25519Capability(
+    payload: PMEmailOtpEd25519CapabilityPayload & {
+      onEvent?: (event: UnlockFlowEvent) => void;
+    },
+  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
+    const { onEvent, ...wirePayload } = payload;
+    const res = await this.post<LoginWithEmailOtpEd25519CapabilityInternalResult>(
+      {
+        type: 'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY',
         payload: wirePayload,
         options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
       },

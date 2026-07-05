@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
+  WalletRegistrationEcdsaPrepareContext,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey
 } from '../registrationContracts';
@@ -196,7 +197,7 @@ export function buildEcdsaWalletKeysFromBootstrap(args: {
 }
 
 export function isMatchingEcdsaClientBootstrap(
-  expected: WalletRegistrationEcdsaPreparePayload['prepare'],
+  expected: WalletRegistrationEcdsaPrepareContext,
   actual: WalletRegistrationEcdsaClientBootstrap,
 ): boolean {
   return (

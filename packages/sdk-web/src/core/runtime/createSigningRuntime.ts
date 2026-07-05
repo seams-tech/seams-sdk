@@ -71,6 +71,8 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getRegistrationAccounts()).hasPasskeyCredential(nearAccountId),
     storeWalletEd25519RegistrationData: async (input) =>
       (await getRegistrationAccounts()).storeWalletEd25519RegistrationData(input),
+    storeWalletEd25519RecoveryRegistrationData: async (input) =>
+      (await getRegistrationAccounts()).storeWalletEd25519RecoveryRegistrationData(input),
     storeWalletEmailOtpEd25519RegistrationData: async (input) =>
       (await getRegistrationAccounts()).storeWalletEmailOtpEd25519RegistrationData(input),
     finalizeWalletEd25519SignerRegistration: async (input) =>
@@ -110,6 +112,8 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getEcdsaWalletRecords()).storeWalletEcdsaSignerRecords(input),
     storeWalletEmailOtpEcdsaSignerRecords: async (input) =>
       (await getEcdsaWalletRecords()).storeWalletEmailOtpEcdsaSignerRecords(input),
+    storeWalletEcdsaRecoverySignerRecords: async (input) =>
+      (await getEcdsaWalletRecords()).storeWalletEcdsaRecoverySignerRecords(input),
     finalizeWalletEcdsaRegistration: async (input) =>
       (await getEcdsaWalletRecords()).finalizeWalletEcdsaRegistration(input),
     storeWalletEmailOtpEcdsaRegistrationData: async (input) =>

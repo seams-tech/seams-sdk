@@ -841,7 +841,12 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     env,
     ctx,
   );
-  expect(emailRecovery.status).toBe(404);
+  expect(emailRecovery.status).toBe(400);
+  await expect(emailRecovery.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+    message: 'account_id is required',
+  });
 
   const ed25519Prepare = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/relay/wallets/register/prepare', {

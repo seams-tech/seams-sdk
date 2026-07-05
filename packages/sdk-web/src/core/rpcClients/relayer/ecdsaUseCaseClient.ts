@@ -130,7 +130,12 @@ function mapRouteFailure(args: {
   'unavailable' | 'request_rejected' | 'malformed_response'
 > {
   const normalizedCode = String(args.code || '').trim();
-  if (!normalizedCode || normalizedCode === 'network_error' || normalizedCode === 'timeout') {
+  if (
+    !normalizedCode ||
+    normalizedCode === 'network_error' ||
+    normalizedCode === 'timeout' ||
+    normalizedCode === 'worker_restarted_mid_request'
+  ) {
     return {
       ok: false,
       code: 'unavailable',

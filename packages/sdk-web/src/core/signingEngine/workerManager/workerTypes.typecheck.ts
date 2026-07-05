@@ -3,6 +3,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   EmailOtpEcdsaBootstrapStrictPayload,
+  EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpExportOperationRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
@@ -33,7 +34,7 @@ import {
 } from '@/core/types/signer-worker';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const publicationChainTargets: ThresholdEcdsaChainTarget[];
+declare const publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
@@ -163,6 +164,7 @@ const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepa
   action: 'wallet_registration_ecdsa_prepare',
   operation: 'registration',
   keyScope: 'evm-family',
+  chainTarget,
 };
 void walletRegistrationEcdsaPrepareHandle;
 
@@ -179,10 +181,9 @@ const jwtBootstrap: EmailOtpEcdsaBootstrapStrictPayload = {
   walletId: 'wallet.testnet',
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   clientRootShareHandle,
   chainTarget,
-  publicationChainTargets,
+  publicationTargetPlans,
   runtimePolicyScope,
   sessionKind: 'jwt',
   routeAuth,
@@ -195,10 +196,9 @@ const jwtBootstrapWithoutRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
   walletId: 'wallet.testnet',
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   clientRootShareHandle,
   chainTarget,
-  publicationChainTargets,
+  publicationTargetPlans,
   runtimePolicyScope,
   sessionKind: 'jwt',
 };
@@ -209,10 +209,9 @@ const cookieBootstrap = {
   walletId: 'wallet.testnet',
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   clientRootShareHandle,
   chainTarget,
-  publicationChainTargets,
+  publicationTargetPlans,
   runtimePolicyScope,
   // @ts-expect-error Email OTP ECDSA worker bootstrap must mint JWT Wallet Sessions.
   sessionKind: 'cookie',
@@ -237,10 +236,9 @@ const bootstrapWithoutRuntimePolicyScope: EmailOtpEcdsaBootstrapStrictPayload = 
   walletId: 'wallet.testnet',
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   clientRootShareHandle,
   chainTarget,
-  publicationChainTargets,
+  publicationTargetPlans,
   sessionKind: 'jwt',
   routeAuth,
 };

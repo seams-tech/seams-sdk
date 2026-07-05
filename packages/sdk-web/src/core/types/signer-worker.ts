@@ -1,12 +1,7 @@
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // These are the source of truth generated from Rust structs via wasm-bindgen
 // Import as instance types from the WASM module classes
-import * as wasmModule from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import {
-  WorkerRequestType,
-  WorkerResponseType,
-} from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
-export { WorkerRequestType, WorkerResponseType }; // Export the WASM enums directly
+import type * as wasmModule from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 import type { StripFree } from './index.js';
 import type { TransactionContext } from './rpc.js';
@@ -37,6 +32,94 @@ import type {
 
 export type WasmTransaction = wasmModule.WasmTransaction;
 export type WasmSignature = wasmModule.WasmSignature;
+
+export enum WorkerRequestType {
+  SignTransactionsWithActions = 0,
+  SignNep413Message = 1,
+  SignDelegateAction = 2,
+  DeriveThresholdEd25519ClientVerifyingShare = 3,
+  DeriveThresholdEd25519HssClientInputs = 4,
+  PrepareThresholdEd25519HssSession = 5,
+  PrepareThresholdEd25519HssClientRequest = 6,
+  OpenThresholdEd25519HssClientOutput = 7,
+  OpenThresholdEd25519HssSeedOutput = 8,
+  BuildThresholdEd25519SeedExportArtifact = 9,
+  OpenThresholdEcdsaHssRoleLocalSigningShare = 10,
+  BuildThresholdEcdsaHssRoleLocalExportArtifact = 11,
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact = 12,
+  DeriveThresholdEd25519HssClientOutputMask = 13,
+  PrepareThresholdEcdsaHssRoleLocalClientBootstrap = 14,
+  FinalizeThresholdEcdsaHssRoleLocalClientBootstrap = 15,
+  CreateThresholdEd25519RoleSeparatedNormalSigningClientShare = 16,
+  StoreThresholdEd25519WorkerMaterialFromHssOutput = 17,
+  RestoreThresholdEd25519WorkerMaterial = 18,
+  ValidateThresholdEd25519WorkerMaterial = 19,
+  CreateThresholdEd25519ClientPresignFromWorkerMaterial = 20,
+  SignThresholdEd25519ClientPresignFromWorkerMaterial = 21,
+  BurnThresholdEd25519WorkerMaterial = 22,
+  PutThresholdEd25519SealedWorkerMaterial = 23,
+  ReadThresholdEd25519SealedWorkerMaterial = 24,
+  DeleteThresholdEd25519SealedWorkerMaterial = 25,
+}
+
+export enum WorkerResponseType {
+  SignTransactionsWithActionsSuccess = 0,
+  SignNep413MessageSuccess = 1,
+  SignDelegateActionSuccess = 2,
+  SignTransactionsWithActionsFailure = 3,
+  SignNep413MessageFailure = 4,
+  SignDelegateActionFailure = 5,
+  RegistrationProgress = 6,
+  RegistrationComplete = 7,
+  ExecuteActionsProgress = 8,
+  ExecuteActionsComplete = 9,
+  DeriveThresholdEd25519ClientVerifyingShareSuccess = 10,
+  DeriveThresholdEd25519ClientVerifyingShareFailure = 11,
+  DeriveThresholdEd25519HssClientInputsSuccess = 12,
+  DeriveThresholdEd25519HssClientInputsFailure = 13,
+  PrepareThresholdEd25519HssSessionSuccess = 14,
+  PrepareThresholdEd25519HssSessionFailure = 15,
+  PrepareThresholdEd25519HssClientRequestSuccess = 16,
+  PrepareThresholdEd25519HssClientRequestFailure = 17,
+  OpenThresholdEd25519HssClientOutputSuccess = 18,
+  OpenThresholdEd25519HssClientOutputFailure = 19,
+  OpenThresholdEd25519HssSeedOutputSuccess = 20,
+  OpenThresholdEd25519HssSeedOutputFailure = 21,
+  BuildThresholdEd25519SeedExportArtifactSuccess = 22,
+  BuildThresholdEd25519SeedExportArtifactFailure = 23,
+  OpenThresholdEcdsaHssRoleLocalSigningShareSuccess = 24,
+  OpenThresholdEcdsaHssRoleLocalSigningShareFailure = 25,
+  BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 26,
+  BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 27,
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess = 28,
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure = 29,
+  DeriveThresholdEd25519HssClientOutputMaskSuccess = 30,
+  DeriveThresholdEd25519HssClientOutputMaskFailure = 31,
+  PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 32,
+  PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure = 33,
+  FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 34,
+  FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 35,
+  CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess = 36,
+  CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure = 37,
+  StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess = 38,
+  StoreThresholdEd25519WorkerMaterialFromHssOutputFailure = 39,
+  RestoreThresholdEd25519WorkerMaterialSuccess = 40,
+  RestoreThresholdEd25519WorkerMaterialFailure = 41,
+  ValidateThresholdEd25519WorkerMaterialSuccess = 42,
+  ValidateThresholdEd25519WorkerMaterialFailure = 43,
+  CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 44,
+  CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure = 45,
+  SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 46,
+  SignThresholdEd25519ClientPresignFromWorkerMaterialFailure = 47,
+  BurnThresholdEd25519WorkerMaterialSuccess = 48,
+  BurnThresholdEd25519WorkerMaterialFailure = 49,
+  PutThresholdEd25519SealedWorkerMaterialSuccess = 50,
+  PutThresholdEd25519SealedWorkerMaterialFailure = 51,
+  ReadThresholdEd25519SealedWorkerMaterialSuccess = 52,
+  ReadThresholdEd25519SealedWorkerMaterialFailure = 53,
+  DeleteThresholdEd25519SealedWorkerMaterialSuccess = 54,
+  DeleteThresholdEd25519SealedWorkerMaterialFailure = 55,
+}
 
 export type ThresholdBehavior = 'strict' | 'fallback';
 export const DEFAULT_THRESHOLD_BEHAVIOR: ThresholdBehavior = 'strict';
@@ -907,12 +990,12 @@ export interface NearWorkerProgressEvent {
 }
 
 export interface ProgressStepMap {
-  [wasmModule.ProgressStep.Preparation]: ProgressStep.PREPARATION;
-  [wasmModule.ProgressStep.WebauthnAuthentication]: ProgressStep.WEBAUTHN_AUTHENTICATION;
-  [wasmModule.ProgressStep.AuthenticationComplete]: ProgressStep.AUTHENTICATION_COMPLETE;
-  [wasmModule.ProgressStep.TransactionSigningProgress]: ProgressStep.TRANSACTION_SIGNING_PROGRESS;
-  [wasmModule.ProgressStep.TransactionSigningComplete]: ProgressStep.TRANSACTION_SIGNING_COMPLETE;
-  [wasmModule.ProgressStep.Error]: ProgressStep.ERROR;
+  100: ProgressStep.PREPARATION;
+  102: ProgressStep.WEBAUTHN_AUTHENTICATION;
+  103: ProgressStep.AUTHENTICATION_COMPLETE;
+  104: ProgressStep.TRANSACTION_SIGNING_PROGRESS;
+  105: ProgressStep.TRANSACTION_SIGNING_COMPLETE;
+  106: ProgressStep.ERROR;
 }
 
 // === RESPONSE MESSAGE INTERFACES ===

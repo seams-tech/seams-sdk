@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const EXAMPLE_MANIFEST_PATH =
-  '/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/Cargo.toml';
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const EXAMPLE_MANIFEST_PATH = path.join(repoRoot, 'crates/ed25519-hss/Cargo.toml');
 
 const REQUIRED_CHECKLIST_LABELS = [
   'separation_of_shares',
@@ -29,7 +31,7 @@ test.describe('threshold Ed25519 separated-role verification', () => {
         'prime_order_separated_roles_e2e',
       ],
       {
-        cwd: '/Users/pta/Dev/rust/simple-threshold-signer',
+        cwd: repoRoot,
         env: { ...process.env, NO_COLOR: '1', CARGO_TERM_COLOR: 'never' },
         maxBuffer: 1024 * 1024 * 4,
       },

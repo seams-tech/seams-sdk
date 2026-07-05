@@ -14,12 +14,12 @@ import {
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
-import { refreshPasskeyEd25519SealedRecordAfterSigningMaterial } from './shared/routerAbEd25519WalletSessionState';
+import { refreshPasskeyEd25519SealedRecordAfterSigningMaterial } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   generateNearSigningSessionId,
   resolveNearSigningMaterials,
 } from './shared/signingMaterials';
-import { requireOrRestoreRouterAbEd25519WalletSessionState } from './shared/ed25519SigningMaterialReadiness';
+import { requireOrRestoreRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './shared/ed25519MaterialRestoreAuthorization';
 import {
   preConfirmMaterialGateFromSigningAuthPlan,
@@ -59,7 +59,7 @@ import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearNep413Payload } from '../../interfaces/near';
 import { tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning } from './shared/ed25519PresignFinalize';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
-import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRestore';
+import { ed25519MaterialRestoreRequiredError } from '../../session/warmCapabilities/ed25519MaterialRestore';
 
 type RouterAbNearNep413SigningPayload = {
   kind: 'router_ab_ed25519_nep413_signing_payload_v1';

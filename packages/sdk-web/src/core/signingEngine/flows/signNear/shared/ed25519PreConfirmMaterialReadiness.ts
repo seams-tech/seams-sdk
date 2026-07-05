@@ -6,11 +6,11 @@ import {
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { buildNearEd25519WarmSessionStepUpAuthorization } from '../stepUpAuthorization';
-import type { Ed25519MaterialRestoreOperation } from './ed25519MaterialRestore';
+import type { Ed25519MaterialRestoreOperation } from '../../../session/warmCapabilities/ed25519MaterialRestore';
 import {
   requireOrRestoreRouterAbEd25519WalletSessionState,
   type RouterAbEd25519ReadySigningMaterialState,
-} from './ed25519SigningMaterialReadiness';
+} from '../../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './ed25519MaterialRestoreAuthorization';
 
 export type NearEd25519PreConfirmMaterialGate =

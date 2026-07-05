@@ -1,9 +1,16 @@
 import type { SignRequest, SignatureBytes } from '../../../interfaces/signing';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { signRouterAbEcdsaHssDigestWithPool } from '../../../routerAb/ecdsaHss/presignaturePool';
+import {
+  scheduleRouterAbEcdsaHssClientPresignaturePoolRefill,
+  signRouterAbEcdsaHssDigestWithPool,
+} from '../../../routerAb/ecdsaHss/presignaturePool';
+import { getSessionJwtExpiresAtMs } from '@shared/utils/sessionTokens';
 import type { ReadyEcdsaSignerSession } from '../../../session/identity/evmFamilyEcdsaIdentity';
-import { loadRouterAbEcdsaHssSigningMaterialSource } from './ecdsaHssClientSigningMaterialSource';
+import {
+  loadRouterAbEcdsaHssSigningMaterialSource,
+  type LoadedRouterAbEcdsaHssSigningMaterialSource,
+} from './ecdsaHssClientSigningMaterialSource';
 import { parseEcdsaKeyHandle } from '../../../session/keyMaterialBrands';
 
 type Secp256k1DigestSignRequest = Extract<SignRequest, { kind: 'digest' }> & {
@@ -32,6 +39,26 @@ export type BuildReadySecp256k1SigningMaterialInput =
     signerSession: ReadyEcdsaSignerSession;
   };
 
+type RouterAbEcdsaHssSigningRefillTrigger = 'commit_start' | 'post_sign_success';
+
+function resolveRouterAbEcdsaHssPoolFillExpiresAtMs(
+  signerSession: ReadyEcdsaSignerSession,
+): number {
+  const policyExpiresAtMs = Math.floor(Number(signerSession.session.policy.expiresAtMs));
+  const walletSessionExpiresAtMs = getSessionJwtExpiresAtMs(
+    signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt,
+  );
+  const expiresAtMs = Math.min(
+    policyExpiresAtMs,
+    walletSessionExpiresAtMs ?? 0,
+    Date.now() + 60_000,
+  );
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error('[multichain] Router A/B ECDSA-HSS wallet-session expiry is unavailable');
+  }
+  return expiresAtMs;
+}
+
 export function buildReadySecp256k1SigningMaterial(
   args: BuildReadySecp256k1SigningMaterialInput,
 ): ReadySecp256k1SigningMaterial {
@@ -50,6 +77,35 @@ export function buildReadySecp256k1SigningMaterial(
 
 function isSecp256k1DigestSignRequest(req: SignRequest): req is Secp256k1DigestSignRequest {
   return req.kind === 'digest' && req.algorithm === 'secp256k1';
+}
+
+function scheduleRouterAbEcdsaHssSigningRefill(args: {
+  trigger: RouterAbEcdsaHssSigningRefillTrigger;
+  loadedMaterial: LoadedRouterAbEcdsaHssSigningMaterialSource;
+  workerCtx: WorkerOperationContext;
+}): void {
+  const signerSession = args.loadedMaterial.signerSession;
+  const publicFacts = signerSession.publicFacts;
+  const signingMaterial = signerSession.transport.signingMaterial;
+  const participantIds = publicFacts.participantIds.map((participantId) => Number(participantId));
+  scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    relayerUrl: signerSession.transport.relayerUrl,
+    keyHandle: parseEcdsaKeyHandle(publicFacts.keyHandle),
+    ecdsaThresholdKeyId: signingMaterial.ecdsaThresholdKeyId,
+    clientVerifyingShareB64u: signingMaterial.clientVerifier33B64u,
+    participantIds,
+    clientSigningMaterial: args.loadedMaterial.clientSigningMaterial,
+    thresholdEcdsaPublicKeyB64u: publicFacts.publicKeyB64u,
+    relayerVerifyingShareB64u: signerSession.transport.relayerVerifyingShareB64u,
+    credential: signerSession.routerAbEcdsaHssNormalSigning.credential,
+    routerAbEcdsaHssPoolFill: {
+      kind: 'router_ab_ecdsa_hss_signing_worker_pool',
+      scope: signerSession.routerAbEcdsaHssNormalSigning.state.scope,
+      expiresAtMs: resolveRouterAbEcdsaHssPoolFillExpiresAtMs(signerSession),
+    },
+    workerCtx: args.workerCtx,
+    ...(args.trigger === 'commit_start' ? { triggerIfDepthAtOrBelow: 0 } : {}),
+  });
 }
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
@@ -87,6 +143,11 @@ export class Secp256k1Engine {
       signerSession: material.signerSession,
       workerCtx: this.workerCtx,
     });
+    scheduleRouterAbEcdsaHssSigningRefill({
+      trigger: 'commit_start',
+      loadedMaterial,
+      workerCtx: this.workerCtx,
+    });
     const signerSession = loadedMaterial.signerSession;
     const publicFacts = signerSession.publicFacts;
     const participantIds = publicFacts.participantIds.map((participantId) => Number(participantId));
@@ -101,6 +162,7 @@ export class Secp256k1Engine {
         signingDigest32: req.digest32,
         clientSigningMaterial: loadedMaterial.clientSigningMaterial,
         participantIds,
+        expiresAtMs: resolveRouterAbEcdsaHssPoolFillExpiresAtMs(signerSession),
         workerCtx: this.workerCtx,
       });
       if (!signed.ok) {
@@ -109,6 +171,11 @@ export class Secp256k1Engine {
         );
       }
 
+      scheduleRouterAbEcdsaHssSigningRefill({
+        trigger: 'post_sign_success',
+        loadedMaterial,
+        workerCtx: this.workerCtx,
+      });
       return signed.signature65;
     } finally {
       await loadedMaterial.cleanupAfterSign({

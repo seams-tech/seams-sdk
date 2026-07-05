@@ -10,6 +10,7 @@ import type { Ed25519SessionPolicy, ThresholdRuntimePolicyScope } from '../types
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   buildPasskeyWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
   parseWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
 } from '@shared/utils/walletAuthAuthority';
@@ -140,6 +141,96 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
     nearAccountId: args.binding.nearAccountId,
     nearEd25519SigningKeyId: args.binding.nearEd25519SigningKeyId,
     authority: expectedAuthority,
+    relayerKeyId: args.relayerKeyId,
+    thresholdSessionId,
+    signingGrantId,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
+    ...(participantIds && participantIds.length > 0 ? { participantIds } : {}),
+    ttlMs: Math.floor(ttlMs),
+    remainingUses: Math.floor(remainingUses),
+  };
+  return {
+    sessionPolicy,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+}
+
+export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
+  requestedSessionPolicy: Record<string, unknown>;
+  binding: EmailRecoveryResolvedWalletBinding;
+  relayerKeyId: string;
+  persistedRuntimePolicyScope?: ThresholdRuntimePolicyScope;
+}): { sessionPolicy: Ed25519SessionPolicy; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
+  if (Object.prototype.hasOwnProperty.call(args.requestedSessionPolicy, 'rpId')) {
+    throw new Error('threshold-ed25519 session policy rpId belongs in authority');
+  }
+  if (Object.prototype.hasOwnProperty.call(args.requestedSessionPolicy, 'authorityScope')) {
+    throw new Error('threshold-ed25519 session policy authorityScope is obsolete; use authority');
+  }
+  const requestedWalletId = toOptionalTrimmedString(args.requestedSessionPolicy.walletId);
+  if (requestedWalletId && requestedWalletId !== args.binding.walletId) {
+    throw new Error('threshold-ed25519 session policy walletId mismatch');
+  }
+  const requestedNearAccountId = toOptionalTrimmedString(
+    args.requestedSessionPolicy.nearAccountId,
+  );
+  if (requestedNearAccountId && requestedNearAccountId !== args.binding.nearAccountId) {
+    throw new Error('threshold-ed25519 session policy nearAccountId mismatch');
+  }
+  const requestedNearEd25519SigningKeyId = toOptionalTrimmedString(
+    args.requestedSessionPolicy.nearEd25519SigningKeyId,
+  );
+  if (
+    requestedNearEd25519SigningKeyId &&
+    requestedNearEd25519SigningKeyId !== args.binding.nearEd25519SigningKeyId
+  ) {
+    throw new Error('threshold-ed25519 session policy nearEd25519SigningKeyId mismatch');
+  }
+  const requestedAuthority = parseWalletAuthAuthority(args.requestedSessionPolicy.authority);
+  if (!requestedAuthority) {
+    throw new Error('threshold-ed25519 session policy authority is required');
+  }
+  if (!isPasskeyWalletAuthAuthority(requestedAuthority)) {
+    throw new Error('email recovery threshold session authority must be passkey');
+  }
+  if (requestedAuthority.walletId !== args.binding.walletId) {
+    throw new Error('email recovery threshold session authority walletId mismatch');
+  }
+  if (requestedAuthority.verifier.rpId !== args.binding.rpId) {
+    throw new Error('email recovery threshold session authority rpId mismatch');
+  }
+  const runtimePolicyScope =
+    normalizeThresholdRuntimePolicyScope(args.requestedSessionPolicy.runtimePolicyScope) ||
+    args.persistedRuntimePolicyScope;
+  const thresholdSessionId = toOptionalTrimmedString(args.requestedSessionPolicy.thresholdSessionId);
+  const signingGrantId = toOptionalTrimmedString(args.requestedSessionPolicy.signingGrantId);
+  const ttlMs = Number(args.requestedSessionPolicy.ttlMs);
+  const remainingUses = Number(args.requestedSessionPolicy.remainingUses);
+  const participantIds = Array.isArray(args.requestedSessionPolicy.participantIds)
+    ? args.requestedSessionPolicy.participantIds
+        .map((participantId) => Number(participantId))
+        .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0)
+    : undefined;
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    args.requestedSessionPolicy.routerAbNormalSigning,
+  );
+  if (
+    args.requestedSessionPolicy.version !== 'threshold_session_v1' ||
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !Number.isFinite(ttlMs) ||
+    ttlMs <= 0 ||
+    !Number.isFinite(remainingUses) ||
+    remainingUses <= 0
+  ) {
+    throw new Error('threshold-ed25519 session policy is incomplete');
+  }
+  const sessionPolicy: Ed25519SessionPolicy = {
+    version: 'threshold_session_v1',
+    nearAccountId: args.binding.nearAccountId,
+    nearEd25519SigningKeyId: args.binding.nearEd25519SigningKeyId,
+    authority: requestedAuthority,
     relayerKeyId: args.relayerKeyId,
     thresholdSessionId,
     signingGrantId,

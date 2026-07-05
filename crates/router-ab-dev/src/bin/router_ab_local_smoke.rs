@@ -821,7 +821,7 @@ fn seed_local_ecdsa_wallet_session(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seed = json!({
         "walletId": fixture.scope.wallet_id,
-        "walletKeyId": fixture.scope.wallet_key_id,
+        "evmFamilySigningKeySlotId": fixture.scope.wallet_key_id,
         "ecdsaThresholdKeyId": fixture.scope.ecdsa_threshold_key_id,
         "signingRootId": fixture.scope.signing_root_id,
         "signingRootVersion": fixture.scope.signing_root_version,
@@ -856,8 +856,7 @@ fn seed_local_ecdsa_wallet_session(
 const LOCAL_SMOKE_JWT_SECRET: &[u8] =
     b"seams-local-d1-relay-session-secret-change-before-shared-dev";
 const LOCAL_ROUTER_AB_ED25519_SEED_PATH: &str = "/router-ab/dev/ed25519/normal-signing/seed";
-const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH: &str =
-    "/router-ab/dev/ecdsa-hss/normal-signing/seed";
+const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH: &str = "/router-ab/dev/ecdsa-hss/normal-signing/seed";
 const LOCAL_SMOKE_JWT_ISSUER: &str = "seams-local-d1-relay";
 const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
 const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;
@@ -867,7 +866,8 @@ const LOCAL_SMOKE_ED25519_SIGNING_GRANT_ID: &str = "local-ed25519-signing-grant"
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID: &str = "local-ecdsa-hss-signing-grant";
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID: &str = "local-ecdsa-hss-session";
 const LOCAL_SMOKE_ECDSA_HSS_WALLET_ID: &str = "wallet-ecdsa-hss-local";
-const LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID: &str = "wallet-ecdsa-hss-key-local";
+const LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID: &str =
+    "wallet-key:evm-family:wallet-ecdsa-hss-local:signing-root-local:root-v1:evm%3Aeip155%3Alocal";
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_ID: &str = "signing-root-local";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_VERSION: &str = "root-v1";
@@ -875,11 +875,29 @@ const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND: &str = "router_ab_ed25519_walle
 const ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND: &str = "router_ab_ecdsa_hss_wallet_session_v1";
 const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND: &str = "router_ab_ed25519_normal_signing_v1";
 const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND: &str = "router_ab_ecdsa_hss_normal_signing_v1";
+const LOCAL_SMOKE_PASSKEY_RP_ID: &str = "localhost";
+const LOCAL_SMOKE_PASSKEY_CREDENTIAL_ID_B64U: &str = "local-router-ab-passkey-credential";
 
 fn local_smoke_ed25519_wallet_session_authorization_v2(
     request: &RouterAbEd25519NormalSigningPrepareRequestV2,
     relayer_key_id: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let authority = json!({
+        "walletId": request.scope.account_id,
+        "factor": {
+            "kind": "passkey",
+            "credentialIdB64u": LOCAL_SMOKE_PASSKEY_CREDENTIAL_ID_B64U
+        },
+        "verifier": {
+            "kind": "webauthn",
+            "rpId": LOCAL_SMOKE_PASSKEY_RP_ID
+        },
+        "bindingId": format!("passkey:{LOCAL_SMOKE_PASSKEY_RP_ID}:{LOCAL_SMOKE_PASSKEY_CREDENTIAL_ID_B64U}")
+    });
+    let authority_scope = json!({
+        "kind": "passkey_rp",
+        "rpId": LOCAL_SMOKE_PASSKEY_RP_ID
+    });
     let claims = json!({
         "sub": request.scope.account_id,
         "kind": ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -889,7 +907,8 @@ fn local_smoke_ed25519_wallet_session_authorization_v2(
         "thresholdSessionId": request.scope.session_id,
         "signingGrantId": LOCAL_SMOKE_ED25519_SIGNING_GRANT_ID,
         "relayerKeyId": relayer_key_id,
-        "rpId": "localhost",
+        "authority": authority,
+        "authorityScope": authority_scope,
         "participantIds": [1, 2],
         "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
         "runtimePolicyScope": {
@@ -922,7 +941,7 @@ fn local_smoke_ecdsa_hss_wallet_session_authorization_v1(
         "keyScope": "evm-family",
         "keyHandle": "local-ecdsa-hss-key-handle",
         "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
-        "walletKeyId": fixture.scope.wallet_key_id,
+        "evmFamilySigningKeySlotId": fixture.scope.wallet_key_id,
         "participantIds": [1, 2],
         "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
         "runtimePolicyScope": {

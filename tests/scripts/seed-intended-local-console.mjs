@@ -13,10 +13,14 @@ import {
 } from './intended-google-oidc-env.mjs';
 
 const envFilePath = resolveRepoPath(defaultEnvFile);
-dotenv.config({ path: envFilePath });
+dotenv.config({ path: envFilePath, override: true });
 
 const envFile = readEnvFile(envFilePath);
 const seedConfig = resolveSeedConfig(envFile);
+const d1LocalPersistPath =
+  process.env.SEAMS_D1_LOCAL_PERSIST_TO || '.wrangler/state/seams-d1';
+const d1LocalWranglerConfig =
+  process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG || 'wrangler.d1-local.toml';
 
 updateEnvFile(envFilePath, {
   SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID: seedConfig.environmentId,
@@ -131,9 +135,9 @@ function runWranglerSeed(config) {
       'seams-console',
       '--local',
       '--persist-to',
-      '.wrangler/state/seams-d1',
+      d1LocalPersistPath,
       '--config',
-      'wrangler.d1-local.toml',
+      d1LocalWranglerConfig,
       '--command',
       sql,
     ],

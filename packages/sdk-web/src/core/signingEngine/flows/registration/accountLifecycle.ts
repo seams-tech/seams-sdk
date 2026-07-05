@@ -43,6 +43,7 @@ import type {
   KeyMaterialRecord,
   LocalWalletAuthMethodRecord,
   ProfileAuthenticatorRecord,
+  SignerActivationPolicy,
 } from '@/core/indexedDB';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import {
@@ -80,6 +81,14 @@ export type StoreWalletEd25519RegistrationInput = {
   clientParticipantId?: number;
   relayerParticipantId?: number;
 };
+
+type StoreWalletEd25519RegistrationMode =
+  | { kind: 'fresh_registration' }
+  | { kind: 'email_recovery_replacement' };
+
+type StoreWalletEcdsaSignerRecordsMode =
+  | { kind: 'fresh_registration' }
+  | { kind: 'email_recovery_replacement' };
 
 export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   StoreWalletEd25519RegistrationInput,
@@ -741,9 +750,44 @@ function keyMaterialForSignerActivation(args: {
   return record;
 }
 
-export async function storeWalletEd25519RegistrationData(
+function walletEd25519RegistrationActivationPolicy(args: {
+  mode: StoreWalletEd25519RegistrationMode;
+  signerSlot: number;
+}): SignerActivationPolicy {
+  switch (args.mode.kind) {
+    case 'fresh_registration':
+      return { mode: 'fail_if_occupied', signerSlot: args.signerSlot };
+    case 'email_recovery_replacement':
+      return {
+        mode: 'replace_slot',
+        signerSlot: args.signerSlot,
+        replacedSignerKind: SIGNER_KINDS.thresholdEd25519,
+        revocationReason: 'email_recovery_replacement',
+      };
+  }
+}
+
+function walletEcdsaSignerActivationPolicy(args: {
+  mode: StoreWalletEcdsaSignerRecordsMode;
+  signerSlot: number;
+}): SignerActivationPolicy {
+  switch (args.mode.kind) {
+    case 'fresh_registration':
+      return { mode: 'allocate_next_free' };
+    case 'email_recovery_replacement':
+      return {
+        mode: 'replace_profile_chain_kind',
+        signerSlot: args.signerSlot,
+        replacedSignerKind: SIGNER_KINDS.thresholdEcdsa,
+        revocationReason: 'email_recovery_replacement',
+      };
+  }
+}
+
+async function storeWalletEd25519RegistrationDataWithMode(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519RegistrationInput,
+  mode: StoreWalletEd25519RegistrationMode,
 ): Promise<StoredRegistrationData> {
   const credentialId = String(args.credential.rawId || '').trim();
   if (!credentialId) {
@@ -792,6 +836,10 @@ export async function storeWalletEd25519RegistrationData(
     args.operationalPublicKey,
     'Ed25519 signerId',
   );
+  const activationPolicy = walletEd25519RegistrationActivationPolicy({
+    mode,
+    signerSlot,
+  });
   const walletActivation: ActivateAccountSignerInput = {
     account: {
       profileId: walletId,
@@ -807,7 +855,7 @@ export async function storeWalletEd25519RegistrationData(
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: signerMetadata,
     },
-    activationPolicy: { mode: 'fail_if_occupied', signerSlot },
+    activationPolicy,
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
   };
@@ -826,7 +874,7 @@ export async function storeWalletEd25519RegistrationData(
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: signerMetadata,
     },
-    activationPolicy: { mode: 'fail_if_occupied', signerSlot },
+    activationPolicy,
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
   };
@@ -891,6 +939,24 @@ export async function storeWalletEd25519RegistrationData(
     throw new Error('SeamsWalletDB: wallet Ed25519 registration batch did not complete');
   }
   return { signerSlot: storedNearActivation.signerSlot };
+}
+
+export async function storeWalletEd25519RegistrationData(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEd25519RegistrationInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletEd25519RegistrationDataWithMode(deps, args, {
+    kind: 'fresh_registration',
+  });
+}
+
+export async function storeWalletEd25519RecoveryRegistrationData(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEd25519RegistrationInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletEd25519RegistrationDataWithMode(deps, args, {
+    kind: 'email_recovery_replacement',
+  });
 }
 
 export async function storeWalletEmailOtpEd25519RegistrationData(
@@ -1170,6 +1236,7 @@ function prepareWalletEcdsaSignerActivations(
     signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
     signerSource: SIGNER_SOURCES.passkeyRegistration,
   },
+  mode: StoreWalletEcdsaSignerRecordsMode = { kind: 'fresh_registration' },
 ): {
   walletId: string;
   signerActivations: PreparedWalletEcdsaSignerActivation[];
@@ -1222,12 +1289,13 @@ function prepareWalletEcdsaSignerActivations(
     }
     const chainIdKey = toIndexedDbChainTargetKey(walletKey.chainTarget);
     const targetKey = thresholdEcdsaChainTargetKey(walletKey.chainTarget);
+    const signerSlot = 1;
 
     signerActivations.push({
       chainTarget: walletKey.chainTarget,
       targetKey,
       signerId: thresholdOwnerAddress,
-      signerSlot: 1,
+      signerSlot,
       input: {
         account: {
           profileId: walletId,
@@ -1280,8 +1348,8 @@ function prepareWalletEcdsaSignerActivations(
             chainId: walletKey.chainTarget.chainId,
           },
         },
-        activationPolicy: { mode: 'allocate_next_free' },
-        preferredSlot: 1,
+        activationPolicy: walletEcdsaSignerActivationPolicy({ mode, signerSlot }),
+        preferredSlot: signerSlot,
         mutation: { routeThroughOutbox: false },
       },
     });
@@ -1312,6 +1380,46 @@ export async function storeWalletEcdsaSignerRecords(
       const result = batch.signerActivations[index];
       if (!result) {
         throw new Error('SeamsWalletDB: wallet ECDSA signer batch did not complete');
+      }
+      return {
+        chainTarget: activation.chainTarget,
+        targetKey: activation.targetKey,
+        signerSlot: result.signerSlot,
+        signerId: activation.signerId,
+      };
+    }),
+  };
+}
+
+export async function storeWalletEcdsaRecoverySignerRecords(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEcdsaSignerRecordsInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  const { walletId, signerActivations } = prepareWalletEcdsaSignerActivations(
+    args,
+    {
+      signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+      signerSource: SIGNER_SOURCES.passkeyRegistration,
+    },
+    { kind: 'email_recovery_replacement' },
+  );
+  const keyMaterialTimestamp = Date.now();
+  const batch = await deps.accountStore.persistWalletSignerFinalize({
+    profiles: [{ profileId: walletId }],
+    signerActivations: signerActivations.map((activation) => activation.input),
+    keyMaterials: signerActivations.map((activation) =>
+      keyMaterialForSignerActivation({
+        activation: activation.input,
+        signerSlot: activation.signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+    ),
+  });
+  return {
+    storedSigners: signerActivations.map((activation, index) => {
+      const result = batch.signerActivations[index];
+      if (!result) {
+        throw new Error('SeamsWalletDB: wallet recovery ECDSA signer batch did not complete');
       }
       return {
         chainTarget: activation.chainTarget,

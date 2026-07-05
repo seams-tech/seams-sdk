@@ -7,6 +7,7 @@ import {
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   emailOtpAuthContextProviderUserId,
   type ThresholdEcdsaEmailOtpAuthContext,
@@ -37,8 +38,11 @@ type WalletRegistrationEcdsaSessionBootstrap = Awaited<
 export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   walletId: string;
   relayerUrl: string;
-  preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
-  bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+  sessions: readonly {
+    chainTarget: WalletRegistrationEcdsaWalletKey['chainTarget'];
+    preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
+    bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+  }[];
   walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   auth:
     | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
@@ -67,20 +71,39 @@ export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
   };
 };
 
+function registrationEcdsaSessionForWalletKey(input: {
+  sessions: readonly FinalizeWalletRegistrationEcdsaSessionsInput['sessions'][number][];
+  walletKey: WalletRegistrationEcdsaWalletKey;
+}): FinalizeWalletRegistrationEcdsaSessionsInput['sessions'][number] {
+  const targetKey = thresholdEcdsaChainTargetKey(input.walletKey.chainTarget);
+  for (const session of input.sessions) {
+    if (thresholdEcdsaChainTargetKey(session.chainTarget) === targetKey) {
+      return session;
+    }
+  }
+  throw new Error(
+    `[SigningEngine] ECDSA registration missing bootstrap session for ${targetKey}`,
+  );
+}
+
 export async function finalizeWalletRegistrationEcdsaSessions(
   deps: FinalizeWalletRegistrationEcdsaSessionsDeps,
   args: FinalizeWalletRegistrationEcdsaSessionsInput,
 ): Promise<void> {
   const walletId = toWalletId(args.walletId);
-  const finalized = await deps.registrationBootstrap.finalizeClientBootstrap({
-    preparedClientBootstrap: args.preparedClientBootstrap,
-    bootstrap: args.bootstrap,
-  });
   const sessionBootstraps = await Promise.all(
     args.walletKeys.map(async (walletKey) => {
+      const session = registrationEcdsaSessionForWalletKey({
+        sessions: args.sessions,
+        walletKey,
+      });
+      const finalized = await deps.registrationBootstrap.finalizeClientBootstrap({
+        preparedClientBootstrap: session.preparedClientBootstrap,
+        bootstrap: session.bootstrap,
+      });
       const signingMaterial = await deps.registrationBootstrap.storeClientSigningMaterial({
         finalized,
-        bootstrap: args.bootstrap,
+        bootstrap: session.bootstrap,
         chainTarget: walletKey.chainTarget,
       });
       return {
@@ -89,11 +112,11 @@ export async function finalizeWalletRegistrationEcdsaSessions(
           walletId,
           relayerUrl: args.relayerUrl,
           chainTarget: walletKey.chainTarget,
-          keygenSessionId: args.preparedClientBootstrap.clientBootstrap.requestId,
+          keygenSessionId: session.preparedClientBootstrap.clientBootstrap.requestId,
           readyStateBlob: finalized.stateBlob,
           signingMaterialHandle: signingMaterial.handle,
           clientVerifyingShareB64u: finalized.publicFacts.hssClientSharePublicKey33B64u,
-          serverBootstrap: args.bootstrap,
+          serverBootstrap: session.bootstrap,
           walletKey,
           authMethod:
             args.auth.kind === 'email_otp'
@@ -151,7 +174,10 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       relayerUrl: args.relayerUrl,
       walletKey,
       bootstrap,
-      preparedClientBootstrap: args.preparedClientBootstrap,
+      preparedClientBootstrap: registrationEcdsaSessionForWalletKey({
+        sessions: args.sessions,
+        walletKey,
+      }).preparedClientBootstrap,
       signingSessionSeal: deps.signingSessionSeal,
       warmSessions: deps.warmSessions,
     });

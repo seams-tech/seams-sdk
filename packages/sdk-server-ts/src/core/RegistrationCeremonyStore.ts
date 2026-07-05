@@ -27,12 +27,17 @@ import type {
   ServerAllocatedWalletId,
   RegistrationAuthority,
   RegistrationEd25519AuthorityScope,
+  RegistrationSignerPlanBranch,
+  RegistrationSignerRequest,
+  RegistrationSignerPlan,
   RegistrationSignerBranchKey,
 } from '@shared/utils/registrationIntent';
 import {
   addAuthMethodIntentGrantFromString,
   createServerAllocatedWalletId,
   normalizeAddAuthMethodInput,
+  normalizeRegistrationSignerPlan,
+  registrationSignerPlanFromSelection,
   requireServerAllocatedWalletId,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
@@ -49,12 +54,19 @@ import {
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
 import { base64UrlDecode } from '@shared/utils/encoders';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   parseThresholdEd25519AuthorityScope,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   thresholdEd25519AuthorityScopesMatch,
 } from './ThresholdService/validation';
 import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  thresholdEcdsaChainTargetFromValue,
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from './thresholdEcdsaChainTarget';
 
 export type StoredRegistrationIntent = {
   kind: 'intent_allocated';
@@ -173,12 +185,42 @@ export type StoredEd25519RegistrationPrepareScope = {
   participantIds: number[];
 };
 
+export type StoredWalletRegistrationRuntimePolicyContext =
+  | {
+      kind: 'runtime_policy_scope';
+      scope: RuntimePolicyScope;
+    }
+  | {
+      kind: 'signing_root_only';
+      scope?: never;
+    };
+
+export type StoredWalletRegistrationEcdsaPreparedContext =
+  | {
+      kind: 'evm_family_ecdsa_requested';
+      chainTargets: readonly ThresholdEcdsaChainTarget[];
+    }
+  | {
+      kind: 'evm_family_ecdsa_absent';
+      chainTargets?: never;
+    };
+
+export type StoredWalletRegistrationPreparedContext = {
+  kind: 'wallet_registration_prepared_context_v1';
+  signingRootId: string;
+  signingRootVersion: string;
+  runtimePolicy: StoredWalletRegistrationRuntimePolicyContext;
+  ecdsa: StoredWalletRegistrationEcdsaPreparedContext;
+};
+
 export type StoredWalletRegistrationHssPreparationBase = {
   registrationPreparationId: RegistrationPreparationId;
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
   authority: StoredRegistrationAuthority;
+  signerPlan: RegistrationSignerPlan;
+  preparedContext: StoredWalletRegistrationPreparedContext;
   orgId: string;
   expectedOrigin: string;
   signingRootId: string;
@@ -317,6 +359,82 @@ export function storedEd25519RegistrationPrepareScopesMatch(
   );
 }
 
+export function buildStoredWalletRegistrationPreparedContext(input: {
+  signingRootId: string;
+  signingRootVersion: string;
+  runtimePolicyScope: RuntimePolicyScope | null;
+  ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[] | null;
+}): StoredWalletRegistrationPreparedContext {
+  const signingRootId = String(input.signingRootId || '').trim();
+  const signingRootVersion = String(input.signingRootVersion || '').trim();
+  if (!signingRootId || !signingRootVersion) {
+    throw new Error('registration prepared context requires signing-root scope');
+  }
+  return {
+    kind: 'wallet_registration_prepared_context_v1',
+    signingRootId,
+    signingRootVersion,
+    runtimePolicy: input.runtimePolicyScope
+      ? {
+          kind: 'runtime_policy_scope',
+          scope: {
+            orgId: input.runtimePolicyScope.orgId,
+            projectId: input.runtimePolicyScope.projectId,
+            envId: input.runtimePolicyScope.envId,
+            signingRootVersion: input.runtimePolicyScope.signingRootVersion,
+          },
+        }
+      : { kind: 'signing_root_only' },
+    ecdsa:
+      input.ecdsaChainTargets && input.ecdsaChainTargets.length > 0
+        ? {
+            kind: 'evm_family_ecdsa_requested',
+            chainTargets: input.ecdsaChainTargets.map((target) => ({ ...target })),
+          }
+        : { kind: 'evm_family_ecdsa_absent' },
+  };
+}
+
+export function storedWalletRegistrationPreparedContextsMatch(
+  left: StoredWalletRegistrationPreparedContext,
+  right: StoredWalletRegistrationPreparedContext,
+): boolean {
+  if (
+    left.kind !== right.kind ||
+    left.signingRootId !== right.signingRootId ||
+    left.signingRootVersion !== right.signingRootVersion ||
+    left.runtimePolicy.kind !== right.runtimePolicy.kind ||
+    left.ecdsa.kind !== right.ecdsa.kind
+  ) {
+    return false;
+  }
+  if (
+    left.runtimePolicy.kind === 'runtime_policy_scope' &&
+    right.runtimePolicy.kind === 'runtime_policy_scope' &&
+    (left.runtimePolicy.scope.orgId !== right.runtimePolicy.scope.orgId ||
+      left.runtimePolicy.scope.projectId !== right.runtimePolicy.scope.projectId ||
+      left.runtimePolicy.scope.envId !== right.runtimePolicy.scope.envId ||
+      left.runtimePolicy.scope.signingRootVersion !==
+        right.runtimePolicy.scope.signingRootVersion)
+  ) {
+    return false;
+  }
+  if (
+    left.ecdsa.kind === 'evm_family_ecdsa_requested' &&
+    right.ecdsa.kind === 'evm_family_ecdsa_requested'
+  ) {
+    const leftTargets = left.ecdsa.chainTargets;
+    const rightTargets = right.ecdsa.chainTargets;
+    if (leftTargets.length !== rightTargets.length) return false;
+    return leftTargets.every(
+      (target, index) =>
+        thresholdEcdsaChainTargetKey(target) ===
+        thresholdEcdsaChainTargetKey(rightTargets[index]),
+    );
+  }
+  return true;
+}
+
 function registrationEd25519AuthorityScopesMatch(
   left: RegistrationEd25519AuthorityScope,
   right: RegistrationEd25519AuthorityScope,
@@ -376,6 +494,8 @@ export type ConsumeRegistrationIntentForPreparationInput = {
   registrationIntentDigestB64u: string;
   registrationPreparationId: RegistrationPreparationId;
   authority: StoredRegistrationAuthority;
+  signerPlan: RegistrationSignerPlan;
+  preparedContext: StoredWalletRegistrationPreparedContext;
   ed25519Scope: StoredEd25519RegistrationPrepareScope;
 };
 
@@ -399,6 +519,11 @@ function registrationPreparationMatchesIntentConsume(
     preparation.registrationIntentGrant === input.registrationIntentGrant &&
     preparation.registrationIntentDigestB64u === input.registrationIntentDigestB64u &&
     storedRegistrationAuthoritiesMatch(preparation.authority, input.authority) &&
+    storedRegistrationSignerPlansMatch(preparation.signerPlan, input.signerPlan) &&
+    storedWalletRegistrationPreparedContextsMatch(
+      preparation.preparedContext,
+      input.preparedContext,
+    ) &&
     storedEd25519RegistrationPrepareScopesMatch(preparation.ed25519Scope, input.ed25519Scope)
   );
 }
@@ -439,7 +564,10 @@ export type StoredEcdsaRegistrationPrepared = StoredEcdsaRegistrationBase & {
 export type StoredEcdsaRegistrationResponded = StoredEcdsaRegistrationBase & {
   kind: 'ecdsa_responded';
   responded: {
-    bootstrap: EcdsaHssServerBootstrapResponse;
+    bootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      bootstrap: EcdsaHssServerBootstrapResponse;
+    }[];
   };
   completed?: never;
 };
@@ -526,16 +654,14 @@ export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input:
   readonly branchKey: RegistrationSignerBranchKey;
   readonly ecdsa: {
     readonly kind: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['hssKind'];
-    readonly chainTargets: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['chainTargets'];
-    readonly prepare: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['prepare'];
+    readonly targets: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['targets'];
   };
 }): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch {
   return {
     kind: 'evm_family_ecdsa_prepared',
     branchKey: input.branchKey,
     hssKind: input.ecdsa.kind,
-    chainTargets: input.ecdsa.chainTargets,
-    prepare: input.ecdsa.prepare,
+    targets: input.ecdsa.targets,
   };
 }
 
@@ -607,6 +733,8 @@ type StoredWalletRegistrationCeremonyBase = {
   registrationCeremonyId: string;
   intent: RegistrationIntentV1;
   digestB64u: string;
+  signerPlan: RegistrationSignerPlan;
+  preparedContext: StoredWalletRegistrationPreparedContext;
   orgId: string;
   signingRootId?: string;
   signingRootVersion?: string;
@@ -656,7 +784,10 @@ export type StoredEcdsaAddSignerPrepared = StoredEcdsaAddSignerBase & {
 export type StoredEcdsaAddSignerResponded = StoredEcdsaAddSignerBase & {
   kind: 'ecdsa_add_signer_responded';
   responded: {
-    bootstrap: EcdsaHssServerBootstrapResponse;
+    bootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      bootstrap: EcdsaHssServerBootstrapResponse;
+    }[];
   };
   completed?: never;
 };
@@ -1187,12 +1318,31 @@ function parseFinalizeReplayResponse(
     const publicKey = trimString(value.ed25519.publicKey);
     const relayerKeyId = trimString(value.ed25519.relayerKeyId);
     const keyVersion = trimString(value.ed25519.keyVersion);
+    const registrationWorkerMaterialReport = isRecord(
+      value.ed25519.registrationWorkerMaterialReport,
+    )
+      ? value.ed25519.registrationWorkerMaterialReport
+      : null;
+    const registrationWorkerMaterialReportKind = trimString(
+      registrationWorkerMaterialReport?.kind,
+    );
+    const registrationWorkerMaterialContextBindingB64u = trimString(
+      registrationWorkerMaterialReport?.contextBindingB64u,
+    );
+    const registrationWorkerMaterialClientOutputMessageB64u = trimString(
+      registrationWorkerMaterialReport?.clientOutputMessageB64u,
+    );
     if (
       !nearAccountId ||
       !nearEd25519SigningKeyId ||
       !publicKey ||
       !relayerKeyId ||
       !keyVersion ||
+      registrationWorkerMaterialReportKind !==
+        'threshold_ed25519_registration_worker_material_report_v1' ||
+      !registrationWorkerMaterialContextBindingB64u ||
+      !registrationWorkerMaterialClientOutputMessageB64u ||
+      registrationWorkerMaterialReport?.seedOutputMessageB64u !== undefined ||
       value.ed25519.recoveryExportCapable !== true
     ) {
       return null;
@@ -1213,6 +1363,11 @@ function parseFinalizeReplayResponse(
       ...(Number.isSafeInteger(clientParticipantId) ? { clientParticipantId } : {}),
       ...(Number.isSafeInteger(relayerParticipantId) ? { relayerParticipantId } : {}),
       ...(participantIds ? { participantIds } : {}),
+      registrationWorkerMaterialReport: {
+        kind: 'threshold_ed25519_registration_worker_material_report_v1',
+        contextBindingB64u: registrationWorkerMaterialContextBindingB64u,
+        clientOutputMessageB64u: registrationWorkerMaterialClientOutputMessageB64u,
+      },
     };
   }
   let ecdsa: Extract<WalletRegistrationFinalizeResponse, { ok: true }>['ecdsa'];
@@ -1557,6 +1712,11 @@ function parseStoredWalletRegistrationHssPreparationBase(
   });
   const ed25519Scope = parseStoredEd25519RegistrationPrepareScope(value.ed25519Scope);
   const authority = parseStoredRegistrationAuthority(value.authority);
+  const signerPlan = parseStoredRegistrationSignerPlan(value.signerPlan);
+  const preparedContext = parseStoredWalletRegistrationPreparedContext(value.preparedContext);
+  const intentSignerPlan = intentRecord
+    ? parseStoredRegistrationSignerPlan(intentRecord.intent.signerSelection)
+    : null;
   if (
     !registrationPreparationId ||
     !registrationIntentGrant ||
@@ -1569,7 +1729,13 @@ function parseStoredWalletRegistrationHssPreparationBase(
     expiresAtMs <= 0 ||
     !intentRecord ||
     !authority ||
-    !ed25519Scope
+    !ed25519Scope ||
+    !signerPlan ||
+    !preparedContext ||
+    preparedContext.signingRootId !== signingRootId ||
+    preparedContext.signingRootVersion !== signingRootVersion ||
+    !intentSignerPlan ||
+    !storedRegistrationSignerPlansMatch(signerPlan, intentSignerPlan)
   ) {
     return null;
   }
@@ -1579,6 +1745,8 @@ function parseStoredWalletRegistrationHssPreparationBase(
     registrationIntentDigestB64u,
     intent: intentRecord.intent,
     authority,
+    signerPlan,
+    preparedContext,
     orgId,
     expectedOrigin,
     signingRootId,
@@ -1597,6 +1765,195 @@ function parseStoredWalletRegistrationHssPreparationFailure(
   const message = trimString(value.message);
   if (!code || !message) return null;
   return { code, message };
+}
+
+export function parseStoredRegistrationSignerPlan(value: unknown): RegistrationSignerPlan | null {
+  const parsed = normalizeRegistrationSignerPlan(value);
+  if (parsed.ok) return parsed.value;
+  const record = parseJsonValue(value);
+  if (!isRecord(record) || record.kind !== 'signer_set' || !Array.isArray(record.branches)) {
+    return null;
+  }
+  const branches: RegistrationSignerPlanBranch[] = [];
+  const signers: RegistrationSignerRequest[] = [];
+  for (const rawBranch of record.branches) {
+    const branch = parseStoredRegistrationSignerPlanBranch(rawBranch);
+    if (!branch) return null;
+    branches.push(branch.branch);
+    signers.push(branch.signer);
+  }
+  const recomputed = registrationSignerPlanFromSelection({
+    kind: 'signer_set',
+    signers,
+  });
+  if (!recomputed.ok) return null;
+  const storedPlan: RegistrationSignerPlan = {
+    kind: 'signer_set',
+    branches,
+  };
+  if (!storedRegistrationSignerPlansMatch(storedPlan, recomputed.value)) return null;
+  return recomputed.value;
+}
+
+export function parseStoredWalletRegistrationPreparedContext(
+  value: unknown,
+): StoredWalletRegistrationPreparedContext | null {
+  const record = parseJsonValue(value);
+  if (
+    !isRecord(record) ||
+    record.kind !== 'wallet_registration_prepared_context_v1' ||
+    !isRecord(record.runtimePolicy) ||
+    !isRecord(record.ecdsa)
+  ) {
+    return null;
+  }
+  const signingRootId = trimString(record.signingRootId);
+  const signingRootVersion = trimString(record.signingRootVersion);
+  if (!signingRootId || !signingRootVersion) return null;
+  const runtimePolicy = parseStoredWalletRegistrationRuntimePolicyContext(record.runtimePolicy);
+  const ecdsa = parseStoredWalletRegistrationEcdsaPreparedContext(record.ecdsa);
+  if (!runtimePolicy || !ecdsa) return null;
+  return {
+    kind: 'wallet_registration_prepared_context_v1',
+    signingRootId,
+    signingRootVersion,
+    runtimePolicy,
+    ecdsa,
+  };
+}
+
+function parseStoredWalletRegistrationRuntimePolicyContext(
+  value: Record<string, unknown>,
+): StoredWalletRegistrationRuntimePolicyContext | null {
+  switch (value.kind) {
+    case 'runtime_policy_scope': {
+      const scope = parseStoredRuntimePolicyScope(value.scope);
+      return scope ? { kind: 'runtime_policy_scope', scope } : null;
+    }
+    case 'signing_root_only':
+      return hasDefinedField(value, 'scope') ? null : { kind: 'signing_root_only' };
+    default:
+      return null;
+  }
+}
+
+function parseStoredRuntimePolicyScope(value: unknown): RuntimePolicyScope | null {
+  const scope = parseRuntimePolicyScopeLike(value);
+  if (!scope?.signingRootVersion) return null;
+  return {
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    envId: scope.envId,
+    signingRootVersion: scope.signingRootVersion,
+  };
+}
+
+function parseStoredWalletRegistrationEcdsaPreparedContext(
+  value: Record<string, unknown>,
+): StoredWalletRegistrationEcdsaPreparedContext | null {
+  switch (value.kind) {
+    case 'evm_family_ecdsa_requested': {
+      if (!Array.isArray(value.chainTargets) || value.chainTargets.length === 0) return null;
+      const chainTargets: ThresholdEcdsaChainTarget[] = [];
+      for (const rawTarget of value.chainTargets) {
+        const chainTarget = thresholdEcdsaChainTargetFromValue(rawTarget);
+        if (!chainTarget) return null;
+        chainTargets.push(chainTarget);
+      }
+      return { kind: 'evm_family_ecdsa_requested', chainTargets };
+    }
+    case 'evm_family_ecdsa_absent':
+      return hasDefinedField(value, 'chainTargets') ? null : { kind: 'evm_family_ecdsa_absent' };
+    default:
+      return null;
+  }
+}
+
+function parseStoredRegistrationSignerPlanBranch(
+  value: unknown,
+): { branch: RegistrationSignerPlanBranch; signer: RegistrationSignerRequest } | null {
+  if (!isRecord(value)) return null;
+  const signerCandidate = storedRegistrationSignerRequestCandidateFromPlanBranch(value);
+  if (!signerCandidate) return null;
+  const singleBranchPlan = normalizeRegistrationSignerPlan({
+    kind: 'signer_set',
+    signers: [signerCandidate],
+  });
+  if (!singleBranchPlan.ok || singleBranchPlan.value.branches.length !== 1) return null;
+  const branch = singleBranchPlan.value.branches[0];
+  if (!branch || trimString(value.branchKey) !== branch.branchKey) return null;
+  switch (branch.kind) {
+    case 'near_ed25519': {
+      if (
+        trimString(value.keyPurpose) !== branch.keyPurpose ||
+        trimString(value.keyVersion) !== branch.keyVersion ||
+        hasDefinedField(value, 'chainTargets')
+      ) {
+        return null;
+      }
+      return {
+        branch,
+        signer: {
+          kind: 'near_ed25519',
+          accountProvisioning: branch.accountProvisioning,
+          signerSlot: branch.signerSlot,
+          participantIds: [...branch.participantIds],
+          derivationVersion: branch.derivationVersion,
+        },
+      };
+    }
+    case 'evm_family_ecdsa': {
+      if (
+        hasDefinedField(value, 'accountProvisioning') ||
+        hasDefinedField(value, 'signerSlot') ||
+        hasDefinedField(value, 'keyPurpose') ||
+        hasDefinedField(value, 'keyVersion') ||
+        hasDefinedField(value, 'derivationVersion')
+      ) {
+        return null;
+      }
+      return {
+        branch,
+        signer: {
+          kind: 'evm_family_ecdsa',
+          participantIds: [...branch.participantIds],
+          chainTargets: [...branch.chainTargets],
+        },
+      };
+    }
+    default:
+      return assertNever(branch);
+  }
+}
+
+function storedRegistrationSignerRequestCandidateFromPlanBranch(
+  value: Record<string, unknown>,
+): Record<string, unknown> | null {
+  switch (value.kind) {
+    case 'near_ed25519':
+      return {
+        kind: 'near_ed25519',
+        accountProvisioning: value.accountProvisioning,
+        signerSlot: Number(value.signerSlot),
+        participantIds: Array.isArray(value.participantIds) ? [...value.participantIds] : [],
+        derivationVersion: Number(value.derivationVersion),
+      };
+    case 'evm_family_ecdsa':
+      return {
+        kind: 'evm_family_ecdsa',
+        participantIds: Array.isArray(value.participantIds) ? [...value.participantIds] : [],
+        chainTargets: Array.isArray(value.chainTargets) ? [...value.chainTargets] : [],
+      };
+    default:
+      return null;
+  }
+}
+
+export function storedRegistrationSignerPlansMatch(
+  left: RegistrationSignerPlan,
+  right: RegistrationSignerPlan,
+): boolean {
+  return alphabetizeStringify(left) === alphabetizeStringify(right);
 }
 
 export function parseStoredWalletRegistrationHssPreparation(
@@ -1902,10 +2259,33 @@ function parseStoredWalletRegistrationCeremony(
   if (typeof value.orgId !== 'string') return null;
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
   const authority = parseStoredRegistrationAuthority(value.authority);
-  if (!authority || !isRecord(value.signerState)) return null;
+  const signerPlan = parseStoredRegistrationSignerPlan(value.signerPlan);
+  const preparedContext = parseStoredWalletRegistrationPreparedContext(value.preparedContext);
+  const intentSignerPlan = isRecord(value.intent)
+    ? parseStoredRegistrationSignerPlan(value.intent.signerSelection)
+    : null;
+  if (
+    !authority ||
+    !signerPlan ||
+    !preparedContext ||
+    !intentSignerPlan ||
+    !storedRegistrationSignerPlansMatch(signerPlan, intentSignerPlan) ||
+    (trimString(value.signingRootId) &&
+      preparedContext.signingRootId !== trimString(value.signingRootId)) ||
+    (trimString(value.signingRootVersion) &&
+      preparedContext.signingRootVersion !== trimString(value.signingRootVersion)) ||
+    !isRecord(value.signerState)
+  ) {
+    return null;
+  }
   return {
-    ...(value as Omit<StoredWalletRegistrationCeremony, 'authority'>),
+    ...(value as Omit<
+      StoredWalletRegistrationCeremony,
+      'authority' | 'signerPlan' | 'preparedContext'
+    >),
     authority,
+    signerPlan,
+    preparedContext,
   };
 }
 
@@ -2007,6 +2387,8 @@ function walletRegistrationPreparationConsumeExpectedRecord(
     kind: 'hss_prepare_prepared',
     registrationIntentGrant: input.registrationIntentGrant,
     registrationIntentDigestB64u: input.registrationIntentDigestB64u,
+    signerPlan: input.signerPlan,
+    preparedContext: input.preparedContext,
     ed25519Scope: input.ed25519Scope,
   };
 }

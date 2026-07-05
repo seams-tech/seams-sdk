@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { ROUTER_AB_ECDSA_HSS_HEALTH_PATH } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 import { ROUTER_AB_ED25519_HEALTH_PATH } from '../../packages/shared-ts/src/utils/signingSessionSeal';
-import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 import {
   THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
@@ -19,6 +18,7 @@ import {
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import type { ThresholdSigningAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 
 const fakeCtx = {} as CfExecutionContext;
@@ -31,18 +31,26 @@ const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'env-alpha';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
 
-function fakeAuthService(): AuthService {
+function fakeRouterApiServiceBag(): RouterApiServiceBag {
   return {
-    getConfiguredRelayerAccount: () => 'self-host.testnet',
-    getThresholdSigningService: () => null,
-  } as unknown as AuthService;
+    router: {
+      getConfiguredRelayerAccount: () => 'self-host.testnet',
+    },
+    thresholdRuntime: {
+      getThresholdSigningService: () => null,
+    },
+  } as unknown as RouterApiServiceBag;
 }
 
-function fakeAuthServiceWithThreshold(threshold: unknown): AuthService {
+function fakeRouterApiServiceBagWithThreshold(threshold: unknown): RouterApiServiceBag {
   return {
-    getConfiguredRelayerAccount: () => 'self-host.testnet',
-    getThresholdSigningService: () => threshold,
-  } as unknown as AuthService;
+    router: {
+      getConfiguredRelayerAccount: () => 'self-host.testnet',
+    },
+    thresholdRuntime: {
+      getThresholdSigningService: () => threshold,
+    },
+  } as unknown as RouterApiServiceBag;
 }
 
 function fixtureThresholdAdapter(): ThresholdSigningAdapter {
@@ -182,7 +190,7 @@ function signingRootRecordFixture() {
 }
 
 test('self-host Cloudflare signing router exposes health without hosted Router API routes', async () => {
-  const router = createSelfHostedCloudflareSigningRouter(fakeAuthService(), {
+  const router = createSelfHostedCloudflareSigningRouter(fakeRouterApiServiceBag(), {
     healthz: true,
     readyz: true,
     corsOrigins: ['https://wallet.example.test'],
@@ -215,7 +223,7 @@ test('self-host Cloudflare signing worker creates per-request service and option
   const worker = createSelfHostedCloudflareSigningWorker({
     createAuthService: ({ request }) => {
       calls.push(new URL(request.url).pathname);
-      return fakeAuthService();
+      return fakeRouterApiServiceBag();
     },
     routerOptions: () => ({ healthz: true }),
   });
@@ -232,8 +240,8 @@ test('self-host Cloudflare signing worker creates per-request service and option
 
 test('hosted and self-host Cloudflare routers preserve threshold health route parity', async () => {
   const threshold = fixtureThresholdAdapter();
-  const hosted = createCloudflareRouter(fakeAuthService(), { threshold, logger: console });
-  const selfHosted = createSelfHostedCloudflareSigningRouter(fakeAuthService(), {
+  const hosted = createCloudflareRouter(fakeRouterApiServiceBag(), { threshold, logger: console });
+  const selfHosted = createSelfHostedCloudflareSigningRouter(fakeRouterApiServiceBag(), {
     threshold,
     logger: console,
   });
@@ -253,7 +261,7 @@ test('hosted and self-host Cloudflare routers preserve threshold health route pa
 test('self-host signing-root admin routes import status and delete through the threshold store DO', async () => {
   const namespace = createMemoryNamespace();
   const router = createSelfHostedCloudflareSigningRouter(
-    fakeAuthService(),
+    fakeRouterApiServiceBag(),
     { healthz: true },
     {
       signingRootAdmin: {
@@ -353,7 +361,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
     },
   };
   const router = createSelfHostedCloudflareSigningRouter(
-    fakeAuthServiceWithThreshold(threshold),
+    fakeRouterApiServiceBagWithThreshold(threshold),
     { healthz: true },
     {
       signingRootAdmin: {

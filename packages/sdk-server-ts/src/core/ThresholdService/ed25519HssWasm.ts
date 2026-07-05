@@ -956,6 +956,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
 }): Promise<{
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
+  seedOutputMessageB64u?: string;
   finalizeReportTimings?: ThresholdEd25519HssFinalizeForRegistrationTimings;
 }> {
   const expectedBinding = String(
@@ -987,15 +988,18 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     throw new Error('[threshold-ed25519-hss] server output context binding mismatch');
   }
 
+  const seedOutputMessageB64u = String(finalizedReport.seedOutputMessageB64u || '').trim();
+
   return {
     finalizedReport: {
       contextBindingB64u: finalizedReport.contextBindingB64u,
       clientOutputMessageB64u: finalizedReport.clientOutputMessageB64u,
       ...(input.operation === 'explicit_key_export' || input.operation === 'registration'
-        ? { seedOutputMessageB64u: finalizedReport.seedOutputMessageB64u }
+        ? { seedOutputMessageB64u }
         : {}),
     },
     serverOutput,
+    ...(seedOutputMessageB64u ? { seedOutputMessageB64u } : {}),
     finalizeReportTimings: {
       decodeArtifactMs: finalizedReport.timings?.decodeArtifactMs ?? 0,
       serializedSessionMaterializeMs: finalizedReport.timings?.serializedSessionMaterializeMs ?? 0,
@@ -1094,7 +1098,7 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
 
   const seedOutputMessageB64u = String(input.finalizedReport.seedOutputMessageB64u || '').trim();
   if (!seedOutputMessageB64u) {
-    throw new Error('[threshold-ed25519-hss] registration finalize is missing seed output');
+    throw new Error('[threshold-ed25519-hss] registration or restore finalize is missing seed output');
   }
 
   const openSeedOutputStartedAt = Date.now();

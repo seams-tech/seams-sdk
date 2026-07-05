@@ -433,6 +433,17 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY: async (
+      req: Req<'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const payload = withProgress(deps, req.requestId, req.payload || {});
+      const result = await pm.loginWithEmailOtpEd25519CapabilityForWalletIframe(
+        payload as Parameters<typeof pm.loginWithEmailOtpEd25519CapabilityForWalletIframe>[0],
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_REFRESH_EMAIL_OTP_SIGNING_SESSION: async (
       req: Req<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'>,
     ) => {

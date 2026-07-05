@@ -20,6 +20,7 @@ const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId: toWalletId('wallet_email_otp_restore'),
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
+  chainTargetKey: 'evm:eip155:1',
 });
 
 const restoreSourceCommon = {

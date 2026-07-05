@@ -3,7 +3,9 @@ import type { ServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import type { CloudflareDurableObjectStubLike } from '../../core/types';
 import {
   storedRegistrationAuthoritiesMatch,
+  storedRegistrationSignerPlansMatch,
   storedEd25519RegistrationPrepareScopesMatch,
+  storedWalletRegistrationPreparedContextsMatch,
   type ConsumeRegistrationIntentForPreparationInput,
   type ConsumeRegistrationIntentForPreparationResult,
   StoredAddAuthMethodIntent,
@@ -162,6 +164,11 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       preparation.registrationIntentGrant !== input.registrationIntentGrant ||
       preparation.registrationIntentDigestB64u !== input.registrationIntentDigestB64u ||
       !storedRegistrationAuthoritiesMatch(preparation.authority, input.authority) ||
+      !storedRegistrationSignerPlansMatch(preparation.signerPlan, input.signerPlan) ||
+      !storedWalletRegistrationPreparedContextsMatch(
+        preparation.preparedContext,
+        input.preparedContext,
+      ) ||
       !storedEd25519RegistrationPrepareScopesMatch(
         preparation.ed25519Scope,
         input.ed25519Scope,

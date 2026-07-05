@@ -13,6 +13,7 @@ import type {
   WalletRegistrationEcdsaPreparePayload
 } from '../../core/registrationContracts';
 import { deriveEvmFamilySigningKeySlotId } from './d1RegistrationCeremonyRecords';
+import { thresholdEcdsaChainTargetKey } from '../../core/thresholdEcdsaChainTarget';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 
@@ -36,26 +37,34 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
       message: 'ECDSA registration contains an invalid chain target',
     };
   }
-  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
-    walletId: input.walletId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-  });
-  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-    walletId: input.walletId,
-    evmFamilySigningKeySlotId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-  });
-  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-    walletId: input.walletId,
-    evmFamilySigningKeySlotId,
-  });
-  return {
-    ok: true,
-    ecdsa: {
-      kind: 'evm_family_ecdsa_keygen',
-      chainTargets: [...input.chainTargets],
+  if (input.chainTargets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ECDSA registration requires at least one chain target',
+    };
+  }
+  const targets: WalletRegistrationEcdsaPreparePayload['targets'] = [];
+  for (const chainTarget of input.chainTargets) {
+    const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);
+    const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+      walletId: input.walletId,
+      signingRootId: input.signingRootId,
+      signingRootVersion: input.signingRootVersion,
+      chainTargetKey,
+    });
+    const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+      walletId: input.walletId,
+      evmFamilySigningKeySlotId,
+      signingRootId: input.signingRootId,
+      signingRootVersion: input.signingRootVersion,
+    });
+    const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+      walletId: input.walletId,
+      evmFamilySigningKeySlotId,
+    });
+    targets.push({
+      chainTarget,
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
         walletId: input.walletId,
@@ -68,7 +77,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
         ...(input.registrationPreparationId
           ? { registrationPreparationId: input.registrationPreparationId }
           : {}),
-        requestId: `${input.registrationCeremonyId}:ecdsa`,
+        requestId: `${input.registrationCeremonyId}:ecdsa:${encodeURIComponent(chainTargetKey)}`,
         thresholdSessionId: `tehss_${secureRandomBase64Url(24)}`,
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
         ttlMs: 10 * 60_000,
@@ -76,6 +85,13 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
         participantIds: [...input.participantIds],
         ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
       },
+    });
+  }
+  return {
+    ok: true,
+    ecdsa: {
+      kind: 'evm_family_ecdsa_keygen',
+      targets,
     },
   };
 }

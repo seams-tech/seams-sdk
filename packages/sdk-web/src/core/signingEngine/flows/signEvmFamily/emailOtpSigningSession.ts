@@ -25,6 +25,7 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
+import type { EmailOtpThresholdEcdsaLoginTimings } from '../../session/emailOtp/ecdsaLogin';
 import {
   toVerifiedEcdsaPublicFactsFromRecord,
   type VerifiedEcdsaPublicFacts,
@@ -85,7 +86,12 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       recovery: EmailOtpBootstrapRecovery;
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
       warmCapability: WarmSessionEcdsaCapabilityState;
+      warmCapabilities: readonly [
+        WarmSessionEcdsaCapabilityState,
+        ...WarmSessionEcdsaCapabilityState[],
+      ];
       ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
+      timings: EmailOtpThresholdEcdsaLoginTimings;
     }>;
   };
 };
@@ -247,7 +253,12 @@ export async function refreshEmailOtpSigningSession(
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+  warmCapabilities: readonly [
+    WarmSessionEcdsaCapabilityState,
+    ...WarmSessionEcdsaCapabilityState[],
+  ];
   ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
+  timings: EmailOtpThresholdEcdsaLoginTimings;
 }> {
   const { record, authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
     walletId: args.walletSession.walletId,

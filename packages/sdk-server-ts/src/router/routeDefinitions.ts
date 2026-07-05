@@ -2154,6 +2154,32 @@ export function createRouterApiRouteDefinitions(
         ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
       ),
       publicRoute(
+        'email_recovery_ed25519_respond',
+        'POST',
+        '/email-recovery/ed25519/respond',
+        'Respond to email recovery Ed25519 HSS prepare context',
+        {
+          plane: 'public',
+          proof: 'recovery_proof',
+          rationale:
+            'Email recovery Ed25519 respond is scoped by the recovery request id and stored prepare context.',
+        },
+        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
+      ),
+      publicRoute(
+        'email_recovery_ed25519_finalize',
+        'POST',
+        '/email-recovery/ed25519/finalize',
+        'Finalize email recovery Ed25519 HSS material',
+        {
+          plane: 'public',
+          proof: 'recovery_proof',
+          rationale:
+            'Email recovery Ed25519 finalize publishes recovered signing material before recovery email creation.',
+        },
+        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
+      ),
+      publicRoute(
         'email_recovery_ecdsa_respond',
         'POST',
         '/email-recovery/ecdsa/respond',

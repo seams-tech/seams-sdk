@@ -33,8 +33,10 @@ import {
   createCloudflareD1SigningRootShareDecryptAdapter,
 } from './d1ConsoleServices';
 import {
+  createCloudflareD1RouterApiEmailRecoveryAuthService,
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
+  type CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthService';
 import type {
   CloudflareD1OidcExchangeConfig,
@@ -778,6 +780,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     : undefined;
   const sessionCookieName = localRouterApiSessionCookieName(env);
   const routerApiService = createLocalD1RouterApiAuthService(env);
+  const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   return createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
     healthz: true,
@@ -792,6 +795,10 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     }),
     ...(sessionCookieName ? { sessionCookieName } : {}),
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
+    emailRecovery: {
+      kind: 'prepare_only',
+      authService: emailRecoveryAuthService,
+    },
     signingSessionSeal: localSigningSessionSealOptions(env),
   });
 }
@@ -833,12 +840,14 @@ function localSigningSessionSealOptions(
   });
 }
 
-function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
+function localD1RouterApiAuthServiceOptions(
+  env: LocalD1DevEnv,
+): CloudflareD1RouterApiAuthServiceOptions {
   const relayerPrivateKey = env.RELAYER_PRIVATE_KEY || env.SEAMS_LOCAL_RELAYER_PRIVATE_KEY;
   const relayerPublicKey =
     env.RELAYER_PUBLIC_KEY ||
     (env.RELAYER_PRIVATE_KEY ? undefined : env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY);
-  return createCloudflareD1RouterApiAuthService({
+  return {
     database: env.SIGNER_DB,
     namespace: localTenantStorageNamespace(env),
     orgId: localConsoleOrgId(env),
@@ -864,7 +873,17 @@ function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     thresholdStore: localThresholdStoreConfig(env),
-  });
+  };
+}
+
+function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
+  return createCloudflareD1RouterApiAuthService(localD1RouterApiAuthServiceOptions(env));
+}
+
+function createLocalD1EmailRecoveryAuthService(env: LocalD1DevEnv) {
+  return createCloudflareD1RouterApiEmailRecoveryAuthService(
+    localD1RouterApiAuthServiceOptions(env),
+  );
 }
 
 function localRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHandler> {

@@ -3,16 +3,16 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   routerAbEd25519WalletSessionState:
-    '/sdk/esm/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.js',
+    '/sdk/esm/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState.js',
   routerAbWalletSessionCredential:
-    '/sdk/esm/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.js',
+    '/sdk/esm/core/signingEngine/session/warmCapabilities/routerAbWalletSessionCredential.js',
   warmSessionCapabilityReader:
     '/sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
   thresholdSessionStore: '/sdk/esm/core/signingEngine/session/persistence/records.js',
   routerAbSigningWalletSession:
     '/sdk/esm/core/signingEngine/session/routerAbSigningWalletSession.js',
   ed25519SigningMaterialReadiness:
-    '/sdk/esm/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.js',
+    '/sdk/esm/core/signingEngine/session/warmCapabilities/ed25519SigningMaterialReadiness.js',
   ed25519MaterialRestoreAuthorization:
     '/sdk/esm/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.js',
   emailOtpClientSecretSource: '/sdk/esm/core/signingEngine/session/emailOtp/clientSecretSource.js',

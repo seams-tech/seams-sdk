@@ -516,8 +516,10 @@ export type WalletRegistrationStartResponse = {
   };
   ecdsa?: {
     kind: 'evm_family_ecdsa_keygen';
-    chainTargets: ThresholdEcdsaChainTarget[];
-    prepare: WalletRegistrationEcdsaPrepareContext;
+    targets: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      prepare: WalletRegistrationEcdsaPrepareContext;
+    }[];
   };
 };
 
@@ -530,7 +532,10 @@ export type WalletRegistrationHssRespondResponse = {
     serverInputDeliveryB64u: string;
   };
   ecdsa?: {
-    bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+    bootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+    }[];
   };
 };
 
@@ -544,6 +549,13 @@ export type WalletRegistrationFinalizeAuthMethod =
       kind: 'email_otp';
       registrationAuthorityId: string;
     };
+
+export type ThresholdEd25519RegistrationWorkerMaterialReport = {
+  kind: 'threshold_ed25519_registration_worker_material_report_v1';
+  contextBindingB64u: string;
+  clientOutputMessageB64u: string;
+  seedOutputMessageB64u?: never;
+};
 
 export type WalletRegistrationFinalizeResponse =
   | {
@@ -579,6 +591,7 @@ export type WalletRegistrationFinalizeResponse =
           routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
           jwt?: string;
         };
+        registrationWorkerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
       };
       ecdsa?: {
         walletKeys: WalletRegistrationEcdsaWalletKey[];
@@ -776,7 +789,9 @@ export type WalletAddSignerHssRespondResponse = {
   ok: true;
   addSignerCeremonyId: string;
   ed25519?: WalletRegistrationHssRespondResponse['ed25519'];
-  ecdsa?: WalletRegistrationHssRespondResponse['ecdsa'];
+  ecdsa?: {
+    bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+  };
 };
 
 export type WalletAddSignerFinalizeResponse = {
@@ -1374,7 +1389,10 @@ export async function respondWalletRegistrationHss(args: {
     clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
   };
   ecdsa?: {
-    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    clientBootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    }[];
   };
 }): Promise<WalletRegistrationHssRespondResponse> {
   return await postJson<WalletRegistrationHssRespondResponse>({

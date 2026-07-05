@@ -13,6 +13,7 @@ import {
   parseSigningGrantId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseD1BoundaryWalletIdResult } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const parsers = [
@@ -84,6 +85,21 @@ test.describe('domain id boundary parsers', () => {
         code: 'invalid',
         message: 'walletId must not contain whitespace or control characters',
       },
+    });
+  });
+
+  test('D1 wallet-id boundary accepts wallet-scoped ids without NEAR account validation', () => {
+    expect(parseD1BoundaryWalletIdResult('frost-vermillion-k7p9m2')).toEqual({
+      ok: true,
+      value: 'frost-vermillion-k7p9m2',
+    });
+    expect(parseD1BoundaryWalletIdResult('wallet:alice')).toEqual({
+      ok: true,
+      value: 'wallet:alice',
+    });
+    expect(parseD1BoundaryWalletIdResult('alice testnet')).toEqual({
+      ok: false,
+      code: 'invalid',
     });
   });
 });

@@ -71,6 +71,37 @@ type GoogleEmailOtpWalletRegistrationPrecompute =
       handle?: never;
     };
 
+type GoogleEmailOtpRegistrationEcdsaMaterialRequest =
+  | {
+      kind: 'requested';
+      targets: readonly [
+        {
+          chainTarget: ThresholdEcdsaChainTarget;
+          evmFamilySigningKeySlotId: string;
+        },
+        ...{
+          chainTarget: ThresholdEcdsaChainTarget;
+          evmFamilySigningKeySlotId: string;
+        }[],
+      ];
+    }
+  | {
+      kind: 'not_requested';
+      targets?: never;
+    };
+
+type GoogleEmailOtpRegistrationMaterialPrewarm =
+  | {
+      kind: 'started';
+      read(): Promise<Extract<EmailOtpPrewarmedRegistrationMaterial, { state: 'active' }>>;
+      dispose(): void;
+    }
+  | {
+      kind: 'not_requested';
+      read?: never;
+      dispose(): void;
+    };
+
 type ActiveChallenge = {
   challengeId: string;
   emailHint: string;
@@ -124,7 +155,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     relayUrl?: string;
     walletId: string;
     userId: string;
-    evmFamilySigningKeySlotId: string;
+    ecdsaMaterial: GoogleEmailOtpRegistrationEcdsaMaterialRequest;
     appSessionJwt: string;
   }): Promise<EmailOtpRegistrationEnrollmentMaterial>;
   registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
@@ -190,6 +221,8 @@ function failWithMessage<T>(
     },
   };
 }
+
+function disposeNoop(): void {}
 
 function isEmailOtpDeviceRecoveryRequired(error: unknown): boolean {
   const code =
@@ -602,6 +635,7 @@ function googleEmailOtpRegistrationAppSessionJwt(state: GoogleSessionState): str
 function googleEmailOtpRegistrationWalletKeyId(args: {
   walletId: WalletId;
   appSessionJwt: string;
+  chainTarget: ThresholdEcdsaChainTarget;
 }): string {
   const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
   if (!runtimePolicyScope) {
@@ -611,8 +645,44 @@ function googleEmailOtpRegistrationWalletKeyId(args: {
     deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId: args.walletId,
       runtimePolicyScope,
+      chainTarget: args.chainTarget,
     }),
   );
+}
+
+function googleEmailOtpRegistrationEcdsaMaterialRequest(args: {
+  state: GoogleSessionState;
+  offer: GoogleEmailOtpRegistrationOffer;
+  targets: readonly ThresholdEcdsaChainTarget[];
+}): GoogleEmailOtpRegistrationEcdsaMaterialRequest {
+  const firstTarget = args.targets[0];
+  if (!firstTarget) {
+    return { kind: 'not_requested' };
+  }
+  const selectedCandidate = selectedGoogleEmailOtpRegistrationCandidate(args.offer);
+  const targets: {
+    chainTarget: ThresholdEcdsaChainTarget;
+    evmFamilySigningKeySlotId: string;
+  }[] = [];
+  const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
+  for (const chainTarget of args.targets) {
+    targets.push({
+      chainTarget,
+      evmFamilySigningKeySlotId: googleEmailOtpRegistrationWalletKeyId({
+        walletId: selectedCandidate.walletId,
+        appSessionJwt,
+        chainTarget,
+      }),
+    });
+  }
+  const first = targets[0];
+  if (!first) {
+    throw new Error('Google Email OTP registration ECDSA material requires a target');
+  }
+  return {
+    kind: 'requested',
+    targets: [first, ...targets.slice(1)],
+  };
 }
 
 function createRegistrationMaterialPrewarm(args: {
@@ -620,24 +690,24 @@ function createRegistrationMaterialPrewarm(args: {
   state: GoogleSessionState;
   input: GoogleEmailOtpWalletAuthStartInput;
   offer: GoogleEmailOtpRegistrationOffer;
-}): {
-  read(): Promise<Extract<EmailOtpPrewarmedRegistrationMaterial, { state: 'active' }>>;
-  dispose(): void;
-} {
+  ecdsaMaterial: GoogleEmailOtpRegistrationEcdsaMaterialRequest;
+}): GoogleEmailOtpRegistrationMaterialPrewarm {
+  if (args.ecdsaMaterial.kind === 'not_requested') {
+    return {
+      kind: 'not_requested',
+      dispose: disposeNoop,
+    };
+  }
   let disposed = false;
   let resolved: EmailOtpPrewarmedRegistrationMaterial | null = null;
   const selectedCandidate = selectedGoogleEmailOtpRegistrationCandidate(args.offer);
   const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
-  const evmFamilySigningKeySlotId = googleEmailOtpRegistrationWalletKeyId({
-    walletId: selectedCandidate.walletId,
-    appSessionJwt,
-  });
   const promise = args.deps
     .prepareEmailOtpRegistrationEnrollmentMaterial({
       relayUrl: relayerUrlFromInput({ deps: args.deps, input: args.input }),
       walletId: selectedCandidate.walletId,
       userId: args.state.walletSessionUserId,
-      evmFamilySigningKeySlotId,
+      ecdsaMaterial: args.ecdsaMaterial,
       appSessionJwt,
     })
     .then((material) => {
@@ -659,6 +729,7 @@ function createRegistrationMaterialPrewarm(args: {
     });
   void promise.catch(() => undefined);
   return {
+    kind: 'started',
     async read() {
       const prewarmed = await promise;
       if (disposed || prewarmed.state !== 'active') {
@@ -689,15 +760,21 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     throw new Error('Google Email OTP registration requires an offer');
   }
   const offer = args.state.offer;
+  const requiredTargets = resolveRegistrationEcdsaTargets({
+    configs: deps.configs,
+    policy: args.input.ecdsaTargets,
+  });
+  const ecdsaMaterial = googleEmailOtpRegistrationEcdsaMaterialRequest({
+    state: args.state,
+    offer,
+    targets: requiredTargets,
+  });
   const prewarm = createRegistrationMaterialPrewarm({
     deps,
     state: args.state,
     input: args.input,
     offer,
-  });
-  const requiredTargets = resolveRegistrationEcdsaTargets({
-    configs: deps.configs,
-    policy: args.input.ecdsaTargets,
+    ecdsaMaterial,
   });
   const eventOptions = eventOnlyRegistrationOptions({ onEvent: args.input.onEvent });
   const registrationOptions = requiredTargets.length
@@ -747,14 +824,16 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     > => {
       try {
         liveness.ensureActive();
-        const prewarmed = await prewarm.read();
-        const registrationWithPrewarmedMaterial: GoogleEmailOtpWalletRegistrationArgs = {
-          ...registrationArgs,
-          authMethod: attachEmailOtpPrewarmedRegistrationMaterial({
-            authMethod: registrationAuthMethod,
-            prewarmed,
-          }),
-        };
+        const registrationWithPrewarmedMaterial =
+          prewarm.kind === 'started'
+            ? {
+                ...registrationArgs,
+                authMethod: attachEmailOtpPrewarmedRegistrationMaterial({
+                  authMethod: registrationAuthMethod,
+                  prewarmed: await prewarm.read(),
+                }),
+              }
+            : registrationArgs;
         const result =
           precompute.kind === 'started'
             ? await deps.registerWalletWithStartedPrecompute({

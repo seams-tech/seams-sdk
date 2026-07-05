@@ -84,6 +84,8 @@ import type {
   ThresholdEd25519HssFinalizeForRegistrationResponse,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionResponse,
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssOpenedServerOutput,
   ThresholdEd25519HssPrepareForRegistrationRequest,
   ThresholdEd25519HssPrepareForRegistrationResponse,
   ThresholdEd25519HssPrepareWithSessionRequest,
@@ -682,6 +684,7 @@ function parseThresholdEd25519HssSessionOperation(
     case 'tx_signing':
     case 'link_device':
     case 'email_recovery':
+    case 'registration_material_restore':
     case 'warm_session_reconstruction':
     case 'explicit_key_export':
       return { ok: true, value };
@@ -690,7 +693,7 @@ function parseThresholdEd25519HssSessionOperation(
         ok: false,
         code: 'invalid_body',
         message:
-          'operation must be one of tx_signing, link_device, email_recovery, warm_session_reconstruction, explicit_key_export',
+          'operation must be one of tx_signing, link_device, email_recovery, registration_material_restore, warm_session_reconstruction, explicit_key_export',
       };
   }
 }
@@ -698,7 +701,7 @@ function parseThresholdEd25519HssSessionOperation(
 function thresholdEd25519HssSessionOperationIncludesSeedOutput(
   operation: ThresholdEd25519HssSessionOperation,
 ): boolean {
-  return operation === 'explicit_key_export';
+  return operation === 'explicit_key_export' || operation === 'registration_material_restore';
 }
 
 function base64UrlPayloadBytes(value: string): number {
@@ -3819,6 +3822,7 @@ export class ThresholdSigningService {
           walletId,
           nearAccountId,
           nearEd25519SigningKeyId,
+          authorityScope,
           thresholdSessionId,
           signingGrantId,
           expiresAtMs: walletBudget.expiresAtMs,
@@ -3864,6 +3868,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
+        authorityScope,
         thresholdSessionId,
         signingGrantId,
         expiresAtMs: walletBudget.expiresAtMs,
@@ -5374,6 +5379,72 @@ export class ThresholdSigningService {
     }
   }
 
+  private async rotateEd25519RelayerMaterialForRegistrationMaterialRestore(input: {
+    claims: ThresholdEd25519SessionClaims;
+    relayerKeyId: string;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    preparedServerSession: Pick<
+      ThresholdEd25519HssStoredPreparedServerSession,
+      'preparedSessionHandle'
+    >;
+    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+    serverOutput: ThresholdEd25519HssOpenedServerOutput;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
+    if (!relayerKeyId) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'registration material restore produced incomplete relayer material',
+      };
+    }
+    const stored = await this.keyStore.get(relayerKeyId);
+    if (!stored) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'registration material restore key material is not available',
+      };
+    }
+    if (
+      stored.walletId !== input.claims.walletId ||
+      stored.nearAccountId !== input.claims.nearAccountId ||
+      stored.nearEd25519SigningKeyId !== input.claims.nearEd25519SigningKeyId ||
+      stored.publicKey !== relayerKeyId ||
+      !thresholdEd25519AuthorityScopesMatch(stored.authorityScope, input.claims.authorityScope)
+    ) {
+      return {
+        ok: false,
+        code: 'forbidden',
+        message: 'registration material restore key material does not match session claims',
+      };
+    }
+    const registrationMaterial = await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
+      preparedSession: input.preparedSession,
+      preparedServerSession: input.preparedServerSession,
+      finalizedReport: input.finalizedReport,
+      serverOutput: input.serverOutput,
+    });
+    if (
+      registrationMaterial.publicKey !== stored.publicKey ||
+      registrationMaterial.relayerKeyId !== relayerKeyId
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'registration material restore public key does not match wallet binding',
+      };
+    }
+    await this.keyStore.put(relayerKeyId, {
+      ...stored,
+      routerMaterial: {
+        signingShareB64u: registrationMaterial.relayerSigningShareB64u,
+        verifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
+      },
+    });
+    return { ok: true };
+  }
+
   private async ed25519HssPrepareForRegistration(input: {
     orgId: string;
     signingRootId?: string;
@@ -5852,6 +5923,30 @@ export class ThresholdSigningService {
           evaluationResult: storedEvaluationResult,
           expectedContextBindingB64u: takenCeremony.value.preparedSession.contextBindingB64u,
         });
+        if (takenCeremony.value.operation === 'registration_material_restore') {
+          const restoreSeedOutputMessageB64u = String(result.seedOutputMessageB64u || '').trim();
+          if (!restoreSeedOutputMessageB64u) {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'registration material restore finalized report is missing seed output',
+            };
+          }
+          const restoreFinalizedReport: ThresholdEd25519HssFinalizedReportEnvelope = {
+            contextBindingB64u: result.finalizedReport.contextBindingB64u,
+            clientOutputMessageB64u: result.finalizedReport.clientOutputMessageB64u,
+            seedOutputMessageB64u: restoreSeedOutputMessageB64u,
+          };
+          const rotated = await this.rotateEd25519RelayerMaterialForRegistrationMaterialRestore({
+            claims: input.claims,
+            relayerKeyId: takenCeremony.value.relayerKeyId,
+            preparedSession: takenCeremony.value.preparedSession,
+            preparedServerSession: respondedServerSession,
+            finalizedReport: restoreFinalizedReport,
+            serverOutput: result.serverOutput,
+          });
+          if (!rotated.ok) return rotated;
+        }
         const responsePayload = {
           finalizedReport: result.finalizedReport,
         };

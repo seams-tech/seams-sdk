@@ -107,7 +107,7 @@ import {
 import {
   requireOrRestoreRouterAbEd25519WalletSessionState,
   type RouterAbEd25519WorkerMaterialRestoreAuthorization,
-} from '@/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness';
+} from '@/core/signingEngine/session/warmCapabilities/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential } from '@/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
@@ -146,19 +146,19 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  buildSharedKeyTargetCompletion,
+  buildConfiguredTargetKeyCompletion,
   collectConfiguredTargetThresholdEcdsaWarmKeys,
   configuredTargetThresholdEcdsaWarmKey,
   mergeCanonicalThresholdEcdsaWarmSessionContexts,
   parseActiveEcdsaSignerRecordForUnlock,
   planUnlockEcdsaWarmup,
-  requireCompleteSharedKeyTargetContext,
+  requireCompleteConfiguredTargetKeyContext,
   type ActiveEcdsaSignerRecord,
   type BlockedEcdsaSignerRecord,
   type CanonicalThresholdEcdsaWarmSessionContext,
   type ConfiguredTargetThresholdEcdsaWarmKey,
   type KeyFactsInventoryRequiredEcdsaSignerRecord,
-  type SharedKeyTargetCompletion,
+  type ConfiguredTargetKeyCompletion,
   type WalletUnlockSelection,
 } from '@/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner';
 import {
@@ -1388,7 +1388,7 @@ async function unlockInternal(
             }),
         },
       );
-      const ecdsaTargetCompletion = buildSharedKeyTargetCompletion({
+      const ecdsaTargetCompletion = buildConfiguredTargetKeyCompletion({
         context: storedCanonicalEcdsaContext,
         configuredTargets: warmupInput.selectedEcdsaTargets,
       });
@@ -2046,7 +2046,7 @@ type ThresholdLoginWarmEcdsaContextResolution =
       resolveAfterEd25519?: never;
     }
   | {
-      kind: 'first_bootstrap_missing_shared_key';
+      kind: 'first_bootstrap_missing_target_keys';
       initialContext: CanonicalThresholdEcdsaWarmSessionContext;
       context?: never;
       resolveAfterEd25519?: never;
@@ -2063,7 +2063,7 @@ type ThresholdLoginWarmEcdsaContextResolution =
 type ThresholdLoginWarmupPlan = {
   kind: 'threshold_login_warmup_plan_ready';
   storedCanonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
-  sharedKeyTargetCompletion: SharedKeyTargetCompletion;
+  configuredTargetKeyCompletion: ConfiguredTargetKeyCompletion;
   ecdsaContextResolution: ThresholdLoginWarmEcdsaContextResolution;
   signersToWarm: ThresholdLoginWarmSigner[];
   ed25519DependsOnEcdsa: boolean;
@@ -2785,18 +2785,19 @@ async function primeThresholdLoginWarmSigners(args: {
         const configuredEcdsaTargets = listConfiguredThresholdEcdsaPublicationTargets(
           args.context.configs.network.chains,
         );
-        const completeActiveContextFromSharedKey = (source: string): void => {
-          const completion = buildSharedKeyTargetCompletion({
+        const completeActiveContextFromConfiguredTargets = (source: string): void => {
+          const completion = buildConfiguredTargetKeyCompletion({
             context: activeCanonicalEcdsaContext,
             configuredTargets: configuredEcdsaTargets,
           });
-          if (completion.kind === 'complete_shared_key_targets') {
+          if (completion.kind === 'complete_configured_target_keys') {
             activeCanonicalEcdsaContext = completion.context;
             return;
           }
-          if (completion.kind === 'duplicate_shared_key_targets') {
-            requireCompleteSharedKeyTargetContext({ completion, source });
+          if (completion.kind === 'missing_configured_target_keys') {
+            return;
           }
+          requireCompleteConfiguredTargetKeyContext({ completion, source });
         };
         const rememberBootstrappedKey = (input: {
           target: (typeof configuredEcdsaTargets)[number];
@@ -2827,7 +2828,7 @@ async function primeThresholdLoginWarmSigners(args: {
               ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             },
           );
-          completeActiveContextFromSharedKey('login first-bootstrapped ECDSA key');
+          completeActiveContextFromConfiguredTargets('login first-bootstrapped ECDSA key');
           return warmKey;
         };
         const rememberEcdsaAuthorizedEd25519Mint = (
@@ -2884,7 +2885,7 @@ async function primeThresholdLoginWarmSigners(args: {
           targetEcdsaKey: ConfiguredTargetThresholdEcdsaWarmKey,
         ) => {
           if (!targetEcdsaKey.key) {
-            throw new Error('[login] threshold ECDSA warm-up requires shared key identity');
+            throw new Error('[login] threshold ECDSA warm-up requires configured target key identity');
           }
           const thresholdSessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
           const signingGrantId = resolveThresholdLoginWarmSharedSigningGrantId({
@@ -3114,7 +3115,7 @@ async function primeThresholdLoginWarmSigners(args: {
           );
         };
         const bootstrapConfiguredTargets = async () => {
-          completeActiveContextFromSharedKey('login ECDSA warm-up preflight');
+          completeActiveContextFromConfiguredTargets('login ECDSA warm-up preflight');
           for (const target of configuredEcdsaTargets) {
             const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
             let targetEcdsaKey = activeCanonicalEcdsaContext.ecdsaKeys.find(
@@ -3439,7 +3440,7 @@ function resolveThresholdLoginWarmupPlan(args: {
   canFirstBootstrapThresholdEcdsa: boolean;
   wantsEd25519Warmup: boolean;
 }): ThresholdLoginWarmupPlan {
-  const sharedKeyTargetCompletion = buildSharedKeyTargetCompletion({
+  const configuredTargetKeyCompletion = buildConfiguredTargetKeyCompletion({
     context: args.storedCanonicalEcdsaContext,
     configuredTargets: args.selectedEcdsaTargets,
   });
@@ -3447,7 +3448,10 @@ function resolveThresholdLoginWarmupPlan(args: {
   let signersToWarm: ThresholdLoginWarmSigner[];
   let ed25519DependsOnEcdsa = false;
   let ecdsaDependsOnEd25519 = false;
-  if (sharedKeyTargetCompletion.kind === 'missing_shared_key' && args.selectedEcdsaTargets.length) {
+  if (
+    configuredTargetKeyCompletion.kind === 'missing_configured_target_keys' &&
+    args.selectedEcdsaTargets.length
+  ) {
     const initialContext: CanonicalThresholdEcdsaWarmSessionContext = {
       ecdsaKeys: [],
       ...(args.storedCanonicalEcdsaContext.runtimePolicyScope
@@ -3456,7 +3460,7 @@ function resolveThresholdLoginWarmupPlan(args: {
     };
     if (!args.canFirstBootstrapThresholdEcdsa) {
       throw new Error(
-        `[login] threshold ECDSA warm-up requires complete local key facts for ${sharedKeyTargetCompletion.missingTargets.join(
+        `[login] threshold ECDSA warm-up requires complete local key facts for ${configuredTargetKeyCompletion.missingTargets.join(
           ', ',
         )}; run explicit authenticated ECDSA key-facts inventory before unlock`,
       );
@@ -3464,12 +3468,12 @@ function resolveThresholdLoginWarmupPlan(args: {
     signersToWarm = args.wantsEd25519Warmup ? ['ecdsa', 'ed25519'] : ['ecdsa'];
     ed25519DependsOnEcdsa = args.wantsEd25519Warmup;
     ecdsaContextResolution = {
-      kind: 'first_bootstrap_missing_shared_key',
+      kind: 'first_bootstrap_missing_target_keys',
       initialContext,
     };
   } else {
-    const resolvedCanonicalEcdsaContext = requireCompleteSharedKeyTargetContext({
-      completion: sharedKeyTargetCompletion,
+    const resolvedCanonicalEcdsaContext = requireCompleteConfiguredTargetKeyContext({
+      completion: configuredTargetKeyCompletion,
       source: 'stored ECDSA key facts',
     });
     ecdsaContextResolution = {
@@ -3489,7 +3493,7 @@ function resolveThresholdLoginWarmupPlan(args: {
   return {
     kind: 'threshold_login_warmup_plan_ready',
     storedCanonicalEcdsaContext: args.storedCanonicalEcdsaContext,
-    sharedKeyTargetCompletion,
+    configuredTargetKeyCompletion,
     ecdsaContextResolution,
     signersToWarm,
     ed25519DependsOnEcdsa,
@@ -3681,11 +3685,11 @@ async function resolveProfileContinuityEcdsaWarmKeys(
           }),
         ),
       });
-      const inventoriedCompletion = buildSharedKeyTargetCompletion({
+      const inventoriedCompletion = buildConfiguredTargetKeyCompletion({
         context: { ecdsaKeys: inventoriedKeys },
         configuredTargets,
       });
-      if (inventoriedCompletion.kind !== 'complete_shared_key_targets') {
+      if (inventoriedCompletion.kind !== 'complete_configured_target_keys') {
         throw new Error(
           '[login] threshold ECDSA key-facts inventory returned incomplete key facts',
         );

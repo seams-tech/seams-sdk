@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
+const testsRoot = path.join(repoRoot, 'tests');
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 function runCommand(
@@ -52,7 +53,7 @@ function extractTaggedJson(output: string, tag: string): unknown {
 test.describe('source-backed profile continuity snapshot', () => {
   test('reads canonical profile plus signer-set continuity from one snapshot', async () => {
     const scriptPath = path.join(repoRoot, 'tests/unit/profileContinuity.source.script.ts');
-    const result = await runCommand(['exec', 'node', '--import', 'tsx', scriptPath], repoRoot, {
+    const result = await runCommand(['exec', 'tsx', scriptPath], testsRoot, {
       TSX_TSCONFIG_PATH: path.join(repoRoot, 'tests/tsconfig.playwright.json'),
     });
 

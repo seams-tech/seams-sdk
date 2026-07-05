@@ -1,5 +1,4 @@
 import React from 'react';
-import './PasskeyAuthMenu.css';
 import { PasskeyAuthMenuSkeletonInner } from './skeleton';
 import { PasskeyAuthMenuThemeScope } from './themeScope';
 import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';

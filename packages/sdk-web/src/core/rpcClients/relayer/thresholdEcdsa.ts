@@ -31,6 +31,8 @@ import {
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
 
+const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
+
 export type EcdsaHssRoleLocalPublicIdentity = {
   hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
@@ -525,7 +527,35 @@ function buildRelayRequestInit(args: {
 }
 
 async function parseRelayJson<T>(response: Response): Promise<T> {
-  return (await response.json()) as T;
+  const text = await readResponseText(response);
+  if (isWranglerWorkerRestartedMidRequestResponse(text)) {
+    return {
+      ok: false,
+      code: 'worker_restarted_mid_request',
+      message: WRANGLER_WORKER_RESTARTED_MID_REQUEST,
+    } as T;
+  }
+  return parseJsonText<T>(text);
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+function isWranglerWorkerRestartedMidRequestResponse(text: string): boolean {
+  return text.includes(WRANGLER_WORKER_RESTARTED_MID_REQUEST);
+}
+
+function parseJsonText<T>(text: string): T {
+  try {
+    return JSON.parse(text || '{}') as T;
+  } catch (error) {
+    throw new Error(`Failed to parse threshold ECDSA relayer response JSON: ${errorMessage(error)}`);
+  }
 }
 
 export async function thresholdEcdsaHssRoleLocalBootstrap(

@@ -39,11 +39,11 @@ import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import {
   refreshPasskeyEd25519SealedRecordAfterSigningMaterial,
   type ResolvedRouterAbEd25519WalletSessionState,
-} from './shared/routerAbEd25519WalletSessionState';
+} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   requireOrRestoreRouterAbEd25519WalletSessionState,
   type RouterAbEd25519ReadySigningMaterialState,
-} from './shared/ed25519SigningMaterialReadiness';
+} from '../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './shared/ed25519MaterialRestoreAuthorization';
 import { signingAuthPlanForEd25519MaterialReadiness } from './shared/ed25519MaterialAuthPlan';
 import { buildNearTransactionSigningPayload } from '../../chains/near/payloads';
@@ -108,8 +108,8 @@ import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef, NearCommandSubject } from '../../interfaces/ecdsaChainTarget';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
 import { tryFinalizeRouterAbEd25519NearTransactionNormalSigning } from './shared/ed25519PresignFinalize';
-import { type RouterAbEd25519NormalSigningReadyState } from './shared/routerAbWalletSessionCredential';
-import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRestore';
+import { type RouterAbEd25519NormalSigningReadyState } from '../../session/warmCapabilities/routerAbWalletSessionCredential';
+import { ed25519MaterialRestoreRequiredError } from '../../session/warmCapabilities/ed25519MaterialRestore';
 import {
   preConfirmMaterialGateFromSigningAuthPlan,
   restoreWarmSessionEd25519MaterialBeforeUserConfirmation,

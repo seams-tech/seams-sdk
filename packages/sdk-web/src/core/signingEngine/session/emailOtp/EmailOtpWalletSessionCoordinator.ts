@@ -12,6 +12,7 @@ export type {
   EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
 export type {
+  EmailOtpThresholdEd25519LoginResult,
   LoginEmailOtpEd25519CapabilityArgs,
 } from './ed25519Warmup';
 export type {

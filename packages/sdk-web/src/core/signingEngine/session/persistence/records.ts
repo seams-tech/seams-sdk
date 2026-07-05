@@ -1463,12 +1463,17 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     );
   }
   const signingRootBinding = normalizeStoredSigningRootBinding(obj, runtimePolicyScope);
+  const chainTarget = normalizeOptionalRuntimeChainTarget(obj.chainTarget);
+  if (!chainTarget) {
+    throw new Error('Invalid threshold ECDSA canonical session record: missing chainTarget');
+  }
   if (evmFamilySigningKeySlotId) {
     evmFamilySigningKeySlotId = assertEvmFamilySigningKeySlotIdMatchesPlan({
       evmFamilySigningKeySlotId,
       walletId,
       signingRootId: signingRootBinding.signingRootId,
       signingRootVersion: signingRootBinding.signingRootVersion,
+      chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
       message:
         'Invalid threshold ECDSA canonical session record: evmFamilySigningKeySlotId signing-root mismatch',
     });
@@ -1481,7 +1486,6 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     sourceRaw === 'email_otp'
       ? sourceRaw
       : 'manual-bootstrap';
-  const chainTarget = normalizeOptionalRuntimeChainTarget(obj.chainTarget);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizeInteger(obj.remainingUses);
@@ -4598,6 +4602,53 @@ export function clearStoredThresholdEd25519SessionRecordForExactIdentity(
   return clearStoredThresholdEd25519SessionRecordForLaneKey(
     thresholdEd25519SessionRecordKeyFromExactIdentity(identity),
   );
+}
+
+export type RetireRecoveredPasskeyThresholdEd25519SessionsResult = {
+  readonly retired: number;
+};
+
+export function retireRecoveredPasskeyThresholdEd25519Sessions(args: {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: SignerSlot;
+  retainedThresholdSessionId: ThresholdEd25519SessionId;
+}): RetireRecoveredPasskeyThresholdEd25519SessionsResult {
+  const walletId = String(args.walletId).trim();
+  const nearAccountId = String(args.nearAccountId).trim();
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId).trim();
+  const signerSlot = parseSignerSlot(args.signerSlot);
+  const retainedThresholdSessionId = String(args.retainedThresholdSessionId).trim();
+  if (
+    !walletId ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !signerSlot ||
+    !retainedThresholdSessionId
+  ) {
+    throw new Error('[SigningEngine] recovered Ed25519 session retirement requires exact lane identity');
+  }
+
+  const retiredRecords = [...inMemoryEd25519RecordsByLane.values()].filter((record) => {
+    if (record.source === 'email_otp') return false;
+    if (String(record.walletId || '').trim() !== walletId) return false;
+    if (String(record.nearAccountId || '').trim() !== nearAccountId) return false;
+    if (String(record.nearEd25519SigningKeyId || '').trim() !== nearEd25519SigningKeyId) {
+      return false;
+    }
+    if (parseSignerSlot(record.signerSlot) !== signerSlot) return false;
+    if (String(record.thresholdSessionId || '').trim() === retainedThresholdSessionId) {
+      return false;
+    }
+    return true;
+  });
+
+  for (const record of retiredRecords) {
+    forgetInMemoryThresholdEd25519Record(record);
+  }
+
+  return { retired: retiredRecords.length };
 }
 
 export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {

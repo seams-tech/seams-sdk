@@ -19,6 +19,7 @@ import {
   storeAuthenticator,
   storeUserData,
   storeWalletEd25519RegistrationData,
+  storeWalletEd25519RecoveryRegistrationData,
   finalizeWalletEd25519SignerRegistration,
   storeWalletEmailOtpEd25519RegistrationData,
   updateLastLogin,
@@ -48,6 +49,9 @@ export type RegistrationAccountsService = {
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
   storeWalletEd25519RegistrationData(
+    input: StoreWalletEd25519RegistrationInput,
+  ): Promise<StoredRegistrationData>;
+  storeWalletEd25519RecoveryRegistrationData(
     input: StoreWalletEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
   storeWalletEmailOtpEd25519RegistrationData(
@@ -83,6 +87,8 @@ export function createRegistrationAccountsService(
     hasPasskeyCredential: (nearAccountId) => hasPasskeyCredential(accountLifecycle, nearAccountId),
     storeWalletEd25519RegistrationData: (input) =>
       storeWalletEd25519RegistrationData(accountLifecycle, input),
+    storeWalletEd25519RecoveryRegistrationData: (input) =>
+      storeWalletEd25519RecoveryRegistrationData(accountLifecycle, input),
     storeWalletEmailOtpEd25519RegistrationData: (input) =>
       storeWalletEmailOtpEd25519RegistrationData(accountLifecycle, input),
     finalizeWalletEd25519SignerRegistration: (input) =>

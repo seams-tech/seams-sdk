@@ -98,7 +98,7 @@ import {
 import {
   resolveRouterAbEd25519WalletSessionStateFromRecord,
   type ResolvedRouterAbEd25519WalletSessionState,
-} from './shared/routerAbEd25519WalletSessionState';
+} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildEd25519SigningLane,
   type Ed25519SigningLane,
@@ -113,8 +113,8 @@ import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/auth
 import {
   isEd25519MaterialUnsealAuthorizationRequiredError,
   throwEd25519MaterialRestoreRequired,
-} from './shared/ed25519MaterialRestore';
-import { hasRouterAbEd25519SigningAuth } from './shared/routerAbWalletSessionCredential';
+} from '../../session/warmCapabilities/ed25519MaterialRestore';
+import { hasRouterAbEd25519SigningAuth } from '../../session/warmCapabilities/routerAbWalletSessionCredential';
 import {
   receiveTransactionIntent,
   recordAvailableSigningLanesRead,

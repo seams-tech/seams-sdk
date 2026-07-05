@@ -3,7 +3,6 @@ name = "shamir3pass_runtime"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/web3-authn/sdk"
 description = "WASM runtime wrapper for shamir-3-pass lock operations"
 
 [package.metadata.wasm-pack.profile.release]

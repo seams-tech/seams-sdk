@@ -21,6 +21,14 @@ import { FRONTEND_CONFIG } from '@/config';
 
 type ThemeTokens = ReturnType<typeof useTheme>['tokens'];
 
+const INTENDED_E2E_ECDSA_PRESIGNATURE_POOL = {
+  enabled: true,
+  targetDepth: 1,
+  lowWatermark: 0,
+  maxRefillInFlight: 1,
+  refillAttemptTimeoutMs: 30_000,
+} as const;
+
 function tokensToCssVars(tokens: ThemeTokens): Record<string, string> {
   const vars: Record<string, string> = {};
   Object.entries(tokens.colors).forEach(([key, value]) => {
@@ -152,6 +160,9 @@ export const App: React.FC = () => {
             }
           : {}),
         ...(FRONTEND_CONFIG.routerAb ? { routerAb: FRONTEND_CONFIG.routerAb } : {}),
+        ...(FRONTEND_CONFIG.enableIntendedE2E
+          ? { routerAbEcdsaHssPresignaturePool: INTENDED_E2E_ECDSA_PRESIGNATURE_POOL }
+          : {}),
         chains: FRONTEND_CONFIG.chains,
         relayer: {
           url: FRONTEND_CONFIG.relayerUrl!,

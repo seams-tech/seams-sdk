@@ -546,6 +546,15 @@ export class BrowserSigningSurface {
     );
   }
 
+  storeWalletEd25519RecoveryRegistrationData(
+    input: Parameters<typeof registrationPublic.storeWalletEd25519RecoveryRegistrationData>[1],
+  ): ReturnType<typeof registrationPublic.storeWalletEd25519RecoveryRegistrationData> {
+    return registrationPublic.storeWalletEd25519RecoveryRegistrationData(
+      this.registrationPublicDeps,
+      input,
+    );
+  }
+
   storeWalletEmailOtpEd25519RegistrationData(
     input: Parameters<typeof registrationPublic.storeWalletEmailOtpEd25519RegistrationData>[1],
   ): ReturnType<typeof registrationPublic.storeWalletEmailOtpEd25519RegistrationData> {
@@ -650,6 +659,15 @@ export class BrowserSigningSurface {
     input: Parameters<typeof registrationPublic.storeWalletEcdsaSignerRecords>[1],
   ): ReturnType<typeof registrationPublic.storeWalletEcdsaSignerRecords> {
     return registrationPublic.storeWalletEcdsaSignerRecords(this.registrationPublicDeps, input);
+  }
+
+  storeWalletEcdsaRecoverySignerRecords(
+    input: Parameters<typeof registrationPublic.storeWalletEcdsaRecoverySignerRecords>[1],
+  ): ReturnType<typeof registrationPublic.storeWalletEcdsaRecoverySignerRecords> {
+    return registrationPublic.storeWalletEcdsaRecoverySignerRecords(
+      this.registrationPublicDeps,
+      input,
+    );
   }
 
   storeWalletEmailOtpEcdsaSignerRecords(
@@ -981,6 +999,19 @@ export class BrowserSigningSurface {
     clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByKey);
   }
 
+  prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
+  > {
+    return thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
   prepareThresholdEd25519HssClientCeremonyFromCredential(
     args: Parameters<
       typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
@@ -1081,6 +1112,19 @@ export class BrowserSigningSurface {
     >[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle> {
     return thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
+  storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
+    args: Parameters<
+      typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
+  > {
+    return thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
       this.thresholdEd25519PublicDeps,
       args,
     );

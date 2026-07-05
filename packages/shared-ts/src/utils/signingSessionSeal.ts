@@ -106,6 +106,8 @@ export type SealedSigningSessionEcdsaChainTarget =
 
 type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
   chainTarget: SealedSigningSessionEcdsaChainTarget;
+  signingRootId: string;
+  signingRootVersion: string;
   keyHandle: string;
   ecdsaThresholdKeyId?: string;
   ethereumAddress: string;

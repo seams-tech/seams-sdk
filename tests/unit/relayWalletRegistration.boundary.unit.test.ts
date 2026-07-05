@@ -45,6 +45,7 @@ import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/s
 import { base58Encode } from '../../packages/shared-ts/src/utils/encoders';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -300,10 +301,14 @@ function b64u(bytes: number[]): string {
   return Buffer.from(bytes).toString('base64url');
 }
 
+const ECDSA_CHAIN_TARGET = { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-testnet' };
+const ECDSA_CHAIN_TARGET_KEY = thresholdEcdsaChainTargetKey(ECDSA_CHAIN_TARGET);
+
 const ECDSA_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
   walletId: 'wallet_alice',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
+  chainTargetKey: ECDSA_CHAIN_TARGET_KEY,
 });
 
 function validEcdsaClientBootstrap() {
@@ -1112,10 +1117,15 @@ test.describe('wallet registration route boundaries', () => {
           {
             registrationCeremonyId: 'wrc_123',
             ecdsa: {
-              clientBootstrap: {
-                ...validEcdsaClientBootstrap(),
-                [forbiddenField]: 'server-auth-owned',
-              },
+              clientBootstraps: [
+                {
+                  chainTarget: ECDSA_CHAIN_TARGET,
+                  clientBootstrap: {
+                    ...validEcdsaClientBootstrap(),
+                    [forbiddenField]: 'server-auth-owned',
+                  },
+                },
+              ],
             },
           },
           {
@@ -1132,7 +1142,7 @@ test.describe('wallet registration route boundaries', () => {
       expect(response.body).toMatchObject({
         ok: false,
         code: 'invalid_body',
-        message: `ecdsa.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
+        message: `ecdsa.clientBootstraps.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
       });
     });
   }
@@ -1147,7 +1157,12 @@ test.describe('wallet registration route boundaries', () => {
         {
           registrationCeremonyId: ' wrc_123 ',
           ecdsa: {
-            clientBootstrap,
+            clientBootstraps: [
+              {
+                chainTarget: ECDSA_CHAIN_TARGET,
+                clientBootstrap,
+              },
+            ],
           },
         },
         {
@@ -1157,7 +1172,12 @@ test.describe('wallet registration route boundaries', () => {
               ok: true,
               registrationCeremonyId: 'wrc_123',
               ecdsa: {
-                bootstrap: validEcdsaServerBootstrap(),
+                bootstraps: [
+                  {
+                    chainTarget: ECDSA_CHAIN_TARGET,
+                    bootstrap: validEcdsaServerBootstrap(),
+                  },
+                ],
               },
             };
           },
@@ -1173,10 +1193,15 @@ test.describe('wallet registration route boundaries', () => {
     expect(captured).toEqual({
       registrationCeremonyId: 'wrc_123',
       ecdsa: {
-        clientBootstrap: validNormalizedEcdsaClientBootstrap(),
+        clientBootstraps: [
+          {
+            chainTarget: ECDSA_CHAIN_TARGET,
+            clientBootstrap: validNormalizedEcdsaClientBootstrap(),
+          },
+        ],
       },
     });
-    expect((response.body as any).ecdsa.bootstrap.jwt).toBe(
+    expect((response.body as any).ecdsa.bootstraps[0].bootstrap.jwt).toBe(
       `signed:${ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND}:session-1`,
     );
     expect(signedClaims.claims).toMatchObject({
@@ -1867,7 +1892,12 @@ test.describe('wallet registration route boundaries', () => {
         body: {
           addSignerCeremonyId: ' wasc_1 ',
           ecdsa: {
-            clientBootstrap: validEcdsaClientBootstrap(),
+            clientBootstraps: [
+              {
+                chainTarget: ECDSA_CHAIN_TARGET,
+                clientBootstrap: validEcdsaClientBootstrap(),
+              },
+            ],
           },
         },
         authService: {
@@ -1906,7 +1936,12 @@ test.describe('wallet registration route boundaries', () => {
     expect(respondRequest).toEqual({
       addSignerCeremonyId: 'wasc_1',
       ecdsa: {
-        clientBootstrap: validNormalizedEcdsaClientBootstrap(),
+        clientBootstraps: [
+          {
+            chainTarget: ECDSA_CHAIN_TARGET,
+            clientBootstrap: validNormalizedEcdsaClientBootstrap(),
+          },
+        ],
       },
     });
     expect(finalizeRequest).toEqual({

@@ -387,6 +387,7 @@ export type ThresholdEd25519HssSessionOperation =
   | 'tx_signing'
   | 'link_device'
   | 'email_recovery'
+  | 'registration_material_restore'
   | 'warm_session_reconstruction'
   | 'explicit_key_export';
 
@@ -1070,6 +1071,7 @@ export interface ThresholdEd25519SessionResponse {
   walletId?: string;
   nearAccountId?: string;
   nearEd25519SigningKeyId?: string;
+  authorityScope?: ThresholdEd25519AuthorityScope;
   thresholdSessionId?: string;
   signingGrantId?: string;
   /** Server-enforced expiry (ms since epoch). */

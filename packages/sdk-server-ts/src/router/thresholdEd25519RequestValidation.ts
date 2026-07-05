@@ -122,6 +122,7 @@ function isHssSessionOperation(value: unknown): value is ThresholdEd25519HssSess
     case 'tx_signing':
     case 'link_device':
     case 'email_recovery':
+    case 'registration_material_restore':
     case 'warm_session_reconstruction':
     case 'explicit_key_export':
       return true;

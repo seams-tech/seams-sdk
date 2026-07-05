@@ -33,6 +33,8 @@ type RawEcdsaRestoreMetadata = {
   chainTarget?: unknown;
   source?: unknown;
   evmFamilySigningKeySlotId?: unknown;
+  signingRootId?: unknown;
+  signingRootVersion?: unknown;
   rpId?: unknown;
   credentialIdB64u?: unknown;
   providerSubjectId?: unknown;
@@ -452,16 +454,39 @@ function buildEmailOtpAuthorityForSealedRecord(args: {
 
 function resolveSigningRootBinding(args: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  rawSigningRootId?: unknown;
+  rawSigningRootVersion?: unknown;
 }): { signingRootId: string; signingRootVersion: string } | null {
-  if (!args.runtimePolicyScope) return null;
-  try {
-    const scope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
-    const signingRootId = normalizeNonEmptyString(scope.signingRootId);
-    const signingRootVersion = normalizeNonEmptyString(scope.signingRootVersion);
-    if (signingRootId && signingRootVersion) {
-      return { signingRootId, signingRootVersion };
-    }
-  } catch {}
+  const explicitSigningRootId = normalizeNonEmptyString(args.rawSigningRootId);
+  const explicitSigningRootVersion = normalizeNonEmptyString(args.rawSigningRootVersion);
+  let runtimeSigningRootId: string | null = null;
+  let runtimeSigningRootVersion: string | null = null;
+  if (args.runtimePolicyScope) {
+    try {
+      const scope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+      runtimeSigningRootId = normalizeNonEmptyString(scope.signingRootId);
+      runtimeSigningRootVersion = normalizeNonEmptyString(scope.signingRootVersion);
+    } catch {}
+  }
+  if (
+    explicitSigningRootId &&
+    runtimeSigningRootId &&
+    explicitSigningRootId !== runtimeSigningRootId
+  ) {
+    return null;
+  }
+  if (
+    explicitSigningRootVersion &&
+    runtimeSigningRootVersion &&
+    explicitSigningRootVersion !== runtimeSigningRootVersion
+  ) {
+    return null;
+  }
+  const signingRootId = explicitSigningRootId || runtimeSigningRootId;
+  const signingRootVersion = explicitSigningRootVersion || runtimeSigningRootVersion;
+  if (signingRootId && signingRootVersion) {
+    return { signingRootId, signingRootVersion };
+  }
   return null;
 }
 
@@ -568,6 +593,8 @@ export function normalizeSealedRecoveryRecord(
     });
     const signingRootBinding = resolveSigningRootBinding({
       runtimePolicyScope,
+      rawSigningRootId: restore?.signingRootId,
+      rawSigningRootVersion: restore?.signingRootVersion,
     });
     const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
     const passkeyRpId =
@@ -941,6 +968,8 @@ export function normalizeSealedRecoveryRecord(
     });
     const companionSigningRootBinding = resolveSigningRootBinding({
       runtimePolicyScope: companionRuntimePolicyScope,
+      rawSigningRootId: ecdsaRestore?.signingRootId,
+      rawSigningRootVersion: ecdsaRestore?.signingRootVersion,
     });
     const companionEcdsaThresholdKeyId = normalizeNonEmptyString(ecdsaRestore?.ecdsaThresholdKeyId);
     const companionProviderSubjectId = normalizeNonEmptyString(

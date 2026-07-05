@@ -13,7 +13,20 @@ export type PrepareEmailRecoveryRequest = {
 
 export type RespondEmailRecoveryEcdsaRequest = {
   request_id: string;
-  client_bootstrap: Record<string, unknown>;
+  clientBootstraps: Array<{
+    chainTarget: Record<string, unknown>;
+    clientBootstrap: Record<string, unknown>;
+  }>;
+};
+
+export type RespondEmailRecoveryEd25519Request = {
+  request_id: string;
+  clientRequest: Record<string, unknown>;
+};
+
+export type FinalizeEmailRecoveryEd25519Request = {
+  request_id: string;
+  evaluationResult: Record<string, unknown>;
 };
 
 export type EmailRecoveryRouteErrorBody = {
@@ -35,7 +48,9 @@ const PREPARE_KEYS = [
   'rp_id',
   'webauthn_registration',
 ] as const;
-const RESPOND_ECDSA_KEYS = ['request_id', 'client_bootstrap'] as const;
+const RESPOND_ECDSA_KEYS = ['request_id', 'client_bootstraps'] as const;
+const RESPOND_ED25519_KEYS = ['request_id', 'client_request'] as const;
+const FINALIZE_ED25519_KEYS = ['request_id', 'evaluation_result'] as const;
 
 function invalidEmailRecoveryBody(message: string): EmailRecoveryRouteParseResult<never> {
   return {
@@ -120,6 +135,17 @@ function parseRequiredObjectField(
   return { ok: true, request: value };
 }
 
+function parseRequiredObjectArrayField(
+  record: Record<string, unknown>,
+  fieldName: string,
+): EmailRecoveryRouteParseResult<Record<string, unknown>[]> {
+  const value = record[fieldName];
+  if (!Array.isArray(value) || value.length === 0 || !value.every(isPlainObject)) {
+    return invalidEmailRecoveryBody(`${fieldName} is required`);
+  }
+  return { ok: true, request: value };
+}
+
 export function parsePrepareEmailRecoveryRequest(input: {
   body: unknown;
   origin: unknown;
@@ -173,14 +199,77 @@ export function parseRespondEmailRecoveryEcdsaRequest(
 
   const requestId = requireTrimmedField(body.request, 'request_id');
   if (!requestId.ok) return requestId;
-  const clientBootstrap = parseRequiredObjectField(body.request, 'client_bootstrap');
-  if (!clientBootstrap.ok) return clientBootstrap;
+  const clientBootstraps = parseRequiredObjectArrayField(body.request, 'client_bootstraps');
+  if (!clientBootstraps.ok) return clientBootstraps;
+  const parsedClientBootstraps: RespondEmailRecoveryEcdsaRequest['clientBootstraps'] = [];
+  for (const entry of clientBootstraps.request) {
+    const chainTarget = parseRequiredObjectField(entry, 'chain_target');
+    if (!chainTarget.ok) return chainTarget;
+    const clientBootstrap = parseRequiredObjectField(entry, 'client_bootstrap');
+    if (!clientBootstrap.ok) return clientBootstrap;
+    parsedClientBootstraps.push({
+      chainTarget: chainTarget.request,
+      clientBootstrap: clientBootstrap.request,
+    });
+  }
 
   return {
     ok: true,
     request: {
       request_id: requestId.request,
-      client_bootstrap: clientBootstrap.request,
+      clientBootstraps: parsedClientBootstraps,
+    },
+  };
+}
+
+export function parseRespondEmailRecoveryEd25519Request(
+  raw: unknown,
+): EmailRecoveryRouteParseResult<RespondEmailRecoveryEd25519Request> {
+  const body = requireJsonObject(raw);
+  if (!body.ok) return body;
+  const keys = requireOnlyAllowedKeys(
+    body.request,
+    RESPOND_ED25519_KEYS,
+    'email-recovery Ed25519 respond',
+  );
+  if (!keys.ok) return keys;
+
+  const requestId = requireTrimmedField(body.request, 'request_id');
+  if (!requestId.ok) return requestId;
+  const clientRequest = parseRequiredObjectField(body.request, 'client_request');
+  if (!clientRequest.ok) return clientRequest;
+
+  return {
+    ok: true,
+    request: {
+      request_id: requestId.request,
+      clientRequest: clientRequest.request,
+    },
+  };
+}
+
+export function parseFinalizeEmailRecoveryEd25519Request(
+  raw: unknown,
+): EmailRecoveryRouteParseResult<FinalizeEmailRecoveryEd25519Request> {
+  const body = requireJsonObject(raw);
+  if (!body.ok) return body;
+  const keys = requireOnlyAllowedKeys(
+    body.request,
+    FINALIZE_ED25519_KEYS,
+    'email-recovery Ed25519 finalize',
+  );
+  if (!keys.ok) return keys;
+
+  const requestId = requireTrimmedField(body.request, 'request_id');
+  if (!requestId.ok) return requestId;
+  const evaluationResult = parseRequiredObjectField(body.request, 'evaluation_result');
+  if (!evaluationResult.ok) return evaluationResult;
+
+  return {
+    ok: true,
+    request: {
+      request_id: requestId.request,
+      evaluationResult: evaluationResult.request,
     },
   };
 }

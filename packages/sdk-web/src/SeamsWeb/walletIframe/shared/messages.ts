@@ -74,6 +74,7 @@ export type ParentToChildType =
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL'
   | 'PM_ENROLL_EMAIL_OTP'
+  | 'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
@@ -578,6 +579,17 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   emailOtpAuthorityEmail?: string;
 }
 
+export interface PMEmailOtpEd25519CapabilityPayload {
+  walletSession: WalletSessionRef;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  relayUrl?: string;
+  challengeId?: string;
+  otpCode: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+  emailOtpAuthorityEmail?: string;
+}
+
 export interface PMRefreshEmailOtpSigningSessionPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -701,6 +713,7 @@ export type ParentToChildEnvelope =
     >
   | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL', PMGoogleEmailOtpWalletAuthHandlePayload>
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
+  | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY', PMEmailOtpEd25519CapabilityPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
   | RpcEnvelope<

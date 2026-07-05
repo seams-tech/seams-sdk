@@ -80,9 +80,11 @@ import {
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import type { WalletRegistrationFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
+import type { ThresholdEd25519RegistrationWorkerMaterialReport } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientRequestEnvelope,
+  ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssServerInputDeliveryEnvelope,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
@@ -99,7 +101,7 @@ import {
 import {
   requireOrRestoreRouterAbEd25519WalletSessionState,
   type RouterAbEd25519WorkerMaterialRestoreAuthorization,
-} from '@/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness';
+} from '@/core/signingEngine/session/warmCapabilities/ed25519SigningMaterialReadiness';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential } from '@/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization';
 import {
@@ -163,7 +165,7 @@ function thresholdEd25519HssBindingFactsFromRuntimePolicyScope(args: {
 export type RegisteredThresholdEd25519SessionAuth =
   | {
       kind: 'passkey';
-      credentialIdB64u: string;
+      credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
       emailOtpAuthContext?: never;
     }
   | {
@@ -177,6 +179,7 @@ export type ThresholdWarmSessionPolicyDraft = {
   ttlMs: number;
   remainingUses: number;
   participantIds?: number[];
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
@@ -185,6 +188,7 @@ export type ThresholdWarmSessionPolicyDraftInput =
       kind: 'generated_signing_grant';
       sessionId?: string;
       participantIds?: number[];
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
       signingGrantId?: never;
       ttlMs?: never;
       remainingUses?: never;
@@ -196,6 +200,7 @@ export type ThresholdWarmSessionPolicyDraftInput =
       remainingUses: number;
       sessionId?: string;
       participantIds?: number[];
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
 
 export type ThresholdWarmSessionRequestEnvelope = {
@@ -241,27 +246,63 @@ type PersistRegisteredThresholdEd25519SessionBaseArgs = {
   relayerUrl: string;
   registrationSessionPolicy: ThresholdWarmSessionRequestEnvelope['session_policy'];
   completedRegistration: CompletedThresholdEd25519Registration;
+  registrationTiming?: RegisteredThresholdEd25519SessionPersistenceTimingHook;
 };
 
+export type RegisteredThresholdEd25519SessionPersistenceTimingBucket =
+  | 'thresholdEd25519KeyMaterialPersistenceMs'
+  | 'thresholdEd25519SessionNormalizeMs'
+  | 'thresholdEd25519WarmMaterialValidationMs'
+  | 'thresholdEd25519WarmCapabilityPersistenceMs'
+  | 'thresholdEd25519WorkerMaterialPersistenceMs'
+  | 'thresholdEd25519SigningSessionHydrationMs'
+  | 'thresholdEd25519SealedSessionPersistenceMs';
+
+export type RegisteredThresholdEd25519SessionPersistenceTimingHook = {
+  record: (
+    bucket: RegisteredThresholdEd25519SessionPersistenceTimingBucket,
+    durationMs: number,
+  ) => void;
+};
+
+type PersistRegisteredThresholdEd25519PasskeySessionArgs =
+  PersistRegisteredThresholdEd25519SessionBaseArgs & {
+    signingEngine: Pick<
+      SigningSessionSurface,
+      'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
+    > &
+      Pick<
+        ThresholdEd25519HssClientSurface,
+        'prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization'
+      > &
+      Pick<
+        ThresholdEd25519HssCeremonySurface,
+        'storeThresholdEd25519WorkerMaterialFromFinalizedHssReport'
+    >;
+    auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'passkey' }>;
+    prfFirstB64u: string;
+    registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterialCore;
+    finalizedRegistrationHssMaterial: ThresholdEd25519FinalizedRegistrationHssMaterial;
+    workerCtx?: never;
+  };
+
+type PersistRegisteredThresholdEd25519EmailOtpSessionArgs =
+  PersistRegisteredThresholdEd25519SessionBaseArgs & {
+    signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'> &
+      Pick<
+        ThresholdEd25519HssCeremonySurface,
+        'storeThresholdEd25519WorkerMaterialFromFinalizedHssReport'
+      >;
+    auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'email_otp' }>;
+    workerCtx: WorkerOperationContext;
+    prfFirstB64u: string;
+    registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
+    finalizedRegistrationHssMaterial: ThresholdEd25519FinalizedRegistrationHssMaterial;
+  };
+
 export type PersistRegisteredThresholdEd25519SessionArgs =
-  | (PersistRegisteredThresholdEd25519SessionBaseArgs & {
-      signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'>;
-      auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'passkey' }>;
-      prfFirstB64u: string | null;
-      registrationHssClientMaterial?: never;
-      workerCtx?: never;
-    })
-  | (PersistRegisteredThresholdEd25519SessionBaseArgs & {
-      signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'> &
-        Pick<
-          ThresholdEd25519HssCeremonySurface,
-          'runThresholdEd25519HssCeremonyWithMaterialHandle'
-        >;
-      auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'email_otp' }>;
-      workerCtx: WorkerOperationContext;
-      prfFirstB64u: string;
-      registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
-    });
+  | PersistRegisteredThresholdEd25519PasskeySessionArgs
+  | PersistRegisteredThresholdEd25519EmailOtpSessionArgs;
 
 type ThresholdWarmSessionRouterApiResult = {
   sessionKind?: string;
@@ -291,15 +332,25 @@ export type ThresholdEd25519WorkerMaterialRestoreContext = {
 
 export type ThresholdEd25519RegistrationHssContext = ThresholdEd25519HssCanonicalContext;
 
-export type ThresholdEd25519RegistrationHssClientMaterial = {
+export type ThresholdEd25519RegistrationHssClientMaterialCore = {
   hssContext: ThresholdEd25519RegistrationHssContext;
-  bindingFacts: SdkEd25519HssBindingFacts;
   prfFirstB64u: string;
   clientInputs: {
     contextBindingB64u: string;
     yClientB64u: string;
     tauClientB64u: string;
   };
+};
+
+export type ThresholdEd25519RegistrationHssClientMaterial =
+  ThresholdEd25519RegistrationHssClientMaterialCore & {
+    bindingFacts: SdkEd25519HssBindingFacts;
+  };
+
+export type ThresholdEd25519FinalizedRegistrationHssMaterial = {
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientOutputMaskRelayerKeyId: string;
+  workerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
 };
 
 export type RestoreThresholdEd25519WorkerMaterialPendingReason =
@@ -322,6 +373,36 @@ export type Ed25519WorkerMaterialIdentity = {
   materialKeyId: Ed25519WorkerMaterialKeyId;
   bindingDigest: Ed25519WorkerMaterialBindingDigest;
   clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+};
+
+type RegisteredThresholdEd25519WorkerMaterialBinding = {
+  thresholdSessionId: string;
+  signingGrantId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  expiresAtMs: number;
+  nearAccountId: string;
+  signerSlot: number;
+  relayerKeyId: string;
+  participantIds: number[];
+  createdAtMs: number;
+  signingWorkerId: string;
+};
+
+type RegisteredThresholdEd25519WorkerMaterialBindingParts = {
+  materialBinding: RegisteredThresholdEd25519WorkerMaterialBinding;
+  bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier;
+};
+
+type CompletedThresholdEd25519WorkerSigningMaterial = {
+  materialHandle: string;
+  materialBindingDigest: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  clientVerifyingShareB64u: string;
+  signerSlot: number;
 };
 
 type Ed25519SealedWorkerMaterialCommon = {
@@ -1707,6 +1788,7 @@ export function createThresholdWarmSessionPolicyDraft(
     ttlMs: budget.ttlMs,
     remainingUses: budget.remainingUses,
     ...(participantIds ? { participantIds } : {}),
+    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
     routerAbNormalSigning,
   };
 }
@@ -1740,6 +1822,9 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       signingGrantId,
       ...(Array.isArray(args.requestedPolicy.participantIds)
         ? { participantIds: args.requestedPolicy.participantIds }
+        : {}),
+      ...(args.requestedPolicy.runtimePolicyScope
+        ? { runtimePolicyScope: args.requestedPolicy.runtimePolicyScope }
         : {}),
       routerAbNormalSigning: args.requestedPolicy.routerAbNormalSigning,
       ttlMs: args.requestedPolicy.ttlMs,
@@ -1779,6 +1864,37 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   return {
     hssContext: prepared.hssContext,
     bindingFacts,
+    prfFirstB64u,
+    clientInputs: {
+      contextBindingB64u: prepared.contextBindingB64u,
+      yClientB64u: prepared.yClientB64u,
+      tauClientB64u: prepared.tauClientB64u,
+    },
+  };
+}
+
+export async function prepareThresholdEd25519RegistrationHssClientMaterialFromCanonicalContext(args: {
+  context: ThresholdWarmSessionContext;
+  credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
+  hssContext: ThresholdEd25519RegistrationHssContext;
+  onProgress?: (message: string) => void;
+}): Promise<ThresholdEd25519RegistrationHssClientMaterialCore> {
+  const prepared =
+    await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext({
+      credential: args.credential,
+      hssContext: args.hssContext,
+      onProgress: args.onProgress,
+    });
+  if (!prepared.ok) {
+    throw new Error(prepared.message || 'Failed to prepare threshold Ed25519 HSS registration');
+  }
+  const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
+  if (!prfFirstB64u) {
+    throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
+  }
+
+  return {
+    hssContext: prepared.hssContext,
     prfFirstB64u,
     clientInputs: {
       contextBindingB64u: prepared.contextBindingB64u,
@@ -1829,7 +1945,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
 
 export async function prepareThresholdEd25519RegistrationHssClientRequest(args: {
   context: ThresholdWarmSessionContext;
-  material: ThresholdEd25519RegistrationHssClientMaterial;
+  material: ThresholdEd25519RegistrationHssClientMaterialCore;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   clientOtOfferMessageB64u: string;
   ceremonyHandle: string;
@@ -2047,10 +2163,11 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   );
 }
 
-async function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(args: {
+async function validateRegisteredThresholdEd25519WarmSessionMaterial(args: {
+  errorContext: string;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  material: ThresholdEd25519RegistrationHssClientMaterial;
+  material: ThresholdEd25519RegistrationHssClientMaterialCore;
   prfFirstB64u: string;
 }): Promise<void> {
   const material = args.material;
@@ -2058,99 +2175,238 @@ async function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(arg
     runtimePolicyScope: args.runtimePolicyScope,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
   });
-  if (
-    material.bindingFacts.nearEd25519SigningKeyId !==
-      expectedBindingFacts.nearEd25519SigningKeyId ||
-    material.bindingFacts.signingRootId !== expectedBindingFacts.signingRootId ||
-    material.bindingFacts.signingRootVersion !== expectedBindingFacts.signingRootVersion
-  ) {
-    throw new Error('Email OTP Ed25519 registration HSS SDK binding facts mismatch');
-  }
   const expectedDigest =
     await computeSdkEd25519HssApplicationBindingDigestB64u(expectedBindingFacts);
   if (material.hssContext.applicationBindingDigestB64u !== expectedDigest) {
-    throw new Error('Email OTP Ed25519 registration HSS digest binding mismatch');
+    throw new Error(`${args.errorContext} Ed25519 registration HSS digest binding mismatch`);
   }
   const materialPrfFirstB64u = String(material.prfFirstB64u || '').trim();
   if (materialPrfFirstB64u !== String(args.prfFirstB64u || '').trim()) {
-    throw new Error('Email OTP Ed25519 registration warm-session PRF binding mismatch');
+    throw new Error(`${args.errorContext} Ed25519 registration warm-session PRF binding mismatch`);
   }
+}
+
+function buildRegisteredThresholdEd25519WorkerMaterialBindingParts(args: {
+  nearAccountId: AccountId;
+  signerSlot: number;
+  relayerKeyId: string;
+  participantIds: number[];
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  sessionId: string;
+  signingGrantId: string;
+  expiresAtMs: number;
+}): RegisteredThresholdEd25519WorkerMaterialBindingParts {
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  const signingRootId = String(signingRootScope.signingRootId || '').trim();
+  const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
+  const signingWorkerId = String(args.routerAbNormalSigning.signingWorkerId || '').trim();
+  if (!signingRootId || !signingRootVersion || !signingWorkerId) {
+    throw new Error('Ed25519 registration worker material missing Router A/B binding');
+  }
+  const materialBinding: RegisteredThresholdEd25519WorkerMaterialBinding = {
+    thresholdSessionId: args.sessionId,
+    signingGrantId: args.signingGrantId,
+    signingRootId,
+    signingRootVersion,
+    expiresAtMs: args.expiresAtMs,
+    nearAccountId: String(args.nearAccountId),
+    signerSlot: args.signerSlot,
+    relayerKeyId: args.relayerKeyId,
+    participantIds: args.participantIds,
+    createdAtMs: Date.now(),
+    signingWorkerId,
+  };
+  return {
+    materialBinding,
+    bindingInput: {
+      nearAccountId: materialBinding.nearAccountId,
+      signerSlot: materialBinding.signerSlot,
+      signingRootId: materialBinding.signingRootId,
+      signingRootVersion: materialBinding.signingRootVersion,
+      relayerKeyId: materialBinding.relayerKeyId,
+      participantIds: materialBinding.participantIds,
+      createdAtMs: materialBinding.createdAtMs,
+    },
+  };
+}
+
+function persistCompletedThresholdEd25519WorkerSigningMaterial(args: {
+  sessionId: string;
+  signingMaterial: CompletedThresholdEd25519WorkerSigningMaterial;
+  materialCreatedAtMs: number;
+  errorContext: string;
+}): void {
+  const signingMaterial = args.signingMaterial;
+  const clientVerifyingShareB64u = String(signingMaterial.clientVerifyingShareB64u || '').trim();
+  if (!clientVerifyingShareB64u) {
+    throw new Error(`${args.errorContext} worker material missing verifying share`);
+  }
+  const persisted = persistStoredThresholdEd25519SessionMaterialHandle({
+    thresholdSessionId: args.sessionId,
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
+    ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
+    sealedWorkerMaterialRef: signingMaterial.sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u: signingMaterial.sealedWorkerMaterialB64u,
+    materialFormatVersion: signingMaterial.materialFormatVersion,
+    materialKeyId: signingMaterial.materialKeyId,
+    materialCreatedAtMs: args.materialCreatedAtMs,
+    signerSlot: signingMaterial.signerSlot,
+  });
+  if (!persisted) {
+    throw new Error(`${args.errorContext} worker material record was not persisted`);
+  }
+  markRouterAbEd25519WorkerMaterialRuntimeValidated(
+    getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.sessionId),
+  );
+}
+
+function isEmailOtpRegisteredThresholdEd25519SessionArgs(
+  args: PersistRegisteredThresholdEd25519SessionArgs,
+): args is PersistRegisteredThresholdEd25519EmailOtpSessionArgs {
+  return args.auth.kind === 'email_otp';
+}
+
+function isPasskeyRegisteredThresholdEd25519SessionArgs(
+  args: PersistRegisteredThresholdEd25519SessionArgs,
+): args is PersistRegisteredThresholdEd25519PasskeySessionArgs {
+  return args.auth.kind === 'passkey';
+}
+
+function recordRegisteredThresholdEd25519SessionPersistenceTiming(
+  args: PersistRegisteredThresholdEd25519SessionArgs,
+  bucket: RegisteredThresholdEd25519SessionPersistenceTimingBucket,
+  startedAtMs: number,
+): void {
+  args.registrationTiming?.record(bucket, Math.max(0, Date.now() - startedAtMs));
+}
+
+function finalizedReportFromRegistrationWorkerMaterialReport(
+  report: ThresholdEd25519RegistrationWorkerMaterialReport,
+): ThresholdEd25519HssFinalizedReportEnvelope {
+  if (
+    report.kind !== 'threshold_ed25519_registration_worker_material_report_v1' ||
+    !report.contextBindingB64u ||
+    !report.clientOutputMessageB64u ||
+    report.seedOutputMessageB64u !== undefined
+  ) {
+    throw new Error('Threshold Ed25519 registration worker material report is invalid');
+  }
+  return {
+    contextBindingB64u: report.contextBindingB64u,
+    clientOutputMessageB64u: report.clientOutputMessageB64u,
+  };
 }
 
 export async function persistRegisteredThresholdEd25519Session(
   args: PersistRegisteredThresholdEd25519SessionArgs,
 ): Promise<void> {
-  await storeThresholdEd25519KeyMaterial({
-    nearAccountId: args.nearAccountId,
-    signerSlot: args.signerSlot,
-    signerId: args.completedRegistration.operationalPublicKey,
-    publicKey: args.completedRegistration.registered.publicKey,
-    relayerKeyId: args.completedRegistration.registered.relayerKeyId,
-    keyVersion: args.completedRegistration.registered.keyVersion,
-    clientParticipantId: args.completedRegistration.registered.clientParticipantId,
-    relayerParticipantId: args.completedRegistration.registered.relayerParticipantId,
-    relayerUrl: args.relayerUrl,
-    timestamp: Date.now(),
-  });
-
-  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
-  if (!prfFirstB64u) {
-    if (args.auth.kind === 'email_otp') {
-      throw new Error('Email OTP Ed25519 registration requires PRF.first warm-session material');
-    }
-    return;
-  }
-
-  const session = args.completedRegistration.registered.session;
-  if (!session) {
-    throw new Error('Threshold Ed25519 warm session missing from registration response');
-  }
-  const sessionId = String(session.thresholdSessionId || '').trim();
-  const jwt = String(session.jwt || '').trim();
-  const signingGrantId =
-    String(session.signingGrantId || '').trim() ||
-    String(args.registrationSessionPolicy.signingGrantId || '').trim() ||
-    String(args.registrationSessionPolicy.thresholdSessionId || '').trim();
-  const expiresAtMs = Number(session.expiresAtMs);
-  const remainingUsesRaw =
-    typeof session.remainingUses === 'number'
-      ? session.remainingUses
-      : Number(session.remainingUses);
-  const remainingUses =
-    Number.isFinite(remainingUsesRaw) && remainingUsesRaw > 0
-      ? Math.floor(remainingUsesRaw)
-      : Math.max(1, Math.floor(Number(args.registrationSessionPolicy.remainingUses) || 1));
-  const participantIds = Array.isArray(session.participantIds)
-    ? session.participantIds
-    : normalizeThresholdEd25519ParticipantIds(args.registrationSessionPolicy.participantIds) || [
-        ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
-      ];
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
-    session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope,
-  );
-  const signingRootBinding = runtimePolicyScope
-    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
-    : null;
-  const signingRootId = String(signingRootBinding?.signingRootId || '').trim();
-  const signingRootVersion = String(signingRootBinding?.signingRootVersion || '').trim();
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    session.routerAbNormalSigning,
-  );
-  if (
-    !sessionId ||
-    !jwt ||
-    !signingGrantId ||
-    !runtimePolicyScope ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !routerAbNormalSigning
-  ) {
-    throw new Error(
-      'Threshold Ed25519 registration warm session missing Router A/B Wallet Session state',
+  let stageStartedAtMs = Date.now();
+  try {
+    await storeThresholdEd25519KeyMaterial({
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      signerId: args.completedRegistration.operationalPublicKey,
+      publicKey: args.completedRegistration.registered.publicKey,
+      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+      keyVersion: args.completedRegistration.registered.keyVersion,
+      clientParticipantId: args.completedRegistration.registered.clientParticipantId,
+      relayerParticipantId: args.completedRegistration.registered.relayerParticipantId,
+      relayerUrl: args.relayerUrl,
+      timestamp: Date.now(),
+    });
+  } finally {
+    recordRegisteredThresholdEd25519SessionPersistenceTiming(
+      args,
+      'thresholdEd25519KeyMaterialPersistenceMs',
+      stageStartedAtMs,
     );
   }
 
-  if (args.auth.kind === 'email_otp') {
+  stageStartedAtMs = Date.now();
+  let prfFirstB64u: string;
+  let session: NonNullable<WalletRegistrationThresholdEd25519Response['session']>;
+  let sessionId: string;
+  let jwt: string;
+  let signingGrantId: string;
+  let expiresAtMs: number;
+  let remainingUses: number;
+  let participantIds: number[];
+  let runtimePolicyScope: ThresholdRuntimePolicyScope;
+  let signingRootId: string;
+  let signingRootVersion: string;
+  let routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  try {
+    prfFirstB64u = String(args.prfFirstB64u || '').trim();
+    if (!prfFirstB64u) {
+      throw new Error(
+        args.auth.kind === 'email_otp'
+          ? 'Email OTP Ed25519 registration requires PRF.first warm-session material'
+          : 'Passkey Ed25519 registration requires PRF.first warm-session material',
+      );
+    }
+
+    const sessionValue = args.completedRegistration.registered.session;
+    if (!sessionValue) {
+      throw new Error('Threshold Ed25519 warm session missing from registration response');
+    }
+    session = sessionValue;
+    sessionId = String(session.thresholdSessionId || '').trim();
+    jwt = String(session.jwt || '').trim();
+    signingGrantId =
+      String(session.signingGrantId || '').trim() ||
+      String(args.registrationSessionPolicy.signingGrantId || '').trim() ||
+      String(args.registrationSessionPolicy.thresholdSessionId || '').trim();
+    expiresAtMs = Number(session.expiresAtMs);
+    const remainingUsesRaw =
+      typeof session.remainingUses === 'number'
+        ? session.remainingUses
+        : Number(session.remainingUses);
+    remainingUses =
+      Number.isFinite(remainingUsesRaw) && remainingUsesRaw > 0
+        ? Math.floor(remainingUsesRaw)
+        : Math.max(1, Math.floor(Number(args.registrationSessionPolicy.remainingUses) || 1));
+    participantIds = Array.isArray(session.participantIds)
+      ? session.participantIds
+      : normalizeThresholdEd25519ParticipantIds(args.registrationSessionPolicy.participantIds) || [
+          ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
+        ];
+    const runtimePolicyScopeValue = normalizeThresholdRuntimePolicyScope(
+      session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope,
+    );
+    const signingRootBinding = runtimePolicyScopeValue
+      ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScopeValue)
+      : null;
+    signingRootId = String(signingRootBinding?.signingRootId || '').trim();
+    signingRootVersion = String(signingRootBinding?.signingRootVersion || '').trim();
+    const routerAbNormalSigningValue = parseRouterAbEd25519NormalSigningState(
+      session.routerAbNormalSigning,
+    );
+    if (
+      !sessionId ||
+      !jwt ||
+      !signingGrantId ||
+      !runtimePolicyScopeValue ||
+      !signingRootId ||
+      !signingRootVersion ||
+      !routerAbNormalSigningValue
+    ) {
+      throw new Error(
+        'Threshold Ed25519 registration warm session missing Router A/B Wallet Session state',
+      );
+    }
+    runtimePolicyScope = runtimePolicyScopeValue;
+    routerAbNormalSigning = routerAbNormalSigningValue;
+  } finally {
+    recordRegisteredThresholdEd25519SessionPersistenceTiming(
+      args,
+      'thresholdEd25519SessionNormalizeMs',
+      stageStartedAtMs,
+    );
+  }
+
+  if (isEmailOtpRegisteredThresholdEd25519SessionArgs(args)) {
     const registrationHssClientMaterial = args.registrationHssClientMaterial;
     if (!registrationHssClientMaterial) {
       throw new Error('Email OTP Ed25519 registration requires HSS client material');
@@ -2158,12 +2414,22 @@ export async function persistRegisteredThresholdEd25519Session(
     if (!runtimePolicyScope) {
       throw new Error('Email OTP Ed25519 registration warm session requires runtimePolicyScope');
     }
-    await validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial({
-      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-      runtimePolicyScope,
-      material: registrationHssClientMaterial,
-      prfFirstB64u,
-    });
+    stageStartedAtMs = Date.now();
+    try {
+      await validateRegisteredThresholdEd25519WarmSessionMaterial({
+        errorContext: 'Email OTP',
+        nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+        runtimePolicyScope,
+        material: registrationHssClientMaterial,
+        prfFirstB64u,
+      });
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519WarmMaterialValidationMs',
+        stageStartedAtMs,
+      );
+    }
     const warmSessionArgs: PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs = {
       kind: 'jwt_email_otp',
       walletId: args.walletId,
@@ -2191,28 +2457,65 @@ export async function persistRegisteredThresholdEd25519Session(
     if (signingRootVersion) {
       warmSessionArgs.signingRootVersion = signingRootVersion;
     }
-    persistWarmSessionEd25519Capability(warmSessionArgs);
-    await persistEmailOtpRegisteredThresholdEd25519WorkerMaterial({
-      signingEngine: args.signingEngine,
-      workerCtx: args.workerCtx,
-      nearAccountId: args.nearAccountId,
-      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-      signerSlot: args.signerSlot,
-      rpId: args.rpId,
-      relayerUrl: args.relayerUrl,
-      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
-      sessionId,
-      signingGrantId,
-      jwt,
-      expiresAtMs,
-      participantIds,
-      runtimePolicyScope,
-      routerAbNormalSigning,
-      recoveryCodeSecret32B64u: prfFirstB64u,
-      emailOtpAuthContext: args.auth.emailOtpAuthContext,
-      registrationHssClientMaterial,
-    });
+    stageStartedAtMs = Date.now();
+    try {
+      persistWarmSessionEd25519Capability(warmSessionArgs);
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519WarmCapabilityPersistenceMs',
+        stageStartedAtMs,
+      );
+    }
+    stageStartedAtMs = Date.now();
+    try {
+      await persistEmailOtpRegisteredThresholdEd25519WorkerMaterial({
+        signingEngine: args.signingEngine,
+        workerCtx: args.workerCtx,
+        nearAccountId: args.nearAccountId,
+        nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+        signerSlot: args.signerSlot,
+        rpId: args.rpId,
+        relayerUrl: args.relayerUrl,
+        relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+        sessionId,
+        signingGrantId,
+        jwt,
+        expiresAtMs,
+        participantIds,
+        runtimePolicyScope,
+        routerAbNormalSigning,
+        recoveryCodeSecret32B64u: prfFirstB64u,
+        emailOtpAuthContext: args.auth.emailOtpAuthContext,
+        registrationHssClientMaterial,
+        finalizedRegistrationHssMaterial: args.finalizedRegistrationHssMaterial,
+      });
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519WorkerMaterialPersistenceMs',
+        stageStartedAtMs,
+      );
+    }
   } else {
+    const registrationHssClientMaterial = args.registrationHssClientMaterial;
+    stageStartedAtMs = Date.now();
+    try {
+      await validateRegisteredThresholdEd25519WarmSessionMaterial({
+        errorContext: 'Passkey',
+        nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+        runtimePolicyScope,
+        material: registrationHssClientMaterial,
+        prfFirstB64u,
+      });
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519WarmMaterialValidationMs',
+        stageStartedAtMs,
+      );
+    }
+    const passkeyCredentialIdB64u = passkeyCredentialIdB64uFromCredential(args.auth.credential);
     const warmSessionArgs: PersistWarmSessionEd25519JwtPasskeyCapabilityArgs = {
       kind: 'jwt_passkey',
       walletId: args.walletId,
@@ -2228,7 +2531,7 @@ export async function persistRegisteredThresholdEd25519Session(
       expiresAtMs,
       remainingUses,
       jwt,
-      passkeyCredentialIdB64u: args.auth.credentialIdB64u,
+      passkeyCredentialIdB64u,
       signerSlot: args.signerSlot,
       routerAbNormalSigning,
       source: 'registration',
@@ -2242,21 +2545,186 @@ export async function persistRegisteredThresholdEd25519Session(
     if (signingRootVersion) {
       warmSessionArgs.signingRootVersion = signingRootVersion;
     }
-    persistWarmSessionEd25519Capability(warmSessionArgs);
+    stageStartedAtMs = Date.now();
+    try {
+      persistWarmSessionEd25519Capability(warmSessionArgs);
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519WarmCapabilityPersistenceMs',
+        stageStartedAtMs,
+      );
+    }
+    stageStartedAtMs = Date.now();
+    try {
+      await persistPasskeyRegisteredThresholdEd25519WorkerMaterial({
+        signingEngine: args.signingEngine,
+        credential: args.auth.credential,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.signerSlot,
+        rpId: args.rpId,
+        relayerUrl: args.relayerUrl,
+        relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+        sessionId,
+        signingGrantId,
+        jwt,
+        expiresAtMs,
+        participantIds,
+        runtimePolicyScope,
+        routerAbNormalSigning,
+        registrationHssClientMaterial,
+        finalizedRegistrationHssMaterial: args.finalizedRegistrationHssMaterial,
+      });
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519WorkerMaterialPersistenceMs',
+        stageStartedAtMs,
+      );
+    }
   }
 
-  await args.signingEngine.hydrateSigningSession({
-    sessionId,
-    prfFirstB64u,
-    expiresAtMs,
-    remainingUses,
-    transport: {
-      curve: 'ed25519',
-      walletId: args.walletId,
-      relayerUrl: args.relayerUrl,
-      ...(signingGrantId ? { signingGrantId } : {}),
-      ...(jwt ? { walletSessionJwt: jwt } : {}),
-    },
+  const hydrateTransport: WarmSessionSealTransportInput =
+    isPasskeyRegisteredThresholdEd25519SessionArgs(args)
+      ? {
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletId: args.walletId,
+          relayerUrl: args.relayerUrl,
+          signingGrantId,
+          walletSessionJwt: jwt,
+        }
+      : {
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: args.walletId,
+          relayerUrl: args.relayerUrl,
+          signingGrantId,
+          walletSessionJwt: jwt,
+        };
+  stageStartedAtMs = Date.now();
+  try {
+    await args.signingEngine.hydrateSigningSession({
+      sessionId,
+      prfFirstB64u,
+      expiresAtMs,
+      remainingUses,
+      transport: hydrateTransport,
+    });
+  } finally {
+    recordRegisteredThresholdEd25519SessionPersistenceTiming(
+      args,
+      'thresholdEd25519SigningSessionHydrationMs',
+      stageStartedAtMs,
+    );
+  }
+  if (isPasskeyRegisteredThresholdEd25519SessionArgs(args)) {
+    stageStartedAtMs = Date.now();
+    let persisted: Awaited<
+      ReturnType<typeof args.signingEngine.persistSigningSessionSealForThresholdSession>
+    >;
+    try {
+      persisted = await args.signingEngine.persistSigningSessionSealForThresholdSession({
+        sessionId,
+        transport: hydrateTransport,
+      });
+    } finally {
+      recordRegisteredThresholdEd25519SessionPersistenceTiming(
+        args,
+        'thresholdEd25519SealedSessionPersistenceMs',
+        stageStartedAtMs,
+      );
+    }
+    if (!persisted.ok && persisted.code !== 'not_enabled') {
+      throw new Error(
+        `Threshold Ed25519 sealed registration persistence failed for ${args.nearAccountId} (${persisted.code}): ${persisted.message}`,
+      );
+    }
+  }
+}
+
+async function persistPasskeyRegisteredThresholdEd25519WorkerMaterial(args: {
+  signingEngine: Pick<
+    ThresholdEd25519HssClientSurface,
+    'prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization'
+  > &
+    Pick<
+      ThresholdEd25519HssCeremonySurface,
+      'storeThresholdEd25519WorkerMaterialFromFinalizedHssReport'
+    >;
+  credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
+  nearAccountId: AccountId;
+  signerSlot: number;
+  rpId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+  sessionId: string;
+  signingGrantId: string;
+  jwt: string;
+  expiresAtMs: number;
+  participantIds: number[];
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterialCore;
+  finalizedRegistrationHssMaterial: ThresholdEd25519FinalizedRegistrationHssMaterial;
+}): Promise<void> {
+  const { materialBinding, bindingInput } =
+    buildRegisteredThresholdEd25519WorkerMaterialBindingParts({
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      relayerKeyId: args.relayerKeyId,
+      participantIds: args.participantIds,
+      runtimePolicyScope: args.runtimePolicyScope,
+      routerAbNormalSigning: args.routerAbNormalSigning,
+      sessionId: args.sessionId,
+      signingGrantId: args.signingGrantId,
+      expiresAtMs: args.expiresAtMs,
+    });
+  const preparedSealAuthorization =
+    await prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential({
+      authorizationPort: {
+        prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: (authorizationArgs) =>
+          args.signingEngine.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
+            authorizationArgs,
+          ),
+      },
+      bindingInput,
+      rpId: args.rpId,
+      credential: args.credential,
+    });
+  const completed =
+    await args.signingEngine.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport({
+      preparedSession: args.finalizedRegistrationHssMaterial.preparedSession,
+      finalizedReport: finalizedReportFromRegistrationWorkerMaterialReport(
+        args.finalizedRegistrationHssMaterial.workerMaterialReport,
+      ),
+      clientOutputMask: {
+        policy: {
+          kind: 'client-masked-projection',
+          clientRecoverableSecretB64u: args.registrationHssClientMaterial.prfFirstB64u,
+        },
+        context: {
+          applicationBindingDigestB64u:
+            args.registrationHssClientMaterial.hssContext.applicationBindingDigestB64u,
+          participantIds: args.registrationHssClientMaterial.hssContext.participantIds,
+          contextBindingB64u: args.finalizedRegistrationHssMaterial.preparedSession.contextBindingB64u,
+          operation: 'registration',
+          relayerKeyId: args.finalizedRegistrationHssMaterial.clientOutputMaskRelayerKeyId,
+        },
+      },
+      materialBinding,
+      preparedSealAuthorization,
+    });
+  if (!completed.ok) {
+    throw new Error(
+      completed.message || 'Passkey Ed25519 registration worker material persistence failed',
+    );
+  }
+  persistCompletedThresholdEd25519WorkerSigningMaterial({
+    sessionId: args.sessionId,
+    signingMaterial: completed.signingMaterial,
+    materialCreatedAtMs: materialBinding.createdAtMs,
+    errorContext: 'Passkey Ed25519 registration',
   });
 }
 
@@ -2301,7 +2769,7 @@ async function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial(arg
 async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
   signingEngine: Pick<
     ThresholdEd25519HssCeremonySurface,
-    'runThresholdEd25519HssCeremonyWithMaterialHandle'
+    'storeThresholdEd25519WorkerMaterialFromFinalizedHssReport'
   >;
   workerCtx: WorkerOperationContext;
   nearAccountId: AccountId;
@@ -2320,37 +2788,20 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
   recoveryCodeSecret32B64u: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
+  finalizedRegistrationHssMaterial: ThresholdEd25519FinalizedRegistrationHssMaterial;
 }): Promise<void> {
-  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
-  const signingRootId = String(signingRootScope.signingRootId || '').trim();
-  const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
-  const signingWorkerId = String(args.routerAbNormalSigning.signingWorkerId || '').trim();
-  if (!signingRootId || !signingRootVersion || !signingWorkerId) {
-    throw new Error('Email OTP Ed25519 registration worker material missing Router A/B binding');
-  }
-  const materialCreatedAtMs = Date.now();
-  const materialBinding = {
-    thresholdSessionId: args.sessionId,
-    signingGrantId: args.signingGrantId,
-    signingRootId,
-    signingRootVersion,
-    expiresAtMs: args.expiresAtMs,
-    nearAccountId: String(args.nearAccountId),
-    signerSlot: args.signerSlot,
-    relayerKeyId: args.relayerKeyId,
-    participantIds: args.participantIds,
-    createdAtMs: materialCreatedAtMs,
-    signingWorkerId,
-  };
-  const bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier = {
-    nearAccountId: materialBinding.nearAccountId,
-    signerSlot: materialBinding.signerSlot,
-    signingRootId: materialBinding.signingRootId,
-    signingRootVersion: materialBinding.signingRootVersion,
-    relayerKeyId: materialBinding.relayerKeyId,
-    participantIds: materialBinding.participantIds,
-    createdAtMs: materialBinding.createdAtMs,
-  };
+  const { materialBinding, bindingInput } =
+    buildRegisteredThresholdEd25519WorkerMaterialBindingParts({
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      relayerKeyId: args.relayerKeyId,
+      participantIds: args.participantIds,
+      runtimePolicyScope: args.runtimePolicyScope,
+      routerAbNormalSigning: args.routerAbNormalSigning,
+      sessionId: args.sessionId,
+      signingGrantId: args.signingGrantId,
+      expiresAtMs: args.expiresAtMs,
+    });
   const providerUserId = String(
     emailOtpAuthContextProviderUserId(args.emailOtpAuthContext),
   ).trim();
@@ -2369,48 +2820,40 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
     recoveryCodeSecret32B64u: args.recoveryCodeSecret32B64u,
     workerCtx: args.workerCtx,
   });
-  const completed = await args.signingEngine.runThresholdEd25519HssCeremonyWithMaterialHandle({
-    relayerUrl: args.relayerUrl,
-    walletSessionJwt: args.jwt,
-    relayerKeyId: args.relayerKeyId,
-    operation: 'warm_session_reconstruction',
-    context: args.registrationHssClientMaterial.hssContext,
-    clientInputs: args.registrationHssClientMaterial.clientInputs,
-    outputProjection: {
-      kind: 'client-masked-projection',
-      clientRecoverableSecretB64u: args.recoveryCodeSecret32B64u,
-    },
-    materialBinding,
-    preparedSealAuthorization,
-  });
+  const completed =
+    await args.signingEngine.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport({
+      preparedSession: args.finalizedRegistrationHssMaterial.preparedSession,
+      finalizedReport: finalizedReportFromRegistrationWorkerMaterialReport(
+        args.finalizedRegistrationHssMaterial.workerMaterialReport,
+      ),
+      clientOutputMask: {
+        policy: {
+          kind: 'client-masked-projection',
+          clientRecoverableSecretB64u: args.recoveryCodeSecret32B64u,
+        },
+        context: {
+          applicationBindingDigestB64u:
+            args.registrationHssClientMaterial.hssContext.applicationBindingDigestB64u,
+          participantIds: args.registrationHssClientMaterial.hssContext.participantIds,
+          contextBindingB64u: args.finalizedRegistrationHssMaterial.preparedSession.contextBindingB64u,
+          operation: 'registration',
+          relayerKeyId: args.finalizedRegistrationHssMaterial.clientOutputMaskRelayerKeyId,
+        },
+      },
+      materialBinding,
+      preparedSealAuthorization,
+    });
   if (!completed.ok) {
     throw new Error(
       completed.message || 'Email OTP Ed25519 registration worker material persistence failed',
     );
   }
-  const signingMaterial = completed.signingMaterial;
-  const clientVerifyingShareB64u = String(signingMaterial.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
-    throw new Error('Email OTP Ed25519 registration worker material missing verifying share');
-  }
-  const persisted = persistStoredThresholdEd25519SessionMaterialHandle({
-    thresholdSessionId: args.sessionId,
-    clientVerifyingShareB64u,
-    ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
-    ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
-    sealedWorkerMaterialRef: signingMaterial.sealedWorkerMaterialRef,
-    sealedWorkerMaterialB64u: signingMaterial.sealedWorkerMaterialB64u,
-    materialFormatVersion: signingMaterial.materialFormatVersion,
-    materialKeyId: signingMaterial.materialKeyId,
-    materialCreatedAtMs,
-    signerSlot: signingMaterial.signerSlot,
+  persistCompletedThresholdEd25519WorkerSigningMaterial({
+    sessionId: args.sessionId,
+    signingMaterial: completed.signingMaterial,
+    materialCreatedAtMs: materialBinding.createdAtMs,
+    errorContext: 'Email OTP Ed25519 registration',
   });
-  if (!persisted) {
-    throw new Error('Email OTP Ed25519 registration worker material record was not persisted');
-  }
-  markRouterAbEd25519WorkerMaterialRuntimeValidated(
-    getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.sessionId),
-  );
 }
 
 export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(args: {
@@ -2542,7 +2985,8 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
       relayerUrl,
       walletSessionJwt,
       relayerKeyId,
-      operation: 'warm_session_reconstruction',
+      operation: 'registration_material_restore',
+      clientOutputMaskOperation: 'registration',
       context: prepared.hssContext,
       clientInputs: {
         contextBindingB64u: prepared.contextBindingB64u,

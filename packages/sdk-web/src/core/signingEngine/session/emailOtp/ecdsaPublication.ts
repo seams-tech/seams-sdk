@@ -21,6 +21,7 @@ import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { EmailOtpEcdsaPublicationTargetPlan } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -29,6 +30,43 @@ import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot
 import { ecdsaBootstrapWithSigningGrantId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
 import { formatSigningSessionSealKeyVersionForWire } from '../keyMaterialBrands';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../identity/evmFamilyEcdsaIdentity';
+
+export type EmailOtpEcdsaPublicationTimingBucket =
+  | 'signingSessionSealApplyMs'
+  | 'warmCapabilityPersistenceMs';
+
+export type EmailOtpEcdsaPublicationTimings = Record<EmailOtpEcdsaPublicationTimingBucket, number>;
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function createEmailOtpEcdsaPublicationTimings(): EmailOtpEcdsaPublicationTimings {
+  return {
+    signingSessionSealApplyMs: 0,
+    warmCapabilityPersistenceMs: 0,
+  };
+}
+
+function addEmailOtpEcdsaPublicationTiming(
+  timings: EmailOtpEcdsaPublicationTimings,
+  bucket: EmailOtpEcdsaPublicationTimingBucket,
+  startedAtMs: number,
+): void {
+  timings[bucket] += Math.max(0, Math.round(nowMs() - startedAtMs));
+}
+
+function mergeEmailOtpEcdsaPublicationTimings(
+  target: EmailOtpEcdsaPublicationTimings,
+  source: EmailOtpEcdsaPublicationTimings,
+): void {
+  target.signingSessionSealApplyMs += source.signingSessionSealApplyMs;
+  target.warmCapabilityPersistenceMs += source.warmCapabilityPersistenceMs;
+}
 
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
   const normalized = String(value || '')
@@ -71,15 +109,52 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
     targets.push(target);
   };
   pushTarget(args.chainTarget);
+  const hasExplicitAdditionalTargets = args.additionalChainTargets !== undefined;
   for (const target of args.additionalChainTargets || []) {
     pushTarget(target);
   }
-  if (emailOtpAuthContextReason(args.emailOtpAuthContext) === 'login') {
+  if (
+    emailOtpAuthContextReason(args.emailOtpAuthContext) === 'login' &&
+    !hasExplicitAdditionalTargets
+  ) {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);
     }
   }
   return targets;
+}
+
+export function emailOtpEcdsaPublicationTargetPlans(args: {
+  walletId: WalletId;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  chainTarget: ThresholdEcdsaChainTarget;
+  publicationChainTargets: readonly ThresholdEcdsaChainTarget[];
+  keyHandle?: string;
+}): EmailOtpEcdsaPublicationTargetPlan[] {
+  const primaryKeyHandle = String(args.keyHandle || '').trim();
+  return args.publicationChainTargets.map((publicationChainTarget) => {
+    const base = {
+      chainTarget: publicationChainTarget,
+      evmFamilySigningKeySlotId: String(
+        deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
+          walletId: args.walletId,
+          runtimePolicyScope: args.runtimePolicyScope,
+          chainTarget: publicationChainTarget,
+        }),
+      ),
+    };
+    if (primaryKeyHandle && thresholdEcdsaChainTargetsEqual(publicationChainTarget, args.chainTarget)) {
+      return {
+        ...base,
+        kind: 'existing_key_publication_target',
+        keyHandle: primaryKeyHandle,
+      };
+    }
+    return {
+      ...base,
+      kind: 'new_key_publication_target',
+    };
+  });
 }
 
 export function buildEmailOtpEcdsaReadyPersistInput(args: {
@@ -118,14 +193,20 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+  warmCapabilities: readonly [
+    WarmSessionEcdsaCapabilityState,
+    ...WarmSessionEcdsaCapabilityState[],
+  ];
+  timings: EmailOtpEcdsaPublicationTimings;
 }> {
   if (args.bootstraps.length !== args.publicationChainTargets.length) {
     throw new Error('Email OTP ECDSA publication returned an unexpected lane count');
   }
-  let primaryResult: {
+  const timings = createEmailOtpEcdsaPublicationTimings();
+  const committedResults: {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
-  } | null = null;
+  }[] = [];
   for (const [index, rawBootstrap] of args.bootstraps.entries()) {
     const expectedTarget = args.publicationChainTargets[index];
     const actualTarget = rawBootstrap.thresholdEcdsaKeyRef.chainTarget;
@@ -138,6 +219,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
       bootstrap: rawBootstrap,
       signingGrantId: args.signingGrantId,
     });
+    const commitStartedAtMs = nowMs();
     const result = await ports.commitEvmFamilyThresholdEcdsaSessions({
       walletId: args.walletId,
       chainTarget: expectedTarget,
@@ -145,7 +227,8 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
       source: 'email_otp',
       emailOtpAuthContext: args.emailOtpAuthContext,
     });
-    await persistEmailOtpEcdsaSigningSessionSealForUnlock(
+    addEmailOtpEcdsaPublicationTiming(timings, 'warmCapabilityPersistenceMs', commitStartedAtMs);
+    const sealTimings = await persistEmailOtpEcdsaSigningSessionSealForUnlock(
       {
         walletId: args.walletId,
         chainTarget: expectedTarget,
@@ -157,12 +240,22 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
       },
       ports,
     );
-    if (index === 0) primaryResult = result;
+    mergeEmailOtpEcdsaPublicationTimings(timings, sealTimings);
+    committedResults.push(result);
   }
+  const [primaryResult, ...remainingResults] = committedResults;
   if (!primaryResult) {
     throw new Error('Email OTP ECDSA publication did not commit a primary lane');
   }
-  return primaryResult;
+  return {
+    bootstrap: primaryResult.bootstrap,
+    warmCapability: primaryResult.warmCapability,
+    warmCapabilities: [
+      primaryResult.warmCapability,
+      ...remainingResults.map((result) => result.warmCapability),
+    ],
+    timings,
+  };
 }
 
 async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
@@ -176,9 +269,10 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     shamirPrimeB64u: string;
   },
   ports: EmailOtpEcdsaPublicationPorts,
-): Promise<void> {
-  if (ports.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return;
-  if (emailOtpAuthContextRetention(args.emailOtpAuthContext) !== 'session') return;
+): Promise<EmailOtpEcdsaPublicationTimings> {
+  const timings = createEmailOtpEcdsaPublicationTimings();
+  if (ports.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return timings;
+  if (emailOtpAuthContextRetention(args.emailOtpAuthContext) !== 'session') return timings;
 
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
@@ -211,6 +305,11 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   const walletSessionJwt = String(session?.jwt || '').trim();
   const runtimePolicyScope =
     args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
+  const signingRootScope = runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
+    : null;
+  const signingRootId = String(signingRootScope?.signingRootId || '').trim();
+  const signingRootVersion = String(signingRootScope?.signingRootVersion || '').trim();
   const keyVersion = ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
     ? formatSigningSessionSealKeyVersionForWire(
         ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
@@ -250,7 +349,9 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     !relayerKeyId ||
     !routerAbEcdsaHssNormalSigning ||
     !participantIds.length ||
-    !walletSessionJwt
+    !walletSessionJwt ||
+    !signingRootId ||
+    !signingRootVersion
   ) {
     throw new Error('Email OTP sealed refresh is missing ECDSA restore metadata');
   }
@@ -259,6 +360,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   }
   const emailOtpWorkerSessionId = readyPersistenceInput.material.workerSessionId;
 
+  const sealStartedAtMs = nowMs();
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
     workerCtx,
     sessionId: emailOtpWorkerSessionId,
@@ -277,6 +379,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     const message = error instanceof Error ? error.message : String(error || 'unknown error');
     throw new Error(`Email OTP sealed refresh seal failed: ${message}`);
   });
+  addEmailOtpEcdsaPublicationTiming(timings, 'signingSessionSealApplyMs', sealStartedAtMs);
 
   if (!sealed?.ok) {
     const message = String(sealed?.message || sealed?.code || 'unknown error').trim();
@@ -322,12 +425,15 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!keyHandle) {
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
   }
+  const persistenceStartedAtMs = nowMs();
   await ports.registerSigningSession({
     ...sealedRecordBase,
     ecdsaRestore: {
       chainTarget: actualChainTarget,
       source: 'email_otp',
       evmFamilySigningKeySlotId,
+      signingRootId,
+      signingRootVersion,
       providerSubjectId,
       emailHashHex,
       walletSessionJwt,
@@ -355,6 +461,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       const message = error instanceof Error ? error.message : String(error || 'unknown error');
       throw new Error(`Email OTP sealed refresh read-back failed: ${message}`);
     });
+  addEmailOtpEcdsaPublicationTiming(timings, 'warmCapabilityPersistenceMs', persistenceStartedAtMs);
   if (!persisted) {
     throw new Error(
       `Email OTP sealed refresh ${thresholdEcdsaChainTargetKey(actualChainTarget)} record was not durably persisted`,
@@ -373,4 +480,5 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       `Email OTP sealed refresh read-back record does not match ${thresholdEcdsaChainTargetKey(actualChainTarget)} unlock session`,
     );
   }
+  return timings;
 }

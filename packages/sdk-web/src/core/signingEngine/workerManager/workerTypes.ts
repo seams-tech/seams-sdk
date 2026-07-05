@@ -246,7 +246,7 @@ export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   action: 'wallet_registration_ecdsa_prepare';
   operation: 'registration';
   keyScope: 'evm-family';
-  chainTarget?: never;
+  chainTarget: ThresholdEcdsaChainTarget;
 };
 
 export type EmailOtpWorkerIssuedSessionHandlePayload =
@@ -277,22 +277,67 @@ export type EmailOtpWalletRegistrationEcdsaPrepareHandleBinding = {
   action: 'wallet_registration_ecdsa_prepare';
   operation: 'registration';
   keyScope: 'evm-family';
-  chainTarget?: never;
+  chainTarget: ThresholdEcdsaChainTarget;
 };
+
+export type EmailOtpWalletRegistrationEcdsaPrepareHandleBindings = readonly [
+  EmailOtpWalletRegistrationEcdsaPrepareHandleBinding,
+  ...EmailOtpWalletRegistrationEcdsaPrepareHandleBinding[],
+];
+
+export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayloads = readonly [
+  EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
+  ...EmailOtpWalletRegistrationEcdsaPrepareHandlePayload[],
+];
+
+export type EmailOtpWalletRegistrationEcdsaPrepareHandleRequest =
+  | {
+      kind: 'requested';
+      bindings: EmailOtpWalletRegistrationEcdsaPrepareHandleBindings;
+      handle?: never;
+    }
+  | {
+      kind: 'not_requested';
+      bindings?: never;
+      handle?: never;
+    };
+
+export type EmailOtpWalletRegistrationEcdsaPrepareHandleResult =
+  | {
+      kind: 'available';
+      handles: EmailOtpWalletRegistrationEcdsaPrepareHandlePayloads;
+    }
+  | {
+      kind: 'not_requested';
+      handles?: never;
+    };
 
 export type EmailOtpEcdsaClientRootHandleBinding =
   | EmailOtpEcdsaSessionBootstrapHandleBinding
   | EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
+
+export type EmailOtpEcdsaPublicationTargetPlan =
+  | {
+      kind: 'new_key_publication_target';
+      chainTarget: ThresholdEcdsaChainTarget;
+      evmFamilySigningKeySlotId: string;
+      keyHandle?: never;
+    }
+  | {
+      kind: 'existing_key_publication_target';
+      chainTarget: ThresholdEcdsaChainTarget;
+      evmFamilySigningKeySlotId: string;
+      keyHandle: string;
+    };
 
 type EmailOtpEcdsaBootstrapBasePayload = {
   relayUrl: string;
   walletId: string;
   walletSessionUserId: string;
   userId: string;
-  evmFamilySigningKeySlotId: string;
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   chainTarget: ThresholdEcdsaChainTarget;
-  publicationChainTargets: ThresholdEcdsaChainTarget[];
+  publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
@@ -307,17 +352,8 @@ type EmailOtpEcdsaBootstrapJwtPayload = {
   routeAuth: AppOrWalletSessionAuth;
 };
 
-type EmailOtpEcdsaBootstrapNewKeyPayload = {
-  keyHandle?: never;
-};
-
-type EmailOtpEcdsaBootstrapExistingKeyPayload = {
-  keyHandle: string;
-};
-
 export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayload &
-  EmailOtpEcdsaBootstrapJwtPayload &
-  (EmailOtpEcdsaBootstrapNewKeyPayload | EmailOtpEcdsaBootstrapExistingKeyPayload);
+  EmailOtpEcdsaBootstrapJwtPayload;
 
 export interface EmailOtpWorkerOperationMap {
   requestEmailOtpChallenge: {
@@ -387,7 +423,7 @@ export interface EmailOtpWorkerOperationMap {
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
-      ecdsaClientRootHandleBinding: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
+      ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
@@ -399,7 +435,7 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+      clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
       emailOtpEnrollment: {
         recoveryWrappedEnrollmentEscrows: unknown[];
         enrollmentSealKeyVersion: string;

@@ -52,6 +52,7 @@ import {
 import {
   EmailOtpEd25519Warmup,
   type Ed25519SigningLane,
+  type EmailOtpThresholdEd25519LoginResult,
   type LoginEmailOtpEd25519CapabilityArgs,
 } from './ed25519Warmup';
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
@@ -75,6 +76,7 @@ export type {
   EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
 export type {
+  EmailOtpThresholdEd25519LoginResult,
   LoginEmailOtpEd25519CapabilityArgs,
 } from './ed25519Warmup';
 export type {
@@ -337,7 +339,7 @@ export class EmailOtpWalletSessionRuntime {
 
   async loginWithEd25519CapabilityInternal(
     args: LoginEmailOtpEd25519CapabilityArgs,
-  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
+  ): Promise<EmailOtpThresholdEd25519LoginResult> {
     return await this.ed25519Warmup.loginWithEd25519CapabilityInternal(args);
   }
 

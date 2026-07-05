@@ -9,12 +9,13 @@ import {
   type RegistrationIntentV1,
   type RegistrationNearAccountProvisioning,
   type RegistrationNearEd25519SignerPlan,
+  type RegistrationSignerPlan,
   type ResolvedRegistrationNearAccount,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   deriveSigningRootId,
-  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
@@ -22,6 +23,10 @@ import {
   AccountCreationResult,
   ThresholdEd25519BootstrapSession
 } from '../../core/types';
+import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '../../core/thresholdEcdsaChainTarget';
 import {
   registrationPreparationIdFromString,
   WalletRegistrationFinalizeRequest,
@@ -31,16 +36,20 @@ import {
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
   WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse
+  WalletRegistrationStartResponse,
+  type WalletRegistrationRouteDiagnostics,
+  type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type { WalletStore } from '../../core/d1WalletStore';
+import type { WebAuthnCredentialBindingStore } from '../../core/WebAuthnCredentialBindingStore';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
 } from './d1RegistrationCeremonyStore';
 import {
+  buildStoredWalletRegistrationPreparedContext,
   buildStoredWalletRegistrationHssPreparationPrepared,
   buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
   buildStoredWalletRegistrationNearEd25519PreparedBranch,
@@ -49,6 +58,7 @@ import {
   getPreparedWalletRegistrationHssPreparation,
   replaceStoredWalletRegistrationSignerBranch,
   storedEd25519RegistrationPrepareScopesMatch,
+  type StoredWalletRegistrationPreparedContext,
 } from '../../core/RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
@@ -83,9 +93,64 @@ type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type PrepareWalletRegistrationInput = WalletRegistrationPrepareRequest;
 type RespondWalletRegistrationHssInput = WalletRegistrationHssRespondRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
+
+type EcdsaPreparedTarget = NonNullable<
+  Extract<WalletRegistrationStartResponse, { ok: true }>['ecdsa']
+>['targets'][number];
+type EcdsaClientBootstrapTarget = NonNullable<
+  WalletRegistrationHssRespondRequest['ecdsa']
+>['clientBootstraps'][number];
+type EcdsaServerBootstrapTarget = NonNullable<
+  Extract<WalletRegistrationHssRespondResponse, { ok: true }>['ecdsa']
+>['bootstraps'][number];
+
+function ecdsaPreparedTargetForClientBootstrap(input: {
+  readonly preparedTargets: readonly EcdsaPreparedTarget[];
+  readonly actual: EcdsaClientBootstrapTarget;
+}): EcdsaPreparedTarget | null {
+  const actualKey = thresholdEcdsaChainTargetKey(input.actual.chainTarget);
+  for (const prepared of input.preparedTargets) {
+    if (thresholdEcdsaChainTargetKey(prepared.chainTarget) === actualKey) return prepared;
+  }
+  return null;
+}
+
+function ecdsaBootstrapForTarget(input: {
+  readonly bootstraps: readonly EcdsaServerBootstrapTarget[];
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+}): EcdsaServerBootstrapTarget | null {
+  const expectedKey = thresholdEcdsaChainTargetKey(input.chainTarget);
+  for (const bootstrap of input.bootstraps) {
+    if (thresholdEcdsaChainTargetKey(bootstrap.chainTarget) === expectedKey) return bootstrap;
+  }
+  return null;
+}
+
+function ecdsaTargetKeys(targets: readonly { chainTarget: ThresholdEcdsaChainTarget }[]): Set<string> {
+  const keys = new Set<string>();
+  for (const target of targets) {
+    keys.add(thresholdEcdsaChainTargetKey(target.chainTarget));
+  }
+  return keys;
+}
+
+function ecdsaTargetCoverageMatches(input: {
+  readonly expected: readonly { chainTarget: ThresholdEcdsaChainTarget }[];
+  readonly actual: readonly { chainTarget: ThresholdEcdsaChainTarget }[];
+}): boolean {
+  const expected = ecdsaTargetKeys(input.expected);
+  const actual = ecdsaTargetKeys(input.actual);
+  if (expected.size !== input.expected.length || actual.size !== input.actual.length) return false;
+  if (expected.size !== actual.size) return false;
+  for (const key of expected) {
+    if (!actual.has(key)) return false;
+  }
+  return true;
+}
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
 type ThresholdSigningServiceProvider = () => ThresholdSigningService | null;
 type WalletStoreProvider = () => WalletStore;
+type WebAuthnCredentialBindingStoreProvider = () => WebAuthnCredentialBindingStore;
 type SponsoredNamedNearAccountCreator = (input: {
   readonly accountId: string;
   readonly publicKey: string;
@@ -95,19 +160,154 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
 }
 
-function hasUnexpectedKeyHandle(expectedKeyHandles: readonly string[], keyHandle: string): boolean {
-  return expectedKeyHandles.length > 0 && !expectedKeyHandles.includes(keyHandle);
+type D1RegistrationRouteTimingMark = {
+  readonly name: WalletRegistrationRouteTimingName;
+  readonly startedAtMs: number;
+};
+
+type D1RegistrationRouteTimingRecorder = {
+  readonly route: WalletRegistrationRouteDiagnostics['route'];
+  readonly entries: WalletRegistrationRouteDiagnostics['entries'];
+};
+
+function createD1RegistrationRouteTimingRecorder(
+  route: WalletRegistrationRouteDiagnostics['route'],
+): D1RegistrationRouteTimingRecorder {
+  return {
+    route,
+    entries: [],
+  };
 }
 
-function normalizeD1ThresholdRuntimePolicyScope(raw: unknown) {
-  try {
-    return normalizeRuntimePolicyScope(raw);
-  } catch {
-    return undefined;
+function startD1RegistrationRouteTiming(
+  name: WalletRegistrationRouteTimingName,
+): D1RegistrationRouteTimingMark {
+  return {
+    name,
+    startedAtMs: Date.now(),
+  };
+}
+
+function finishD1RegistrationRouteTiming(
+  recorder: D1RegistrationRouteTimingRecorder,
+  mark: D1RegistrationRouteTimingMark,
+): void {
+  recorder.entries.push({
+    name: mark.name,
+    durationMs: Math.max(0, Date.now() - mark.startedAtMs),
+  });
+}
+
+function appendD1RegistrationRouteTiming(
+  recorder: D1RegistrationRouteTimingRecorder,
+  name: WalletRegistrationRouteTimingName,
+  durationMs: number,
+): void {
+  recorder.entries.push({
+    name,
+    durationMs: Math.max(0, Math.round(durationMs)),
+  });
+}
+
+function d1RegistrationRouteDiagnostics(
+  recorder: D1RegistrationRouteTimingRecorder,
+): WalletRegistrationRouteDiagnostics {
+  return {
+    kind: 'wallet_registration_route_diagnostics_v1',
+    route: recorder.route,
+    entries: recorder.entries.map((entry) => ({
+      name: entry.name,
+      durationMs: entry.durationMs,
+    })),
+  };
+}
+
+type ThresholdEd25519HssFinalizeForRegistrationTimings = NonNullable<
+  Extract<
+    Awaited<ReturnType<ThresholdSigningService['ed25519Hss']['finalizeForRegistration']>>,
+    { ok: true }
+  >['finalizeReportTimings']
+>;
+
+function appendThresholdEd25519HssFinalizeRouteTimings(input: {
+  readonly recorder: D1RegistrationRouteTimingRecorder;
+  readonly timings: ThresholdEd25519HssFinalizeForRegistrationTimings;
+}): void {
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeDecodeArtifactMs',
+    input.timings.decodeArtifactMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeSerializedSessionMaterializeMs',
+    input.timings.serializedSessionMaterializeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeReportMs',
+    input.timings.finalizeReportMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeEncodeReportMs',
+    input.timings.encodeReportMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeOpenServerOutputMs',
+    input.timings.openServerOutputMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeOpenSeedOutputMs',
+    input.timings.openSeedOutputMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeDeriveSeedKeypairMs',
+    input.timings.deriveSeedKeypairMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeDeriveRelayerVerifyingShareMs',
+    input.timings.deriveRelayerVerifyingShareMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeKeyStorePutMs',
+    input.timings.keyStorePutMs,
+  );
+}
+
+function withD1RegistrationRouteDiagnostics(
+  response: WalletRegistrationFinalizeResponse,
+  recorder: D1RegistrationRouteTimingRecorder,
+): WalletRegistrationFinalizeResponse {
+  if (!response.ok) return response;
+  return {
+    ...response,
+    registrationDiagnostics: d1RegistrationRouteDiagnostics(recorder),
+  };
+}
+
+function hasUnexpectedKeyHandle(
+  expectedKeyHandles: readonly string[],
+  actualKeyHandles: readonly string[],
+): boolean {
+  if (expectedKeyHandles.length === 0) return false;
+  const expected = new Set(expectedKeyHandles.map((keyHandle) => String(keyHandle || '').trim()));
+  if (expected.size !== expectedKeyHandles.length || expected.size !== actualKeyHandles.length) {
+    return true;
   }
+  for (const keyHandle of actualKeyHandles) {
+    if (!expected.has(String(keyHandle || '').trim())) return true;
+  }
+  return false;
 }
 
 type RegistrationIntentSignerBranches = {
+  readonly plan: RegistrationSignerPlan;
   readonly nearEd25519: RegistrationNearEd25519SignerPlan | null;
   readonly evmFamilyEcdsa: RegistrationEvmFamilyEcdsaSignerPlan | null;
 };
@@ -121,13 +321,82 @@ function registrationIntentSignerBranches(
 ): RegistrationIntentSignerBranchesResult {
   const plan = registrationSignerPlanFromSelection(intent.signerSelection);
   if (!plan.ok) return plan;
+  return { ok: true, value: registrationSignerBranchesFromPlan(plan.value) };
+}
+
+function registrationSignerBranchesFromPlan(
+  plan: RegistrationSignerPlan,
+): RegistrationIntentSignerBranches {
   return {
-    ok: true,
-    value: {
-      nearEd25519: findRegistrationSignerPlanNearEd25519Branch(plan.value),
-      evmFamilyEcdsa: findRegistrationSignerPlanEvmFamilyEcdsaBranch(plan.value),
-    },
+    plan,
+    nearEd25519: findRegistrationSignerPlanNearEd25519Branch(plan),
+    evmFamilyEcdsa: findRegistrationSignerPlanEvmFamilyEcdsaBranch(plan),
   };
+}
+
+type RegistrationPreparedContextResolution =
+  | {
+      ok: true;
+      preparedContext: StoredWalletRegistrationPreparedContext;
+      ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[] | null;
+    }
+  | {
+      ok: false;
+      code: 'invalid_body';
+      message: string;
+    };
+
+function resolveRegistrationPreparedContextFromPlan(input: {
+  readonly signerPlan: RegistrationSignerPlan;
+  readonly runtimePolicyScope: RuntimePolicyScope | undefined;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+}): RegistrationPreparedContextResolution {
+  const branches = registrationSignerBranchesFromPlan(input.signerPlan);
+  const ecdsaChainTargets = branches.evmFamilyEcdsa
+    ? normalizeThresholdEcdsaChainTargets(branches.evmFamilyEcdsa.chainTargets)
+    : null;
+  if (branches.evmFamilyEcdsa && !ecdsaChainTargets) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ECDSA registration contains an invalid chain target',
+    };
+  }
+  try {
+    return {
+      ok: true,
+      preparedContext: buildStoredWalletRegistrationPreparedContext({
+        signingRootId: input.signingRootId,
+        signingRootVersion: input.signingRootVersion,
+        runtimePolicyScope: input.runtimePolicyScope || null,
+        ecdsaChainTargets,
+      }),
+      ecdsaChainTargets,
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: errorMessage(error) || 'registration prepared context is invalid',
+    };
+  }
+}
+
+function registrationPreparedContextRuntimePolicyScope(
+  preparedContext: StoredWalletRegistrationPreparedContext,
+): RuntimePolicyScope | undefined {
+  return preparedContext.runtimePolicy.kind === 'runtime_policy_scope'
+    ? preparedContext.runtimePolicy.scope
+    : undefined;
+}
+
+function registrationPreparedContextEcdsaChainTargets(
+  preparedContext: StoredWalletRegistrationPreparedContext,
+): readonly ThresholdEcdsaChainTarget[] | null {
+  return preparedContext.ecdsa.kind === 'evm_family_ecdsa_requested'
+    ? preparedContext.ecdsa.chainTargets
+    : null;
 }
 
 function registrationIntentResponseRpId(intent: RegistrationIntentV1): string | undefined {
@@ -228,6 +497,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getThresholdSigningService: ThresholdSigningServiceProvider;
   private readonly getWalletStore: WalletStoreProvider;
+  private readonly getWebAuthnCredentialBindingStore: WebAuthnCredentialBindingStoreProvider;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
   constructor(input: {
@@ -236,6 +506,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getThresholdSigningService: ThresholdSigningServiceProvider;
     readonly getWalletStore: WalletStoreProvider;
+    readonly getWebAuthnCredentialBindingStore: WebAuthnCredentialBindingStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
     this.createSponsoredNamedNearAccount = input.createSponsoredNamedNearAccount;
@@ -243,6 +514,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getThresholdSigningService = input.getThresholdSigningService;
     this.getWalletStore = input.getWalletStore;
+    this.getWebAuthnCredentialBindingStore = input.getWebAuthnCredentialBindingStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
 
@@ -292,15 +564,18 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration intent walletId mismatch',
         };
       }
+      const runtimePolicyScope = parseD1RuntimePolicyScope(storedIntent.intent.runtimePolicyScope);
       const signingRootId =
-        storedIntent.signingRootId ||
-        (storedIntent.intent.runtimePolicyScope
-          ? deriveSigningRootId(storedIntent.intent.runtimePolicyScope)
-          : '');
+        storedIntent.signingRootId || (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
       const signingRootVersion =
-        storedIntent.signingRootVersion ||
-        storedIntent.intent.runtimePolicyScope?.signingRootVersion ||
-        'default';
+        storedIntent.signingRootVersion || runtimePolicyScope?.signingRootVersion || 'default';
+      const preparedContext = resolveRegistrationPreparedContextFromPlan({
+        signerPlan: signerBranches.value.plan,
+        runtimePolicyScope,
+        signingRootId,
+        signingRootVersion,
+      });
+      if (!preparedContext.ok) return preparedContext;
       const authority = request.authority;
       if (!authority || (authority.kind !== 'passkey' && authority.kind !== 'email_otp')) {
         return {
@@ -358,6 +633,8 @@ export class CloudflareD1WalletRegistrationService {
           registrationIntentDigestB64u: storedIntent.digestB64u,
           intent: storedIntent.intent,
           authority: verifiedAuthority.authority,
+          signerPlan: signerBranches.value.plan,
+          preparedContext: preparedContext.preparedContext,
           orgId: storedIntent.orgId,
           expectedOrigin: storedExpectedOrigin,
           signingRootId,
@@ -438,16 +715,6 @@ export class CloudflareD1WalletRegistrationService {
       if (!previewBranches.ok) return previewBranches;
       const previewNearEd25519 = previewBranches.value.nearEd25519;
       const previewEvmFamilyEcdsa = previewBranches.value.evmFamilyEcdsa;
-      const previewEcdsaChainTargets = previewEvmFamilyEcdsa
-        ? normalizeThresholdEcdsaChainTargets(previewEvmFamilyEcdsa.chainTargets)
-        : null;
-      if (previewEvmFamilyEcdsa && !previewEcdsaChainTargets) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ECDSA registration contains an invalid chain target',
-        };
-      }
       if (!previewNearEd25519 && request.registrationPreparationId) {
         return {
           ok: false,
@@ -470,6 +737,13 @@ export class CloudflareD1WalletRegistrationService {
           message: 'ECDSA registration requires a signing root',
         };
       }
+      const previewPreparedContext = resolveRegistrationPreparedContextFromPlan({
+        signerPlan: previewBranches.value.plan,
+        runtimePolicyScope,
+        signingRootId,
+        signingRootVersion,
+      });
+      if (!previewPreparedContext.ok) return previewPreparedContext;
       const threshold = this.getThresholdSigningService();
       if (!threshold) {
         return {
@@ -577,6 +851,8 @@ export class CloudflareD1WalletRegistrationService {
             registrationIntentDigestB64u: intentPreview.digestB64u,
             registrationPreparationId: request.registrationPreparationId!,
             authority: verifiedAuthority.authority,
+            signerPlan: preparedRegistrationState!.preparation.signerPlan,
+            preparedContext: preparedRegistrationState!.preparation.preparedContext,
             ed25519Scope: preparedScope!,
           });
       if (!storedIntentResult.ok) return storedIntentResult;
@@ -588,20 +864,33 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration intent walletId mismatch',
         };
       }
-      const storedBranches = registrationIntentSignerBranches(storedIntent.intent);
-      if (!storedBranches.ok) return storedBranches;
-      const storedNearEd25519 = storedBranches.value.nearEd25519;
-      const storedEvmFamilyEcdsa = storedBranches.value.evmFamilyEcdsa;
-      const storedEcdsaChainTargets = storedEvmFamilyEcdsa
-        ? normalizeThresholdEcdsaChainTargets(storedEvmFamilyEcdsa.chainTargets)
-        : null;
+      const storedSignerPlan = preparedRegistrationState?.ok
+        ? preparedRegistrationState.preparation.signerPlan
+        : previewBranches.value.plan;
+      const storedPreparedContext = preparedRegistrationState?.ok
+        ? preparedRegistrationState.preparation.preparedContext
+        : previewPreparedContext.preparedContext;
+      const storedBranches = registrationSignerBranchesFromPlan(storedSignerPlan);
+      const storedNearEd25519 = storedBranches.nearEd25519;
+      const storedEvmFamilyEcdsa = storedBranches.evmFamilyEcdsa;
+      const storedEcdsaChainTargets =
+        registrationPreparedContextEcdsaChainTargets(storedPreparedContext);
       if (storedEvmFamilyEcdsa && !storedEcdsaChainTargets) {
         return {
           ok: false,
-          code: 'invalid_body',
-          message: 'ECDSA registration contains an invalid chain target',
+          code: 'scope_mismatch',
+          message: 'registration prepared context is missing ECDSA chain targets',
         };
       }
+      if (!storedEvmFamilyEcdsa && storedEcdsaChainTargets) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'registration prepared context has unexpected ECDSA chain targets',
+        };
+      }
+      const storedRuntimePolicyScope =
+        registrationPreparedContextRuntimePolicyScope(storedPreparedContext);
       const registrationCeremonyId = `wrc_${secureRandomBase64Url(24)}`;
       if (!storedNearEd25519) {
         if (!storedEvmFamilyEcdsa || !storedEcdsaChainTargets) {
@@ -618,7 +907,7 @@ export class CloudflareD1WalletRegistrationService {
           signingRootVersion,
           chainTargets: storedEcdsaChainTargets,
           participantIds: [...storedEvmFamilyEcdsa.participantIds],
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          ...(storedRuntimePolicyScope ? { runtimePolicyScope: storedRuntimePolicyScope } : {}),
         });
         if (!ecdsaResult.ok) return ecdsaResult;
         const ecdsa = ecdsaResult.ecdsa;
@@ -626,6 +915,8 @@ export class CloudflareD1WalletRegistrationService {
           registrationCeremonyId,
           intent: storedIntent.intent,
           digestB64u: storedIntent.digestB64u,
+          signerPlan: storedSignerPlan,
+          preparedContext: storedPreparedContext,
           orgId: storedIntent.orgId,
           signingRootId,
           signingRootVersion,
@@ -679,6 +970,8 @@ export class CloudflareD1WalletRegistrationService {
           registrationCeremonyId,
           intent: storedIntent.intent,
           digestB64u: storedIntent.digestB64u,
+          signerPlan: storedSignerPlan,
+          preparedContext: storedPreparedContext,
           orgId: storedIntent.orgId,
           signingRootId,
           signingRootVersion,
@@ -719,7 +1012,7 @@ export class CloudflareD1WalletRegistrationService {
         signingRootVersion,
         chainTargets: storedEcdsaChainTargets,
         participantIds: [...storedEvmFamilyEcdsa.participantIds],
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        ...(storedRuntimePolicyScope ? { runtimePolicyScope: storedRuntimePolicyScope } : {}),
       });
       if (!combinedEcdsaResult.ok) return combinedEcdsaResult;
       const ecdsa = combinedEcdsaResult.ecdsa;
@@ -727,6 +1020,8 @@ export class CloudflareD1WalletRegistrationService {
         registrationCeremonyId,
         intent: storedIntent.intent,
         digestB64u: storedIntent.digestB64u,
+        signerPlan: storedSignerPlan,
+        preparedContext: storedPreparedContext,
         orgId: storedIntent.orgId,
         signingRootId,
         signingRootVersion,
@@ -788,10 +1083,9 @@ export class CloudflareD1WalletRegistrationService {
           message: 'signer-set registration state is required',
         };
       }
-      const signerBranches = registrationIntentSignerBranches(ceremony.intent);
-      if (!signerBranches.ok) return signerBranches;
-      const requestedNearEd25519 = signerBranches.value.nearEd25519;
-      const requestedEvmFamilyEcdsa = signerBranches.value.evmFamilyEcdsa;
+      const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
+      const requestedNearEd25519 = signerBranches.nearEd25519;
+      const requestedEvmFamilyEcdsa = signerBranches.evmFamilyEcdsa;
       let nextSignerState = ceremony.signerState;
       const response: Extract<WalletRegistrationHssRespondResponse, { ok: true }> = {
         ok: true,
@@ -873,13 +1167,17 @@ export class CloudflareD1WalletRegistrationService {
             message: 'ECDSA HSS response already recorded',
           };
         }
-        const expected = ecdsaBranch.prepare;
-        const actual = request.ecdsa.clientBootstrap;
-        if (!isMatchingD1EcdsaClientBootstrap({ expected, actual })) {
+        const clientBootstraps = request.ecdsa.clientBootstraps;
+        if (
+          !ecdsaTargetCoverageMatches({
+            expected: ecdsaBranch.targets,
+            actual: clientBootstraps,
+          })
+        ) {
           return {
             ok: false,
             code: 'invalid_body',
-            message: 'ECDSA bootstrap identity mismatch',
+            message: 'ECDSA bootstrap target coverage mismatch',
           };
         }
         const threshold = this.getThresholdSigningService();
@@ -890,15 +1188,39 @@ export class CloudflareD1WalletRegistrationService {
             message: 'threshold signing is not configured on this server',
           };
         }
-        const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
-          toD1EcdsaHssClientBootstrapRequest(actual),
-        );
-        if (!bootstrap.ok) {
-          return {
-            ok: false,
-            code: bootstrap.code || 'hss_respond_failed',
-            message: bootstrap.message || 'ECDSA HSS bootstrap failed',
-          };
+        const bootstraps: EcdsaServerBootstrapTarget[] = [];
+        for (const actual of clientBootstraps) {
+          const expected = ecdsaPreparedTargetForClientBootstrap({
+            preparedTargets: ecdsaBranch.targets,
+            actual,
+          });
+          if (
+            !expected ||
+            !isMatchingD1EcdsaClientBootstrap({
+              expected: expected.prepare,
+              actual: actual.clientBootstrap,
+            })
+          ) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'ECDSA bootstrap identity mismatch',
+            };
+          }
+          const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
+            toD1EcdsaHssClientBootstrapRequest(actual.clientBootstrap),
+          );
+          if (!bootstrap.ok) {
+            return {
+              ok: false,
+              code: bootstrap.code || 'hss_respond_failed',
+              message: bootstrap.message || 'ECDSA HSS bootstrap failed',
+            };
+          }
+          bootstraps.push({
+            chainTarget: actual.chainTarget,
+            bootstrap: bootstrap.value,
+          });
         }
         nextSignerState = replaceStoredWalletRegistrationSignerBranch({
           state: nextSignerState,
@@ -906,14 +1228,13 @@ export class CloudflareD1WalletRegistrationService {
             kind: 'evm_family_ecdsa_responded',
             branchKey: ecdsaBranch.branchKey,
             hssKind: ecdsaBranch.hssKind,
-            chainTargets: ecdsaBranch.chainTargets,
-            prepare: ecdsaBranch.prepare,
+            targets: ecdsaBranch.targets,
             responded: {
-              bootstrap: bootstrap.value,
+              bootstraps,
             },
           },
         });
-        response.ecdsa = { bootstrap: bootstrap.value };
+        response.ecdsa = { bootstraps };
       } else if (requestedEvmFamilyEcdsa) {
         return { ok: false, code: 'invalid_body', message: 'missing ECDSA HSS response' };
       }
@@ -941,18 +1262,35 @@ export class CloudflareD1WalletRegistrationService {
   async finalizeWalletRegistration(
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
+    const finalizeTiming = createD1RegistrationRouteTimingRecorder('wallets_register_finalize');
+    const totalTiming = startD1RegistrationRouteTiming('registerFinalizeTotalMs');
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
       if (idempotencyKey) {
-        const replay = await store.getFinalizeReplay({
-          registrationCeremonyId: request.registrationCeremonyId,
-          idempotencyKey,
-        });
-        if (replay) return replay.response;
+        const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
+        let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
+        try {
+          replay = await store.getFinalizeReplay({
+            registrationCeremonyId: request.registrationCeremonyId,
+            idempotencyKey,
+          });
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
+        }
+        if (replay) {
+          finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
+          return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
+        }
       }
-      const ceremony = await store.getCeremony(request.registrationCeremonyId);
+      const ceremonyLoadTiming = startD1RegistrationRouteTiming('registrationCeremonyLoadMs');
+      let ceremony: Awaited<ReturnType<typeof store.getCeremony>>;
+      try {
+        ceremony = await store.getCeremony(request.registrationCeremonyId);
+      } finally {
+        finishD1RegistrationRouteTiming(finalizeTiming, ceremonyLoadTiming);
+      }
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
@@ -963,10 +1301,9 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration ceremony walletId mismatch',
         };
       }
-      const signerBranches = registrationIntentSignerBranches(ceremony.intent);
-      if (!signerBranches.ok) return signerBranches;
-      const requestedNearEd25519 = signerBranches.value.nearEd25519;
-      const requestedEvmFamilyEcdsa = signerBranches.value.evmFamilyEcdsa;
+      const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
+      const requestedNearEd25519 = signerBranches.nearEd25519;
+      const requestedEvmFamilyEcdsa = signerBranches.evmFamilyEcdsa;
       if (requestedNearEd25519) {
         if (!request.ed25519) {
           return { ok: false, code: 'invalid_body', message: 'missing Ed25519 finalize input' };
@@ -1010,9 +1347,10 @@ export class CloudflareD1WalletRegistrationService {
             };
           }
           const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
-          if (
-            hasUnexpectedKeyHandle(expectedKeyHandles, ecdsaState.responded.bootstrap.keyHandle)
-          ) {
+          const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
+            String(entry.bootstrap.keyHandle || '').trim(),
+          );
+          if (hasUnexpectedKeyHandle(expectedKeyHandles, actualKeyHandles)) {
             return {
               ok: false,
               code: 'key_handle_mismatch',
@@ -1042,40 +1380,46 @@ export class CloudflareD1WalletRegistrationService {
         const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
           ceremony.authority,
         );
-        const finalized = await threshold.ed25519Hss.finalizeForRegistration({
-          orgId: ceremony.orgId,
-          request: {
-            registrationAccountScope: d1ThresholdEd25519RegistrationAccountScope({
-              walletId: ceremony.intent.walletId,
-              intentDigestB64u: ceremony.digestB64u,
-              signingRootId: d1RegistrationIntentSigningRootId({
-                signingRootId: ceremony.signingRootId,
-                intent: ceremony.intent,
+        const hssFinalizeTiming = startD1RegistrationRouteTiming('registrationHssFinalizeMs');
+        let finalized: Awaited<ReturnType<typeof threshold.ed25519Hss.finalizeForRegistration>>;
+        try {
+          finalized = await threshold.ed25519Hss.finalizeForRegistration({
+            orgId: ceremony.orgId,
+            request: {
+              registrationAccountScope: d1ThresholdEd25519RegistrationAccountScope({
+                walletId: ceremony.intent.walletId,
+                intentDigestB64u: ceremony.digestB64u,
+                signingRootId: d1RegistrationIntentSigningRootId({
+                  signingRootId: ceremony.signingRootId,
+                  intent: ceremony.intent,
+                }),
+                signingRootVersion: d1RegistrationIntentSigningRootVersion({
+                  signingRootVersion: ceremony.signingRootVersion,
+                  intent: ceremony.intent,
+                }),
+                nearEd25519SigningKeyId,
+                signerSlot: ed25519.signerSlot,
+                keyPurpose: ed25519.keyPurpose,
+                keyVersion: ed25519.keyVersion,
+                derivationVersion: ed25519.derivationVersion,
+                participantIds: [...ed25519.participantIds],
+                accountProvisioning: ed25519.accountProvisioning,
               }),
-              signingRootVersion: d1RegistrationIntentSigningRootVersion({
-                signingRootVersion: ceremony.signingRootVersion,
-                intent: ceremony.intent,
-              }),
-              nearEd25519SigningKeyId,
-              signerSlot: ed25519.signerSlot,
-              keyPurpose: ed25519.keyPurpose,
-              keyVersion: ed25519.keyVersion,
-              derivationVersion: ed25519.derivationVersion,
-              participantIds: [...ed25519.participantIds],
-              accountProvisioning: ed25519.accountProvisioning,
-            }),
-            wallet_key_id: nearEd25519SigningKeyId,
-            authority: walletAuthAuthority,
-            ceremonyHandle: ed25519State.ceremonyHandle,
-            preparedSession: ed25519State.preparedSession,
-            serverState: ed25519State.serverState,
-            evaluationResult: request.ed25519.evaluationResult,
-            accountResolution: {
-              kind: 'registration_provisioning',
-              accountProvisioning: ed25519.accountProvisioning,
+              wallet_key_id: nearEd25519SigningKeyId,
+              authority: walletAuthAuthority,
+              ceremonyHandle: ed25519State.ceremonyHandle,
+              preparedSession: ed25519State.preparedSession,
+              serverState: ed25519State.serverState,
+              evaluationResult: request.ed25519.evaluationResult,
+              accountResolution: {
+                kind: 'registration_provisioning',
+                accountProvisioning: ed25519.accountProvisioning,
+              },
             },
-          },
-        });
+          });
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, hssFinalizeTiming);
+        }
         if (!finalized.ok) {
           return {
             ok: false,
@@ -1083,15 +1427,27 @@ export class CloudflareD1WalletRegistrationService {
             message: finalized.message || 'Ed25519 HSS finalize failed',
           };
         }
+        if (finalized.finalizeReportTimings) {
+          appendThresholdEd25519HssFinalizeRouteTimings({
+            recorder: finalizeTiming,
+            timings: finalized.finalizeReportTimings,
+          });
+        }
         const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
           ed25519.accountProvisioning,
         );
         let sponsoredTransactionHash: string | undefined;
         if (sponsoredNamedAccountId) {
-          const created = await this.createSponsoredNamedNearAccount({
-            accountId: sponsoredNamedAccountId,
-            publicKey: finalized.publicKey,
-          });
+          const sponsoredAccountTiming = startD1RegistrationRouteTiming('sponsoredNearAccountCreateMs');
+          let created: Awaited<ReturnType<typeof this.createSponsoredNamedNearAccount>>;
+          try {
+            created = await this.createSponsoredNamedNearAccount({
+              accountId: sponsoredNamedAccountId,
+              publicKey: finalized.publicKey,
+            });
+          } finally {
+            finishD1RegistrationRouteTiming(finalizeTiming, sponsoredAccountTiming);
+          }
           if (!created.success) {
             return {
               ok: false,
@@ -1116,16 +1472,22 @@ export class CloudflareD1WalletRegistrationService {
             message: `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled`,
           };
         }
-        const keygen = await scheme.registration.keygenFromRegistrationMaterial({
-          walletId: ceremony.intent.walletId,
-          nearAccountId: finalized.nearAccountId,
-          nearEd25519SigningKeyId,
-          authority: walletAuthAuthority,
-          keyVersion: ed25519.keyVersion,
-          recoveryExportCapable: true,
-          publicKey: finalized.publicKey,
-          relayerKeyId: finalized.relayerKeyId,
-        });
+        const keygenTiming = startD1RegistrationRouteTiming('registrationKeygenMs');
+        let keygen: Awaited<ReturnType<typeof scheme.registration.keygenFromRegistrationMaterial>>;
+        try {
+          keygen = await scheme.registration.keygenFromRegistrationMaterial({
+            walletId: ceremony.intent.walletId,
+            nearAccountId: finalized.nearAccountId,
+            nearEd25519SigningKeyId,
+            authority: walletAuthAuthority,
+            keyVersion: ed25519.keyVersion,
+            recoveryExportCapable: true,
+            publicKey: finalized.publicKey,
+            relayerKeyId: finalized.relayerKeyId,
+          });
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, keygenTiming);
+        }
         if (!keygen.ok) {
           return {
             ok: false,
@@ -1134,17 +1496,29 @@ export class CloudflareD1WalletRegistrationService {
           };
         }
         const now = Date.now();
-        const runtimePolicyScope = normalizeD1ThresholdRuntimePolicyScope(
-          ceremony.intent.runtimePolicyScope,
+        const runtimePolicyScope = registrationPreparedContextRuntimePolicyScope(
+          ceremony.preparedContext,
         );
-        const emailOtpEnrollment =
-          await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
+        const emailOtpEnrollmentTiming = startD1RegistrationRouteTiming(
+          'registrationEmailOtpEnrollmentPlanMs',
+        );
+        let emailOtpEnrollment: Awaited<
+          ReturnType<
+            typeof this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize
+          >
+        >;
+        try {
+          emailOtpEnrollment =
+            await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
             authority: ceremony.authority,
             request,
             walletId: ceremony.intent.walletId,
             orgId: ceremony.orgId,
             nowMs: now,
-        });
+          });
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, emailOtpEnrollmentTiming);
+        }
         if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
         let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
         if (request.ed25519.sessionPolicy) {
@@ -1165,14 +1539,20 @@ export class CloudflareD1WalletRegistrationService {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           });
           if (!sessionPolicy.ok) return sessionPolicy;
-          const session = await threshold.mintEd25519SessionFromRegistration({
-            walletId: String(ceremony.intent.walletId),
-            nearAccountId: finalized.nearAccountId,
-            nearEd25519SigningKeyId,
-            authority: walletAuthAuthority,
-            relayerKeyId: keygen.relayerKeyId,
-            sessionPolicy: sessionPolicy.value,
-          });
+          const sessionMintTiming = startD1RegistrationRouteTiming('relaySessionMintMs');
+          let session: Awaited<ReturnType<typeof threshold.mintEd25519SessionFromRegistration>>;
+          try {
+            session = await threshold.mintEd25519SessionFromRegistration({
+              walletId: String(ceremony.intent.walletId),
+              nearAccountId: finalized.nearAccountId,
+              nearEd25519SigningKeyId,
+              authority: walletAuthAuthority,
+              relayerKeyId: keygen.relayerKeyId,
+              sessionPolicy: sessionPolicy.value,
+            });
+          } finally {
+            finishD1RegistrationRouteTiming(finalizeTiming, sessionMintTiming);
+          }
           if (
             !session.ok ||
             !session.thresholdSessionId ||
@@ -1211,8 +1591,7 @@ export class CloudflareD1WalletRegistrationService {
         const walletKeyResult =
           ecdsaState && ecdsaState.kind === 'evm_family_ecdsa_responded'
             ? buildD1EcdsaWalletKeysFromBootstrap({
-                bootstrap: ecdsaState.responded.bootstrap,
-                chainTargets: ecdsaState.chainTargets,
+                bootstraps: ecdsaState.responded.bootstraps,
                 errorContext: 'combined ECDSA registration finalize',
               })
             : null;
@@ -1238,20 +1617,47 @@ export class CloudflareD1WalletRegistrationService {
               })
             : []),
         ];
-        const walletStore = this.getWalletStore();
-        await walletStore.putSubject(wallet);
-        await walletStore.putSigners(walletSigners);
-        await this.walletAuthMethods.persistAuthority({
-          authority: ceremony.authority,
-          now,
-        });
-        if (emailOtpEnrollment.persistence) {
-          const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
-            emailOtpEnrollment.persistence,
-          );
-          if (!persisted.ok) return persisted;
+        const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
+        let deleted = false;
+        try {
+          if (emailOtpEnrollment.persistence) {
+            const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
+              emailOtpEnrollment.persistence,
+            );
+            if (!persisted.ok) return persisted;
+          }
+          const walletStore = this.getWalletStore();
+          await walletStore.putSubject(wallet);
+          await walletStore.putSigners(walletSigners);
+          await this.walletAuthMethods.persistAuthority({
+            authority: ceremony.authority,
+            now,
+          });
+          if (ceremony.authority.kind === 'passkey') {
+            await this.getWebAuthnCredentialBindingStore().put({
+              version: 'webauthn_credential_binding_v1',
+              rpId: ceremony.authority.rpId,
+              credentialIdB64u: ceremony.authority.credentialIdB64u,
+              userId: ceremony.intent.walletId,
+              nearAccountId: finalized.nearAccountId,
+              nearEd25519SigningKeyId,
+              signerSlot: ed25519.signerSlot,
+              publicKey: keygen.publicKey,
+              relayerKeyId: keygen.relayerKeyId,
+              keyVersion: keygen.keyVersion,
+              recoveryExportCapable: keygen.recoveryExportCapable,
+              clientParticipantId: keygen.clientParticipantId,
+              relayerParticipantId: keygen.relayerParticipantId,
+              participantIds: keygen.participantIds,
+              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+              createdAtMs: now,
+              updatedAtMs: now,
+            });
+          }
+          deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
         }
-        const deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
         if (!deleted) {
           return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
         }
@@ -1268,6 +1674,11 @@ export class CloudflareD1WalletRegistrationService {
           clientParticipantId: keygen.clientParticipantId,
           relayerParticipantId: keygen.relayerParticipantId,
           participantIds: keygen.participantIds,
+          registrationWorkerMaterialReport: {
+            kind: 'threshold_ed25519_registration_worker_material_report_v1',
+            contextBindingB64u: finalized.finalizedReport.contextBindingB64u,
+            clientOutputMessageB64u: finalized.finalizedReport.clientOutputMessageB64u,
+          },
         };
         if (thresholdEd25519Session) ed25519Response.session = thresholdEd25519Session;
         const response: Extract<WalletRegistrationFinalizeResponse, { ed25519: object }> = {
@@ -1283,16 +1694,24 @@ export class CloudflareD1WalletRegistrationService {
         if (rpId) response.rpId = rpId;
         if (walletKeyResult?.ok) response.ecdsa = { walletKeys: walletKeyResult.walletKeys };
         if (idempotencyKey) {
-          await store.putFinalizeReplay({
-            kind: 'wallet_registration_finalize_replay_v1',
-            registrationCeremonyId: ceremony.registrationCeremonyId,
-            idempotencyKey,
-            response,
-            createdAtMs: now,
-            expiresAtMs: ceremony.expiresAtMs,
-          });
+          const replayCacheTiming = startD1RegistrationRouteTiming(
+            'registrationFinalizeReplayCacheMs',
+          );
+          try {
+            await store.putFinalizeReplay({
+              kind: 'wallet_registration_finalize_replay_v1',
+              registrationCeremonyId: ceremony.registrationCeremonyId,
+              idempotencyKey,
+              response,
+              createdAtMs: now,
+              expiresAtMs: ceremony.expiresAtMs,
+            });
+          } finally {
+            finishD1RegistrationRouteTiming(finalizeTiming, replayCacheTiming);
+          }
         }
-        return response;
+        finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
+        return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
       }
       if (!requestedEvmFamilyEcdsa) {
         return {
@@ -1326,31 +1745,48 @@ export class CloudflareD1WalletRegistrationService {
           message: 'ECDSA HSS response is required before finalize',
         };
       }
-      const bootstrap = ecdsaState.responded.bootstrap;
       const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
-      if (hasUnexpectedKeyHandle(expectedKeyHandles, bootstrap.keyHandle)) {
+      const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
+        String(entry.bootstrap.keyHandle || '').trim(),
+      );
+      if (hasUnexpectedKeyHandle(expectedKeyHandles, actualKeyHandles)) {
         return {
           ok: false,
           code: 'key_handle_mismatch',
           message: 'ECDSA finalize expected key handle mismatch',
         };
       }
-      const walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
-        bootstrap,
-        chainTargets: ecdsaState.chainTargets,
-        errorContext: 'ECDSA registration finalize',
-      });
+      const ecdsaVerifyTiming = startD1RegistrationRouteTiming('registrationEcdsaBootstrapVerifyMs');
+      let walletKeyResult: ReturnType<typeof buildD1EcdsaWalletKeysFromBootstrap>;
+      try {
+        walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
+          bootstraps: ecdsaState.responded.bootstraps,
+          errorContext: 'ECDSA registration finalize',
+        });
+      } finally {
+        finishD1RegistrationRouteTiming(finalizeTiming, ecdsaVerifyTiming);
+      }
       if (!walletKeyResult.ok) return walletKeyResult;
 
       const now = Date.now();
-      const emailOtpEnrollment =
-        await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
+      const emailOtpEnrollmentTiming = startD1RegistrationRouteTiming(
+        'registrationEmailOtpEnrollmentPlanMs',
+      );
+      let emailOtpEnrollment: Awaited<
+        ReturnType<typeof this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize>
+      >;
+      try {
+        emailOtpEnrollment =
+          await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
           authority: ceremony.authority,
           request,
           walletId: ceremony.intent.walletId,
           orgId: ceremony.orgId,
           nowMs: now,
         });
+      } finally {
+        finishD1RegistrationRouteTiming(finalizeTiming, emailOtpEnrollmentTiming);
+      }
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
 
       const wallet = buildD1WalletRecord({
@@ -1362,24 +1798,29 @@ export class CloudflareD1WalletRegistrationService {
         walletKeys: walletKeyResult.walletKeys,
         now,
       });
-      const walletStore = this.getWalletStore();
-      await walletStore.putSubject(wallet);
-      await walletStore.putSigners(walletSigners);
       const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
         ceremony.authority,
       );
-      await this.walletAuthMethods.persistAuthority({
-        authority: ceremony.authority,
-        now,
-      });
-      if (emailOtpEnrollment.persistence) {
-        const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
-          emailOtpEnrollment.persistence,
-        );
-        if (!persisted.ok) return persisted;
+      const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
+      let deleted = false;
+      try {
+        if (emailOtpEnrollment.persistence) {
+          const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
+            emailOtpEnrollment.persistence,
+          );
+          if (!persisted.ok) return persisted;
+        }
+        const walletStore = this.getWalletStore();
+        await walletStore.putSubject(wallet);
+        await walletStore.putSigners(walletSigners);
+        await this.walletAuthMethods.persistAuthority({
+          authority: ceremony.authority,
+          now,
+        });
+        deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
+      } finally {
+        finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
       }
-
-      const deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
       if (!deleted) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
@@ -1394,16 +1835,24 @@ export class CloudflareD1WalletRegistrationService {
       };
       if (ceremony.authority.kind === 'passkey') response.rpId = ceremony.authority.rpId;
       if (idempotencyKey) {
-        await store.putFinalizeReplay({
-          kind: 'wallet_registration_finalize_replay_v1',
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          idempotencyKey,
-          response,
-          createdAtMs: now,
-          expiresAtMs: ceremony.expiresAtMs,
-        });
+        const replayCacheTiming = startD1RegistrationRouteTiming(
+          'registrationFinalizeReplayCacheMs',
+        );
+        try {
+          await store.putFinalizeReplay({
+            kind: 'wallet_registration_finalize_replay_v1',
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            idempotencyKey,
+            response,
+            createdAtMs: now,
+            expiresAtMs: ceremony.expiresAtMs,
+          });
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, replayCacheTiming);
+        }
       }
-      return response;
+      finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
+      return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
     } catch (error: unknown) {
       return {
         ok: false,

@@ -543,6 +543,30 @@ async function attachEcdsaWalletSessionJwt(
   return null;
 }
 
+function registrationClientBootstrapRuntimePolicyScope(input: {
+  readonly request: WalletRegistrationHssRespondRequest;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+}): RuntimePolicyScope | undefined {
+  const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
+  for (const entry of input.request.ecdsa?.clientBootstraps || []) {
+    if (thresholdEcdsaChainTargetKey(entry.chainTarget) !== targetKey) continue;
+    return entry.clientBootstrap.runtimePolicyScope;
+  }
+  return undefined;
+}
+
+function addSignerClientBootstrapRuntimePolicyScope(input: {
+  readonly request: WalletAddSignerHssRespondRequest;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+}): RuntimePolicyScope | undefined {
+  const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
+  for (const entry of input.request.ecdsa?.clientBootstraps || []) {
+    if (thresholdEcdsaChainTargetKey(entry.chainTarget) !== targetKey) continue;
+    return entry.clientBootstrap.runtimePolicyScope;
+  }
+  return undefined;
+}
+
 function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> {
   if (!isPlainObject(raw)) {
     return { ok: false, code: 'invalid_body', message: 'add-signer signerSelection is required' };
@@ -1607,50 +1631,88 @@ function parseWalletRegistrationHssRespondRequest(
     if (!ecdsa) {
       return { ok: false, code: 'invalid_body', message: 'ecdsa response is invalid' };
     }
-    const clientBootstrap = isPlainObject(ecdsa.clientBootstrap) ? ecdsa.clientBootstrap : null;
-    if (!clientBootstrap) {
-      return { ok: false, code: 'invalid_body', message: 'ecdsa.clientBootstrap is required' };
-    }
-    const forbiddenField = findOwnField(
-      clientBootstrap,
-      ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS,
-    );
-    if (forbiddenField) {
+    const clientBootstraps = Array.isArray(ecdsa.clientBootstraps)
+      ? ecdsa.clientBootstraps
+      : null;
+    if (!clientBootstraps || clientBootstraps.length === 0) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: `ecdsa.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
+        message: 'ecdsa.clientBootstraps is required',
       };
     }
-    const parsed = parseWalletRegistrationEcdsaClientBootstrap(clientBootstrap);
-    if (!parsed) {
-      return { ok: false, code: 'invalid_body', message: 'ecdsa.clientBootstrap is invalid' };
+    const parsedEntries: NonNullable<WalletRegistrationHssRespondRequest['ecdsa']>['clientBootstraps'] =
+      [];
+    const seenTargets = new Set<string>();
+    for (const entry of clientBootstraps) {
+      const entryRecord = isPlainObject(entry) ? entry : null;
+      const clientBootstrap = isPlainObject(entryRecord?.clientBootstrap)
+        ? entryRecord.clientBootstrap
+        : null;
+      const chainTarget = thresholdEcdsaChainTargetFromValue(entryRecord?.chainTarget);
+      if (!entryRecord || !clientBootstrap || !chainTarget) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ecdsa.clientBootstraps entry is invalid',
+        };
+      }
+      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+      if (seenTargets.has(targetKey)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ecdsa.clientBootstraps contains duplicate chain targets',
+        };
+      }
+      seenTargets.add(targetKey);
+      const forbiddenField = findOwnField(
+        clientBootstrap,
+        ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS,
+      );
+      if (forbiddenField) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: `ecdsa.clientBootstraps.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
+        };
+      }
+      const parsed = parseWalletRegistrationEcdsaClientBootstrap(clientBootstrap);
+      if (!parsed) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ecdsa.clientBootstraps clientBootstrap is invalid',
+        };
+      }
+      parsedEntries.push({
+        chainTarget,
+        clientBootstrap: {
+          formatVersion: parsed.formatVersion,
+          walletId: parsed.walletId,
+          evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
+          ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
+          signingRootId: parsed.signingRootId,
+          signingRootVersion: parsed.signingRootVersion,
+          keyScope: parsed.keyScope,
+          relayerKeyId: parsed.relayerKeyId,
+          ...(parsed.registrationPreparationId
+            ? { registrationPreparationId: parsed.registrationPreparationId }
+            : {}),
+          hssClientSharePublicKey33B64u: parsed.hssClientSharePublicKey33B64u,
+          clientShareRetryCounter: parsed.clientShareRetryCounter,
+          contextBinding32B64u: parsed.contextBinding32B64u,
+          requestId: parsed.requestId,
+          thresholdSessionId: parsed.thresholdSessionId,
+          signingGrantId: parsed.signingGrantId,
+          ttlMs: parsed.ttlMs,
+          remainingUses: parsed.remainingUses,
+          participantIds: parsed.participantIds,
+          ...(parsed.runtimePolicyScope ? { runtimePolicyScope: parsed.runtimePolicyScope } : {}),
+        },
+      });
     }
-    value.ecdsa = {
-      clientBootstrap: {
-        formatVersion: parsed.formatVersion,
-        walletId: parsed.walletId,
-        evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
-        ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
-        signingRootId: parsed.signingRootId,
-        signingRootVersion: parsed.signingRootVersion,
-        keyScope: parsed.keyScope,
-        relayerKeyId: parsed.relayerKeyId,
-        ...(parsed.registrationPreparationId
-          ? { registrationPreparationId: parsed.registrationPreparationId }
-          : {}),
-        hssClientSharePublicKey33B64u: parsed.hssClientSharePublicKey33B64u,
-        clientShareRetryCounter: parsed.clientShareRetryCounter,
-        contextBinding32B64u: parsed.contextBinding32B64u,
-        requestId: parsed.requestId,
-        thresholdSessionId: parsed.thresholdSessionId,
-        signingGrantId: parsed.signingGrantId,
-        ttlMs: parsed.ttlMs,
-        remainingUses: parsed.remainingUses,
-        participantIds: parsed.participantIds,
-        ...(parsed.runtimePolicyScope ? { runtimePolicyScope: parsed.runtimePolicyScope } : {}),
-      },
-    };
+    value.ecdsa = { clientBootstraps: parsedEntries };
   }
   return { ok: true, value };
 }
@@ -2323,13 +2385,18 @@ export async function handleRouterApiWalletRegistrationHssRespond(
   const result = await input.services.walletRegistration.respondWalletRegistrationHss(
     request.value,
   );
-  if (result.ok) {
-    const signingError = await attachEcdsaWalletSessionJwt(
-      input,
-      result.ecdsa?.bootstrap,
-      request.value.ecdsa?.clientBootstrap.runtimePolicyScope,
-    );
-    if (signingError) return signingError;
+  if (result.ok && result.ecdsa) {
+    for (const entry of result.ecdsa.bootstraps) {
+      const signingError = await attachEcdsaWalletSessionJwt(
+        input,
+        entry.bootstrap,
+        registrationClientBootstrapRuntimePolicyScope({
+          request: request.value,
+          chainTarget: entry.chainTarget,
+        }),
+      );
+      if (signingError) return signingError;
+    }
   }
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
@@ -2460,13 +2527,18 @@ export async function handleRouterApiWalletAddSignerHssRespond(
   const request = parseWalletAddSignerHssRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.walletRegistration.respondWalletAddSignerHss(request.value);
-  if (result.ok) {
-    const signingError = await attachEcdsaWalletSessionJwt(
-      input,
-      result.ecdsa?.bootstrap,
-      request.value.ecdsa?.clientBootstrap.runtimePolicyScope,
-    );
-    if (signingError) return signingError;
+  if (result.ok && result.ecdsa) {
+    for (const entry of result.ecdsa.bootstraps) {
+      const signingError = await attachEcdsaWalletSessionJwt(
+        input,
+        entry.bootstrap,
+        addSignerClientBootstrapRuntimePolicyScope({
+          request: request.value,
+          chainTarget: entry.chainTarget,
+        }),
+      );
+      if (signingError) return signingError;
+    }
   }
   return routeJson(result.ok ? 200 : 400, result);
 }

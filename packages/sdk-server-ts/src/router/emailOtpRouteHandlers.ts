@@ -888,6 +888,7 @@ export async function handleEmailOtpRecoveryKeyAttemptFailedRoute(input: {
 
 function validateSigningSessionWalletId(input: {
   body: Record<string, unknown>;
+  claims: Record<string, unknown>;
   userId: string;
 }): { ok: true; walletId: string } | { ok: false; response: EmailOtpRouteResponse } {
   const walletId = String(input.body.walletId || '').trim();
@@ -900,7 +901,7 @@ function validateSigningSessionWalletId(input: {
       },
     };
   }
-  if (walletId !== String(input.userId || '').trim()) {
+  if (walletId !== getSessionWalletId(input.claims, input.userId)) {
     return {
       ok: false,
       response: {
@@ -986,7 +987,11 @@ export async function handleEmailOtpSigningSessionChallengeRoute(input: {
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
 
   const body = bodyValidation.body;
-  const walletValidation = validateSigningSessionWalletId({ body, userId: input.userId });
+  const walletValidation = validateSigningSessionWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
   if (!walletValidation.ok) return walletValidation.response;
   const walletId = walletValidation.walletId;
 
@@ -1344,7 +1349,11 @@ export async function handleEmailOtpSigningSessionVerifyRoute(input: {
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
 
   const body = bodyValidation.body;
-  const walletValidation = validateSigningSessionWalletId({ body, userId: input.userId });
+  const walletValidation = validateSigningSessionWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
   if (!walletValidation.ok) return walletValidation.response;
   const walletId = walletValidation.walletId;
 
@@ -1571,7 +1580,11 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
 
   const body = bodyValidation.body;
-  const walletValidation = validateSigningSessionWalletId({ body, userId: input.userId });
+  const walletValidation = validateSigningSessionWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
   if (!walletValidation.ok) return walletValidation.response;
   const walletId = walletValidation.walletId;
 

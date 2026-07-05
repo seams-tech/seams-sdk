@@ -207,7 +207,7 @@ to its coverage entry and the route-cleanup evidence stands alone.
   the parallel AuthService mechanical split, July 3 validation also passed:
   `pnpm --dir packages/sdk-server-ts type-check`,
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+  unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
   unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line` with 64
   tests, `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
   relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line` with 7 passed
@@ -428,7 +428,7 @@ Long dated notes moved out of the plan's tracking checklists.
   store-backed helpers. D1 progress: `d1EmailOtpRecoveryService.ts` recovery
   grants bind to stable Email OTP authority fields (`userId`, `walletId`,
   channel, and org) and no longer check `sessionHash` or `appSessionVersion`;
-  `refactor82CloudflareD1Runtime.guard.unit.test.ts` now guards that D1 path
+  `cloudflareD1RuntimeBoundaries.guard.unit.test.ts` now guards that D1 path
   while the split AuthService modules keep the remaining deletion task.
 - Removed the Router API public port's type dependency on `AuthService`: the
   old `RouterApiAuthService` name is gone, method contracts are explicit, and
@@ -454,7 +454,7 @@ Long dated notes moved out of the plan's tracking checklists.
   `signedDelegateAuth`; the public signed-delegate option name remains
   unchanged.
 - Added guard coverage in
-  `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` so
+  `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` so
   `routeDefinitions.ts` and `routeExecutionContext.ts` reject exact
   `authService` and `threshold` route metadata keys.
 - Validation: `pnpm --dir packages/sdk-server-ts type-check`;

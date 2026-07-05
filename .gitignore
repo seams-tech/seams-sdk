@@ -22,6 +22,7 @@ clients/ios/.build
 
 examples/relay-cloudflare-worker/.wrangler
 packages/sdk-server-ts/.wrangler/
+.runtime/
 
 # Local Wrangler secrets. Use packages/sdk-server-ts/dev.vars as the checked-in template.
 packages/sdk-server-ts/.dev.vars

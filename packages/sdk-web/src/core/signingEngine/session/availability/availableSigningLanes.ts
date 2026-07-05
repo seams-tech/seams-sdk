@@ -64,8 +64,10 @@ import {
   type SigningLaneAuthBinding,
 } from '../identity/signingLaneAuthBinding';
 import {
+  buildFreshStepUpRequired,
   buildStepUpFreshnessFromRestoredSealedRecord,
   type FreshStepUpRequired,
+  type StepUpExpiryState,
 } from '../operationState/stepUpFreshness';
 import {
   buildReauthAnchorIdentity,
@@ -980,6 +982,46 @@ export function buildReauthAnchorIdentityFromAvailableLane(args: {
   });
 }
 
+export function buildReauthAnchorIdentityFromEcdsaLaneCandidate(args: {
+  walletId: WalletId | string;
+  operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
+  candidate: EcdsaLaneCandidate;
+}): ReauthAnchorIdentity | null {
+  if (args.candidate.state !== 'expired' && args.candidate.state !== 'exhausted') return null;
+  const walletId = toWalletId(args.walletId);
+  if (String(args.candidate.walletId) !== String(walletId)) {
+    throw new Error('[SigningEngine][ecdsa] reauth candidate wallet mismatch');
+  }
+  const selectedLane = selectedEcdsaLane({
+    key: args.candidate.key,
+    keyHandle: args.candidate.keyHandle,
+    walletId,
+    auth: args.candidate.auth,
+    signingGrantId: args.candidate.signingGrantId,
+    thresholdSessionId: args.candidate.thresholdSessionId,
+    chainTarget: args.candidate.chainTarget,
+  });
+  const freshness = buildFreshStepUpRequired({
+    walletId,
+    operationId: args.operationId,
+    operationFingerprint: args.operationFingerprint,
+    laneIdentity: exactSigningLaneIdentityFromSelectedLane(selectedLane),
+    projection: { kind: 'unavailable', reason: 'restored_record_has_no_projection' },
+    expiry: laneCandidateExpiry(args.candidate),
+    provenance: {
+      kind: 'restored_sealed_record_status',
+      recordVersion: ecdsaCandidateRecordVersion(args.candidate),
+      updatedAtMs: laneCandidateUpdatedAtMs(args.candidate),
+    },
+    reason: laneCandidateStepUpReason(args.candidate),
+  });
+  return buildReauthAnchorIdentity({
+    freshness,
+    sourceState: sourceStateFromEcdsaLaneCandidate(args.candidate, freshness),
+  });
+}
+
 function emptyEd25519Lane(): AvailableEd25519SigningLane {
   return {
     curve: 'ed25519',
@@ -1024,6 +1066,16 @@ function availableLaneRecordVersion(lane: ConcreteAvailableSigningLane): string 
   ].join(':');
 }
 
+function ecdsaCandidateRecordVersion(candidate: EcdsaLaneCandidate): string {
+  return [
+    candidate.curve,
+    candidate.source || 'unknown',
+    String(candidate.signingGrantId),
+    String(candidate.thresholdSessionId),
+    String(laneCandidateUpdatedAtMs(candidate)),
+  ].join(':');
+}
+
 function sourceStateFromAvailableLane(
   lane: ConcreteAvailableSigningLane,
   freshness: FreshStepUpRequired,
@@ -1035,6 +1087,25 @@ function sourceStateFromAvailableLane(
     storeSource: authMethod === 'email_otp' ? 'email_otp' : 'login',
     retention: authMethod === 'email_otp' ? 'single_use' : 'session',
     remainingUses: nullableNonNegativeInteger(lane.remainingUses),
+    expiry: freshness.expiry,
+    projection: freshness.projection,
+  };
+}
+
+function sourceStateFromEcdsaLaneCandidate(
+  candidate: EcdsaLaneCandidate,
+  freshness: FreshStepUpRequired,
+): ReauthAnchorSourceState {
+  const authMethod = signingLaneAuthMethod(candidate.auth);
+  const remainingUses =
+    candidate.state === 'exhausted' ? 0 : nullableNonNegativeInteger(candidate.remainingUses);
+  return {
+    kind: 'reauth_anchor_source_state',
+    availabilitySource:
+      candidate.source === 'unknown' ? 'runtime_session_record' : candidate.source,
+    storeSource: authMethod === 'email_otp' ? 'email_otp' : 'login',
+    retention: authMethod === 'email_otp' ? 'single_use' : 'session',
+    remainingUses,
     expiry: freshness.expiry,
     projection: freshness.projection,
   };
@@ -1630,6 +1701,38 @@ function availableLaneUpdatedAtMs(
   lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
 ): number {
   return Math.floor(Number('updatedAtMs' in lane ? lane.updatedAtMs : 0) || 0);
+}
+
+function laneCandidateUpdatedAtMs(candidate: EcdsaLaneCandidate | Ed25519LaneCandidate): number {
+  return Math.floor(Number(candidate.updatedAtMs) || 0);
+}
+
+function laneCandidateExpiry(
+  candidate: EcdsaLaneCandidate | Ed25519LaneCandidate,
+): StepUpExpiryState {
+  const expiresAtMs = nullablePositiveInteger(candidate.expiresAtMs);
+  return expiresAtMs
+    ? { kind: 'known', expiresAtMs }
+    : { kind: 'unavailable', reason: 'restored_record_has_no_expiry' };
+}
+
+function laneCandidateStepUpReason(
+  candidate: EcdsaLaneCandidate | Ed25519LaneCandidate,
+): FreshStepUpRequired['reason'] {
+  switch (candidate.state) {
+    case 'expired':
+      return 'threshold_session_expired';
+    case 'exhausted':
+      return 'threshold_session_exhausted';
+    case 'ready':
+    case 'restorable':
+    case 'deferred':
+      throw new Error('[SigningEngine] lane candidate does not require fresh auth');
+    default: {
+      const exhaustive: never = candidate.state;
+      return exhaustive;
+    }
+  }
 }
 
 function availableLaneServerIssuedGeneration(

@@ -89,8 +89,8 @@ import {
 import {
   requireRouterAbEd25519NormalSigningReadyState,
   type RouterAbEd25519NormalSigningReadyState,
-} from './routerAbWalletSessionCredential';
-import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
+} from '../../../session/warmCapabilities/routerAbWalletSessionCredential';
+import type { ResolvedRouterAbEd25519WalletSessionState } from '../../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { emitThresholdEd25519PresignMetric } from './ed25519PresignMetrics';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {

@@ -29,9 +29,11 @@ import {
   setLastUser as setLastUserValue,
   finalizeWalletEd25519SignerRegistration as finalizeWalletEd25519SignerRegistrationValue,
   storeWalletEd25519RegistrationData as storeWalletEd25519RegistrationDataValue,
+  storeWalletEd25519RecoveryRegistrationData as storeWalletEd25519RecoveryRegistrationDataValue,
   storeWalletEmailOtpEd25519RegistrationData as storeWalletEmailOtpEd25519RegistrationDataValue,
   storeWalletEmailOtpEcdsaRegistrationData as storeWalletEmailOtpEcdsaRegistrationDataValue,
   storeWalletEmailOtpEcdsaSignerRecords as storeWalletEmailOtpEcdsaSignerRecordsValue,
+  storeWalletEcdsaRecoverySignerRecords as storeWalletEcdsaRecoverySignerRecordsValue,
   finalizeWalletEcdsaRegistration as finalizeWalletEcdsaRegistrationValue,
   storeWalletEcdsaSignerRecords as storeWalletEcdsaSignerRecordsValue,
   storeAuthenticator as storeAuthenticatorValue,
@@ -166,6 +168,13 @@ export function storeWalletEd25519RegistrationData(
   return storeWalletEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
+export function storeWalletEd25519RecoveryRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEd25519RegistrationInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletEd25519RecoveryRegistrationDataValue(deps.accountLifecycle, args);
+}
+
 export function storeWalletEmailOtpEd25519RegistrationData(
   deps: RegistrationPublicDeps,
   args: StoreWalletEmailOtpEd25519RegistrationInput,
@@ -185,6 +194,13 @@ export function storeWalletEcdsaSignerRecords(
   args: StoreWalletEcdsaSignerRecordsInput,
 ): Promise<StoreWalletEcdsaSignerRecordsResult> {
   return storeWalletEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEcdsaRecoverySignerRecords(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEcdsaSignerRecordsInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEcdsaRecoverySignerRecordsValue(deps.accountLifecycle, args);
 }
 
 export function storeWalletEmailOtpEcdsaSignerRecords(

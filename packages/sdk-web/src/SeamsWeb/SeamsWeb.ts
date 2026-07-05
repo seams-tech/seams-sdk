@@ -49,6 +49,11 @@ import { sha256HexUtf8 } from '@shared/utils/digests';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import {
+  walletAuthAuthoritiesMatch,
+  type ActiveWalletSession,
+  type EmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
@@ -86,8 +91,11 @@ import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
-import type { EnrollEmailOtpInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
-import type { LoginWithEmailOtpEd25519CapabilityInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
+import type {
+  EnrollEmailOtpInternalResult,
+  LoginWithEmailOtpEd25519CapabilityInternalResult,
+  LoginWithEmailOtpEcdsaCapabilityInternalResult,
+} from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import {
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
@@ -103,7 +111,16 @@ import {
   parseExactEcdsaSigningLaneIdentity,
   parseExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
+import {
+  assertWalletRuntimePostconditions,
+  type WalletRuntimeInventory,
+} from '@/core/signingEngine/session/postconditions/runtimePostconditions';
+import {
+  buildOperationUsableThresholdEcdsaSessionRecord,
+  type EmailOtpEcdsaSessionRecord,
+  type OperationUsableThresholdEcdsaSessionRecord,
+  type OperationUsableThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -161,6 +178,392 @@ type InternalEmailOtpEd25519CapabilityArgs = {
   appSessionJwt?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
 };
+
+type EmailOtpUnlockActiveRuntimeState = {
+  kind: 'email_otp_unlock_active_runtime_state_v1';
+  inventory: WalletRuntimeInventory;
+};
+
+type EmailOtpUnlockActivationPlan =
+  | {
+      kind: 'email_otp_unlock_activation_plan_v1';
+      mode: 'near_ed25519';
+      activeSession: ActiveWalletSession;
+      ed25519: OperationUsableThresholdEd25519SessionRecord;
+      runtimeState: EmailOtpUnlockActiveRuntimeState;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'email_otp_unlock_activation_plan_v1';
+      mode: 'near_ed25519_with_evm_family_ecdsa';
+      activeSession: ActiveWalletSession;
+      ed25519: OperationUsableThresholdEd25519SessionRecord;
+      ecdsa: readonly [
+        OperationUsableThresholdEcdsaSessionRecord,
+        ...OperationUsableThresholdEcdsaSessionRecord[],
+      ];
+      runtimeState: EmailOtpUnlockActiveRuntimeState;
+    };
+
+type EmailOtpUnlockTimingBucket =
+  | 'resolveEd25519ReconstructionMs'
+  | 'emailOtpProofVerificationMs'
+  | 'appSessionExchangeMs'
+  | 'ed25519MaterialRestoreMs'
+  | 'ecdsaMaterialRestoreMs'
+  | 'signingSessionSealApplyMs'
+  | 'warmCapabilityPersistenceMs'
+  | 'activeRuntimeConstructionMs'
+  | 'emailHashLookupMs'
+  | 'workerUnlockAndSessionBootstrapMs'
+  | 'walletStateActivationMs'
+  | 'runtimePostconditionMs'
+  | 'walletIframeRoundTripMs';
+
+type EmailOtpUnlockTimingSummary = {
+  kind: 'email_otp_unlock_timing_summary_v1';
+  status: 'succeeded' | 'failed';
+  mode: 'near_ed25519' | 'near_ed25519_with_evm_family_ecdsa';
+  walletId: string;
+  prewarm: EmailOtpUnlockPrewarmSnapshot;
+  chainTarget?: ThresholdEcdsaChainTarget;
+  totalElapsedMs: number;
+  timings: Record<EmailOtpUnlockTimingBucket, number>;
+  topBuckets: { bucket: EmailOtpUnlockTimingBucket; durationMs: number }[];
+  errorMessage?: string;
+};
+
+type EmailOtpUnlockPrewarmScope =
+  | {
+      kind: 'global';
+      walletId?: never;
+      nearAccountId?: never;
+    }
+  | {
+      kind: 'near_account_bound';
+      walletId: string;
+      nearAccountId: string;
+    };
+
+type EmailOtpUnlockPrewarmRequest =
+  | {
+      kind: 'iframe_and_local_resources';
+    }
+  | {
+      kind: 'local_worker_resources';
+    };
+
+type EmailOtpUnlockPrewarmRecord =
+  | {
+      kind: 'none';
+      status?: never;
+      completedAtMs?: never;
+      request?: never;
+      scope?: never;
+    }
+  | {
+      kind: 'attempted';
+      status: 'succeeded' | 'failed';
+      completedAtMs: number;
+      request: EmailOtpUnlockPrewarmRequest;
+      scope: EmailOtpUnlockPrewarmScope;
+    };
+
+type EmailOtpUnlockPrewarmSnapshot =
+  | {
+      kind: 'not_prewarmed';
+      status?: never;
+      ageMs?: never;
+      completedAtMs?: never;
+      request?: never;
+      scope?: never;
+      walletMatches?: never;
+    }
+  | {
+      kind: 'prewarm_attempted';
+      status: 'succeeded' | 'failed';
+      ageMs: number;
+      completedAtMs: number;
+      request: EmailOtpUnlockPrewarmRequest;
+      scope: EmailOtpUnlockPrewarmScope;
+      walletMatches: boolean;
+    };
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function createEmailOtpUnlockTimings(): Record<EmailOtpUnlockTimingBucket, number> {
+  return {
+    resolveEd25519ReconstructionMs: 0,
+    emailOtpProofVerificationMs: 0,
+    appSessionExchangeMs: 0,
+    ed25519MaterialRestoreMs: 0,
+    ecdsaMaterialRestoreMs: 0,
+    signingSessionSealApplyMs: 0,
+    warmCapabilityPersistenceMs: 0,
+    activeRuntimeConstructionMs: 0,
+    emailHashLookupMs: 0,
+    workerUnlockAndSessionBootstrapMs: 0,
+    walletStateActivationMs: 0,
+    runtimePostconditionMs: 0,
+    walletIframeRoundTripMs: 0,
+  };
+}
+
+function recordEmailOtpUnlockTiming(
+  timings: Record<EmailOtpUnlockTimingBucket, number>,
+  bucket: EmailOtpUnlockTimingBucket,
+  startedAtMs: number,
+): void {
+  timings[bucket] += Math.max(0, Math.round(nowMs() - startedAtMs));
+}
+
+function recordEmailOtpUnlockElapsedTiming(
+  timings: Record<EmailOtpUnlockTimingBucket, number>,
+  bucket: EmailOtpUnlockTimingBucket,
+  durationMs: number,
+): void {
+  timings[bucket] += Math.max(0, Math.round(durationMs));
+}
+
+function logEmailOtpUnlockTimingSummary(input: {
+  status: EmailOtpUnlockTimingSummary['status'];
+  mode: EmailOtpUnlockTimingSummary['mode'];
+  walletId: string;
+  prewarm: EmailOtpUnlockPrewarmSnapshot;
+  startedAtMs: number;
+  timings: Record<EmailOtpUnlockTimingBucket, number>;
+  chainTarget?: ThresholdEcdsaChainTarget;
+  error?: unknown;
+}): void {
+  const entries = Object.entries(input.timings) as [EmailOtpUnlockTimingBucket, number][];
+  const topBuckets = entries
+    .filter(([, durationMs]) => durationMs > 0)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 5)
+    .map(([bucket, durationMs]) => ({ bucket, durationMs }));
+  const errorMessage =
+    input.error instanceof Error ? input.error.message : input.error ? String(input.error) : '';
+  const summary: EmailOtpUnlockTimingSummary = {
+    kind: 'email_otp_unlock_timing_summary_v1',
+    status: input.status,
+    mode: input.mode,
+    walletId: input.walletId,
+    prewarm: input.prewarm,
+    ...(input.chainTarget ? { chainTarget: input.chainTarget } : {}),
+    totalElapsedMs: Math.max(0, Math.round(nowMs() - input.startedAtMs)),
+    timings: input.timings,
+    topBuckets,
+    ...(errorMessage ? { errorMessage } : {}),
+  };
+  console.info('[EmailOtpUnlock] timing summary', summary);
+  console.info(`[EmailOtpUnlock] timing summary ${JSON.stringify(summary)}`);
+}
+
+function emailOtpUnlockPrewarmScopeFromBinding(
+  nearAccountBinding: NearAccountBinding | undefined,
+): EmailOtpUnlockPrewarmScope {
+  if (!nearAccountBinding) return { kind: 'global' };
+  return {
+    kind: 'near_account_bound',
+    walletId: String(nearAccountBinding.wallet.walletId),
+    nearAccountId: String(nearAccountBinding.nearAccountId),
+  };
+}
+
+function emailOtpUnlockPrewarmRequestFromOptions(
+  opts: SeamsWebPrewarmOptions | undefined,
+): EmailOtpUnlockPrewarmRequest | null {
+  if (opts?.iframe) return { kind: 'iframe_and_local_resources' };
+  if (opts?.workers) return { kind: 'local_worker_resources' };
+  return null;
+}
+
+function emailOtpUnlockPrewarmSnapshot(args: {
+  record: EmailOtpUnlockPrewarmRecord;
+  walletId: string;
+  nowMs: number;
+}): EmailOtpUnlockPrewarmSnapshot {
+  if (args.record.kind === 'none') {
+    return { kind: 'not_prewarmed' };
+  }
+  const scope = args.record.scope;
+  return {
+    kind: 'prewarm_attempted',
+    status: args.record.status,
+    completedAtMs: args.record.completedAtMs,
+    ageMs: Math.max(0, Math.round(args.nowMs - args.record.completedAtMs)),
+    request: args.record.request,
+    scope,
+    walletMatches: scope.kind === 'global' || scope.walletId === args.walletId,
+  };
+}
+
+function emailOtpUnlockActiveRuntimeState(
+  inventory: WalletRuntimeInventory,
+): EmailOtpUnlockActiveRuntimeState {
+  return {
+    kind: 'email_otp_unlock_active_runtime_state_v1',
+    inventory,
+  };
+}
+
+function requireEmailOtpAuthorityFromEd25519Record(
+  record: OperationUsableThresholdEd25519SessionRecord,
+): EmailOtpWalletAuthAuthority {
+  if (record.source !== 'email_otp' || !record.emailOtpAuthContext) {
+    throw new Error('Email OTP unlock Ed25519 current record is missing Email OTP authority');
+  }
+  return record.emailOtpAuthContext.authority;
+}
+
+function assertEmailOtpUnlockEcdsaRecord(
+  record: OperationUsableThresholdEcdsaSessionRecord,
+): asserts record is OperationUsableThresholdEcdsaSessionRecord & EmailOtpEcdsaSessionRecord {
+  if (record.source !== 'email_otp') {
+    throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
+  }
+  if (!record.emailOtpAuthContext) {
+    throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
+  }
+  if (!String(record.walletSessionJwt || '').trim()) {
+    throw new Error('Email OTP unlock ECDSA current record is missing bearer JWT');
+  }
+}
+
+function requireEmailOtpUnlockBearerJwt(value: string, label: string): string {
+  const jwt = String(value || '').trim();
+  if (!jwt) {
+    throw new Error(`Email OTP unlock ${label} current record is missing bearer JWT`);
+  }
+  return jwt;
+}
+
+function buildEmailOtpUnlockActiveSession(args: {
+  walletSession: WalletSessionRef;
+  ed25519: OperationUsableThresholdEd25519SessionRecord;
+  ecdsa: readonly OperationUsableThresholdEcdsaSessionRecord[];
+}): ActiveWalletSession {
+  const authority = requireEmailOtpAuthorityFromEd25519Record(args.ed25519);
+  if (authority.walletId !== args.walletSession.walletId) {
+    throw new Error('Email OTP unlock active session wallet id does not match wallet session');
+  }
+  const walletSessionJwt = requireEmailOtpUnlockBearerJwt(args.ed25519.walletSessionJwt, 'Ed25519');
+  for (const record of args.ecdsa) {
+    assertEmailOtpUnlockEcdsaRecord(record);
+    const ecdsaAuthority = record.emailOtpAuthContext.authority;
+    if (!walletAuthAuthoritiesMatch(authority, ecdsaAuthority)) {
+      throw new Error('Email OTP unlock ECDSA current record authority mismatch');
+    }
+    requireEmailOtpUnlockBearerJwt(record.walletSessionJwt, 'ECDSA');
+  }
+  return {
+    kind: 'active_wallet_session',
+    authority,
+    walletSessionJwt,
+  };
+}
+
+function buildEmailOtpEd25519UnlockActivationPlan(args: {
+  walletSession: WalletSessionRef;
+  result: LoginWithEmailOtpEd25519CapabilityInternalResult;
+  runtimeInventory: WalletRuntimeInventory;
+}): Extract<EmailOtpUnlockActivationPlan, { mode: 'near_ed25519' }> {
+  return {
+    kind: 'email_otp_unlock_activation_plan_v1',
+    mode: 'near_ed25519',
+    activeSession: buildEmailOtpUnlockActiveSession({
+      walletSession: args.walletSession,
+      ed25519: args.result.record,
+      ecdsa: [],
+    }),
+    ed25519: args.result.record,
+    runtimeState: emailOtpUnlockActiveRuntimeState(args.runtimeInventory),
+  };
+}
+
+function requireEmailOtpUnlockEcdsaCurrentRecord(
+  capability: LoginWithEmailOtpEcdsaCapabilityInternalResult['warmCapabilities'][number],
+): OperationUsableThresholdEcdsaSessionRecord {
+  const record = capability.record;
+  if (!record) {
+    throw new Error('Email OTP ECDSA unlock did not produce a current session record');
+  }
+  const currentRecord = buildOperationUsableThresholdEcdsaSessionRecord(record);
+  if (!currentRecord) {
+    throw new Error(
+      'Email OTP ECDSA unlock did not produce an operation-usable current session record',
+    );
+  }
+  return currentRecord;
+}
+
+function requireEmailOtpUnlockEcdsaCurrentRecords(
+  result: LoginWithEmailOtpEcdsaCapabilityInternalResult,
+): readonly [
+  OperationUsableThresholdEcdsaSessionRecord,
+  ...OperationUsableThresholdEcdsaSessionRecord[],
+] {
+  const currentRecords = result.warmCapabilities.map((capability) =>
+    requireEmailOtpUnlockEcdsaCurrentRecord(capability),
+  );
+  const [firstRecord, ...remainingRecords] = currentRecords;
+  if (!firstRecord) {
+    throw new Error('Email OTP ECDSA unlock did not produce any current session records');
+  }
+  return [firstRecord, ...remainingRecords];
+}
+
+function requireEmailOtpUnlockEd25519Reconstruction(
+  result: LoginWithEmailOtpEcdsaCapabilityInternalResult,
+): OperationUsableThresholdEd25519SessionRecord {
+  if (result.ed25519Reconstruction.kind !== 'completed') {
+    throw new Error(
+      `Email OTP ECDSA unlock did not produce an Ed25519 current session: ${result.ed25519Reconstruction.reason}`,
+    );
+  }
+  return result.ed25519Reconstruction.sessionMaterial.record;
+}
+
+function buildEmailOtpEcdsaUnlockActivationPlan(args: {
+  walletSession: WalletSessionRef;
+  result: LoginWithEmailOtpEcdsaCapabilityInternalResult;
+  runtimeInventory: WalletRuntimeInventory;
+}): Extract<EmailOtpUnlockActivationPlan, { mode: 'near_ed25519_with_evm_family_ecdsa' }> {
+  const ed25519 = requireEmailOtpUnlockEd25519Reconstruction(args.result);
+  const ecdsa = requireEmailOtpUnlockEcdsaCurrentRecords(args.result);
+  return {
+    kind: 'email_otp_unlock_activation_plan_v1',
+    mode: 'near_ed25519_with_evm_family_ecdsa',
+    activeSession: buildEmailOtpUnlockActiveSession({
+      walletSession: args.walletSession,
+      ed25519,
+      ecdsa,
+    }),
+    ed25519,
+    ecdsa,
+    runtimeState: emailOtpUnlockActiveRuntimeState(args.runtimeInventory),
+  };
+}
+
+function logEmailOtpUnlockActivationPlan(plan: EmailOtpUnlockActivationPlan): void {
+  console.info('[EmailOtpUnlock] activation plan constructed', {
+    kind: plan.kind,
+    mode: plan.mode,
+    walletId: plan.activeSession.authority.walletId,
+    authorityBindingId: plan.activeSession.authority.bindingId,
+    ed25519ThresholdSessionId: plan.ed25519.thresholdSessionId,
+    ed25519SigningGrantId: plan.ed25519.signingGrantId,
+    ecdsaThresholdSessionIds:
+      plan.mode === 'near_ed25519_with_evm_family_ecdsa'
+        ? plan.ecdsa.map((record) => record.thresholdSessionId)
+        : [],
+    runtimeTargetCount: plan.runtimeState.inventory.ecdsaByTarget.size,
+  });
+}
 
 type SeamsWebPrewarmOptions =
   | {
@@ -274,7 +677,7 @@ async function resolveEmailOtpEd25519SessionReconstruction(args: {
 }
 
 type EmailOtpEd25519KeyIdentity = {
-  source: 'wallet_profile_signer';
+  source: 'wallet_account_signer' | 'wallet_profile_signer';
   ed25519Key: {
     signer: NearEd25519SignerBinding;
     relayerKeyId: string;
@@ -282,6 +685,20 @@ type EmailOtpEd25519KeyIdentity = {
     participantIds: number[];
   };
 };
+
+function walletAccountChainIdKey(): string {
+  return 'wallet';
+}
+
+async function listEmailOtpEd25519WalletAccountSigners(
+  walletId: WalletId,
+): Promise<Awaited<ReturnType<typeof IndexedDBManager.listAccountSigners>>> {
+  return await IndexedDBManager.listAccountSigners({
+    chainIdKey: walletAccountChainIdKey(),
+    accountAddress: String(walletId),
+    status: 'active',
+  }).catch(() => []);
+}
 
 function normalizeParticipantIds(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
@@ -387,6 +804,14 @@ function accountSignerDiagnosticSummary(
 async function resolveEmailOtpEd25519KeyIdentity(
   walletId: WalletId,
 ): Promise<EmailOtpEd25519KeyIdentity | null> {
+  const walletAccountSigners = await listEmailOtpEd25519WalletAccountSigners(walletId);
+  const walletAccountIdentity = findEmailOtpEd25519KeyIdentityFromSigners(
+    walletAccountSigners,
+    'wallet_account_signer',
+    walletId,
+  );
+  if (walletAccountIdentity) return walletAccountIdentity;
+
   const walletProfileSigners = await IndexedDBManager.listAccountSignersByProfile({
     profileId: String(walletId),
     status: 'active',
@@ -400,6 +825,8 @@ async function resolveEmailOtpEd25519KeyIdentity(
 
   console.warn('[SeamsWeb][email-otp] Ed25519 key identity lookup failed', {
     walletId,
+    walletAccountSignerCount: walletAccountSigners.length,
+    walletAccountSigners: accountSignerDiagnosticSummary(walletAccountSigners),
     walletProfileSignerCount: walletProfileSigners.length,
     walletProfileSigners: accountSignerDiagnosticSummary(walletProfileSigners),
   });
@@ -527,6 +954,7 @@ export class SeamsWeb {
   readonly tempo: TempoSignerCapability;
   readonly evm: EvmSignerCapability;
   private readonly walletIframeControls: WalletIframeControlCapability;
+  private emailOtpUnlockPrewarmRecord: EmailOtpUnlockPrewarmRecord = { kind: 'none' };
 
   constructor(configs: SeamsConfigsInput, nearClient?: NearClient) {
     this.configs = buildConfigsFromEnv(configs);
@@ -590,8 +1018,13 @@ export class SeamsWeb {
                   relayUrl: prepareArgs.relayUrl,
                   walletId: walletIdFromString(prepareArgs.walletId),
                   userId: prepareArgs.userId,
-                  evmFamilySigningKeySlotId: prepareArgs.evmFamilySigningKeySlotId,
                   appSessionJwt: prepareArgs.appSessionJwt,
+                  ...(prepareArgs.ecdsaMaterial.kind === 'requested'
+                    ? {
+                        kind: 'ecdsa_root_requested' as const,
+                        targets: prepareArgs.ecdsaMaterial.targets,
+                      }
+                    : { kind: 'ecdsa_root_not_requested' as const }),
                 }),
               registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
               startWalletRegistrationPrecompute: (registerArgs) => {
@@ -779,6 +1212,8 @@ export class SeamsWeb {
     const iframe = !!opts?.iframe;
     const workers = !!opts?.workers;
     const nearAccountBinding = resolvePrewarmNearAccountBinding(opts);
+    const prewarmRequest = emailOtpUnlockPrewarmRequestFromOptions(opts);
+    const prewarmScope = emailOtpUnlockPrewarmScopeFromBinding(nearAccountBinding);
 
     const tasks: Promise<unknown>[] = [];
 
@@ -797,10 +1232,21 @@ export class SeamsWeb {
     }
 
     if (tasks.length === 0) return;
+    let status: Extract<EmailOtpUnlockPrewarmRecord, { kind: 'attempted' }>['status'] = 'succeeded';
     try {
       await Promise.all(tasks);
     } catch {
+      status = 'failed';
       // Best-effort: swallow errors so prewarm never breaks app flows
+    }
+    if (prewarmRequest) {
+      this.emailOtpUnlockPrewarmRecord = {
+        kind: 'attempted',
+        status,
+        completedAtMs: Date.now(),
+        request: prewarmRequest,
+        scope: prewarmScope,
+      };
     }
   }
 
@@ -1381,6 +1827,7 @@ export class SeamsWeb {
     onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
   }): Promise<Awaited<ReturnType<typeof exchangeGoogleEmailOtpSession>>> {
     const exchangeFlowId = `email-otp-${args.accountMode}:google-session`;
+    const exchangeStartedAtMs = nowMs();
     if (args.accountMode === 'register') {
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId: exchangeFlowId,
@@ -1419,6 +1866,9 @@ export class SeamsWeb {
             authMethod: 'email_otp',
             phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
             status: 'succeeded',
+            data: {
+              appSessionExchangeMs: Math.max(0, Math.round(nowMs() - exchangeStartedAtMs)),
+            },
           });
         }
         return result;
@@ -1456,6 +1906,9 @@ export class SeamsWeb {
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
           status: 'succeeded',
+          data: {
+            appSessionExchangeMs: Math.max(0, Math.round(nowMs() - exchangeStartedAtMs)),
+          },
         });
       }
       return result;
@@ -1747,11 +2200,19 @@ export class SeamsWeb {
   }
 
   private async emailOtpEmailHashHex(email: string | undefined): Promise<string> {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = String(email || '')
+      .trim()
+      .toLowerCase();
     if (!normalizedEmail) {
       throw new Error('[SeamsWeb][email-otp] verified email is required for auth-method hash');
     }
     return sha256HexUtf8(normalizedEmail);
+  }
+
+  async loginWithEmailOtpEd25519CapabilityForWalletIframe(
+    args: InternalEmailOtpEd25519CapabilityArgs,
+  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
+    return await this.loginWithEmailOtpEd25519CapabilityDomain(args);
   }
 
   private async loginWithEmailOtpEd25519CapabilityDomain(
@@ -1759,6 +2220,13 @@ export class SeamsWeb {
   ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
     const walletId = args.walletSession.walletId;
     const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);
+    const unlockStartedAtMs = nowMs();
+    const unlockTimings = createEmailOtpUnlockTimings();
+    const prewarm = emailOtpUnlockPrewarmSnapshot({
+      record: this.emailOtpUnlockPrewarmRecord,
+      walletId,
+      nowMs: Date.now(),
+    });
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
       accountId: walletId,
@@ -1769,29 +2237,143 @@ export class SeamsWeb {
       ...(args.challengeId ? { requestId: args.challengeId } : {}),
     });
     try {
+      if (this.walletIframe.shouldUseWalletIframe()) {
+        const router = await this.walletIframe.requireRouter(walletId);
+        const iframeArgs = { ...args };
+        delete iframeArgs.onEvent;
+        const iframeStartedAtMs = nowMs();
+        const result = await router.loginWithEmailOtpEd25519Capability(iframeArgs);
+        const walletIframeRoundTripMs = nowMs() - iframeStartedAtMs;
+        recordEmailOtpUnlockElapsedTiming(
+          unlockTimings,
+          'walletIframeRoundTripMs',
+          walletIframeRoundTripMs,
+        );
+        const runtimeInventory = await assertWalletRuntimePostconditions({
+          source: 'wallet_unlock',
+          walletId,
+          authMethod: 'email_otp',
+          requiredTargets: [{ curve: 'ed25519' }],
+          readPersistedAvailableSigningLanes: async (input) =>
+            await this.signingEngine.readPersistedAvailableSigningLanes(input),
+        });
+        logEmailOtpUnlockActivationPlan(
+          buildEmailOtpEd25519UnlockActivationPlan({
+            walletSession: args.walletSession,
+            result,
+            runtimeInventory,
+          }),
+        );
+        logEmailOtpUnlockTimingSummary({
+          status: 'succeeded',
+          mode: 'near_ed25519',
+          walletId,
+          prewarm,
+          startedAtMs: unlockStartedAtMs,
+          timings: unlockTimings,
+        });
+        this.emitEmailOtpUnlockEvent(args.onEvent, {
+          flowId,
+          accountId: walletId,
+          authMethod: 'email_otp',
+          phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
+          status: 'succeeded',
+          interaction: { kind: 'otp_input', overlay: 'hide' },
+          ...(args.challengeId ? { requestId: args.challengeId } : {}),
+        });
+        this.emitEmailOtpUnlockEvent(args.onEvent, {
+          flowId,
+          accountId: walletId,
+          authMethod: 'email_otp',
+          phase: UnlockEventPhase.STEP_07_COMPLETED,
+          status: 'succeeded',
+          ...(args.challengeId ? { requestId: args.challengeId } : {}),
+        });
+        return result;
+      }
+      let timingStartedAtMs = nowMs();
       const ed25519SessionReconstruction = await resolveEmailOtpEd25519SessionReconstruction(args);
+      const ed25519ReconstructionMs = nowMs() - timingStartedAtMs;
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'resolveEd25519ReconstructionMs',
+        ed25519ReconstructionMs,
+      );
       if (ed25519SessionReconstruction.kind !== 'reconstruct') {
         throw new Error(
           `[SeamsWeb][email-otp] Ed25519-only login cannot reconstruct signing session: ${ed25519SessionReconstruction.reason}`,
         );
       }
+      timingStartedAtMs = nowMs();
       const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(walletId);
+      recordEmailOtpUnlockTiming(unlockTimings, 'emailHashLookupMs', timingStartedAtMs);
+      timingStartedAtMs = nowMs();
       const result = await this.signingEngine.loginWithEmailOtpEd25519CapabilityInternal({
         ...args,
         emailHashHex,
         ed25519SessionReconstruction,
       });
+      const workerUnlockMs = nowMs() - timingStartedAtMs;
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'workerUnlockAndSessionBootstrapMs',
+        workerUnlockMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'emailOtpProofVerificationMs',
+        result.timings.emailOtpProofVerificationMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'ed25519MaterialRestoreMs',
+        result.timings.ed25519MaterialRestoreMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'warmCapabilityPersistenceMs',
+        result.timings.warmCapabilityPersistenceMs,
+      );
+      timingStartedAtMs = nowMs();
       await this.activateEmailOtpWalletAfterUnlock({
         walletId,
         signer: ed25519SessionReconstruction.ed25519Key.signer,
       });
-      await assertWalletRuntimePostconditions({
+      recordEmailOtpUnlockTiming(unlockTimings, 'walletStateActivationMs', timingStartedAtMs);
+      timingStartedAtMs = nowMs();
+      const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
         authMethod: 'email_otp',
         requiredTargets: [{ curve: 'ed25519' }],
         readPersistedAvailableSigningLanes: async (input) =>
           await this.signingEngine.readPersistedAvailableSigningLanes(input),
+      });
+      logEmailOtpUnlockActivationPlan(
+        buildEmailOtpEd25519UnlockActivationPlan({
+          walletSession: args.walletSession,
+          result,
+          runtimeInventory,
+        }),
+      );
+      const activeRuntimeConstructionMs = nowMs() - timingStartedAtMs;
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'runtimePostconditionMs',
+        activeRuntimeConstructionMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTimings,
+        'activeRuntimeConstructionMs',
+        activeRuntimeConstructionMs,
+      );
+      logEmailOtpUnlockTimingSummary({
+        status: 'succeeded',
+        mode: 'near_ed25519',
+        walletId,
+        prewarm,
+        startedAtMs: unlockStartedAtMs,
+        timings: unlockTimings,
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
@@ -1813,6 +2395,15 @@ export class SeamsWeb {
       return result;
     } catch (error: unknown) {
       const e = toError(error);
+      logEmailOtpUnlockTimingSummary({
+        status: 'failed',
+        mode: 'near_ed25519',
+        walletId,
+        prewarm,
+        startedAtMs: unlockStartedAtMs,
+        timings: unlockTimings,
+        error: e,
+      });
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
         accountId: walletId,
@@ -1830,6 +2421,15 @@ export class SeamsWeb {
     const walletId = args.walletSession.walletId;
     const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(args.chainTarget, 'Email OTP ECDSA unlock');
+    const unlockTiming = {
+      startedAtMs: nowMs(),
+      timings: createEmailOtpUnlockTimings(),
+    };
+    const prewarm = emailOtpUnlockPrewarmSnapshot({
+      record: this.emailOtpUnlockPrewarmRecord,
+      walletId,
+      nowMs: Date.now(),
+    });
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
       accountId: walletId,
@@ -1844,7 +2444,23 @@ export class SeamsWeb {
         const router = await this.walletIframe.requireRouter(walletId);
         const iframeArgs = { ...args, chainTarget };
         delete iframeArgs.onEvent;
+        const iframeStartedAtMs = nowMs();
         const result = await router.loginWithEmailOtpEcdsaCapability(iframeArgs);
+        const walletIframeRoundTripMs = nowMs() - iframeStartedAtMs;
+        recordEmailOtpUnlockElapsedTiming(
+          unlockTiming.timings,
+          'walletIframeRoundTripMs',
+          walletIframeRoundTripMs,
+        );
+        logEmailOtpUnlockTimingSummary({
+          status: 'succeeded',
+          mode: 'near_ed25519_with_evm_family_ecdsa',
+          walletId,
+          prewarm,
+          chainTarget,
+          startedAtMs: unlockTiming.startedAtMs,
+          timings: unlockTiming.timings,
+        });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
           accountId: walletId,
@@ -1888,8 +2504,18 @@ export class SeamsWeb {
         if (workerProgressPhases.has(input.phase)) return;
         this.emitEmailOtpUnlockEvent(args.onEvent, input);
       };
+      let timingStartedAtMs = nowMs();
       const ed25519SessionReconstruction = await resolveEmailOtpEd25519SessionReconstruction(args);
+      const ed25519ReconstructionMs = nowMs() - timingStartedAtMs;
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'resolveEd25519ReconstructionMs',
+        ed25519ReconstructionMs,
+      );
+      timingStartedAtMs = nowMs();
       const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(walletId);
+      recordEmailOtpUnlockTiming(unlockTiming.timings, 'emailHashLookupMs', timingStartedAtMs);
+      timingStartedAtMs = nowMs();
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
@@ -1900,6 +2526,38 @@ export class SeamsWeb {
         providerIdentity: { kind: 'derive_from_route_auth' },
         onProgress: markWorkerProgress,
       });
+      const workerUnlockMs = nowMs() - timingStartedAtMs;
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'workerUnlockAndSessionBootstrapMs',
+        workerUnlockMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'emailOtpProofVerificationMs',
+        result.timings.emailOtpProofVerificationMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'ecdsaMaterialRestoreMs',
+        result.timings.ecdsaMaterialRestoreMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'signingSessionSealApplyMs',
+        result.timings.signingSessionSealApplyMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'warmCapabilityPersistenceMs',
+        result.timings.warmCapabilityPersistenceMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'ed25519MaterialRestoreMs',
+        result.timings.ed25519MaterialRestoreMs,
+      );
+      timingStartedAtMs = nowMs();
       await this.activateEmailOtpWalletAfterUnlock({
         walletId,
         signer:
@@ -1908,7 +2566,13 @@ export class SeamsWeb {
             ? ed25519SessionReconstruction.ed25519Key.signer
             : undefined,
       });
-      await assertWalletRuntimePostconditions({
+      recordEmailOtpUnlockTiming(
+        unlockTiming.timings,
+        'walletStateActivationMs',
+        timingStartedAtMs,
+      );
+      timingStartedAtMs = nowMs();
+      const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
         authMethod: 'email_otp',
@@ -1921,6 +2585,33 @@ export class SeamsWeb {
         ],
         readPersistedAvailableSigningLanes: async (input) =>
           await this.signingEngine.readPersistedAvailableSigningLanes(input),
+      });
+      logEmailOtpUnlockActivationPlan(
+        buildEmailOtpEcdsaUnlockActivationPlan({
+          walletSession: args.walletSession,
+          result,
+          runtimeInventory,
+        }),
+      );
+      const activeRuntimeConstructionMs = nowMs() - timingStartedAtMs;
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'runtimePostconditionMs',
+        activeRuntimeConstructionMs,
+      );
+      recordEmailOtpUnlockElapsedTiming(
+        unlockTiming.timings,
+        'activeRuntimeConstructionMs',
+        activeRuntimeConstructionMs,
+      );
+      logEmailOtpUnlockTimingSummary({
+        status: 'succeeded',
+        mode: 'near_ed25519_with_evm_family_ecdsa',
+        walletId,
+        prewarm,
+        chainTarget,
+        startedAtMs: unlockTiming.startedAtMs,
+        timings: unlockTiming.timings,
       });
       emitIfWorkerProgressMissing({
         flowId,
@@ -1951,6 +2642,16 @@ export class SeamsWeb {
       return result;
     } catch (error: unknown) {
       const e = toError(error);
+      logEmailOtpUnlockTimingSummary({
+        status: 'failed',
+        mode: 'near_ed25519_with_evm_family_ecdsa',
+        walletId,
+        prewarm,
+        chainTarget,
+        startedAtMs: unlockTiming.startedAtMs,
+        timings: unlockTiming.timings,
+        error: e,
+      });
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
         accountId: walletId,

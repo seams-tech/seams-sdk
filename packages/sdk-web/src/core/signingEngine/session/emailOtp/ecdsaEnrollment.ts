@@ -33,6 +33,8 @@ import {
 import {
   commitEmailOtpEcdsaPublicationBootstraps,
   emailOtpEcdsaPublicationChainTargets,
+  emailOtpEcdsaPublicationTargetPlans,
+  type EmailOtpEcdsaPublicationTimings,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
@@ -51,6 +53,7 @@ export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+  timings: EmailOtpEcdsaPublicationTimings;
 };
 
 export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
@@ -249,11 +252,21 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
     walletId: args.walletSession.walletId,
     runtimePolicyScope: registrationInput.runtimePolicyScope,
+    chainTarget,
   });
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
     chainTarget,
     emailOtpAuthContext,
+  });
+  const registrationKeyHandle =
+    registrationInput.keyMode === 'existing_role_local_key' ? registrationInput.keyHandle : '';
+  const publicationTargetPlans = emailOtpEcdsaPublicationTargetPlans({
+    walletId: args.walletSession.walletId,
+    runtimePolicyScope: registrationInput.runtimePolicyScope,
+    chainTarget,
+    publicationChainTargets,
+    ...(registrationKeyHandle ? { keyHandle: registrationKeyHandle } : {}),
   });
   const enrollment = await enrollEmailOtpWalletWithRoutePlan({
     relayUrl,
@@ -280,13 +293,9 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
     userId: emailOtpProviderUserId,
-    evmFamilySigningKeySlotId,
     clientRootShareHandle: enrollment.clientRootShareHandle,
     chainTarget,
-    publicationChainTargets,
-    ...(registrationInput.keyMode === 'existing_role_local_key'
-      ? { keyHandle: registrationInput.keyHandle }
-      : {}),
+    publicationTargetPlans,
     runtimePolicyScope: registrationInput.runtimePolicyScope,
     ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
       ? { participantIds: args.participantIds }
@@ -301,7 +310,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
           ...bootstrapPayloadBase,
           sessionKind: 'jwt',
           routeAuth: registrationInput.routeAuth,
-          keyHandle: registrationInput.keyHandle,
         }
       : {
           ...bootstrapPayloadBase,
@@ -317,7 +325,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       onEvent: args.onProgress,
     },
   });
-  const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
+  const { bootstrap, warmCapability, timings } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: args.walletSession.walletId,
       publicationChainTargets,
@@ -333,5 +341,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     enrollment,
     bootstrap,
     warmCapability,
+    timings,
   };
 }

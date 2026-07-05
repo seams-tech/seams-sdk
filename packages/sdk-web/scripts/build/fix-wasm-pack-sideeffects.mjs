@@ -2,10 +2,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-function toPosixPath(filePath) {
-  return filePath.split(path.sep).join('/');
-}
-
 async function fileExists(filePath) {
   try {
     await fs.access(filePath);
@@ -13,22 +9,6 @@ async function fileExists(filePath) {
   } catch {
     return false;
   }
-}
-
-async function listFilesRecursively(rootDir) {
-  const entries = await fs.readdir(rootDir, { withFileTypes: true });
-  const files = [];
-
-  for (const entry of entries) {
-    const fullPath = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await listFilesRecursively(fullPath)));
-    } else if (entry.isFile()) {
-      files.push(fullPath);
-    }
-  }
-
-  return files;
 }
 
 function hasUnsupportedSideEffectsGlobs(sideEffects) {
@@ -47,28 +27,7 @@ async function fixPkgDir(pkgDir) {
 
   if (!hasUnsupportedSideEffectsGlobs(parsed.sideEffects)) return;
 
-  const snippetsDir = path.join(pkgDir, 'snippets');
-  if (!(await fileExists(snippetsDir))) {
-    parsed.sideEffects = false;
-    await fs.writeFile(packageJsonPath, `${JSON.stringify(parsed, null, 2)}\n`);
-    return;
-  }
-
-  const files = await listFilesRecursively(snippetsDir);
-  const sideEffectFiles = Array.from(
-    new Set(
-      files
-        .map((absoluteFile) => {
-          const rel = path.relative(pkgDir, absoluteFile);
-          const relPosix = toPosixPath(rel);
-          if (!relPosix.startsWith('snippets/')) return null;
-          return `./${relPosix}`;
-        })
-        .filter(Boolean),
-    ),
-  ).sort();
-
-  parsed.sideEffects = sideEffectFiles.length > 0 ? sideEffectFiles : false;
+  parsed.sideEffects = false;
   await fs.writeFile(packageJsonPath, `${JSON.stringify(parsed, null, 2)}\n`);
 }
 

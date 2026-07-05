@@ -4,6 +4,10 @@ import {
 } from '../../core/d1WalletAuthMethodStore';
 import { D1WalletStore, type WalletStore } from '../../core/d1WalletStore';
 import { D1IdentityStore } from '../../core/d1IdentityStore';
+import { D1EmailRecoveryPreparationStore } from '../../core/EmailRecoveryPreparationStore';
+import { D1RecoverySessionStore } from '../../core/RecoverySessionStore';
+import { D1WebAuthnAuthenticatorStore } from '../../core/WebAuthnAuthenticatorStore';
+import { D1WebAuthnCredentialBindingStore } from '../../core/WebAuthnCredentialBindingStore';
 import type { IdentityStore, LinkIdentityResult } from '../../core/IdentityStore';
 import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
 import type {
@@ -11,7 +15,11 @@ import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from '../../core/types';
+import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
 import type { RouterApiServiceBag } from '../authServicePort';
+import type {
+  RouterApiEmailRecoveryAuthService,
+} from '../routerApi';
 import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
@@ -76,6 +84,7 @@ type CloudflareD1RouterApiLazyStoreState = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
   walletStore: WalletStore | null;
   walletAuthMethodStore: WalletAuthMethodStore | null;
+  webAuthnCredentialBindingStore: D1WebAuthnCredentialBindingStore | null;
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
 
@@ -148,6 +157,11 @@ type D1NearFundingRouteServiceAssembly = Pick<
 
 type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'sessionService'>;
 
+type D1EmailRecoveryAuthServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'options' | 'thresholdSigning'
+>;
+
 type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
   'thresholdSigning'
@@ -179,6 +193,7 @@ function createLazyStoreState(
     options,
     walletStore: null,
     walletAuthMethodStore: null,
+    webAuthnCredentialBindingStore: null,
     registrationCeremonyIntentStore: null,
   };
 }
@@ -221,6 +236,21 @@ function getWalletStoreForState(state: CloudflareD1RouterApiLazyStoreState): Wal
   return state.walletStore;
 }
 
+function getWebAuthnCredentialBindingStoreForState(
+  state: CloudflareD1RouterApiLazyStoreState,
+): D1WebAuthnCredentialBindingStore {
+  if (state.webAuthnCredentialBindingStore) return state.webAuthnCredentialBindingStore;
+  state.webAuthnCredentialBindingStore = new D1WebAuthnCredentialBindingStore({
+    database: state.options.database,
+    namespace: state.options.namespace,
+    orgId: state.options.orgId,
+    projectId: state.options.projectId,
+    envId: state.options.envId,
+    ensureSchema: false,
+  });
+  return state.webAuthnCredentialBindingStore;
+}
+
 function scopePrepareForOptions(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
   sql: string,
@@ -234,6 +264,83 @@ function scopeValuesForOptions(
   values: readonly unknown[],
 ): readonly unknown[] {
   return [options.namespace, options.orgId, options.projectId, options.envId, ...values];
+}
+
+async function ensureD1EmailRecoverySignerRuntimeReady(): Promise<void> {}
+
+class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuthService {
+  private readonly operations: EmailRecoveryAuthOperations;
+
+  constructor(assembly: D1EmailRecoveryAuthServiceAssembly) {
+    const options = assembly.options;
+    this.operations = new EmailRecoveryAuthOperations({
+      ensureSignerAndRelayerAccount: ensureD1EmailRecoverySignerRuntimeReady,
+      getThresholdSigningService:
+        assembly.thresholdSigning.getThresholdSigningService.bind(assembly.thresholdSigning),
+      getDefaultRuntimePolicyScope: () => ({
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+        signingRootVersion: 'default',
+      }),
+      webAuthnAuthenticatorStore: new D1WebAuthnAuthenticatorStore({
+        database: options.database,
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+        ensureSchema: false,
+      }),
+      webAuthnCredentialBindingStore: new D1WebAuthnCredentialBindingStore({
+        database: options.database,
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+        ensureSchema: false,
+      }),
+      emailRecoveryPreparationStore: new D1EmailRecoveryPreparationStore({
+        database: options.database,
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+        ensureSchema: false,
+      }),
+      recoverySessionStore: new D1RecoverySessionStore({
+        database: options.database,
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+        ensureSchema: false,
+      }),
+    });
+  }
+
+  async prepareEmailRecovery(
+    request: Parameters<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']>[0],
+  ): ReturnType<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']> {
+    return await this.operations.prepareEmailRecovery(request);
+  }
+
+  async respondEmailRecoveryEd25519(
+    request: Parameters<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEd25519']>[0],
+  ): ReturnType<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEd25519']> {
+    return await this.operations.respondEmailRecoveryEd25519(request);
+  }
+
+  async finalizeEmailRecoveryEd25519(
+    request: Parameters<RouterApiEmailRecoveryAuthService['finalizeEmailRecoveryEd25519']>[0],
+  ): ReturnType<RouterApiEmailRecoveryAuthService['finalizeEmailRecoveryEd25519']> {
+    return await this.operations.finalizeEmailRecoveryEd25519(request);
+  }
+
+  async respondEmailRecoveryEcdsa(
+    request: Parameters<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEcdsa']>[0],
+  ): ReturnType<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEcdsa']> {
+    return await this.operations.respondEmailRecoveryEcdsa(request);
+  }
 }
 
 async function fundImplicitNearAccountForOptions(
@@ -303,6 +410,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStoreForState.bind(undefined, lazyStores);
   const getWalletAuthMethodStore = getWalletAuthMethodStoreForState.bind(undefined, lazyStores);
   const getWalletStore = getWalletStoreForState.bind(undefined, lazyStores);
+  const getWebAuthnCredentialBindingStore =
+    getWebAuthnCredentialBindingStoreForState.bind(undefined, lazyStores);
   const createSponsoredNamedNearAccount =
     createSponsoredNamedNearAccountForOptions.bind(undefined, options);
 
@@ -411,6 +520,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getThresholdSigningService: thresholdSigning.getThresholdSigningService.bind(thresholdSigning),
     getWalletStore,
+    getWebAuthnCredentialBindingStore,
     walletAuthMethods,
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
@@ -731,6 +841,12 @@ function createD1RecoveryRouteService(
   };
 }
 
+function createD1EmailRecoveryAuthService(
+  assembly: D1EmailRecoveryAuthServiceAssembly,
+): RouterApiEmailRecoveryAuthService {
+  return new CloudflareD1EmailRecoveryAuthService(assembly);
+}
+
 function createD1RouterAccountRouteService(
   assembly: D1RouterAccountRouteServiceAssembly,
 ): RouterApiServiceBag['router'] {
@@ -758,4 +874,11 @@ export function createCloudflareD1RouterApiAuthService(
     recovery: createD1RecoveryRouteService(assembly),
     router: createD1RouterAccountRouteService(assembly),
   };
+}
+
+export function createCloudflareD1RouterApiEmailRecoveryAuthService(
+  input: CloudflareD1RouterApiAuthServiceOptions,
+): RouterApiEmailRecoveryAuthService {
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
+  return createD1EmailRecoveryAuthService(assembly);
 }

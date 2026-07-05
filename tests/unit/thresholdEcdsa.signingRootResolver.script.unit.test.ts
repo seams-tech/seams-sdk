@@ -12,7 +12,9 @@ import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts
 import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
+import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
 
 type ThresholdPrfFixtureShare = {
   readonly id: number;
@@ -53,7 +55,12 @@ const ECDSA_CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
   walletId: 'alice.near',
-  walletKeyId: 'wallet-key-alice',
+  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+    walletId: 'alice.near',
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
+    chainTargetKey: thresholdEcdsaChainTargetKey(ECDSA_CHAIN_TARGET),
+  }),
   chainTarget: ECDSA_CHAIN_TARGET,
   ecdsaThresholdKeyId: 'ecdsa-alpha',
   keyPurpose: 'wallet',
@@ -160,7 +167,7 @@ async function roleLocalBootstrapWithClientShare(args: {
   return await args.service.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId: ECDSA_CONTEXT.walletId,
-    walletKeyId: ECDSA_CONTEXT.walletKeyId,
+    evmFamilySigningKeySlotId: ECDSA_CONTEXT.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -277,7 +284,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    walletKeyId: ECDSA_CONTEXT.walletKeyId,
+    evmFamilySigningKeySlotId: ECDSA_CONTEXT.evmFamilySigningKeySlotId,
     clientPublicKey33B64u,
   });
   expect(first.ok).toBe(true);
@@ -291,7 +298,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    walletKeyId: ECDSA_CONTEXT.walletKeyId,
+    evmFamilySigningKeySlotId: ECDSA_CONTEXT.evmFamilySigningKeySlotId,
     clientPublicKey33B64u,
     expectedEthereumAddress: first.canonicalEthereumAddress,
   });
@@ -307,7 +314,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    walletKeyId: ECDSA_CONTEXT.walletKeyId,
+    evmFamilySigningKeySlotId: ECDSA_CONTEXT.evmFamilySigningKeySlotId,
     clientPublicKey33B64u,
     expectedEthereumAddress: `0x${'11'.repeat(20)}`,
   });

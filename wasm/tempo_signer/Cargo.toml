@@ -3,7 +3,6 @@ name = "tempo_signer"
 version = "0.1.0"
 edition = "2021"
 description = "Tempo transaction hashing/encoding (WASM)"
-repository = "https://github.com/web3-authn/sdk"
 license = "Apache-2.0"
 
 [package.metadata.wasm-pack.profile.release]

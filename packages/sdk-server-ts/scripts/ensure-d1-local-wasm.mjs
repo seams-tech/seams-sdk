@@ -21,15 +21,21 @@ const requiredArtifacts = [
 ];
 
 const missingArtifacts = requiredArtifacts.filter((artifact) => !existsSync(join(repoRoot, artifact)));
+const autoBuildMissingArtifacts = process.env.SEAMS_D1_LOCAL_WASM_AUTO_BUILD !== '0';
 
 if (missingArtifacts.length === 0) {
   process.exit(0);
 }
 
-console.log('[d1-local] Missing generated WASM artifacts:');
-for (const artifact of missingArtifacts) {
-  console.log(`[d1-local] - ${artifact}`);
+printMissingArtifacts();
+
+if (!autoBuildMissingArtifacts) {
+  console.error(
+    '[d1-local] WASM auto-build is disabled; run pnpm -C packages/sdk-web run build:wasm.',
+  );
+  process.exit(1);
 }
+
 console.log('[d1-local] Building WASM artifacts with pnpm -C packages/sdk-web run build:wasm...');
 
 const result = spawnSync('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:wasm'], {
@@ -49,3 +55,10 @@ if (result.signal) {
 }
 
 process.exit(result.status ?? 1);
+
+function printMissingArtifacts() {
+  console.log('[d1-local] Missing generated WASM artifacts:');
+  for (const artifact of missingArtifacts) {
+    console.log(`[d1-local] - ${artifact}`);
+  }
+}

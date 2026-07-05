@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SDK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SDK_ROOT/build-paths.sh"
 source "$SCRIPT_DIR/wasm-toolchain.sh"
+source "$SCRIPT_DIR/build-output-lock.sh"
 cd "$SDK_ROOT"
 
 echo "Starting WASM build for @seams/sdk..."
@@ -46,10 +47,20 @@ esac
 
 require_file() {
   local path="$1"
-  if [ ! -f "$path" ]; then
-    print_error "Missing expected WASM build output: $path"
-    exit 1
-  fi
+  local canonical_path
+  local attempt
+  canonical_path="$(node -e "console.log(require('path').resolve(process.argv[1]))" "$path")"
+  for attempt in {1..600}; do
+    if [ -f "$path" ] || [ -f "$canonical_path" ]; then
+      return
+    fi
+    sleep 0.1
+  done
+
+  print_error "Missing expected WASM build output: $path"
+  print_error "Canonical path checked: $canonical_path"
+  ls -la "$(dirname "$canonical_path")" || true
+  exit 1
 }
 
 run_in_dir() {
@@ -67,7 +78,8 @@ build_near_signer() {
 
   run_in_dir "$SOURCE_WASM_SIGNER" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-    wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --no-opt --features hss-server-exports
+    env CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
+      wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports
 }
 
 build_hss_client_signer() {
@@ -90,16 +102,39 @@ JOB_LOGS=()
 JOB_COUNT=0
 JOB_LOG_DIR=""
 
+cleanup_build_wasm() {
+  if [ -n "$JOB_LOG_DIR" ]; then
+    rm -rf "$JOB_LOG_DIR"
+  fi
+  release_build_output_lock
+}
+
+trap cleanup_build_wasm EXIT
+
+prepare_job_wasm_pack_cache() {
+  local job_index="$1"
+  local job_cache="$JOB_LOG_DIR/wasm-pack-cache-$job_index"
+  mkdir -p "$job_cache"
+  if [ -n "${WASM_PACK_CACHE:-}" ] && [ -d "$WASM_PACK_CACHE" ]; then
+    cp -R "$WASM_PACK_CACHE"/. "$job_cache"/ 2>/dev/null || true
+  fi
+  normalize_wasm_opt_cache_layout "$job_cache"
+  printf '%s\n' "$job_cache"
+}
+
 start_job() {
   local label="$1"
   shift
   local job_index="$JOB_COUNT"
   local log_file="$JOB_LOG_DIR/job-$job_index.log"
+  local job_wasm_pack_cache
+  job_wasm_pack_cache="$(prepare_job_wasm_pack_cache "$job_index")"
 
   JOB_LABELS[$job_index]="$label"
   JOB_LOGS[$job_index]="$log_file"
   (
     set -e
+    export WASM_PACK_CACHE="$job_wasm_pack_cache"
     echo "== $label =="
     "$@"
   ) >"$log_file" 2>&1 &
@@ -131,6 +166,10 @@ print_step "Checking WASM toolchain (C compiler for wasm32)..."
 ensure_wasm32_cc
 print_success "WASM toolchain ready"
 
+print_step "Acquiring WASM output build lock..."
+acquire_build_output_lock
+print_success "WASM output build lock acquired"
+
 print_step "Preparing wasm-pack cache..."
 ensure_wasm_pack_cache
 print_success "wasm-pack cache ready: $WASM_PACK_CACHE"
@@ -150,7 +189,6 @@ print_success "WASM package outputs cleaned"
 
 print_step "Building WASM packages in parallel..."
 JOB_LOG_DIR="$(mktemp -d)"
-trap 'rm -rf "$JOB_LOG_DIR"' EXIT
 start_job "NEAR signer WASM (browser + server HSS release)" build_near_signer
 start_job "HSS client signer WASM (release)" build_hss_client_signer
 start_job "Eth signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_ETH_SIGNER" eth_signer

@@ -36,8 +36,8 @@ import {
 import {
   refreshPasskeyEd25519SealedRecordAfterSigningMaterial,
   type ResolvedRouterAbEd25519WalletSessionState,
-} from './shared/routerAbEd25519WalletSessionState';
-import { requireOrRestoreRouterAbEd25519WalletSessionState } from './shared/ed25519SigningMaterialReadiness';
+} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { requireOrRestoreRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './shared/ed25519MaterialRestoreAuthorization';
 import {
   preConfirmMaterialGateFromSigningAuthPlan,
@@ -84,7 +84,7 @@ import {
   finalizeThresholdEd25519DelegateSignatureResult,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519PresignFinalize';
-import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRestore';
+import { ed25519MaterialRestoreRequiredError } from '../../session/warmCapabilities/ed25519MaterialRestore';
 
 type RouterAbNearDelegateSigningPayload = {
   kind: 'router_ab_ed25519_near_delegate_signing_payload_v1';

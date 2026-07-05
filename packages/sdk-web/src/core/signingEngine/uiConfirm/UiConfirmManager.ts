@@ -1286,16 +1286,22 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       : null;
     const ecdsaPasskeySource =
       ecdsaRecord && ecdsaRecord.source !== 'email_otp' ? ecdsaRecord.source : null;
+    const ecdsaSigningRootId = String(ecdsaRecord?.signingRootId || '').trim();
+    const ecdsaSigningRootVersion = String(ecdsaRecord?.signingRootVersion || '').trim();
     const ecdsaRestore =
 	      ecdsaRecord &&
 	      ecdsaRecord.chainTarget &&
 	      ecdsaPasskeySource &&
       ecdsaPasskeyCredentialId &&
 	      ecdsaWalletSessionAuth &&
+      ecdsaSigningRootId &&
+      ecdsaSigningRootVersion &&
       ecdsaRecord.routerAbEcdsaHssNormalSigning &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
+            signingRootId: ecdsaSigningRootId,
+            signingRootVersion: ecdsaSigningRootVersion,
             source: ecdsaPasskeySource,
             evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
             rpId: thresholdEcdsaRecordRpId(ecdsaRecord),

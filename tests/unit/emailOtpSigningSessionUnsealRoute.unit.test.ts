@@ -1,9 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import { handleEmailOtpSigningSessionUnsealRoute } from '@server/router/emailOtpRouteHandlers';
+import {
+  handleEmailOtpSigningSessionChallengeRoute,
+  handleEmailOtpSigningSessionUnsealRoute,
+} from '@server/router/emailOtpRouteHandlers';
 
 type CapturedSigningSessionUnsealCalls = {
   readActiveEnrollmentInput: Record<string, unknown> | null;
+  createChallengeInput: Record<string, unknown> | null;
   consumeGrantInput: Record<string, unknown> | null;
   readEnrollmentInput: Record<string, unknown> | null;
 };
@@ -33,6 +37,27 @@ class SigningSessionUnsealRouteService {
     };
   }
 
+  async createEmailOtpChallenge(input: Record<string, unknown>) {
+    this.captured.createChallengeInput = input;
+    return {
+      ok: true,
+      challenge: {
+        challengeId: 'challenge-1',
+        issuedAtMs: 1,
+        expiresAtMs: 2,
+        userId: input.userId,
+        walletId: input.walletId,
+        orgId: input.orgId,
+        sessionHash: input.sessionHash,
+        appSessionVersion: input.appSessionVersion,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        action: 'login',
+        operation: input.operation,
+      },
+      delivery: { ok: true },
+    };
+  }
+
   async removeEmailOtpServerSeal() {
     return {
       ok: true,
@@ -58,6 +83,7 @@ async function ignoreEmailOtpWebhook(): Promise<void> {}
 test('Email OTP signing-session unseal consumes grants with the enrollment authority', async () => {
   const captured: CapturedSigningSessionUnsealCalls = {
     readActiveEnrollmentInput: null,
+    createChallengeInput: null,
     consumeGrantInput: null,
     readEnrollmentInput: null,
   };
@@ -95,5 +121,46 @@ test('Email OTP signing-session unseal consumes grants with the enrollment autho
   expect(captured.readEnrollmentInput).toEqual({
     walletId: 'wallet-a',
     orgId: 'org-a',
+  });
+});
+
+test('Email OTP signing-session challenge resolves wallet identity from wallet-session claims', async () => {
+  const captured: CapturedSigningSessionUnsealCalls = {
+    readActiveEnrollmentInput: null,
+    createChallengeInput: null,
+    consumeGrantInput: null,
+    readEnrollmentInput: null,
+  };
+  const service = new SigningSessionUnsealRouteService(captured);
+
+  const response = await handleEmailOtpSigningSessionChallengeRoute({
+    body: {
+      walletId: 'wallet-a',
+      otpChannel: EMAIL_OTP_CHANNEL,
+      operation: 'wallet_unlock',
+    },
+    claims: { walletId: 'wallet-a', orgId: 'org-a' },
+    userId: 'near-account-subject',
+    appSessionVersion: 'wallet-session-v1',
+    sessionHash: 'wallet-session-hash',
+    clientIp: '203.0.113.42',
+    service: service as any,
+    opts: {} as any,
+    emitWebhook: ignoreEmailOtpWebhook,
+  });
+
+  expect(response.status).toBe(200);
+  expect(captured.readActiveEnrollmentInput).toMatchObject({
+    walletId: 'wallet-a',
+    orgId: 'org-a',
+  });
+  expect(captured.createChallengeInput).toMatchObject({
+    userId: 'google:provider-user',
+    walletId: 'wallet-a',
+    orgId: 'org-a',
+    sessionHash: 'wallet-session-hash',
+    appSessionVersion: 'wallet-session-v1',
+    clientIp: '203.0.113.42',
+    operation: 'wallet_unlock',
   });
 });

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-dotenv.config({ path: path.join(repoRoot, '.env.intended.local') });
+dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true });
 const manifestPath = path.join(
   repoRoot,
   'tests/e2e/intended-behaviours/mutation-self-check.manifest.json',
@@ -453,12 +453,21 @@ function validateDetectedProofEvidence(input) {
 }
 
 function validateDetectedProofCommand(input) {
-  if (!input.command.includes('playwright.intended.config.ts')) {
-    throw new Error(`${input.id} phase3bProof.${input.label} must use playwright.intended.config.ts`);
+  if (!usesIntendedPlaywrightConfig(input.command)) {
+    throw new Error(
+      `${input.id} phase3bProof.${input.label} must use an intended Playwright config`,
+    );
   }
   if (!proofCommandsMentionTargetedContracts(input.contractFiles, input.command, input.command)) {
     throw new Error(`${input.id} phase3bProof.${input.label} must mention a targeted contract`);
   }
+}
+
+function usesIntendedPlaywrightConfig(command) {
+  return (
+    command.includes('playwright.intended.config.ts') ||
+    command.includes('playwright.intended.ci.config.ts')
+  );
 }
 
 function validateBlockedProofOmitsDetectedEvidence(input) {
@@ -481,7 +490,8 @@ function proofCommandsMentionTargetedContracts(contractFiles, localCommand, ciCo
 
 function validateKnownProductBlockerPolicy(id, proof) {
   const knownProductBlocker = optionalStringField(proof, 'knownProductBlocker');
-  if (id === 'cross_chain_ecdsa_material_reuse') {
+  const status = requireStringField(proof, 'status');
+  if (status === 'blocked_product_identity' && id === 'cross_chain_ecdsa_material_reuse') {
     if (!knownProductBlocker) {
       throw new Error(`${id} phase3bProof.knownProductBlocker must document target identity separation`);
     }
@@ -494,7 +504,9 @@ function validateKnownProductBlockerPolicy(id, proof) {
     return;
   }
   if (knownProductBlocker !== undefined) {
-    throw new Error(`${id} phase3bProof.knownProductBlocker is only allowed on cross-chain ECDSA material reuse`);
+    throw new Error(
+      `${id} phase3bProof.knownProductBlocker is only allowed on blocked cross-chain ECDSA material reuse`,
+    );
   }
 }
 

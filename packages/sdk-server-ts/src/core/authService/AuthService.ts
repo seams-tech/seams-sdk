@@ -1712,6 +1712,18 @@ export class AuthService {
     return this.emailRecoveryAuthOperations().prepareEmailRecovery(request);
   }
 
+  respondEmailRecoveryEd25519(
+    request: Parameters<EmailRecoveryAuthOperations['respondEmailRecoveryEd25519']>[0],
+  ): ReturnType<EmailRecoveryAuthOperations['respondEmailRecoveryEd25519']> {
+    return this.emailRecoveryAuthOperations().respondEmailRecoveryEd25519(request);
+  }
+
+  finalizeEmailRecoveryEd25519(
+    request: Parameters<EmailRecoveryAuthOperations['finalizeEmailRecoveryEd25519']>[0],
+  ): ReturnType<EmailRecoveryAuthOperations['finalizeEmailRecoveryEd25519']> {
+    return this.emailRecoveryAuthOperations().finalizeEmailRecoveryEd25519(request);
+  }
+
   respondEmailRecoveryEcdsa(
     request: Parameters<EmailRecoveryAuthOperations['respondEmailRecoveryEcdsa']>[0],
   ): ReturnType<EmailRecoveryAuthOperations['respondEmailRecoveryEcdsa']> {

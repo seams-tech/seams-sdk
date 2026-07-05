@@ -7,12 +7,12 @@ import {
   requestEmailOtpEnrollmentChallenge,
   verifyEmailOtpCode,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
-import { enrollEmailOtpWallet } from '@/SeamsWeb/operations/authMethods/emailOtp/enrollment';
 import {
   removeEmailOtpDeviceEnrollmentEscrowFromDevice,
   restoreEmailOtpDeviceEnrollmentEscrow,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/deviceEscrow';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
+import { enrollEmailOtpWallet } from '@/core/signingEngine/session/emailOtp/workerEnrollment';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');

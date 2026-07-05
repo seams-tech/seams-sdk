@@ -296,7 +296,10 @@ export type WalletAddSignerHssRespondRequest = {
     clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
   };
   ecdsa?: {
-    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    clientBootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    }[];
   };
 };
 
@@ -309,7 +312,10 @@ export type WalletAddSignerHssRespondResponse =
         serverInputDeliveryB64u: string;
       };
       ecdsa?: {
-        bootstrap: EcdsaHssServerBootstrapResponse;
+        bootstraps: {
+          chainTarget: ThresholdEcdsaChainTarget;
+          bootstrap: EcdsaHssServerBootstrapResponse;
+        }[];
       };
     }
   | {
@@ -346,6 +352,7 @@ export type WalletAddSignerFinalizeResponse =
         relayerParticipantId?: number;
         participantIds?: number[];
         session?: ThresholdEd25519BootstrapSession;
+        registrationWorkerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
       };
       ecdsa?: {
         walletKeys: WalletRegistrationEcdsaWalletKey[];
@@ -411,27 +418,33 @@ export type WalletRegistrationStartRequest = WalletRegistrationStartRequestBase 
       }
   );
 
+export type WalletRegistrationEcdsaPrepareContext = {
+  formatVersion: EcdsaHssRoleLocalFormatVersion;
+  walletId: string;
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: string;
+  signingRootVersion: string;
+  keyScope: EcdsaHssKeyScope;
+  relayerKeyId: string;
+  registrationPreparationId?: RegistrationPreparationId;
+  requestId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  ttlMs: number;
+  remainingUses: number;
+  participantIds: number[];
+  runtimePolicyScope?: RuntimePolicyScope;
+};
+
+export type WalletRegistrationEcdsaPrepareTarget = {
+  chainTarget: ThresholdEcdsaChainTarget;
+  prepare: WalletRegistrationEcdsaPrepareContext;
+};
+
 export type WalletRegistrationEcdsaPreparePayload = {
   kind: 'evm_family_ecdsa_keygen';
-  chainTargets: ThresholdEcdsaChainTarget[];
-  prepare: {
-    formatVersion: EcdsaHssRoleLocalFormatVersion;
-    walletId: string;
-    evmFamilySigningKeySlotId: string;
-    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-    signingRootId: string;
-    signingRootVersion: string;
-    keyScope: EcdsaHssKeyScope;
-    relayerKeyId: string;
-    registrationPreparationId?: RegistrationPreparationId;
-    requestId: string;
-    thresholdSessionId: string;
-    signingGrantId: string;
-    ttlMs: number;
-    remainingUses: number;
-    participantIds: number[];
-    runtimePolicyScope?: RuntimePolicyScope;
-  };
+  targets: WalletRegistrationEcdsaPrepareTarget[];
 };
 
 export type WalletRegistrationEcdsaClientBootstrap = {
@@ -591,7 +604,10 @@ export type WalletRegistrationHssRespondRequest = {
     clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
   };
   ecdsa?: {
-    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    clientBootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    }[];
   };
 };
 
@@ -605,7 +621,10 @@ export type WalletRegistrationHssRespondResponse =
         serverInputDeliveryB64u: string;
       };
       ecdsa?: {
-        bootstrap: EcdsaHssServerBootstrapResponse;
+        bootstraps: {
+          chainTarget: ThresholdEcdsaChainTarget;
+          bootstrap: EcdsaHssServerBootstrapResponse;
+        }[];
       };
     }
   | {
@@ -654,6 +673,13 @@ export type WalletRegistrationFinalizeAuthMethod =
       registrationAuthorityId: string;
     };
 
+export type ThresholdEd25519RegistrationWorkerMaterialReport = {
+  kind: 'threshold_ed25519_registration_worker_material_report_v1';
+  contextBindingB64u: string;
+  clientOutputMessageB64u: string;
+  seedOutputMessageB64u?: never;
+};
+
 export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
@@ -676,6 +702,7 @@ export type WalletRegistrationFinalizeResponse =
         relayerParticipantId?: number;
         participantIds?: number[];
         session?: ThresholdEd25519BootstrapSession;
+        registrationWorkerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
       };
       ecdsa?: {
         walletKeys: WalletRegistrationEcdsaWalletKey[];

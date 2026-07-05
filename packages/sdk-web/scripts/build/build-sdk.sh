@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SDK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$SDK_ROOT/../.." && pwd)"
 source "$SDK_ROOT/build-paths.sh"
+source "$SCRIPT_DIR/build-output-lock.sh"
 cd "$SDK_ROOT"
 
 echo "Starting SDK build for @seams/sdk..."
@@ -23,6 +24,12 @@ print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠️ $1${NC}"; }
 
+cleanup_build_sdk() {
+  release_build_output_lock
+}
+
+trap cleanup_build_sdk EXIT
+
 require_file() {
   local path="$1"
   if [ ! -f "$path" ]; then
@@ -33,6 +40,10 @@ require_file() {
 }
 
 if command -v bun >/dev/null 2>&1; then BUN_BIN="$(command -v bun)"; elif [ -x "$HOME/.bun/bin/bun" ]; then BUN_BIN="$HOME/.bun/bin/bun"; else BUN_BIN=""; fi
+
+print_step "Acquiring WASM package-output build lock..."
+acquire_build_output_lock
+print_success "WASM package-output build lock acquired"
 
 print_step "Checking existing WASM package outputs..."
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.js"

@@ -219,6 +219,9 @@ export interface RegistrationAccountSurface {
   storeWalletEd25519RegistrationData(
     input: StoreWalletEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
+  storeWalletEd25519RecoveryRegistrationData(
+    input: StoreWalletEd25519RegistrationInput,
+  ): Promise<StoredRegistrationData>;
   storeWalletEmailOtpEd25519RegistrationData(
     input: StoreWalletEmailOtpEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
@@ -238,6 +241,9 @@ export interface EcdsaRegistrationSurface {
     input: FinalizeWalletRegistrationEcdsaSessionsInput,
   ): Promise<void>;
   storeWalletEcdsaSignerRecords(
+    input: StoreWalletEcdsaSignerRecordsInput,
+  ): Promise<StoreWalletEcdsaSignerRecordsResult>;
+  storeWalletEcdsaRecoverySignerRecords(
     input: StoreWalletEcdsaSignerRecordsInput,
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;
   storeWalletEmailOtpEcdsaSignerRecords(
@@ -420,6 +426,13 @@ export interface KeyExportSigningSurface {
 }
 
 export interface ThresholdEd25519HssClientSurface {
+  prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
+  >;
   prepareThresholdEd25519HssClientCeremonyFromCredential(
     args: Parameters<
       typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
@@ -474,6 +487,13 @@ export interface ThresholdEd25519HssCeremonySurface {
       typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle
     >[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle>;
+  storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
+    args: Parameters<
+      typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
+  >;
 }
 
 export interface EmailOtpRegistrationEnrollmentSurface {
@@ -486,9 +506,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   Pick<
     SigningSessionSurface,
-    | 'readPersistedAvailableSigningLanes'
-    | 'hydrateSigningSession'
-    | 'persistSigningSessionSealForThresholdSession'
+    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
   > &
   Pick<
     EmailOtpRegistrationEnrollmentSurface,
@@ -548,7 +566,11 @@ export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurfac
 
 export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
   WebAuthnRegistrationConfirmationSurface &
-  Pick<EcdsaRegistrationSurface, 'preparePasskeyEcdsaBootstrap' | 'storeWalletEcdsaSignerRecords'>;
+  Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
+  Pick<
+    EcdsaRegistrationSurface,
+    'preparePasskeyEcdsaBootstrap' | 'storeWalletEcdsaRecoverySignerRecords'
+  >;
 
 export type EmailRecoveryWebContext = SeamsWebBaseContext<EmailRecoverySigningSurface>;
 

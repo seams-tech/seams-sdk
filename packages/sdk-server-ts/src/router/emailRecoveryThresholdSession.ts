@@ -11,10 +11,14 @@ type EmailRecoveryPrepareResult = Awaited<
 type EmailRecoveryRespondResult = Awaited<
   ReturnType<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEcdsa']>
 >;
+type EmailRecoveryEd25519FinalizeResult = Awaited<
+  ReturnType<RouterApiEmailRecoveryAuthService['finalizeEmailRecoveryEd25519']>
+>;
 
 export type EmailRecoverySuccessResult =
   | Extract<EmailRecoveryPrepareResult, { ok: true }>
-  | Extract<EmailRecoveryRespondResult, { ok: true }>;
+  | Extract<EmailRecoveryRespondResult, { ok: true }>
+  | Extract<EmailRecoveryEd25519FinalizeResult, { ok: true }>;
 
 export type EmailRecoveryThresholdSessionSignResult =
   | { ok: true }

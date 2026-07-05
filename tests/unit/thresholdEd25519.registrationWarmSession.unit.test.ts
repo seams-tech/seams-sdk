@@ -100,8 +100,17 @@ test.describe('threshold Ed25519 registration warm-session', () => {
   });
 
   test('awaits warm-session hydrate before registration persistence returns', async ({ page }) => {
+    const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
+      'ed25519-scope-frost-vermillion-k7p9m2',
+    );
+    const passkeyApplicationBindingDigestB64u =
+      await computeSdkEd25519HssApplicationBindingDigestB64u({
+        nearEd25519SigningKeyId,
+        signingRootId: parseSdkEcdsaHssSigningRootId('proj-registration:env-registration'),
+        signingRootVersion: parseSdkEcdsaHssSigningRootVersion('default'),
+      });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, passkeyApplicationBindingDigestB64u }) => {
         const bootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDb);
@@ -111,6 +120,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const walletId = 'frost-vermillion-k7p9m2';
         const nearAccountId = 'a'.repeat(64);
         const nearEd25519SigningKeyId = 'ed25519-scope-frost-vermillion-k7p9m2';
+        const passkeyPrfFirstB64u = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+        const passkeyCredential = {
+          id: 'registration-credential-id',
+          rawId: 'registration-credential-id',
+          clientExtensionResults: {
+            prf: { results: { first: passkeyPrfFirstB64u } },
+          },
+        };
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -174,6 +191,38 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 warmSessionActive = true;
                 return input;
               },
+              persistSigningSessionSealForThresholdSession: async () => ({
+                ok: true,
+                sealedSecretB64u: 'sealed-passkey-registration-session',
+                remainingUses: 3,
+                expiresAtMs: now + 60_000,
+              }),
+              prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: async () => ({
+                ok: true,
+                materialKeyId: 'passkey-registration-material-key',
+                remainingUses: 1,
+                sealAuthorization: {
+                  kind: 'passkey_prf_material_seal_authorization_handle_v1',
+                  handle: 'passkey-registration-seal-auth',
+                  rpId: 'example.localhost',
+                  credentialIdB64u: 'registration-credential-id',
+                  materialKeyId: 'passkey-registration-material-key',
+                  expiresAtMs: 0,
+                },
+              }),
+              storeThresholdEd25519WorkerMaterialFromFinalizedHssReport: async () => ({
+                ok: true,
+                signingMaterial: {
+                  materialHandle: 'passkey-registration-worker-material',
+                  materialBindingDigest: 'passkey-registration-worker-binding',
+                  sealedWorkerMaterialRef: 'passkey-registration-sealed-worker-material',
+                  sealedWorkerMaterialB64u: 'passkey-registration-sealed-worker-material-b64u',
+                  materialFormatVersion: 'ed25519_worker_material_v1',
+                  materialKeyId: 'passkey-registration-material-key',
+                  clientVerifyingShareB64u: 'passkey-registration-client-verifier',
+                  signerSlot: 1,
+                },
+              }),
             },
             configs: {
               signing: {
@@ -198,10 +247,39 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             nearAccountId,
             nearEd25519SigningKeyId,
             signerSlot: 1,
-            auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+            auth: { kind: 'passkey', credential: passkeyCredential },
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
-            prfFirstB64u: 'prf-first-registration',
+            prfFirstB64u: passkeyPrfFirstB64u,
+            registrationHssClientMaterial: {
+              bindingFacts: {
+                nearEd25519SigningKeyId,
+                signingRootId: 'proj-registration:env-registration',
+                signingRootVersion: 'default',
+              },
+              hssContext: {
+                applicationBindingDigestB64u: passkeyApplicationBindingDigestB64u,
+                participantIds: [1, 2],
+              },
+              prfFirstB64u: passkeyPrfFirstB64u,
+              clientInputs: {
+                contextBindingB64u: 'client-context-binding',
+                yClientB64u: 'y-client',
+                tauClientB64u: 'tau-client',
+              },
+            },
+            finalizedRegistrationHssMaterial: {
+              preparedSession: {
+                contextBindingB64u: 'client-context-binding',
+                evaluatorDriverStateB64u: 'evaluator-driver-state',
+              },
+              clientOutputMaskRelayerKeyId: 'registration:test-ceremony',
+              workerMaterialReport: {
+                kind: 'threshold_ed25519_registration_worker_material_report_v1',
+                contextBindingB64u: 'client-context-binding',
+                clientOutputMessageB64u: 'client-output-message',
+              },
+            },
             registrationSessionPolicy: {
               version: 'threshold_session_v1',
               walletId,
@@ -284,7 +362,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, passkeyApplicationBindingDigestB64u },
     );
 
     expect(result.hydrateCalls).toBe(1);
@@ -484,8 +562,17 @@ test.describe('threshold Ed25519 registration warm-session', () => {
   });
 
   test('wallet session read ignores Tempo parity failures after registration', async ({ page }) => {
+    const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
+      'ed25519-scope-frost-parity-k7p9m2',
+    );
+    const passkeyApplicationBindingDigestB64u =
+      await computeSdkEd25519HssApplicationBindingDigestB64u({
+        nearEd25519SigningKeyId,
+        signingRootId: parseSdkEcdsaHssSigningRootId('proj-registration:env-registration'),
+        signingRootVersion: parseSdkEcdsaHssSigningRootVersion('default'),
+      });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, passkeyApplicationBindingDigestB64u }) => {
         const bootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDb);
@@ -494,6 +581,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const walletId = 'frost-parity-k7p9m2';
         const nearAccountId = 'b'.repeat(64);
         const nearEd25519SigningKeyId = 'ed25519-scope-frost-parity-k7p9m2';
+        const passkeyPrfFirstB64u = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+        const passkeyCredential = {
+          id: 'registration-credential-id',
+          rawId: 'registration-credential-id',
+          clientExtensionResults: {
+            prf: { results: { first: passkeyPrfFirstB64u } },
+          },
+        };
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -556,6 +651,38 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 warmSessionActive = true;
                 return input;
               },
+              persistSigningSessionSealForThresholdSession: async () => ({
+                ok: true,
+                sealedSecretB64u: 'sealed-passkey-registration-session',
+                remainingUses: 3,
+                expiresAtMs: now + 60_000,
+              }),
+              prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: async () => ({
+                ok: true,
+                materialKeyId: 'passkey-registration-material-key',
+                remainingUses: 1,
+                sealAuthorization: {
+                  kind: 'passkey_prf_material_seal_authorization_handle_v1',
+                  handle: 'passkey-registration-seal-auth',
+                  rpId: 'example.localhost',
+                  credentialIdB64u: 'registration-credential-id',
+                  materialKeyId: 'passkey-registration-material-key',
+                  expiresAtMs: 0,
+                },
+              }),
+              storeThresholdEd25519WorkerMaterialFromFinalizedHssReport: async () => ({
+                ok: true,
+                signingMaterial: {
+                  materialHandle: 'passkey-registration-worker-material',
+                  materialBindingDigest: 'passkey-registration-worker-binding',
+                  sealedWorkerMaterialRef: 'passkey-registration-sealed-worker-material',
+                  sealedWorkerMaterialB64u: 'passkey-registration-sealed-worker-material-b64u',
+                  materialFormatVersion: 'ed25519_worker_material_v1',
+                  materialKeyId: 'passkey-registration-material-key',
+                  clientVerifyingShareB64u: 'passkey-registration-client-verifier',
+                  signerSlot: 1,
+                },
+              }),
             },
             configs: {
               signing: {
@@ -580,10 +707,39 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             nearAccountId,
             nearEd25519SigningKeyId,
             signerSlot: 1,
-            auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+            auth: { kind: 'passkey', credential: passkeyCredential },
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
-            prfFirstB64u: 'prf-first-registration',
+            prfFirstB64u: passkeyPrfFirstB64u,
+            registrationHssClientMaterial: {
+              bindingFacts: {
+                nearEd25519SigningKeyId,
+                signingRootId: 'proj-registration:env-registration',
+                signingRootVersion: 'default',
+              },
+              hssContext: {
+                applicationBindingDigestB64u: passkeyApplicationBindingDigestB64u,
+                participantIds: [1, 2],
+              },
+              prfFirstB64u: passkeyPrfFirstB64u,
+              clientInputs: {
+                contextBindingB64u: 'client-context-binding',
+                yClientB64u: 'y-client',
+                tauClientB64u: 'tau-client',
+              },
+            },
+            finalizedRegistrationHssMaterial: {
+              preparedSession: {
+                contextBindingB64u: 'client-context-binding',
+                evaluatorDriverStateB64u: 'evaluator-driver-state',
+              },
+              clientOutputMaskRelayerKeyId: 'registration:test-ceremony',
+              workerMaterialReport: {
+                kind: 'threshold_ed25519_registration_worker_material_report_v1',
+                contextBindingB64u: 'client-context-binding',
+                clientOutputMessageB64u: 'client-output-message',
+              },
+            },
             registrationSessionPolicy: {
               version: 'threshold_session_v1',
               walletId,
@@ -661,7 +817,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, passkeyApplicationBindingDigestB64u },
     );
 
     expect(result.isLoggedIn).toBe(true);
@@ -754,7 +910,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: {
-              runThresholdEd25519HssCeremonyWithMaterialHandle: async () => {
+              storeThresholdEd25519WorkerMaterialFromFinalizedHssReport: async () => {
                 materialHandleCalls += 1;
                 return {
                   ok: true,
@@ -823,6 +979,18 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 contextBindingB64u: 'client-context-binding',
                 yClientB64u: 'y-client',
                 tauClientB64u: 'tau-client',
+              },
+            },
+            finalizedRegistrationHssMaterial: {
+              preparedSession: {
+                contextBindingB64u: 'client-context-binding',
+                evaluatorDriverStateB64u: 'evaluator-driver-state',
+              },
+              clientOutputMaskRelayerKeyId: 'registration:test-ceremony',
+              workerMaterialReport: {
+                kind: 'threshold_ed25519_registration_worker_material_report_v1',
+                contextBindingB64u: 'client-context-binding',
+                clientOutputMessageB64u: 'client-output-message',
               },
             },
             registrationSessionPolicy: {

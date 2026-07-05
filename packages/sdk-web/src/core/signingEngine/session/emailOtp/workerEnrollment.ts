@@ -1,7 +1,4 @@
-import {
-  EMAIL_OTP_CHANNEL,
-  type WalletEmailOtpChannel,
-} from '@shared/utils/emailOtpDomain';
+import { EMAIL_OTP_CHANNEL, type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import {
   buildEmailOtpRecoveryCodeSet,
   type EmailOtpRecoveryCodeSet,
@@ -9,9 +6,14 @@ import {
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  EmailOtpWalletRegistrationEcdsaPrepareHandleBinding,
+  EmailOtpWalletRegistrationEcdsaPrepareHandleRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
+  EmailOtpWalletRegistrationEcdsaPrepareHandleResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEmailOtpRoutePlan,
   requireEmailOtpAuthLane,
@@ -140,6 +142,84 @@ function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult
   };
 }
 
+function parseEmailOtpWalletRegistrationEcdsaPrepareHandle(
+  value: unknown,
+): EmailOtpWalletRegistrationEcdsaPrepareHandlePayload {
+  const response = requireObjectJson(value, 'Email OTP registration ECDSA handle');
+  const kind = readString(response.kind, 'clientRootShareHandle.handle.kind');
+  if (kind !== 'email_otp_worker_session_handle_v1') {
+    throw new Error(`Unsupported Email OTP worker handle kind: ${kind}`);
+  }
+  const action = readString(response.action, 'clientRootShareHandle.handle.action');
+  if (action !== 'wallet_registration_ecdsa_prepare') {
+    throw new Error(`Unsupported Email OTP worker handle action: ${action}`);
+  }
+  const operation = readString(response.operation, 'clientRootShareHandle.handle.operation');
+  if (operation !== 'registration') {
+    throw new Error('Email OTP registration ECDSA handle requires registration operation');
+  }
+  const keyScope = readString(response.keyScope, 'clientRootShareHandle.handle.keyScope');
+  if (keyScope !== 'evm-family') {
+    throw new Error('Email OTP registration ECDSA handle requires evm-family keyScope');
+  }
+  return {
+    kind: 'email_otp_worker_session_handle_v1',
+    sessionId: readString(response.sessionId, 'clientRootShareHandle.handle.sessionId'),
+    walletId: readString(response.walletId, 'clientRootShareHandle.handle.walletId'),
+    evmFamilySigningKeySlotId: readString(
+      response.evmFamilySigningKeySlotId,
+      'clientRootShareHandle.handle.evmFamilySigningKeySlotId',
+    ),
+    authSubjectId: readString(response.authSubjectId, 'clientRootShareHandle.handle.authSubjectId'),
+    action: 'wallet_registration_ecdsa_prepare',
+    operation: 'registration',
+    keyScope: 'evm-family',
+    chainTarget: parseThresholdEcdsaChainTargetForWorkerEnrollment(response.chainTarget),
+  };
+}
+
+function parseThresholdEcdsaChainTargetForWorkerEnrollment(value: unknown): ThresholdEcdsaChainTarget {
+  const target = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!target) {
+    throw new Error('Email OTP registration ECDSA handle requires chainTarget');
+  }
+  return thresholdEcdsaChainTargetFromRequest(target);
+}
+
+function parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
+  value: unknown,
+): EmailOtpWalletRegistrationEcdsaPrepareHandleResult {
+  const response = requireObjectJson(value, 'Email OTP registration ECDSA handle result');
+  const kind = readString(response.kind, 'clientRootShareHandle.kind');
+  switch (kind) {
+    case 'available':
+      if (!Array.isArray(response.handles) || response.handles.length === 0) {
+        throw new Error('Email OTP registration ECDSA handle result requires handles');
+      }
+      {
+        const handles: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload[] = [];
+        for (const handle of response.handles) {
+          handles.push(parseEmailOtpWalletRegistrationEcdsaPrepareHandle(handle));
+        }
+        const first = handles[0];
+        if (!first) {
+          throw new Error('Email OTP registration ECDSA handle result requires handles');
+        }
+        return {
+          kind: 'available',
+          handles: [first, ...handles.slice(1)],
+        };
+      }
+    case 'not_requested':
+      if ('handles' in response) {
+        throw new Error('Email OTP unrequested registration ECDSA handle result forbids handles');
+      }
+      return { kind: 'not_requested' };
+    default:
+      throw new Error(`Unsupported Email OTP registration ECDSA handle result kind: ${kind}`);
+  }
+}
+
 function parseEmailOtpRecoveryCodeRotationMaterial(
   value: unknown,
 ): EmailOtpRecoveryCodeRotationMaterial {
@@ -194,11 +274,11 @@ export async function enrollEmailOtpWallet(args: {
       await workerCtx.requestWorkerOperation({
         kind: 'emailOtp',
         request: {
-            type: 'enrollEmailOtpWallet',
-            payload: {
-              relayUrl: readString(args.relayUrl, 'relayUrl'),
-              walletId: readString(args.walletId, 'walletId'),
-              userId: readString(args.userId, 'userId'),
+          type: 'enrollEmailOtpWallet',
+          payload: {
+            relayUrl: readString(args.relayUrl, 'relayUrl'),
+            walletId: readString(args.walletId, 'walletId'),
+            userId: readString(args.userId, 'userId'),
             ...(readOptionalString(args.challengeId)
               ? { challengeId: readOptionalString(args.challengeId) }
               : {}),
@@ -230,7 +310,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
-  ecdsaClientRootHandleBinding: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
+  ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519RecoveryCodeSecret32B64u: string;
@@ -241,7 +321,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+  clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
   emailOtpEnrollment: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
@@ -270,7 +350,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
             appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
-          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+          ecdsaClientRootHandle: args.ecdsaClientRootHandle,
           ...(workerClientSecret32
             ? { clientSecret32: toArrayBufferCopy(workerClientSecret32) }
             : {}),
@@ -286,7 +366,9 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
         result.thresholdEd25519RecoveryCodeSecret32B64u,
         'thresholdEd25519RecoveryCodeSecret32B64u',
       ),
-      clientRootShareHandle: result.clientRootShareHandle,
+      clientRootShareHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
+        result.clientRootShareHandle,
+      ),
       emailOtpEnrollment: result.emailOtpEnrollment,
     };
   } finally {

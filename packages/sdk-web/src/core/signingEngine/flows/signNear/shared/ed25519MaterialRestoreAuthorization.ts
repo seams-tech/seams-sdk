@@ -20,7 +20,7 @@ import type {
   ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorizationRequest,
   ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult,
 } from '@/core/types/signer-worker';
-import type { RouterAbEd25519WorkerMaterialRestoreAuthorization } from './ed25519SigningMaterialReadiness';
+import type { RouterAbEd25519WorkerMaterialRestoreAuthorization } from '../../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 
 const MATERIAL_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000;
 const MATERIAL_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000;

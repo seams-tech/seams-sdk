@@ -80,11 +80,13 @@
       "seededRegression": "Reuse Tempo ECDSA signing material for Arc/EVM or Arc/EVM signing material for Tempo.",
       "expectedFailureOracle": "Arc/EVM recovered signer mismatch",
       "phase3bProof": {
-        "status": "blocked_product_identity",
-        "unblockRequirement": "Provision target-specific Tempo and Arc/EVM ECDSA owner/public-key facts so wrong-material reuse produces a recovered-signer mismatch, then run the passkey intended contracts and update this row to detected.",
+        "status": "detected",
+        "observedFailureOracle": "Arc/EVM recovered signer mismatch",
+        "observedAt": "2026-07-05",
+        "observedFailureCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
+        "restoredValidationCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
         "requiresFreshStartup": true,
         "requiresEmailOtpGoogleIdToken": false,
-        "knownProductBlocker": "Current registration exposes identical Tempo and Arc/EVM thresholdOwnerAddress values through the shared evm-family key scope; target-specific ECDSA owner/public-key facts must be distinct before this seeded regression can prove detection.",
         "localCommand": "pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
         "ciCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line"
       },

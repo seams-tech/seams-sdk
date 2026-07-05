@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { seamsWallet } from '../../packages/sdk-web/src/plugins/vite';
+import { seamsWallet } from '@seams/sdk/plugins/vite';
 
 /**
  * Do NOT use optional chaining or dynamic access such as `import.meta?.env`
@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
   const appNodeModules = fileURLToPath(new URL('./node_modules', import.meta.url));
   const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
+  const cacheDir = env.VITE_CACHE_DIR || undefined;
   // Bitwarden and other password managers inject extension iframes/scripts that are blocked
   // by COEP=require-corp on the host page. Default to COEP off for the docs site; switch
   // back on explicitly when you need cross-origin isolation testing.
@@ -27,6 +28,7 @@ export default defineConfig(({ mode }) => {
   return {
     clearScreen: false,
     logLevel: 'info',
+    cacheDir,
     publicDir: appPublic,
     server: {
       port: 3600,

@@ -3,7 +3,6 @@ name = "threshold_prf_wasm"
 version = "0.1.0"
 edition = "2021"
 description = "Server-side WASM bindings for threshold-prf HSS input derivation"
-repository = "https://github.com/web3-authn/sdk"
 license = "Apache-2.0"
 
 [package.metadata.wasm-pack.profile.release]

@@ -38,6 +38,7 @@ const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
+  chainTargetKey: 'evm:eip155:1',
 });
 const keyContext = buildSessionBootstrapKeyContext({
   walletId: walletSessionUserId,

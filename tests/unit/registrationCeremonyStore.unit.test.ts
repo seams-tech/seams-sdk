@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  buildStoredWalletRegistrationPreparedContext,
   buildStoredWalletRegistrationHssPreparationFailed,
   buildStoredWalletRegistrationHssPreparationPrepared,
   buildStoredWalletRegistrationHssPreparationPreparing,
@@ -20,11 +21,13 @@ import {
   nearEd25519SigningKeyIdFromWalletId,
   registrationEd25519AuthorityScope,
   registrationIntentGrantFromString,
+  registrationSignerPlanFromSelection,
   requireServerAllocatedWalletId,
   sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
+  type RegistrationSignerPlan,
   type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -38,7 +41,21 @@ function requireWebAuthnRpId(value: string): WebAuthnRpId {
   return parsed.value;
 }
 
+function requireRegistrationSignerPlan(
+  selection: RegistrationSignerSetSelection,
+): RegistrationSignerPlan {
+  const parsed = registrationSignerPlanFromSelection(selection);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
+}
+
 const RP_ID = requireWebAuthnRpId('wallet.example.test');
+const PREPARED_CONTEXT = buildStoredWalletRegistrationPreparedContext({
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+  runtimePolicyScope: null,
+  ecdsaChainTargets: null,
+});
 const ED25519_HSS_SERVER_STATE = {
   context: {
     applicationBindingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -55,6 +72,11 @@ const ED25519_HSS_SERVER_STATE = {
 };
 const NEAR_ED25519_KEY_PURPOSE = 'near_tx';
 const NEAR_ED25519_KEY_VERSION = 'threshold-ed25519-hss-v1';
+const ED25519_REGISTRATION_WORKER_MATERIAL_REPORT = {
+  kind: 'threshold_ed25519_registration_worker_material_report_v1',
+  contextBindingB64u: 'registration-context-binding',
+  clientOutputMessageB64u: 'registration-client-output',
+} as const;
 
 class FakeDurableObjectStub {
   private readonly records = new Map<string, { value: unknown; expiresAtMs?: number }>();
@@ -161,6 +183,8 @@ const SIGNER_SELECTION = {
   signers: [NEAR_ED25519_SIGNER],
 } satisfies RegistrationSignerSetSelection;
 
+const SIGNER_PLAN = requireRegistrationSignerPlan(SIGNER_SELECTION);
+
 const INTENT = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_registration_store'),
@@ -210,6 +234,8 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     registrationCeremonyId: 'wrc_registration_store_test',
     intent: INTENT,
     digestB64u: 'digest',
+    signerPlan: SIGNER_PLAN,
+    preparedContext: PREPARED_CONTEXT,
     orgId: 'org_registration_store',
     expiresAtMs,
     authority: makePasskeyRegistrationAuthority(),
@@ -239,6 +265,8 @@ function makePreparationBase(
     registrationIntentDigestB64u: 'digest',
     intent: INTENT,
     authority: makePasskeyRegistrationAuthority(),
+    signerPlan: SIGNER_PLAN,
+    preparedContext: PREPARED_CONTEXT,
     orgId: 'org_registration_store',
     expectedOrigin: 'https://wallet.example.test',
     signingRootId: 'project:dev',
@@ -431,6 +459,7 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
         relayerKeyId: 'relayer-key',
         keyVersion: 'threshold-ed25519-hss-v1',
         recoveryExportCapable: true,
+        registrationWorkerMaterialReport: ED25519_REGISTRATION_WORKER_MATERIAL_REPORT,
       },
     },
   });
@@ -559,6 +588,7 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
           relayerKeyId: 'relayer-key',
           keyVersion: 'threshold-ed25519-hss-v1',
           recoveryExportCapable: true,
+          registrationWorkerMaterialReport: ED25519_REGISTRATION_WORKER_MATERIAL_REPORT,
           session: {
             sessionKind: 'jwt',
             walletId: INTENT.walletId,
@@ -649,6 +679,9 @@ test('registration ceremony store consumes an intent only when the preparation s
       registrationIntentGrant: mismatchedIntent.grant,
       registrationIntentDigestB64u: mismatchedIntent.digestB64u,
       registrationPreparationId: mismatchedPreparation.registrationPreparationId,
+      authority: mismatchedPreparation.authority,
+      signerPlan: mismatchedPreparation.signerPlan,
+      preparedContext: mismatchedPreparation.preparedContext,
       ed25519Scope: {
         ...mismatchedPreparation.ed25519Scope,
         nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(walletIdFromString('different-wallet')),
@@ -669,6 +702,9 @@ test('registration ceremony store consumes an intent only when the preparation s
       registrationIntentGrant: mismatchedIntent.grant,
       registrationIntentDigestB64u: mismatchedIntent.digestB64u,
       registrationPreparationId: matchedPreparation.registrationPreparationId,
+      authority: matchedPreparation.authority,
+      signerPlan: matchedPreparation.signerPlan,
+      preparedContext: matchedPreparation.preparedContext,
       ed25519Scope: matchedPreparation.ed25519Scope,
     }),
   ).resolves.toMatchObject({

@@ -7,8 +7,6 @@ export default {
     '**/unit/**/*.guard.unit.test.ts',
     '**/unit/**/*.behavior.guard.unit.test.ts',
     '**/unit/**/*.domain.guard.unit.test.ts',
-    '**/unit/**/*.guards.test.ts',
-    '**/unit/**/*.guardrails.unit.test.ts',
     '**/unit/**/*.script.unit.test.ts',
     '**/unit/**/*.source.script.unit.test.ts',
   ],

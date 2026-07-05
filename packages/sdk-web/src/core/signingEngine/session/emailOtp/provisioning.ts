@@ -25,9 +25,13 @@ import type {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type {
   ThresholdEcdsaSessionRecord,
+  OperationUsableThresholdEd25519SessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/session/persistence/records';
+import {
+  buildOperationUsableThresholdEd25519SessionRecord,
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+} from '@/core/signingEngine/session/persistence/records';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
@@ -63,12 +67,21 @@ export type EmailOtpThresholdEd25519ProvisioningResult = {
   relayerKeyId: string;
   keyVersion: string;
   sessionId: string;
+  record: OperationUsableThresholdEd25519SessionRecord;
   expiresAtMs: number;
   remainingUses: number;
   participantIds: number[];
   jwt: string;
   clientVerifyingShareB64u?: string;
+  reconstructionTimings: EmailOtpThresholdEd25519ProvisioningTimings;
 };
+
+export type EmailOtpThresholdEd25519ProvisioningTimingBucket = 'warmCapabilityPersistenceMs';
+
+export type EmailOtpThresholdEd25519ProvisioningTimings = Record<
+  EmailOtpThresholdEd25519ProvisioningTimingBucket,
+  number
+>;
 
 export type EmailOtpEd25519SessionReconstructionKey = {
   signer: NearEd25519SignerBinding;
@@ -126,6 +139,27 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function nowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function createEmailOtpThresholdEd25519ProvisioningTimings():
+  EmailOtpThresholdEd25519ProvisioningTimings {
+  return {
+    warmCapabilityPersistenceMs: 0,
+  };
+}
+
+function addEmailOtpThresholdEd25519ProvisioningTiming(
+  timings: EmailOtpThresholdEd25519ProvisioningTimings,
+  bucket: EmailOtpThresholdEd25519ProvisioningTimingBucket,
+  startedAtMs: number,
+): void {
+  timings[bucket] += Math.max(0, Math.round(nowMs() - startedAtMs));
+}
+
 function assertNeverEmailOtpCompanionSessionAttachResult(
   result: never,
 ): never {
@@ -180,6 +214,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
   registerSigningSession: (record: BuildCurrentSealedSessionRecordInput) => Promise<void>;
   }): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
   const input = args.input;
+  const reconstructionTimings = createEmailOtpThresholdEd25519ProvisioningTimings();
   const signer = input.ed25519Key.signer;
   const walletId = toWalletId(signer.account.wallet.walletId);
   const nearAccountId = toAccountId(signer.account.nearAccountId);
@@ -354,6 +389,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     walletSessionJwt: jwt,
     relayerKeyId,
     operation: 'warm_session_reconstruction',
+    clientOutputMaskOperation: 'warm_session_reconstruction',
     context: {
       applicationBindingDigestB64u: clientInputs.applicationBindingDigestB64u,
       participantIds: clientInputs.participantIds,
@@ -381,6 +417,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
   }
   const clientVerifyingShareB64u =
     parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
+  const warmCapabilityPersistenceStartedAtMs = nowMs();
   await args.persistWarmSessionEd25519Capability({
     kind: 'jwt_email_otp',
     walletId: String(walletId),
@@ -414,9 +451,24 @@ export async function reconstructEmailOtpEd25519Session(args: {
     emailOtpAuthContext: input.emailOtpAuthContext,
     source: 'email_otp',
   });
-  markRouterAbEd25519WorkerMaterialRuntimeValidated(
-    getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId),
+  addEmailOtpThresholdEd25519ProvisioningTiming(
+    reconstructionTimings,
+    'warmCapabilityPersistenceMs',
+    warmCapabilityPersistenceStartedAtMs,
   );
+  const storedCurrentRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
+  if (!storedCurrentRecord) {
+    throw new Error(
+      'Email OTP threshold-ed25519 session reconstruction did not store a current record',
+    );
+  }
+  markRouterAbEd25519WorkerMaterialRuntimeValidated(storedCurrentRecord);
+  const currentRecord = buildOperationUsableThresholdEd25519SessionRecord(storedCurrentRecord);
+  if (!currentRecord) {
+    throw new Error(
+      'Email OTP threshold-ed25519 session reconstruction did not commit an operation-usable current record',
+    );
+  }
   await args.recoveryCodeSigningSessionHydration.hydrateRecoveryCodeSigningSession({
     sessionId,
     recoveryCodeSecret32B64u,
@@ -449,11 +501,13 @@ export async function reconstructEmailOtpEd25519Session(args: {
     relayerKeyId,
     keyVersion,
     sessionId,
+    record: currentRecord,
     expiresAtMs,
     remainingUses,
     participantIds,
     jwt,
     clientVerifyingShareB64u,
+    reconstructionTimings,
   };
 }
 

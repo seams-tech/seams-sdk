@@ -57,6 +57,8 @@ import {
 import {
   commitEmailOtpEcdsaPublicationBootstraps,
   emailOtpEcdsaPublicationChainTargets,
+  emailOtpEcdsaPublicationTargetPlans,
+  type EmailOtpEcdsaPublicationTimings,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
 import { unlockEmailOtpWallet } from './walletUnlock';
@@ -87,12 +89,29 @@ import {
   resolveWalletUnlockBudgetPolicyFromRequestedUses,
 } from '../budget/policy';
 
+export type EmailOtpThresholdEcdsaLoginTimingBucket =
+  | 'emailOtpProofVerificationMs'
+  | 'ecdsaMaterialRestoreMs'
+  | 'signingSessionSealApplyMs'
+  | 'warmCapabilityPersistenceMs'
+  | 'ed25519MaterialRestoreMs';
+
+export type EmailOtpThresholdEcdsaLoginTimings = Record<
+  EmailOtpThresholdEcdsaLoginTimingBucket,
+  number
+>;
+
 export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+  warmCapabilities: readonly [
+    WarmSessionEcdsaCapabilityState,
+    ...WarmSessionEcdsaCapabilityState[],
+  ];
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
+  timings: EmailOtpThresholdEcdsaLoginTimings;
 };
 
 export type EmailOtpEd25519ReconstructionResult =
@@ -109,6 +128,38 @@ export type EmailOtpEd25519ReconstructionResult =
         | 'missing_runtime_policy_scope'
         | 'not_needed_for_ecdsa';
     };
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function createEmailOtpThresholdEcdsaLoginTimings(): EmailOtpThresholdEcdsaLoginTimings {
+  return {
+    emailOtpProofVerificationMs: 0,
+    ecdsaMaterialRestoreMs: 0,
+    signingSessionSealApplyMs: 0,
+    warmCapabilityPersistenceMs: 0,
+    ed25519MaterialRestoreMs: 0,
+  };
+}
+
+function addEmailOtpThresholdEcdsaLoginTiming(
+  timings: EmailOtpThresholdEcdsaLoginTimings,
+  bucket: EmailOtpThresholdEcdsaLoginTimingBucket,
+  startedAtMs: number,
+): void {
+  timings[bucket] += Math.max(0, Math.round(nowMs() - startedAtMs));
+}
+
+function mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings(
+  target: EmailOtpThresholdEcdsaLoginTimings,
+  source: EmailOtpEcdsaPublicationTimings,
+): void {
+  target.signingSessionSealApplyMs += source.signingSessionSealApplyMs;
+  target.warmCapabilityPersistenceMs += source.warmCapabilityPersistenceMs;
+}
 
 export type EmailOtpEcdsaProviderIdentity =
   | {
@@ -380,6 +431,7 @@ export async function loginWithEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
 ): Promise<EmailOtpThresholdEcdsaLoginResult> {
+  const timings = createEmailOtpThresholdEcdsaLoginTimings();
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
@@ -460,6 +512,7 @@ export async function loginWithEmailOtpEcdsaCapability(
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
     walletId: args.walletSession.walletId,
     runtimePolicyScope,
+    chainTarget: args.chainTarget,
   });
   const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(routePlan.authLane);
   if (appSessionJwt) {
@@ -497,7 +550,16 @@ export async function loginWithEmailOtpEcdsaCapability(
       ? { additionalChainTargets: args.publicationChainTargets }
       : {}),
   });
+  const keyHandle = String(args.keyHandle || '').trim();
+  const publicationTargetPlans = emailOtpEcdsaPublicationTargetPlans({
+    walletId: toWalletId(args.walletSession.walletId),
+    runtimePolicyScope,
+    chainTarget,
+    publicationChainTargets,
+    ...(keyHandle ? { keyHandle } : {}),
+  });
   const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId);
+  let timingStartedAtMs = nowMs();
   const workerResult = await unlockEmailOtpWallet({
     walletSession: args.walletSession,
     relayUrl,
@@ -515,6 +577,11 @@ export async function loginWithEmailOtpEcdsaCapability(
     runtimePolicyScope,
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   });
+  addEmailOtpThresholdEcdsaLoginTiming(
+    timings,
+    'emailOtpProofVerificationMs',
+    timingStartedAtMs,
+  );
   const bootstrapAuth = {
     sessionKind: 'jwt' as const,
     routeAuth:
@@ -523,18 +590,15 @@ export async function loginWithEmailOtpEcdsaCapability(
         throw new Error('Email OTP ECDSA bootstrap requires route auth');
       })(),
   };
-  const keyHandle = String(args.keyHandle || '').trim();
   const bootstrapPayload: EmailOtpEcdsaBootstrapStrictPayload = {
     relayUrl,
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
     userId: emailOtpProviderUserId,
-    evmFamilySigningKeySlotId,
     clientRootShareHandle: workerResult.clientRootShareHandle,
     chainTarget,
-    publicationChainTargets,
+    publicationTargetPlans,
     runtimePolicyScope,
-    ...(keyHandle ? { keyHandle } : {}),
     ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
       ? { participantIds: args.participantIds }
       : {}),
@@ -544,6 +608,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
     ...(args.includeEcdsaExportArtifact ? { includeEcdsaExportArtifact: true } : {}),
   };
+  timingStartedAtMs = nowMs();
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
@@ -553,22 +618,25 @@ export async function loginWithEmailOtpEcdsaCapability(
       onEvent: args.onProgress,
     },
   });
+  addEmailOtpThresholdEcdsaLoginTiming(timings, 'ecdsaMaterialRestoreMs', timingStartedAtMs);
   const ed25519ReconstructionAuthContext = buildEd25519ReconstructionAuthContext({
     ecdsaAuthContext: emailOtpAuthContext,
     providerUserId: emailOtpProviderUserId,
   });
-  const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
-    {
-      walletId: toWalletId(args.walletSession.walletId),
-      publicationChainTargets,
-      bootstraps: bootstrapResult.bootstraps,
-      signingGrantId,
-      emailOtpAuthContext,
-      relayerUrl: relayUrl,
-      shamirPrimeB64u,
-    },
-    ports.publicationPorts,
-  );
+  const { bootstrap, warmCapability, warmCapabilities, timings: publicationTimings } =
+    await commitEmailOtpEcdsaPublicationBootstraps(
+      {
+        walletId: toWalletId(args.walletSession.walletId),
+        publicationChainTargets,
+        bootstraps: bootstrapResult.bootstraps,
+        signingGrantId,
+        emailOtpAuthContext,
+        relayerUrl: relayUrl,
+        shamirPrimeB64u,
+      },
+      ports.publicationPorts,
+    );
+  mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings(timings, publicationTimings);
   const thresholdEd25519RecoveryCodeSecret32B64u = String(
     workerResult.recovery?.thresholdEd25519RecoveryCodeSecret32B64u || '',
   ).trim();
@@ -610,7 +678,15 @@ export async function loginWithEmailOtpEcdsaCapability(
         ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
       };
       if (shouldAwaitEd25519Reconstruction) {
+        timingStartedAtMs = nowMs();
         const sessionMaterial = await ports.reconstructEd25519Session(ed25519ReconstructionArgs);
+        addEmailOtpThresholdEcdsaLoginTiming(
+          timings,
+          'ed25519MaterialRestoreMs',
+          timingStartedAtMs,
+        );
+        timings.warmCapabilityPersistenceMs +=
+          sessionMaterial.reconstructionTimings.warmCapabilityPersistenceMs;
         ed25519Reconstruction = {
           kind: 'completed',
           sessionMaterial,
@@ -642,7 +718,9 @@ export async function loginWithEmailOtpEcdsaCapability(
     recovery: workerResult.recovery,
     bootstrap,
     warmCapability,
+    warmCapabilities,
     clientRootShareHandle: workerResult.clientRootShareHandle,
     ed25519Reconstruction,
+    timings,
   };
 }

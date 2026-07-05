@@ -1036,6 +1036,7 @@ const ED25519_HSS_SESSION_OPERATIONS: ReadonlySet<string> = new Set([
   'tx_signing',
   'link_device',
   'email_recovery',
+  'registration_material_restore',
   'warm_session_reconstruction',
   'explicit_key_export',
 ]);
