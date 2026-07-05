@@ -2,9 +2,42 @@ import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
+import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApiKeyAuth';
-import { callCf, makeFakeAuthService } from '../relayer/helpers';
+import { callCf } from '../relayer/helpers';
+
+function makeUnexpectedRouterApiServiceValue(path: string): unknown {
+  const target = function unexpectedRouterApiServiceCall(): never {
+    throw new Error(`Unexpected RouterApiServiceBag fixture call: ${path}`);
+  };
+  return new Proxy(target, {
+    get(_target, property) {
+      if (property === 'then') return undefined;
+      return makeUnexpectedRouterApiServiceValue(`${path}.${String(property)}`);
+    },
+    apply() {
+      throw new Error(`Unexpected RouterApiServiceBag fixture call: ${path}`);
+    },
+  });
+}
+
+function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
+  const target = {
+    thresholdRuntime: {
+      getThresholdSigningService() {
+        return undefined;
+      },
+    },
+  };
+  return new Proxy(target, {
+    get(target, property, receiver) {
+      if (property in target) return Reflect.get(target, property, receiver);
+      if (property === 'then') return undefined;
+      return makeUnexpectedRouterApiServiceValue(`RouterApiServiceBag.${String(property)}`);
+    },
+  }) as RouterApiServiceBag;
+}
 
 function makeSponsoredOptions() {
   const apiKeys = createInMemoryConsoleApiKeyService();
@@ -69,7 +102,7 @@ test.describe('cloudflare sponsored evm call route', () => {
   } as const;
 
   test('returns 404 when sponsorship is not configured', async () => {
-    const handler = createCloudflareRouter(makeFakeAuthService(), {
+    const handler = createCloudflareRouter(makeRouterApiServiceBagFixture(), {
       corsOrigins: ['https://example.localhost'],
     });
 
@@ -85,7 +118,7 @@ test.describe('cloudflare sponsored evm call route', () => {
 
   test('warns and fails closed when sponsored route is mounted without pricing', async () => {
     const warnings: unknown[][] = [];
-    const handler = createCloudflareRouter(makeFakeAuthService(), {
+    const handler = createCloudflareRouter(makeRouterApiServiceBagFixture(), {
       corsOrigins: ['https://example.localhost'],
       sponsoredEvmCall: makeSponsoredOptions(),
       logger: {

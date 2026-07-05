@@ -3,6 +3,7 @@ import type { Request as ExpressRequest, Response as ExpressResponse } from 'exp
 import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
+import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express/createRouterApiRouter';
 import {
@@ -23,7 +24,6 @@ import {
   createVoiceIdServerCapability,
 } from '../../voiceId/server/src/index';
 import { callCf } from '../relayer/helpers';
-import { makeFakeAuthService } from '../relayer/helpers';
 
 type ExpressRouteEntry = {
   method: string;
@@ -31,6 +31,38 @@ type ExpressRouteEntry = {
 };
 
 type CloudflareRouterApiHandler = ReturnType<typeof createCloudflareRouter>;
+
+function makeUnexpectedRouterApiServiceValue(path: string): unknown {
+  const target = function unexpectedRouterApiServiceCall(): never {
+    throw new Error(`Unexpected RouterApiServiceBag fixture call: ${path}`);
+  };
+  return new Proxy(target, {
+    get(_target, property) {
+      if (property === 'then') return undefined;
+      return makeUnexpectedRouterApiServiceValue(`${path}.${String(property)}`);
+    },
+    apply() {
+      throw new Error(`Unexpected RouterApiServiceBag fixture call: ${path}`);
+    },
+  });
+}
+
+function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
+  const target = {
+    thresholdRuntime: {
+      getThresholdSigningService() {
+        return undefined;
+      },
+    },
+  };
+  return new Proxy(target, {
+    get(target, property, receiver) {
+      if (property in target) return Reflect.get(target, property, receiver);
+      if (property === 'then') return undefined;
+      return makeUnexpectedRouterApiServiceValue(`RouterApiServiceBag.${String(property)}`);
+    },
+  }) as RouterApiServiceBag;
+}
 
 const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
   keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -264,7 +296,7 @@ function voiceIdSampleForm(input: {
 
 test.describe('Router API route surface wiring', () => {
   test('attached route surface matches registered express routes', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const router = createRouterApiRouter(service, {
       healthz: true,
       readyz: true,
@@ -309,7 +341,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('conditional Router API route families are only attached when enabled', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const router = createRouterApiRouter(service, {});
     const surface = getRouterApiRouteSurface(router);
     const ids = new Set((surface?.routeDefinitions || []).map((route) => route.id));
@@ -323,7 +355,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('email recovery route surface separates prepare-only and executable ingress branches', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const prepareOnlySurface = getRouterApiRouteSurface(
       createRouterApiRouter(service, {
         emailRecovery: {
@@ -359,7 +391,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('cloudflare and express attach the same configured Router API route surface', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const options = {
       healthz: true,
       signingSessionSeal: {
@@ -386,7 +418,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('cloudflare handler recognizes every seeded Router API route definition', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const apiKeys = createInMemoryConsoleApiKeyService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const ledger = createInMemoryConsoleSponsoredCallService();
@@ -443,7 +475,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('route extensions are surfaced and mounted by supported transport', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const cloudflareRoute = voiceIdTestRoute(
       'voiceid_owner_presence_cloudflare',
       'POST',
@@ -531,7 +563,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('route extensions cannot shadow existing Router API routes', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const extension: RouterApiRouteExtension = {
       kind: 'cloudflare_route_extension',
       id: 'conflicting-extension',
@@ -545,7 +577,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('Router API routers run without optional VoiceID module registered', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
 
     const cloudflareHandler = createCloudflareRouter(service, {});
     const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
@@ -572,7 +604,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('Router API modules register VoiceID routes across Cloudflare and Express', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const voiceIdModule: RouterApiModule = createVoiceIdRouterApiModule(
       createVoiceIdServerCapability({
         kind: 'service',
@@ -709,7 +741,7 @@ test.describe('Router API route surface wiring', () => {
   });
 
   test('Router API modules reject duplicate module ids', async () => {
-    const service = makeFakeAuthService();
+    const service = makeRouterApiServiceBagFixture();
     const route = voiceIdTestRoute('voiceid_duplicate_module_route', 'GET', '/voiceid/dupe');
     const extension: RouterApiRouteExtension = {
       kind: 'cloudflare_route_extension',
