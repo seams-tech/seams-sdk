@@ -1084,6 +1084,17 @@ export class BrowserSigningSurface {
     );
   }
 
+  prepareThresholdEd25519HssAddStageRequestMessage(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
+    >[1],
+  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage> {
+    return thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     args: Parameters<
       typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle

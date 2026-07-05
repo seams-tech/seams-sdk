@@ -469,6 +469,13 @@ export interface ThresholdEd25519HssClientSurface {
   ): ReturnType<
     typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
   >;
+  prepareThresholdEd25519HssAddStageRequestMessage(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
+  >;
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     args: Parameters<
       typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle

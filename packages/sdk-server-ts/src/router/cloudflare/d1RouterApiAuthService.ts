@@ -598,6 +598,10 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.startWalletRegistration.bind(assembly.walletRegistrations),
     respondWalletRegistrationHss:
       assembly.walletRegistrations.respondWalletRegistrationHss.bind(assembly.walletRegistrations),
+    advanceWalletRegistrationHssState:
+      assembly.walletRegistrations.advanceWalletRegistrationHssState.bind(
+        assembly.walletRegistrations,
+      ),
     finalizeWalletRegistration:
       assembly.walletRegistrations.finalizeWalletRegistration.bind(assembly.walletRegistrations),
   };

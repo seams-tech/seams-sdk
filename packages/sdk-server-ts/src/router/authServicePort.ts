@@ -49,6 +49,8 @@ import type {
   WalletAddSignerStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationHssAdvanceStateRequest,
+  WalletRegistrationHssAdvanceStateResponse,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
   WalletRegistrationPrepareRequest,
@@ -753,6 +755,10 @@ export type RouterApiMethodTypes = {
     readonly input: WalletRegistrationHssRespondRequest;
     readonly result: WalletRegistrationHssRespondResponse;
   };
+  advanceWalletRegistrationHssState: {
+    readonly input: WalletRegistrationHssAdvanceStateRequest;
+    readonly result: WalletRegistrationHssAdvanceStateResponse;
+  };
   resolveGoogleEmailOtpSession: {
     readonly input: {
       readonly providerSubject?: string;
@@ -1056,6 +1062,9 @@ export interface RouterApiWalletRegistrationService {
   respondWalletRegistrationHss(
     input: WalletRegistrationHssRespondRequest,
   ): Promise<WalletRegistrationHssRespondResponse>;
+  advanceWalletRegistrationHssState(
+    input: WalletRegistrationHssAdvanceStateRequest,
+  ): Promise<WalletRegistrationHssAdvanceStateResponse>;
   finalizeWalletRegistration(
     input: WalletRegistrationFinalizeRequest,
   ): Promise<WalletRegistrationFinalizeResponse>;

@@ -291,6 +291,45 @@ type IntendedLifecycleTracePayload = {
   violations: readonly string[];
 };
 
+type RegistrationHssFinalizeSource =
+  | 'durable_advanced_eval'
+  | 'durable_finalized_report'
+  | 'serialized_replay';
+
+type RegistrationHssAdvanceSource = 'durable_workerd_wasm';
+
+type RegistrationHssAdvanceProvenance =
+  | {
+      kind: 'not_ed25519_registration';
+      source?: never;
+    }
+  | {
+      kind: 'missing_ed25519_advance_source';
+      source?: never;
+    }
+  | {
+      kind: 'ed25519_advance_source';
+      source: RegistrationHssAdvanceSource;
+    };
+
+type RegistrationHssFinalizeProvenance =
+  | {
+      kind: 'not_ed25519_registration';
+      source?: never;
+    }
+  | {
+      kind: 'missing_ed25519_finalize_source';
+      source?: never;
+    }
+  | {
+      kind: 'durable_registration_hss';
+      source: Exclude<RegistrationHssFinalizeSource, 'serialized_replay'>;
+    }
+  | {
+      kind: 'serialized_registration_hss_replay';
+      source: 'serialized_replay';
+    };
+
 type WalletIframeAutoConfirmDiagnostics = {
   attempts: number;
   clicked: boolean;
@@ -415,6 +454,7 @@ const SIGNING_THRESHOLD_SESSION_RECONNECT_SUCCEEDED =
   'signing.threshold_session.reconnect.succeeded';
 const KEY_EXPORT_AUTH_PASSKEY_PROMPT_STARTED = 'key_export.auth.passkey.prompt.started';
 const KEY_EXPORT_AUTH_PASSKEY_PROMPT_SUCCEEDED = 'key_export.auth.passkey.prompt.succeeded';
+const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
 
 const LIFECYCLE_FAILURE_MATCHER_TABLE_VERSION = 'refactor-88-2026-07-04';
 
@@ -1107,6 +1147,10 @@ export class IntendedBehaviourHarness {
       kind: 'console',
       message: `${message.type()}: ${text}`,
     });
+    const registrationTimingViolation = registrationTimingViolationFromConsoleMessage(text);
+    if (registrationTimingViolation) {
+      this.violations.push(registrationTimingViolation);
+    }
     this.recordViolationIfNeeded(text);
   }
 
@@ -1914,6 +1958,169 @@ function eventAuthMethod(payload: unknown): SigningAuthMethod | null {
     return authMethod;
   }
   return null;
+}
+
+function registrationTimingViolationFromConsoleMessage(text: string): string | null {
+  const summary = parseRegistrationTimingSummaryConsoleMessage(text);
+  if (!summary) return null;
+  const advanceProvenance = registrationHssAdvanceProvenanceFromTimingSummary(summary);
+  switch (advanceProvenance.kind) {
+    case 'not_ed25519_registration':
+    case 'ed25519_advance_source':
+      break;
+    case 'missing_ed25519_advance_source':
+      return 'registration_hss_advance_provenance_missing: successful Ed25519 registration did not report HSS advance provenance';
+    default:
+      return assertNever(advanceProvenance);
+  }
+  const finalizeProvenance = registrationHssFinalizeProvenanceFromTimingSummary(summary);
+  switch (finalizeProvenance.kind) {
+    case 'not_ed25519_registration':
+    case 'durable_registration_hss':
+      return null;
+    case 'missing_ed25519_finalize_source':
+      return 'registration_hss_finalize_provenance_missing: successful Ed25519 registration did not report HSS finalize provenance';
+    case 'serialized_registration_hss_replay':
+      return 'registration_hss_serialized_replay: successful Ed25519 registration used serialized HSS replay';
+    default:
+      return assertNever(finalizeProvenance);
+  }
+}
+
+function parseRegistrationTimingSummaryConsoleMessage(text: string): Record<string, unknown> | null {
+  const labelIndex = text.indexOf(REGISTRATION_TIMING_LABEL);
+  if (labelIndex < 0) return null;
+  const jsonStart = text.indexOf('{', labelIndex + REGISTRATION_TIMING_LABEL.length);
+  if (jsonStart < 0) return null;
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function registrationHssFinalizeProvenanceFromTimingSummary(
+  summary: Record<string, unknown>,
+): RegistrationHssFinalizeProvenance {
+  if (!registrationTimingSummaryRequiresEd25519FinalizeSource(summary)) {
+    return { kind: 'not_ed25519_registration' };
+  }
+  const sources = registrationFinalizeHssSourcesFromTimingSummary(summary);
+  if (sources.includes('serialized_replay')) {
+    return { kind: 'serialized_registration_hss_replay', source: 'serialized_replay' };
+  }
+  const durableSource = sources.find(isDurableRegistrationHssFinalizeSource);
+  if (durableSource) {
+    return { kind: 'durable_registration_hss', source: durableSource };
+  }
+  return { kind: 'missing_ed25519_finalize_source' };
+}
+
+function registrationHssAdvanceProvenanceFromTimingSummary(
+  summary: Record<string, unknown>,
+): RegistrationHssAdvanceProvenance {
+  if (!registrationTimingSummaryRequiresEd25519FinalizeSource(summary)) {
+    return { kind: 'not_ed25519_registration' };
+  }
+  const sources = registrationAdvanceHssSourcesFromTimingSummary(summary);
+  const source = sources[0];
+  if (source) {
+    return { kind: 'ed25519_advance_source', source };
+  }
+  return { kind: 'missing_ed25519_advance_source' };
+}
+
+function registrationTimingSummaryRequiresEd25519FinalizeSource(
+  summary: Record<string, unknown>,
+): boolean {
+  if (summary.kind !== 'registration_timing_summary_v1') return false;
+  if (summary.status !== 'succeeded') return false;
+  const timings = summary.timings;
+  if (!isRecord(timings)) return false;
+  const ed25519 = timings.ed25519;
+  if (!isRecord(ed25519)) return false;
+  return ed25519.kind === 'ed25519_enabled';
+}
+
+function registrationAdvanceHssSourcesFromTimingSummary(
+  summary: Record<string, unknown>,
+): RegistrationHssAdvanceSource[] {
+  const relayDiagnostics = summary.relayDiagnostics;
+  if (!Array.isArray(relayDiagnostics)) return [];
+  const sources: RegistrationHssAdvanceSource[] = [];
+  for (const diagnostics of relayDiagnostics) {
+    const source = registrationAdvanceHssSourceFromRouteDiagnostics(diagnostics);
+    if (source) sources.push(source);
+  }
+  return sources;
+}
+
+function registrationFinalizeHssSourcesFromTimingSummary(
+  summary: Record<string, unknown>,
+): RegistrationHssFinalizeSource[] {
+  const relayDiagnostics = summary.relayDiagnostics;
+  if (!Array.isArray(relayDiagnostics)) return [];
+  const sources: RegistrationHssFinalizeSource[] = [];
+  for (const diagnostics of relayDiagnostics) {
+    const source = registrationFinalizeHssSourceFromRouteDiagnostics(diagnostics);
+    if (source) sources.push(source);
+  }
+  return sources;
+}
+
+function registrationAdvanceHssSourceFromRouteDiagnostics(
+  raw: unknown,
+): RegistrationHssAdvanceSource | null {
+  if (!isRecord(raw)) return null;
+  if (raw.route !== 'wallets_register_hss_advance_state') return null;
+  const ed25519HssAdvance = raw.ed25519HssAdvance;
+  if (!isRecord(ed25519HssAdvance)) return null;
+  return parseRegistrationHssAdvanceSource(ed25519HssAdvance.source);
+}
+
+function registrationFinalizeHssSourceFromRouteDiagnostics(
+  raw: unknown,
+): RegistrationHssFinalizeSource | null {
+  if (!isRecord(raw)) return null;
+  if (raw.route !== 'wallets_register_finalize') return null;
+  const ed25519HssFinalize = raw.ed25519HssFinalize;
+  if (!isRecord(ed25519HssFinalize)) return null;
+  return parseRegistrationHssFinalizeSource(ed25519HssFinalize.source);
+}
+
+function parseRegistrationHssAdvanceSource(raw: unknown): RegistrationHssAdvanceSource | null {
+  switch (raw) {
+    case 'durable_workerd_wasm':
+      return raw;
+    default:
+      return null;
+  }
+}
+
+function parseRegistrationHssFinalizeSource(raw: unknown): RegistrationHssFinalizeSource | null {
+  switch (raw) {
+    case 'durable_advanced_eval':
+    case 'durable_finalized_report':
+    case 'serialized_replay':
+      return raw;
+    default:
+      return null;
+  }
+}
+
+function isDurableRegistrationHssFinalizeSource(
+  source: RegistrationHssFinalizeSource,
+): source is Exclude<RegistrationHssFinalizeSource, 'serialized_replay'> {
+  switch (source) {
+    case 'durable_advanced_eval':
+    case 'durable_finalized_report':
+      return true;
+    case 'serialized_replay':
+      return false;
+    default:
+      return assertNever(source);
+  }
 }
 
 function requirePasskeyRegistrationResult(

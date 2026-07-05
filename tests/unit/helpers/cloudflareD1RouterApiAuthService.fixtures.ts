@@ -219,6 +219,9 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     if (op === 'getdel') return this.handleGetDel(request);
     if (op === 'del') return this.handleDel(request);
     if (op === 'authReserveReplayGuard') return this.handleReserveReplayGuard(request);
+    if (op === 'registrationHssAdvanceClaimTransition') {
+      return this.handleRegistrationHssAdvanceClaimTransition(request);
+    }
     return recordingDurableObjectJson({
       ok: false,
       code: 'unsupported_op',
@@ -265,6 +268,78 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     }
     this.values.set(key, { expiresAtMs });
     return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
+  }
+
+  private handleRegistrationHssAdvanceClaimTransition(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    const transition = isSqliteJsonRow(request.transition) ? request.transition : {};
+    const value = isSqliteJsonRow(request.value) ? request.value : {};
+    if (!key) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'invalid_body',
+        message: 'Missing key',
+      });
+    }
+    const kind = String(transition.kind || '').trim();
+    if (kind === 'start') return this.handleRegistrationHssAdvanceClaimStart(key, value);
+    if (kind === 'fulfill' || kind === 'fail') {
+      return this.handleRegistrationHssAdvanceClaimComplete(key, transition, value, kind);
+    }
+    return recordingDurableObjectJson({
+      ok: false,
+      code: 'invalid_body',
+      message: 'Invalid HSS advance claim transition',
+    });
+  }
+
+  private handleRegistrationHssAdvanceClaimStart(
+    key: string,
+    value: Record<string, unknown>,
+  ): Response {
+    const existing = this.values.get(key);
+    if (!isSqliteJsonRow(existing)) {
+      this.values.set(key, value);
+      return recordingDurableObjectJson({ ok: true, value: { status: 'started', record: value } });
+    }
+    const state = String(existing.state || '').trim();
+    if (state === 'fulfilled') {
+      return recordingDurableObjectJson({
+        ok: true,
+        value: { status: 'fulfilled', record: existing },
+      });
+    }
+    if (state === 'in_flight') {
+      return recordingDurableObjectJson({
+        ok: true,
+        value: { status: 'in_flight', record: existing },
+      });
+    }
+    this.values.set(key, value);
+    return recordingDurableObjectJson({ ok: true, value: { status: 'started', record: value } });
+  }
+
+  private handleRegistrationHssAdvanceClaimComplete(
+    key: string,
+    transition: Record<string, unknown>,
+    value: Record<string, unknown>,
+    state: 'fulfill' | 'fail',
+  ): Response {
+    const existing = this.values.get(key);
+    if (!isSqliteJsonRow(existing)) {
+      return recordingDurableObjectJson({ ok: true, value: { status: 'not_found' } });
+    }
+    if (String(existing.claimId || '').trim() !== String(transition.expectedClaimId || '').trim()) {
+      return recordingDurableObjectJson({
+        ok: true,
+        value: { status: 'claim_mismatch', record: existing },
+      });
+    }
+    this.values.set(key, value);
+    return recordingDurableObjectJson({
+      ok: true,
+      value: { status: state === 'fulfill' ? 'fulfilled' : 'failed', record: value },
+    });
   }
 }
 
@@ -495,14 +570,36 @@ export async function testEd25519RespondForRegistration() {
   };
 }
 
+export async function testEd25519AdvanceForRegistration(request: {
+  readonly request: {
+    readonly addStageRequestMessageB64u: string;
+    readonly projectionMode: 'registration_seed_and_output' | 'registration_output_only';
+  };
+}) {
+  return {
+    ok: true as const,
+    contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
+    advancedServerEvalStateB64u: base64UrlEncode(utf8Bytes('advanced-server-eval-state')),
+    priorStageResponseMessageB64u: base64UrlEncode(utf8Bytes('prior-stage-response-message')),
+    addStageRequestDigestB64u: base64UrlEncode(
+      await sha256(base64UrlDecode(request.request.addStageRequestMessageB64u)),
+    ),
+    projectionMode: request.request.projectionMode,
+  };
+}
+
 export async function testEd25519FinalizeForRegistration() {
   return {
     ok: true as const,
     publicKey: 'ed25519:combined-test-public-key',
     nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
     relayerKeyId: 'combined-test-relayer-key',
+    finalizedServerOutputMessageB64u: base64UrlEncode(utf8Bytes('finalized-server-output')),
     finalizedReport: {
       kind: 'threshold_ed25519_hss_finalized_report_v1',
+      contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
+      clientOutputMessageB64u: base64UrlEncode(utf8Bytes('finalized-client-output')),
+      seedOutputMessageB64u: base64UrlEncode(utf8Bytes('finalized-seed-output')),
     },
   };
 }
@@ -553,6 +650,7 @@ export const testCombinedRegistrationThresholdSigningService = {
   ed25519Hss: {
     prepareForRegistration: testEd25519PrepareForRegistration,
     respondForRegistration: testEd25519RespondForRegistration,
+    advanceForRegistration: testEd25519AdvanceForRegistration,
     finalizeForRegistration: testEd25519FinalizeForRegistration,
   },
   ecdsaHssRoleLocalBootstrap: testEcdsaHssRoleLocalBootstrap,
@@ -669,6 +767,55 @@ export async function createWebAuthnAssertion(input: {
       authenticatorData: base64UrlEncode(authenticatorData),
       signature: base64UrlEncode(rawP256SignatureToDer(rawSignature)),
       userHandle: null,
+    },
+    clientExtensionResults: {},
+  };
+}
+
+export async function createWebAuthnRegistrationCredential(input: {
+  readonly rpId: string;
+  readonly origin: string;
+  readonly challengeB64u: string;
+}): Promise<Record<string, unknown>> {
+  const fixture = await createWebAuthnAssertionFixture();
+  const clientDataJSON = utf8Bytes(
+    JSON.stringify({
+      type: 'webauthn.create',
+      challenge: input.challengeB64u,
+      origin: input.origin,
+      crossOrigin: false,
+    }),
+  );
+  const rpIdHash = await sha256(utf8Bytes(input.rpId));
+  const flags = new Uint8Array([0x41]);
+  const counter = new Uint8Array(4);
+  const aaguid = new Uint8Array(16);
+  const credentialId = base64UrlDecode(fixture.credentialIdB64u);
+  const credentialIdLength = new Uint8Array(2);
+  new DataView(credentialIdLength.buffer).setUint16(0, credentialId.byteLength, false);
+  const attestedCredentialData = concatBytes(
+    aaguid,
+    credentialIdLength,
+    credentialId,
+    base64UrlDecode(fixture.credentialPublicKeyB64u),
+  );
+  const authData = concatBytes(rpIdHash, flags, counter, attestedCredentialData);
+  const attestationObject = isoCBOR.encode(
+    new Map<string, string | Uint8Array | Map<never, never>>([
+      ['fmt', 'none'],
+      ['attStmt', new Map<never, never>()],
+      ['authData', authData],
+    ]),
+  );
+  return {
+    id: fixture.credentialIdB64u,
+    rawId: fixture.credentialIdB64u,
+    type: 'public-key',
+    authenticatorAttachment: 'platform',
+    response: {
+      clientDataJSON: base64UrlEncode(clientDataJSON),
+      attestationObject: base64UrlEncode(attestationObject),
+      transports: ['internal'],
     },
     clientExtensionResults: {},
   };

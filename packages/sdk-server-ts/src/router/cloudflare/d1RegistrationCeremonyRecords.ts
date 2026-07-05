@@ -43,9 +43,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode } from '@shared/utils/encoders';
-import {
-  registrationPreparationIdFromString
-} from '../../core/registrationContracts';
+import { registrationPreparationIdFromString } from '../../core/registrationContracts';
 import type {
   EcdsaHssClientBootstrapRequest,
   EcdsaHssServerBootstrapResponse,
@@ -56,7 +54,7 @@ import type {
   ThresholdEd25519HssPersistedServerInputs,
   ThresholdEd25519HssRegistrationPreparedServerState,
   ThresholdEd25519HssRegistrationRespondedServerState,
-  ThresholdEd25519HssServerVisibleClientRequestEnvelope
+  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
 } from '../../core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
@@ -64,7 +62,7 @@ import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeAuthMethod,
-  WalletRegistrationFinalizeResponse
+  WalletRegistrationFinalizeResponse,
 } from '../../core/registrationContracts';
 import {
   parseThresholdEd25519AuthorityScope,
@@ -124,6 +122,153 @@ type D1StoredEd25519RegistrationStartPayload = Pick<
   StoredEd25519RegistrationPrepared,
   'ceremonyHandle' | 'preparedSession' | 'clientOtOfferMessageB64u'
 >;
+
+export type D1Ed25519HssRegistrationProjectionMode =
+  | 'registration_seed_and_output'
+  | 'registration_output_only';
+
+export type D1DurableEd25519HssAdvancedEvalRecord = {
+  readonly kind: 'ed25519_hss_advanced_eval_v1';
+  readonly ceremonyHandle: string;
+  readonly contextBindingB64u: string;
+  readonly addStageRequestDigestB64u: string;
+  readonly projectionMode: D1Ed25519HssRegistrationProjectionMode;
+  readonly advancedServerEvalStateB64u: string;
+  readonly priorStageResponseMessageB64u: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+type D1DurableEd25519HssAdvanceClaimBase = {
+  readonly kind: 'ed25519_hss_advance_claim_v1';
+  readonly ceremonyHandle: string;
+  readonly addStageRequestDigestB64u: string;
+  readonly claimId: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export type D1DurableEd25519HssAdvanceClaimRecord =
+  | (D1DurableEd25519HssAdvanceClaimBase & {
+      readonly state: 'in_flight';
+      readonly leaseExpiresAtMs: number;
+      readonly attempt: {
+        readonly route: 'wallets_register_hss_advance_state';
+        readonly startedAtMs: number;
+      };
+    })
+  | (D1DurableEd25519HssAdvanceClaimBase & {
+      readonly state: 'fulfilled';
+      readonly advancedEval: {
+        readonly ceremonyHandle: string;
+        readonly addStageRequestDigestB64u: string;
+      };
+    })
+  | (D1DurableEd25519HssAdvanceClaimBase & {
+      readonly state: 'failed';
+      readonly failure: {
+        readonly code: string;
+        readonly message: string;
+      };
+    });
+
+type D1DurableEd25519HssAdvanceClaimRecordInput =
+  D1DurableEd25519HssAdvanceClaimRecord extends infer Claim
+    ? Claim extends D1DurableEd25519HssAdvanceClaimRecord
+      ? Omit<Claim, 'kind'>
+      : never
+    : never;
+
+type D1DurableEd25519HssFinalizedReportBase = {
+  readonly kind: 'ed25519_hss_finalized_report_v1';
+  readonly ceremonyHandle: string;
+  readonly contextBindingB64u: string;
+  readonly addStageRequestDigestB64u: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+type D1DurableEd25519HssSeedAndOutputFinalizedReportRecord =
+  D1DurableEd25519HssFinalizedReportBase & {
+    readonly projectionMode: 'registration_seed_and_output';
+    readonly finalizedReport: {
+      readonly contextBindingB64u: string;
+      readonly clientOutputMessageB64u: string;
+      readonly serverOutputMessageB64u: string;
+      readonly seedOutputMessageB64u: string;
+    };
+  };
+
+type D1DurableEd25519HssOutputOnlyFinalizedReportRecord =
+  D1DurableEd25519HssFinalizedReportBase & {
+    readonly projectionMode: 'registration_output_only';
+    readonly finalizedReport: {
+      readonly contextBindingB64u: string;
+      readonly clientOutputMessageB64u: string;
+      readonly serverOutputMessageB64u: string;
+      readonly seedOutputMessageB64u?: never;
+    };
+  };
+
+export type D1DurableEd25519HssFinalizedReportRecord =
+  | D1DurableEd25519HssSeedAndOutputFinalizedReportRecord
+  | D1DurableEd25519HssOutputOnlyFinalizedReportRecord;
+
+export function buildD1DurableEd25519HssAdvancedEvalRecord(input: {
+  readonly ceremonyHandle: string;
+  readonly contextBindingB64u: string;
+  readonly addStageRequestDigestB64u: string;
+  readonly projectionMode: D1Ed25519HssRegistrationProjectionMode;
+  readonly advancedServerEvalStateB64u: string;
+  readonly priorStageResponseMessageB64u: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+}): D1DurableEd25519HssAdvancedEvalRecord {
+  const record = parseD1DurableEd25519HssAdvancedEvalRecord({
+    kind: 'ed25519_hss_advanced_eval_v1',
+    ...input,
+  });
+  if (!record) throw new Error('durable Ed25519 HSS advanced eval record is invalid');
+  return record;
+}
+
+export function buildD1DurableEd25519HssAdvanceClaimRecord(
+  input: Omit<Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>, 'kind'>,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+export function buildD1DurableEd25519HssAdvanceClaimRecord(
+  input: Omit<Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }>, 'kind'>,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }>;
+export function buildD1DurableEd25519HssAdvanceClaimRecord(
+  input: Omit<Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>, 'kind'>,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>;
+export function buildD1DurableEd25519HssAdvanceClaimRecord(
+  input: D1DurableEd25519HssAdvanceClaimRecordInput,
+): D1DurableEd25519HssAdvanceClaimRecord {
+  const record = parseD1DurableEd25519HssAdvanceClaimRecord({
+    kind: 'ed25519_hss_advance_claim_v1',
+    ...input,
+  });
+  if (!record) throw new Error('durable Ed25519 HSS advance claim record is invalid');
+  return record;
+}
+
+export function buildD1DurableEd25519HssFinalizedReportRecord(input: {
+  readonly ceremonyHandle: string;
+  readonly contextBindingB64u: string;
+  readonly addStageRequestDigestB64u: string;
+  readonly projectionMode: D1Ed25519HssRegistrationProjectionMode;
+  readonly finalizedReport: D1DurableEd25519HssFinalizedReportRecord['finalizedReport'];
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+}): D1DurableEd25519HssFinalizedReportRecord {
+  const record = parseD1DurableEd25519HssFinalizedReportRecord({
+    kind: 'ed25519_hss_finalized_report_v1',
+    ...input,
+  });
+  if (!record) throw new Error('durable Ed25519 HSS finalized report record is invalid');
+  return record;
+}
 
 export function createD1ServerAllocatedWalletId(): ServerAllocatedWalletId {
   return createServerAllocatedWalletId();
@@ -334,7 +479,9 @@ export function parseD1StoredWalletRegistrationCeremony(
   const authority = parseD1RegistrationAuthority(record.authority);
   const signerPlan = parseStoredRegistrationSignerPlan(record.signerPlan);
   const preparedContext = parseStoredWalletRegistrationPreparedContext(record.preparedContext);
-  const intentSignerPlan = intent ? parseStoredRegistrationSignerPlan(intent.signerSelection) : null;
+  const intentSignerPlan = intent
+    ? parseStoredRegistrationSignerPlan(intent.signerSelection)
+    : null;
   const signerState = parseD1StoredWalletRegistrationSignerState(record.signerState);
   const signingRootId = toOptionalTrimmedString(record.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
@@ -402,6 +549,323 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
     createdAtMs,
     expiresAtMs,
   };
+}
+
+export function parseD1DurableEd25519HssAdvancedEvalRecord(
+  raw: unknown,
+): D1DurableEd25519HssAdvancedEvalRecord | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'ed25519_hss_advanced_eval_v1') return null;
+  const ceremonyHandle = toOptionalTrimmedString(record.ceremonyHandle);
+  const contextBindingB64u = parseD1RequiredB64u(record.contextBindingB64u, 32);
+  const addStageRequestDigestB64u = parseD1RequiredB64u(record.addStageRequestDigestB64u, 32);
+  const projectionMode = parseD1Ed25519HssRegistrationProjectionMode(record.projectionMode);
+  const advancedServerEvalStateB64u = parseD1RequiredB64u(record.advancedServerEvalStateB64u);
+  const priorStageResponseMessageB64u = parseD1RequiredB64u(record.priorStageResponseMessageB64u);
+  const createdAtMs = safeInteger(record.createdAtMs);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (
+    !ceremonyHandle ||
+    !contextBindingB64u ||
+    !addStageRequestDigestB64u ||
+    !projectionMode ||
+    !advancedServerEvalStateB64u ||
+    !priorStageResponseMessageB64u ||
+    createdAtMs === null ||
+    createdAtMs <= 0 ||
+    expiresAtMs === null ||
+    expiresAtMs <= createdAtMs
+  ) {
+    return null;
+  }
+  return {
+    kind: 'ed25519_hss_advanced_eval_v1',
+    ceremonyHandle,
+    contextBindingB64u,
+    addStageRequestDigestB64u,
+    projectionMode,
+    advancedServerEvalStateB64u,
+    priorStageResponseMessageB64u,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+export function parseD1DurableEd25519HssAdvanceClaimRecord(
+  raw: unknown,
+): D1DurableEd25519HssAdvanceClaimRecord | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'ed25519_hss_advance_claim_v1') return null;
+  const ceremonyHandle = toOptionalTrimmedString(record.ceremonyHandle);
+  const addStageRequestDigestB64u = parseD1RequiredB64u(record.addStageRequestDigestB64u, 32);
+  const claimId = toOptionalTrimmedString(record.claimId);
+  const createdAtMs = safeInteger(record.createdAtMs);
+  const updatedAtMs = safeInteger(record.updatedAtMs);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (
+    !ceremonyHandle ||
+    !addStageRequestDigestB64u ||
+    !claimId ||
+    createdAtMs === null ||
+    createdAtMs <= 0 ||
+    updatedAtMs === null ||
+    updatedAtMs < createdAtMs ||
+    expiresAtMs === null ||
+    expiresAtMs <= createdAtMs
+  ) {
+    return null;
+  }
+  const base = {
+    kind: 'ed25519_hss_advance_claim_v1' as const,
+    ceremonyHandle,
+    addStageRequestDigestB64u,
+    claimId,
+    createdAtMs,
+    updatedAtMs,
+    expiresAtMs,
+  };
+  switch (record.state) {
+    case 'in_flight': {
+      const leaseExpiresAtMs = safeInteger(record.leaseExpiresAtMs);
+      const attempt = parseD1DurableEd25519HssAdvanceClaimAttempt(record.attempt);
+      if (
+        record.advancedEval !== undefined ||
+        record.failure !== undefined ||
+        !attempt ||
+        leaseExpiresAtMs === null ||
+        leaseExpiresAtMs <= updatedAtMs
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        state: 'in_flight',
+        leaseExpiresAtMs,
+        attempt,
+      };
+    }
+    case 'fulfilled': {
+      if (
+        record.leaseExpiresAtMs !== undefined ||
+        record.attempt !== undefined ||
+        record.failure !== undefined
+      ) {
+        return null;
+      }
+      const advancedEval = parseD1DurableEd25519HssAdvanceClaimAdvancedEval(
+        record.advancedEval,
+      );
+      if (
+        !advancedEval ||
+        advancedEval.ceremonyHandle !== ceremonyHandle ||
+        advancedEval.addStageRequestDigestB64u !== addStageRequestDigestB64u
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        state: 'fulfilled',
+        advancedEval,
+      };
+    }
+    case 'failed': {
+      if (
+        record.leaseExpiresAtMs !== undefined ||
+        record.attempt !== undefined ||
+        record.advancedEval !== undefined
+      ) {
+        return null;
+      }
+      const failure = parseD1DurableEd25519HssAdvanceClaimFailure(record.failure);
+      if (!failure) return null;
+      return {
+        ...base,
+        state: 'failed',
+        failure,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+export function parseD1DurableEd25519HssFinalizedReportRecord(
+  raw: unknown,
+): D1DurableEd25519HssFinalizedReportRecord | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'ed25519_hss_finalized_report_v1') return null;
+  const ceremonyHandle = toOptionalTrimmedString(record.ceremonyHandle);
+  const contextBindingB64u = parseD1RequiredB64u(record.contextBindingB64u, 32);
+  const addStageRequestDigestB64u = parseD1RequiredB64u(record.addStageRequestDigestB64u, 32);
+  const projectionMode = parseD1Ed25519HssRegistrationProjectionMode(record.projectionMode);
+  const createdAtMs = safeInteger(record.createdAtMs);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (
+    !ceremonyHandle ||
+    !contextBindingB64u ||
+    !addStageRequestDigestB64u ||
+    !projectionMode ||
+    createdAtMs === null ||
+    createdAtMs <= 0 ||
+    expiresAtMs === null ||
+    expiresAtMs <= createdAtMs
+  ) {
+    return null;
+  }
+
+  switch (projectionMode) {
+    case 'registration_seed_and_output': {
+      const finalizedReport = parseD1DurableEd25519HssSeedAndOutputFinalizedReport(
+        record.finalizedReport,
+      );
+      if (!finalizedReport || finalizedReport.contextBindingB64u !== contextBindingB64u) {
+        return null;
+      }
+      return {
+        kind: 'ed25519_hss_finalized_report_v1',
+        ceremonyHandle,
+        contextBindingB64u,
+        addStageRequestDigestB64u,
+        projectionMode,
+        finalizedReport,
+        createdAtMs,
+        expiresAtMs,
+      };
+    }
+    case 'registration_output_only': {
+      const finalizedReport = parseD1DurableEd25519HssOutputOnlyFinalizedReport(
+        record.finalizedReport,
+      );
+      if (!finalizedReport || finalizedReport.contextBindingB64u !== contextBindingB64u) {
+        return null;
+      }
+      return {
+        kind: 'ed25519_hss_finalized_report_v1',
+        ceremonyHandle,
+        contextBindingB64u,
+        addStageRequestDigestB64u,
+        projectionMode,
+        finalizedReport,
+        createdAtMs,
+        expiresAtMs,
+      };
+    }
+  }
+}
+
+function parseD1DurableEd25519HssOutputMessages(raw: unknown):
+  | {
+      readonly contextBindingB64u: string;
+      readonly clientOutputMessageB64u: string;
+      readonly serverOutputMessageB64u: string;
+      readonly seedOutputMessageB64u: unknown;
+    }
+  | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const contextBindingB64u = parseD1RequiredB64u(record.contextBindingB64u, 32);
+  const clientOutputMessageB64u = parseD1RequiredB64u(record.clientOutputMessageB64u);
+  const serverOutputMessageB64u = parseD1RequiredB64u(record.serverOutputMessageB64u);
+  if (!contextBindingB64u || !clientOutputMessageB64u || !serverOutputMessageB64u) {
+    return null;
+  }
+  return {
+    contextBindingB64u,
+    clientOutputMessageB64u,
+    serverOutputMessageB64u,
+    seedOutputMessageB64u: record.seedOutputMessageB64u,
+  };
+}
+
+function parseD1DurableEd25519HssSeedAndOutputFinalizedReport(
+  raw: unknown,
+): D1DurableEd25519HssSeedAndOutputFinalizedReportRecord['finalizedReport'] | null {
+  const messages = parseD1DurableEd25519HssOutputMessages(raw);
+  if (!messages) return null;
+  const seedOutputMessageB64u = parseD1RequiredB64u(messages.seedOutputMessageB64u);
+  if (!seedOutputMessageB64u) return null;
+  return {
+    contextBindingB64u: messages.contextBindingB64u,
+    clientOutputMessageB64u: messages.clientOutputMessageB64u,
+    serverOutputMessageB64u: messages.serverOutputMessageB64u,
+    seedOutputMessageB64u,
+  };
+}
+
+function parseD1DurableEd25519HssOutputOnlyFinalizedReport(
+  raw: unknown,
+): D1DurableEd25519HssOutputOnlyFinalizedReportRecord['finalizedReport'] | null {
+  const messages = parseD1DurableEd25519HssOutputMessages(raw);
+  if (!messages || messages.seedOutputMessageB64u !== undefined) return null;
+  return {
+    contextBindingB64u: messages.contextBindingB64u,
+    clientOutputMessageB64u: messages.clientOutputMessageB64u,
+    serverOutputMessageB64u: messages.serverOutputMessageB64u,
+  };
+}
+
+function parseD1DurableEd25519HssAdvanceClaimAttempt(
+  raw: unknown,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>['attempt'] | null {
+  const record = toRecordValue(raw);
+  if (!record || record.route !== 'wallets_register_hss_advance_state') return null;
+  const startedAtMs = safeInteger(record.startedAtMs);
+  if (startedAtMs === null || startedAtMs <= 0) return null;
+  return {
+    route: 'wallets_register_hss_advance_state',
+    startedAtMs,
+  };
+}
+
+function parseD1DurableEd25519HssAdvanceClaimAdvancedEval(
+  raw: unknown,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }>['advancedEval'] | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const ceremonyHandle = toOptionalTrimmedString(record.ceremonyHandle);
+  const addStageRequestDigestB64u = parseD1RequiredB64u(record.addStageRequestDigestB64u, 32);
+  if (!ceremonyHandle || !addStageRequestDigestB64u) return null;
+  return {
+    ceremonyHandle,
+    addStageRequestDigestB64u,
+  };
+}
+
+function parseD1DurableEd25519HssAdvanceClaimFailure(
+  raw: unknown,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>['failure'] | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const code = toOptionalTrimmedString(record.code);
+  const message = toOptionalTrimmedString(record.message);
+  if (!code || !message) return null;
+  return { code, message };
+}
+
+function parseD1Ed25519HssRegistrationProjectionMode(
+  raw: unknown,
+): D1Ed25519HssRegistrationProjectionMode | null {
+  switch (raw) {
+    case 'registration_seed_and_output':
+    case 'registration_output_only':
+      return raw;
+    default:
+      return null;
+  }
+}
+
+function parseD1RequiredB64u(raw: unknown, expectedByteLength?: number): string | null {
+  const value = toOptionalTrimmedString(raw);
+  if (!value) return null;
+  try {
+    const bytes = base64UrlDecode(value);
+    if (expectedByteLength !== undefined && bytes.byteLength !== expectedByteLength) {
+      return null;
+    }
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 function parseD1WalletRegistrationFinalizeReplayResponse(

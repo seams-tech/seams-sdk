@@ -1516,6 +1516,18 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_hss_advance_state',
+      'POST',
+      '/wallets/register/hss/advance-state',
+      'Advance a wallet registration HSS ceremony',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale: 'Registration HSS advance-state is bound to an unexpired ceremony id.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_finalize',
       'POST',
       '/wallets/register/finalize',

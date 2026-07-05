@@ -85,6 +85,7 @@ import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientRequestEnvelope,
   ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPreparedAddStageRequestEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssServerInputDeliveryEnvelope,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
@@ -1984,7 +1985,24 @@ export async function buildThresholdEd25519RegistrationHssClientOwnedArtifact(ar
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
   clientOutputMaskHandle: string;
+  addStage:
+    | {
+        kind: 'prepared';
+        request: ThresholdEd25519HssPreparedAddStageRequestEnvelope;
+      }
+    | {
+        kind: 'fused';
+      };
 }): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
+  const addStageVerification =
+    args.addStage.kind === 'prepared'
+      ? {
+          addStageVerification: 'required' as const,
+          expectedAddStageRequestMessageB64u: args.addStage.request.addStageRequestMessageB64u,
+        }
+      : {
+          addStageVerification: 'skip' as const,
+        };
   return await args.context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     {
       preparedSession: args.preparedSession,
@@ -1992,6 +2010,7 @@ export async function buildThresholdEd25519RegistrationHssClientOwnedArtifact(ar
       serverInputDelivery: args.serverInputDelivery,
       clientOutputMaskHandle: args.clientOutputMaskHandle,
       expectedContextBindingB64u: args.preparedSession.contextBindingB64u,
+      ...addStageVerification,
     },
   );
 }

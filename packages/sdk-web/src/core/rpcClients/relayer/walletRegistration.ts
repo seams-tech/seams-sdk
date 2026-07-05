@@ -396,12 +396,29 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssRespondEncodeDeliveryMs'
   | 'registrationEcdsaRespondMs'
   | 'registerHssRespondTotalMs'
+  | 'registerHssWarmupTotalMs'
+  | 'registrationHssAdvanceStateCeremonyLoadMs'
+  | 'registrationHssAdvanceStateDigestMs'
+  | 'registrationHssAdvanceStateWasmMs'
+  | 'registrationHssAdvanceStateDecodeStateMs'
+  | 'registrationHssAdvanceStateSerializedSessionMaterializeMs'
+  | 'registrationHssAdvanceStateAddStageResponseMs'
+  | 'registrationHssAdvanceStateMessageScheduleRoundsMs'
+  | 'registrationHssAdvanceStateRoundCoreRoundsMs'
+  | 'registrationHssAdvanceStateEncodeAdvancedStateMs'
+  | 'registrationHssAdvanceStatePersistenceMs'
+  | 'registerHssAdvanceStateTotalMs'
   | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
   | 'registrationHssFinalizeMs'
   | 'registrationHssFinalizeDecodeArtifactMs'
   | 'registrationHssFinalizeSerializedSessionMaterializeMs'
+  | 'registrationHssFinalizeAdvanceAddStageResponseMs'
+  | 'registrationHssFinalizeAdvanceMessageScheduleRoundsMs'
+  | 'registrationHssFinalizeAdvanceRoundCoreRoundsMs'
+  | 'registrationHssFinalizeAdvanceOutputProjectionMs'
   | 'registrationHssFinalizeReportMs'
+  | 'registrationHssFinalizePacketAssemblyMs'
   | 'registrationHssFinalizeEncodeReportMs'
   | 'registrationHssFinalizeOpenServerOutputMs'
   | 'registrationHssFinalizeOpenSeedOutputMs'
@@ -418,17 +435,31 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationFinalizeReplayCacheMs'
   | 'registerFinalizeTotalMs';
 
+export type Ed25519HssFinalizeSource =
+  | 'durable_advanced_eval'
+  | 'durable_finalized_report'
+  | 'serialized_replay';
+
+export type Ed25519HssAdvanceSource = 'durable_workerd_wasm';
+
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
   route:
     | 'wallets_register_prepare'
     | 'wallets_register_start'
     | 'wallets_register_hss_respond'
+    | 'wallets_register_hss_advance_state'
     | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
   }[];
+  ed25519HssAdvance?: {
+    source: Ed25519HssAdvanceSource;
+  };
+  ed25519HssFinalize?: {
+    source: Ed25519HssFinalizeSource;
+  };
 };
 
 export type WalletRegistrationPrepareResponse = {
@@ -538,6 +569,24 @@ export type WalletRegistrationHssRespondResponse = {
     }[];
   };
 };
+
+export type WalletRegistrationHssAdvanceStateResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ed25519: {
+        contextBindingB64u: string;
+        addStageRequestDigestB64u: string;
+        projectionMode: 'registration_seed_and_output' | 'registration_output_only';
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      retryAfterMs?: number;
+    };
 
 export type WalletRegistrationFinalizeAuthMethod =
   | {
@@ -1132,12 +1181,14 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   const signingGrantId = serverBootstrap.signingGrantId;
   const remainingUses = serverBootstrap.remainingUses;
   const expiresAtMs = serverBootstrap.expiresAtMs;
-  const expectedApplicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
-    walletId: toWalletId(args.walletId),
-    ecdsaThresholdKeyId,
-    signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
-    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
-  });
+  const expectedApplicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u(
+    {
+      walletId: toWalletId(args.walletId),
+      ecdsaThresholdKeyId,
+      signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
+      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
+    },
+  );
   const applicationBindingDigestB64u = requireMatchingString({
     field: 'applicationBindingDigestB64u',
     expected: expectedApplicationBindingDigestB64u,
@@ -1270,14 +1321,16 @@ export async function createWalletRegistrationIntent(args: {
   });
 }
 
-export async function prepareWalletRegistration(args: {
-  relayerUrl: string;
-  headers?: Record<string, string>;
-  registrationIntentGrant: RegistrationIntentGrant;
-  registrationIntentDigestB64u: string;
-  intent: RegistrationIntentV1;
-  work: { kind: 'ed25519_hss' | 'ed25519_hss_and_ecdsa' };
-} & WalletRegistrationStartAuthority): Promise<WalletRegistrationPrepareResponse> {
+export async function prepareWalletRegistration(
+  args: {
+    relayerUrl: string;
+    headers?: Record<string, string>;
+    registrationIntentGrant: RegistrationIntentGrant;
+    registrationIntentDigestB64u: string;
+    intent: RegistrationIntentV1;
+    work: { kind: 'ed25519_hss' | 'ed25519_hss_and_ecdsa' };
+  } & WalletRegistrationStartAuthority,
+): Promise<WalletRegistrationPrepareResponse> {
   const rawResponse = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/prepare',
@@ -1403,6 +1456,25 @@ export async function respondWalletRegistrationHss(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
       ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
+    },
+  });
+}
+
+export async function advanceWalletRegistrationHssState(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  ed25519: {
+    addStageRequestMessageB64u: string;
+  };
+}): Promise<WalletRegistrationHssAdvanceStateResponse> {
+  return await postJson<WalletRegistrationHssAdvanceStateResponse>({
+    relayerUrl: args.relayerUrl,
+    path: '/wallets/register/hss/advance-state',
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      ed25519: args.ed25519,
     },
   });
 }

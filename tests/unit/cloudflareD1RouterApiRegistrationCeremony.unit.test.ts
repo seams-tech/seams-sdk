@@ -6,11 +6,11 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse
+  EcdsaHssServerBootstrapResponse,
 } from '../../packages/sdk-server-ts/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPreparePayload
+  WalletRegistrationEcdsaPreparePayload,
 } from '../../packages/sdk-server-ts/src/core/registrationContracts';
 import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
@@ -19,7 +19,16 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+import {
+  buildD1DurableEd25519HssAdvancedEvalRecord,
+  buildD1DurableEd25519HssAdvanceClaimRecord,
+  buildD1DurableEd25519HssFinalizedReportRecord,
+  parseD1DurableEd25519HssAdvancedEvalRecord,
+  parseD1DurableEd25519HssAdvanceClaimRecord,
+  parseD1DurableEd25519HssFinalizedReportRecord,
+  parseD1RegistrationIntent,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore';
 import { buildD1ThresholdEd25519RegistrationSessionPolicy } from '../../packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -102,6 +111,7 @@ import {
   sha256,
   hexBytes,
   createWebAuthnAssertionFixture,
+  createWebAuthnRegistrationCredential,
   createWebAuthnAssertion,
   jsonBase64Url,
   fakeWebAuthnRegistrationCredential,
@@ -152,6 +162,269 @@ import {
   insertRecoverySession,
   recoverySessionRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+
+test('D1 Ed25519 HSS durable records reject malformed durable boundaries', () => {
+  const contextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(1));
+  const addStageRequestDigestB64u = base64UrlEncode(new Uint8Array(32).fill(2));
+  const advancedServerEvalStateB64u = base64UrlEncode(new Uint8Array([3, 4, 5]));
+  const priorStageResponseMessageB64u = base64UrlEncode(new Uint8Array([4, 5, 6]));
+  const clientOutputMessageB64u = base64UrlEncode(new Uint8Array([6, 7, 8]));
+  const serverOutputMessageB64u = base64UrlEncode(new Uint8Array([9, 10, 11]));
+  const seedOutputMessageB64u = base64UrlEncode(new Uint8Array([12, 13, 14]));
+  const createdAtMs = Date.now();
+  const expiresAtMs = createdAtMs + 60_000;
+  const advancedEval = buildD1DurableEd25519HssAdvancedEvalRecord({
+    ceremonyHandle: 'hss-ceremony-1',
+    contextBindingB64u,
+    addStageRequestDigestB64u,
+    projectionMode: 'registration_seed_and_output',
+    advancedServerEvalStateB64u,
+    priorStageResponseMessageB64u,
+    createdAtMs,
+    expiresAtMs,
+  });
+  expect(parseD1DurableEd25519HssAdvancedEvalRecord(advancedEval)).toEqual(advancedEval);
+  expect(
+    parseD1DurableEd25519HssAdvancedEvalRecord({
+      ...advancedEval,
+      addStageRequestDigestB64u: base64UrlEncode(new Uint8Array(31).fill(2)),
+    }),
+  ).toBeNull();
+  expect(
+    parseD1DurableEd25519HssAdvancedEvalRecord({
+      ...advancedEval,
+      projectionMode: 'legacy_projection',
+    }),
+  ).toBeNull();
+  expect(
+    parseD1DurableEd25519HssAdvancedEvalRecord({
+      ...advancedEval,
+      expiresAtMs: createdAtMs,
+    }),
+  ).toBeNull();
+
+  const advanceClaim = buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'in_flight',
+    ceremonyHandle: 'hss-ceremony-1',
+    addStageRequestDigestB64u,
+    claimId: 'ehss-advclaim_test',
+    leaseExpiresAtMs: createdAtMs + 10_000,
+    attempt: {
+      route: 'wallets_register_hss_advance_state',
+      startedAtMs: createdAtMs,
+    },
+    createdAtMs,
+    updatedAtMs: createdAtMs,
+    expiresAtMs,
+  });
+  expect(parseD1DurableEd25519HssAdvanceClaimRecord(advanceClaim)).toEqual(advanceClaim);
+  expect(
+    parseD1DurableEd25519HssAdvanceClaimRecord({
+      ...advanceClaim,
+      state: 'fulfilled',
+    }),
+  ).toBeNull();
+  expect(
+    parseD1DurableEd25519HssAdvanceClaimRecord({
+      ...advanceClaim,
+      leaseExpiresAtMs: createdAtMs,
+    }),
+  ).toBeNull();
+  expect(
+    parseD1DurableEd25519HssAdvanceClaimRecord({
+      ...advanceClaim,
+      state: 'fulfilled',
+      advancedEval: {
+        ceremonyHandle: 'hss-ceremony-1',
+        addStageRequestDigestB64u,
+      },
+    }),
+  ).toBeNull();
+  const fulfilledAdvanceClaim = buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'fulfilled',
+    ceremonyHandle: 'hss-ceremony-1',
+    addStageRequestDigestB64u,
+    claimId: 'ehss-advclaim_test',
+    advancedEval: {
+      ceremonyHandle: 'hss-ceremony-1',
+      addStageRequestDigestB64u,
+    },
+    createdAtMs,
+    updatedAtMs: createdAtMs,
+    expiresAtMs,
+  });
+  expect(parseD1DurableEd25519HssAdvanceClaimRecord(fulfilledAdvanceClaim)).toEqual(
+    fulfilledAdvanceClaim,
+  );
+  expect(
+    parseD1DurableEd25519HssAdvanceClaimRecord({
+      ...fulfilledAdvanceClaim,
+      advancedEval: {
+        ceremonyHandle: 'hss-ceremony-2',
+        addStageRequestDigestB64u,
+      },
+    }),
+  ).toBeNull();
+
+  const finalizedReport = buildD1DurableEd25519HssFinalizedReportRecord({
+    ceremonyHandle: 'hss-ceremony-1',
+    contextBindingB64u,
+    addStageRequestDigestB64u,
+    projectionMode: 'registration_seed_and_output',
+    finalizedReport: {
+      contextBindingB64u,
+      clientOutputMessageB64u,
+      serverOutputMessageB64u,
+      seedOutputMessageB64u,
+    },
+    createdAtMs,
+    expiresAtMs,
+  });
+  expect(parseD1DurableEd25519HssFinalizedReportRecord(finalizedReport)).toEqual(finalizedReport);
+  expect(
+    parseD1DurableEd25519HssFinalizedReportRecord({
+      ...finalizedReport,
+      finalizedReport: {
+        ...finalizedReport.finalizedReport,
+        contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
+      },
+    }),
+  ).toBeNull();
+  expect(
+    parseD1DurableEd25519HssFinalizedReportRecord({
+      ...finalizedReport,
+      projectionMode: 'registration_output_only',
+    }),
+  ).toBeNull();
+  expect(
+    parseD1DurableEd25519HssFinalizedReportRecord({
+      ...finalizedReport,
+      projectionMode: 'registration_output_only',
+      finalizedReport: {
+        contextBindingB64u,
+        clientOutputMessageB64u,
+        serverOutputMessageB64u,
+      },
+    }),
+  ).toEqual({
+    ...finalizedReport,
+    projectionMode: 'registration_output_only',
+    finalizedReport: {
+      contextBindingB64u,
+      clientOutputMessageB64u,
+      serverOutputMessageB64u,
+    },
+  });
+});
+
+test('D1 Ed25519 HSS advance claims prevent duplicate active advance ownership', async () => {
+  const durableObjects = new RecordingDurableObjectNamespace();
+  const store = new CloudflareD1RegistrationCeremonyIntentStore({
+    namespace: durableObjects,
+    objectName: 'registration-claims-test',
+    prefix: 'test:',
+  });
+  const addStageRequestDigestB64u = base64UrlEncode(new Uint8Array(32).fill(7));
+  const createdAtMs = Date.now();
+  const expiresAtMs = createdAtMs + 60_000;
+  const firstClaim = buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'in_flight',
+    ceremonyHandle: 'hss-ceremony-claim',
+    addStageRequestDigestB64u,
+    claimId: 'ehss-advclaim_first',
+    leaseExpiresAtMs: createdAtMs + 30_000,
+    attempt: {
+      route: 'wallets_register_hss_advance_state',
+      startedAtMs: createdAtMs,
+    },
+    createdAtMs,
+    updatedAtMs: createdAtMs,
+    expiresAtMs,
+  });
+  const secondClaim = buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'in_flight',
+    ceremonyHandle: 'hss-ceremony-claim',
+    addStageRequestDigestB64u,
+    claimId: 'ehss-advclaim_second',
+    leaseExpiresAtMs: createdAtMs + 30_000,
+    attempt: {
+      route: 'wallets_register_hss_advance_state',
+      startedAtMs: createdAtMs,
+    },
+    createdAtMs,
+    updatedAtMs: createdAtMs,
+    expiresAtMs,
+  });
+
+  const firstBegin = await store.beginEd25519HssAdvanceClaim(firstClaim);
+  expect(firstBegin.status).toBe('started');
+  const secondBegin = await store.beginEd25519HssAdvanceClaim(secondClaim);
+  expect(secondBegin.status).toBe('in_flight');
+  expect(secondBegin.record.claimId).toBe(firstClaim.claimId);
+
+  const fulfilled = await store.fulfillEd25519HssAdvanceClaim(
+    buildD1DurableEd25519HssAdvanceClaimRecord({
+      state: 'fulfilled',
+      ceremonyHandle: firstClaim.ceremonyHandle,
+      addStageRequestDigestB64u,
+      claimId: firstClaim.claimId,
+      advancedEval: {
+        ceremonyHandle: firstClaim.ceremonyHandle,
+        addStageRequestDigestB64u,
+      },
+      createdAtMs,
+      updatedAtMs: Date.now(),
+      expiresAtMs,
+    }),
+  );
+  expect(fulfilled.status).toBe('fulfilled');
+  const thirdBegin = await store.beginEd25519HssAdvanceClaim(secondClaim);
+  expect(thirdBegin.status).toBe('fulfilled');
+  expect(thirdBegin.record.claimId).toBe(firstClaim.claimId);
+});
+
+test('D1 Ed25519 HSS durable store rejects key and record identity mismatch', async () => {
+  const durableObjects = new RecordingDurableObjectNamespace();
+  const store = new CloudflareD1RegistrationCeremonyIntentStore({
+    namespace: durableObjects,
+    objectName: 'registration-durable-mismatch-test',
+    prefix: 'test:',
+  });
+  const contextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(1));
+  const addStageRequestDigestB64u = base64UrlEncode(new Uint8Array(32).fill(2));
+  const otherAddStageRequestDigestB64u = base64UrlEncode(new Uint8Array(32).fill(3));
+  const record = buildD1DurableEd25519HssAdvancedEvalRecord({
+    ceremonyHandle: 'hss-ceremony-mismatch',
+    contextBindingB64u,
+    addStageRequestDigestB64u,
+    projectionMode: 'registration_seed_and_output',
+    advancedServerEvalStateB64u: base64UrlEncode(utf8Bytes('advanced-state')),
+    priorStageResponseMessageB64u: base64UrlEncode(utf8Bytes('prior-stage-response')),
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  });
+  await store.putEd25519HssAdvancedEvalRecord(record);
+  await expect(
+    store.getEd25519HssAdvancedEvalRecord({
+      ceremonyHandle: record.ceremonyHandle,
+      addStageRequestDigestB64u,
+    }),
+  ).resolves.toEqual(record);
+
+  durableObjects.stub.values.set(
+    `test:ed25519-hss-advanced-eval:${encodeURIComponent(record.ceremonyHandle)}:${encodeURIComponent(addStageRequestDigestB64u)}`,
+    {
+      ...record,
+      addStageRequestDigestB64u: otherAddStageRequestDigestB64u,
+    },
+  );
+  await expect(
+    store.getEd25519HssAdvancedEvalRecord({
+      ceremonyHandle: record.ceremonyHandle,
+      addStageRequestDigestB64u,
+    }),
+  ).resolves.toBeNull();
+});
 
 test('Cloudflare D1 Router API auth service stores wallet registration intents in Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
@@ -445,6 +718,175 @@ test('Cloudflare D1 Router API auth service rejects passkey registration challen
       ok: false,
       code: 'invalid_origin',
       message: 'WebAuthn origin is not within rpId',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service finalizes passkey Ed25519 registration from durable advanced eval', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdSigningService: testCombinedRegistrationThresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const origin = 'https://app.example.com';
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: origin,
+      request: {
+        wallet: { kind: 'server_allocated' },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+    const webauthnRegistration = await createWebAuthnRegistrationCredential({
+      rpId,
+      origin,
+      challengeB64u: registration.registrationIntentDigestB64u,
+    });
+    const credentialIdB64u = String(webauthnRegistration.id || '').trim();
+    expect(credentialIdB64u).toBeTruthy();
+
+    const prepared = await service.walletRegistration.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority: {
+        kind: 'passkey',
+        webauthnRegistration,
+      },
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+
+    const started = await service.walletRegistration.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      registrationPreparationId: prepared.registrationPreparationId,
+      intent: registration.intent,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.message);
+    expect(started.ed25519).toMatchObject({
+      ceremonyHandle: 'ed25519-ceremony-handle',
+      clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
+    });
+
+    const responded = await service.walletRegistration.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        clientRequest: {
+          clientRequestMessageB64u: 'passkey-ed25519-client-request',
+        },
+      },
+    });
+    expect(responded.ok).toBe(true);
+    if (!responded.ok) throw new Error(responded.message);
+
+    const addStageRequestMessageB64u = base64UrlEncode(
+      utf8Bytes('passkey-ed25519-add-stage-request'),
+    );
+    const advanced = await service.walletRegistration.advanceWalletRegistrationHssState({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        addStageRequestMessageB64u,
+      },
+    });
+    expect(advanced.ok).toBe(true);
+    if (!advanced.ok) throw new Error(advanced.message);
+
+    const finalized = await service.walletRegistration.finalizeWalletRegistration({
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'passkey-ed25519-finalize-replay-a',
+      ed25519: {
+        evaluationResult: {
+          contextBindingB64u: 'ed25519-context-binding',
+          stagedEvaluatorArtifactB64u: 'passkey-ed25519-staged-evaluator-artifact',
+          addStageRequestMessageB64u,
+        },
+      },
+    });
+    expect(finalized.ok).toBe(true);
+    if (!finalized.ok) throw new Error(finalized.message);
+    expect(finalized.registrationDiagnostics?.ed25519HssFinalize?.source).toBe(
+      'durable_advanced_eval',
+    );
+    expect(finalized).toMatchObject({
+      walletId: registration.intent.walletId,
+      rpId,
+      authMethod: {
+        kind: 'passkey',
+        credentialIdB64u,
+      },
+      resolvedAccount: {
+        kind: 'implicit_account',
+        nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+      },
+      ed25519: {
+        nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+        publicKey: 'ed25519:combined-test-public-key',
+        relayerKeyId: 'combined-test-relayer-key',
+      },
+    });
+    await expect(
+      readWebAuthnAuthenticatorRow({
+        database,
+        ...scope,
+        userId: registration.intent.walletId,
+        credentialIdB64u,
+      }),
+    ).resolves.toMatchObject({
+      counter: 0,
+    });
+    await expect(
+      readWalletAuthMethodRecord({
+        database,
+        ...scope,
+        walletAuthMethodId: `passkey:${rpId}:${credentialIdB64u}`,
+      }),
+    ).resolves.toMatchObject({
+      kind: 'passkey',
+      walletId: registration.intent.walletId,
+      rpId,
+      credentialIdB64u,
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -1046,6 +1488,11 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
       ceremonyHandle: 'ed25519-ceremony-handle',
       clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
     });
+    expect(started.registrationDiagnostics?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'registerStartTotalMs' }),
+      ]),
+    );
     expect(started.ecdsa).toMatchObject({
       kind: 'evm_family_ecdsa_keygen',
       targets: [
@@ -1173,6 +1620,15 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
       issuedAtMs: recoveryCodesIssuedAtMs,
     });
 
+    const addStageRequestMessageB64u = base64UrlEncode(utf8Bytes('ed25519-add-stage-request'));
+    const advanced = await service.walletRegistration.advanceWalletRegistrationHssState({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        addStageRequestMessageB64u,
+      },
+    });
+    if (!advanced.ok) throw new Error(advanced.message);
+
     const finalized = await service.walletRegistration.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       idempotencyKey: 'combined-registration-finalize-replay-a',
@@ -1180,7 +1636,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
         evaluationResult: {
           contextBindingB64u: 'ed25519-context-binding',
           stagedEvaluatorArtifactB64u: 'ed25519-staged-evaluator-artifact',
-          addStageRequestMessageB64u: 'ed25519-add-stage-request',
+          addStageRequestMessageB64u,
         },
       },
       ecdsa: {
@@ -1231,6 +1687,9 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
         ],
       },
     });
+    expect(finalized.registrationDiagnostics?.ed25519HssFinalize?.source).toBe(
+      'durable_advanced_eval',
+    );
     expect(Object.prototype.hasOwnProperty.call(finalized, 'rpId')).toBe(false);
 
     await expect(
@@ -1291,7 +1750,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
   }
 });
 
-test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only signer-set registration ceremonies', async () => {
+test('Cloudflare D1 Router API auth service finalizes Ed25519-only registration from durable finalized report', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -1327,7 +1786,9 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
             serverState: testEd25519RespondedServerState(),
           };
         },
+        finalizeForRegistration: testEd25519FinalizeForRegistration,
       },
+      getSchemeModule: testGetCombinedRegistrationSchemeModule,
     } as unknown as ThresholdSigningService;
     const service = createCloudflareD1RouterApiAuthService({
       database,
@@ -1490,6 +1951,132 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
             },
           },
         ],
+      },
+    });
+
+    const addStageRequestMessageB64u = base64UrlEncode(
+      utf8Bytes('ed25519-only-add-stage-request'),
+    );
+    const addStageRequestDigestB64u = base64UrlEncode(
+      await sha256(base64UrlDecode(addStageRequestMessageB64u)),
+    );
+    const hssContextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(11));
+    const store = new CloudflareD1RegistrationCeremonyIntentStore({
+      namespace: durableObjects,
+      objectName: 'threshold-store',
+      prefix,
+    });
+    const ed25519EvaluationResult = {
+      contextBindingB64u: hssContextBindingB64u,
+      stagedEvaluatorArtifactB64u: 'ed25519-only-staged-evaluator-artifact',
+      addStageRequestMessageB64u,
+    };
+    await store.putEd25519HssFinalizedReportRecord(
+      buildD1DurableEd25519HssFinalizedReportRecord({
+        ceremonyHandle: 'ed25519-only-ceremony-handle',
+        contextBindingB64u: hssContextBindingB64u,
+        addStageRequestDigestB64u,
+        projectionMode: 'registration_output_only',
+        finalizedReport: {
+          contextBindingB64u: hssContextBindingB64u,
+          clientOutputMessageB64u: base64UrlEncode(
+            utf8Bytes('durable-finalized-client-output'),
+          ),
+          serverOutputMessageB64u: base64UrlEncode(
+            utf8Bytes('durable-finalized-server-output'),
+          ),
+        },
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    );
+    await expect(
+      service.walletRegistration.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'ed25519-only-output-only-finalized-report-replay-a',
+        ed25519: {
+          evaluationResult: ed25519EvaluationResult,
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_state',
+      message: 'Ed25519 HSS durable finalized report projection mode is invalid',
+    });
+
+    await store.putEd25519HssFinalizedReportRecord(
+      buildD1DurableEd25519HssFinalizedReportRecord({
+        ceremonyHandle: 'ed25519-only-ceremony-handle',
+        contextBindingB64u: hssContextBindingB64u,
+        addStageRequestDigestB64u,
+        projectionMode: 'registration_seed_and_output',
+        finalizedReport: {
+          contextBindingB64u: hssContextBindingB64u,
+          clientOutputMessageB64u: base64UrlEncode(
+            utf8Bytes('durable-finalized-client-output'),
+          ),
+          serverOutputMessageB64u: base64UrlEncode(
+            utf8Bytes('durable-finalized-server-output'),
+          ),
+          seedOutputMessageB64u: base64UrlEncode(utf8Bytes('durable-finalized-seed-output')),
+        },
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    );
+
+    const enrollmentSealKeyVersion = 'ed25519-only-registration-seal-v1';
+    const unlockKeyVersion = 'ed25519-only-registration-unlock-v1';
+    const recoveryCodesIssuedAtMs = Date.now();
+    const privateKey32 = new Uint8Array(32);
+    privateKey32[31] = 10;
+    const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKey32);
+    const publicKeyB64u = base64UrlEncode(publicKey33);
+    const recoveryWrappedEnrollmentEscrows = makeRecoveryWrappedEnrollmentEscrows({
+      walletId: registration.intent.walletId,
+      userId: providerSubject,
+      enrollmentId: `email-otp-device-enrollment-v1:${registration.intent.walletId}`,
+      enrollmentSealKeyVersion,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      issuedAtMs: recoveryCodesIssuedAtMs,
+    });
+
+    const finalized = await service.walletRegistration.finalizeWalletRegistration({
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'ed25519-only-durable-finalized-report-replay-a',
+      ed25519: {
+        evaluationResult: ed25519EvaluationResult,
+      },
+      emailOtpEnrollment: {
+        recoveryWrappedEnrollmentEscrows,
+        enrollmentSealKeyVersion,
+        clientUnlockPublicKeyB64u: publicKeyB64u,
+        unlockKeyVersion,
+        thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
+      },
+      emailOtpBackupAck: {
+        kind: 'email_otp_recovery_code_backup_ack_v1',
+        recoveryCodesIssuedAtMs,
+        backupActionKind: 'copy',
+        acknowledgedAtMs: recoveryCodesIssuedAtMs + 1,
+        idempotencyKey: 'ed25519-only-backup-ack-a',
+      },
+    });
+    if (!finalized.ok) throw new Error(finalized.message);
+    expect(finalized.registrationDiagnostics?.ed25519HssFinalize?.source).toBe(
+      'durable_finalized_report',
+    );
+    expect(finalized).toMatchObject({
+      walletId: registration.intent.walletId,
+      resolvedAccount: {
+        kind: 'implicit_account',
+        nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+      },
+      ed25519: {
+        nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+        publicKey: 'ed25519:combined-test-public-key',
+        relayerKeyId: 'combined-test-relayer-key',
       },
     });
   } finally {

@@ -31,6 +31,12 @@ import {
   parseD1StoredWalletAddSignerCeremony,
   parseD1StoredWalletRegistrationCeremony,
   parseD1StoredWalletRegistrationFinalizeReplay,
+  parseD1DurableEd25519HssAdvanceClaimRecord,
+  parseD1DurableEd25519HssAdvancedEvalRecord,
+  parseD1DurableEd25519HssFinalizedReportRecord,
+  type D1DurableEd25519HssAdvanceClaimRecord,
+  type D1DurableEd25519HssAdvancedEvalRecord,
+  type D1DurableEd25519HssFinalizedReportRecord,
 } from './d1RegistrationCeremonyRecords';
 
 type RegistrationCeremonyIntentScope =
@@ -38,6 +44,9 @@ type RegistrationCeremonyIntentScope =
   | 'preparation'
   | 'ceremony'
   | 'finalize-replay'
+  | 'ed25519-hss-advance-claim'
+  | 'ed25519-hss-advanced-eval'
+  | 'ed25519-hss-finalized-report'
   | 'add-auth-method-intent'
   | 'add-signer-intent'
   | 'add-auth-method'
@@ -49,10 +58,29 @@ type RegistrationIntentDoPutInput =
   | StoredWalletRegistrationHssPreparation
   | StoredWalletRegistrationCeremony
   | StoredWalletRegistrationFinalizeReplay
+  | D1DurableEd25519HssAdvanceClaimRecord
+  | D1DurableEd25519HssAdvancedEvalRecord
+  | D1DurableEd25519HssFinalizedReportRecord
   | StoredAddSignerIntent
   | StoredWalletAddSignerCeremony
   | StoredAddAuthMethodIntent
   | StoredWalletAddAuthMethodCeremony;
+
+type Ed25519HssAdvanceClaimBeginResult =
+  | { readonly status: 'started'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }> }
+  | { readonly status: 'in_flight'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }> }
+  | { readonly status: 'fulfilled'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }> }
+  | { readonly status: 'invalid_existing'; readonly record: null };
+
+type Ed25519HssAdvanceClaimCompleteResult =
+  | { readonly status: 'fulfilled'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }> }
+  | { readonly status: 'failed'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }> }
+  | { readonly status: 'not_current'; readonly record: D1DurableEd25519HssAdvanceClaimRecord | null };
+
+type RawEd25519HssAdvanceClaimTransitionResult = {
+  readonly status?: unknown;
+  readonly record?: unknown;
+};
 
 export class CloudflareD1RegistrationCeremonyIntentStore {
   private readonly stub: CloudflareDurableObjectStubLike;
@@ -169,10 +197,7 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
         preparation.preparedContext,
         input.preparedContext,
       ) ||
-      !storedEd25519RegistrationPrepareScopesMatch(
-        preparation.ed25519Scope,
-        input.ed25519Scope,
-      )
+      !storedEd25519RegistrationPrepareScopesMatch(preparation.ed25519Scope, input.ed25519Scope)
     ) {
       return {
         ok: false,
@@ -255,6 +280,125 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     const replay = parseD1StoredWalletRegistrationFinalizeReplay(value);
     if (!replay || replay.expiresAtMs <= Date.now()) return null;
     return replay;
+  }
+
+  async beginEd25519HssAdvanceClaim(
+    record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>,
+  ): Promise<Ed25519HssAdvanceClaimBeginResult> {
+    const first = await this.transitionEd25519HssAdvanceClaim({
+      record,
+      transition: { kind: 'start', nowMs: Date.now() },
+    });
+    const firstResult = parseEd25519HssAdvanceClaimBeginResult(first);
+    if (firstResult.status !== 'stale_in_flight') return firstResult;
+    await this.failEd25519HssAdvanceClaim(staleEd25519HssAdvanceClaimFailure(firstResult.record));
+    const second = await this.transitionEd25519HssAdvanceClaim({
+      record,
+      transition: { kind: 'start', nowMs: Date.now() },
+    });
+    const secondResult = parseEd25519HssAdvanceClaimBeginResult(second);
+    return secondResult.status === 'stale_in_flight'
+      ? { status: 'invalid_existing', record: null }
+      : secondResult;
+  }
+
+  async getEd25519HssAdvanceClaimRecord(input: {
+    readonly ceremonyHandle: string;
+    readonly addStageRequestDigestB64u: string;
+  }): Promise<D1DurableEd25519HssAdvanceClaimRecord | null> {
+    const key = ed25519HssDurableRecordKey(input);
+    if (!key) return null;
+    const value = await this.get('ed25519-hss-advance-claim', key);
+    const record = parseD1DurableEd25519HssAdvanceClaimRecord(value);
+    if (
+      !record ||
+      record.expiresAtMs <= Date.now() ||
+      record.ceremonyHandle !== input.ceremonyHandle ||
+      record.addStageRequestDigestB64u !== input.addStageRequestDigestB64u
+    ) {
+      return null;
+    }
+    return record;
+  }
+
+  async fulfillEd25519HssAdvanceClaim(
+    record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }>,
+  ): Promise<Ed25519HssAdvanceClaimCompleteResult> {
+    const result = await this.transitionEd25519HssAdvanceClaim({
+      record,
+      transition: { kind: 'fulfill', expectedClaimId: record.claimId, nowMs: Date.now() },
+    });
+    return parseEd25519HssAdvanceClaimCompleteResult(result, 'fulfilled');
+  }
+
+  async failEd25519HssAdvanceClaim(
+    record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>,
+  ): Promise<Ed25519HssAdvanceClaimCompleteResult> {
+    const result = await this.transitionEd25519HssAdvanceClaim({
+      record,
+      transition: { kind: 'fail', expectedClaimId: record.claimId, nowMs: Date.now() },
+    });
+    return parseEd25519HssAdvanceClaimCompleteResult(result, 'failed');
+  }
+
+  async putEd25519HssAdvancedEvalRecord(
+    record: D1DurableEd25519HssAdvancedEvalRecord,
+  ): Promise<void> {
+    await this.put({
+      scope: 'ed25519-hss-advanced-eval',
+      id: ed25519HssDurableRecordKey(record),
+      record,
+      expiresAtMs: record.expiresAtMs,
+    });
+  }
+
+  async getEd25519HssAdvancedEvalRecord(input: {
+    readonly ceremonyHandle: string;
+    readonly addStageRequestDigestB64u: string;
+  }): Promise<D1DurableEd25519HssAdvancedEvalRecord | null> {
+    const key = ed25519HssDurableRecordKey(input);
+    if (!key) return null;
+    const value = await this.get('ed25519-hss-advanced-eval', key);
+    const record = parseD1DurableEd25519HssAdvancedEvalRecord(value);
+    if (
+      !record ||
+      record.expiresAtMs <= Date.now() ||
+      record.ceremonyHandle !== input.ceremonyHandle ||
+      record.addStageRequestDigestB64u !== input.addStageRequestDigestB64u
+    ) {
+      return null;
+    }
+    return record;
+  }
+
+  async putEd25519HssFinalizedReportRecord(
+    record: D1DurableEd25519HssFinalizedReportRecord,
+  ): Promise<void> {
+    await this.put({
+      scope: 'ed25519-hss-finalized-report',
+      id: ed25519HssDurableRecordKey(record),
+      record,
+      expiresAtMs: record.expiresAtMs,
+    });
+  }
+
+  async getEd25519HssFinalizedReportRecord(input: {
+    readonly ceremonyHandle: string;
+    readonly addStageRequestDigestB64u: string;
+  }): Promise<D1DurableEd25519HssFinalizedReportRecord | null> {
+    const key = ed25519HssDurableRecordKey(input);
+    if (!key) return null;
+    const value = await this.get('ed25519-hss-finalized-report', key);
+    const record = parseD1DurableEd25519HssFinalizedReportRecord(value);
+    if (
+      !record ||
+      record.expiresAtMs <= Date.now() ||
+      record.ceremonyHandle !== input.ceremonyHandle ||
+      record.addStageRequestDigestB64u !== input.addStageRequestDigestB64u
+    ) {
+      return null;
+    }
+    return record;
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
@@ -427,6 +571,29 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     return response.ok && response.value === true;
   }
 
+  private async transitionEd25519HssAdvanceClaim(input: {
+    readonly record: D1DurableEd25519HssAdvanceClaimRecord;
+    readonly transition:
+      | { readonly kind: 'start'; readonly nowMs: number }
+      | { readonly kind: 'fulfill'; readonly expectedClaimId: string; readonly nowMs: number }
+      | { readonly kind: 'fail'; readonly expectedClaimId: string; readonly nowMs: number };
+  }): Promise<RawEd25519HssAdvanceClaimTransitionResult> {
+    const key = ed25519HssDurableRecordKey(input.record);
+    if (!key) return { status: 'invalid_existing' };
+    const ttlMs = Math.max(1, input.record.expiresAtMs - Date.now());
+    const response = await callRegistrationCeremonyDo<RawEd25519HssAdvanceClaimTransitionResult>(
+      this.stub,
+      {
+        op: 'registrationHssAdvanceClaimTransition',
+        key: this.key('ed25519-hss-advance-claim', key),
+        transition: input.transition,
+        value: input.record,
+        ttlMs,
+      },
+    );
+    return response.ok ? response.value : { status: 'invalid_existing' };
+  }
+
   private key(scope: RegistrationCeremonyIntentScope, id: string): string {
     return `${this.prefix}${scope}:${id}`;
   }
@@ -440,7 +607,75 @@ export function missingRegistrationCeremonyDoStore(): {
   return {
     ok: false,
     code: 'configuration',
-    message: 'Cloudflare D1 Router API registration intents require thresholdStore.kind cloudflare-do',
+    message:
+      'Cloudflare D1 Router API registration intents require thresholdStore.kind cloudflare-do',
+  };
+}
+
+function parseEd25519HssAdvanceClaimBeginResult(
+  raw: RawEd25519HssAdvanceClaimTransitionResult,
+):
+  | Ed25519HssAdvanceClaimBeginResult
+  | {
+      readonly status: 'stale_in_flight';
+      readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+    } {
+  const status = toOptionalTrimmedString(raw.status);
+  const record = parseD1DurableEd25519HssAdvanceClaimRecord(raw.record);
+  switch (status) {
+    case 'started':
+      return record?.state === 'in_flight'
+        ? { status: 'started', record }
+        : { status: 'invalid_existing', record: null };
+    case 'in_flight':
+      return record?.state === 'in_flight'
+        ? { status: 'in_flight', record }
+        : { status: 'invalid_existing', record: null };
+    case 'stale_in_flight':
+      return record?.state === 'in_flight'
+        ? { status: 'stale_in_flight', record }
+        : { status: 'invalid_existing', record: null };
+    case 'fulfilled':
+      return record?.state === 'fulfilled'
+        ? { status: 'fulfilled', record }
+        : { status: 'invalid_existing', record: null };
+    default:
+      return { status: 'invalid_existing', record: null };
+  }
+}
+
+function parseEd25519HssAdvanceClaimCompleteResult(
+  raw: RawEd25519HssAdvanceClaimTransitionResult,
+  expectedState: 'fulfilled' | 'failed',
+): Ed25519HssAdvanceClaimCompleteResult {
+  const status = toOptionalTrimmedString(raw.status);
+  const record = parseD1DurableEd25519HssAdvanceClaimRecord(raw.record);
+  if (expectedState === 'fulfilled' && status === 'fulfilled' && record?.state === 'fulfilled') {
+    return { status: 'fulfilled', record };
+  }
+  if (expectedState === 'failed' && status === 'failed' && record?.state === 'failed') {
+    return { status: 'failed', record };
+  }
+  return { status: 'not_current', record };
+}
+
+function staleEd25519HssAdvanceClaimFailure(
+  record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>,
+): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }> {
+  const nowMs = Date.now();
+  return {
+    kind: 'ed25519_hss_advance_claim_v1',
+    state: 'failed',
+    ceremonyHandle: record.ceremonyHandle,
+    addStageRequestDigestB64u: record.addStageRequestDigestB64u,
+    claimId: record.claimId,
+    failure: {
+      code: 'stale_lease',
+      message: 'Ed25519 HSS advance claim lease expired before completion',
+    },
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: nowMs,
+    expiresAtMs: record.expiresAtMs,
   };
 }
 
@@ -460,4 +695,14 @@ function registrationFinalizeReplayKey(input: {
   const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
   if (!registrationCeremonyId || !idempotencyKey) return '';
   return `${encodeURIComponent(registrationCeremonyId)}:${encodeURIComponent(idempotencyKey)}`;
+}
+
+function ed25519HssDurableRecordKey(input: {
+  readonly ceremonyHandle: string;
+  readonly addStageRequestDigestB64u: string;
+}): string {
+  const ceremonyHandle = toOptionalTrimmedString(input.ceremonyHandle);
+  const addStageRequestDigestB64u = toOptionalTrimmedString(input.addStageRequestDigestB64u);
+  if (!ceremonyHandle || !addStageRequestDigestB64u) return '';
+  return `${encodeURIComponent(ceremonyHandle)}:${encodeURIComponent(addStageRequestDigestB64u)}`;
 }

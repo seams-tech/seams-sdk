@@ -13,15 +13,14 @@ import {
   type ResolvedRegistrationNearAccount,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import {
-  deriveSigningRootId,
-  type RuntimePolicyScope,
-} from '@shared/threshold/signingRootScope';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   AccountCreationResult,
-  ThresholdEd25519BootstrapSession
+  ThresholdEd25519BootstrapSession,
+  type ThresholdEd25519HssRegistrationServerEvalSource,
 } from '../../core/types';
 import {
   thresholdEcdsaChainTargetKey,
@@ -33,10 +32,14 @@ import {
   WalletRegistrationPrepareRequest,
   WalletRegistrationPrepareResponse,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationHssAdvanceStateRequest,
+  WalletRegistrationHssAdvanceStateResponse,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
+  type Ed25519HssAdvanceSource,
+  type Ed25519HssFinalizeSource,
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
@@ -62,6 +65,9 @@ import {
 } from '../../core/RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
+  buildD1DurableEd25519HssAdvanceClaimRecord,
+  buildD1DurableEd25519HssAdvancedEvalRecord,
+  buildD1DurableEd25519HssFinalizedReportRecord,
   buildD1WalletEcdsaSignerRecords,
   buildD1WalletRecord,
   isMatchingD1EcdsaClientBootstrap,
@@ -69,6 +75,8 @@ import {
   parseD1RegistrationIntent,
   parseD1RuntimePolicyScope,
   toD1EcdsaHssClientBootstrapRequest,
+  type D1DurableEd25519HssAdvanceClaimRecord,
+  type D1DurableEd25519HssAdvancedEvalRecord,
 } from './d1RegistrationCeremonyRecords';
 import { walletRegistrationFinalizeAuthMethodFromAuthority } from './d1WalletAuthMethodBoundary';
 import { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from './d1EmailOtpRegistrationEnrollmentFinalizer';
@@ -88,10 +96,12 @@ import {
   respondD1NearEd25519RegistrationHss,
   toD1ThresholdEd25519BootstrapSession,
 } from './d1NearEd25519RegistrationBranch';
+import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type PrepareWalletRegistrationInput = WalletRegistrationPrepareRequest;
 type RespondWalletRegistrationHssInput = WalletRegistrationHssRespondRequest;
+type AdvanceWalletRegistrationHssStateInput = WalletRegistrationHssAdvanceStateRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
 type EcdsaPreparedTarget = NonNullable<
@@ -103,6 +113,10 @@ type EcdsaClientBootstrapTarget = NonNullable<
 type EcdsaServerBootstrapTarget = NonNullable<
   Extract<WalletRegistrationHssRespondResponse, { ok: true }>['ecdsa']
 >['bootstraps'][number];
+
+const ED25519_HSS_ADVANCE_CLAIM_LEASE_MS = 60_000;
+const ED25519_HSS_ADVANCE_FINALIZE_WAIT_MS = 5_000;
+const ED25519_HSS_ADVANCE_FINALIZE_POLL_MS = 100;
 
 function ecdsaPreparedTargetForClientBootstrap(input: {
   readonly preparedTargets: readonly EcdsaPreparedTarget[];
@@ -126,7 +140,9 @@ function ecdsaBootstrapForTarget(input: {
   return null;
 }
 
-function ecdsaTargetKeys(targets: readonly { chainTarget: ThresholdEcdsaChainTarget }[]): Set<string> {
+function ecdsaTargetKeys(
+  targets: readonly { chainTarget: ThresholdEcdsaChainTarget }[],
+): Set<string> {
   const keys = new Set<string>();
   for (const target of targets) {
     keys.add(thresholdEcdsaChainTargetKey(target.chainTarget));
@@ -168,6 +184,12 @@ type D1RegistrationRouteTimingMark = {
 type D1RegistrationRouteTimingRecorder = {
   readonly route: WalletRegistrationRouteDiagnostics['route'];
   readonly entries: WalletRegistrationRouteDiagnostics['entries'];
+  ed25519HssAdvance?: {
+    source: Ed25519HssAdvanceSource;
+  };
+  ed25519HssFinalize?: {
+    source: Ed25519HssFinalizeSource;
+  };
 };
 
 function createD1RegistrationRouteTimingRecorder(
@@ -209,10 +231,28 @@ function appendD1RegistrationRouteTiming(
   });
 }
 
+function recordD1RegistrationEd25519HssFinalizeSource(input: {
+  readonly recorder: D1RegistrationRouteTimingRecorder;
+  readonly source: Ed25519HssFinalizeSource;
+}): void {
+  input.recorder.ed25519HssFinalize = {
+    source: input.source,
+  };
+}
+
+function recordD1RegistrationEd25519HssAdvanceSource(input: {
+  readonly recorder: D1RegistrationRouteTimingRecorder;
+  readonly source: Ed25519HssAdvanceSource;
+}): void {
+  input.recorder.ed25519HssAdvance = {
+    source: input.source,
+  };
+}
+
 function d1RegistrationRouteDiagnostics(
   recorder: D1RegistrationRouteTimingRecorder,
 ): WalletRegistrationRouteDiagnostics {
-  return {
+  const diagnostics: WalletRegistrationRouteDiagnostics = {
     kind: 'wallet_registration_route_diagnostics_v1',
     route: recorder.route,
     entries: recorder.entries.map((entry) => ({
@@ -220,6 +260,13 @@ function d1RegistrationRouteDiagnostics(
       durationMs: entry.durationMs,
     })),
   };
+  if (recorder.ed25519HssAdvance) {
+    diagnostics.ed25519HssAdvance = recorder.ed25519HssAdvance;
+  }
+  if (recorder.ed25519HssFinalize) {
+    diagnostics.ed25519HssFinalize = recorder.ed25519HssFinalize;
+  }
+  return diagnostics;
 }
 
 type ThresholdEd25519HssFinalizeForRegistrationTimings = NonNullable<
@@ -228,6 +275,49 @@ type ThresholdEd25519HssFinalizeForRegistrationTimings = NonNullable<
     { ok: true }
   >['finalizeReportTimings']
 >;
+
+type ThresholdEd25519HssAdvanceForRegistrationTimings = NonNullable<
+  Extract<
+    Awaited<ReturnType<ThresholdSigningService['ed25519Hss']['advanceForRegistration']>>,
+    { ok: true }
+  >['advanceServerEvalTimings']
+>;
+
+function appendThresholdEd25519HssAdvanceRouteTimings(input: {
+  readonly recorder: D1RegistrationRouteTimingRecorder;
+  readonly timings: ThresholdEd25519HssAdvanceForRegistrationTimings;
+}): void {
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateDecodeStateMs',
+    input.timings.decodeStateMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateSerializedSessionMaterializeMs',
+    input.timings.serializedSessionMaterializeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateAddStageResponseMs',
+    input.timings.advanceAddStageResponseMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateMessageScheduleRoundsMs',
+    input.timings.advanceMessageScheduleRoundsMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateRoundCoreRoundsMs',
+    input.timings.advanceRoundCoreRoundsMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateEncodeAdvancedStateMs',
+    input.timings.encodeAdvancedStateMs,
+  );
+}
 
 function appendThresholdEd25519HssFinalizeRouteTimings(input: {
   readonly recorder: D1RegistrationRouteTimingRecorder;
@@ -245,8 +335,33 @@ function appendThresholdEd25519HssFinalizeRouteTimings(input: {
   );
   appendD1RegistrationRouteTiming(
     input.recorder,
+    'registrationHssFinalizeAdvanceAddStageResponseMs',
+    input.timings.advanceAddStageResponseMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeAdvanceMessageScheduleRoundsMs',
+    input.timings.advanceMessageScheduleRoundsMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeAdvanceRoundCoreRoundsMs',
+    input.timings.advanceRoundCoreRoundsMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeAdvanceOutputProjectionMs',
+    input.timings.advanceOutputProjectionMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
     'registrationHssFinalizeReportMs',
     input.timings.finalizeReportMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizePacketAssemblyMs',
+    input.timings.finalizePacketAssemblyMs,
   );
   appendD1RegistrationRouteTiming(
     input.recorder,
@@ -280,10 +395,197 @@ function appendThresholdEd25519HssFinalizeRouteTimings(input: {
   );
 }
 
+async function d1Ed25519HssAddStageRequestDigestB64u(input: {
+  readonly addStageRequestMessageB64u: string;
+}): Promise<string | null> {
+  const addStageRequestMessageB64u = toOptionalTrimmedString(input.addStageRequestMessageB64u);
+  if (!addStageRequestMessageB64u) return null;
+  try {
+    const bytes = base64UrlDecode(addStageRequestMessageB64u);
+    const digest = await sha256BytesPortable(bytes);
+    return base64UrlEncode(digest);
+  } catch {
+    return null;
+  }
+}
+
+type D1Ed25519HssDurableAdvancedEvalForFinalize =
+  | { readonly kind: 'ready'; readonly record: D1DurableEd25519HssAdvancedEvalRecord }
+  | {
+      readonly kind: 'in_flight';
+      readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+      readonly retryAfterMs: number;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>;
+    }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'invalid_fulfilled_claim' };
+
+function buildD1Ed25519HssAdvanceInFlightClaim(input: {
+  readonly ceremonyHandle: string;
+  readonly addStageRequestDigestB64u: string;
+  readonly nowMs: number;
+  readonly expiresAtMs: number;
+}): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }> {
+  return buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'in_flight',
+    ceremonyHandle: input.ceremonyHandle,
+    addStageRequestDigestB64u: input.addStageRequestDigestB64u,
+    claimId: `ehss-advclaim_${secureRandomBase64Url(24)}`,
+    leaseExpiresAtMs: input.nowMs + ED25519_HSS_ADVANCE_CLAIM_LEASE_MS,
+    attempt: {
+      route: 'wallets_register_hss_advance_state',
+      startedAtMs: input.nowMs,
+    },
+    createdAtMs: input.nowMs,
+    updatedAtMs: input.nowMs,
+    expiresAtMs: input.expiresAtMs,
+  });
+}
+
+function buildD1Ed25519HssAdvanceFulfilledClaim(input: {
+  readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+  readonly nowMs: number;
+}): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }> {
+  return buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'fulfilled',
+    ceremonyHandle: input.claim.ceremonyHandle,
+    addStageRequestDigestB64u: input.claim.addStageRequestDigestB64u,
+    claimId: input.claim.claimId,
+    advancedEval: {
+      ceremonyHandle: input.claim.ceremonyHandle,
+      addStageRequestDigestB64u: input.claim.addStageRequestDigestB64u,
+    },
+    createdAtMs: input.claim.createdAtMs,
+    updatedAtMs: input.nowMs,
+    expiresAtMs: input.claim.expiresAtMs,
+  });
+}
+
+function buildD1Ed25519HssAdvanceFailedClaim(input: {
+  readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+  readonly nowMs: number;
+  readonly code: string;
+  readonly message: string;
+}): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }> {
+  return buildD1DurableEd25519HssAdvanceClaimRecord({
+    state: 'failed',
+    ceremonyHandle: input.claim.ceremonyHandle,
+    addStageRequestDigestB64u: input.claim.addStageRequestDigestB64u,
+    claimId: input.claim.claimId,
+    failure: {
+      code: input.code,
+      message: input.message,
+    },
+    createdAtMs: input.claim.createdAtMs,
+    updatedAtMs: input.nowMs,
+    expiresAtMs: input.claim.expiresAtMs,
+  });
+}
+
+async function failD1Ed25519HssAdvanceClaim(input: {
+  readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+  readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+  readonly code: string;
+  readonly message: string;
+}): Promise<void> {
+  await input.store.failEd25519HssAdvanceClaim(
+    buildD1Ed25519HssAdvanceFailedClaim({
+      claim: input.claim,
+      nowMs: Date.now(),
+      code: input.code,
+      message: input.message,
+    }),
+  );
+}
+
+function d1Ed25519HssAdvanceRetryAfterMs(
+  claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>,
+): number {
+  return Math.max(100, Math.min(1_000, claim.leaseExpiresAtMs - Date.now()));
+}
+
+async function resolveD1Ed25519HssDurableAdvancedEvalForFinalize(input: {
+  readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+  readonly ceremonyHandle: string;
+  readonly addStageRequestDigestB64u: string;
+}): Promise<D1Ed25519HssDurableAdvancedEvalForFinalize> {
+  const deadlineMs = Date.now() + ED25519_HSS_ADVANCE_FINALIZE_WAIT_MS;
+  while (Date.now() <= deadlineMs) {
+    const ready = await input.store.getEd25519HssAdvancedEvalRecord({
+      ceremonyHandle: input.ceremonyHandle,
+      addStageRequestDigestB64u: input.addStageRequestDigestB64u,
+    });
+    if (ready) return { kind: 'ready', record: ready };
+    const claim = await input.store.getEd25519HssAdvanceClaimRecord({
+      ceremonyHandle: input.ceremonyHandle,
+      addStageRequestDigestB64u: input.addStageRequestDigestB64u,
+    });
+    if (!claim) return { kind: 'missing' };
+    switch (claim.state) {
+      case 'fulfilled':
+        await sleepMs(ED25519_HSS_ADVANCE_FINALIZE_POLL_MS);
+        break;
+      case 'failed':
+        return { kind: 'failed', claim };
+      case 'in_flight':
+        if (claim.leaseExpiresAtMs <= Date.now()) {
+          return {
+            kind: 'in_flight',
+            claim,
+            retryAfterMs: d1Ed25519HssAdvanceRetryAfterMs(claim),
+          };
+        }
+        await sleepMs(ED25519_HSS_ADVANCE_FINALIZE_POLL_MS);
+        break;
+    }
+  }
+  const claim = await input.store.getEd25519HssAdvanceClaimRecord({
+    ceremonyHandle: input.ceremonyHandle,
+    addStageRequestDigestB64u: input.addStageRequestDigestB64u,
+  });
+  if (claim?.state === 'in_flight') {
+    return {
+      kind: 'in_flight',
+      claim,
+      retryAfterMs: d1Ed25519HssAdvanceRetryAfterMs(claim),
+    };
+  }
+  return claim?.state === 'fulfilled' ? { kind: 'invalid_fulfilled_claim' } : { kind: 'missing' };
+}
+
+async function sleepMs(durationMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
+}
+
 function withD1RegistrationRouteDiagnostics(
   response: WalletRegistrationFinalizeResponse,
   recorder: D1RegistrationRouteTimingRecorder,
 ): WalletRegistrationFinalizeResponse {
+  if (!response.ok) return response;
+  return {
+    ...response,
+    registrationDiagnostics: d1RegistrationRouteDiagnostics(recorder),
+  };
+}
+
+function withD1RegistrationStartDiagnostics(
+  response: WalletRegistrationStartResponse,
+  recorder: D1RegistrationRouteTimingRecorder,
+): WalletRegistrationStartResponse {
+  if (!response.ok) return response;
+  return {
+    ...response,
+    registrationDiagnostics: d1RegistrationRouteDiagnostics(recorder),
+  };
+}
+
+function withD1RegistrationHssAdvanceStateDiagnostics(
+  response: WalletRegistrationHssAdvanceStateResponse,
+  recorder: D1RegistrationRouteTimingRecorder,
+): WalletRegistrationHssAdvanceStateResponse {
   if (!response.ok) return response;
   return {
     ...response,
@@ -566,7 +868,8 @@ export class CloudflareD1WalletRegistrationService {
       }
       const runtimePolicyScope = parseD1RuntimePolicyScope(storedIntent.intent.runtimePolicyScope);
       const signingRootId =
-        storedIntent.signingRootId || (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
+        storedIntent.signingRootId ||
+        (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
       const signingRootVersion =
         storedIntent.signingRootVersion || runtimePolicyScope?.signingRootVersion || 'default';
       const preparedContext = resolveRegistrationPreparedContextFromPlan({
@@ -674,6 +977,8 @@ export class CloudflareD1WalletRegistrationService {
   async startWalletRegistration(
     request: StartWalletRegistrationInput,
   ): Promise<WalletRegistrationStartResponse> {
+    const startTiming = createD1RegistrationRouteTimingRecorder('wallets_register_start');
+    const totalTiming = startD1RegistrationRouteTiming('registerStartTotalMs');
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
@@ -749,7 +1054,7 @@ export class CloudflareD1WalletRegistrationService {
         return {
           ok: false,
           code: 'not_configured',
-          message: 'threshold signing is not configured on this server',
+          message: 'Threshold signing service is not configured on this server',
         };
       }
 
@@ -933,12 +1238,16 @@ export class CloudflareD1WalletRegistrationService {
             ],
           },
         });
-        return {
-          ok: true,
-          registrationCeremonyId,
-          intent: storedIntent.intent,
-          ecdsa,
-        };
+        finishD1RegistrationRouteTiming(startTiming, totalTiming);
+        return withD1RegistrationStartDiagnostics(
+          {
+            ok: true,
+            registrationCeremonyId,
+            intent: storedIntent.intent,
+            ecdsa,
+          },
+          startTiming,
+        );
       }
 
       if (!preparedRegistrationState?.ok) {
@@ -989,12 +1298,16 @@ export class CloudflareD1WalletRegistrationService {
           },
         });
         await store.takePreparation(request.registrationPreparationId!);
-        return {
-          ok: true,
-          registrationCeremonyId,
-          intent: storedIntent.intent,
-          ed25519,
-        };
+        finishD1RegistrationRouteTiming(startTiming, totalTiming);
+        return withD1RegistrationStartDiagnostics(
+          {
+            ok: true,
+            registrationCeremonyId,
+            intent: storedIntent.intent,
+            ed25519,
+          },
+          startTiming,
+        );
       }
       if (!storedEcdsaChainTargets) {
         return {
@@ -1043,13 +1356,17 @@ export class CloudflareD1WalletRegistrationService {
         },
       });
       await store.takePreparation(request.registrationPreparationId!);
-      return {
-        ok: true,
-        registrationCeremonyId,
-        intent: storedIntent.intent,
-        ed25519,
-        ecdsa,
-      };
+      finishD1RegistrationRouteTiming(startTiming, totalTiming);
+      return withD1RegistrationStartDiagnostics(
+        {
+          ok: true,
+          registrationCeremonyId,
+          intent: storedIntent.intent,
+          ed25519,
+          ecdsa,
+        },
+        startTiming,
+      );
     } catch (error: unknown) {
       return {
         ok: false,
@@ -1259,6 +1576,292 @@ export class CloudflareD1WalletRegistrationService {
     }
   }
 
+  async advanceWalletRegistrationHssState(
+    request: AdvanceWalletRegistrationHssStateInput,
+  ): Promise<WalletRegistrationHssAdvanceStateResponse> {
+    const advanceTiming = createD1RegistrationRouteTimingRecorder(
+      'wallets_register_hss_advance_state',
+    );
+    const totalTiming = startD1RegistrationRouteTiming('registerHssAdvanceStateTotalMs');
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const ceremonyLoadTiming = startD1RegistrationRouteTiming(
+        'registrationHssAdvanceStateCeremonyLoadMs',
+      );
+      let ceremony: Awaited<ReturnType<typeof store.getCeremony>>;
+      try {
+        ceremony = await store.getCeremony(request.registrationCeremonyId);
+      } finally {
+        finishD1RegistrationRouteTiming(advanceTiming, ceremonyLoadTiming);
+      }
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      if (!registrationCeremonyWalletsMatch({ ceremony })) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'registration ceremony walletId mismatch',
+        };
+      }
+      if (ceremony.signerState.kind !== 'signer_set_registration') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'signer-set registration state is required',
+        };
+      }
+      const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
+      const requestedNearEd25519 = signerBranches.nearEd25519;
+      if (!requestedNearEd25519) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration signer set does not accept Ed25519 HSS input',
+        };
+      }
+      const ed25519State = findStoredWalletRegistrationNearEd25519Branch(ceremony.signerState);
+      if (!ed25519State || ed25519State.kind !== 'near_ed25519_responded') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'Ed25519 HSS response is required before advance-state',
+        };
+      }
+      const addStageRequestMessageB64u = toOptionalTrimmedString(
+        request.ed25519.addStageRequestMessageB64u,
+      );
+      if (!addStageRequestMessageB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ed25519.addStageRequestMessageB64u is required',
+        };
+      }
+      const digestTiming = startD1RegistrationRouteTiming('registrationHssAdvanceStateDigestMs');
+      let addStageRequestDigestB64u: string | null;
+      try {
+        addStageRequestDigestB64u = await d1Ed25519HssAddStageRequestDigestB64u({
+          addStageRequestMessageB64u,
+        });
+      } finally {
+        finishD1RegistrationRouteTiming(advanceTiming, digestTiming);
+      }
+      if (!addStageRequestDigestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ed25519.addStageRequestMessageB64u is invalid',
+        };
+      }
+      const existing = await store.getEd25519HssAdvancedEvalRecord({
+        ceremonyHandle: ed25519State.ceremonyHandle,
+        addStageRequestDigestB64u,
+      });
+      if (existing) {
+        finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
+        return withD1RegistrationHssAdvanceStateDiagnostics(
+          {
+            ok: true,
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            ed25519: {
+              contextBindingB64u: existing.contextBindingB64u,
+              addStageRequestDigestB64u: existing.addStageRequestDigestB64u,
+              projectionMode: existing.projectionMode,
+            },
+          },
+          advanceTiming,
+        );
+      }
+      const threshold = this.getThresholdSigningService();
+      if (!threshold) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Threshold signing service is not configured on this server',
+        };
+      }
+      const nearEd25519SigningKeyId = await d1RegistrationAuthorityNearEd25519SigningKeyId({
+        intent: ceremony.intent,
+        authority: ceremony.authority,
+        nearEd25519: requestedNearEd25519,
+        signingRootId: ceremony.signingRootId,
+        signingRootVersion: ceremony.signingRootVersion,
+      });
+      const claim = buildD1Ed25519HssAdvanceInFlightClaim({
+        ceremonyHandle: ed25519State.ceremonyHandle,
+        addStageRequestDigestB64u,
+        nowMs: Date.now(),
+        expiresAtMs: ceremony.expiresAtMs,
+      });
+      const claimResult = await store.beginEd25519HssAdvanceClaim(claim);
+      switch (claimResult.status) {
+        case 'started':
+          break;
+        case 'in_flight':
+          finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
+          return withD1RegistrationHssAdvanceStateDiagnostics(
+            {
+              ok: false,
+              code: 'hss_advance_in_flight',
+              message: 'Ed25519 HSS advance is already in progress',
+              retryAfterMs: d1Ed25519HssAdvanceRetryAfterMs(claimResult.record),
+            },
+            advanceTiming,
+          );
+        case 'fulfilled': {
+          const fulfilled = await store.getEd25519HssAdvancedEvalRecord({
+            ceremonyHandle: claimResult.record.advancedEval.ceremonyHandle,
+            addStageRequestDigestB64u: claimResult.record.advancedEval.addStageRequestDigestB64u,
+          });
+          if (!fulfilled) {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'Ed25519 HSS advance claim is fulfilled without durable advanced eval',
+            };
+          }
+          finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
+          return withD1RegistrationHssAdvanceStateDiagnostics(
+            {
+              ok: true,
+              registrationCeremonyId: ceremony.registrationCeremonyId,
+              ed25519: {
+                contextBindingB64u: fulfilled.contextBindingB64u,
+                addStageRequestDigestB64u: fulfilled.addStageRequestDigestB64u,
+                projectionMode: fulfilled.projectionMode,
+              },
+            },
+            advanceTiming,
+          );
+        }
+        case 'invalid_existing':
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Ed25519 HSS advance claim state is invalid',
+          };
+      }
+      const wasmTiming = startD1RegistrationRouteTiming('registrationHssAdvanceStateWasmMs');
+      let advanced: Awaited<ReturnType<ThresholdSigningService['ed25519Hss']['advanceForRegistration']>>;
+      try {
+        advanced = await threshold.ed25519Hss.advanceForRegistration({
+          orgId: ceremony.orgId,
+          request: {
+            registrationAccountScope: d1ThresholdEd25519RegistrationAccountScope({
+              walletId: ceremony.intent.walletId,
+              intentDigestB64u: ceremony.digestB64u,
+              signingRootId: d1RegistrationIntentSigningRootId({
+                signingRootId: ceremony.signingRootId,
+                intent: ceremony.intent,
+              }),
+              signingRootVersion: d1RegistrationIntentSigningRootVersion({
+                signingRootVersion: ceremony.signingRootVersion,
+                intent: ceremony.intent,
+              }),
+              nearEd25519SigningKeyId,
+              signerSlot: requestedNearEd25519.signerSlot,
+              keyPurpose: requestedNearEd25519.keyPurpose,
+              keyVersion: requestedNearEd25519.keyVersion,
+              derivationVersion: requestedNearEd25519.derivationVersion,
+              participantIds: [...requestedNearEd25519.participantIds],
+              accountProvisioning: requestedNearEd25519.accountProvisioning,
+            }),
+            wallet_key_id: nearEd25519SigningKeyId,
+            ceremonyHandle: ed25519State.ceremonyHandle,
+            preparedSession: ed25519State.preparedSession,
+            serverState: ed25519State.serverState,
+            addStageRequestMessageB64u,
+            projectionMode: 'registration_seed_and_output',
+          },
+        });
+      } finally {
+        finishD1RegistrationRouteTiming(advanceTiming, wasmTiming);
+      }
+      recordD1RegistrationEd25519HssAdvanceSource({
+        recorder: advanceTiming,
+        source: 'durable_workerd_wasm',
+      });
+      if (!advanced.ok) {
+        await failD1Ed25519HssAdvanceClaim({
+          store,
+          claim: claimResult.record,
+          code: advanced.code || 'hss_advance_failed',
+          message: advanced.message || 'Ed25519 HSS advance-state failed',
+        });
+        return {
+          ok: false,
+          code: advanced.code || 'hss_advance_failed',
+          message: advanced.message || 'Ed25519 HSS advance-state failed',
+        };
+      }
+      if (advanced.addStageRequestDigestB64u !== addStageRequestDigestB64u) {
+        await failD1Ed25519HssAdvanceClaim({
+          store,
+          claim: claimResult.record,
+          code: 'digest_mismatch',
+          message: 'Ed25519 HSS add-stage digest mismatch',
+        });
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'Ed25519 HSS add-stage digest mismatch',
+        };
+      }
+      if (advanced.advanceServerEvalTimings) {
+        appendThresholdEd25519HssAdvanceRouteTimings({
+          recorder: advanceTiming,
+          timings: advanced.advanceServerEvalTimings,
+        });
+      }
+      const persistenceTiming = startD1RegistrationRouteTiming(
+        'registrationHssAdvanceStatePersistenceMs',
+      );
+      try {
+        await store.putEd25519HssAdvancedEvalRecord(
+          buildD1DurableEd25519HssAdvancedEvalRecord({
+            ceremonyHandle: ed25519State.ceremonyHandle,
+            contextBindingB64u: advanced.contextBindingB64u,
+            addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
+            projectionMode: advanced.projectionMode,
+            advancedServerEvalStateB64u: advanced.advancedServerEvalStateB64u,
+            priorStageResponseMessageB64u: advanced.priorStageResponseMessageB64u,
+            createdAtMs: Date.now(),
+            expiresAtMs: ceremony.expiresAtMs,
+          }),
+        );
+        await store.fulfillEd25519HssAdvanceClaim(
+          buildD1Ed25519HssAdvanceFulfilledClaim({
+            claim: claimResult.record,
+            nowMs: Date.now(),
+          }),
+        );
+      } finally {
+        finishD1RegistrationRouteTiming(advanceTiming, persistenceTiming);
+      }
+      finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
+      return withD1RegistrationHssAdvanceStateDiagnostics(
+        {
+          ok: true,
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          ed25519: {
+            contextBindingB64u: advanced.contextBindingB64u,
+            addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
+            projectionMode: advanced.projectionMode,
+          },
+        },
+        advanceTiming,
+      );
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to advance wallet registration HSS state',
+      };
+    }
+  }
+
   async finalizeWalletRegistration(
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
@@ -1380,6 +1983,97 @@ export class CloudflareD1WalletRegistrationService {
         const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
           ceremony.authority,
         );
+        const addStageRequestDigestB64u = await d1Ed25519HssAddStageRequestDigestB64u({
+          addStageRequestMessageB64u: request.ed25519.evaluationResult.addStageRequestMessageB64u,
+        });
+        if (!addStageRequestDigestB64u) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'ed25519.evaluationResult.addStageRequestMessageB64u is invalid',
+          };
+        }
+        const durableFinalizedReport = await store.getEd25519HssFinalizedReportRecord({
+          ceremonyHandle: ed25519State.ceremonyHandle,
+          addStageRequestDigestB64u,
+        });
+        let hssFinalizeSource: Ed25519HssFinalizeSource = 'durable_finalized_report';
+        let serverEvalSource: ThresholdEd25519HssRegistrationServerEvalSource;
+        if (durableFinalizedReport) {
+          if (durableFinalizedReport.projectionMode !== 'registration_seed_and_output') {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'Ed25519 HSS durable finalized report projection mode is invalid',
+            };
+          }
+          serverEvalSource = {
+            kind: 'durable_finalized_report',
+            finalizedReport: {
+              contextBindingB64u: durableFinalizedReport.contextBindingB64u,
+              addStageRequestDigestB64u: durableFinalizedReport.addStageRequestDigestB64u,
+              clientOutputMessageB64u:
+                durableFinalizedReport.finalizedReport.clientOutputMessageB64u,
+              serverOutputMessageB64u:
+                durableFinalizedReport.finalizedReport.serverOutputMessageB64u,
+              seedOutputMessageB64u: durableFinalizedReport.finalizedReport.seedOutputMessageB64u,
+            },
+          };
+        } else {
+          const durableAdvancedEvalResult =
+            await resolveD1Ed25519HssDurableAdvancedEvalForFinalize({
+              store,
+              ceremonyHandle: ed25519State.ceremonyHandle,
+              addStageRequestDigestB64u,
+            });
+          if (durableAdvancedEvalResult.kind === 'in_flight') {
+            return {
+              ok: false,
+              code: 'hss_advance_in_flight',
+              message: 'Ed25519 HSS advance is still in progress',
+              retryAfterMs: durableAdvancedEvalResult.retryAfterMs,
+            };
+          }
+          if (durableAdvancedEvalResult.kind === 'failed') {
+            return {
+              ok: false,
+              code: durableAdvancedEvalResult.claim.failure.code,
+              message: durableAdvancedEvalResult.claim.failure.message,
+            };
+          }
+          if (durableAdvancedEvalResult.kind === 'missing') {
+            return {
+              ok: false,
+              code: 'hss_advance_state_missing',
+              message: 'Ed25519 HSS durable advanced eval is unavailable',
+            };
+          }
+          if (durableAdvancedEvalResult.kind === 'invalid_fulfilled_claim') {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'Ed25519 HSS advance claim is fulfilled without durable advanced eval',
+            };
+          }
+          const durableAdvancedEval = durableAdvancedEvalResult.record;
+          if (durableAdvancedEval.projectionMode !== 'registration_seed_and_output') {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'Ed25519 HSS durable advanced eval projection mode is invalid',
+            };
+          }
+          hssFinalizeSource = 'durable_advanced_eval';
+          serverEvalSource = {
+            kind: 'durable_advanced_eval',
+            advancedServerEval: {
+              contextBindingB64u: durableAdvancedEval.contextBindingB64u,
+              addStageRequestDigestB64u: durableAdvancedEval.addStageRequestDigestB64u,
+              advancedServerEvalStateB64u: durableAdvancedEval.advancedServerEvalStateB64u,
+              priorStageResponseMessageB64u: durableAdvancedEval.priorStageResponseMessageB64u,
+            },
+          };
+        }
         const hssFinalizeTiming = startD1RegistrationRouteTiming('registrationHssFinalizeMs');
         let finalized: Awaited<ReturnType<typeof threshold.ed25519Hss.finalizeForRegistration>>;
         try {
@@ -1410,6 +2104,7 @@ export class CloudflareD1WalletRegistrationService {
               ceremonyHandle: ed25519State.ceremonyHandle,
               preparedSession: ed25519State.preparedSession,
               serverState: ed25519State.serverState,
+              serverEvalSource,
               evaluationResult: request.ed25519.evaluationResult,
               accountResolution: {
                 kind: 'registration_provisioning',
@@ -1427,18 +2122,53 @@ export class CloudflareD1WalletRegistrationService {
             message: finalized.message || 'Ed25519 HSS finalize failed',
           };
         }
+        recordD1RegistrationEd25519HssFinalizeSource({
+          recorder: finalizeTiming,
+          source: hssFinalizeSource,
+        });
         if (finalized.finalizeReportTimings) {
           appendThresholdEd25519HssFinalizeRouteTimings({
             recorder: finalizeTiming,
             timings: finalized.finalizeReportTimings,
           });
         }
+        const finalizedServerOutputMessageB64u = toOptionalTrimmedString(
+          finalized.finalizedServerOutputMessageB64u,
+        );
+        const finalizedSeedOutputMessageB64u = toOptionalTrimmedString(
+          finalized.finalizedReport.seedOutputMessageB64u,
+        );
+        if (!finalizedServerOutputMessageB64u || !finalizedSeedOutputMessageB64u) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'Ed25519 HSS finalized report is incomplete',
+          };
+        }
+        await store.putEd25519HssFinalizedReportRecord(
+          buildD1DurableEd25519HssFinalizedReportRecord({
+            ceremonyHandle: ed25519State.ceremonyHandle,
+            contextBindingB64u: finalized.finalizedReport.contextBindingB64u,
+            addStageRequestDigestB64u,
+            projectionMode: 'registration_seed_and_output',
+            finalizedReport: {
+              contextBindingB64u: finalized.finalizedReport.contextBindingB64u,
+              clientOutputMessageB64u: finalized.finalizedReport.clientOutputMessageB64u,
+              serverOutputMessageB64u: finalizedServerOutputMessageB64u,
+              seedOutputMessageB64u: finalizedSeedOutputMessageB64u,
+            },
+            createdAtMs: Date.now(),
+            expiresAtMs: ceremony.expiresAtMs,
+          }),
+        );
         const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
           ed25519.accountProvisioning,
         );
         let sponsoredTransactionHash: string | undefined;
         if (sponsoredNamedAccountId) {
-          const sponsoredAccountTiming = startD1RegistrationRouteTiming('sponsoredNearAccountCreateMs');
+          const sponsoredAccountTiming = startD1RegistrationRouteTiming(
+            'sponsoredNearAccountCreateMs',
+          );
           let created: Awaited<ReturnType<typeof this.createSponsoredNamedNearAccount>>;
           try {
             created = await this.createSponsoredNamedNearAccount({
@@ -1510,12 +2240,12 @@ export class CloudflareD1WalletRegistrationService {
         try {
           emailOtpEnrollment =
             await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
-            authority: ceremony.authority,
-            request,
-            walletId: ceremony.intent.walletId,
-            orgId: ceremony.orgId,
-            nowMs: now,
-          });
+              authority: ceremony.authority,
+              request,
+              walletId: ceremony.intent.walletId,
+              orgId: ceremony.orgId,
+              nowMs: now,
+            });
         } finally {
           finishD1RegistrationRouteTiming(finalizeTiming, emailOtpEnrollmentTiming);
         }
@@ -1756,7 +2486,9 @@ export class CloudflareD1WalletRegistrationService {
           message: 'ECDSA finalize expected key handle mismatch',
         };
       }
-      const ecdsaVerifyTiming = startD1RegistrationRouteTiming('registrationEcdsaBootstrapVerifyMs');
+      const ecdsaVerifyTiming = startD1RegistrationRouteTiming(
+        'registrationEcdsaBootstrapVerifyMs',
+      );
       let walletKeyResult: ReturnType<typeof buildD1EcdsaWalletKeysFromBootstrap>;
       try {
         walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
@@ -1778,12 +2510,12 @@ export class CloudflareD1WalletRegistrationService {
       try {
         emailOtpEnrollment =
           await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
-          authority: ceremony.authority,
-          request,
-          walletId: ceremony.intent.walletId,
-          orgId: ceremony.orgId,
-          nowMs: now,
-        });
+            authority: ceremony.authority,
+            request,
+            walletId: ceremony.intent.walletId,
+            orgId: ceremony.orgId,
+            nowMs: now,
+          });
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, emailOtpEnrollmentTiming);
       }

@@ -85,6 +85,13 @@ type DoReq =
   | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
+      op: 'registrationHssAdvanceClaimTransition';
+      key: string;
+      transition: unknown;
+      value: unknown;
+      ttlMs?: number;
+    }
+  | {
       op: 'routerAbNormalSigningReserveQuota';
       key: string;
       requestId: string;
@@ -308,6 +315,170 @@ function jsonValueContains(actual: unknown, expected: unknown): boolean {
 
 function stableStoreVersion(value: unknown): string {
   return JSON.stringify(value);
+}
+
+type RegistrationHssAdvanceClaimTransition =
+  | { readonly kind: 'start'; readonly nowMs: number }
+  | { readonly kind: 'fulfill'; readonly expectedClaimId: string; readonly nowMs: number }
+  | { readonly kind: 'fail'; readonly expectedClaimId: string; readonly nowMs: number };
+
+type RegistrationHssAdvanceClaimTargetState = 'in_flight' | 'fulfilled' | 'failed';
+
+function parseRegistrationHssAdvanceClaimTransition(
+  raw: unknown,
+): RegistrationHssAdvanceClaimTransition | null {
+  if (!isPlainObject(raw)) return null;
+  const nowMs = Math.floor(Number(raw.nowMs));
+  if (!Number.isSafeInteger(nowMs) || nowMs <= 0) return null;
+  switch (raw.kind) {
+    case 'start':
+      return { kind: 'start', nowMs };
+    case 'fulfill': {
+      const expectedClaimId = toKey(raw.expectedClaimId);
+      return expectedClaimId ? { kind: 'fulfill', expectedClaimId, nowMs } : null;
+    }
+    case 'fail': {
+      const expectedClaimId = toKey(raw.expectedClaimId);
+      return expectedClaimId ? { kind: 'fail', expectedClaimId, nowMs } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function registrationHssAdvanceTargetState(
+  transition: RegistrationHssAdvanceClaimTransition,
+): RegistrationHssAdvanceClaimTargetState {
+  switch (transition.kind) {
+    case 'start':
+      return 'in_flight';
+    case 'fulfill':
+      return 'fulfilled';
+    case 'fail':
+      return 'failed';
+  }
+}
+
+function isRegistrationHssAdvanceClaimValue(
+  value: unknown,
+  state: RegistrationHssAdvanceClaimTargetState,
+): value is Record<string, unknown> {
+  if (!isPlainObject(value)) return false;
+  return (
+    value.kind === 'ed25519_hss_advance_claim_v1' &&
+    value.state === state &&
+    !!toKey(value.ceremonyHandle) &&
+    !!toKey(value.addStageRequestDigestB64u) &&
+    !!toKey(value.claimId) &&
+    Number.isFinite(Number(value.expiresAtMs))
+  );
+}
+
+function registrationHssAdvanceClaimState(
+  value: unknown,
+): RegistrationHssAdvanceClaimTargetState | null {
+  if (!isPlainObject(value) || value.kind !== 'ed25519_hss_advance_claim_v1') return null;
+  switch (value.state) {
+    case 'in_flight':
+    case 'fulfilled':
+    case 'failed':
+      return value.state;
+    default:
+      return null;
+  }
+}
+
+function registrationHssAdvanceClaimId(value: unknown): string {
+  return isPlainObject(value) ? toKey(value.claimId) : '';
+}
+
+function registrationHssAdvanceClaimExpiresAtMs(value: unknown): number {
+  return isPlainObject(value) ? Number(value.expiresAtMs) : NaN;
+}
+
+function registrationHssAdvanceClaimLeaseExpiresAtMs(value: unknown): number {
+  return isPlainObject(value) ? Number(value.leaseExpiresAtMs) : NaN;
+}
+
+async function registrationHssAdvanceClaimStart(input: {
+  readonly store: DurableObjectStorageLike;
+  readonly key: string;
+  readonly value: unknown;
+  readonly nowMs: number;
+  readonly ttlSeconds: number | null;
+}): Promise<Record<string, unknown>> {
+  const existingRaw = await input.store.get(input.key);
+  if (existingRaw === null || existingRaw === undefined) {
+    await input.store.put(
+      input.key,
+      input.value,
+      input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
+    );
+    return { status: 'started', record: input.value };
+  }
+  const existingState = registrationHssAdvanceClaimState(existingRaw);
+  const expiresAtMs = registrationHssAdvanceClaimExpiresAtMs(existingRaw);
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= input.nowMs) {
+    await input.store.put(
+      input.key,
+      input.value,
+      input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
+    );
+    return { status: 'started', record: input.value };
+  }
+  switch (existingState) {
+    case 'in_flight': {
+      const leaseExpiresAtMs = registrationHssAdvanceClaimLeaseExpiresAtMs(existingRaw);
+      return Number.isFinite(leaseExpiresAtMs) && leaseExpiresAtMs <= input.nowMs
+        ? { status: 'stale_in_flight', record: existingRaw }
+        : { status: 'in_flight', record: existingRaw };
+    }
+    case 'fulfilled':
+      return { status: 'fulfilled', record: existingRaw };
+    case 'failed':
+      await input.store.put(
+        input.key,
+        input.value,
+        input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
+      );
+      return { status: 'started', record: input.value };
+    default:
+      return { status: 'invalid_existing', record: existingRaw };
+  }
+}
+
+async function registrationHssAdvanceClaimComplete(input: {
+  readonly store: DurableObjectStorageLike;
+  readonly key: string;
+  readonly value: unknown;
+  readonly nowMs: number;
+  readonly ttlSeconds: number | null;
+  readonly expectedClaimId: string;
+  readonly targetState: 'fulfilled' | 'failed';
+}): Promise<Record<string, unknown>> {
+  const existingRaw = await input.store.get(input.key);
+  if (existingRaw === null || existingRaw === undefined) return { status: 'not_found' };
+  const existingState = registrationHssAdvanceClaimState(existingRaw);
+  const expiresAtMs = registrationHssAdvanceClaimExpiresAtMs(existingRaw);
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= input.nowMs) {
+    await input.store.delete(input.key);
+    return { status: 'expired', record: existingRaw };
+  }
+  if (existingState === input.targetState) {
+    return registrationHssAdvanceClaimId(existingRaw) === input.expectedClaimId
+      ? { status: input.targetState, record: existingRaw }
+      : { status: 'claim_mismatch', record: existingRaw };
+  }
+  if (existingState !== 'in_flight') return { status: existingState || 'invalid_existing', record: existingRaw };
+  if (registrationHssAdvanceClaimId(existingRaw) !== input.expectedClaimId) {
+    return { status: 'claim_mismatch', record: existingRaw };
+  }
+  await input.store.put(
+    input.key,
+    input.value,
+    input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
+  );
+  return { status: input.targetState, record: input.value };
 }
 
 function signingRootRecordKey(input: {
@@ -1578,6 +1749,58 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(res);
+    }
+
+    if (op === 'registrationHssAdvanceClaimTransition') {
+      const key = toKey((req as { key?: unknown }).key);
+      const transition = parseRegistrationHssAdvanceClaimTransition(
+        (req as { transition?: unknown }).transition,
+      );
+      const value = (req as { value?: unknown }).value;
+      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!transition) return json(err('invalid_body', 'Invalid HSS advance claim transition'));
+      if (!isRegistrationHssAdvanceClaimValue(value, registrationHssAdvanceTargetState(transition))) {
+        return json(err('invalid_body', 'Invalid HSS advance claim value'));
+      }
+
+      const result = await withTxn(this.state, async (store) => {
+        switch (transition.kind) {
+          case 'start':
+            return await registrationHssAdvanceClaimStart({
+              store,
+              key,
+              value,
+              nowMs: transition.nowMs,
+              ttlSeconds,
+            });
+          case 'fulfill':
+            return await registrationHssAdvanceClaimComplete({
+              store,
+              key,
+              value,
+              nowMs: transition.nowMs,
+              ttlSeconds,
+              expectedClaimId: transition.expectedClaimId,
+              targetState: 'fulfilled',
+            });
+          case 'fail':
+            return await registrationHssAdvanceClaimComplete({
+              store,
+              key,
+              value,
+              nowMs: transition.nowMs,
+              ttlSeconds,
+              expectedClaimId: transition.expectedClaimId,
+              targetState: 'failed',
+            });
+          default:
+            transition satisfies never;
+            return { status: 'invalid_transition' };
+        }
+      });
+
+      return json(ok(result));
     }
 
     if (op === 'routerAbEcdsaHssPresignaturePut') {

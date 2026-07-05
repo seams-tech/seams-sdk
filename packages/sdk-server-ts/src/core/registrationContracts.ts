@@ -37,9 +37,7 @@ import type {
   WebAuthnAuthenticationCredential,
   RegistrationPreparationId,
 } from './types';
-import {
-  registrationPreparationIdFromString
-} from './types';
+import { registrationPreparationIdFromString } from './types';
 
 export { registrationPreparationIdFromString };
 export type { RegistrationPreparationId };
@@ -79,6 +77,7 @@ export type CreateRegistrationIntentResponse =
       ok: false;
       code: string;
       message: string;
+      retryAfterMs?: number;
     };
 
 export type CreateAddSignerIntentRequest = {
@@ -98,6 +97,7 @@ export type CreateAddSignerIntentResponse =
       ok: false;
       code: string;
       message: string;
+      retryAfterMs?: number;
     };
 
 export type CreateAddAuthMethodIntentRequest = {
@@ -117,6 +117,7 @@ export type CreateAddAuthMethodIntentResponse =
       ok: false;
       code: string;
       message: string;
+      retryAfterMs?: number;
     };
 
 export type AddAuthMethodAppSessionPolicy = {
@@ -523,12 +524,29 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssRespondEncodeDeliveryMs'
   | 'registrationEcdsaRespondMs'
   | 'registerHssRespondTotalMs'
+  | 'registerHssWarmupTotalMs'
+  | 'registrationHssAdvanceStateCeremonyLoadMs'
+  | 'registrationHssAdvanceStateDigestMs'
+  | 'registrationHssAdvanceStateWasmMs'
+  | 'registrationHssAdvanceStateDecodeStateMs'
+  | 'registrationHssAdvanceStateSerializedSessionMaterializeMs'
+  | 'registrationHssAdvanceStateAddStageResponseMs'
+  | 'registrationHssAdvanceStateMessageScheduleRoundsMs'
+  | 'registrationHssAdvanceStateRoundCoreRoundsMs'
+  | 'registrationHssAdvanceStateEncodeAdvancedStateMs'
+  | 'registrationHssAdvanceStatePersistenceMs'
+  | 'registerHssAdvanceStateTotalMs'
   | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
   | 'registrationHssFinalizeMs'
   | 'registrationHssFinalizeDecodeArtifactMs'
   | 'registrationHssFinalizeSerializedSessionMaterializeMs'
+  | 'registrationHssFinalizeAdvanceAddStageResponseMs'
+  | 'registrationHssFinalizeAdvanceMessageScheduleRoundsMs'
+  | 'registrationHssFinalizeAdvanceRoundCoreRoundsMs'
+  | 'registrationHssFinalizeAdvanceOutputProjectionMs'
   | 'registrationHssFinalizeReportMs'
+  | 'registrationHssFinalizePacketAssemblyMs'
   | 'registrationHssFinalizeEncodeReportMs'
   | 'registrationHssFinalizeOpenServerOutputMs'
   | 'registrationHssFinalizeOpenSeedOutputMs'
@@ -545,17 +563,31 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationFinalizeReplayCacheMs'
   | 'registerFinalizeTotalMs';
 
+export type Ed25519HssFinalizeSource =
+  | 'durable_advanced_eval'
+  | 'durable_finalized_report'
+  | 'serialized_replay';
+
+export type Ed25519HssAdvanceSource = 'durable_workerd_wasm';
+
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
   route:
     | 'wallets_register_prepare'
     | 'wallets_register_start'
     | 'wallets_register_hss_respond'
+    | 'wallets_register_hss_advance_state'
     | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
   }[];
+  ed25519HssAdvance?: {
+    source: Ed25519HssAdvanceSource;
+  };
+  ed25519HssFinalize?: {
+    source: Ed25519HssFinalizeSource;
+  };
 };
 
 export type WalletRegistrationPrepareResponse =
@@ -631,6 +663,31 @@ export type WalletRegistrationHssRespondResponse =
       ok: false;
       code: string;
       message: string;
+    };
+
+export type WalletRegistrationHssAdvanceStateRequest = {
+  registrationCeremonyId: string;
+  ed25519: {
+    addStageRequestMessageB64u: string;
+  };
+};
+
+export type WalletRegistrationHssAdvanceStateResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ed25519: {
+        contextBindingB64u: string;
+        addStageRequestDigestB64u: string;
+        projectionMode: 'registration_seed_and_output' | 'registration_output_only';
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      retryAfterMs?: number;
     };
 
 export type WalletRegistrationFinalizeRequest = {
@@ -737,4 +794,5 @@ export type WalletRegistrationFinalizeResponse =
       ok: false;
       code: string;
       message: string;
+      retryAfterMs?: number;
     };

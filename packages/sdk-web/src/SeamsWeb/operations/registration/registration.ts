@@ -52,6 +52,7 @@ import type {
   RegistrationAuthMethodInput,
   RegistrationEd25519AuthorityScope,
   RegistrationEvmFamilyEcdsaSignerPlan,
+  RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationNearAccountProvisioning,
   RegistrationNearEd25519SignerPlan,
@@ -100,6 +101,7 @@ import { computeAddSignerIntentDigest } from '@/utils/intentDigest';
 import {
   createWalletAddSignerIntent,
   createWalletRegistrationIntent,
+  advanceWalletRegistrationHssState,
   finalizeWalletAddSigner,
   finalizeWalletRegistration,
   parseWalletRegistrationEcdsaHssRespond,
@@ -108,6 +110,7 @@ import {
   respondWalletRegistrationHss,
   startWalletAddSigner,
   startWalletRegistration,
+  type RegistrationPreparationId,
   type WalletRegistrationEcdsaHssRespondBootstrap,
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEmailOtpBackupAck,
@@ -248,6 +251,8 @@ type RegistrationTimingBucketValues = {
   ed25519ClientRequestMs: number;
   ecdsaClientBootstrapMs: number;
   walletRegisterHssRespondMs: number;
+  ed25519AddStageRequestMs: number;
+  walletRegisterHssAdvanceStateMs: number;
   ed25519EvaluationArtifactMs: number;
   emailOtpRecoveryCodeBackupMs: number;
   walletRegisterFinalizeMs: number;
@@ -434,6 +439,8 @@ type Ed25519EnabledRegistrationTiming = {
   kind: 'ed25519_enabled';
   ed25519ClientMaterialMs: number;
   ed25519ClientRequestMs: number;
+  ed25519AddStageRequestMs: number;
+  walletRegisterHssAdvanceStateMs: number;
   ed25519EvaluationArtifactMs: number;
   ed25519CompletionParseMs: number;
   thresholdEd25519SessionPersistenceMs: number;
@@ -450,6 +457,8 @@ type Ed25519DisabledRegistrationTiming = {
   kind: 'ed25519_disabled';
   ed25519ClientMaterialMs: 0;
   ed25519ClientRequestMs: 0;
+  ed25519AddStageRequestMs: 0;
+  walletRegisterHssAdvanceStateMs: 0;
   ed25519EvaluationArtifactMs: 0;
   ed25519CompletionParseMs: 0;
   thresholdEd25519SessionPersistenceMs: 0;
@@ -675,12 +684,28 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationHssRespondEncodeDeliveryMs':
     case 'registrationEcdsaRespondMs':
     case 'registerHssRespondTotalMs':
+    case 'registrationHssAdvanceStateCeremonyLoadMs':
+    case 'registrationHssAdvanceStateDigestMs':
+    case 'registrationHssAdvanceStateWasmMs':
+    case 'registrationHssAdvanceStateDecodeStateMs':
+    case 'registrationHssAdvanceStateSerializedSessionMaterializeMs':
+    case 'registrationHssAdvanceStateAddStageResponseMs':
+    case 'registrationHssAdvanceStateMessageScheduleRoundsMs':
+    case 'registrationHssAdvanceStateRoundCoreRoundsMs':
+    case 'registrationHssAdvanceStateEncodeAdvancedStateMs':
+    case 'registrationHssAdvanceStatePersistenceMs':
+    case 'registerHssAdvanceStateTotalMs':
     case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationHssFinalizeMs':
     case 'registrationHssFinalizeDecodeArtifactMs':
     case 'registrationHssFinalizeSerializedSessionMaterializeMs':
+    case 'registrationHssFinalizeAdvanceAddStageResponseMs':
+    case 'registrationHssFinalizeAdvanceMessageScheduleRoundsMs':
+    case 'registrationHssFinalizeAdvanceRoundCoreRoundsMs':
+    case 'registrationHssFinalizeAdvanceOutputProjectionMs':
     case 'registrationHssFinalizeReportMs':
+    case 'registrationHssFinalizePacketAssemblyMs':
     case 'registrationHssFinalizeEncodeReportMs':
     case 'registrationHssFinalizeOpenServerOutputMs':
     case 'registrationHssFinalizeOpenSeedOutputMs':
@@ -710,6 +735,7 @@ function sanitizeWalletRegistrationRouteDiagnostics(
     value.route === 'wallets_register_prepare' ||
     value.route === 'wallets_register_start' ||
     value.route === 'wallets_register_hss_respond' ||
+    value.route === 'wallets_register_hss_advance_state' ||
     value.route === 'wallets_register_finalize'
       ? value.route
       : null;
@@ -723,11 +749,76 @@ function sanitizeWalletRegistrationRouteDiagnostics(
     entries.push({ name, durationMs: Math.max(0, Math.round(durationMs)) });
   }
   if (entries.length === 0) return null;
-  return {
+  const ed25519HssFinalizeSource = parseEd25519HssFinalizeSource(
+    isObject(value.ed25519HssFinalize) ? value.ed25519HssFinalize.source : undefined,
+  );
+  const ed25519HssAdvanceSource = parseEd25519HssAdvanceSource(
+    isObject(value.ed25519HssAdvance) ? value.ed25519HssAdvance.source : undefined,
+  );
+  const diagnostics: WalletRegistrationRouteDiagnostics = {
     kind: 'wallet_registration_route_diagnostics_v1',
     route,
     entries,
   };
+  if (ed25519HssAdvanceSource) {
+    diagnostics.ed25519HssAdvance = {
+      source: ed25519HssAdvanceSource,
+    };
+  }
+  if (ed25519HssFinalizeSource) {
+    diagnostics.ed25519HssFinalize = {
+      source: ed25519HssFinalizeSource,
+    };
+  }
+  return diagnostics;
+}
+
+function copyWalletRegistrationRouteDiagnostics(
+  diagnostics: WalletRegistrationRouteDiagnostics,
+): WalletRegistrationRouteDiagnostics {
+  const copy: WalletRegistrationRouteDiagnostics = {
+    kind: diagnostics.kind,
+    route: diagnostics.route,
+    entries: diagnostics.entries.map((entry) => ({
+      name: entry.name,
+      durationMs: entry.durationMs,
+    })),
+  };
+  if (diagnostics.ed25519HssAdvance) {
+    copy.ed25519HssAdvance = {
+      source: diagnostics.ed25519HssAdvance.source,
+    };
+  }
+  if (diagnostics.ed25519HssFinalize) {
+    copy.ed25519HssFinalize = {
+      source: diagnostics.ed25519HssFinalize.source,
+    };
+  }
+  return copy;
+}
+
+function parseEd25519HssAdvanceSource(
+  value: unknown,
+): NonNullable<WalletRegistrationRouteDiagnostics['ed25519HssAdvance']>['source'] | null {
+  switch (value) {
+    case 'durable_workerd_wasm':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function parseEd25519HssFinalizeSource(
+  value: unknown,
+): NonNullable<WalletRegistrationRouteDiagnostics['ed25519HssFinalize']>['source'] | null {
+  switch (value) {
+    case 'durable_advanced_eval':
+    case 'durable_finalized_report':
+    case 'serialized_replay':
+      return value;
+    default:
+      return null;
+  }
 }
 
 function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketValues {
@@ -772,6 +863,8 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     ed25519ClientRequestMs: 0,
     ecdsaClientBootstrapMs: 0,
     walletRegisterHssRespondMs: 0,
+    ed25519AddStageRequestMs: 0,
+    walletRegisterHssAdvanceStateMs: 0,
     ed25519EvaluationArtifactMs: 0,
     emailOtpRecoveryCodeBackupMs: 0,
     walletRegisterFinalizeMs: 0,
@@ -836,6 +929,8 @@ function copyRegistrationTimingBucketValues(
     ed25519ClientRequestMs: buckets.ed25519ClientRequestMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     walletRegisterHssRespondMs: buckets.walletRegisterHssRespondMs,
+    ed25519AddStageRequestMs: buckets.ed25519AddStageRequestMs,
+    walletRegisterHssAdvanceStateMs: buckets.walletRegisterHssAdvanceStateMs,
     ed25519EvaluationArtifactMs: buckets.ed25519EvaluationArtifactMs,
     emailOtpRecoveryCodeBackupMs: buckets.emailOtpRecoveryCodeBackupMs,
     walletRegisterFinalizeMs: buckets.walletRegisterFinalizeMs,
@@ -928,6 +1023,8 @@ function buildRegistrationEd25519Timing(input: {
       kind: 'ed25519_enabled',
       ed25519ClientMaterialMs: input.buckets.ed25519ClientMaterialMs,
       ed25519ClientRequestMs: input.buckets.ed25519ClientRequestMs,
+      ed25519AddStageRequestMs: input.buckets.ed25519AddStageRequestMs,
+      walletRegisterHssAdvanceStateMs: input.buckets.walletRegisterHssAdvanceStateMs,
       ed25519EvaluationArtifactMs: input.buckets.ed25519EvaluationArtifactMs,
       ed25519CompletionParseMs: input.buckets.ed25519CompletionParseMs,
       thresholdEd25519SessionPersistenceMs: input.buckets.thresholdEd25519SessionPersistenceMs,
@@ -950,6 +1047,8 @@ function buildRegistrationEd25519Timing(input: {
     kind: 'ed25519_disabled',
     ed25519ClientMaterialMs: 0,
     ed25519ClientRequestMs: 0,
+    ed25519AddStageRequestMs: 0,
+    walletRegisterHssAdvanceStateMs: 0,
     ed25519EvaluationArtifactMs: 0,
     ed25519CompletionParseMs: 0,
     thresholdEd25519SessionPersistenceMs: 0,
@@ -997,6 +1096,8 @@ const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[
   'ed25519ClientRequestMs',
   'ecdsaClientBootstrapMs',
   'walletRegisterHssRespondMs',
+  'ed25519AddStageRequestMs',
+  'walletRegisterHssAdvanceStateMs',
   'ed25519EvaluationArtifactMs',
   'emailOtpRecoveryCodeBackupMs',
   'walletRegisterFinalizeMs',
@@ -1091,6 +1192,8 @@ function buildRegistrationTimingBuckets(input: {
     ed25519ClientRequestMs: buckets.ed25519ClientRequestMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     walletRegisterHssRespondMs: buckets.walletRegisterHssRespondMs,
+    ed25519AddStageRequestMs: buckets.ed25519AddStageRequestMs,
+    walletRegisterHssAdvanceStateMs: buckets.walletRegisterHssAdvanceStateMs,
     ed25519EvaluationArtifactMs: buckets.ed25519EvaluationArtifactMs,
     emailOtpRecoveryCodeBackupMs: buckets.emailOtpRecoveryCodeBackupMs,
     walletRegisterFinalizeMs: buckets.walletRegisterFinalizeMs,
@@ -1181,14 +1284,7 @@ class RegistrationTimingRecorder {
 
   captureRouteDiagnosticsSnapshot(snapshot: readonly WalletRegistrationRouteDiagnostics[]): void {
     for (const diagnostics of snapshot) {
-      this.relayDiagnostics.push({
-        kind: diagnostics.kind,
-        route: diagnostics.route,
-        entries: diagnostics.entries.map((entry) => ({
-          name: entry.name,
-          durationMs: entry.durationMs,
-        })),
-      });
+      this.relayDiagnostics.push(copyWalletRegistrationRouteDiagnostics(diagnostics));
     }
   }
 
@@ -1229,14 +1325,7 @@ class RegistrationTimingRecorder {
   }
 
   routeDiagnosticsSnapshot(): WalletRegistrationRouteDiagnostics[] {
-    return this.relayDiagnostics.map((diagnostics) => ({
-      kind: diagnostics.kind,
-      route: diagnostics.route,
-      entries: diagnostics.entries.map((entry) => ({
-        name: entry.name,
-        durationMs: entry.durationMs,
-      })),
-    }));
+    return this.relayDiagnostics.map(copyWalletRegistrationRouteDiagnostics);
   }
 
   totalMs(): number {
@@ -1536,7 +1625,10 @@ function emailOtpRegistrationEcdsaRootTargetsFromBranch(args: {
   walletId: string;
   runtimePolicyScope: RegistrationIntentV1['runtimePolicyScope'];
   branch: RegistrationEvmFamilyEcdsaSignerPlan;
-}): Extract<EmailOtpRegistrationEcdsaRootMaterialRequest, { kind: 'ecdsa_root_requested' }>['targets'] {
+}): Extract<
+  EmailOtpRegistrationEcdsaRootMaterialRequest,
+  { kind: 'ecdsa_root_requested' }
+>['targets'] {
   const targets: {
     chainTarget: ThresholdEcdsaChainTarget;
     evmFamilySigningKeySlotId: string;
@@ -2043,7 +2135,9 @@ function emailOtpRegistrationEcdsaClientRootShareHandleForTarget(input: {
   for (const handle of input.handles) {
     if (thresholdEcdsaChainTargetKey(handle.chainTarget) !== targetKey) continue;
     if (selected) {
-      throw new Error(`Email OTP registration ECDSA material has duplicate handle for ${targetKey}`);
+      throw new Error(
+        `Email OTP registration ECDSA material has duplicate handle for ${targetKey}`,
+      );
     }
     selected = handle;
   }
@@ -2056,7 +2150,10 @@ function emailOtpRegistrationEcdsaClientRootShareHandleForTarget(input: {
 function emailOtpRegistrationEcdsaRootTargetForChain(input: {
   request: Extract<EmailOtpRegistrationEcdsaRootMaterialRequest, { kind: 'ecdsa_root_requested' }>;
   chainTarget: ThresholdEcdsaChainTarget;
-}): Extract<EmailOtpRegistrationEcdsaRootMaterialRequest, { kind: 'ecdsa_root_requested' }>['targets'][number] {
+}): Extract<
+  EmailOtpRegistrationEcdsaRootMaterialRequest,
+  { kind: 'ecdsa_root_requested' }
+>['targets'][number] {
   const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
   let selected:
     | Extract<
@@ -3973,8 +4070,12 @@ async function registerWalletInternal(
       default:
         assertNever(args.precomputeMode);
     }
-    const { relayerUrl, intentResponse, registrationWarmup, thresholdRuntimePolicyScope } =
-      precomputeReady;
+    const {
+      relayerUrl,
+      intentResponse,
+      registrationWarmup,
+      thresholdRuntimePolicyScope,
+    } = precomputeReady;
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
     const registrationSessionRpId = requiredRegistrationRpId({
       context,
@@ -4273,15 +4374,47 @@ async function registerWalletInternal(
             responseBootstraps: responded.ecdsa.bootstraps,
           })
         : [];
-    const evaluationResult = await registrationTiming.measure('ed25519EvaluationArtifactMs', () =>
+    const preparedAddStageRequest = await registrationTiming.measure(
+      'ed25519AddStageRequestMs',
+      () =>
+        context.signingEngine.prepareThresholdEd25519HssAddStageRequestMessage({
+          preparedSession: startedEd25519.preparedSession,
+          clientRequest,
+          serverInputDelivery: respondedEd25519,
+          expectedContextBindingB64u: startedEd25519.preparedSession.contextBindingB64u,
+        }),
+    );
+    const advanceStatePromise = registrationTiming.measure('walletRegisterHssAdvanceStateMs', () =>
+      advanceWalletRegistrationHssState({
+        relayerUrl,
+        headers: registrationRouteDiagnosticsHeaders(),
+        registrationCeremonyId: startedCeremony.registrationCeremonyId,
+        ed25519: {
+          addStageRequestMessageB64u: preparedAddStageRequest.addStageRequestMessageB64u,
+        },
+      }),
+    );
+    const evaluationResultPromise = registrationTiming.measure('ed25519EvaluationArtifactMs', () =>
       buildThresholdEd25519RegistrationHssClientOwnedArtifact({
         context,
         preparedSession: startedEd25519.preparedSession,
         clientRequest,
         serverInputDelivery: respondedEd25519,
         clientOutputMaskHandle,
+        addStage: {
+          kind: 'prepared',
+          request: preparedAddStageRequest,
+        },
       }),
     );
+    const [advancedState, evaluationResult] = await Promise.all([
+      advanceStatePromise,
+      evaluationResultPromise,
+    ]);
+    if (!advancedState.ok) {
+      throw new Error(advancedState.message || 'Wallet registration HSS advance-state failed');
+    }
+    registrationTiming.captureRouteDiagnostics(advancedState.registrationDiagnostics);
 
     const requestedPolicy = createRegistrationThresholdWarmSessionPolicyDraft({
       context,
@@ -4744,6 +4877,9 @@ export async function addWalletSigner(args: {
         clientRequest,
         serverInputDelivery: responded.ed25519,
         clientOutputMaskHandle,
+        addStage: {
+          kind: 'fused',
+        },
       });
       const requestedPolicy = createThresholdWarmSessionPolicyDraft(context, {
         kind: 'generated_signing_grant',

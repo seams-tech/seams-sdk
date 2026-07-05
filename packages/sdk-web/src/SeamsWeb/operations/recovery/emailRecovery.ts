@@ -894,6 +894,9 @@ export class EmailRecoveryDomain {
           clientRequest: ed25519ClientRequest,
           serverInputDelivery: ed25519ServerInputDelivery,
           clientOutputMaskHandle,
+          addStage: {
+            kind: 'fused',
+          },
         });
       const ed25519FinalizeResp = await fetch(
         joinNormalizedUrl(relayerUrl, '/email-recovery/ed25519/finalize'),

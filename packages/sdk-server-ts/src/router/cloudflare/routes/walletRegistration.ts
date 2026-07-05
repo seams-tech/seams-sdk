@@ -9,6 +9,7 @@ import {
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletRegistrationFinalize,
+  handleRouterApiWalletRegistrationHssAdvanceState,
   handleRouterApiWalletRegistrationHssRespond,
   handleRouterApiWalletRegistrationIntent,
   handleRouterApiWalletRegistrationPrepare,
@@ -32,6 +33,7 @@ const ROUTE_IDS = [
   'wallet_registration_prepare',
   'wallet_registration_start',
   'wallet_registration_hss_respond',
+  'wallet_registration_hss_advance_state',
   'wallet_registration_finalize',
   'wallet_add_signer_intent',
   'wallet_add_signer_start',
@@ -99,31 +101,33 @@ export async function handleWalletRegistration(
     route.id === 'wallet_registration_intent'
       ? await handleRouterApiWalletRegistrationIntent(common)
       : route.id === 'wallet_registration_prepare'
-        ? await handleRouterApiWalletRegistrationPrepare(common)
-        : route.id === 'wallet_registration_start'
-          ? await handleRouterApiWalletRegistrationStart(common)
-          : route.id === 'wallet_registration_hss_respond'
-            ? await handleRouterApiWalletRegistrationHssRespond(common)
-            : route.id === 'wallet_registration_finalize'
-              ? await handleRouterApiWalletRegistrationFinalize(common)
-              : route.id === 'wallet_add_signer_intent'
-                ? await handleRouterApiWalletAddSignerIntent(common)
-                : route.id === 'wallet_add_signer_start'
-                  ? await handleRouterApiWalletAddSignerStart(common)
-                  : route.id === 'wallet_add_signer_hss_respond'
-                    ? await handleRouterApiWalletAddSignerHssRespond(common)
-                    : route.id === 'wallet_add_signer_finalize'
-                      ? await handleRouterApiWalletAddSignerFinalize(common)
-                      : route.id === 'wallet_add_auth_method_intent'
-                        ? await handleRouterApiWalletAddAuthMethodIntent(common)
-                        : route.id === 'wallet_add_auth_method_start'
-                          ? await handleRouterApiWalletAddAuthMethodStart(common)
-                          : route.id === 'wallet_add_auth_method_finalize'
-                            ? await handleRouterApiWalletAddAuthMethodFinalize(common)
-                            : route.id === 'wallet_revoke_auth_method'
-                              ? await handleRouterApiWalletRevokeAuthMethod(common)
-                              : route.id === 'wallet_ecdsa_key_facts_inventory'
-                                ? await handleRouterApiWalletEcdsaKeyFactsInventory(common)
-                                : await handleRouterApiWalletNearImplicitAccountFund(common);
+          ? await handleRouterApiWalletRegistrationPrepare(common)
+          : route.id === 'wallet_registration_start'
+            ? await handleRouterApiWalletRegistrationStart(common)
+            : route.id === 'wallet_registration_hss_respond'
+              ? await handleRouterApiWalletRegistrationHssRespond(common)
+              : route.id === 'wallet_registration_hss_advance_state'
+                ? await handleRouterApiWalletRegistrationHssAdvanceState(common)
+              : route.id === 'wallet_registration_finalize'
+                ? await handleRouterApiWalletRegistrationFinalize(common)
+                : route.id === 'wallet_add_signer_intent'
+                  ? await handleRouterApiWalletAddSignerIntent(common)
+                  : route.id === 'wallet_add_signer_start'
+                    ? await handleRouterApiWalletAddSignerStart(common)
+                    : route.id === 'wallet_add_signer_hss_respond'
+                      ? await handleRouterApiWalletAddSignerHssRespond(common)
+                      : route.id === 'wallet_add_signer_finalize'
+                        ? await handleRouterApiWalletAddSignerFinalize(common)
+                        : route.id === 'wallet_add_auth_method_intent'
+                          ? await handleRouterApiWalletAddAuthMethodIntent(common)
+                          : route.id === 'wallet_add_auth_method_start'
+                            ? await handleRouterApiWalletAddAuthMethodStart(common)
+                            : route.id === 'wallet_add_auth_method_finalize'
+                              ? await handleRouterApiWalletAddAuthMethodFinalize(common)
+                              : route.id === 'wallet_revoke_auth_method'
+                                ? await handleRouterApiWalletRevokeAuthMethod(common)
+                                : route.id === 'wallet_ecdsa_key_facts_inventory'
+                                  ? await handleRouterApiWalletEcdsaKeyFactsInventory(common)
+                                  : await handleRouterApiWalletNearImplicitAccountFund(common);
   return toFetchRouteResponse(response);
 }

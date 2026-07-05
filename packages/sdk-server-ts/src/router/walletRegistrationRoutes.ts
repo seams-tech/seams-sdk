@@ -31,6 +31,8 @@ import type {
   WalletAddAuthMethodStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationHssAdvanceStateRequest,
+  WalletRegistrationHssAdvanceStateResponse,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
   WalletRegistrationPrepareRequest,
@@ -1717,6 +1719,36 @@ function parseWalletRegistrationHssRespondRequest(
   return { ok: true, value };
 }
 
+function parseWalletRegistrationHssAdvanceStateRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletRegistrationHssAdvanceStateRequest> {
+  const registrationCeremonyId = trimRequiredString(
+    body,
+    'registrationCeremonyId',
+    'registrationCeremonyId is required',
+  );
+  if (!registrationCeremonyId.ok) return registrationCeremonyId;
+  const ed25519 = isPlainObject(body.ed25519) ? body.ed25519 : null;
+  if (!ed25519) {
+    return { ok: false, code: 'invalid_body', message: 'ed25519 advance-state is required' };
+  }
+  const addStageRequestMessageB64u = trimRequiredString(
+    ed25519,
+    'addStageRequestMessageB64u',
+    'ed25519.addStageRequestMessageB64u is required',
+  );
+  if (!addStageRequestMessageB64u.ok) return addStageRequestMessageB64u;
+  return {
+    ok: true,
+    value: {
+      registrationCeremonyId: registrationCeremonyId.value,
+      ed25519: {
+        addStageRequestMessageB64u: addStageRequestMessageB64u.value,
+      },
+    },
+  };
+}
+
 function parseEmailOtpBackupAck(
   value: unknown,
 ): ParseResult<NonNullable<WalletRegistrationFinalizeRequest['emailOtpBackupAck']>> {
@@ -2398,6 +2430,23 @@ export async function handleRouterApiWalletRegistrationHssRespond(
       if (signingError) return signingError;
     }
   }
+  const response = exposesRegistrationRouteDiagnostics(input)
+    ? result
+    : stripRegistrationRouteDiagnostics(result);
+  return routeJson(result.ok ? 200 : 400, response);
+}
+
+export async function handleRouterApiWalletRegistrationHssAdvanceState(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationHssAdvanceStateResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const request = parseWalletRegistrationHssAdvanceStateRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.walletRegistration.advanceWalletRegistrationHssState(
+    request.value,
+  );
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
     : stripRegistrationRouteDiagnostics(result);

@@ -1163,6 +1163,7 @@ export class EmailRecoveryAuthOperations {
           ceremonyHandle: respondedHss.ceremonyHandle,
           preparedSession: respondedHss.preparedSession,
           serverState: respondedHss.serverState,
+          serverEvalSource: { kind: 'serialized_replay' },
           evaluationResult: evaluationResult.value,
           accountResolution: {
             kind: 'known_account',
