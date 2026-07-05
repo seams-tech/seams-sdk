@@ -72,7 +72,10 @@ const sdkServerCoreTypesPath = 'packages/sdk-server-ts/src/core/types.ts';
 const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/routeDefinitions.ts';
 const routeExecutionContextPath = 'packages/sdk-server-ts/src/router/routeExecutionContext.ts';
 const d1RegistrationIntentServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts';
+const d1WalletRegistrationServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts';
 const d1RegistrationCeremonyRecordsPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts';
+const d1RegistrationCeremonyStorePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts';
+const d1RegistrationCeremonyDoPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyDo.ts';
 const forbiddenCloudflarePostgresEnvTokens = [
     'POSTGRES_URL',
     'CONSOLE_POSTGRES_URL',
@@ -576,11 +579,6 @@ const cloudflareD1ConsoleServicesPath = 'packages/sdk-server-ts/src/router/cloud
 const cloudflareD1ConsoleStagingWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
 const cloudflareD1LocalDevWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
 const cloudflareD1RouterApiStagingWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
-const cloudflareD1WalletRegistrationServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts';
-const oldCloudflareD1EcdsaCeremonyServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1EcdsaCeremonyService.ts';
-const cloudflareD1EvmFamilyEcdsaRegistrationBranchPath = 'packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts';
-const cloudflareD1NearEd25519RegistrationBranchPath = 'packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts';
-const cloudflareD1WalletAddSignerServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WalletAddSignerService.ts';
 const cloudflareD1RouterApiAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts';
 const cloudflareD1EmailOtpRecoveryServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts';
 const authServiceEmailOtpGrantPath = 'packages/sdk-server-ts/src/core/authService/emailOtpGrant.ts';
@@ -2092,94 +2090,6 @@ function productionCombinedRegistrationStateViolations() {
     }
     return violations.sort();
 }
-function d1EvmFamilyEcdsaRegistrationBranchSplitViolations() {
-    const violations = [];
-    const branchAbsolutePath = toAbsolutePath(cloudflareD1EvmFamilyEcdsaRegistrationBranchPath);
-    if (!fs.existsSync(branchAbsolutePath)) {
-        return [
-            `${cloudflareD1EvmFamilyEcdsaRegistrationBranchPath}: missing EVM-family ECDSA branch module`,
-        ];
-    }
-    const branchSource = readSource(cloudflareD1EvmFamilyEcdsaRegistrationBranchPath);
-    if (!branchSource.includes('buildD1EvmFamilyEcdsaRegistrationPrepare')) {
-        violations.push(`${cloudflareD1EvmFamilyEcdsaRegistrationBranchPath}: missing ECDSA registration prepare builder`);
-    }
-    const serviceSource = readSource(cloudflareD1WalletRegistrationServicePath);
-    if (!serviceSource.includes("from './d1EvmFamilyEcdsaRegistrationBranch'")) {
-        violations.push(`${cloudflareD1WalletRegistrationServicePath}: does not import the ECDSA branch module`);
-    }
-    if (/\basync\s+function\s+buildD1(?:EvmFamily)?EcdsaRegistrationPrepare\b/.test(serviceSource)) {
-        violations.push(`${cloudflareD1WalletRegistrationServicePath}: defines ECDSA registration prepare inline`);
-    }
-    return violations.sort();
-}
-function d1NearEd25519RegistrationBranchSplitViolations() {
-    const violations = [];
-    const branchAbsolutePath = toAbsolutePath(cloudflareD1NearEd25519RegistrationBranchPath);
-    if (!fs.existsSync(branchAbsolutePath)) {
-        return [`${cloudflareD1NearEd25519RegistrationBranchPath}: missing NEAR Ed25519 branch module`];
-    }
-    const branchSource = readSource(cloudflareD1NearEd25519RegistrationBranchPath);
-    for (const exportedHelper of [
-        'prepareD1NearEd25519RegistrationHss',
-        'respondD1NearEd25519RegistrationHss',
-        'd1ThresholdEd25519RegistrationAccountScope',
-    ]) {
-        if (!branchSource.includes(exportedHelper)) {
-            violations.push(`${cloudflareD1NearEd25519RegistrationBranchPath}: missing ${exportedHelper}`);
-        }
-    }
-    const serviceSource = readSource(cloudflareD1WalletRegistrationServicePath);
-    if (!serviceSource.includes("from './d1NearEd25519RegistrationBranch'")) {
-        violations.push(`${cloudflareD1WalletRegistrationServicePath}: does not import the NEAR Ed25519 branch module`);
-    }
-    for (const inlineHelper of [
-        'prepareEd25519RegistrationHss',
-        'respondEd25519RegistrationHss',
-        'thresholdEd25519RegistrationAccountScope',
-        'thresholdEd25519HssContextFromRegistrationAccountScope',
-    ]) {
-        if (serviceSource.includes(inlineHelper)) {
-            violations.push(`${cloudflareD1WalletRegistrationServicePath}: defines ${inlineHelper} inline`);
-        }
-    }
-    return violations.sort();
-}
-function d1WalletAddSignerServiceSplitViolations() {
-    const violations = [];
-    if (fs.existsSync(toAbsolutePath(oldCloudflareD1EcdsaCeremonyServicePath))) {
-        violations.push(`${oldCloudflareD1EcdsaCeremonyServicePath}: deleted module path exists`);
-    }
-    const addSignerAbsolutePath = toAbsolutePath(cloudflareD1WalletAddSignerServicePath);
-    if (!fs.existsSync(addSignerAbsolutePath)) {
-        return [`${cloudflareD1WalletAddSignerServicePath}: missing D1 wallet add-signer service`];
-    }
-    const addSignerSource = readSource(cloudflareD1WalletAddSignerServicePath);
-    for (const methodName of [
-        'startWalletAddSigner',
-        'respondWalletAddSignerHss',
-        'finalizeWalletAddSigner',
-    ]) {
-        if (!addSignerSource.includes(methodName)) {
-            violations.push(`${cloudflareD1WalletAddSignerServicePath}: missing ${methodName}`);
-        }
-    }
-    const routerSource = readSource(cloudflareD1RouterApiAuthServicePath);
-    if (!routerSource.includes("from './d1WalletAddSignerService'")) {
-        violations.push(`${cloudflareD1RouterApiAuthServicePath}: does not import the D1 wallet add-signer service`);
-    }
-    const ceremonySource = readSource(cloudflareD1WalletRegistrationServicePath);
-    for (const methodName of [
-        'startWalletAddSigner',
-        'respondWalletAddSignerHss',
-        'finalizeWalletAddSigner',
-    ]) {
-        if (ceremonySource.includes(methodName)) {
-            violations.push(`${cloudflareD1WalletRegistrationServicePath}: still owns ${methodName}`);
-        }
-    }
-    return violations.sort();
-}
 function publicRegistrationLegacyModeConstructionViolations() {
     const violations = [];
     const scanned = new Set();
@@ -2271,6 +2181,94 @@ function durableEd25519HssCeremonyStoreViolations() {
     for (const token of requiredDoStoreTokens) {
         if (!doStore.includes(token)) {
             violations.push(`Cloudflare DO store missing Ed25519 HSS durable ceremony token: ${token}`);
+        }
+    }
+    return violations.sort();
+}
+function d1WalletRegistrationSerializedReplayViolations() {
+    const source = readSource(d1WalletRegistrationServicePath);
+    const violations = [];
+    const forbiddenPatterns = [
+        {
+            pattern: /serverEvalSource\s*:\s*\{\s*kind:\s*['"]serialized_replay['"]\s*\}/,
+            message: 'passes serialized replay into registration HSS finalize',
+        },
+        {
+            pattern: /hssFinalizeSource\s*=\s*['"]serialized_replay['"]/,
+            message: 'records serialized replay as a normal registration HSS finalize source',
+        },
+    ];
+    for (const { pattern, message } of forbiddenPatterns) {
+        if (pattern.test(source)) {
+            violations.push(`${d1WalletRegistrationServicePath}: ${message}`);
+        }
+    }
+    return violations.sort();
+}
+function d1WalletRegistrationEd25519HssWorkerWasmViolations() {
+    const routeSource = readSource(d1WalletRegistrationServicePath);
+    const authServiceSource = readSource(cloudflareD1RouterApiAuthServicePath);
+    const authConfigSource = readSource('packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts');
+    const stagingWorkerSource = readSource(cloudflareD1RouterApiStagingWorkerPath);
+    const violations = [];
+    if (!routeSource.includes('threshold.ed25519Hss.advanceForRegistration')) {
+        violations.push(`${d1WalletRegistrationServicePath}: does not advance registration Ed25519 HSS through the Worker WASM threshold service`);
+    }
+    if (!routeSource.includes("source: 'durable_workerd_wasm'")) {
+        violations.push(`${d1WalletRegistrationServicePath}: does not stamp Worker WASM advance provenance`);
+    }
+    const retiredTokens = [
+        'getEd25519HssNativeServicePort',
+        'warmD1RegistrationEd25519Hss',
+        'warmWalletRegistrationHss',
+        'wallets_register_hss_warmup',
+        'registrationHssWarmupMs',
+        'Ed25519HssNativeServicePort',
+        'ed25519HssNativeService',
+        'ED25519_HSS_NATIVE_SERVICE',
+        "source: 'native_service'",
+    ];
+    for (const [relativePath, source] of [
+        [d1WalletRegistrationServicePath, routeSource],
+        [cloudflareD1RouterApiAuthServicePath, authServiceSource],
+        ['packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts', authConfigSource],
+        [cloudflareD1RouterApiStagingWorkerPath, stagingWorkerSource],
+    ]) {
+        for (const token of retiredTokens) {
+            if (source.includes(token)) {
+                violations.push(`${relativePath}: contains retired registration HSS native/warmup token ${token}`);
+            }
+        }
+    }
+    return violations.sort();
+}
+function d1RegistrationEd25519HssProcessHandlePersistenceViolations() {
+    const durableRegistrationPaths = [
+        d1RegistrationCeremonyRecordsPath,
+        d1RegistrationCeremonyStorePath,
+        d1RegistrationCeremonyDoPath,
+    ];
+    const forbiddenPatterns = [
+        {
+            pattern: /\bpreparedSessionHandle\b/,
+            message: 'persists process-local prepared HSS session handles',
+        },
+        {
+            pattern: /\bstagedEvaluatorArtifactHandle\b/,
+            message: 'persists process-local staged evaluator artifact handles',
+        },
+        {
+            pattern: /\b(?:native|process|wasm)(?:Session|Artifact|Eval)?Handle\b/,
+            message: 'persists native/process/WASM HSS handles',
+        },
+    ];
+    const violations = [];
+    for (const relativePath of durableRegistrationPaths) {
+        const source = readSource(relativePath);
+        for (const { pattern, message } of forbiddenPatterns) {
+            if (pattern.test(source)) {
+                violations.push(`${relativePath}: ${message}`);
+            }
         }
     }
     return violations.sort();
@@ -2455,6 +2453,18 @@ test('Ed25519 HSS session ceremony state is DO-backed in Cloudflare D1 workers',
     const violations = durableEd25519HssCeremonyStoreViolations();
     expect(violations, violations.join('\n')).toEqual([]);
 });
+test('Cloudflare D1 wallet registration does not silently choose Ed25519 HSS serialized replay', () => {
+    const violations = d1WalletRegistrationSerializedReplayViolations();
+    expect(violations, violations.join('\n')).toEqual([]);
+});
+test('Cloudflare D1 wallet registration advances Ed25519 HSS through Worker WASM only', () => {
+    const violations = d1WalletRegistrationEd25519HssWorkerWasmViolations();
+    expect(violations, violations.join('\n')).toEqual([]);
+});
+test('Cloudflare D1 wallet registration never persists Ed25519 HSS process-local handles', () => {
+    const violations = d1RegistrationEd25519HssProcessHandlePersistenceViolations();
+    expect(violations, violations.join('\n')).toEqual([]);
+});
 test('Cloudflare D1 runtime does not revive legacy registration modes', () => {
     const violations = cloudflareRuntimeLegacyRegistrationModeViolations();
     expect(violations, violations.join('\n')).toEqual([]);
@@ -2501,18 +2511,6 @@ test('durable registration intent writers keep signer-set state', () => {
 });
 test('production source does not revive combined registration state', () => {
     const violations = productionCombinedRegistrationStateViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('D1 EVM-family ECDSA registration branch prepare stays split from mixed ceremony service', () => {
-    const violations = d1EvmFamilyEcdsaRegistrationBranchSplitViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('D1 NEAR Ed25519 registration branch mechanics stay split from mixed ceremony service', () => {
-    const violations = d1NearEd25519RegistrationBranchSplitViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('D1 wallet add-signer routes stay split from mixed ceremony service', () => {
-    const violations = d1WalletAddSignerServiceSplitViolations();
     expect(violations, violations.join('\n')).toEqual([]);
 });
 test('public/demo registration request construction stays on signer-set terminology', () => {
