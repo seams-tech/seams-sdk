@@ -12,6 +12,7 @@ import type {
   WarmSessionEd25519UnsealAuthorizationClaimPayload,
   WarmSessionEd25519UnsealAuthorizationClaimResult,
   WarmSessionEd25519UnsealAuthorizationPutPayload,
+  WarmSessionSealAndPersistDiagnostics,
 } from '@/core/types/secure-confirm-worker';
 import {
   thresholdEcdsaChainTargetKey,
@@ -78,8 +79,24 @@ type PasskeyPrfFirstHandleEntry = {
   expiresAtMs: number;
 };
 
+type PasskeyServerSealedSecretCacheEntry = {
+  sealedSecretB64u: string;
+  expiresAtMs: number;
+};
+
+type PasskeyServerSealedSecretCacheScope = {
+  kind: 'passkey_registration';
+  walletId: string;
+  credentialIdB64u: string;
+  signingGrantId: string;
+};
+
 type OkResult = { ok: true; remainingUses: number; expiresAtMs: number };
-type OkSealResult = OkResult & { sealedSecretB64u: string; keyVersion?: string };
+type OkSealResult = OkResult & {
+  sealedSecretB64u: string;
+  keyVersion?: string;
+  diagnostics?: WarmSessionSealAndPersistDiagnostics;
+};
 type OkDispenseResult = OkResult & { prfFirstB64u: string };
 type ErrResult = { ok: false; code: string; message: string };
 type WarmSessionMaterialReadResult =
@@ -88,12 +105,14 @@ type WarmSessionMaterialReadResult =
 
 const ED25519_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000;
 const ED25519_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000;
+const PASSKEY_SERVER_SEALED_SECRET_CACHE_MAX_ENTRIES = 32;
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
+  serverSealedSecretCacheScope?: PasskeyServerSealedSecretCacheScope;
 };
 
 type SigningSessionSealRouteResult =
@@ -108,6 +127,7 @@ type SigningSessionSealRouteResult =
 
 const warmSessionPrfHandleCache = new Map<string, WarmSessionMaterialEntry>();
 const passkeyPrfFirstHandleStore = new Map<string, PasskeyPrfFirstHandleEntry>();
+const passkeyServerSealedSecretCache = new Map<string, PasskeyServerSealedSecretCacheEntry>();
 const warmSessionEd25519UnsealAuthorizationCache = new Map<
   string,
   WarmSessionEd25519UnsealAuthorizationEntry
@@ -152,6 +172,28 @@ function nowMs(): number {
   return Date.now();
 }
 
+function roundWorkerDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
+function createWarmSessionSealAndPersistDiagnostics(): WarmSessionSealAndPersistDiagnostics {
+  return {
+    runtimeSetupMs: 0,
+    clientSealMs: 0,
+    serverSealRouteMs: 0,
+    clientUnsealMs: 0,
+    policyUpdateMs: 0,
+  };
+}
+
+function recordWarmSessionSealAndPersistDiagnosticDuration(args: {
+  diagnostics: WarmSessionSealAndPersistDiagnostics;
+  bucket: keyof WarmSessionSealAndPersistDiagnostics;
+  startedAt: number;
+}): void {
+  args.diagnostics[args.bucket] += roundWorkerDurationMs(args.startedAt);
+}
+
 function overwriteBytes(bytes: Uint8Array | null | undefined): void {
   if (!(bytes instanceof Uint8Array) || bytes.length === 0) return;
   bytes.fill(0);
@@ -176,6 +218,85 @@ function createPasskeyPrfFirstHandle(args: { prfFirstB64u: string; expiresAtMs: 
   return prfFirstHandle;
 }
 
+async function sha256HexUtf8(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return bytesToHex(new Uint8Array(digest));
+}
+
+async function passkeyServerSealedSecretCacheKey(args: {
+  prfFirstB64u: string;
+  relayerUrl: string;
+  keyVersion: string;
+  shamirPrimeB64u: string;
+  cacheScope: PasskeyServerSealedSecretCacheScope | undefined;
+}): Promise<string | null> {
+  const prfFirstB64u = normalizeOptionalTrimmedString(args.prfFirstB64u);
+  const relayerUrl = normalizeOptionalTrimmedString(args.relayerUrl);
+  const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u);
+  const cacheScope = args.cacheScope;
+  if (
+    !prfFirstB64u ||
+    !relayerUrl ||
+    !keyVersion ||
+    !shamirPrimeB64u ||
+    !cacheScope
+  ) {
+    return null;
+  }
+  const prfDigestHex = await sha256HexUtf8(prfFirstB64u);
+  return [
+    'passkey-server-sealed-secret-v1',
+    relayerUrl,
+    keyVersion,
+    shamirPrimeB64u,
+    cacheScope.walletId,
+    cacheScope.credentialIdB64u,
+    cacheScope.signingGrantId,
+    prfDigestHex,
+  ].join('|');
+}
+
+function prunePasskeyServerSealedSecretCache(): void {
+  const now = nowMs();
+  for (const [key, entry] of passkeyServerSealedSecretCache) {
+    if (entry.expiresAtMs <= now) {
+      passkeyServerSealedSecretCache.delete(key);
+    }
+  }
+  while (passkeyServerSealedSecretCache.size > PASSKEY_SERVER_SEALED_SECRET_CACHE_MAX_ENTRIES) {
+    const firstKey = passkeyServerSealedSecretCache.keys().next().value;
+    if (typeof firstKey !== 'string') return;
+    passkeyServerSealedSecretCache.delete(firstKey);
+  }
+}
+
+function readPasskeyServerSealedSecretCache(
+  cacheKey: string | null,
+): PasskeyServerSealedSecretCacheEntry | null {
+  if (!cacheKey) return null;
+  prunePasskeyServerSealedSecretCache();
+  const entry = passkeyServerSealedSecretCache.get(cacheKey);
+  if (!entry || entry.expiresAtMs <= nowMs()) {
+    if (entry) passkeyServerSealedSecretCache.delete(cacheKey);
+    return null;
+  }
+  return entry;
+}
+
+function writePasskeyServerSealedSecretCache(args: {
+  cacheKey: string | null;
+  sealedSecretB64u: string;
+  expiresAtMs: number;
+}): void {
+  if (!args.cacheKey) return;
+  const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
+  const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
+  if (!sealedSecretB64u || expiresAtMs <= nowMs()) return;
+  passkeyServerSealedSecretCache.set(args.cacheKey, { sealedSecretB64u, expiresAtMs });
+  prunePasskeyServerSealedSecretCache();
+}
+
 function deleteWarmSessionPrfHandle(sessionId: string): void {
   const entry = warmSessionPrfHandleCache.get(sessionId);
   if (entry) passkeyPrfFirstHandleStore.delete(entry.prfFirstHandle);
@@ -189,6 +310,7 @@ function deleteWarmSessionEd25519UnsealAuthorization(sessionId: string): void {
 function clearWarmSessionPrfHandles(): void {
   warmSessionPrfHandleCache.clear();
   passkeyPrfFirstHandleStore.clear();
+  passkeyServerSealedSecretCache.clear();
   warmSessionEd25519UnsealAuthorizationCache.clear();
 }
 
@@ -259,7 +381,11 @@ function storeWarmSessionEd25519UnsealAuthorization(
     !expiresAtMs ||
     authorizationExpiresAtMs < expiresAtMs
   ) {
-    return { ok: false, code: 'invalid_args', message: 'Invalid Ed25519 unseal authorization scope' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Invalid Ed25519 unseal authorization scope',
+    };
   }
   if (
     !isValidEd25519UnsealAuthorization({
@@ -306,7 +432,9 @@ function claimWarmSessionEd25519UnsealAuthorization(
     return invalidEd25519UnsealAuthorizationResult('Missing Ed25519 unseal authorization session');
   }
   if (payload.consume !== true) {
-    return invalidEd25519UnsealAuthorizationResult('Invalid Ed25519 unseal authorization claim mode');
+    return invalidEd25519UnsealAuthorizationResult(
+      'Invalid Ed25519 unseal authorization claim mode',
+    );
   }
   const entry = warmSessionEd25519UnsealAuthorizationCache.get(sessionId);
   if (!entry) {
@@ -584,12 +712,33 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
   const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
+  const serverSealedSecretCacheScope = parsePasskeyServerSealedSecretCacheScope(
+    transport.serverSealedSecretCacheScope,
+  );
   if (!relayerUrl) return null;
   return {
     relayerUrl,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+    ...(serverSealedSecretCacheScope ? { serverSealedSecretCacheScope } : {}),
+  };
+}
+
+function parsePasskeyServerSealedSecretCacheScope(
+  value: unknown,
+): PasskeyServerSealedSecretCacheScope | undefined {
+  const scope = asRecord(value);
+  if (!scope || scope.kind !== 'passkey_registration') return undefined;
+  const walletId = normalizeOptionalNonEmptyString(scope.walletId);
+  const credentialIdB64u = normalizeOptionalNonEmptyString(scope.credentialIdB64u);
+  const signingGrantId = normalizeOptionalNonEmptyString(scope.signingGrantId);
+  if (!walletId || !credentialIdB64u || !signingGrantId) return undefined;
+  return {
+    kind: 'passkey_registration',
+    walletId,
+    credentialIdB64u,
+    signingGrantId,
   };
 }
 
@@ -1229,15 +1378,29 @@ async function runSigningSessionSealAndPersist(args: {
   if (inFlight) return await inFlight;
 
   const task = (async (): Promise<OkSealResult | ErrResult> => {
+    const diagnostics = createWarmSessionSealAndPersistDiagnostics();
     try {
+      const runtimeSetupStartedAt = performance.now();
       const runtime = await getShamir3PassRuntime();
       const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      recordWarmSessionSealAndPersistDiagnosticDuration({
+        diagnostics,
+        bucket: 'runtimeSetupMs',
+        startedAt: runtimeSetupStartedAt,
+      });
       try {
+        const clientSealStartedAt = performance.now();
         const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
           ciphertextB64u: activeEntry.secret.prfFirstB64u,
           keyHandle: clientKeyHandle.keyHandle,
         });
+        recordWarmSessionSealAndPersistDiagnosticDuration({
+          diagnostics,
+          bucket: 'clientSealMs',
+          startedAt: clientSealStartedAt,
+        });
 
+        const serverSealRouteStartedAt = performance.now();
         const applied = await callSigningSessionSealRoute({
           operation: 'apply-server-seal',
           transport: args.transport,
@@ -1245,12 +1408,13 @@ async function runSigningSessionSealAndPersist(args: {
           ciphertext: clientEncryptedCiphertext,
           keyVersion: args.transport.keyVersion,
         });
-        if (!applied.ok) return applied;
-
-        const sealedSecretB64u = await runtime.removeClientSealWithKeyHandle({
-          ciphertextB64u: applied.ciphertext,
-          keyHandle: clientKeyHandle.keyHandle,
+        recordWarmSessionSealAndPersistDiagnosticDuration({
+          diagnostics,
+          bucket: 'serverSealRouteMs',
+          startedAt: serverSealRouteStartedAt,
         });
+        if (!applied.ok) return applied;
+        const policyUpdateStartedAt = performance.now();
         const policy = resolvePolicyFromServerAndLocal({
           localRemainingUses: entry.remainingUses,
           localExpiresAtMs: entry.expiresAtMs,
@@ -1262,13 +1426,49 @@ async function runSigningSessionSealAndPersist(args: {
           return policy;
         }
         updateWarmSessionPrfHandlePolicy(sessionId, entry, policy);
-        const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
+        recordWarmSessionSealAndPersistDiagnosticDuration({
+          diagnostics,
+          bucket: 'policyUpdateMs',
+          startedAt: policyUpdateStartedAt,
+        });
+        const keyVersion =
+          normalizeOptionalNonEmptyString(applied.keyVersion) ||
+          normalizeOptionalNonEmptyString(args.transport.keyVersion);
+        const sealedSecretCacheKey = keyVersion
+          ? await passkeyServerSealedSecretCacheKey({
+              prfFirstB64u: activeEntry.secret.prfFirstB64u,
+              relayerUrl: args.transport.relayerUrl,
+              keyVersion,
+              shamirPrimeB64u,
+              cacheScope: args.transport.serverSealedSecretCacheScope,
+            })
+          : null;
+        const cachedSealedSecret = readPasskeyServerSealedSecretCache(sealedSecretCacheKey);
+        let sealedSecretB64u = cachedSealedSecret?.sealedSecretB64u || '';
+        if (!sealedSecretB64u) {
+          const clientUnsealStartedAt = performance.now();
+          sealedSecretB64u = await runtime.removeClientSealWithKeyHandle({
+            ciphertextB64u: applied.ciphertext,
+            keyHandle: clientKeyHandle.keyHandle,
+          });
+          recordWarmSessionSealAndPersistDiagnosticDuration({
+            diagnostics,
+            bucket: 'clientUnsealMs',
+            startedAt: clientUnsealStartedAt,
+          });
+          writePasskeyServerSealedSecretCache({
+            cacheKey: sealedSecretCacheKey,
+            sealedSecretB64u,
+            expiresAtMs: policy.expiresAtMs,
+          });
+        }
         return {
           ok: true,
           sealedSecretB64u,
           ...(keyVersion ? { keyVersion } : {}),
           remainingUses: policy.remainingUses,
           expiresAtMs: policy.expiresAtMs,
+          diagnostics,
         };
       } finally {
         await runtime
@@ -1608,11 +1808,11 @@ self.onmessage = (event: MessageEvent) => {
         ? storeWarmSessionEd25519UnsealAuthorization(
             payload as WarmSessionEd25519UnsealAuthorizationPutPayload,
           )
-        : {
+        : ({
             ok: false,
             code: 'invalid_args',
             message: 'Invalid Ed25519 unseal authorization payload',
-          } satisfies ErrResult,
+          } satisfies ErrResult),
     });
     return;
   }

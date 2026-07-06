@@ -231,6 +231,36 @@ test.describe('signing session PRF cache utilities', () => {
     expect(volatileCommandSource).toContain('createClearAllVolatileWarmSessionMaterialCommand');
   });
 
+  test('passkey server-sealed PRF reuse is scoped to registration authority facts', () => {
+    const workerSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+      ),
+      'utf8',
+    );
+    const registrationEcdsaSessionSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts',
+      ),
+      'utf8',
+    );
+
+    expect(workerSource).toContain('type PasskeyServerSealedSecretCacheScope = {');
+    expect(workerSource).toContain("kind: 'passkey_registration'");
+    expect(workerSource).toContain('cacheScope.walletId');
+    expect(workerSource).toContain('cacheScope.credentialIdB64u');
+    expect(workerSource).toContain('cacheScope.signingGrantId');
+    expect(workerSource).toContain('!cacheScope');
+    expect(registrationEcdsaSessionSource).toContain('serverSealedSecretCacheScope = {');
+    expect(registrationEcdsaSessionSource).toContain('walletId: String(args.walletId)');
+    expect(registrationEcdsaSessionSource).toContain(
+      'credentialIdB64u: args.preparedClientBootstrap.credentialIdB64u',
+    );
+    expect(registrationEcdsaSessionSource).toContain('signingGrantId');
+  });
+
   test('reuse warm ECDSA bootstrap restores sealed material and fails closed instead of fresh prompting', () => {
     const source = fs.readFileSync(
       path.resolve(

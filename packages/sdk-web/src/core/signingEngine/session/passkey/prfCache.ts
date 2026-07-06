@@ -1,4 +1,7 @@
-import type { WarmSessionMaterialWriter } from './warmSessionMaterialWriter';
+import type {
+  WarmSessionMaterialWriter,
+  WarmSessionMaterialWriteDiagnostics,
+} from './warmSessionMaterialWriter';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 
 type SigningSessionCacheTransport = Parameters<
@@ -11,6 +14,7 @@ export type SigningSessionCacheEntry = {
   expiresAtMs: number;
   remainingUses: number;
   transport?: SigningSessionCacheTransport;
+  diagnostics?: WarmSessionMaterialWriteDiagnostics;
 };
 
 type SigningSessionPrfCacheWriter = WarmSessionMaterialWriter;
@@ -60,6 +64,7 @@ export async function cacheCredentialBoundarySetupExportPrfFirst(
     expiresAtMs: normalized.expiresAtMs,
     remainingUses: normalized.remainingUses,
     ...(args.transport ? { transport: args.transport } : {}),
+    ...(args.diagnostics ? { diagnostics: args.diagnostics } : {}),
   });
 }
 

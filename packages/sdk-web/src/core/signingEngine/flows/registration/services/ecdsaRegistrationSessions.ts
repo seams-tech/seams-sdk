@@ -16,12 +16,8 @@ import {
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
-import {
-  ecdsaRoleLocalReadyRecordStorageKeyFacts,
-} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import {
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { ecdsaRoleLocalReadyRecordStorageKeyFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapStorePort,
@@ -29,11 +25,45 @@ import {
 import type { EcdsaRegistrationBootstrapService } from './ecdsaRegistrationBootstrap';
 import type { WalletRegistrationEcdsaPreparedClientBootstrap } from './ecdsaRegistrationBootstrap';
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
+import type {
+  WarmSessionMaterialWriteDiagnosticBucket,
+  WarmSessionMaterialWriteDiagnostics,
+} from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 
 type WalletRegistrationEcdsaSessionBootstrap = Awaited<
   ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>
 >;
+
+export type FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket =
+  | 'client_finalize'
+  | 'client_material_store'
+  | 'server_bootstrap'
+  | 'passkey_bootstrap_store'
+  | 'passkey_role_local_ready_record'
+  | 'passkey_warm_session_hydration'
+  | 'passkey_warm_session_worker_ready'
+  | 'passkey_warm_session_worker_put'
+  | 'passkey_warm_session_sealed_record_persist'
+  | 'passkey_warm_session_sealed_record_resolve_transport'
+  | 'passkey_warm_session_sealed_record_existing_read'
+  | 'passkey_warm_session_sealed_record_policy_read'
+  | 'passkey_warm_session_sealed_record_apply_server_seal'
+  | 'passkey_warm_session_sealed_record_apply_runtime_setup'
+  | 'passkey_warm_session_sealed_record_apply_client_seal'
+  | 'passkey_warm_session_sealed_record_apply_server_route'
+  | 'passkey_warm_session_sealed_record_apply_client_unseal'
+  | 'passkey_warm_session_sealed_record_apply_policy_update'
+  | 'passkey_warm_session_sealed_record_register'
+  | 'passkey_warm_session_sealed_record_verify_read'
+  | 'email_otp_session_commit';
+
+export type FinalizeWalletRegistrationEcdsaSessionsDiagnostics = {
+  recordDuration(
+    bucket: FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket,
+    durationMs: number,
+  ): void;
+};
 
 export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   walletId: string;
@@ -47,6 +77,7 @@ export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   auth:
     | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
     | { kind: 'email_otp'; emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext };
+  diagnostics?: FinalizeWalletRegistrationEcdsaSessionsDiagnostics;
 };
 
 export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
@@ -81,9 +112,7 @@ function registrationEcdsaSessionForWalletKey(input: {
       return session;
     }
   }
-  throw new Error(
-    `[SigningEngine] ECDSA registration missing bootstrap session for ${targetKey}`,
-  );
+  throw new Error(`[SigningEngine] ECDSA registration missing bootstrap session for ${targetKey}`);
 }
 
 export async function finalizeWalletRegistrationEcdsaSessions(
@@ -92,52 +121,19 @@ export async function finalizeWalletRegistrationEcdsaSessions(
 ): Promise<void> {
   const walletId = toWalletId(args.walletId);
   const sessionBootstraps = await Promise.all(
-    args.walletKeys.map(async (walletKey) => {
-      const session = registrationEcdsaSessionForWalletKey({
-        sessions: args.sessions,
+    args.walletKeys.map((walletKey) =>
+      prepareRegistrationEcdsaSessionBootstrap({
+        deps,
+        input: args,
+        walletId,
         walletKey,
-      });
-      const finalized = await deps.registrationBootstrap.finalizeClientBootstrap({
-        preparedClientBootstrap: session.preparedClientBootstrap,
-        bootstrap: session.bootstrap,
-      });
-      const signingMaterial = await deps.registrationBootstrap.storeClientSigningMaterial({
-        finalized,
-        bootstrap: session.bootstrap,
-        chainTarget: walletKey.chainTarget,
-      });
-      return {
-        walletKey,
-        bootstrap: await buildWalletRegistrationEcdsaSessionBootstrap({
-          walletId,
-          relayerUrl: args.relayerUrl,
-          chainTarget: walletKey.chainTarget,
-          keygenSessionId: session.preparedClientBootstrap.clientBootstrap.requestId,
-          readyStateBlob: finalized.stateBlob,
-          signingMaterialHandle: signingMaterial.handle,
-          clientVerifyingShareB64u: finalized.publicFacts.hssClientSharePublicKey33B64u,
-          serverBootstrap: session.bootstrap,
-          walletKey,
-          authMethod:
-            args.auth.kind === 'email_otp'
-              ? {
-                  kind: 'email_otp',
-                  providerUserId: emailOtpAuthContextProviderUserId(
-                    args.auth.emailOtpAuthContext,
-                  ),
-                }
-              : {
-                  kind: 'passkey',
-                  credentialIdB64u: args.auth.credentialIdB64u,
-                  rpId: args.auth.rpId,
-                },
-        }),
-      };
-    }),
+      }),
+    ),
   );
 
-  for (const { walletKey, bootstrap } of sessionBootstraps) {
+  for (const { walletKey, bootstrap, preparedClientBootstrap } of sessionBootstraps) {
     if (args.auth.kind === 'email_otp') {
+      const emailOtpCommitStartedAt = performance.now();
       await deps.commitEmailOtpEcdsaSession({
         walletId,
         chainTarget: walletKey.chainTarget,
@@ -145,9 +141,15 @@ export async function finalizeWalletRegistrationEcdsaSessions(
         source: 'email_otp',
         emailOtpAuthContext: args.auth.emailOtpAuthContext,
       });
+      recordRegistrationEcdsaSessionDiagnosticDuration({
+        diagnostics: args.diagnostics,
+        bucket: 'email_otp_session_commit',
+        startedAt: emailOtpCommitStartedAt,
+      });
       continue;
     }
 
+    const bootstrapStoreStartedAt = performance.now();
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: deps.bootstrapStore,
       walletId,
@@ -158,6 +160,11 @@ export async function finalizeWalletRegistrationEcdsaSessions(
         signerSource: SIGNER_SOURCES.passkeyRegistration,
       },
     });
+    recordRegistrationEcdsaSessionDiagnosticDuration({
+      diagnostics: args.diagnostics,
+      bucket: 'passkey_bootstrap_store',
+      startedAt: bootstrapStoreStartedAt,
+    });
     const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
       walletId,
       chainTarget: walletKey.chainTarget,
@@ -165,23 +172,122 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       source: 'registration',
     });
     markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
+    const roleLocalReadyRecordStartedAt = performance.now();
     await persistRegistrationEcdsaRoleLocalReadyRecord({
       persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
       bootstrap,
     });
-    await hydratePasskeyRegistrationSession({
-      walletId,
-      relayerUrl: args.relayerUrl,
-      walletKey,
-      bootstrap,
-      preparedClientBootstrap: registrationEcdsaSessionForWalletKey({
-        sessions: args.sessions,
-        walletKey,
-      }).preparedClientBootstrap,
-      signingSessionSeal: deps.signingSessionSeal,
-      warmSessions: deps.warmSessions,
+    recordRegistrationEcdsaSessionDiagnosticDuration({
+      diagnostics: args.diagnostics,
+      bucket: 'passkey_role_local_ready_record',
+      startedAt: roleLocalReadyRecordStartedAt,
     });
+    const passkeyWarmSessionHydrationStartedAt = performance.now();
+    try {
+      await hydratePasskeyRegistrationSession({
+        walletId,
+        relayerUrl: args.relayerUrl,
+        walletKey,
+        bootstrap,
+        preparedClientBootstrap,
+        signingSessionSeal: deps.signingSessionSeal,
+        warmSessions: deps.warmSessions,
+        diagnostics: args.diagnostics,
+      });
+    } finally {
+      recordRegistrationEcdsaSessionDiagnosticDuration({
+        diagnostics: args.diagnostics,
+        bucket: 'passkey_warm_session_hydration',
+        startedAt: passkeyWarmSessionHydrationStartedAt,
+      });
+    }
   }
+}
+
+async function prepareRegistrationEcdsaSessionBootstrap(args: {
+  deps: FinalizeWalletRegistrationEcdsaSessionsDeps;
+  input: FinalizeWalletRegistrationEcdsaSessionsInput;
+  walletId: WalletId;
+  walletKey: WalletRegistrationEcdsaWalletKey;
+}): Promise<{
+  walletKey: WalletRegistrationEcdsaWalletKey;
+  bootstrap: WalletRegistrationEcdsaSessionBootstrap;
+  preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
+}> {
+  const session = registrationEcdsaSessionForWalletKey({
+    sessions: args.input.sessions,
+    walletKey: args.walletKey,
+  });
+  const clientFinalizeStartedAt = performance.now();
+  const finalized = await args.deps.registrationBootstrap.finalizeClientBootstrap({
+    preparedClientBootstrap: session.preparedClientBootstrap,
+    bootstrap: session.bootstrap,
+  });
+  recordRegistrationEcdsaSessionDiagnosticDuration({
+    diagnostics: args.input.diagnostics,
+    bucket: 'client_finalize',
+    startedAt: clientFinalizeStartedAt,
+  });
+  const clientMaterialStoreStartedAt = performance.now();
+  const signingMaterial = await args.deps.registrationBootstrap.storeClientSigningMaterial({
+    finalized,
+    bootstrap: session.bootstrap,
+    chainTarget: args.walletKey.chainTarget,
+  });
+  recordRegistrationEcdsaSessionDiagnosticDuration({
+    diagnostics: args.input.diagnostics,
+    bucket: 'client_material_store',
+    startedAt: clientMaterialStoreStartedAt,
+  });
+  const serverBootstrapStartedAt = performance.now();
+  const bootstrap = await buildWalletRegistrationEcdsaSessionBootstrap({
+    walletId: args.walletId,
+    relayerUrl: args.input.relayerUrl,
+    chainTarget: args.walletKey.chainTarget,
+    keygenSessionId: session.preparedClientBootstrap.clientBootstrap.requestId,
+    readyStateBlob: finalized.stateBlob,
+    signingMaterialHandle: signingMaterial.handle,
+    clientVerifyingShareB64u: finalized.publicFacts.hssClientSharePublicKey33B64u,
+    serverBootstrap: session.bootstrap,
+    walletKey: args.walletKey,
+    authMethod:
+      args.input.auth.kind === 'email_otp'
+        ? {
+            kind: 'email_otp',
+            providerUserId: emailOtpAuthContextProviderUserId(args.input.auth.emailOtpAuthContext),
+          }
+        : {
+            kind: 'passkey',
+            credentialIdB64u: args.input.auth.credentialIdB64u,
+            rpId: args.input.auth.rpId,
+          },
+  });
+  recordRegistrationEcdsaSessionDiagnosticDuration({
+    diagnostics: args.input.diagnostics,
+    bucket: 'server_bootstrap',
+    startedAt: serverBootstrapStartedAt,
+  });
+  return {
+    walletKey: args.walletKey,
+    bootstrap,
+    preparedClientBootstrap: session.preparedClientBootstrap,
+  };
+}
+
+function recordRegistrationEcdsaSessionDiagnosticDuration(args: {
+  diagnostics: FinalizeWalletRegistrationEcdsaSessionsDiagnostics | undefined;
+  bucket: FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket;
+  startedAt: number;
+}): void {
+  if (!args.diagnostics) return;
+  args.diagnostics.recordDuration(
+    args.bucket,
+    roundRegistrationEcdsaSessionDurationMs(args.startedAt),
+  );
+}
+
+function roundRegistrationEcdsaSessionDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
 async function persistRegistrationEcdsaRoleLocalReadyRecord(args: {
@@ -190,7 +296,9 @@ async function persistRegistrationEcdsaRoleLocalReadyRecord(args: {
 }): Promise<void> {
   const record = args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
   if (!record) {
-    throw new Error('[SigningEngine] ECDSA registration bootstrap is missing role-local ready record');
+    throw new Error(
+      '[SigningEngine] ECDSA registration bootstrap is missing role-local ready record',
+    );
   }
   const persisted = await args.persistEcdsaRoleLocalReadyRecord({
     record,
@@ -229,6 +337,7 @@ async function hydratePasskeyRegistrationSession(args: {
     shamirPrimeB64u?: string;
   };
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
+  diagnostics: FinalizeWalletRegistrationEcdsaSessionsDiagnostics | undefined;
 }): Promise<void> {
   if (args.preparedClientBootstrap.materialSource !== 'passkey_prf_first') {
     throw new Error('Passkey ECDSA registration persistence requires passkey PRF material');
@@ -251,11 +360,16 @@ async function hydratePasskeyRegistrationSession(args: {
   };
   if (signingGrantId) {
     transport.signingGrantId = signingGrantId;
+    transport.serverSealedSecretCacheScope = {
+      kind: 'passkey_registration',
+      walletId: String(args.walletId),
+      credentialIdB64u: args.preparedClientBootstrap.credentialIdB64u,
+      signingGrantId,
+    };
   }
   transport.walletSessionJwt = walletSessionJwt;
   if (args.signingSessionSeal.signingSessionSealKeyVersion) {
-    transport.signingSessionSealKeyVersion =
-      args.signingSessionSeal.signingSessionSealKeyVersion;
+    transport.signingSessionSealKeyVersion = args.signingSessionSeal.signingSessionSealKeyVersion;
   }
   const sealShamirPrimeB64u = String(args.signingSessionSeal.shamirPrimeB64u || '').trim();
   if (sealShamirPrimeB64u) {
@@ -267,5 +381,55 @@ async function hydratePasskeyRegistrationSession(args: {
     expiresAtMs: Number(args.bootstrap.session.expiresAtMs),
     remainingUses: Number(args.bootstrap.session.remainingUses),
     transport,
+    ...(args.diagnostics
+      ? { diagnostics: new RegistrationEcdsaWarmSessionDiagnostics(args.diagnostics) }
+      : {}),
   });
+}
+
+class RegistrationEcdsaWarmSessionDiagnostics implements WarmSessionMaterialWriteDiagnostics {
+  constructor(private readonly diagnostics: FinalizeWalletRegistrationEcdsaSessionsDiagnostics) {}
+
+  recordDuration(bucket: WarmSessionMaterialWriteDiagnosticBucket, durationMs: number): void {
+    this.diagnostics.recordDuration(mapWarmSessionDiagnosticBucket(bucket), durationMs);
+  }
+}
+
+function mapWarmSessionDiagnosticBucket(
+  bucket: WarmSessionMaterialWriteDiagnosticBucket,
+): FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket {
+  switch (bucket) {
+    case 'worker_ready':
+      return 'passkey_warm_session_worker_ready';
+    case 'worker_put':
+      return 'passkey_warm_session_worker_put';
+    case 'sealed_record_persist':
+      return 'passkey_warm_session_sealed_record_persist';
+    case 'sealed_record_resolve_transport':
+      return 'passkey_warm_session_sealed_record_resolve_transport';
+    case 'sealed_record_existing_read':
+      return 'passkey_warm_session_sealed_record_existing_read';
+    case 'sealed_record_policy_read':
+      return 'passkey_warm_session_sealed_record_policy_read';
+    case 'sealed_record_apply_server_seal':
+      return 'passkey_warm_session_sealed_record_apply_server_seal';
+    case 'sealed_record_apply_runtime_setup':
+      return 'passkey_warm_session_sealed_record_apply_runtime_setup';
+    case 'sealed_record_apply_client_seal':
+      return 'passkey_warm_session_sealed_record_apply_client_seal';
+    case 'sealed_record_apply_server_route':
+      return 'passkey_warm_session_sealed_record_apply_server_route';
+    case 'sealed_record_apply_client_unseal':
+      return 'passkey_warm_session_sealed_record_apply_client_unseal';
+    case 'sealed_record_apply_policy_update':
+      return 'passkey_warm_session_sealed_record_apply_policy_update';
+    case 'sealed_record_register':
+      return 'passkey_warm_session_sealed_record_register';
+    case 'sealed_record_verify_read':
+      return 'passkey_warm_session_sealed_record_verify_read';
+    default: {
+      const exhaustive: never = bucket;
+      return exhaustive;
+    }
+  }
 }

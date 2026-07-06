@@ -26,6 +26,12 @@ type EmailOtpWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
 
 type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
   walletSessionJwt?: string;
+  serverSealedSecretCacheScope?: {
+    kind: 'passkey_registration';
+    walletId: string;
+    credentialIdB64u: string;
+    signingGrantId: string;
+  };
 };
 
 export interface UiConfirmManagerConfig {
@@ -149,8 +155,17 @@ export type WarmSessionSealAndPersistResult =
       keyVersion?: string;
       remainingUses: number;
       expiresAtMs: number;
+      diagnostics?: WarmSessionSealAndPersistDiagnostics;
     }
   | { ok: false; code: string; message: string };
+
+export type WarmSessionSealAndPersistDiagnostics = {
+  runtimeSetupMs: number;
+  clientSealMs: number;
+  serverSealRouteMs: number;
+  clientUnsealMs: number;
+  policyUpdateMs: number;
+};
 
 export type WarmSessionRehydrateResult =
   | { ok: true; remainingUses: number; expiresAtMs: number }
