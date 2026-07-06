@@ -139,7 +139,6 @@ export function emailOtpEcdsaPublicationTargetPlans(args: {
         deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
           walletId: args.walletId,
           runtimePolicyScope: args.runtimePolicyScope,
-          chainTarget: publicationChainTarget,
         }),
       ),
     };

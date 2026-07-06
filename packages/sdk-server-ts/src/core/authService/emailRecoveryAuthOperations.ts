@@ -503,33 +503,32 @@ export class EmailRecoveryAuthOperations {
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   }): Promise<WalletRegistrationEcdsaPreparePayload> {
     const targets: WalletRegistrationEcdsaPrepareTarget[] = [];
+    const signingRootVersion = emailRecoveryEcdsaSigningRootVersion({
+      signingRootVersion: input.signingRootVersion,
+      recoveryRequestId: input.recoveryRequestId,
+    });
+    const runtimePolicyScope = emailRecoveryEcdsaRuntimePolicyScope({
+      runtimePolicyScope: input.runtimePolicyScope,
+      signingRootVersion,
+    });
+    const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+      walletId: input.walletId,
+      signingRootId: input.signingRootId,
+      signingRootVersion,
+    });
+    const ecdsaThresholdKeyId = await computeEmailRecoveryEcdsaHssRoleLocalThresholdKeyId({
+      walletId: input.walletId,
+      evmFamilySigningKeySlotId,
+      signingRootId: input.signingRootId,
+      signingRootVersion,
+      recoveryRequestId: input.recoveryRequestId,
+    });
+    const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+      walletId: input.walletId,
+      evmFamilySigningKeySlotId,
+    });
     for (const chainTarget of input.chainTargets) {
       const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);
-      const signingRootVersion = emailRecoveryEcdsaSigningRootVersion({
-        signingRootVersion: input.signingRootVersion,
-        recoveryRequestId: input.recoveryRequestId,
-      });
-      const runtimePolicyScope = emailRecoveryEcdsaRuntimePolicyScope({
-        runtimePolicyScope: input.runtimePolicyScope,
-        signingRootVersion,
-      });
-      const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
-        walletId: input.walletId,
-        signingRootId: input.signingRootId,
-        signingRootVersion,
-        chainTargetKey,
-      });
-      const ecdsaThresholdKeyId = await computeEmailRecoveryEcdsaHssRoleLocalThresholdKeyId({
-        walletId: input.walletId,
-        evmFamilySigningKeySlotId,
-        signingRootId: input.signingRootId,
-        signingRootVersion,
-        recoveryRequestId: input.recoveryRequestId,
-      });
-      const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-        walletId: input.walletId,
-        evmFamilySigningKeySlotId,
-      });
       targets.push({
         chainTarget,
         prepare: {

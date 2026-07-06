@@ -108,6 +108,7 @@ type RouterAbEcdsaHssClientPresignatureRef = {
   bigRB64u: string;
   materialHandle: string;
   createdAtMs: number;
+  expiresAtMs: number;
 };
 
 type RouterAbEcdsaHssCoordinatorError = {
@@ -150,6 +151,7 @@ function assertRouterAbEcdsaHssClientSigningMaterialSource(
 
 const MAX_HANDSHAKE_STEPS = 64;
 const ROUTER_AB_ECDSA_HSS_SIGNING_TTL_MS = 60_000;
+const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_EXPIRY_SKEW_MS = 2_000;
 const PRESIGN_REFILL_AUTHORITY_LOCK_PREFIX = 'w3a:router-ab-ecdsa-hss:presignature-refill:';
 const clientPresignaturePool = new Map<string, RouterAbEcdsaHssClientPresignatureRef[]>();
 const clientPresignatureRefillInFlightByPoolKey = new Map<string, Promise<void>>();
@@ -302,7 +304,7 @@ async function runAsCrossRuntimeRefillAuthority(input: {
 }
 
 function popClientPresignature(poolKey: string): RouterAbEcdsaHssClientPresignatureRef | null {
-  const list = clientPresignaturePool.get(poolKey);
+  const list = pruneClientPresignaturePool(poolKey);
   if (!list || list.length === 0) return null;
   const item = list.shift() || null;
   if (!list.length) {
@@ -317,13 +319,45 @@ function pushClientPresignature(
   poolKey: string,
   item: RouterAbEcdsaHssClientPresignatureRef,
 ): void {
+  if (!isClientPresignatureUsable(item)) return;
   const list = clientPresignaturePool.get(poolKey) || [];
   list.push(item);
   clientPresignaturePool.set(poolKey, list);
 }
 
 function getClientPresignaturePoolDepth(poolKey: string): number {
-  return clientPresignaturePool.get(poolKey)?.length || 0;
+  return pruneClientPresignaturePool(poolKey)?.length || 0;
+}
+
+function isClientPresignatureUsable(
+  item: RouterAbEcdsaHssClientPresignatureRef,
+  nowMs = Date.now(),
+): boolean {
+  const expiresAtMs = Math.floor(Number(item.expiresAtMs));
+  return (
+    Boolean(item.presignatureId && item.bigRB64u && item.materialHandle) &&
+    Number.isSafeInteger(expiresAtMs) &&
+    expiresAtMs > nowMs + ROUTER_AB_ECDSA_HSS_PRESIGNATURE_EXPIRY_SKEW_MS
+  );
+}
+
+function pruneClientPresignaturePool(
+  poolKey: string,
+  nowMs = Date.now(),
+): RouterAbEcdsaHssClientPresignatureRef[] | null {
+  const list = clientPresignaturePool.get(poolKey);
+  if (!list || list.length === 0) {
+    clientPresignaturePool.delete(poolKey);
+    return null;
+  }
+  const live = list.filter((item) => isClientPresignatureUsable(item, nowMs));
+  if (live.length === list.length) return list;
+  if (live.length === 0) {
+    clientPresignaturePool.delete(poolKey);
+    return null;
+  }
+  clientPresignaturePool.set(poolKey, live);
+  return live;
 }
 
 function getClientPresignaturePoolGeneration(poolKey: string): number {
@@ -752,6 +786,7 @@ async function runPresignHandshakeAttempt(args: {
     }
 
     try {
+      const createdAtMs = Date.now();
       const localBigRB64u = base64UrlEncode(localBigR33);
       if (localBigRB64u !== serverBigRB64u) {
         return {
@@ -768,7 +803,8 @@ async function runPresignHandshakeAttempt(args: {
           presignatureId: serverPresignatureId,
           bigRB64u: localBigRB64u,
           materialHandle: localPresignatureHandle,
-          createdAtMs: Date.now(),
+          createdAtMs,
+          expiresAtMs: clientPresignatureExpiresAtMs(args.routerAbEcdsaHssPoolFill),
         },
       };
     } finally {
@@ -809,6 +845,17 @@ function routerAbEcdsaHssSigningIdentityFromScope(scope: RouterAbEcdsaHssNormalS
     ),
     thresholdEcdsaPublicKeyB64u: parsed.public_identity.threshold_public_key33_b64u,
   };
+}
+
+function clientPresignatureExpiresAtMs(
+  poolFill: RouterAbEcdsaHssPresignaturePoolFill,
+): number {
+  return Math.floor(Number(poolFill.expiresAtMs));
+}
+
+function isExpiredRouterAbEcdsaHssPresignatureError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('expiredlocalrequest') && normalized.includes('presignature pool');
 }
 
 function resolveRouterAbEcdsaHssPoolFillInitKeySelector(args: {
@@ -1014,6 +1061,9 @@ export async function signRouterAbEcdsaHssDigestWithPoolHit(args: {
         ? (e as { message?: unknown }).message
         : e || 'Router A/B ECDSA-HSS signing failed',
     );
+    if (isExpiredRouterAbEcdsaHssPresignatureError(msg)) {
+      return { ok: false, code: 'pool_entry_expired', message: msg };
+    }
     return { ok: false, code: 'router_ab_sign_failed', message: msg };
   } finally {
     zeroizeBytes(clientSignatureShare32);
@@ -1055,7 +1105,12 @@ export async function signRouterAbEcdsaHssDigestWithPool(args: {
     expiresAtMs,
     workerCtx: args.workerCtx,
   });
-  if (firstAttempt.ok || firstAttempt.code !== 'pool_empty') return firstAttempt;
+  if (
+    firstAttempt.ok ||
+    (firstAttempt.code !== 'pool_empty' && firstAttempt.code !== 'pool_entry_expired')
+  ) {
+    return firstAttempt;
+  }
 
   const refill = await refillRouterAbEcdsaHssClientPresignaturePool({
     relayerUrl: args.relayerUrl,

@@ -130,6 +130,10 @@ function routerAbPoolFill(
   };
 }
 
+function routerAbSignExpiresAtMs(): number {
+  return Date.now() + 60_000;
+}
+
 function makeWorkerCtx(args: {
   clientSigningShare32: Uint8Array;
   clientVerifyingShare33: Uint8Array;
@@ -199,6 +203,7 @@ function installThresholdEcdsaFetchMock(args?: {
   failPresignInitAfter?: number;
   presignInitDelayMs?: number;
   failFirstPresignStepAsStale?: boolean;
+  failFirstRouterPrepareAsExpired?: boolean;
 }): {
   counters: ThresholdFetchCounters;
   restore: () => void;
@@ -298,6 +303,20 @@ function installThresholdEcdsaFetchMock(args?: {
     if (path.endsWith('/router-ab/ecdsa-hss/sign/prepare')) {
       counters.routerPrepare += 1;
       const body = JSON.parse(String(init?.body || '{}')) as RouterAbEcdsaHssEvmDigestSigningRequestV1Wire;
+      if (args?.failFirstRouterPrepareAsExpired && counters.routerPrepare === 1) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'signing_worker_error',
+            message:
+              '{"role":"signing_worker","path":"/router-ab/signing-worker/ecdsa-hss/sign/prepare","status":400,"error":"ExpiredLocalRequest: local ECDSA-HSS presignature pool entry expired"}',
+          }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
       return new Response(
         JSON.stringify({
           scope: body.scope,
@@ -475,6 +494,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         keyHandle: ECDSA_KEY_HANDLE,
         signingDigest32: DIGEST_32,
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       };
       const signed1 = await signRouterAbEcdsaHssDigestWithPool({
@@ -636,6 +656,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         signingDigest32: DIGEST_32,
         clientSigningMaterial: clientSigningMaterial(),
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       });
       expect(signed.ok).toBe(true);
@@ -678,6 +699,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         signingDigest32: DIGEST_32,
         clientSigningMaterial: clientSigningMaterial(),
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       });
 
@@ -696,6 +718,105 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         kind: 'router_ab_ecdsa_hss_signing_worker_pool',
         scope: ROUTER_AB_ECDSA_HSS_SCOPE,
       });
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('expired Router A/B client presignature refs are pruned before signing', async () => {
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignBigR33: PRESIGN_BIG_R_33,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock();
+
+    try {
+      const expiredRefill = await refillRouterAbEcdsaHssClientPresignaturePool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningMaterial: clientSigningMaterial(),
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        credential: WALLET_SESSION_CREDENTIAL,
+        routerAbEcdsaHssPoolFill: routerAbPoolFill(Date.now() + 500),
+        workerCtx,
+      });
+      expect(expiredRefill.ok).toBe(true);
+      expect(
+        getRouterAbEcdsaHssClientPresignaturePoolDepth({
+          relayerUrl: RELAYER_URL,
+          scope: ROUTER_AB_ECDSA_HSS_SCOPE,
+          participantIds: PARTICIPANT_IDS,
+        }),
+      ).toBe(0);
+
+      const signed = await signRouterAbEcdsaHssDigestWithPool({
+        relayerUrl: RELAYER_URL,
+        scope: ROUTER_AB_ECDSA_HSS_SCOPE,
+        credential: WALLET_SESSION_CREDENTIAL,
+        keyHandle: ECDSA_KEY_HANDLE,
+        signingDigest32: DIGEST_32,
+        clientSigningMaterial: clientSigningMaterial(),
+        participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
+        workerCtx,
+      });
+
+      expect(signed.ok).toBe(true);
+      expect(fetchMock.counters.presignInit).toBe(2);
+      expect(fetchMock.counters.presignStep).toBe(2);
+      expect(fetchMock.counters.routerPrepare).toBe(1);
+      expect(fetchMock.counters.routerFinalize).toBe(1);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('Router A/B sign refills after SigningWorker reports an expired presignature pool entry', async () => {
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignBigR33: PRESIGN_BIG_R_33,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock({ failFirstRouterPrepareAsExpired: true });
+
+    try {
+      const refill = await refillRouterAbEcdsaHssClientPresignaturePool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningMaterial: clientSigningMaterial(),
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        credential: WALLET_SESSION_CREDENTIAL,
+        routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+        workerCtx,
+      });
+      expect(refill.ok).toBe(true);
+
+      const signed = await signRouterAbEcdsaHssDigestWithPool({
+        relayerUrl: RELAYER_URL,
+        scope: ROUTER_AB_ECDSA_HSS_SCOPE,
+        credential: WALLET_SESSION_CREDENTIAL,
+        keyHandle: ECDSA_KEY_HANDLE,
+        signingDigest32: DIGEST_32,
+        clientSigningMaterial: clientSigningMaterial(),
+        participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
+        workerCtx,
+      });
+
+      expect(signed.ok).toBe(true);
+      expect(fetchMock.counters.presignInit).toBe(2);
+      expect(fetchMock.counters.presignStep).toBe(2);
+      expect(fetchMock.counters.routerPrepare).toBe(2);
+      expect(fetchMock.counters.routerFinalize).toBe(1);
     } finally {
       fetchMock.restore();
     }
@@ -899,6 +1020,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         signingDigest32: DIGEST_32,
         clientSigningMaterial: ownedClientSigningMaterial(ownedClientSigningShare32),
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       });
       expect(signed.ok).toBe(true);
@@ -927,6 +1049,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         signingDigest32: DIGEST_32,
         clientSigningMaterial: ownedClientSigningMaterial(ownedClientSigningShare32),
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       });
       expect(first.ok).toBe(true);
@@ -940,6 +1063,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         signingDigest32: DIGEST_32,
         clientSigningMaterial: ownedClientSigningMaterial(ownedClientSigningShare32),
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       });
       expect(second.ok).toBe(false);
@@ -994,6 +1118,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         signingDigest32: DIGEST_32,
         clientSigningMaterial: clientSigningMaterial(),
         participantIds: PARTICIPANT_IDS,
+        expiresAtMs: routerAbSignExpiresAtMs(),
         workerCtx,
       });
 

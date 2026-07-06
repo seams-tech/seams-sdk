@@ -640,7 +640,6 @@ function readEcdsaPublicationTargetPlans(args: {
         walletId: args.walletId,
         signingRootId: signingRootScope.signingRootId,
         signingRootVersion: signingRootScope.signingRootVersion,
-        chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
         message:
           'Email OTP ECDSA publication target plan evmFamilySigningKeySlotId mismatch',
       }),

@@ -131,7 +131,6 @@ import {
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
   thresholdEcdsaChainTargetKey,
-  type ThresholdEcdsaChainTarget,
   type WalletId,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';

@@ -525,7 +525,6 @@ export async function loginWithEmailOtpEcdsaCapability(
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
     walletId: args.walletSession.walletId,
     runtimePolicyScope,
-    chainTarget: args.chainTarget,
   });
   const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(routePlan.authLane);
   if (appSessionJwt) {

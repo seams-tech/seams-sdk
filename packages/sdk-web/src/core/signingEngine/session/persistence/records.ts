@@ -1473,7 +1473,6 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
       walletId,
       signingRootId: signingRootBinding.signingRootId,
       signingRootVersion: signingRootBinding.signingRootVersion,
-      chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
       message:
         'Invalid threshold ECDSA canonical session record: evmFamilySigningKeySlotId signing-root mismatch',
     });

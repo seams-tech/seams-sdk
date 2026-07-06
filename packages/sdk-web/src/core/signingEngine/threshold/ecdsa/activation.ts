@@ -399,7 +399,6 @@ function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionRequest): s
     deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId: args.walletId,
       runtimePolicyScope: args.runtimePolicyScope,
-      chainTarget: args.chainTarget,
     }),
   );
 }

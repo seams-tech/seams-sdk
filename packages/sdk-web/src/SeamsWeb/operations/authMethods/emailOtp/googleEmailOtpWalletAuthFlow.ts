@@ -635,7 +635,6 @@ function googleEmailOtpRegistrationAppSessionJwt(state: GoogleSessionState): str
 function googleEmailOtpRegistrationWalletKeyId(args: {
   walletId: WalletId;
   appSessionJwt: string;
-  chainTarget: ThresholdEcdsaChainTarget;
 }): string {
   const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
   if (!runtimePolicyScope) {
@@ -645,7 +644,6 @@ function googleEmailOtpRegistrationWalletKeyId(args: {
     deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId: args.walletId,
       runtimePolicyScope,
-      chainTarget: args.chainTarget,
     }),
   );
 }
@@ -671,7 +669,6 @@ function googleEmailOtpRegistrationEcdsaMaterialRequest(args: {
       evmFamilySigningKeySlotId: googleEmailOtpRegistrationWalletKeyId({
         walletId: selectedCandidate.walletId,
         appSessionJwt,
-        chainTarget,
       }),
     });
   }

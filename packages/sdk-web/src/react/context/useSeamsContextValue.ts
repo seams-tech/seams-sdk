@@ -136,7 +136,7 @@ export function useSeamsContextValue(args: {
           stage: 'react_context_register_passkey_returned',
           walletId,
         });
-        void refreshReactStateAfterRegistration({
+        await refreshReactStateAfterRegistration({
           walletId,
           refreshLoginState,
           refreshAccountData,
@@ -165,7 +165,7 @@ export function useSeamsContextValue(args: {
           stage: 'react_context_register_wallet_returned',
           walletId,
         });
-        void refreshReactStateAfterRegistration({
+        await refreshReactStateAfterRegistration({
           walletId,
           refreshLoginState,
           refreshAccountData,

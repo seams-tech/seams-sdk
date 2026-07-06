@@ -252,7 +252,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
     walletId: args.walletSession.walletId,
     runtimePolicyScope: registrationInput.runtimePolicyScope,
-    chainTarget,
   });
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
