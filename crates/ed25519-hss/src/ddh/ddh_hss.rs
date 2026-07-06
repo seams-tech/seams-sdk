@@ -7786,6 +7786,19 @@ mod tests {
     }
 
     #[test]
+    fn backend_version_deserialization_rejects_covert_experiment_wire_string() {
+        let err =
+            serde_json::from_str::<DdhHssBackendVersion>("\"covert_hss_backend_v1_experiment\"")
+                .expect_err("covert experiment backend version should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS backend version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn a2b_kernel_version_serializes_as_current_wire_string() {
         let json = serde_json::to_string(&DdhHssA2bKernelVersion::CURRENT)
             .expect("serialize A2B kernel version");

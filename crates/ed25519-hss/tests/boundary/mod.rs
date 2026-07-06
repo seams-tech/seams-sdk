@@ -436,6 +436,77 @@ fn serialized_garbler_driver_state_rejects_stale_backend_wire_string() {
 }
 
 #[test]
+fn server_driver_state_rejects_corrupt_advance_runtime_checkpoint() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let valid = session.garbler_driver_state();
+    valid
+        .advance_runtime_material()
+        .expect("valid advance runtime checkpoint");
+
+    let mut wrong_context = valid.clone();
+    wrong_context.advance_runtime.context_binding[0] ^= 0x01;
+    let wrong_context_err = wrong_context
+        .advance_runtime_material()
+        .expect_err("wrong advance context binding must be rejected");
+    assert!(
+        wrong_context_err.to_string().contains("context binding"),
+        "unexpected wrong-context error: {wrong_context_err}"
+    );
+
+    let mut wrong_artifact_digest = valid.clone();
+    wrong_artifact_digest
+        .advance_runtime
+        .artifact
+        .artifact_digest[0] ^= 0x01;
+    wrong_artifact_digest
+        .advance_runtime
+        .finalize_context
+        .artifact
+        .artifact_digest[0] ^= 0x01;
+    let wrong_artifact_digest_err = wrong_artifact_digest
+        .advance_runtime_material()
+        .expect_err("wrong advance artifact digest must be rejected");
+    assert!(
+        wrong_artifact_digest_err
+            .to_string()
+            .contains("artifact bytes do not match artifact digest"),
+        "unexpected wrong-artifact-digest error: {wrong_artifact_digest_err}"
+    );
+
+    let mut truncated_artifact = valid.clone();
+    truncated_artifact.advance_runtime.artifact_bytes.truncate(
+        truncated_artifact
+            .advance_runtime
+            .artifact_bytes
+            .len()
+            .saturating_sub(1),
+    );
+    let truncated_artifact_err = truncated_artifact
+        .advance_runtime_material()
+        .expect_err("truncated advance artifact bytes must be rejected");
+    assert!(
+        truncated_artifact_err
+            .to_string()
+            .contains("artifact bytes do not match artifact digest"),
+        "unexpected truncated-artifact error: {truncated_artifact_err}"
+    );
+
+    let mut wrong_program_digest = valid;
+    wrong_program_digest.advance_runtime.program_digest[0] ^= 0x01;
+    let wrong_program_digest_err = wrong_program_digest
+        .advance_runtime_material()
+        .expect_err("wrong advance program digest must be rejected");
+    assert!(
+        wrong_program_digest_err
+            .to_string()
+            .contains("program digest"),
+        "unexpected wrong-program-digest error: {wrong_program_digest_err}"
+    );
+}
+
+#[test]
 fn staged_artifact_rejects_stale_backend_wire_string() {
     let fixture = boundary_fixture();
     let session =

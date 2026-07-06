@@ -24,4 +24,7 @@ pub use prime_order_cpu_executor::{
     PrimeOrderCpuExecutionProgram, PrimeOrderCpuExecutionResult, PrimeOrderCpuExecutionStep,
 };
 pub use server::{ServerRuntime, ServerRuntimeState};
-pub use shared::{SharedRuntime, SharedRuntimeState};
+pub use shared::{
+    SharedRuntime, SharedRuntimeAdvanceContext, SharedRuntimeAdvanceMaterial,
+    SharedRuntimeFinalizeContext, SharedRuntimeState,
+};

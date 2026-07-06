@@ -73,19 +73,43 @@ run_in_dir() {
 
 build_near_signer() {
   run_in_dir "$SOURCE_WASM_SIGNER" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-    wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release --features hss-client-exports
+    with_hss_hot_path_rustflags \
+      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
+      wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release --features hss-client-exports
 
   run_in_dir "$SOURCE_WASM_SIGNER" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-    env CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
-      wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports
+    with_hss_hot_path_rustflags \
+      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
+      env CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
+        wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports
 }
 
 build_hss_client_signer() {
   run_in_dir "$SOURCE_WASM_HSS_CLIENT_SIGNER" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" \
-    wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release
+    with_hss_hot_path_rustflags \
+      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" \
+      wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release
+}
+
+with_hss_hot_path_rustflags() {
+  local existing="${RUSTFLAGS:-}"
+  local simd_flag="-C target-feature=+simd128"
+  local combined="$simd_flag"
+  local status
+  if [ -n "$existing" ]; then
+    combined="$existing $simd_flag"
+  fi
+  export RUSTFLAGS="$combined"
+  set +e
+  "$@"
+  status=$?
+  set -e
+  if [ -n "$existing" ]; then
+    export RUSTFLAGS="$existing"
+  else
+    unset RUSTFLAGS
+  fi
+  return "$status"
 }
 
 build_profiled_wasm_crate() {

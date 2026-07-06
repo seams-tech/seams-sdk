@@ -5,7 +5,7 @@ use crate::client::{
 use crate::ddh::hidden_eval_executor::{
     advance_message_schedule_continuation_with_pool, advance_round_core_continuation_with_pool,
     initialize_round_core_continuation_from_message_schedule_with_pool,
-    materialize_output_bundles_from_continuations_with_projection_with_pool,
+    materialize_output_bundles_from_continuations_with_projection_profiled_with_pool,
     materialize_staged_server_execution_with_split_server_inputs_with_pool,
     DdhHiddenEvalConstantPool, DdhHiddenEvalServerInputBundle, DdhHiddenEvalServerInputs,
 };
@@ -47,7 +47,7 @@ struct AddStageRequestParts {
 }
 
 impl ClientSessionState {
-    pub fn materialize(&self) -> ProtoResult<ClientSession> {
+    fn validate_current_backend(&self) -> ProtoResult<()> {
         if self.backend_version != self.ddh_evaluator.evaluation_key().backend_version {
             return Err(ProtoError::InvalidInput(
                 "client session state backend version does not match evaluator".to_string(),
@@ -59,9 +59,30 @@ impl ClientSessionState {
                 self.backend_version.as_str()
             )));
         }
+        Ok(())
+    }
+
+    pub fn materialize(&self) -> ProtoResult<ClientSession> {
+        self.validate_current_backend()?;
         Ok(ClientSession {
             context_binding: self.context_binding,
             ddh_evaluator: self.ddh_evaluator.clone(),
+        })
+    }
+
+    pub fn client_output_opener(&self) -> ProtoResult<ClientOutputOpener> {
+        self.validate_current_backend()?;
+        Ok(ClientOutputOpener {
+            evaluator: self.ddh_evaluator.clone(),
+            context_binding: self.context_binding,
+        })
+    }
+
+    pub fn seed_output_opener(&self) -> ProtoResult<SeedOutputOpener> {
+        self.validate_current_backend()?;
+        Ok(SeedOutputOpener {
+            evaluator: self.ddh_evaluator.clone(),
+            context_binding: self.context_binding,
         })
     }
 }
@@ -407,14 +428,15 @@ impl ClientSession {
         let round_core_duration_ns = elapsed_ns_u64(round_core_started_at) as u128;
 
         let output_projector_started_at = monotonic_now_ns();
-        let output = materialize_output_bundles_from_continuations_with_projection_with_pool(
-            &runtime.hidden_eval_program,
-            &self.ddh_evaluator,
-            &hidden_eval_constants,
-            &round_core,
-            &staged_materialization.projector_inputs,
-            client_output_projection,
-        )?;
+        let (output, output_projector_profile) =
+            materialize_output_bundles_from_continuations_with_projection_profiled_with_pool(
+                &runtime.hidden_eval_program,
+                &self.ddh_evaluator,
+                &hidden_eval_constants,
+                &round_core,
+                &staged_materialization.projector_inputs,
+                client_output_projection,
+            )?;
         let output_projector_duration_ns = elapsed_ns_u64(output_projector_started_at) as u128;
 
         let run = DdhHiddenEvalRun {
@@ -450,18 +472,27 @@ impl ClientSession {
                 round_new_a_bits_duration_ns: 0,
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns,
-                output_projector_core_duration_ns: 0,
-                output_projector_clamp_a_duration_ns: 0,
-                output_projector_reduce_a_duration_ns: 0,
-                output_projector_tau_duration_ns: 0,
-                output_projector_mask_share_duration_ns: 0,
-                output_projector_mask_add_duration_ns: 0,
-                output_projector_client_base_duration_ns: 0,
-                output_projector_client_output_duration_ns: 0,
-                output_projector_tau_double_duration_ns: 0,
-                output_projector_server_output_duration_ns: 0,
-                output_projector_bundle_build_duration_ns: 0,
-                output_projector_local_word_materializations: 0,
+                output_projector_core_duration_ns: output_projector_profile.core_duration_ns,
+                output_projector_clamp_a_duration_ns: output_projector_profile.clamp_a_duration_ns,
+                output_projector_reduce_a_duration_ns: output_projector_profile
+                    .reduce_a_duration_ns,
+                output_projector_tau_duration_ns: output_projector_profile.tau_duration_ns,
+                output_projector_mask_share_duration_ns: output_projector_profile
+                    .mask_share_duration_ns,
+                output_projector_mask_add_duration_ns: output_projector_profile
+                    .mask_add_duration_ns,
+                output_projector_client_base_duration_ns: output_projector_profile
+                    .client_base_duration_ns,
+                output_projector_client_output_duration_ns: output_projector_profile
+                    .client_output_duration_ns,
+                output_projector_tau_double_duration_ns: output_projector_profile
+                    .tau_double_duration_ns,
+                output_projector_server_output_duration_ns: output_projector_profile
+                    .server_output_duration_ns,
+                output_projector_bundle_build_duration_ns: output_projector_profile
+                    .bundle_build_duration_ns,
+                output_projector_local_word_materializations: output_projector_profile
+                    .local_word_materializations,
                 total_duration_ns: elapsed_ns_u64(total_started_at) as u128,
                 operation_counts: Default::default(),
                 stage_operation_counts: Default::default(),

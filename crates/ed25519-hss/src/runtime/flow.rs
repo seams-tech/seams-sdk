@@ -1,5 +1,6 @@
+use crate::ddh::HiddenEvalProgram;
 use crate::protocol::PreparedSession;
-use crate::runtime::SharedRuntime;
+use crate::runtime::{SharedRuntime, SharedRuntimeAdvanceMaterial};
 use crate::server::{ServerEvalOperation, ServerEvalState, ServerEvalStatus, ServerOtState};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
@@ -75,6 +76,42 @@ pub fn advance_server_eval_state_to_output_projection_request_profiled(
     add_stage_request_message: &WireMessage,
     mut now_ms: impl FnMut() -> f64,
 ) -> ProtoResult<AdvancedServerEvalState> {
+    advance_server_eval_state_with_program_profiled(
+        &runtime.hidden_eval_program,
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        add_stage_request_message,
+        &mut now_ms,
+    )
+}
+
+pub fn advance_server_eval_state_with_advance_context_profiled(
+    advance_context: &SharedRuntimeAdvanceMaterial,
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+    mut now_ms: impl FnMut() -> f64,
+) -> ProtoResult<AdvancedServerEvalState> {
+    advance_server_eval_state_with_program_profiled(
+        &advance_context.hidden_eval_program,
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        add_stage_request_message,
+        &mut now_ms,
+    )
+}
+
+fn advance_server_eval_state_with_program_profiled(
+    hidden_eval_program: &HiddenEvalProgram,
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+    mut now_ms: impl FnMut() -> f64,
+) -> ProtoResult<AdvancedServerEvalState> {
     if server_eval_state.status == ServerEvalStatus::Finalized {
         return Err(ProtoError::InvalidInput(
             "server eval state is already finalized and cannot be advanced".to_string(),
@@ -83,8 +120,8 @@ pub fn advance_server_eval_state_to_output_projection_request_profiled(
 
     let add_stage_response_started_ms = now_ms();
     let (add_stage_response_message, mut server_eval_state) = garbler_session
-        .prepare_add_stage_response_message_with_runtime(
-            runtime,
+        .prepare_add_stage_response_message_with_program(
+            hidden_eval_program,
             evaluator_session,
             server_eval_state,
             add_stage_request_message,

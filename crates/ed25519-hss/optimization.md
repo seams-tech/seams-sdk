@@ -3,9 +3,13 @@
 This file is the optimization-focused entrypoint for
 [crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
 Historical optimization plans live in
-[docs/plans/optimization-v3.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/plans/optimization-v3.md)
+[docs/plans/optimization-v3.md](docs/plans/optimization-v3.md)
 and
-[docs/plans/optimization-v4.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/plans/optimization-v4.md).
+[docs/plans/optimization-v4.md](docs/plans/optimization-v4.md).
+Current stretch-candidate planning lives in
+[docs/optimization-7.md](docs/optimization-7.md).
+The covert-security transcript design note lives in
+[docs/covert-security-spot-check.md](docs/covert-security-spot-check.md).
 
 ## Current Hot Path
 

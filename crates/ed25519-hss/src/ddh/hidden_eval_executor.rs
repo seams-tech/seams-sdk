@@ -329,19 +329,19 @@ pub struct DdhHiddenEvalStageProfile {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct OutputProjectorProfile {
-    core_duration_ns: u128,
-    clamp_a_duration_ns: u128,
-    reduce_a_duration_ns: u128,
-    tau_duration_ns: u128,
-    mask_share_duration_ns: u128,
-    mask_add_duration_ns: u128,
-    client_base_duration_ns: u128,
-    client_output_duration_ns: u128,
-    tau_double_duration_ns: u128,
-    server_output_duration_ns: u128,
-    bundle_build_duration_ns: u128,
-    local_word_materializations: u64,
+pub(crate) struct OutputProjectorProfile {
+    pub(crate) core_duration_ns: u128,
+    pub(crate) clamp_a_duration_ns: u128,
+    pub(crate) reduce_a_duration_ns: u128,
+    pub(crate) tau_duration_ns: u128,
+    pub(crate) mask_share_duration_ns: u128,
+    pub(crate) mask_add_duration_ns: u128,
+    pub(crate) client_base_duration_ns: u128,
+    pub(crate) client_output_duration_ns: u128,
+    pub(crate) tau_double_duration_ns: u128,
+    pub(crate) server_output_duration_ns: u128,
+    pub(crate) bundle_build_duration_ns: u128,
+    pub(crate) local_word_materializations: u64,
 }
 
 struct OutputProjectorExecution {
@@ -3187,16 +3187,21 @@ pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBacken
             continuation.schedule_words.len()
         )));
     }
-    let mut words = continuation
-        .schedule_words
-        .iter()
-        .map(|word| SplitLocalBitWord::from_shared_bits(word))
-        .collect::<ProtoResult<Vec<_>>>()?;
-    let t = words.len();
-    let mut sigma0 =
-        CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, words[t - 15].len());
-    let mut sigma1 =
-        CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma1, words[t - 2].len());
+    let t = continuation.schedule_words.len();
+    let word_t_minus_16 =
+        SplitLocalBitWord::from_shared_bits(&continuation.schedule_words[t - 16])?;
+    let word_t_minus_15 =
+        SplitLocalBitWord::from_shared_bits(&continuation.schedule_words[t - 15])?;
+    let word_t_minus_7 = SplitLocalBitWord::from_shared_bits(&continuation.schedule_words[t - 7])?;
+    let word_t_minus_2 = SplitLocalBitWord::from_shared_bits(&continuation.schedule_words[t - 2])?;
+    let mut sigma0 = CoreBitWordPair::empty(
+        CoreBitWordStage::MessageScheduleSigma0,
+        word_t_minus_15.len(),
+    );
+    let mut sigma1 = CoreBitWordPair::empty(
+        CoreBitWordStage::MessageScheduleSigma1,
+        word_t_minus_2.len(),
+    );
     let mut sigma0_b2a_scratch = CoreBitPairB2aMaterialScratch::default();
     let mut sigma1_b2a_scratch = CoreBitPairB2aMaterialScratch::default();
     let mut arithmetic_add_scratch = LocalArithmeticAddScratch::with_capacity(48);
@@ -3208,7 +3213,7 @@ pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBacken
     small_sigma0_core_bits_into(
         backend,
         &schedule_child_label,
-        &words[t - 15],
+        &word_t_minus_15,
         &constant_pool.zero_left,
         &constant_pool.zero_right,
         &mut sigma0,
@@ -3217,7 +3222,7 @@ pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBacken
     small_sigma1_core_bits_into(
         backend,
         &schedule_child_label,
-        &words[t - 2],
+        &word_t_minus_2,
         &constant_pool.zero_left,
         &constant_pool.zero_right,
         &mut sigma1,
@@ -3226,9 +3231,9 @@ pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBacken
         backend,
         &schedule_label,
         &mut arithmetic_add_scratch,
-        words[t - 16].as_pair_ref(),
+        word_t_minus_16.as_pair_ref(),
         &sigma0,
-        words[t - 7].as_pair_ref(),
+        word_t_minus_7.as_pair_ref(),
         &sigma1,
         &mut sigma0_b2a_scratch,
         &mut sigma1_b2a_scratch,
@@ -3240,13 +3245,12 @@ pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBacken
         &mut arithmetic_to_bool_scratch,
         &accumulation_arith,
     )?;
-    words.push(accumulation);
+    let next_word = accumulation.to_shared_bits()?;
+    let mut schedule_words = continuation.schedule_words.clone();
+    schedule_words.push(next_word);
     Ok(DdhHiddenEvalMessageScheduleContinuation {
         add_stage_digest: continuation.add_stage_digest,
-        schedule_words: words
-            .into_iter()
-            .map(|word| word.to_shared_bits())
-            .collect::<ProtoResult<Vec<_>>>()?,
+        schedule_words,
     })
 }
 
@@ -3420,6 +3424,27 @@ pub fn materialize_output_bundles_from_continuations_with_projection_with_pool<
     projector_inputs: &DdhHiddenEvalProjectorInputs,
     client_output_projection: DdhHiddenEvalClientOutputProjection,
 ) -> ProtoResult<DdhHiddenEvalOutputBundles> {
+    materialize_output_bundles_from_continuations_with_projection_profiled_with_pool(
+        program,
+        backend,
+        constant_pool,
+        round_core,
+        projector_inputs,
+        client_output_projection,
+    )
+    .map(|(output, _profile)| output)
+}
+
+pub(crate) fn materialize_output_bundles_from_continuations_with_projection_profiled_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    round_core: &DdhHiddenEvalRoundCoreContinuation,
+    projector_inputs: &DdhHiddenEvalProjectorInputs,
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
+) -> ProtoResult<(DdhHiddenEvalOutputBundles, OutputProjectorProfile)> {
     ensure_program_shape(program)?;
     let d_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.add_stage_bits)?;
     let round_state = RoundKernelState::from_shared_bits(&round_core.state_words)?;
@@ -3441,7 +3466,7 @@ pub fn materialize_output_bundles_from_continuations_with_projection_with_pool<
         &projector_inputs.tau_server_right_bits,
         client_output_projection,
     )
-    .map(|execution| execution.output)
+    .map(|execution| (execution.output, execution.profile))
 }
 
 pub fn materialize_server_output_bundles_from_continuations_with_pool<

@@ -1,3 +1,8 @@
+use ed25519_hss::ddh::hidden_eval_executor::{
+    advance_message_schedule_continuation_with_pool, compute_message_schedule_completed_digest,
+    materialize_message_schedule_continuation_with_split_server_inputs_with_pool,
+    share_input_bit_bundles_for_clear_input, DdhHiddenEvalMessageScheduleContinuation,
+};
 use ed25519_hss::ddh::HiddenEvalInputOwner;
 use ed25519_hss::fixtures::deterministic_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
@@ -257,6 +262,55 @@ fn prime_order_succinct_hss_splits_output_delivery_packets() {
         public_key_from_base_shares(x_client_base, x_server_base)
             .expect("derive public key from opened shares"),
         fixture.output.public_key
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_message_schedule_incremental_extension_matches_full_stage() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let input_bundles =
+        share_input_bit_bundles_for_clear_input(session.ddh_backend(), &fixture.input)
+            .expect("share fixture inputs");
+    let full = materialize_message_schedule_continuation_with_split_server_inputs_with_pool(
+        session.hidden_eval_program(),
+        session.ddh_backend(),
+        session.hidden_eval_constants(),
+        &input_bundles.y_client_bits,
+        &input_bundles.server_inputs.y_server_bits,
+        &input_bundles.tau_client_bits,
+        &input_bundles.server_inputs.tau_server_bits,
+    )
+    .expect("materialize full message schedule");
+    assert_eq!(full.schedule_words.len(), 80);
+    let mut incremental = DdhHiddenEvalMessageScheduleContinuation {
+        add_stage_digest: full.add_stage_digest,
+        schedule_words: full.schedule_words[..16].to_vec(),
+    };
+
+    for expected_len in 17..=80 {
+        incremental = advance_message_schedule_continuation_with_pool(
+            session.ddh_backend(),
+            session.hidden_eval_constants(),
+            &incremental,
+        )
+        .expect("advance message schedule continuation");
+        assert_eq!(incremental.schedule_words.len(), expected_len);
+        assert_eq!(
+            incremental.schedule_words[expected_len - 1],
+            full.schedule_words[expected_len - 1],
+            "incremental W[{}] must match full-stage W[{}]",
+            expected_len - 1,
+            expected_len - 1
+        );
+    }
+
+    assert_eq!(incremental.schedule_words, full.schedule_words);
+    assert_eq!(
+        compute_message_schedule_completed_digest(&incremental)
+            .expect("incremental schedule digest"),
+        compute_message_schedule_completed_digest(&full).expect("full schedule digest")
     );
 }
 

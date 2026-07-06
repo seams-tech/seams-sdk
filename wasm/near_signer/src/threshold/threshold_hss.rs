@@ -17,6 +17,7 @@ use ed25519_hss::role_signing::role_separated_ed25519_client_verifying_share_v1;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::runtime::flow::{
     advance_server_eval_state_to_output_projection_request_profiled as crate_advance_server_eval_state_to_output_projection_request_profiled,
+    advance_server_eval_state_with_advance_context_profiled as crate_advance_server_eval_state_with_advance_context_profiled,
     finalize_advanced_server_eval_state_with_output_projection_profiled as crate_finalize_advanced_server_eval_state_with_output_projection_profiled,
     finalize_server_eval_state_from_add_stage_request_profiled as crate_finalize_server_eval_state_from_add_stage_request_profiled,
     AdvancedServerEvalState, FinalizedServerEvalState, ServerEvalAdvanceTimingsMs,
@@ -24,13 +25,19 @@ use ed25519_hss::runtime::flow::{
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::runtime::EvaluateTiming;
 #[cfg(feature = "hss-server-exports")]
+use ed25519_hss::runtime::SharedRuntimeFinalizeContext;
+#[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerDriverState;
+#[cfg(feature = "hss-server-exports")]
+use ed25519_hss::server::ServerEvalExecutionState;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerEvalFinalizeOutput;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerEvalOperation;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerEvalState;
+#[cfg(feature = "hss-server-exports")]
+use ed25519_hss::server::ServerEvalStatus;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use ed25519_hss::shared::public_key_from_base_shares;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
@@ -266,6 +273,10 @@ struct ThresholdEd25519HssPrepareServerCeremonyTimings {
 struct ThresholdEd25519HssFinalizeReportTimings {
     decode_artifact_ms: f64,
     serialized_session_materialize_ms: f64,
+    serialized_session_decode_ms: f64,
+    materialize_runtime_ms: f64,
+    materialize_evaluator_session_ms: f64,
+    materialize_garbler_session_ms: f64,
     advance_add_stage_response_ms: f64,
     advance_message_schedule_rounds_ms: f64,
     advance_round_core_rounds_ms: f64,
@@ -273,6 +284,8 @@ struct ThresholdEd25519HssFinalizeReportTimings {
     finalize_report_ms: f64,
     finalize_packet_assembly_ms: f64,
     encode_report_ms: f64,
+    open_server_output_ms: f64,
+    open_seed_output_ms: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -298,7 +311,85 @@ struct ThresholdEd25519HssFinalizeAdvancedReportArgs {
     garbler_driver_state_bytes: Vec<u8>,
     staged_evaluator_artifact_bytes: Vec<u8>,
     advanced_server_eval_state_bytes: Vec<u8>,
+    finalize_context_bytes: Vec<u8>,
     prior_stage_response_message_bytes: Vec<u8>,
+    #[serde(default)]
+    open_seed_output: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssBoundaryCopyProbeArgs {
+    evaluator_driver_state_bytes: Vec<u8>,
+    garbler_driver_state_bytes: Vec<u8>,
+    #[serde(default)]
+    server_eval_state_bytes: Vec<u8>,
+    #[serde(default)]
+    add_stage_request_message_bytes: Vec<u8>,
+    #[serde(default)]
+    staged_evaluator_artifact_bytes: Vec<u8>,
+    #[serde(default)]
+    advanced_server_eval_state_bytes: Vec<u8>,
+    #[serde(default)]
+    finalize_context_bytes: Vec<u8>,
+    #[serde(default)]
+    prior_stage_response_message_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssBoundaryCopyProbeOutput {
+    total_payload_bytes: usize,
+    non_empty_field_count: usize,
+    checksum: u8,
+    timings: ThresholdEd25519HssBoundaryCopyProbeTimings,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssBoundaryCopyProbeTimings {
+    decode_args_ms: f64,
+    summarize_ms: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssServerEvalStateSizeCensusArgs {
+    server_eval_state_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssServerEvalStateSizeCensusOutput {
+    total_messagepack_bytes: usize,
+    status: String,
+    current_stage: String,
+    operation: String,
+    execution_state_kind: String,
+    fields: Vec<ThresholdEd25519HssStateFieldSize>,
+    execution_state_fields: Vec<ThresholdEd25519HssStateFieldSize>,
+    timings: ThresholdEd25519HssServerEvalStateSizeCensusTimings,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssStateFieldSize {
+    label: String,
+    messagepack_bytes: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssServerEvalStateSizeCensusTimings {
+    decode_state_ms: f64,
+    summarize_ms: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -307,6 +398,7 @@ struct ThresholdEd25519HssFinalizeAdvancedReportArgs {
 struct ThresholdEd25519HssAdvanceServerEvalStateOutput {
     context_binding_b64u: String,
     advanced_server_eval_state_b64u: String,
+    finalize_context_b64u: String,
     prior_stage_response_message_b64u: String,
     add_stage_request_digest_b64u: String,
     projection_mode: String,
@@ -319,9 +411,14 @@ struct ThresholdEd25519HssAdvanceServerEvalStateOutput {
 struct ThresholdEd25519HssAdvanceServerEvalStateTimings {
     decode_state_ms: f64,
     serialized_session_materialize_ms: f64,
+    serialized_session_decode_ms: f64,
+    materialize_runtime_ms: f64,
+    materialize_evaluator_session_ms: f64,
+    materialize_garbler_session_ms: f64,
     advance_add_stage_response_ms: f64,
     advance_message_schedule_rounds_ms: f64,
     advance_round_core_rounds_ms: f64,
+    advance_output_projection_ms: f64,
     encode_advanced_state_ms: f64,
 }
 
@@ -338,6 +435,148 @@ type ThresholdEd25519HssAdvancedServerEvalState = AdvancedServerEvalState;
 fn empty_threshold_ed25519_hss_server_eval_advance_timings(
 ) -> ThresholdEd25519HssServerEvalAdvanceTimings {
     ThresholdEd25519HssServerEvalAdvanceTimings::default()
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssSerializedSessionMaterializeTimings {
+    total_ms: f64,
+    decode_ms: f64,
+    materialize_runtime_ms: f64,
+    materialize_evaluator_session_ms: f64,
+    materialize_garbler_session_ms: f64,
+}
+
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssMaterializedSerializedSession {
+    runtime: ed25519_hss::runtime::SharedRuntime,
+    evaluator_session: ed25519_hss::client::ClientSession,
+    garbler_session: ed25519_hss::server::ServerSession,
+    timings: ThresholdEd25519HssSerializedSessionMaterializeTimings,
+}
+
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssMaterializedSerializedAdvanceSession {
+    advance_runtime: ed25519_hss::runtime::SharedRuntimeAdvanceMaterial,
+    evaluator_session: ed25519_hss::client::ClientSession,
+    garbler_session: ed25519_hss::server::ServerSession,
+    context_binding: [u8; 32],
+    timings: ThresholdEd25519HssSerializedSessionMaterializeTimings,
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn materialize_threshold_ed25519_hss_serialized_session(
+    evaluator_driver_state_bytes: &[u8],
+    garbler_driver_state_bytes: &[u8],
+) -> Result<ThresholdEd25519HssMaterializedSerializedSession, JsValue> {
+    let total_started = Date::now();
+    let decode_started = Date::now();
+    let evaluator_state: ClientDriverState =
+        decode_state_blob_bytes(evaluator_driver_state_bytes, "evaluatorDriverStateBytes")
+            .map_err(js_value_to_string)?;
+    let garbler_state: ServerDriverState =
+        decode_state_blob_bytes(garbler_driver_state_bytes, "garblerDriverStateBytes")
+            .map_err(js_value_to_string)?;
+    if evaluator_state.runtime != garbler_state.runtime {
+        return Err(JsValue::from_str(
+            "evaluatorDriverStateBytes and garblerDriverStateBytes do not share the same prepared runtime",
+        ));
+    }
+    let decode_ms = (Date::now() - decode_started).max(0.0);
+
+    let materialize_runtime_started = Date::now();
+    let runtime = evaluator_state
+        .runtime
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materialize_runtime_ms = (Date::now() - materialize_runtime_started).max(0.0);
+
+    let materialize_evaluator_session_started = Date::now();
+    let evaluator_session = evaluator_state
+        .evaluator_session
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materialize_evaluator_session_ms =
+        (Date::now() - materialize_evaluator_session_started).max(0.0);
+
+    let materialize_garbler_session_started = Date::now();
+    let garbler_session = garbler_state
+        .garbler_session
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materialize_garbler_session_ms =
+        (Date::now() - materialize_garbler_session_started).max(0.0);
+
+    Ok(ThresholdEd25519HssMaterializedSerializedSession {
+        runtime,
+        evaluator_session,
+        garbler_session,
+        timings: ThresholdEd25519HssSerializedSessionMaterializeTimings {
+            total_ms: (Date::now() - total_started).max(0.0),
+            decode_ms,
+            materialize_runtime_ms,
+            materialize_evaluator_session_ms,
+            materialize_garbler_session_ms,
+        },
+    })
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn materialize_threshold_ed25519_hss_serialized_advance_session(
+    evaluator_driver_state_bytes: &[u8],
+    garbler_driver_state_bytes: &[u8],
+) -> Result<ThresholdEd25519HssMaterializedSerializedAdvanceSession, JsValue> {
+    let total_started = Date::now();
+    let decode_started = Date::now();
+    let evaluator_state: ClientDriverState =
+        decode_state_blob_bytes(evaluator_driver_state_bytes, "evaluatorDriverStateBytes")
+            .map_err(js_value_to_string)?;
+    let garbler_state: ServerDriverState =
+        decode_state_blob_bytes(garbler_driver_state_bytes, "garblerDriverStateBytes")
+            .map_err(js_value_to_string)?;
+    if evaluator_state.runtime != garbler_state.runtime {
+        return Err(JsValue::from_str(
+            "evaluatorDriverStateBytes and garblerDriverStateBytes do not share the same prepared runtime",
+        ));
+    }
+    let decode_ms = (Date::now() - decode_started).max(0.0);
+
+    let materialize_runtime_started = Date::now();
+    let advance_runtime = garbler_state
+        .advance_runtime_material()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materialize_runtime_ms = (Date::now() - materialize_runtime_started).max(0.0);
+
+    let materialize_evaluator_session_started = Date::now();
+    let evaluator_session = evaluator_state
+        .evaluator_session
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materialize_evaluator_session_ms =
+        (Date::now() - materialize_evaluator_session_started).max(0.0);
+
+    let materialize_garbler_session_started = Date::now();
+    let context_binding = garbler_state.garbler_session.context_binding;
+    let garbler_session = garbler_state
+        .garbler_session
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materialize_garbler_session_ms =
+        (Date::now() - materialize_garbler_session_started).max(0.0);
+
+    Ok(ThresholdEd25519HssMaterializedSerializedAdvanceSession {
+        advance_runtime,
+        evaluator_session,
+        garbler_session,
+        context_binding,
+        timings: ThresholdEd25519HssSerializedSessionMaterializeTimings {
+            total_ms: (Date::now() - total_started).max(0.0),
+            decode_ms,
+            materialize_runtime_ms,
+            materialize_evaluator_session_ms,
+            materialize_garbler_session_ms,
+        },
+    })
 }
 
 #[cfg(feature = "hss-server-exports")]
@@ -418,10 +657,11 @@ struct ThresholdEd25519HssFinalizeReportArgs {
 #[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssFinalizeReportOutput {
     context_binding_b64u: String,
-    evaluation_report_json: String,
     client_output_message_b64u: String,
     seed_output_message_b64u: String,
     server_output_message_b64u: String,
+    x_relayer_base_b64u: Option<String>,
+    canonical_seed_b64u: Option<String>,
     timings: ThresholdEd25519HssFinalizeReportTimings,
 }
 
@@ -753,6 +993,25 @@ fn advance_server_eval_state_to_output_projection_request(
 }
 
 #[cfg(feature = "hss-server-exports")]
+fn advance_server_eval_state_with_advance_context(
+    advance_context: &ed25519_hss::runtime::SharedRuntimeAdvanceMaterial,
+    garbler_session: &ed25519_hss::server::ServerSession,
+    evaluator_session: &ed25519_hss::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+) -> Result<ThresholdEd25519HssAdvancedServerEvalState, JsValue> {
+    crate_advance_server_eval_state_with_advance_context_profiled(
+        advance_context,
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        add_stage_request_message,
+        Date::now,
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[cfg(feature = "hss-server-exports")]
 fn finalize_advanced_server_eval_state_with_output_projection(
     garbler_session: &ed25519_hss::server::ServerSession,
     evaluator_session: &ed25519_hss::client::ClientSession,
@@ -793,6 +1052,34 @@ fn finalize_server_eval_state_from_add_stage_request(
 }
 
 #[cfg(feature = "hss-server-exports")]
+fn finalize_or_reuse_threshold_ed25519_hss_server_eval_state(
+    garbler_session: &ed25519_hss::server::ServerSession,
+    evaluator_session: &ed25519_hss::client::ClientSession,
+    server_eval_state: ServerEvalState,
+    prior_stage_response_message_bytes: &[u8],
+    projection_mode: &ed25519_hss::wire::OutputProjectionMode,
+) -> Result<ThresholdEd25519HssFinalizedServerEvalState, JsValue> {
+    if server_eval_state.status == ServerEvalStatus::Finalized {
+        return Ok(ThresholdEd25519HssFinalizedServerEvalState {
+            state: server_eval_state,
+            timings: empty_threshold_ed25519_hss_server_eval_advance_timings(),
+        });
+    }
+    let prior_stage_response_message = decode_wire_message_bytes(
+        prior_stage_response_message_bytes,
+        "priorStageResponseMessageBytes",
+    )
+    .map_err(js_value_to_string)?;
+    finalize_advanced_server_eval_state_with_output_projection(
+        garbler_session,
+        evaluator_session,
+        &server_eval_state,
+        &prior_stage_response_message,
+        projection_mode,
+    )
+}
+
+#[cfg(feature = "hss-server-exports")]
 fn parse_registration_projection_mode_label(value: &str) -> Result<String, JsValue> {
     match value.trim() {
         "registration_seed_and_output" => Ok("registration_seed_and_output".to_string()),
@@ -804,9 +1091,322 @@ fn parse_registration_projection_mode_label(value: &str) -> Result<String, JsVal
 }
 
 #[cfg(feature = "hss-server-exports")]
+fn registration_output_projection_mode_from_label(
+    value: &str,
+) -> Result<ed25519_hss::wire::OutputProjectionMode, JsValue> {
+    parse_registration_projection_mode_label(value)?;
+    Ok(ed25519_hss::wire::OutputProjectionMode::trusted_server_projection())
+}
+
+#[cfg(feature = "hss-server-exports")]
 fn compute_add_stage_request_digest_b64u(message: &WireMessage) -> String {
     let digest = Sha256::digest(&message.bytes);
     base64_url_encode(&digest)
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn summarize_threshold_ed25519_hss_probe_field(
+    bytes: &[u8],
+    total_payload_bytes: &mut usize,
+    non_empty_field_count: &mut usize,
+    checksum: &mut u8,
+) {
+    *total_payload_bytes += bytes.len();
+    if bytes.is_empty() {
+        return;
+    }
+    *non_empty_field_count += 1;
+    *checksum ^= bytes[0] ^ bytes[bytes.len() - 1];
+}
+
+#[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
+pub fn threshold_ed25519_hss_boundary_copy_probe(args: JsValue) -> Result<JsValue, JsValue> {
+    let decode_args_started = Date::now();
+    let args: ThresholdEd25519HssBoundaryCopyProbeArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let decode_args_ms = (Date::now() - decode_args_started).max(0.0);
+
+    let summarize_started = Date::now();
+    let mut total_payload_bytes = 0usize;
+    let mut non_empty_field_count = 0usize;
+    let mut checksum = 0u8;
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.evaluator_driver_state_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.garbler_driver_state_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.server_eval_state_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.add_stage_request_message_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.staged_evaluator_artifact_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.advanced_server_eval_state_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.finalize_context_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    summarize_threshold_ed25519_hss_probe_field(
+        &args.prior_stage_response_message_bytes,
+        &mut total_payload_bytes,
+        &mut non_empty_field_count,
+        &mut checksum,
+    );
+    let summarize_ms = (Date::now() - summarize_started).max(0.0);
+
+    serde_wasm_bindgen::to_value(&ThresholdEd25519HssBoundaryCopyProbeOutput {
+        total_payload_bytes,
+        non_empty_field_count,
+        checksum,
+        timings: ThresholdEd25519HssBoundaryCopyProbeTimings {
+            decode_args_ms,
+            summarize_ms,
+        },
+    })
+    .map_err(|e| {
+        JsValue::from_str(&format!(
+            "Failed to serialize HSS boundary probe output: {e}"
+        ))
+    })
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn messagepack_size_of<T: Serialize>(label: &str, value: &T) -> Result<usize, JsValue> {
+    rmp_serde::to_vec(value)
+        .map(|bytes| bytes.len())
+        .map_err(|e| JsValue::from_str(&format!("Failed to size {label}: {e}")))
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn push_threshold_ed25519_hss_state_field_size<T: Serialize>(
+    fields: &mut Vec<ThresholdEd25519HssStateFieldSize>,
+    label: &str,
+    value: &T,
+) -> Result<(), JsValue> {
+    fields.push(ThresholdEd25519HssStateFieldSize {
+        label: label.to_string(),
+        messagepack_bytes: messagepack_size_of(label, value)?,
+    });
+    Ok(())
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn threshold_ed25519_hss_execution_state_size_census(
+    execution_state: &Option<ServerEvalExecutionState>,
+) -> Result<(String, Vec<ThresholdEd25519HssStateFieldSize>), JsValue> {
+    let mut fields = Vec::new();
+    match execution_state {
+        None => Ok(("none".to_string(), fields)),
+        Some(ServerEvalExecutionState::MessageSchedule(state)) => {
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "message_schedule",
+                &state.message_schedule,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "projector_inputs",
+                &state.projector_inputs,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "client_input_commitment",
+                &state.client_input_commitment,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "server_input_commitment",
+                &state.server_input_commitment,
+            )?;
+            Ok(("message_schedule".to_string(), fields))
+        }
+        Some(ServerEvalExecutionState::RoundCore(state)) => {
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "prior_execution_checkpoint_digest",
+                &state.prior_execution_checkpoint_digest,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "round_core",
+                &state.round_core,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "projector_inputs",
+                &state.projector_inputs,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "client_input_commitment",
+                &state.client_input_commitment,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "server_input_commitment",
+                &state.server_input_commitment,
+            )?;
+            Ok(("round_core".to_string(), fields))
+        }
+        Some(ServerEvalExecutionState::OutputProjection(state)) => {
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "prior_execution_checkpoint_digest",
+                &state.prior_execution_checkpoint_digest,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "round_core",
+                &state.round_core,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "projector_inputs",
+                &state.projector_inputs,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "client_input_commitment",
+                &state.client_input_commitment,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "server_input_commitment",
+                &state.server_input_commitment,
+            )?;
+            Ok(("output_projection".to_string(), fields))
+        }
+        Some(ServerEvalExecutionState::Finalize(state)) => {
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "client_input_commitment",
+                &state.client_input_commitment,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(
+                &mut fields,
+                "server_input_commitment",
+                &state.server_input_commitment,
+            )?;
+            push_threshold_ed25519_hss_state_field_size(&mut fields, "output", &state.output)?;
+            Ok(("finalize".to_string(), fields))
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
+pub fn threshold_ed25519_hss_server_eval_state_size_census(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519HssServerEvalStateSizeCensusArgs =
+        serde_wasm_bindgen::from_value(args)
+            .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let decode_state_started = Date::now();
+    let state: ServerEvalState =
+        decode_messagepack_state_blob_bytes(&args.server_eval_state_bytes, "serverEvalStateBytes")?;
+    let decode_state_ms = (Date::now() - decode_state_started).max(0.0);
+
+    let summarize_started = Date::now();
+    let mut fields = Vec::new();
+    push_threshold_ed25519_hss_state_field_size(&mut fields, "handle", &state.handle)?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "context_binding",
+        &state.context_binding,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "transcript_id",
+        &state.transcript_id,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "current_stage",
+        &state.current_stage,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "current_transcript_digest",
+        &state.current_transcript_digest,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(&mut fields, "operation", &state.operation)?;
+    push_threshold_ed25519_hss_state_field_size(&mut fields, "status", &state.status)?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "server_input_commitment",
+        &state.server_input_commitment,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "ot_transcript",
+        &state.ot_transcript,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "last_request_digest",
+        &state.last_request_digest,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(&mut fields, "server_roots", &state.server_roots)?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "server_input_bundles",
+        &state.server_input_bundles,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "hidden_eval_program",
+        &state.hidden_eval_program,
+    )?;
+    push_threshold_ed25519_hss_state_field_size(
+        &mut fields,
+        "execution_state",
+        &state.execution_state,
+    )?;
+    let (execution_state_kind, execution_state_fields) =
+        threshold_ed25519_hss_execution_state_size_census(&state.execution_state)?;
+    let summarize_ms = (Date::now() - summarize_started).max(0.0);
+
+    serde_wasm_bindgen::to_value(&ThresholdEd25519HssServerEvalStateSizeCensusOutput {
+        total_messagepack_bytes: args.server_eval_state_bytes.len(),
+        status: format!("{:?}", state.status),
+        current_stage: format!("{:?}", state.current_stage),
+        operation: format!("{:?}", state.operation),
+        execution_state_kind,
+        fields,
+        execution_state_fields,
+        timings: ThresholdEd25519HssServerEvalStateSizeCensusTimings {
+            decode_state_ms,
+            summarize_ms,
+        },
+    })
+    .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS state census output: {e}")))
 }
 
 #[wasm_bindgen]
@@ -815,6 +1415,7 @@ pub fn threshold_ed25519_hss_advance_server_eval_state(args: JsValue) -> Result<
     let args: ThresholdEd25519HssAdvanceServerEvalStateArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
     let projection_mode = parse_registration_projection_mode_label(&args.projection_mode)?;
+    let output_projection_mode = registration_output_projection_mode_from_label(&projection_mode)?;
 
     let decode_state_started = Date::now();
     let server_eval_state: ServerEvalState =
@@ -828,68 +1429,73 @@ pub fn threshold_ed25519_hss_advance_server_eval_state(args: JsValue) -> Result<
         compute_add_stage_request_digest_b64u(&add_stage_request_message);
     let decode_state_ms = (Date::now() - decode_state_started).max(0.0);
 
-    let (context_binding, advanced, serialized_session_materialize_ms) = if let Some(output) =
-        with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
-            let advanced = advance_server_eval_state_to_output_projection_request(
-                &session.shared_runtime(),
-                &session.garbler_session(),
-                &session.evaluator_session(),
+    let (context_binding, advanced, finalized, finalize_context, session_materialize_timings) =
+        if let Some(output) =
+            with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
+                let advanced = advance_server_eval_state_to_output_projection_request(
+                    &session.shared_runtime(),
+                    &session.garbler_session(),
+                    &session.evaluator_session(),
+                    &server_eval_state,
+                    &add_stage_request_message,
+                )
+                .map_err(js_value_to_string)?;
+                let finalized = finalize_advanced_server_eval_state_with_output_projection(
+                    &session.garbler_session(),
+                    &session.evaluator_session(),
+                    &advanced.state,
+                    &advanced.prior_stage_response_message,
+                    &output_projection_mode,
+                )
+                .map_err(js_value_to_string)?;
+                Ok((
+                    session.candidate().context_binding,
+                    advanced,
+                    finalized,
+                    session.shared_runtime().finalize_context(),
+                    ThresholdEd25519HssSerializedSessionMaterializeTimings::default(),
+                ))
+            })
+            .map_err(|e| JsValue::from_str(&e))?
+        {
+            output
+        } else {
+            let materialized = materialize_threshold_ed25519_hss_serialized_advance_session(
+                &args.evaluator_driver_state_bytes,
+                &args.garbler_driver_state_bytes,
+            )?;
+            let advanced = advance_server_eval_state_with_advance_context(
+                &materialized.advance_runtime,
+                &materialized.garbler_session,
+                &materialized.evaluator_session,
                 &server_eval_state,
                 &add_stage_request_message,
+            )?;
+            let finalized = finalize_advanced_server_eval_state_with_output_projection(
+                &materialized.garbler_session,
+                &materialized.evaluator_session,
+                &advanced.state,
+                &advanced.prior_stage_response_message,
+                &output_projection_mode,
+            )?;
+            (
+                materialized.context_binding,
+                advanced,
+                finalized,
+                materialized.advance_runtime.finalize_context,
+                materialized.timings,
             )
-            .map_err(js_value_to_string)?;
-            Ok((session.candidate().context_binding, advanced, 0.0))
-        })
-        .map_err(|e| JsValue::from_str(&e))?
-    {
-        output
-    } else {
-        let serialized_session_materialize_started = Date::now();
-        let evaluator_state: ClientDriverState = decode_state_blob_bytes(
-            &args.evaluator_driver_state_bytes,
-            "evaluatorDriverStateBytes",
-        )
-        .map_err(js_value_to_string)?;
-        let garbler_state: ServerDriverState =
-            decode_state_blob_bytes(&args.garbler_driver_state_bytes, "garblerDriverStateBytes")
-                .map_err(js_value_to_string)?;
-        if evaluator_state.runtime != garbler_state.runtime {
-            return Err(JsValue::from_str(
-                    "evaluatorDriverStateBytes and garblerDriverStateBytes do not share the same prepared runtime",
-                ));
-        }
-        let runtime = evaluator_state
-            .runtime
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let evaluator_session = evaluator_state
-            .evaluator_session
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let garbler_session = garbler_state
-            .garbler_session
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let serialized_session_materialize_ms =
-            (Date::now() - serialized_session_materialize_started).max(0.0);
-        let advanced = advance_server_eval_state_to_output_projection_request(
-            &runtime,
-            &garbler_session,
-            &evaluator_session,
-            &server_eval_state,
-            &add_stage_request_message,
-        )?;
-        (
-            garbler_state.garbler_session.context_binding,
-            advanced,
-            serialized_session_materialize_ms,
-        )
-    };
+        };
 
     let encode_advanced_state_started = Date::now();
+    let advance_output_projection_ms = finalized.timings.output_projection_ms;
+    let mut advanced_server_eval_state = finalized.state;
+    advanced_server_eval_state.hidden_eval_program = None;
     let advanced_server_eval_state_b64u =
-        encode_messagepack_state_blob(&advanced.state, "advancedServerEvalState")
+        encode_messagepack_state_blob(&advanced_server_eval_state, "advancedServerEvalState")
             .map_err(|e| JsValue::from_str(&e))?;
+    let finalize_context_b64u = encode_messagepack_state_blob(&finalize_context, "finalizeContext")
+        .map_err(|e| JsValue::from_str(&e))?;
     let prior_stage_response_message_b64u =
         encode_wire_message(&advanced.prior_stage_response_message);
     let encode_advanced_state_ms = (Date::now() - encode_advanced_state_started).max(0.0);
@@ -897,15 +1503,23 @@ pub fn threshold_ed25519_hss_advance_server_eval_state(args: JsValue) -> Result<
     serde_wasm_bindgen::to_value(&ThresholdEd25519HssAdvanceServerEvalStateOutput {
         context_binding_b64u: base64_url_encode(&context_binding),
         advanced_server_eval_state_b64u,
+        finalize_context_b64u,
         prior_stage_response_message_b64u,
         add_stage_request_digest_b64u,
         projection_mode,
         timings: ThresholdEd25519HssAdvanceServerEvalStateTimings {
             decode_state_ms,
-            serialized_session_materialize_ms,
+            serialized_session_materialize_ms: session_materialize_timings.total_ms,
+            serialized_session_decode_ms: session_materialize_timings.decode_ms,
+            materialize_runtime_ms: session_materialize_timings.materialize_runtime_ms,
+            materialize_evaluator_session_ms: session_materialize_timings
+                .materialize_evaluator_session_ms,
+            materialize_garbler_session_ms: session_materialize_timings
+                .materialize_garbler_session_ms,
             advance_add_stage_response_ms: advanced.timings.add_stage_response_ms,
             advance_message_schedule_rounds_ms: advanced.timings.message_schedule_rounds_ms,
             advance_round_core_rounds_ms: advanced.timings.round_core_rounds_ms,
+            advance_output_projection_ms,
             encode_advanced_state_ms,
         },
     })
@@ -930,57 +1544,81 @@ pub fn threshold_ed25519_hss_finalize_advanced_report(args: JsValue) -> Result<J
         &args.advanced_server_eval_state_bytes,
         "advancedServerEvalStateBytes",
     )?;
-    let prior_stage_response_message = decode_wire_message_bytes(
-        &args.prior_stage_response_message_bytes,
-        "priorStageResponseMessageBytes",
-    )
-    .map_err(js_value_to_string)?;
+    let finalize_context: SharedRuntimeFinalizeContext =
+        decode_messagepack_state_blob_bytes(&args.finalize_context_bytes, "finalizeContextBytes")?;
     let decode_artifact_ms = (Date::now() - decode_artifact_started).max(0.0);
 
     let (
         report,
-        serialized_session_materialize_ms,
+        session_materialize_timings,
         advance_timings,
         finalize_report_ms,
         finalize_packet_assembly_ms,
+        x_relayer_base_b64u,
+        canonical_seed_b64u,
+        open_server_output_ms,
+        open_seed_output_ms,
     ) = if let Some(report) =
         with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
             let finalize_report_started = Date::now();
             let finalized_server_eval_state =
-                finalize_advanced_server_eval_state_with_output_projection(
+                finalize_or_reuse_threshold_ed25519_hss_server_eval_state(
                     &session.garbler_session(),
                     &session.evaluator_session(),
-                    &advanced_server_eval_state,
-                    &prior_stage_response_message,
+                    advanced_server_eval_state.clone(),
+                    &args.prior_stage_response_message_bytes,
                     &staged_evaluator_artifact.projection_mode,
                 )
                 .map_err(js_value_to_string)?;
             let finalize_packet_started = Date::now();
-            session
+            let (_packet, report) = session
                 .garbler_session()
                 .prepare_server_finalize_packet_from_staged_evaluator_artifact(
                     &session.shared_runtime(),
                     &finalized_server_eval_state.state,
                     &staged_evaluator_artifact,
                 )
-                .map(|(_packet, report)| {
-                    let finalize_packet_assembly_ms =
-                        (Date::now() - finalize_packet_started).max(0.0);
-                    (
-                        report,
-                        0.0,
-                        finalized_server_eval_state.timings,
-                        (Date::now() - finalize_report_started).max(0.0),
-                        finalize_packet_assembly_ms,
-                    )
-                })
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string())?;
+            let finalize_packet_assembly_ms = (Date::now() - finalize_packet_started).max(0.0);
+            let finalize_report_ms = (Date::now() - finalize_report_started).max(0.0);
+            let open_server_output_started = Date::now();
+            let x_relayer_base = session
+                .garbler_session()
+                .server_output_opener()
+                .open(&report.output_delivery.server)
+                .map_err(|e| e.to_string())?;
+            let open_server_output_ms = (Date::now() - open_server_output_started).max(0.0);
+            let (canonical_seed_b64u, open_seed_output_ms) = if args.open_seed_output {
+                let open_seed_output_started = Date::now();
+                let canonical_seed = session
+                    .evaluator_session()
+                    .seed_output_opener()
+                    .open(&report.output_delivery.seed)
+                    .map_err(|e| e.to_string())?;
+                (
+                    Some(base64_url_encode(&canonical_seed)),
+                    (Date::now() - open_seed_output_started).max(0.0),
+                )
+            } else {
+                (None, 0.0)
+            };
+            Ok((
+                report,
+                ThresholdEd25519HssSerializedSessionMaterializeTimings::default(),
+                finalized_server_eval_state.timings,
+                finalize_report_ms,
+                finalize_packet_assembly_ms,
+                Some(base64_url_encode(&x_relayer_base)),
+                canonical_seed_b64u,
+                open_server_output_ms,
+                open_seed_output_ms,
+            ))
         })
         .map_err(|e| JsValue::from_str(&e))?
     {
         report
     } else {
-        let serialized_session_materialize_started = Date::now();
+        let session_decode_started = Date::now();
         let evaluator_state: ClientDriverState = decode_state_blob_bytes(
             &args.evaluator_driver_state_bytes,
             "evaluatorDriverStateBytes",
@@ -991,54 +1629,74 @@ pub fn threshold_ed25519_hss_finalize_advanced_report(args: JsValue) -> Result<J
                 .map_err(js_value_to_string)?;
         if evaluator_state.runtime != garbler_state.runtime {
             return Err(JsValue::from_str(
-                    "evaluatorDriverStateBytes and garblerDriverStateBytes do not share the same prepared runtime",
-                ));
+                "evaluatorDriverStateBytes and garblerDriverStateBytes do not share the same prepared runtime",
+            ));
         }
-        let runtime = evaluator_state
-            .runtime
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let evaluator_session = evaluator_state
-            .evaluator_session
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let garbler_session = garbler_state
-            .garbler_session
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let serialized_session_materialize_ms =
-            (Date::now() - serialized_session_materialize_started).max(0.0);
+        let session_decode_ms = (Date::now() - session_decode_started).max(0.0);
         let finalize_report_started = Date::now();
-        let finalized_server_eval_state =
-            finalize_advanced_server_eval_state_with_output_projection(
-                &garbler_session,
-                &evaluator_session,
-                &advanced_server_eval_state,
-                &prior_stage_response_message,
-                &staged_evaluator_artifact.projection_mode,
-            )?;
+        if advanced_server_eval_state.status != ServerEvalStatus::Finalized {
+            return Err(JsValue::from_str(
+                "durable advanced server eval state must be finalized before report assembly",
+            ));
+        }
+        let finalized_server_eval_state = ThresholdEd25519HssFinalizedServerEvalState {
+            state: advanced_server_eval_state.clone(),
+            timings: empty_threshold_ed25519_hss_server_eval_advance_timings(),
+        };
         let finalize_packet_started = Date::now();
-        let (_packet, report) = garbler_session
-            .prepare_server_finalize_packet_from_staged_evaluator_artifact(
-                &runtime,
+        let (_packet, report) = garbler_state
+            .garbler_session
+            .prepare_server_finalize_packet_from_finalize_context(
+                &finalize_context,
                 &finalized_server_eval_state.state,
                 &staged_evaluator_artifact,
             )
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let finalize_packet_assembly_ms = (Date::now() - finalize_packet_started).max(0.0);
         let finalize_report_ms = (Date::now() - finalize_report_started).max(0.0);
+        let open_server_output_started = Date::now();
+        let x_relayer_base = garbler_state
+            .garbler_session
+            .server_output_opener()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?
+            .open(&report.output_delivery.server)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let open_server_output_ms = (Date::now() - open_server_output_started).max(0.0);
+        let (canonical_seed_b64u, open_seed_output_ms) = if args.open_seed_output {
+            let open_seed_output_started = Date::now();
+            let canonical_seed = evaluator_state
+                .evaluator_session
+                .seed_output_opener()
+                .map_err(|e| JsValue::from_str(&e.to_string()))?
+                .open(&report.output_delivery.seed)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            (
+                Some(base64_url_encode(&canonical_seed)),
+                (Date::now() - open_seed_output_started).max(0.0),
+            )
+        } else {
+            (None, 0.0)
+        };
         (
             report,
-            serialized_session_materialize_ms,
+            ThresholdEd25519HssSerializedSessionMaterializeTimings {
+                total_ms: session_decode_ms,
+                decode_ms: session_decode_ms,
+                materialize_runtime_ms: 0.0,
+                materialize_evaluator_session_ms: 0.0,
+                materialize_garbler_session_ms: 0.0,
+            },
             finalized_server_eval_state.timings,
             finalize_report_ms,
             finalize_packet_assembly_ms,
+            Some(base64_url_encode(&x_relayer_base)),
+            canonical_seed_b64u,
+            open_server_output_ms,
+            open_seed_output_ms,
         )
     };
 
     let encode_report_started = Date::now();
-    let evaluation_report_json = serde_json::to_string(&report)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize evaluation report: {e}")))?;
     let client_output_message_b64u = encode_wire_message(&report.output_delivery.client);
     let seed_output_message_b64u = encode_wire_message(&report.output_delivery.seed);
     let server_output_message_b64u = encode_wire_message(&report.output_delivery.server);
@@ -1046,13 +1704,20 @@ pub fn threshold_ed25519_hss_finalize_advanced_report(args: JsValue) -> Result<J
 
     serde_wasm_bindgen::to_value(&ThresholdEd25519HssFinalizeReportOutput {
         context_binding_b64u: base64_url_encode(&report.artifact.context_binding),
-        evaluation_report_json,
         client_output_message_b64u,
         seed_output_message_b64u,
         server_output_message_b64u,
+        x_relayer_base_b64u,
+        canonical_seed_b64u,
         timings: ThresholdEd25519HssFinalizeReportTimings {
             decode_artifact_ms,
-            serialized_session_materialize_ms,
+            serialized_session_materialize_ms: session_materialize_timings.total_ms,
+            serialized_session_decode_ms: session_materialize_timings.decode_ms,
+            materialize_runtime_ms: session_materialize_timings.materialize_runtime_ms,
+            materialize_evaluator_session_ms: session_materialize_timings
+                .materialize_evaluator_session_ms,
+            materialize_garbler_session_ms: session_materialize_timings
+                .materialize_garbler_session_ms,
             advance_add_stage_response_ms: 0.0,
             advance_message_schedule_rounds_ms: 0.0,
             advance_round_core_rounds_ms: 0.0,
@@ -1060,6 +1725,8 @@ pub fn threshold_ed25519_hss_finalize_advanced_report(args: JsValue) -> Result<J
             finalize_report_ms,
             finalize_packet_assembly_ms,
             encode_report_ms,
+            open_server_output_ms,
+            open_seed_output_ms,
         },
     })
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS finalization output: {e}")))
@@ -1073,7 +1740,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
     let (
         report,
         decode_artifact_ms,
-        serialized_session_materialize_ms,
+        session_materialize_timings,
         advance_timings,
         finalize_report_ms,
         finalize_packet_assembly_ms,
@@ -1093,7 +1760,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                         (
                             report,
                             0.0,
-                            0.0,
+                            ThresholdEd25519HssSerializedSessionMaterializeTimings::default(),
                             empty_threshold_ed25519_hss_server_eval_advance_timings(),
                             finalize_report_ms,
                             finalize_report_ms,
@@ -1149,7 +1816,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                         (
                             report,
                             decode_artifact_ms,
-                            0.0,
+                            ThresholdEd25519HssSerializedSessionMaterializeTimings::default(),
                             finalized_server_eval_state.timings,
                             (Date::now() - finalize_report_started).max(0.0),
                             finalize_packet_assembly_ms,
@@ -1161,49 +1828,24 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
         {
             report
         } else {
-            let serialized_session_materialize_started = Date::now();
-            let evaluator_state: ClientDriverState = decode_state_blob_bytes(
+            let materialized = materialize_threshold_ed25519_hss_serialized_session(
                 &args.evaluator_driver_state_bytes,
-                "evaluatorDriverStateBytes",
-            )
-            .map_err(js_value_to_string)?;
-            let garbler_state: ServerDriverState = decode_state_blob_bytes(
                 &args.garbler_driver_state_bytes,
-                "garblerDriverStateBytes",
-            )
-            .map_err(js_value_to_string)?;
-            if evaluator_state.runtime != garbler_state.runtime {
-                return Err(JsValue::from_str(
-                        "evaluatorDriverStateBytes and garblerDriverStateBytes do not share the same prepared runtime",
-                    ));
-            }
-            let runtime = evaluator_state
-                .runtime
-                .materialize()
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
-            let evaluator_session = evaluator_state
-                .evaluator_session
-                .materialize()
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
-            let garbler_session = garbler_state
-                .garbler_session
-                .materialize()
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
-            let serialized_session_materialize_ms =
-                (Date::now() - serialized_session_materialize_started).max(0.0);
+            )?;
             let finalize_report_started = Date::now();
             let finalized_server_eval_state = finalize_server_eval_state_from_add_stage_request(
-                &runtime,
-                &garbler_session,
-                &evaluator_session,
+                &materialized.runtime,
+                &materialized.garbler_session,
+                &materialized.evaluator_session,
                 &server_eval_state,
                 &add_stage_request_message,
                 &staged_evaluator_artifact.projection_mode,
             )?;
             let finalize_packet_started = Date::now();
-            let (_packet, report) = garbler_session
+            let (_packet, report) = materialized
+                .garbler_session
                 .prepare_server_finalize_packet_from_staged_evaluator_artifact(
-                    &runtime,
+                    &materialized.runtime,
                     &finalized_server_eval_state.state,
                     &staged_evaluator_artifact,
                 )
@@ -1213,7 +1855,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
             (
                 report,
                 decode_artifact_ms,
-                serialized_session_materialize_ms,
+                materialized.timings,
                 finalized_server_eval_state.timings,
                 finalize_report_ms,
                 finalize_packet_assembly_ms,
@@ -1222,8 +1864,6 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
     };
 
     let encode_report_started = Date::now();
-    let evaluation_report_json = serde_json::to_string(&report)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize evaluation report: {e}")))?;
     let client_output_message_b64u = encode_wire_message(&report.output_delivery.client);
     let seed_output_message_b64u = encode_wire_message(&report.output_delivery.seed);
     let server_output_message_b64u = encode_wire_message(&report.output_delivery.server);
@@ -1231,13 +1871,20 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
 
     serde_wasm_bindgen::to_value(&ThresholdEd25519HssFinalizeReportOutput {
         context_binding_b64u: base64_url_encode(&report.artifact.context_binding),
-        evaluation_report_json,
         client_output_message_b64u,
         seed_output_message_b64u,
         server_output_message_b64u,
+        x_relayer_base_b64u: None,
+        canonical_seed_b64u: None,
         timings: ThresholdEd25519HssFinalizeReportTimings {
             decode_artifact_ms,
-            serialized_session_materialize_ms,
+            serialized_session_materialize_ms: session_materialize_timings.total_ms,
+            serialized_session_decode_ms: session_materialize_timings.decode_ms,
+            materialize_runtime_ms: session_materialize_timings.materialize_runtime_ms,
+            materialize_evaluator_session_ms: session_materialize_timings
+                .materialize_evaluator_session_ms,
+            materialize_garbler_session_ms: session_materialize_timings
+                .materialize_garbler_session_ms,
             advance_add_stage_response_ms: advance_timings.add_stage_response_ms,
             advance_message_schedule_rounds_ms: advance_timings.message_schedule_rounds_ms,
             advance_round_core_rounds_ms: advance_timings.round_core_rounds_ms,
@@ -1245,6 +1892,8 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
             finalize_report_ms,
             finalize_packet_assembly_ms,
             encode_report_ms,
+            open_server_output_ms: 0.0,
+            open_seed_output_ms: 0.0,
         },
     })
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS finalization output: {e}")))
@@ -1341,11 +1990,11 @@ pub fn threshold_ed25519_hss_open_server_output(args: JsValue) -> Result<JsValue
         let garbler_state: ServerDriverState =
             decode_state_blob_bytes(&args.garbler_driver_state_bytes, "garblerDriverStateBytes")
                 .map_err(js_value_to_string)?;
-        let (_runtime, garbler_session) = garbler_state
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let x_relayer_base = garbler_session
+        let x_relayer_base = garbler_state
+            .garbler_session
             .server_output_opener()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let x_relayer_base = x_relayer_base
             .open(&server_output_message)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         (
@@ -2069,13 +2718,15 @@ pub(crate) fn open_threshold_ed25519_hss_client_output(
         "evaluatorDriverStateB64u",
     )
     .map_err(js_value_to_string)?;
-    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
     let client_output_message =
         decode_wire_message(&args.client_output_message_b64u, "clientOutputMessageB64u")
             .map_err(js_value_to_string)?;
     let client_output_mask = decode_fixed_32(&args.client_output_mask_b64u, "clientOutputMaskB64u")
         .map_err(js_value_to_string)?;
-    let opener = evaluator_session.client_output_opener();
+    let opener = evaluator_state
+        .evaluator_session
+        .client_output_opener()
+        .map_err(|e| e.to_string())?;
     let x_client_base = opener
         .open_masked(&client_output_message, client_output_mask)
         .map_err(|e| e.to_string())?;
@@ -2115,9 +2766,11 @@ pub(crate) fn open_threshold_ed25519_hss_seed_output(
         "evaluatorDriverStateB64u",
     )
     .map_err(js_value_to_string)?;
-    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
-    let canonical_seed = evaluator_session
+    let opener = evaluator_state
+        .evaluator_session
         .seed_output_opener()
+        .map_err(|e| e.to_string())?;
+    let canonical_seed = opener
         .open(&seed_output_message)
         .map_err(|e| e.to_string())?;
 

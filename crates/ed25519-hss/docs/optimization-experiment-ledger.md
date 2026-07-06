@@ -65,6 +65,9 @@ Needs approval before code:
 - Any broader protocol-root replacement, including output-projector root v2,
   B2A/multiplication combined roots, or any rewrite that removes existing
   commitment/provenance material.
+- Any covert-security or spot-check transcript backend. Transcript roots or
+  commitments must be fixed before the verifier challenge; adaptive residuals
+  chosen after challenge are rejected by the design model.
 
 ## Product And Registration-Path Experiments
 
@@ -76,6 +79,12 @@ Needs approval before code:
 | Output-projector shared client-base path | Retained | Product-visible output-projector path improved before later protocol work. | Keep as part of the current projector baseline. |
 | Output-projector mixed shared-mask path | Retained | Restoring this path fixed a product regression where masked client-output p50 moved from about `4ms` to `59-61ms`. | Keep. Do not displace this path when experimenting with projector roots. |
 | Wallet-iframe transport diagnostics | Retained instrumentation | Smoke run `20260610-130323Z` showed transport was secondary to passkey prompt time and HSS client artifact construction. | Continue using these diagnostics for ranking, not control flow. |
+| Refactor 83D compact finalize context and advance checkpoint | Retained | Latest full intended validation recorded Email OTP registration at `2,083ms` and passkey registration at `2,367ms`; HSS finalize fell to route-level `41ms` for Email OTP and `29ms` for passkey. | Keep. This is the current Worker/WASM registration baseline for HSS-tail comparisons. |
+| Passkey ECDSA server-sealed PRF reuse | Retained | Passkey `ecdsaRegistrationPersistenceMs` dropped from roughly `~565ms` to about `45ms`; `ecdsaRegistrationWarmSessionSealApplyClientUnsealMs` dropped from about `527ms` to `0ms`. | Keep only as volatile worker memory scoped by registration authority facts: wallet id, credential id, signing grant id, relayer, seal key version, Shamir prime, and `sha256(prfFirst)`. Never persist this cache. |
+| Curve-level Ed25519/ECDSA persistence parallelization | Rejected | Passkey total regressed from about `2367ms` to `2496ms`; `ecdsaRegistrationPersistenceMs` regressed from about `551ms` to `855ms`; `thresholdEd25519SigningSessionHydrationMs` regressed from about `289ms` to `538ms`. | Do not retry curve-level scheduling. Both paths contend on signer-worker and IndexedDB resources. |
+| Passkey warm-session hydration overlap after ordered persistence | Rejected | `ecdsaRegistrationPersistenceMs` moved only from `565ms` to `553ms`, while total registration stayed flat at `2543ms` to `2546ms`. | Do not keep overlap-only scheduling for this bucket. Subtract work instead. |
+| Byte-returning Shamir unseal | Rejected | Switching from string-returning unseal to byte-returning unseal plus JS base64url encoding moved client-unseal from about `527ms` to `535ms`. | Do not repeat serialization-only variants. The cost is modular Shamir unseal work. |
+| Email OTP enrollment/material overlap | Closed as already overlapped | Trace `1783304572920-email_otp.registration-frost-quartz-gv3avp-intended-lifecycle-trace.json` showed `emailOtpEnrollmentMaterialMs: 359ms` and `ed25519ClientMaterialMs: 378ms`, but measured work exceeded total elapsed by `812ms`; the code already starts enrollment material before awaiting Ed25519 client material. | No implementation change. Additional concurrency would duplicate existing overlap rather than remove serial work. |
 
 ## Early Refactor-64 Rejections
 
@@ -176,6 +185,10 @@ primary record.
 | New multiplication-material root beyond retained `Ch` | Blocked | Approve exact operation-kind enum, operand-root shape, per-bit derivation, label policy, width policy, and downgrade behavior. |
 | Output-projector root v2 | Blocked | Must remove a full logical canonical-add/sub/select equivalent while preserving `canonical_seed`, `client_output`, and `x_server_base` output commitments. |
 | Deeper arena-backed executor representation | Guardrails ready | Need a byte-equivalence harness for the target boundary and a candidate that removes logical work or improves browser/product p50. Small accessor/scratch edits have repeatedly regressed. |
+| Covert-security spot-check transcript | Parked | Requires explicit product/security acceptance of covert security, a backend-versioned transcript, commit-before-challenge roots, downgrade/mixing fixtures, and a formal soundness bound. |
+| Unlock combined-flow benchmark | Pending fresh auth token | Rerun intended Email OTP unlock after refreshing the local Google token to quantify the sealed-material-first combined ECDSA unlock delta. |
+| `thresholdEd25519SigningSessionHydrationMs` split | Pending measurement | Last unexamined non-HSS registration bucket after ECDSA persistence fell out of the top list. Split before attempting more scheduling. |
+| Refactor-8X EVM-only/no-Ed25519 profile | Product decision | The only remaining >500ms product lever is omitting the Ed25519/HSS signer for EVM-only wallet creation. Keep separate from alternate Ed25519 bootstrap profiles. |
 | Physical ARM64 Linux and iOS measurements | Pending hardware | Run target-device profiles before deciding whether HSS is default, optional, or policy-gated outside browser contexts. |
 
 ## Rules Learned

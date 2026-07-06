@@ -17,23 +17,26 @@ use crate::ddh::{
 use crate::ddh::{DdhHssTransportBundle, DdhHssTransportPurpose};
 use crate::runtime::{
     evaluation::{elapsed_ns_u64, monotonic_now_ns},
-    EvaluateTiming, SharedRuntime,
+    EvaluateTiming, SharedRuntime, SharedRuntimeAdvanceContext, SharedRuntimeAdvanceMaterial,
+    SharedRuntimeFinalizeContext,
 };
 use crate::server::{
     ot::prepare_garbler_ot_state_for_session, ServerDriverState, ServerEvalFinalizeOutput,
     ServerEvalOperation, ServerEvalServerRoots, ServerEvalState, ServerOutputOpener, ServerSession,
     ServerSessionState,
 };
-use crate::shared::ProtoResult;
+use crate::shared::{ProtoError, ProtoResult};
 #[cfg(test)]
 use crate::wire::ServerPacket;
 use crate::wire::{
-    AddStageRequestPayload, AddStageResponsePayload, ClientPacket, ClientStageRequestPacket,
-    EvaluationReport, MessageScheduleResponsePayload, OutputProjectionResponsePayload,
+    AddStageRequestPayload, AddStageResponsePayload, ClientOutputPacket, ClientPacket,
+    ClientStageRequestPacket, EvaluationReport, HiddenCoreMaterialization,
+    MessageScheduleResponsePayload, OutputDelivery, OutputProjectionResponsePayload,
     RoleSeparatedServerInputDeliveryPacket, RoleSeparatedServerInputsPacket,
-    RoundCoreResponsePayload, ServerAssistInitPacket, ServerEvalHandle, ServerFinalizePacket,
-    ServerOutputPacket, ServerStageCommitments, ServerStagePayload, ServerStageResponsePacket,
-    StagedEvaluatorArtifact, TransportKind, WireMessage,
+    RoundCoreResponsePayload, SeedOutputPacket, ServerAssistInitPacket, ServerEvalHandle,
+    ServerFinalizePacket, ServerOutputPacket, ServerStageCommitments, ServerStagePayload,
+    ServerStageResponsePacket, StagedEvaluatorArtifact, TransportKind, WireMessage,
+    PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 use rand_core::{OsRng, RngCore};
 
@@ -64,7 +67,7 @@ struct SameProcessExecutionCheckpoints {
 }
 
 impl ServerSessionState {
-    pub fn materialize(&self) -> ProtoResult<ServerSession> {
+    fn validate_current_backend(&self) -> ProtoResult<()> {
         if self.backend_version != self.ddh_garbler.evaluation_key().backend_version {
             return Err(crate::shared::ProtoError::InvalidInput(
                 "server session state backend version does not match garbler".to_string(),
@@ -76,6 +79,11 @@ impl ServerSessionState {
                 self.backend_version.as_str()
             )));
         }
+        Ok(())
+    }
+
+    pub fn materialize(&self) -> ProtoResult<ServerSession> {
+        self.validate_current_backend()?;
         if self.client_ot_offer.backend_version != self.backend_version {
             return Err(crate::shared::ProtoError::InvalidInput(
                 "server session OT offer backend version does not match session".to_string(),
@@ -100,12 +108,359 @@ impl ServerSessionState {
             tau_client_sender_words_prepared: prepared_ot_state.tau_client_sender_words_prepared,
         })
     }
+
+    pub fn server_output_opener(&self) -> ProtoResult<ServerOutputOpener> {
+        self.validate_current_backend()?;
+        Ok(ServerOutputOpener {
+            garbler: self.ddh_garbler.clone(),
+            context_binding: self.context_binding,
+        })
+    }
+
+    pub fn run_binding(
+        &self,
+        artifact_digest: [u8; 32],
+        client_input_commitment: [u8; 32],
+        server_input_commitment: [u8; 32],
+    ) -> ProtoResult<[u8; 32]> {
+        self.validate_current_backend()?;
+        Ok(self.ddh_garbler.run_binding(
+            artifact_digest,
+            client_input_commitment,
+            server_input_commitment,
+        ))
+    }
+
+    pub fn seal_server_output_packet_message(
+        &self,
+        run_binding: [u8; 32],
+        evaluation_digest: [u8; 32],
+        left: &DdhHssTransportBundle,
+        right: &DdhHssTransportBundle,
+    ) -> ProtoResult<WireMessage> {
+        self.validate_current_backend()?;
+        let plaintext =
+            crate::wire::serialize_transport_pair_payload("server_output_bundle", left, right)?;
+        let aad = crate::protocol::transcript::output_packet_aad(
+            b"server_output",
+            self.context_binding,
+            run_binding,
+            evaluation_digest,
+        );
+        let (nonce, ciphertext) = self.ddh_garbler.seal_message(
+            DdhHssTransportPurpose::ServerOutput,
+            &aad,
+            &plaintext,
+        )?;
+        let packet = ServerOutputPacket {
+            context_binding: self.context_binding,
+            run_binding,
+            evaluation_digest,
+            nonce,
+            ciphertext,
+        };
+        crate::wire::encode_transport_message(
+            self.context_binding,
+            TransportKind::ServerOutput,
+            &packet,
+        )
+    }
+
+    pub fn prepare_server_finalize_packet_from_finalize_context(
+        &self,
+        finalize_context: &SharedRuntimeFinalizeContext,
+        server_eval_state: &ServerEvalState,
+        artifact: &StagedEvaluatorArtifact,
+    ) -> ProtoResult<(ServerFinalizePacket, EvaluationReport)> {
+        self.validate_current_backend()?;
+        if server_eval_state.status != crate::server::ServerEvalStatus::Finalized {
+            return Err(ProtoError::InvalidInput(
+                "server finalize requires a finalized server eval state".to_string(),
+            ));
+        }
+        let finalize_state = server_eval_state.finalize_state().ok_or_else(|| {
+            ProtoError::InvalidInput("server finalize requires stored finalize state".to_string())
+        })?;
+        if finalize_context.context_binding != self.context_binding
+            || server_eval_state.context_binding != self.context_binding
+            || finalize_context.artifact.context_binding != self.context_binding
+            || artifact.context_binding != self.context_binding
+        {
+            return Err(ProtoError::InvalidInput(
+                "finalize context, session, state, and artifact context bindings must match"
+                    .to_string(),
+            ));
+        }
+        if artifact.backend_version != self.ddh_garbler.evaluation_key().backend_version {
+            return Err(ProtoError::InvalidInput(
+                "staged evaluator artifact backend version does not match garbler state"
+                    .to_string(),
+            ));
+        }
+        if artifact.bindings.client_input_commitment != finalize_state.client_input_commitment {
+            return Err(ProtoError::InvalidInput(
+                "staged evaluator artifact client input commitment does not match finalize state"
+                    .to_string(),
+            ));
+        }
+        if artifact.bindings.server_input_commitment != finalize_state.server_input_commitment {
+            return Err(ProtoError::InvalidInput(
+                "staged evaluator artifact server input commitment does not match finalize state"
+                    .to_string(),
+            ));
+        }
+        let expected_run_binding = self.run_binding(
+            finalize_context.artifact.artifact_digest,
+            finalize_state.client_input_commitment,
+            finalize_state.server_input_commitment,
+        )?;
+        if artifact.bindings.run_binding != expected_run_binding {
+            return Err(ProtoError::InvalidInput(
+                "staged evaluator artifact run binding does not match finalize state".to_string(),
+            ));
+        }
+        let client_packet: ClientOutputPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOutput,
+            &artifact.client_output,
+        )?;
+        let seed_packet: SeedOutputPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::SeedOutput,
+            &artifact.seed_output,
+        )?;
+        if client_packet.run_binding != artifact.bindings.run_binding
+            || client_packet.evaluation_digest != artifact.bindings.evaluation_digest
+        {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result client output packet is not bound to the reported run"
+                    .to_string(),
+            ));
+        }
+        if client_packet.projection_mode != artifact.projection_mode {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result client output projection mode does not match artifact"
+                    .to_string(),
+            ));
+        }
+        if client_packet.value_kind != artifact.client_output_value_kind {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result client output value kind does not match artifact metadata"
+                    .to_string(),
+            ));
+        }
+        let expected_client_output_value_kind =
+            crate::wire::ClientOutputValueKind::for_projection_mode(&artifact.projection_mode);
+        if artifact.client_output_value_kind != expected_client_output_value_kind {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result client output value kind does not match projection mode"
+                    .to_string(),
+            ));
+        }
+        if seed_packet.run_binding != artifact.bindings.run_binding
+            || seed_packet.evaluation_digest != artifact.bindings.evaluation_digest
+        {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result seed output packet is not bound to the reported run".to_string(),
+            ));
+        }
+        let expected_client_output_binding =
+            crate::protocol::transcript::nested_output_message_binding(
+                artifact.context_binding,
+                artifact.bindings.run_binding,
+                artifact.bindings.evaluation_digest,
+                b"client_output_message",
+                &artifact.client_output.bytes,
+            );
+        if artifact.client_output_binding != expected_client_output_binding {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result client output binding is invalid".to_string(),
+            ));
+        }
+        let expected_seed_output_binding =
+            crate::protocol::transcript::nested_output_message_binding(
+                artifact.context_binding,
+                artifact.bindings.run_binding,
+                artifact.bindings.evaluation_digest,
+                b"seed_output_message",
+                &artifact.seed_output.bytes,
+            );
+        if artifact.seed_output_binding != expected_seed_output_binding {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result seed output binding is invalid".to_string(),
+            ));
+        }
+        let expected_evaluation_digest =
+            crate::protocol::transcript::compute_evaluation_digest_from_output_commitments(
+                finalize_context.artifact.artifact_digest,
+                expected_run_binding,
+                &finalize_context.execution_result,
+                finalize_state.output.canonical_seed_commitment,
+                artifact.client_output_value_kind,
+                artifact.client_output_commitment,
+                crate::protocol::transcript::server_output_value_commitment(
+                    &finalize_state.output.x_server_base_left,
+                    &finalize_state.output.x_server_base_right,
+                )?,
+                artifact.output_projector_binding,
+            );
+        if artifact.bindings.evaluation_digest != expected_evaluation_digest {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result digest does not match server output".to_string(),
+            ));
+        }
+        let server_output_message = self.seal_server_output_packet_message(
+            artifact.bindings.run_binding,
+            artifact.bindings.evaluation_digest,
+            &finalize_state.output.x_server_base_left,
+            &finalize_state.output.x_server_base_right,
+        )?;
+        let output_delivery = OutputDelivery {
+            client: artifact.client_output.clone(),
+            seed: artifact.seed_output.clone(),
+            server: server_output_message,
+        };
+        let report = EvaluationReport {
+            report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+            backend_version: self.backend_version,
+            backend_family: crate::candidate::CandidateBackendFamily::PrimeOrderSizeOptimized,
+            fixed_function_id: finalize_context.fixed_function_id.clone(),
+            hidden_core_materialization: HiddenCoreMaterialization::DdhPrimitiveBaseline,
+            artifact: finalize_context.artifact.clone(),
+            bindings: artifact.bindings.clone(),
+            projection_mode: artifact.projection_mode.clone(),
+            output_projector_binding: artifact.output_projector_binding,
+            evaluator_witness: artifact.evaluator_witness.clone(),
+            output_delivery,
+            notes: vec![
+                "Prepared session is bound to the encoded prime-order artifact and its compiled evaluator program.".to_string(),
+                "Per-run input sharing and transcript binding now run through the DDH primitive baseline owned by the prepared session.".to_string(),
+                "The DDH transport/output surface is now split into garbler/evaluator role views instead of one undifferentiated transport backend.".to_string(),
+                "The hidden evaluator now consumes pre-shared bit bundles instead of reconstructing clear F_expand inputs inside the executor.".to_string(),
+                "Evaluator-side execution now emits a staged evaluator artifact that the garbler finalizes into the server output packet and final report.".to_string(),
+                "Output delivery now seals the hidden client/server base-share bundles directly; clear output bytes are only materialized through role-gated openers.".to_string(),
+                "This report is built on the current DDH primitive foundation; remaining work is final 2-party delivery semantics, security review, and performance hardening.".to_string(),
+            ],
+        };
+        let allowed_output_kind =
+            ServerSession::allowed_output_kind_for_operation(server_eval_state.operation);
+        let seed_output = match allowed_output_kind {
+            crate::wire::AllowedOutputKind::ClientOutputOnly => None,
+            crate::wire::AllowedOutputKind::ClientOutputAndSeedOutput => {
+                Some(report.output_delivery.seed.clone())
+            }
+        };
+        Ok((
+            ServerFinalizePacket {
+                context_binding: self.context_binding,
+                server_eval_handle: server_eval_state.handle,
+                final_transcript_digest: server_eval_state.current_transcript_digest,
+                allowed_output_kind,
+                projection_mode: artifact.projection_mode.clone(),
+                client_output: report.output_delivery.client.clone(),
+                seed_output,
+            },
+            report,
+        ))
+    }
 }
 
 impl ServerDriverState {
+    fn validate_advance_runtime(&self) -> ProtoResult<()> {
+        let context_binding = self.runtime.prepared_context.binding_digest()?;
+        let evaluation_key = self.garbler_session.ddh_garbler.evaluation_key();
+        if self.advance_runtime.context_binding != context_binding {
+            return Err(ProtoError::InvalidInput(
+                "server advance runtime context binding does not match prepared runtime"
+                    .to_string(),
+            ));
+        }
+        if self.advance_runtime.projection_mode != self.runtime.projection_mode {
+            return Err(ProtoError::InvalidInput(
+                "server advance runtime projection mode does not match prepared runtime"
+                    .to_string(),
+            ));
+        }
+        if self.advance_runtime.artifact.context_binding != context_binding {
+            return Err(ProtoError::InvalidInput(
+                "server advance artifact context binding does not match prepared runtime"
+                    .to_string(),
+            ));
+        }
+        if self.advance_runtime.finalize_context.context_binding != context_binding {
+            return Err(ProtoError::InvalidInput(
+                "server advance finalize context binding does not match prepared runtime"
+                    .to_string(),
+            ));
+        }
+        if self.advance_runtime.finalize_context.artifact != self.advance_runtime.artifact {
+            return Err(ProtoError::InvalidInput(
+                "server advance finalize context artifact does not match advance artifact"
+                    .to_string(),
+            ));
+        }
+        if self.garbler_session.context_binding != context_binding {
+            return Err(ProtoError::InvalidInput(
+                "server advance garbler session context binding does not match prepared runtime"
+                    .to_string(),
+            ));
+        }
+        if evaluation_key.context_binding != context_binding {
+            return Err(ProtoError::InvalidInput(
+                "server advance evaluation key context binding does not match prepared runtime"
+                    .to_string(),
+            ));
+        }
+        if evaluation_key.candidate_digest != self.advance_runtime.artifact.candidate_digest {
+            return Err(ProtoError::InvalidInput(
+                "server advance evaluation key candidate digest does not match artifact"
+                    .to_string(),
+            ));
+        }
+        if evaluation_key.program_digest != self.advance_runtime.program_digest {
+            return Err(ProtoError::InvalidInput(
+                "server advance evaluation key program digest does not match advance program"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn materialize(&self) -> ProtoResult<(SharedRuntime, ServerSession)> {
         Ok((
             self.runtime.materialize()?,
+            self.garbler_session.materialize()?,
+        ))
+    }
+
+    pub fn advance_runtime_context(&self) -> ProtoResult<SharedRuntimeAdvanceContext> {
+        self.validate_advance_runtime()?;
+        Ok(self.advance_runtime.clone())
+    }
+
+    pub fn advance_runtime_material(&self) -> ProtoResult<SharedRuntimeAdvanceMaterial> {
+        self.validate_advance_runtime()?;
+        let material = self.advance_runtime.materialize()?;
+        if self
+            .garbler_session
+            .ddh_garbler
+            .evaluation_key()
+            .primitive_kind
+            != material.hidden_eval_program.primitive_kind
+        {
+            return Err(ProtoError::InvalidInput(
+                "server advance evaluation key primitive kind does not match advance program"
+                    .to_string(),
+            ));
+        }
+        Ok(material)
+    }
+
+    pub fn materialize_for_advance(
+        &self,
+    ) -> ProtoResult<(SharedRuntimeAdvanceMaterial, ServerSession)> {
+        Ok((
+            self.advance_runtime_material()?,
             self.garbler_session.materialize()?,
         ))
     }
@@ -224,6 +579,21 @@ impl ServerSession {
         state: &ServerEvalState,
         request: &ClientStageRequestPacket,
     ) -> ProtoResult<ServerEvalState> {
+        self.materialize_execution_state_from_add_stage_request_with_program(
+            &runtime.hidden_eval_program,
+            evaluator_session,
+            state,
+            request,
+        )
+    }
+
+    pub(crate) fn materialize_execution_state_from_add_stage_request_with_program(
+        &self,
+        hidden_eval_program: &HiddenEvalProgram,
+        evaluator_session: &crate::client::ClientSession,
+        state: &ServerEvalState,
+        request: &ClientStageRequestPacket,
+    ) -> ProtoResult<ServerEvalState> {
         if state.execution_state.is_some() {
             return Ok(state.clone());
         }
@@ -273,7 +643,7 @@ impl ServerSession {
         let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         let staged_materialization =
             materialize_staged_server_execution_with_split_server_inputs_with_pool(
-                &runtime.hidden_eval_program,
+                hidden_eval_program,
                 &evaluator_session.ddh_evaluator,
                 &hidden_eval_constants,
                 &y_client_bundle,
@@ -282,7 +652,7 @@ impl ServerSession {
                 &server_inputs.tau_server_bits,
             )?;
         Ok(state.with_add_stage_materialization(
-            runtime.hidden_eval_program.clone(),
+            hidden_eval_program.clone(),
             staged_materialization.message_schedule,
             staged_materialization.projector_inputs,
             staged_materialization.client_input_commitment,
@@ -610,6 +980,37 @@ impl ServerSession {
         let state = if state.execution_state.is_none() {
             self.materialize_execution_state_from_add_stage_request(
                 runtime,
+                evaluator_session,
+                state,
+                &request,
+            )?
+        } else {
+            state.clone()
+        };
+        let (response, next_state) = self.prepare_add_stage_response(&state, &request)?;
+        let message = crate::wire::encode_transport_message(
+            self.context_binding,
+            TransportKind::ServerStageResponse,
+            &response,
+        )?;
+        Ok((message, next_state))
+    }
+
+    pub fn prepare_add_stage_response_message_with_program(
+        &self,
+        hidden_eval_program: &HiddenEvalProgram,
+        evaluator_session: &crate::client::ClientSession,
+        state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientStageRequest,
+            client_stage_request_message,
+        )?;
+        let state = if state.execution_state.is_none() {
+            self.materialize_execution_state_from_add_stage_request_with_program(
+                hidden_eval_program,
                 evaluator_session,
                 state,
                 &request,

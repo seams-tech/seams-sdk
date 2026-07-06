@@ -8,7 +8,6 @@ use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::Identity;
-#[cfg(not(target_arch = "wasm32"))]
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
@@ -51,7 +50,7 @@ pub struct PrimeOrderCpuExecutionStep {
     pub normalization_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeOrderCpuExecutionResult {
     pub total_steps: usize,
     pub output_checksum: u64,

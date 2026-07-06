@@ -45,8 +45,12 @@ impl PreparedSession {
 
     pub fn garbler_driver_state(&self) -> ServerDriverState {
         let garbler_session = self.garbler_session();
+        let program_digest = self.ddh_backend().evaluation_key().program_digest;
         ServerDriverState {
             runtime: self.shared_runtime_state(),
+            advance_runtime: self
+                .shared_runtime()
+                .advance_context(program_digest, self.artifact_bytes().to_vec()),
             garbler_session: crate::server::ServerSessionState {
                 backend_version: garbler_session.ddh_garbler.evaluation_key().backend_version,
                 context_binding: garbler_session.context_binding,

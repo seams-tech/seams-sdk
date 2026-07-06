@@ -12,7 +12,7 @@ use crate::ddh::{
     DdhHssBackendVersion, DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle,
     DdhHssTransportBundle, HiddenEvalProgram,
 };
-use crate::runtime::SharedRuntimeState;
+use crate::runtime::{SharedRuntimeAdvanceContext, SharedRuntimeState};
 use crate::wire::{ClientOtOffer, OtTranscript, ServerEvalHandle, ServerEvalStageId, TranscriptId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +47,7 @@ pub struct ServerSessionState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerDriverState {
     pub runtime: SharedRuntimeState,
+    pub advance_runtime: SharedRuntimeAdvanceContext,
     pub garbler_session: ServerSessionState,
 }
 

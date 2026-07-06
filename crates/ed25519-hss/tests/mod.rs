@@ -2,6 +2,8 @@
 mod artifact_runtime;
 #[path = "boundary/mod.rs"]
 mod boundary;
+#[path = "covert_security_design/mod.rs"]
+mod covert_security_design;
 #[path = "fixtures_candidate/mod.rs"]
 mod fixtures_candidate;
 #[path = "formal_verification/mod.rs"]
