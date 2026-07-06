@@ -299,11 +299,16 @@ Do:
   state.
 - Make `classifyRouterAbEd25519PersistedSigningRecord` emit inactive state
   before `runtime_validated`, `restore_available`, or material-hint branches.
-  Previously validated worker material may remain restorable local material,
-  but it must not carry an active wallet-session value after session expiry.
-- Use one operation clock. The caller supplies `nowMs` once per signing/export
-  operation and threads it through active-state parsing, readiness, lane
-  selection, and restore planning instead of re-sampling time at each branch.
+  Expired or exhausted wallet-session authority does not expose restore material
+  from the persisted-state union; reauth or step-up must mint fresh authority
+  before local material can be used again. This is intentionally stricter than
+  preserving restore metadata on inactive branches and can route expired-session
+  recovery through the slower unlock-class path.
+- Use one operation clock for transaction readiness and trusted budget-auth
+  derivation. The caller supplies `nowMs` once for the signing operation and
+  threads it through active-state parsing for those decisions. Later restore
+  identity checks and server RPCs remain defense-in-depth checks and may observe
+  later wall-clock state.
 - Update NEAR readiness, persisted available-lane policy, selected-lane
   capability reads, material restore, seal restore, reconnect planning, and
   implicit NEAR funding helpers to consume the inactive branch instead of

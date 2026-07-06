@@ -1,14 +1,16 @@
 {
-  "updated_at": "2026-06-29T00:03:49Z",
+  "updated_at": "2026-07-06T00:04:08Z",
   "audited_files": [
     "crates/router-ab-core/src/protocol/ecdsa_hss.rs",
     "packages/shared-ts/src/utils/routerAbEcdsaHss.ts",
-    "packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts"
+    "packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts",
+    "packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts"
   ],
   "audited_flows": [
     "Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary",
     "Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity",
-    "Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding"
+    "Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding",
+    "Wallet SDK Router A/B Ed25519 wallet-session authority parsing, persisted-state classification, runtime worker-material validation, and NEAR readiness gating"
   ],
   "entries": [
     {
@@ -86,6 +88,31 @@
         "Wallet SDK Router A/B Ed25519 wallet-session rehydration and runtime material validation keys",
         "Cloudflare SigningWorker Ed25519 finalize materialization and explicit share-consistency invariant tests",
         "Cloudflare Router Ed25519 prepare/finalize budget operation binding and finalize metadata validation"
+      ]
+    },
+    {
+      "timestamp": "2026-07-06T00:04:08Z",
+      "target_file": "packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts",
+      "flow": "Wallet SDK Router A/B Ed25519 wallet-session authority parsing, persisted-state classification, runtime worker-material validation, and NEAR readiness gating",
+      "report_path": "docs/auto-audit/2026-07-06T00-04-08Z-sdk-web-router-ab-wallet-session-state.md",
+      "finding_counts": {
+        "security": 1,
+        "refactor": 3,
+        "total": 4
+      },
+      "highest_severity": "medium",
+      "highest_severity_findings": [
+        "Expired Ed25519 wallet sessions still parse as signable and can survive as runtime_validated ready state"
+      ],
+      "recommended_next_files": [
+        "packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts",
+        "packages/sdk-web/src/core/signingEngine/session/persistence/records.ts",
+        "packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts"
+      ],
+      "recommended_next_flows": [
+        "Wallet SDK NEAR Ed25519 readiness, reconnect, and lane-planning branches that trust persisted Router A/B state",
+        "Wallet SDK Ed25519 canonical session-record persistence and current-session commit lifetime policy",
+        "Wallet SDK threshold warm-session bootstrap and Ed25519 fact upsert flow"
       ]
     }
   ]

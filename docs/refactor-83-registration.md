@@ -751,6 +751,13 @@ Do:
       returns the same typed provisioning result used by reconstruction. The
       path canonicalizes candidate facts before activation and falls back to HSS
       reconstruction only when no exact sealed record is available.
+      Updated July 6, 2026: the combined Email OTP ECDSA unlock path now uses
+      the same sealed Ed25519 activation helper before falling back to HSS
+      reconstruction when `ed25519ReconstructionMode` is `await`. This reduces
+      reconstruction frequency for Tempo/Arc unlocks that already have an
+      exact restorable Ed25519 session record. Validation:
+      `pnpm -C packages/sdk-web exec tsc -p tsconfig.build.json --noEmit` and
+      `node tests/scripts/check-registration-capability-subjects.mjs`.
 - [x] Inventory ECDSA unlock activation and verify it restores one wallet-key
       role-local material record for EVM-family targets instead of doing
       per-chain duplicate material work.

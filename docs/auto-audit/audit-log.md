@@ -1,32 +1,34 @@
 # Auto Audit Log
 
-Last updated: `2026-06-29T00:03:49Z`
+Last updated: `2026-07-06T00:04:08Z`
 
 ## Latest Entry
 
-- Timestamp: `2026-06-29T00:03:49Z`
-- Target file: `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts`
-- Flow: `Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding`
-- Report: [`/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-06-29T00-03-49Z-sdk-web-router-ab-normal-signing.md`](/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-06-29T00-03-49Z-sdk-web-router-ab-normal-signing.md)
+- Timestamp: `2026-07-06T00:04:08Z`
+- Target file: `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- Flow: `Wallet SDK Router A/B Ed25519 wallet-session authority parsing, persisted-state classification, runtime worker-material validation, and NEAR readiness gating`
+- Report: [`/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-07-06T00-04-08Z-sdk-web-router-ab-wallet-session-state.md`](/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-07-06T00-04-08Z-sdk-web-router-ab-wallet-session-state.md)
 - Findings:
-  - Security: `2`
-  - Refactor/slimming: `2`
+  - Security: `1`
+  - Refactor/slimming: `3`
 - Highest severity: `medium`
 - Highest-severity items:
-  - Ed25519 prepare responses are not request-bound before the SDK uses `server_verifying_share_b64u`, `server_commitments`, and budget metadata.
+  - Expired Ed25519 wallet sessions still parse as signable and can survive as `runtime_validated` ready state.
 - Next audit candidates:
-  - `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-  - `crates/router-ab-cloudflare/src/signing_worker/mod.rs`
-  - `crates/router-ab-cloudflare/src/lib.rs`
+  - `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
+  - `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
+  - `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
 
 ## Audited Files
 
 - `crates/router-ab-core/src/protocol/ecdsa_hss.rs`
 - `packages/shared-ts/src/utils/routerAbEcdsaHss.ts`
 - `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts`
+- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
 
 ## Audited Flows
 
 - `Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary`
 - `Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity`
 - `Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding`
+- `Wallet SDK Router A/B Ed25519 wallet-session authority parsing, persisted-state classification, runtime worker-material validation, and NEAR readiness gating`
