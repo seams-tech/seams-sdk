@@ -3,10 +3,6 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { RegistrationErrorCode } from '@/core/types/seams';
 import { isObject } from '@shared/utils/validation';
 
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).length;
-}
-
 const REGISTRATION_FAILURE_CODES: readonly RegistrationErrorCode[] = [
   'secret_key_missing',
   'secret_key_invalid',
@@ -394,17 +390,12 @@ export async function createManagedRegistrationFlowGrant(args: {
   if (registrationTransport.mode !== 'managed') {
     throw new Error('Managed registration flow grants require managed registration transport');
   }
-  const grantStartedAt = performance.now();
   const grant = await requestManagedRegistrationFlowGrant({
     relayerUrl: registrationTransport.relayerUrl,
     publishableKey: registrationTransport.publishableKey,
     environmentId: registrationTransport.projectEnvironmentId,
     identity: args.identity,
     authority: args.authority,
-  });
-  console.debug('[Registration] managed registration flow grant issued', {
-    durationMs: Math.round(performance.now() - grantStartedAt),
-    requestBytes: args.authority.kind === 'passkey_rp' ? utf8Bytes(args.authority.rpId) : 0,
   });
   return grant;
 }

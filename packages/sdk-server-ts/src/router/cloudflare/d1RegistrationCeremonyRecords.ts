@@ -2090,10 +2090,79 @@ export function buildD1EcdsaWalletKeysFromBootstrap(input: {
     if (!walletKey.ok) return walletKey;
     walletKeys.push(walletKey.walletKey);
   }
+  const sharedMaterial = requireSharedD1EvmFamilyWalletKeyMaterial({
+    walletKeys,
+    errorContext: input.errorContext,
+  });
+  if (!sharedMaterial.ok) return sharedMaterial;
   return {
     ok: true,
     walletKeys,
   };
+}
+
+function requireSharedD1EvmFamilyWalletKeyMaterial(input: {
+  readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+  readonly errorContext: string;
+}):
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly code: 'incomplete_ecdsa_wallet_key';
+      readonly message: string;
+    } {
+  const first = input.walletKeys[0];
+  if (!first) return { ok: true };
+  for (const walletKey of input.walletKeys.slice(1)) {
+    const mismatch = firstD1EvmFamilyWalletKeyMaterialMismatch(first, walletKey);
+    if (!mismatch) continue;
+    return {
+      ok: false,
+      code: 'incomplete_ecdsa_wallet_key',
+      message: `${input.errorContext} returned partitioned EVM-family wallet key material: ${mismatch}`,
+    };
+  }
+  return { ok: true };
+}
+
+function firstD1EvmFamilyWalletKeyMaterialMismatch(
+  left: WalletRegistrationEcdsaWalletKey,
+  right: WalletRegistrationEcdsaWalletKey,
+): string | null {
+  if (left.keyScope !== 'evm-family' || right.keyScope !== 'evm-family') return 'keyScope';
+  if (left.walletId !== right.walletId) return 'walletId';
+  if (left.evmFamilySigningKeySlotId !== right.evmFamilySigningKeySlotId) {
+    return 'evmFamilySigningKeySlotId';
+  }
+  if (left.keyHandle !== right.keyHandle) return 'keyHandle';
+  if (left.ecdsaThresholdKeyId !== right.ecdsaThresholdKeyId) return 'ecdsaThresholdKeyId';
+  if (left.signingRootId !== right.signingRootId) return 'signingRootId';
+  if (left.signingRootVersion !== right.signingRootVersion) return 'signingRootVersion';
+  if (left.thresholdEcdsaPublicKeyB64u !== right.thresholdEcdsaPublicKeyB64u) {
+    return 'thresholdEcdsaPublicKeyB64u';
+  }
+  if (
+    normalizeD1EvmFamilyOwnerAddress(left.thresholdOwnerAddress) !==
+    normalizeD1EvmFamilyOwnerAddress(right.thresholdOwnerAddress)
+  ) {
+    return 'thresholdOwnerAddress';
+  }
+  if (left.relayerKeyId !== right.relayerKeyId) return 'relayerKeyId';
+  if (left.relayerVerifyingShareB64u !== right.relayerVerifyingShareB64u) {
+    return 'relayerVerifyingShareB64u';
+  }
+  if (d1EvmFamilyParticipantKey(left.participantIds) !== d1EvmFamilyParticipantKey(right.participantIds)) {
+    return 'participantIds';
+  }
+  return null;
+}
+
+function normalizeD1EvmFamilyOwnerAddress(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function d1EvmFamilyParticipantKey(participantIds: readonly number[]): string {
+  return participantIds.join(',');
 }
 
 function buildD1EcdsaWalletKeyFromBootstrap(input: {

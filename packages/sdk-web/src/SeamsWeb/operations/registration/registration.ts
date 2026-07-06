@@ -1946,7 +1946,6 @@ function plannedEvmFamilySigningKeySlotIdFromRegistrationIntent(intent: {
     envId: string;
     signingRootVersion?: string;
   };
-  chainTarget: ThresholdEcdsaChainTarget;
 }): string {
   const runtimePolicyScope = intent.runtimePolicyScope;
   if (!runtimePolicyScope?.signingRootVersion) {
@@ -1956,7 +1955,6 @@ function plannedEvmFamilySigningKeySlotIdFromRegistrationIntent(intent: {
     walletId: intent.walletId,
     signingRootId: deriveSigningRootId(runtimePolicyScope),
     signingRootVersion: runtimePolicyScope.signingRootVersion,
-    chainTarget: intent.chainTarget,
   });
 }
 
@@ -1991,7 +1989,6 @@ function emailOtpRegistrationEcdsaRootTargetsFromBranch(args: {
       evmFamilySigningKeySlotId: plannedEvmFamilySigningKeySlotIdFromRegistrationIntent({
         walletId: args.walletId,
         runtimePolicyScope: args.runtimePolicyScope,
-        chainTarget,
       }),
     });
   }
@@ -2283,6 +2280,7 @@ function createFailedRegistrationTimingSummary(input: {
 }
 
 function emitRegistrationTimingSummary(summary: RegistrationTimingSummary): void {
+  if (!isRegistrationBenchmarkDiagnosticsEnabled()) return;
   console.info(REGISTRATION_TIMING_LABEL, summary);
   console.info(`${REGISTRATION_TIMING_LABEL} ${JSON.stringify(summary)}`);
 }
@@ -3145,12 +3143,70 @@ function buildRegistrationPersistenceEcdsa(args: {
   if (!firstSession) {
     throw new Error('ECDSA registration persistence requires session material');
   }
+  assertSharedRegistrationEvmFamilyWalletKeyMaterial(args.walletKeys);
   return {
     kind: 'evm_family_ecdsa',
     sessions: [firstSession, ...remainingSessions],
     walletKeys: [firstWalletKey, ...remainingWalletKeys],
     expectedChainTargets: args.expectedChainTargets,
   };
+}
+
+function assertSharedRegistrationEvmFamilyWalletKeyMaterial(
+  walletKeys: readonly WalletRegistrationEcdsaWalletKey[],
+): void {
+  const first = walletKeys[0];
+  if (!first) return;
+  for (const walletKey of walletKeys.slice(1)) {
+    const mismatch = firstRegistrationEvmFamilyWalletKeyMaterialMismatch(first, walletKey);
+    if (!mismatch) continue;
+    throw new Error(
+      `ECDSA registration returned partitioned EVM-family wallet key material: ${mismatch}`,
+    );
+  }
+}
+
+function firstRegistrationEvmFamilyWalletKeyMaterialMismatch(
+  left: WalletRegistrationEcdsaWalletKey,
+  right: WalletRegistrationEcdsaWalletKey,
+): string | null {
+  if (left.keyScope !== 'evm-family' || right.keyScope !== 'evm-family') return 'keyScope';
+  if (left.walletId !== right.walletId) return 'walletId';
+  if (left.evmFamilySigningKeySlotId !== right.evmFamilySigningKeySlotId) {
+    return 'evmFamilySigningKeySlotId';
+  }
+  if (left.keyHandle !== right.keyHandle) return 'keyHandle';
+  if (left.ecdsaThresholdKeyId !== right.ecdsaThresholdKeyId) return 'ecdsaThresholdKeyId';
+  if (left.signingRootId !== right.signingRootId) return 'signingRootId';
+  if (left.signingRootVersion !== right.signingRootVersion) return 'signingRootVersion';
+  if (left.thresholdEcdsaPublicKeyB64u !== right.thresholdEcdsaPublicKeyB64u) {
+    return 'thresholdEcdsaPublicKeyB64u';
+  }
+  if (
+    normalizeRegistrationEvmFamilyOwnerAddress(left.thresholdOwnerAddress) !==
+    normalizeRegistrationEvmFamilyOwnerAddress(right.thresholdOwnerAddress)
+  ) {
+    return 'thresholdOwnerAddress';
+  }
+  if (left.relayerKeyId !== right.relayerKeyId) return 'relayerKeyId';
+  if (left.relayerVerifyingShareB64u !== right.relayerVerifyingShareB64u) {
+    return 'relayerVerifyingShareB64u';
+  }
+  if (
+    registrationEvmFamilyParticipantKey(left.participantIds) !==
+    registrationEvmFamilyParticipantKey(right.participantIds)
+  ) {
+    return 'participantIds';
+  }
+  return null;
+}
+
+function normalizeRegistrationEvmFamilyOwnerAddress(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function registrationEvmFamilyParticipantKey(participantIds: readonly number[]): string {
+  return participantIds.join(',');
 }
 
 type PreparedRegistrationEcdsaTarget = {
@@ -3225,11 +3281,15 @@ function registrationEcdsaClientBootstrapEntries(
 function registrationEcdsaExpectedKeyHandles(
   sessions: readonly RegistrationEcdsaSession[],
 ): string[] {
-  const keyHandles: string[] = [];
+  const keyHandles = new Set<string>();
   for (const session of sessions) {
-    keyHandles.push(session.bootstrap.keyHandle);
+    const keyHandle = String(session.bootstrap.keyHandle || '').trim();
+    if (!keyHandle) {
+      throw new Error('Registration ECDSA session is missing keyHandle');
+    }
+    keyHandles.add(keyHandle);
   }
-  return keyHandles;
+  return Array.from(keyHandles);
 }
 
 function buildRegistrationPersistencePlan(args: {
@@ -5144,7 +5204,6 @@ export async function addWalletSigner(args: {
   const walletId = walletIdFromString(String(args.walletId || '').trim());
   const eventAccountId = registrationEventAccountId(String(walletId));
   const rpIdRaw = String(args.rpId || '').trim();
-  const startedAt = performance.now();
 
   if (!walletId) {
     throw new Error('addWalletSigner requires walletId');
@@ -5404,10 +5463,6 @@ export async function addWalletSigner(args: {
         nearEd25519SigningKeyId,
         operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
       };
-      console.info('[Registration] add-signer flow timings', {
-        walletId: String(walletId),
-        totalMs: Math.round(performance.now() - startedAt),
-      });
       afterCall?.(true, result);
       return result;
     }
@@ -5513,10 +5568,6 @@ export async function addWalletSigner(args: {
       thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
       thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
     };
-    console.info('[Registration] add-signer flow timings', {
-      walletId: String(walletId),
-      totalMs: Math.round(performance.now() - startedAt),
-    });
     afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
@@ -5542,11 +5593,6 @@ export async function addWalletSigner(args: {
       error: errorMessage,
       ...(errorCode ? { errorCode } : {}),
     };
-    console.info('[Registration] add-signer flow timings', {
-      walletId: String(walletId),
-      totalMs: Math.round(performance.now() - startedAt),
-      failed: true,
-    });
     afterCall?.(false);
     return result;
   }

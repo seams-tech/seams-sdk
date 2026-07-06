@@ -33,7 +33,6 @@ const serverPlannedContext = parseServerPlannedEcdsaHssContext({
     walletId: 'wallet-user',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
-    chainTargetKey: 'evm:eip155:1',
   }),
   chainTarget: {
     kind: 'evm',
@@ -87,7 +86,6 @@ void ({
     walletId: 'wallet-user',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
-    chainTargetKey: 'evm:eip155:1',
   }),
 } satisfies ThresholdEcdsaHssStableKeyContext);
 

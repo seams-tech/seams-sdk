@@ -72,7 +72,6 @@ const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
-  chainTargetKey: 'evm:eip155:1',
 });
 const genericWalletKeyIdResult = parseWalletKeyId('wallet-key-generic');
 if (!genericWalletKeyIdResult.ok) throw new Error(genericWalletKeyIdResult.error.message);

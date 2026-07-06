@@ -638,17 +638,25 @@ function withD1RegistrationHssAdvanceStateDiagnostics(
   };
 }
 
-function hasUnexpectedKeyHandle(
+function normalizedKeyHandleSet(keyHandles: readonly string[]): Set<string> {
+  const normalized = new Set<string>();
+  for (const keyHandle of keyHandles) {
+    const value = String(keyHandle || '').trim();
+    if (value) normalized.add(value);
+  }
+  return normalized;
+}
+
+export function hasEcdsaKeyHandleSetMismatch(
   expectedKeyHandles: readonly string[],
   actualKeyHandles: readonly string[],
 ): boolean {
   if (expectedKeyHandles.length === 0) return false;
-  const expected = new Set(expectedKeyHandles.map((keyHandle) => String(keyHandle || '').trim()));
-  if (expected.size !== expectedKeyHandles.length || expected.size !== actualKeyHandles.length) {
-    return true;
-  }
-  for (const keyHandle of actualKeyHandles) {
-    if (!expected.has(String(keyHandle || '').trim())) return true;
+  const expected = normalizedKeyHandleSet(expectedKeyHandles);
+  const actual = normalizedKeyHandleSet(actualKeyHandles);
+  if (expected.size !== actual.size) return true;
+  for (const keyHandle of expected) {
+    if (!actual.has(keyHandle)) return true;
   }
   return false;
 }
@@ -1999,7 +2007,7 @@ export class CloudflareD1WalletRegistrationService {
           const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
             String(entry.bootstrap.keyHandle || '').trim(),
           );
-          if (hasUnexpectedKeyHandle(expectedKeyHandles, actualKeyHandles)) {
+          if (hasEcdsaKeyHandleSetMismatch(expectedKeyHandles, actualKeyHandles)) {
             return {
               ok: false,
               code: 'key_handle_mismatch',
@@ -2526,7 +2534,7 @@ export class CloudflareD1WalletRegistrationService {
       const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
         String(entry.bootstrap.keyHandle || '').trim(),
       );
-      if (hasUnexpectedKeyHandle(expectedKeyHandles, actualKeyHandles)) {
+      if (hasEcdsaKeyHandleSetMismatch(expectedKeyHandles, actualKeyHandles)) {
         return {
           ok: false,
           code: 'key_handle_mismatch',

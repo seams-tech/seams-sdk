@@ -45,24 +45,23 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     };
   }
   const targets: WalletRegistrationEcdsaPreparePayload['targets'] = [];
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: input.walletId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+  });
+  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+    walletId: input.walletId,
+    evmFamilySigningKeySlotId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+  });
+  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+    walletId: input.walletId,
+    evmFamilySigningKeySlotId,
+  });
   for (const chainTarget of input.chainTargets) {
     const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
-      walletId: input.walletId,
-      signingRootId: input.signingRootId,
-      signingRootVersion: input.signingRootVersion,
-      chainTargetKey,
-    });
-    const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-      walletId: input.walletId,
-      evmFamilySigningKeySlotId,
-      signingRootId: input.signingRootId,
-      signingRootVersion: input.signingRootVersion,
-    });
-    const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-      walletId: input.walletId,
-      evmFamilySigningKeySlotId,
-    });
     targets.push({
       chainTarget,
       prepare: {

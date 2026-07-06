@@ -23,7 +23,7 @@ function keyPart(value: unknown): string {
 function isEvmFamilySigningKeySlotIdShape(value: string): boolean {
   const parts = value.split(':');
   return (
-    parts.length === 6 &&
+    parts.length === 5 &&
     parts[0] === 'wallet-key' &&
     parts[1] === 'evm-family' &&
     parts.slice(2).every((part) => part.length > 0)
@@ -41,7 +41,7 @@ export function parseEvmFamilySigningKeySlotId(
       error: {
         code: 'invalid',
         message:
-          'EVM-family signing key slot id must be wallet-key:evm-family:<walletId>:<signingRootId>:<signingRootVersion>:<chainTargetKey>',
+          'EVM-family signing key slot id must be wallet-key:evm-family:<walletId>:<signingRootId>:<signingRootVersion>',
       },
     };
   }
@@ -91,7 +91,6 @@ export function assertEvmFamilySigningKeySlotIdMatchesPlan(args: {
   walletId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
-  chainTargetKey: unknown;
   message?: string;
 }): EvmFamilySigningKeySlotId {
   const actual = requireEvmFamilySigningKeySlotId(args.evmFamilySigningKeySlotId);
@@ -99,11 +98,10 @@ export function assertEvmFamilySigningKeySlotIdMatchesPlan(args: {
     walletId: args.walletId,
     signingRootId: args.signingRootId,
     signingRootVersion: args.signingRootVersion,
-    chainTargetKey: args.chainTargetKey,
   });
   if (String(actual) !== String(expected)) {
     throw new Error(
-      args.message || 'signing key slot id does not match wallet/signing-root/target scope',
+      args.message || 'signing key slot id does not match wallet/signing-root scope',
     );
   }
   return actual;
@@ -113,7 +111,6 @@ export function deriveEvmFamilySigningKeySlotId(input: {
   walletId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
-  chainTargetKey: unknown;
 }): EvmFamilySigningKeySlotId {
   const raw = [
     'wallet-key',
@@ -121,7 +118,6 @@ export function deriveEvmFamilySigningKeySlotId(input: {
     keyPart(input.walletId),
     keyPart(input.signingRootId),
     keyPart(input.signingRootVersion),
-    keyPart(input.chainTargetKey),
   ].join(':');
   return requireEvmFamilySigningKeySlotId(raw);
 }
