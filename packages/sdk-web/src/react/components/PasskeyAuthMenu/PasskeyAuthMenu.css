@@ -305,6 +305,11 @@
   user-select: none;
 }
 
+.seams-passkey-registration-btn.is-activation-mounting {
+  cursor: progress;
+  opacity: 0.85;
+}
+
 .seams-passkey-registration-btn > span {
   pointer-events: none;
 }

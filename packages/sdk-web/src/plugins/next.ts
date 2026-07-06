@@ -8,7 +8,7 @@
 //   "style-src-attr 'none'", and allow only 'wasm-unsafe-eval' for wallet WASM compilation.
 
 import { buildPermissionsPolicy, buildWalletCsp, type CspMode } from './headers';
-import { sanitizeOrigins } from './plugin-utils';
+import { parseConfiguredRorOrigins, resolveRorOrigins } from './plugin-utils';
 
 export type NextHeader = { key: string; value: string };
 export type NextHeaderEntry = { source: string; headers: NextHeader[] };
@@ -114,17 +114,19 @@ export function seamsNextWallet(opts: {
 
 type RorOpts = {
   origins?: string[];
+  docsOrigin?: string;
+  walletOrigin?: string;
 };
 
 function resolveRorParams(opts: RorOpts) {
-  return sanitizeOrigins([
-    ...(opts.origins || []),
-    ...String(process.env.VITE_ROR_ALLOWED_ORIGINS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-    String(process.env.VITE_DOCS_ORIGIN || '').trim(),
-  ]);
+  return resolveRorOrigins({
+    configuredOrigins: [
+      ...(opts.origins || []),
+      ...parseConfiguredRorOrigins(String(process.env.VITE_ROR_ALLOWED_ORIGINS || '')),
+    ],
+    docsOrigin: opts.docsOrigin ?? String(process.env.VITE_DOCS_ORIGIN || ''),
+    walletOrigin: opts.walletOrigin ?? String(process.env.VITE_WALLET_ORIGIN || ''),
+  });
 }
 
 /**

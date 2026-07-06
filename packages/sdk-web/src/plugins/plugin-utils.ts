@@ -217,6 +217,27 @@ export function sanitizeOrigins(values: unknown): string[] {
   return Array.from(out);
 }
 
+export type RorOriginsInput = {
+  configuredOrigins: readonly string[];
+  docsOrigin: string;
+  walletOrigin: string;
+};
+
+export function parseConfiguredRorOrigins(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function resolveRorOrigins(input: RorOriginsInput): string[] {
+  return sanitizeOrigins([
+    ...input.configuredOrigins,
+    input.docsOrigin.trim(),
+    input.walletOrigin.trim(),
+  ]);
+}
+
 /**
  * Infer and set a proper Content-Type header for a given file path.
  * Shared by both app and wallet-iframe dev servers.

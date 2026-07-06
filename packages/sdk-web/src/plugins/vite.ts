@@ -8,7 +8,8 @@ import {
   applyCoepCorpIfNeeded,
   echoCorsFromRequest,
   logRorConfig,
-  sanitizeOrigins,
+  parseConfiguredRorOrigins,
+  resolveRorOrigins,
   toBasePath,
   resolveCoepMode,
   resolveSdkDistRoot,
@@ -287,13 +288,13 @@ export function seamsHeaders(opts: DevHeadersOptions = {}): VitePlugin {
   // Build headers via shared helpers to avoid drift.
   const permissionsPolicy = buildPermissionsPolicy(walletOrigin);
 
-  const rorOrigins = sanitizeOrigins([
-    ...String(process.env.VITE_ROR_ALLOWED_ORIGINS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-    String(process.env.VITE_DOCS_ORIGIN || '').trim(),
-  ]);
+  const rorOrigins = resolveRorOrigins({
+    configuredOrigins: parseConfiguredRorOrigins(
+      String(process.env.VITE_ROR_ALLOWED_ORIGINS || ''),
+    ),
+    docsOrigin: String(process.env.VITE_DOCS_ORIGIN || ''),
+    walletOrigin: walletOrigin || '',
+  });
   logRorConfig(rorOrigins);
 
   return {

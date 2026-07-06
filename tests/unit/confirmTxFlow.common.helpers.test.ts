@@ -70,6 +70,26 @@ test.describe('confirmTxFlow common helpers', () => {
     expect(result.ttl).toBe(7);
   });
 
+  test('WebAuthn RP ID origin failures are not secure-confirm cancellations', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.helpers);
+        const { isUserCancelledUserConfirm } =
+          mod as typeof import('@/core/signingEngine/stepUpConfirmation/channel/confirmCommon');
+        const error = new Error(
+          'The relying party ID is not a registrable domain suffix of, nor equal to the current domain, and the /.well-known/webauthn resource of the claimed RP ID failed.',
+        );
+        error.name = 'NotAllowedError';
+        return {
+          cancelled: isUserCancelledUserConfirm(error),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.cancelled).toBe(false);
+  });
+
   test('parseTransactionSummary parses JSON and falls back on invalid strings', async ({
     page,
   }) => {

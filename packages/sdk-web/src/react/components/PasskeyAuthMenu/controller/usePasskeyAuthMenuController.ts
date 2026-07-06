@@ -1420,14 +1420,20 @@ export function usePasskeyAuthMenuController(
           const walletId = String(result.walletId || '').trim();
           const displayAccountId = walletId;
           setMethodError('');
-          setWaiting(false);
-          setWaitingReason(null);
+          setWaiting(true);
+          setWaitingReason('passkey');
+          setPostRecoveryRotationPromptState(null);
+          setPostRecoveryRotationError('');
           closeLinkDeviceView('flow');
-          setMode(AuthMenuMode.Login);
           if (walletId) {
             const username = extractUsernameFromAccountId(displayAccountId);
             if (username) setCurrentValue(username);
-            void activationRefreshLoginState(walletId).catch(() => {});
+            void activationRefreshLoginState(walletId).catch(() => {
+              setWaiting(false);
+              setWaitingReason(null);
+              setMode(AuthMenuMode.Login);
+              setMethodError('Registration completed, but session refresh failed. Try signing in.');
+            });
           }
           return;
         }

@@ -105,6 +105,7 @@ export class WalletIframeCoordinator {
             getTheme: this.getTheme,
           });
 
+          this.ensureWalletIframePreferencesMirror(this.iframeRouter);
           await this.iframeRouter.init();
           // Opportunistically warm remote nonce context.
           try {
@@ -119,6 +120,7 @@ export class WalletIframeCoordinator {
         this.walletIframeInitInFlight = null;
       }
     } else {
+      this.ensureWalletIframePreferencesMirror(this.iframeRouter);
       await this.iframeRouter.init();
       // Opportunistically warm remote nonce context.
       try {
@@ -127,7 +129,6 @@ export class WalletIframeCoordinator {
     }
 
     if (this.iframeRouter) {
-      this.ensureWalletIframePreferencesMirror(this.iframeRouter);
       // Best-effort pull snapshot to cover missed events / older hosts.
       const cfg = await this.iframeRouter.getConfirmationConfig().catch(() => null);
       if (cfg) {

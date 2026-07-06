@@ -136,6 +136,20 @@ export class SeamsWebIframe {
     Parameters<PreferencesCapability['onConfirmationConfigChange']>[0]
   >();
 
+  private applyRemoteCurrentWalletId(walletId: string | null | undefined): void {
+    const normalizedWalletId = String(walletId || '').trim();
+    const nextWalletId = normalizedWalletId ? toWalletId(normalizedWalletId) : null;
+    if (String(this.currentWalletId || '') === String(nextWalletId || '')) return;
+    this.currentWalletId = nextWalletId;
+    for (const listener of this.currentWalletListeners) listener(nextWalletId);
+  }
+
+  private applyRemotePreferences(payload: PreferencesChangedPayload): void {
+    this.applyRemoteCurrentWalletId(payload.walletId);
+    const cfg = payload.confirmationConfig;
+    if (cfg) this.applyRemoteConfirmationConfig(cfg);
+  }
+
   // Expose a userPreferences shim so API matches SeamsWeb
   get userPreferences() {
     return {
@@ -479,15 +493,13 @@ export class SeamsWebIframe {
   }
 
   async initWalletIframe(): Promise<void> {
-    await this.router.init();
     if (!this.prefsUnsubscribe) {
       this.prefsUnsubscribe =
         this.router.onPreferencesChanged?.((payload: PreferencesChangedPayload) => {
-          const cfg = payload.confirmationConfig;
-          if (!cfg) return;
-          this.applyRemoteConfirmationConfig(cfg);
+          this.applyRemotePreferences(payload);
         }) || null;
     }
+    await this.router.init();
     await this.refreshConfirmationConfig();
   }
 

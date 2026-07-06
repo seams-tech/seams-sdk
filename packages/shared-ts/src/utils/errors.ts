@@ -123,6 +123,7 @@ export function toError(e: unknown): Error {
  */
 export function isTouchIdCancellationError(error: unknown): boolean {
   const msg = errorMessage(error);
+  if (isWebAuthnRpIdOriginConfigurationError(error)) return false;
   if (isUserCancellationError(error)) return true;
 
   // Normalize for case-insensitive substring checks on user-facing phrases
@@ -138,7 +139,19 @@ export function isTouchIdCancellationError(error: unknown): boolean {
   );
 }
 
+export function isWebAuthnRpIdOriginConfigurationError(error: unknown): boolean {
+  const lower = errorMessage(error).toLowerCase();
+  return (
+    lower.includes('relying party id') ||
+    lower.includes('registrable domain suffix') ||
+    lower.includes('claimed rp id') ||
+    lower.includes('/.well-known/webauthn') ||
+    lower.includes('.well-known/webauthn')
+  );
+}
+
 export function isUserCancellationError(error: unknown): boolean {
+  if (isWebAuthnRpIdOriginConfigurationError(error)) return false;
   const msg = errorMessage(error);
   const lower = msg.toLowerCase();
   const maybe = error as { name?: unknown; code?: unknown };
@@ -201,6 +214,11 @@ export function getUserFriendlyErrorMessage(
   accountId?: string,
 ): string {
   const msg = errorMessage(error);
+
+  if (isWebAuthnRpIdOriginConfigurationError(error)) {
+    const op = context === 'registration' ? 'Registration' : 'Login';
+    return `${op} failed because the configured WebAuthn RP ID is not valid for this app origin. Check VITE_RP_ID_BASE and the /.well-known/webauthn related-origin configuration for this environment.`;
+  }
 
   // Handle TouchID/FaceID cancellation
   if (isTouchIdCancellationError(error)) {

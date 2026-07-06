@@ -54,6 +54,36 @@ function mountPasskeyRegistrationActivationSurface(
   };
 }
 
+function isRegistrationActivationSurfacePreparing(
+  state: RegistrationActivationSurfaceState,
+): boolean {
+  switch (state.kind) {
+    case 'idle':
+    case 'mounting':
+      return true;
+    case 'ready':
+    case 'starting':
+    case 'completed':
+    case 'cancelled':
+    case 'failed':
+      return false;
+  }
+}
+
+function canUseRegistrationActivationSurface(state: RegistrationActivationSurfaceState): boolean {
+  switch (state.kind) {
+    case 'idle':
+    case 'mounting':
+    case 'ready':
+    case 'starting':
+      return true;
+    case 'completed':
+    case 'cancelled':
+    case 'failed':
+      return false;
+  }
+}
+
 export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   onLogin,
   onRegister,
@@ -72,6 +102,8 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 }) => {
   const runtime = usePasskeyAuthMenuRuntime();
   const { withSdkEventsHandler } = useSDKEvents({ sdkFlow: runtime.sdkFlow });
+  const [registrationActivationSurfaceState, setRegistrationActivationSurfaceState] =
+    React.useState<RegistrationActivationSurfaceState>({ kind: 'idle' });
 
   const onLoginWithSDKEvents = React.useMemo(
     () => withSdkEventsHandler('login', onLogin, 60_000),
@@ -174,9 +206,27 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     !controller.registrationPrompt &&
     !controller.otpPrompt &&
     !controller.postRecoveryRotationPrompt;
+  const useIframeRegistrationActivationButton =
+    iframeRegistrationButtonEnabled &&
+    canUseRegistrationActivationSurface(registrationActivationSurfaceState);
+  const registrationActivationSurfacePreparing =
+    useIframeRegistrationActivationButton &&
+    isRegistrationActivationSurfacePreparing(registrationActivationSurfaceState);
+  const handleRegistrationActivationSurfaceStateChange = React.useCallback(
+    (state: RegistrationActivationSurfaceState): void => {
+      setRegistrationActivationSurfaceState(state);
+      controller.onRegistrationActivationSurfaceStateChange(state);
+    },
+    [controller.onRegistrationActivationSurfaceStateChange],
+  );
 
   React.useEffect(() => {
-    if (!iframeRegistrationButtonEnabled) return;
+    if (iframeRegistrationButtonEnabled) return;
+    setRegistrationActivationSurfaceState({ kind: 'idle' });
+  }, [iframeRegistrationButtonEnabled]);
+
+  React.useEffect(() => {
+    if (!useIframeRegistrationActivationButton) return;
     if (!controller.registrationActivationWallet) return;
     const target = registrationActivationTargetRef.current;
     if (!target) return;
@@ -184,12 +234,12 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       seamsWeb: runtime.seamsWeb,
       target,
       wallet: controller.registrationActivationWallet,
-      onStateChange: controller.onRegistrationActivationSurfaceStateChange,
+      onStateChange: handleRegistrationActivationSurfaceStateChange,
     });
   }, [
-    controller.onRegistrationActivationSurfaceStateChange,
     controller.registrationActivationWallet,
-    iframeRegistrationButtonEnabled,
+    handleRegistrationActivationSurfaceStateChange,
+    useIframeRegistrationActivationButton,
     runtime.seamsWeb,
   ]);
 
@@ -563,15 +613,24 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 
                   {controller.mode === AuthMenuMode.Register && (
                     <>
-                      {iframeRegistrationButtonEnabled ? (
+                      {useIframeRegistrationActivationButton ? (
                         <div
                           ref={registrationActivationTargetRef}
                           role="button"
                           tabIndex={0}
                           aria-label="Create passkey account"
-                          className="w3a-auth-method-btn w3a-auth-method-btn-primary seams-passkey-registration-btn"
+                          aria-busy={registrationActivationSurfacePreparing ? 'true' : undefined}
+                          className={`w3a-auth-method-btn w3a-auth-method-btn-primary seams-passkey-registration-btn${
+                            registrationActivationSurfacePreparing
+                              ? ' is-activation-mounting'
+                              : ''
+                          }`}
                         >
-                          <span>Create with Passkey</span>
+                          <span>
+                            {registrationActivationSurfacePreparing
+                              ? 'Preparing passkey...'
+                              : 'Create with Passkey'}
+                          </span>
                         </div>
                       ) : (
                         <button

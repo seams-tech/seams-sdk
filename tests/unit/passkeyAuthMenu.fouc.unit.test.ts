@@ -1874,6 +1874,111 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     expect(lifecycleResult.unsubscribeWalletIds).toEqual([initialWalletId]);
   });
 
+  test('Passkey implicit registration falls back to a clickable button after activation target cancellation', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-passkey-register-activation-cancelled-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const contextMod: any = await import(paths.contextIndex);
+        const singletonMod: any = await import(paths.seamsManagerSingleton);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
+        const useSeams = contextMod.useSeams;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+        const activationId = 'cancelled-before-click';
+
+        (window as any).__pamActivationCancelledRegisterCalls = 0;
+        (window as any).__pamActivationCancelledEvents = [];
+        (window as any).__pamActivationCancelledPatchInstalled = false;
+
+        function installActivationSurfacePatch(seams: any): void {
+          if ((window as any).__pamActivationCancelledPatchInstalled) return;
+          (window as any).__pamActivationCancelledPatchInstalled = true;
+          seams.initWalletIframe = async () => undefined;
+          seams.isWalletIframeReady = () => true;
+          seams.onWalletIframeReady = () => () => undefined;
+          seams.onWalletIframeLoginStatusChanged = () => () => undefined;
+          seams.onWalletIframePreferencesChanged = () => () => undefined;
+          seams.preferences.getCurrentWalletId = () => '';
+          seams.registration.createPasskeyRegistrationActivationSurface = () => {
+            let stateListener: ((state: unknown) => void) | null = null;
+            return {
+              kind: 'wallet_iframe_registration_activation_surface_v1',
+              mount: () => {
+                (window as any).__pamActivationCancelledEvents.push('mount');
+                stateListener?.({
+                  kind: 'cancelled',
+                  activationId,
+                  reason: 'target_unavailable',
+                });
+              },
+              dispose: () => {
+                (window as any).__pamActivationCancelledEvents.push('dispose');
+              },
+              state: () => ({ kind: 'cancelled', activationId, reason: 'target_unavailable' }),
+              onStateChange: (listener: (state: unknown) => void) => {
+                stateListener = listener;
+                (window as any).__pamActivationCancelledEvents.push('subscribe');
+                return () => {
+                  (window as any).__pamActivationCancelledEvents.push('unsubscribe');
+                };
+              },
+            };
+          };
+        }
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://router-api.localhost' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
+        };
+
+        function Harness() {
+          useSeams();
+          const rawSeams = singletonMod.getOrCreateSeamsManager(config, {});
+          installActivationSurfacePatch(rawSeams);
+          return React.createElement(PasskeyAuthMenu, {
+            defaultMode: AuthMenuMode.Register,
+            onRegister: () => {
+              (window as any).__pamActivationCancelledRegisterCalls += 1;
+            },
+          });
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Provider, { config }, React.createElement(Harness)));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-passkey-register-activation-cancelled-mount');
+    const button = mount.getByRole('button', { name: 'Create with Passkey' });
+    await expect(button).toBeVisible();
+    await expect
+      .poll(async () => await button.evaluate((node) => node.tagName))
+      .toBe('BUTTON');
+    await button.click();
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__pamActivationCancelledRegisterCalls),
+      )
+      .toBe(1);
+  });
+
   test('Passkey sponsored named registration keeps username input required', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {
@@ -1983,6 +2088,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
 
         function Harness() {
           const [inputUsername, setInputUsername] = React.useState('alice');
+          const refreshLoginState = React.useCallback(async () => {
+            (window as any).__pamActivationRefreshCalls =
+              ((window as any).__pamActivationRefreshCalls || 0) + 1;
+            await new Promise(() => {});
+          }, []);
           const runtime = React.useMemo(
             () => ({
               seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
@@ -1990,7 +2100,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               inputUsername,
               targetAccountId: `${inputUsername}.testnet`,
               setInputUsername,
-              refreshLoginState: async () => undefined,
+              refreshLoginState,
               sdkFlow: {
                 eventsText: '',
                 seq: 0,
@@ -1999,7 +2109,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               displayPostfix: '.testnet',
               isUsingExistingAccount: false,
             }),
-            [inputUsername],
+            [inputUsername, refreshLoginState],
           );
           const controller = usePasskeyAuthMenuController(
             { defaultMode: AuthMenuMode.Register },
@@ -2014,6 +2124,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             'div',
             null,
             React.createElement('div', { id: 'activation-waiting-state' }, status),
+            React.createElement('div', { id: 'activation-mode-state' }, String(controller.mode)),
             React.createElement(
               'button',
               {
@@ -2025,6 +2136,22 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                   }),
               },
               'Start activation',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'completed',
+                    activationId: 'activation-1',
+                    result: {
+                      success: true,
+                      walletId: 'alice.testnet',
+                    },
+                  }),
+              },
+              'Complete activation',
             ),
           );
         }
@@ -2039,8 +2166,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#pam2-registration-activation-waiting-mount');
     await expect(mount.locator('#activation-waiting-state')).toHaveText('not-waiting');
+    await expect(mount.locator('#activation-mode-state')).toHaveText('0');
     await mount.getByRole('button', { name: 'Start activation' }).click();
     await expect(mount.locator('#activation-waiting-state')).toHaveText('waiting:passkey');
+    await mount.getByRole('button', { name: 'Complete activation' }).click();
+    await expect(mount.locator('#activation-waiting-state')).toHaveText('waiting:passkey');
+    await expect(mount.locator('#activation-mode-state')).toHaveText('0');
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__pamActivationRefreshCalls || 0))
+      .toBe(1);
   });
 
   test('Register segment clears the full account input for new account creation', async ({

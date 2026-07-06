@@ -326,6 +326,22 @@ const REGISTRATION_ACTIVATION_STATE_ATTRIBUTES = {
   busy: 'data-seams-registration-button-busy',
   disabled: 'data-seams-registration-button-disabled',
 } as const;
+const REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE: RegistrationActivationButtonInteractionState = {
+  kind: 'registration_activation_button_interaction_state_v1',
+  hovered: false,
+  focused: false,
+  pressed: false,
+  busy: true,
+  disabled: true,
+};
+const REGISTRATION_ACTIVATION_READY_BUTTON_STATE: RegistrationActivationButtonInteractionState = {
+  kind: 'registration_activation_button_interaction_state_v1',
+  hovered: false,
+  focused: false,
+  pressed: false,
+  busy: false,
+  disabled: false,
+};
 
 function createTerminalProgressForRequest(args: {
   requestType: ParentToChildEnvelope['type'];
@@ -829,6 +845,7 @@ export class WalletIframeRouter {
     string,
     Set<(event: ChildToParentEnvelope) => void>
   >();
+  private lastPreferencesChangedPayload: PreferencesChangedPayload | null = null;
   private progressBus: OnEventsProgressBus;
   private debug = false;
   private readonly walletOriginUrl: URL;
@@ -1130,6 +1147,9 @@ export class WalletIframeRouter {
   // Subscribe to wallet-host preference changes (authoritative in wallet-iframe mode).
   onPreferencesChanged(listener: (payload: PreferencesChangedPayload) => void): () => void {
     this.listeners.preferencesChanged.add(listener);
+    if (this.lastPreferencesChangedPayload) {
+      this.notifyPreferencesChangedListener(listener, this.lastPreferencesChangedPayload);
+    }
     return () => {
       this.listeners.preferencesChanged.delete(listener);
     };
@@ -1151,12 +1171,19 @@ export class WalletIframeRouter {
   }
 
   private emitPreferencesChanged(payload: PreferencesChangedPayload): void {
-    if (!this.listeners.preferencesChanged.size) return;
+    this.lastPreferencesChangedPayload = payload;
     for (const cb of Array.from(this.listeners.preferencesChanged)) {
-      try {
-        cb(payload);
-      } catch {}
+      this.notifyPreferencesChangedListener(cb, payload);
     }
+  }
+
+  private notifyPreferencesChangedListener(
+    listener: (payload: PreferencesChangedPayload) => void,
+    payload: PreferencesChangedPayload,
+  ): void {
+    try {
+      listener(payload);
+    } catch {}
   }
 
   // Overlay register button events (optional convenience API)
@@ -1312,6 +1339,26 @@ export class WalletIframeRouter {
       const parsed = parseRegistrationActivationChildMessage(event);
       if (!parsed || parsed.payload.activationId !== activationId) return;
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_READY') {
+        if (!target) {
+          cancelActivation('target_unavailable');
+          return;
+        }
+        if (!geometryCleanup) {
+          geometryCleanup = installRegistrationActivationOverlayGeometry({
+            target,
+            overlayState: this.overlayState,
+            presentation: payload.presentation,
+            onTargetUnavailable: () => cancelActivation('target_unavailable'),
+          });
+        }
+        if (!geometryCleanup) {
+          cancelActivation('target_unavailable');
+          return;
+        }
+        applyRegistrationActivationButtonState({
+          target,
+          state: REGISTRATION_ACTIVATION_READY_BUTTON_STATE,
+        });
         setState({
           kind: 'ready',
           activationId,
@@ -1335,6 +1382,10 @@ export class WalletIframeRouter {
       kind: 'wallet_iframe_registration_activation_surface_v1',
       mount: (mountTarget: HTMLElement): void => {
         if (mounted || disposed) return;
+        if (!visibleRegistrationActivationTargetRect(mountTarget)) {
+          setState({ kind: 'cancelled', activationId, reason: 'target_unavailable' });
+          return;
+        }
         target = mountTarget;
         iframeTitleCleanup = installRegistrationActivationIframeAccessibility({
           iframe: this.transport.ensureIframeMounted(),
@@ -1350,22 +1401,10 @@ export class WalletIframeRouter {
             }).catch(() => {});
           },
         });
-        geometryCleanup = installRegistrationActivationOverlayGeometry({
+        applyRegistrationActivationButtonState({
           target: mountTarget,
-          overlayState: this.overlayState,
-          presentation: payload.presentation,
-          onTargetUnavailable: () => cancelActivation('target_unavailable'),
+          state: REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE,
         });
-        if (!geometryCleanup) {
-          iframeTitleCleanup?.dispose();
-          iframeTitleCleanup = null;
-          targetCleanup?.dispose();
-          targetCleanup = null;
-          clearRegistrationActivationButtonState(mountTarget);
-          target = null;
-          setState({ kind: 'cancelled', activationId, reason: 'target_unavailable' });
-          return;
-        }
         mounted = true;
         setState({ kind: 'mounting', activationId });
         this.registrationActivationListeners.set(activationId, new Set([activationEventListener]));
