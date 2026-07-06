@@ -134,6 +134,7 @@ export type D1DurableEd25519HssAdvancedEvalRecord = {
   readonly addStageRequestDigestB64u: string;
   readonly projectionMode: D1Ed25519HssRegistrationProjectionMode;
   readonly advancedServerEvalStateB64u: string;
+  readonly finalizeContextB64u: string;
   readonly priorStageResponseMessageB64u: string;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
@@ -221,6 +222,7 @@ export function buildD1DurableEd25519HssAdvancedEvalRecord(input: {
   readonly addStageRequestDigestB64u: string;
   readonly projectionMode: D1Ed25519HssRegistrationProjectionMode;
   readonly advancedServerEvalStateB64u: string;
+  readonly finalizeContextB64u: string;
   readonly priorStageResponseMessageB64u: string;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
@@ -561,6 +563,7 @@ export function parseD1DurableEd25519HssAdvancedEvalRecord(
   const addStageRequestDigestB64u = parseD1RequiredB64u(record.addStageRequestDigestB64u, 32);
   const projectionMode = parseD1Ed25519HssRegistrationProjectionMode(record.projectionMode);
   const advancedServerEvalStateB64u = parseD1RequiredB64u(record.advancedServerEvalStateB64u);
+  const finalizeContextB64u = parseD1RequiredB64u(record.finalizeContextB64u);
   const priorStageResponseMessageB64u = parseD1RequiredB64u(record.priorStageResponseMessageB64u);
   const createdAtMs = safeInteger(record.createdAtMs);
   const expiresAtMs = safeInteger(record.expiresAtMs);
@@ -570,6 +573,7 @@ export function parseD1DurableEd25519HssAdvancedEvalRecord(
     !addStageRequestDigestB64u ||
     !projectionMode ||
     !advancedServerEvalStateB64u ||
+    !finalizeContextB64u ||
     !priorStageResponseMessageB64u ||
     createdAtMs === null ||
     createdAtMs <= 0 ||
@@ -585,6 +589,7 @@ export function parseD1DurableEd25519HssAdvancedEvalRecord(
     addStageRequestDigestB64u,
     projectionMode,
     advancedServerEvalStateB64u,
+    finalizeContextB64u,
     priorStageResponseMessageB64u,
     createdAtMs,
     expiresAtMs,

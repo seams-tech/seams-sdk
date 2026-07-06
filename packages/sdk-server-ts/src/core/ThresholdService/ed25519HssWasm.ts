@@ -142,6 +142,10 @@ type ThresholdEd25519HssServerInputDeliveryTimings = {
 type ThresholdEd25519HssFinalizeReportTimings = {
   decodeArtifactMs: number;
   serializedSessionMaterializeMs: number;
+  serializedSessionDecodeMs: number;
+  materializeRuntimeMs: number;
+  materializeEvaluatorSessionMs: number;
+  materializeGarblerSessionMs: number;
   advanceAddStageResponseMs: number;
   advanceMessageScheduleRoundsMs: number;
   advanceRoundCoreRoundsMs: number;
@@ -149,6 +153,8 @@ type ThresholdEd25519HssFinalizeReportTimings = {
   finalizeReportMs: number;
   finalizePacketAssemblyMs: number;
   encodeReportMs: number;
+  openServerOutputMs: number;
+  openSeedOutputMs: number;
 };
 
 export type ThresholdEd25519HssRegistrationProjectionMode =
@@ -158,15 +164,21 @@ export type ThresholdEd25519HssRegistrationProjectionMode =
 type ThresholdEd25519HssAdvanceServerEvalStateTimings = {
   decodeStateMs: number;
   serializedSessionMaterializeMs: number;
+  serializedSessionDecodeMs: number;
+  materializeRuntimeMs: number;
+  materializeEvaluatorSessionMs: number;
+  materializeGarblerSessionMs: number;
   advanceAddStageResponseMs: number;
   advanceMessageScheduleRoundsMs: number;
   advanceRoundCoreRoundsMs: number;
+  advanceOutputProjectionMs: number;
   encodeAdvancedStateMs: number;
 };
 
 export type ThresholdEd25519HssAdvancedServerEvalState = {
   contextBindingB64u: string;
   advancedServerEvalStateB64u: string;
+  finalizeContextB64u: string;
   priorStageResponseMessageB64u: string;
   addStageRequestDigestB64u: string;
   projectionMode: ThresholdEd25519HssRegistrationProjectionMode;
@@ -175,7 +187,7 @@ export type ThresholdEd25519HssAdvancedServerEvalState = {
 
 export type ThresholdEd25519HssDurableAdvancedServerEvalState = Pick<
   ThresholdEd25519HssAdvancedServerEvalState,
-  'advancedServerEvalStateB64u' | 'priorStageResponseMessageB64u'
+  'advancedServerEvalStateB64u' | 'finalizeContextB64u' | 'priorStageResponseMessageB64u'
 >;
 
 type ThresholdEd25519HssFinalizeForRegistrationTimings =
@@ -896,15 +908,21 @@ export async function advanceThresholdEd25519HssServerEvalState(input: {
   }) as {
     contextBindingB64u: string;
     advancedServerEvalStateB64u: string;
+    finalizeContextB64u: string;
     priorStageResponseMessageB64u: string;
     addStageRequestDigestB64u: string;
     projectionMode: ThresholdEd25519HssRegistrationProjectionMode;
     timings?: {
       decodeStateMs?: number;
       serializedSessionMaterializeMs?: number;
+      serializedSessionDecodeMs?: number;
+      materializeRuntimeMs?: number;
+      materializeEvaluatorSessionMs?: number;
+      materializeGarblerSessionMs?: number;
       advanceAddStageResponseMs?: number;
       advanceMessageScheduleRoundsMs?: number;
       advanceRoundCoreRoundsMs?: number;
+      advanceOutputProjectionMs?: number;
       encodeAdvancedStateMs?: number;
     };
   };
@@ -912,6 +930,7 @@ export async function advanceThresholdEd25519HssServerEvalState(input: {
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     advancedServerEvalStateB64u: String(result.advancedServerEvalStateB64u || '').trim(),
+    finalizeContextB64u: String(result.finalizeContextB64u || '').trim(),
     priorStageResponseMessageB64u: String(result.priorStageResponseMessageB64u || '').trim(),
     addStageRequestDigestB64u: String(result.addStageRequestDigestB64u || '').trim(),
     projectionMode: result.projectionMode,
@@ -921,11 +940,18 @@ export async function advanceThresholdEd25519HssServerEvalState(input: {
           serializedSessionMaterializeMs: Number(
             result.timings.serializedSessionMaterializeMs || 0,
           ),
+          serializedSessionDecodeMs: Number(result.timings.serializedSessionDecodeMs || 0),
+          materializeRuntimeMs: Number(result.timings.materializeRuntimeMs || 0),
+          materializeEvaluatorSessionMs: Number(
+            result.timings.materializeEvaluatorSessionMs || 0,
+          ),
+          materializeGarblerSessionMs: Number(result.timings.materializeGarblerSessionMs || 0),
           advanceAddStageResponseMs: Number(result.timings.advanceAddStageResponseMs || 0),
           advanceMessageScheduleRoundsMs: Number(
             result.timings.advanceMessageScheduleRoundsMs || 0,
           ),
           advanceRoundCoreRoundsMs: Number(result.timings.advanceRoundCoreRoundsMs || 0),
+          advanceOutputProjectionMs: Number(result.timings.advanceOutputProjectionMs || 0),
           encodeAdvancedStateMs: Number(result.timings.encodeAdvancedStateMs || 0),
         }
       : undefined,
@@ -946,6 +972,8 @@ export async function finalizeThresholdEd25519HssReport(input: {
   clientOutputMessageB64u: string;
   seedOutputMessageB64u: string;
   serverOutputMessageB64u: string;
+  openedServerOutput?: never;
+  openedSeedOutput?: never;
   timings?: ThresholdEd25519HssFinalizeReportTimings;
 }> {
   await ensureThresholdEd25519HssWasm();
@@ -961,13 +989,16 @@ export async function finalizeThresholdEd25519HssReport(input: {
     addStageRequestMessageBytes: input.evaluationResult.addStageRequestMessageBytes,
   }) as {
     contextBindingB64u: string;
-    evaluationReportJson: string;
     clientOutputMessageB64u: string;
     seedOutputMessageB64u: string;
     serverOutputMessageB64u: string;
     timings?: {
       decodeArtifactMs?: number;
       serializedSessionMaterializeMs?: number;
+      serializedSessionDecodeMs?: number;
+      materializeRuntimeMs?: number;
+      materializeEvaluatorSessionMs?: number;
+      materializeGarblerSessionMs?: number;
       advanceAddStageResponseMs?: number;
       advanceMessageScheduleRoundsMs?: number;
       advanceRoundCoreRoundsMs?: number;
@@ -975,6 +1006,8 @@ export async function finalizeThresholdEd25519HssReport(input: {
       finalizeReportMs?: number;
       finalizePacketAssemblyMs?: number;
       encodeReportMs?: number;
+      openServerOutputMs?: number;
+      openSeedOutputMs?: number;
     };
   };
 
@@ -989,6 +1022,12 @@ export async function finalizeThresholdEd25519HssReport(input: {
           serializedSessionMaterializeMs: Number(
             result.timings.serializedSessionMaterializeMs || 0,
           ),
+          serializedSessionDecodeMs: Number(result.timings.serializedSessionDecodeMs || 0),
+          materializeRuntimeMs: Number(result.timings.materializeRuntimeMs || 0),
+          materializeEvaluatorSessionMs: Number(
+            result.timings.materializeEvaluatorSessionMs || 0,
+          ),
+          materializeGarblerSessionMs: Number(result.timings.materializeGarblerSessionMs || 0),
           advanceAddStageResponseMs: Number(result.timings.advanceAddStageResponseMs || 0),
           advanceMessageScheduleRoundsMs: Number(
             result.timings.advanceMessageScheduleRoundsMs || 0,
@@ -998,6 +1037,8 @@ export async function finalizeThresholdEd25519HssReport(input: {
           finalizeReportMs: Number(result.timings.finalizeReportMs || 0),
           finalizePacketAssemblyMs: Number(result.timings.finalizePacketAssemblyMs || 0),
           encodeReportMs: Number(result.timings.encodeReportMs || 0),
+          openServerOutputMs: Number(result.timings.openServerOutputMs || 0),
+          openSeedOutputMs: Number(result.timings.openSeedOutputMs || 0),
         }
       : undefined,
   };
@@ -1010,11 +1051,14 @@ export async function finalizeThresholdEd25519HssAdvancedReport(input: {
   >;
   evaluationResult: ThresholdEd25519HssStoredStagedEvaluatorArtifact;
   advancedServerEval: ThresholdEd25519HssDurableAdvancedServerEvalState;
+  openSeedOutput: boolean;
 }): Promise<{
   contextBindingB64u: string;
   clientOutputMessageB64u: string;
   seedOutputMessageB64u: string;
   serverOutputMessageB64u: string;
+  openedServerOutput: ThresholdEd25519HssOpenedServerOutput;
+  openedSeedOutput?: ThresholdEd25519HssOpenedSeedOutput;
   timings?: ThresholdEd25519HssFinalizeReportTimings;
 }> {
   await ensureThresholdEd25519HssWasm();
@@ -1029,19 +1073,29 @@ export async function finalizeThresholdEd25519HssAdvancedReport(input: {
       input.advancedServerEval.advancedServerEvalStateB64u,
       'advancedServerEvalStateB64u',
     ),
+    finalizeContextBytes: decodePresentThresholdEd25519HssBase64Url(
+      input.advancedServerEval.finalizeContextB64u,
+      'finalizeContextB64u',
+    ),
     priorStageResponseMessageBytes: decodePresentThresholdEd25519HssBase64Url(
       input.advancedServerEval.priorStageResponseMessageB64u,
       'priorStageResponseMessageB64u',
     ),
+    openSeedOutput: input.openSeedOutput,
   }) as {
     contextBindingB64u: string;
-    evaluationReportJson: string;
     clientOutputMessageB64u: string;
     seedOutputMessageB64u: string;
     serverOutputMessageB64u: string;
+    xRelayerBaseB64u?: string;
+    canonicalSeedB64u?: string;
     timings?: {
       decodeArtifactMs?: number;
       serializedSessionMaterializeMs?: number;
+      serializedSessionDecodeMs?: number;
+      materializeRuntimeMs?: number;
+      materializeEvaluatorSessionMs?: number;
+      materializeGarblerSessionMs?: number;
       advanceAddStageResponseMs?: number;
       advanceMessageScheduleRoundsMs?: number;
       advanceRoundCoreRoundsMs?: number;
@@ -1049,20 +1103,52 @@ export async function finalizeThresholdEd25519HssAdvancedReport(input: {
       finalizeReportMs?: number;
       finalizePacketAssemblyMs?: number;
       encodeReportMs?: number;
+      openServerOutputMs?: number;
+      openSeedOutputMs?: number;
     };
   };
+  const contextBindingB64u = String(result.contextBindingB64u || '').trim();
+  const xRelayerBaseB64u = String(result.xRelayerBaseB64u || '').trim();
+  if (!xRelayerBaseB64u) {
+    throw new Error('[threshold-ed25519-hss] finalized report is missing opened server output');
+  }
+  const canonicalSeedB64u = String(result.canonicalSeedB64u || '').trim();
+  if (input.openSeedOutput && !canonicalSeedB64u) {
+    throw new Error('[threshold-ed25519-hss] finalized report is missing requested opened seed output');
+  }
+  if (!input.openSeedOutput && canonicalSeedB64u) {
+    throw new Error('[threshold-ed25519-hss] finalized report returned unexpected opened seed output');
+  }
 
   return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
+    contextBindingB64u,
     clientOutputMessageB64u: String(result.clientOutputMessageB64u || '').trim(),
     seedOutputMessageB64u: String(result.seedOutputMessageB64u || '').trim(),
     serverOutputMessageB64u: String(result.serverOutputMessageB64u || '').trim(),
+    openedServerOutput: {
+      contextBindingB64u,
+      xRelayerBaseB64u,
+    },
+    ...(canonicalSeedB64u
+      ? {
+          openedSeedOutput: {
+            contextBindingB64u,
+            canonicalSeedB64u,
+          },
+        }
+      : {}),
     timings: result.timings
       ? {
           decodeArtifactMs: Number(result.timings.decodeArtifactMs || 0),
           serializedSessionMaterializeMs: Number(
             result.timings.serializedSessionMaterializeMs || 0,
           ),
+          serializedSessionDecodeMs: Number(result.timings.serializedSessionDecodeMs || 0),
+          materializeRuntimeMs: Number(result.timings.materializeRuntimeMs || 0),
+          materializeEvaluatorSessionMs: Number(
+            result.timings.materializeEvaluatorSessionMs || 0,
+          ),
+          materializeGarblerSessionMs: Number(result.timings.materializeGarblerSessionMs || 0),
           advanceAddStageResponseMs: Number(result.timings.advanceAddStageResponseMs || 0),
           advanceMessageScheduleRoundsMs: Number(
             result.timings.advanceMessageScheduleRoundsMs || 0,
@@ -1072,6 +1158,8 @@ export async function finalizeThresholdEd25519HssAdvancedReport(input: {
           finalizeReportMs: Number(result.timings.finalizeReportMs || 0),
           finalizePacketAssemblyMs: Number(result.timings.finalizePacketAssemblyMs || 0),
           encodeReportMs: Number(result.timings.encodeReportMs || 0),
+          openServerOutputMs: Number(result.timings.openServerOutputMs || 0),
+          openSeedOutputMs: Number(result.timings.openSeedOutputMs || 0),
         }
       : undefined,
   };
@@ -1144,6 +1232,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   finalizedServerOutputMessageB64u: string;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
+  openedSeedOutput?: ThresholdEd25519HssOpenedSeedOutput;
   seedOutputMessageB64u?: string;
   finalizeReportTimings?: ThresholdEd25519HssFinalizeForRegistrationTimings;
 }> {
@@ -1154,12 +1243,17 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     throw new Error('[threshold-ed25519-hss] evaluation result context binding mismatch');
   }
 
+  const openSeedOutputWithFinalize =
+    input.operation === 'explicit_key_export' ||
+    input.operation === 'registration' ||
+    input.operation === 'registration_material_restore';
   const finalizedReport =
     input.serverEvalSource.kind === 'durable_advanced_eval'
       ? await finalizeThresholdEd25519HssAdvancedReport({
           preparedServerSession: input.preparedServerSession,
           evaluationResult: input.evaluationResult,
           advancedServerEval: input.serverEvalSource.advancedServerEval,
+          openSeedOutput: openSeedOutputWithFinalize,
         })
       : await finalizeThresholdEd25519HssReport({
           preparedServerSession: input.preparedServerSession,
@@ -1170,14 +1264,20 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     throw new Error('[threshold-ed25519-hss] finalized report context binding mismatch');
   }
 
-  const openServerOutputStartedAt = Date.now();
-  const serverOutput = await openThresholdEd25519HssServerOutput({
-    preparedServerSession: input.preparedServerSession,
-    finalizedReport: {
-      serverOutputMessageB64u: finalizedReport.serverOutputMessageB64u,
-    },
-  });
-  const openServerOutputMs = Date.now() - openServerOutputStartedAt;
+  let openServerOutputMs = finalizedReport.timings?.openServerOutputMs ?? 0;
+  let serverOutput: ThresholdEd25519HssOpenedServerOutput;
+  if (finalizedReport.openedServerOutput) {
+    serverOutput = finalizedReport.openedServerOutput;
+  } else {
+    const openServerOutputStartedAt = Date.now();
+    serverOutput = await openThresholdEd25519HssServerOutput({
+      preparedServerSession: input.preparedServerSession,
+      finalizedReport: {
+        serverOutputMessageB64u: finalizedReport.serverOutputMessageB64u,
+      },
+    });
+    openServerOutputMs = Date.now() - openServerOutputStartedAt;
+  }
 
   if (serverOutput.contextBindingB64u !== expectedBinding) {
     throw new Error('[threshold-ed25519-hss] server output context binding mismatch');
@@ -1195,10 +1295,18 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     },
     finalizedServerOutputMessageB64u: finalizedReport.serverOutputMessageB64u,
     serverOutput,
+    ...(finalizedReport.openedSeedOutput
+      ? { openedSeedOutput: finalizedReport.openedSeedOutput }
+      : {}),
     ...(seedOutputMessageB64u ? { seedOutputMessageB64u } : {}),
     finalizeReportTimings: {
       decodeArtifactMs: finalizedReport.timings?.decodeArtifactMs ?? 0,
       serializedSessionMaterializeMs: finalizedReport.timings?.serializedSessionMaterializeMs ?? 0,
+      serializedSessionDecodeMs: finalizedReport.timings?.serializedSessionDecodeMs ?? 0,
+      materializeRuntimeMs: finalizedReport.timings?.materializeRuntimeMs ?? 0,
+      materializeEvaluatorSessionMs:
+        finalizedReport.timings?.materializeEvaluatorSessionMs ?? 0,
+      materializeGarblerSessionMs: finalizedReport.timings?.materializeGarblerSessionMs ?? 0,
       advanceAddStageResponseMs: finalizedReport.timings?.advanceAddStageResponseMs ?? 0,
       advanceMessageScheduleRoundsMs:
         finalizedReport.timings?.advanceMessageScheduleRoundsMs ?? 0,
@@ -1208,7 +1316,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
       finalizePacketAssemblyMs: finalizedReport.timings?.finalizePacketAssemblyMs ?? 0,
       encodeReportMs: finalizedReport.timings?.encodeReportMs ?? 0,
       openServerOutputMs,
-      openSeedOutputMs: 0,
+      openSeedOutputMs: finalizedReport.timings?.openSeedOutputMs ?? 0,
       deriveSeedKeypairMs: 0,
       deriveRelayerVerifyingShareMs: 0,
       keyStorePutMs: 0,
@@ -1279,6 +1387,7 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
   >;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
+  openedSeedOutput?: ThresholdEd25519HssOpenedSeedOutput;
 }): Promise<{
   publicKey: string;
   relayerKeyId: string;
@@ -1305,15 +1414,21 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
     );
   }
 
-  const openSeedOutputStartedAt = Date.now();
-  const seedOutput = await openThresholdEd25519HssSeedOutput({
-    preparedSession: input.preparedSession,
-    preparedServerSession: input.preparedServerSession,
-    finalizedReport: {
-      seedOutputMessageB64u,
-    },
-  });
-  const openSeedOutputMs = Date.now() - openSeedOutputStartedAt;
+  let openSeedOutputMs = 0;
+  let seedOutput: ThresholdEd25519HssOpenedSeedOutput;
+  if (input.openedSeedOutput) {
+    seedOutput = input.openedSeedOutput;
+  } else {
+    const openSeedOutputStartedAt = Date.now();
+    seedOutput = await openThresholdEd25519HssSeedOutput({
+      preparedSession: input.preparedSession,
+      preparedServerSession: input.preparedServerSession,
+      finalizedReport: {
+        seedOutputMessageB64u,
+      },
+    });
+    openSeedOutputMs = Date.now() - openSeedOutputStartedAt;
+  }
   const serverOutput = input.serverOutput;
 
   if (

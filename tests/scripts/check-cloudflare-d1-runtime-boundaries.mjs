@@ -2239,6 +2239,7 @@ function ed25519HssSessionAdvanceViolations() {
         [emailOtpWorkerPath, emailOtpWorker, 'advanceThresholdEd25519HssServerCeremonyWithSession'],
         ['packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts', hssLifecycle, "addStageVerification: 'required'"],
         ['packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts', doStore, 'advancedServerEvalStateB64u'],
+        ['packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts', doStore, 'finalizeContextB64u'],
     ];
     for (const [filePath, source, token] of requiredTokens) {
         if (!source.includes(token)) {

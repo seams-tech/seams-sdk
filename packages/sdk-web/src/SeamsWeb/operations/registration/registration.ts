@@ -36,6 +36,10 @@ import type {
   PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
   WalletRegistrationEcdsaPreparedClientBootstrap,
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
+import type {
+  FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket,
+  FinalizeWalletRegistrationEcdsaSessionsDiagnostics,
+} from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
@@ -267,6 +271,30 @@ type RegistrationTimingBucketValues = {
   thresholdEd25519SigningSessionHydrationMs: number;
   thresholdEd25519SealedSessionPersistenceMs: number;
   ecdsaRegistrationPersistenceMs: number;
+  ecdsaRegistrationSessionFinalizeMs: number;
+  ecdsaRegistrationLocalRecordPersistenceMs: number;
+  ecdsaRegistrationTargetCount: number;
+  ecdsaRegistrationClientFinalizeMs: number;
+  ecdsaRegistrationClientMaterialStoreMs: number;
+  ecdsaRegistrationServerBootstrapMs: number;
+  ecdsaRegistrationPasskeyBootstrapStoreMs: number;
+  ecdsaRegistrationRoleLocalRecordPersistenceMs: number;
+  ecdsaRegistrationWarmSessionHydrationMs: number;
+  ecdsaRegistrationWarmSessionWorkerReadyMs: number;
+  ecdsaRegistrationWarmSessionWorkerPutMs: number;
+  ecdsaRegistrationWarmSessionSealedRecordPersistMs: number;
+  ecdsaRegistrationWarmSessionSealResolveTransportMs: number;
+  ecdsaRegistrationWarmSessionSealExistingRecordReadMs: number;
+  ecdsaRegistrationWarmSessionSealPolicyReadMs: number;
+  ecdsaRegistrationWarmSessionSealApplyServerSealMs: number;
+  ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs: number;
+  ecdsaRegistrationWarmSessionSealApplyClientSealMs: number;
+  ecdsaRegistrationWarmSessionSealApplyServerRouteMs: number;
+  ecdsaRegistrationWarmSessionSealApplyClientUnsealMs: number;
+  ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs: number;
+  ecdsaRegistrationWarmSessionSealRegisterMs: number;
+  ecdsaRegistrationWarmSessionSealVerifyReadMs: number;
+  ecdsaRegistrationEmailOtpSessionCommitMs: number;
   walletStateActivationMs: number;
   immediateSigningLaneAssertionMs: number;
 };
@@ -479,12 +507,60 @@ type EcdsaEnabledRegistrationTiming = {
   kind: 'ecdsa_enabled';
   ecdsaClientBootstrapMs: number;
   ecdsaRegistrationPersistenceMs: number;
+  ecdsaRegistrationSessionFinalizeMs: number;
+  ecdsaRegistrationLocalRecordPersistenceMs: number;
+  ecdsaRegistrationTargetCount: number;
+  ecdsaRegistrationClientFinalizeMs: number;
+  ecdsaRegistrationClientMaterialStoreMs: number;
+  ecdsaRegistrationServerBootstrapMs: number;
+  ecdsaRegistrationPasskeyBootstrapStoreMs: number;
+  ecdsaRegistrationRoleLocalRecordPersistenceMs: number;
+  ecdsaRegistrationWarmSessionHydrationMs: number;
+  ecdsaRegistrationWarmSessionWorkerReadyMs: number;
+  ecdsaRegistrationWarmSessionWorkerPutMs: number;
+  ecdsaRegistrationWarmSessionSealedRecordPersistMs: number;
+  ecdsaRegistrationWarmSessionSealResolveTransportMs: number;
+  ecdsaRegistrationWarmSessionSealExistingRecordReadMs: number;
+  ecdsaRegistrationWarmSessionSealPolicyReadMs: number;
+  ecdsaRegistrationWarmSessionSealApplyServerSealMs: number;
+  ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs: number;
+  ecdsaRegistrationWarmSessionSealApplyClientSealMs: number;
+  ecdsaRegistrationWarmSessionSealApplyServerRouteMs: number;
+  ecdsaRegistrationWarmSessionSealApplyClientUnsealMs: number;
+  ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs: number;
+  ecdsaRegistrationWarmSessionSealRegisterMs: number;
+  ecdsaRegistrationWarmSessionSealVerifyReadMs: number;
+  ecdsaRegistrationEmailOtpSessionCommitMs: number;
 };
 
 type EcdsaDisabledRegistrationTiming = {
   kind: 'ecdsa_disabled';
   ecdsaClientBootstrapMs: 0;
   ecdsaRegistrationPersistenceMs: 0;
+  ecdsaRegistrationSessionFinalizeMs: 0;
+  ecdsaRegistrationLocalRecordPersistenceMs: 0;
+  ecdsaRegistrationTargetCount: 0;
+  ecdsaRegistrationClientFinalizeMs: 0;
+  ecdsaRegistrationClientMaterialStoreMs: 0;
+  ecdsaRegistrationServerBootstrapMs: 0;
+  ecdsaRegistrationPasskeyBootstrapStoreMs: 0;
+  ecdsaRegistrationRoleLocalRecordPersistenceMs: 0;
+  ecdsaRegistrationWarmSessionHydrationMs: 0;
+  ecdsaRegistrationWarmSessionWorkerReadyMs: 0;
+  ecdsaRegistrationWarmSessionWorkerPutMs: 0;
+  ecdsaRegistrationWarmSessionSealedRecordPersistMs: 0;
+  ecdsaRegistrationWarmSessionSealResolveTransportMs: 0;
+  ecdsaRegistrationWarmSessionSealExistingRecordReadMs: 0;
+  ecdsaRegistrationWarmSessionSealPolicyReadMs: 0;
+  ecdsaRegistrationWarmSessionSealApplyServerSealMs: 0;
+  ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs: 0;
+  ecdsaRegistrationWarmSessionSealApplyClientSealMs: 0;
+  ecdsaRegistrationWarmSessionSealApplyServerRouteMs: 0;
+  ecdsaRegistrationWarmSessionSealApplyClientUnsealMs: 0;
+  ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs: 0;
+  ecdsaRegistrationWarmSessionSealRegisterMs: 0;
+  ecdsaRegistrationWarmSessionSealVerifyReadMs: 0;
+  ecdsaRegistrationEmailOtpSessionCommitMs: 0;
 };
 
 type RegistrationEcdsaTiming = EcdsaEnabledRegistrationTiming | EcdsaDisabledRegistrationTiming;
@@ -689,9 +765,14 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationHssAdvanceStateWasmMs':
     case 'registrationHssAdvanceStateDecodeStateMs':
     case 'registrationHssAdvanceStateSerializedSessionMaterializeMs':
+    case 'registrationHssAdvanceStateSerializedSessionDecodeMs':
+    case 'registrationHssAdvanceStateMaterializeRuntimeMs':
+    case 'registrationHssAdvanceStateMaterializeEvaluatorSessionMs':
+    case 'registrationHssAdvanceStateMaterializeGarblerSessionMs':
     case 'registrationHssAdvanceStateAddStageResponseMs':
     case 'registrationHssAdvanceStateMessageScheduleRoundsMs':
     case 'registrationHssAdvanceStateRoundCoreRoundsMs':
+    case 'registrationHssAdvanceStateOutputProjectionMs':
     case 'registrationHssAdvanceStateEncodeAdvancedStateMs':
     case 'registrationHssAdvanceStatePersistenceMs':
     case 'registerHssAdvanceStateTotalMs':
@@ -700,6 +781,10 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationHssFinalizeMs':
     case 'registrationHssFinalizeDecodeArtifactMs':
     case 'registrationHssFinalizeSerializedSessionMaterializeMs':
+    case 'registrationHssFinalizeSerializedSessionDecodeMs':
+    case 'registrationHssFinalizeMaterializeRuntimeMs':
+    case 'registrationHssFinalizeMaterializeEvaluatorSessionMs':
+    case 'registrationHssFinalizeMaterializeGarblerSessionMs':
     case 'registrationHssFinalizeAdvanceAddStageResponseMs':
     case 'registrationHssFinalizeAdvanceMessageScheduleRoundsMs':
     case 'registrationHssFinalizeAdvanceRoundCoreRoundsMs':
@@ -879,6 +964,30 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     thresholdEd25519SigningSessionHydrationMs: 0,
     thresholdEd25519SealedSessionPersistenceMs: 0,
     ecdsaRegistrationPersistenceMs: 0,
+    ecdsaRegistrationSessionFinalizeMs: 0,
+    ecdsaRegistrationLocalRecordPersistenceMs: 0,
+    ecdsaRegistrationTargetCount: 0,
+    ecdsaRegistrationClientFinalizeMs: 0,
+    ecdsaRegistrationClientMaterialStoreMs: 0,
+    ecdsaRegistrationServerBootstrapMs: 0,
+    ecdsaRegistrationPasskeyBootstrapStoreMs: 0,
+    ecdsaRegistrationRoleLocalRecordPersistenceMs: 0,
+    ecdsaRegistrationWarmSessionHydrationMs: 0,
+    ecdsaRegistrationWarmSessionWorkerReadyMs: 0,
+    ecdsaRegistrationWarmSessionWorkerPutMs: 0,
+    ecdsaRegistrationWarmSessionSealedRecordPersistMs: 0,
+    ecdsaRegistrationWarmSessionSealResolveTransportMs: 0,
+    ecdsaRegistrationWarmSessionSealExistingRecordReadMs: 0,
+    ecdsaRegistrationWarmSessionSealPolicyReadMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyServerSealMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyClientSealMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyServerRouteMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyClientUnsealMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs: 0,
+    ecdsaRegistrationWarmSessionSealRegisterMs: 0,
+    ecdsaRegistrationWarmSessionSealVerifyReadMs: 0,
+    ecdsaRegistrationEmailOtpSessionCommitMs: 0,
     walletStateActivationMs: 0,
     immediateSigningLaneAssertionMs: 0,
   };
@@ -947,6 +1056,42 @@ function copyRegistrationTimingBucketValues(
     thresholdEd25519SigningSessionHydrationMs: buckets.thresholdEd25519SigningSessionHydrationMs,
     thresholdEd25519SealedSessionPersistenceMs: buckets.thresholdEd25519SealedSessionPersistenceMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
+    ecdsaRegistrationSessionFinalizeMs: buckets.ecdsaRegistrationSessionFinalizeMs,
+    ecdsaRegistrationLocalRecordPersistenceMs: buckets.ecdsaRegistrationLocalRecordPersistenceMs,
+    ecdsaRegistrationTargetCount: buckets.ecdsaRegistrationTargetCount,
+    ecdsaRegistrationClientFinalizeMs: buckets.ecdsaRegistrationClientFinalizeMs,
+    ecdsaRegistrationClientMaterialStoreMs: buckets.ecdsaRegistrationClientMaterialStoreMs,
+    ecdsaRegistrationServerBootstrapMs: buckets.ecdsaRegistrationServerBootstrapMs,
+    ecdsaRegistrationPasskeyBootstrapStoreMs: buckets.ecdsaRegistrationPasskeyBootstrapStoreMs,
+    ecdsaRegistrationRoleLocalRecordPersistenceMs:
+      buckets.ecdsaRegistrationRoleLocalRecordPersistenceMs,
+    ecdsaRegistrationWarmSessionHydrationMs: buckets.ecdsaRegistrationWarmSessionHydrationMs,
+    ecdsaRegistrationWarmSessionWorkerReadyMs: buckets.ecdsaRegistrationWarmSessionWorkerReadyMs,
+    ecdsaRegistrationWarmSessionWorkerPutMs: buckets.ecdsaRegistrationWarmSessionWorkerPutMs,
+    ecdsaRegistrationWarmSessionSealedRecordPersistMs:
+      buckets.ecdsaRegistrationWarmSessionSealedRecordPersistMs,
+    ecdsaRegistrationWarmSessionSealResolveTransportMs:
+      buckets.ecdsaRegistrationWarmSessionSealResolveTransportMs,
+    ecdsaRegistrationWarmSessionSealExistingRecordReadMs:
+      buckets.ecdsaRegistrationWarmSessionSealExistingRecordReadMs,
+    ecdsaRegistrationWarmSessionSealPolicyReadMs:
+      buckets.ecdsaRegistrationWarmSessionSealPolicyReadMs,
+    ecdsaRegistrationWarmSessionSealApplyServerSealMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyServerSealMs,
+    ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs,
+    ecdsaRegistrationWarmSessionSealApplyClientSealMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyClientSealMs,
+    ecdsaRegistrationWarmSessionSealApplyServerRouteMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyServerRouteMs,
+    ecdsaRegistrationWarmSessionSealApplyClientUnsealMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyClientUnsealMs,
+    ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs,
+    ecdsaRegistrationWarmSessionSealRegisterMs: buckets.ecdsaRegistrationWarmSessionSealRegisterMs,
+    ecdsaRegistrationWarmSessionSealVerifyReadMs:
+      buckets.ecdsaRegistrationWarmSessionSealVerifyReadMs,
+    ecdsaRegistrationEmailOtpSessionCommitMs: buckets.ecdsaRegistrationEmailOtpSessionCommitMs,
     walletStateActivationMs: buckets.walletStateActivationMs,
     immediateSigningLaneAssertionMs: buckets.immediateSigningLaneAssertionMs,
   };
@@ -1071,12 +1216,79 @@ function buildRegistrationEcdsaTiming(input: {
       kind: 'ecdsa_enabled',
       ecdsaClientBootstrapMs: input.buckets.ecdsaClientBootstrapMs,
       ecdsaRegistrationPersistenceMs: input.buckets.ecdsaRegistrationPersistenceMs,
+      ecdsaRegistrationSessionFinalizeMs: input.buckets.ecdsaRegistrationSessionFinalizeMs,
+      ecdsaRegistrationLocalRecordPersistenceMs:
+        input.buckets.ecdsaRegistrationLocalRecordPersistenceMs,
+      ecdsaRegistrationTargetCount: input.buckets.ecdsaRegistrationTargetCount,
+      ecdsaRegistrationClientFinalizeMs: input.buckets.ecdsaRegistrationClientFinalizeMs,
+      ecdsaRegistrationClientMaterialStoreMs: input.buckets.ecdsaRegistrationClientMaterialStoreMs,
+      ecdsaRegistrationServerBootstrapMs: input.buckets.ecdsaRegistrationServerBootstrapMs,
+      ecdsaRegistrationPasskeyBootstrapStoreMs:
+        input.buckets.ecdsaRegistrationPasskeyBootstrapStoreMs,
+      ecdsaRegistrationRoleLocalRecordPersistenceMs:
+        input.buckets.ecdsaRegistrationRoleLocalRecordPersistenceMs,
+      ecdsaRegistrationWarmSessionHydrationMs:
+        input.buckets.ecdsaRegistrationWarmSessionHydrationMs,
+      ecdsaRegistrationWarmSessionWorkerReadyMs:
+        input.buckets.ecdsaRegistrationWarmSessionWorkerReadyMs,
+      ecdsaRegistrationWarmSessionWorkerPutMs:
+        input.buckets.ecdsaRegistrationWarmSessionWorkerPutMs,
+      ecdsaRegistrationWarmSessionSealedRecordPersistMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealedRecordPersistMs,
+      ecdsaRegistrationWarmSessionSealResolveTransportMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealResolveTransportMs,
+      ecdsaRegistrationWarmSessionSealExistingRecordReadMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealExistingRecordReadMs,
+      ecdsaRegistrationWarmSessionSealPolicyReadMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealPolicyReadMs,
+      ecdsaRegistrationWarmSessionSealApplyServerSealMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealApplyServerSealMs,
+      ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs,
+      ecdsaRegistrationWarmSessionSealApplyClientSealMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealApplyClientSealMs,
+      ecdsaRegistrationWarmSessionSealApplyServerRouteMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealApplyServerRouteMs,
+      ecdsaRegistrationWarmSessionSealApplyClientUnsealMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealApplyClientUnsealMs,
+      ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs,
+      ecdsaRegistrationWarmSessionSealRegisterMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealRegisterMs,
+      ecdsaRegistrationWarmSessionSealVerifyReadMs:
+        input.buckets.ecdsaRegistrationWarmSessionSealVerifyReadMs,
+      ecdsaRegistrationEmailOtpSessionCommitMs:
+        input.buckets.ecdsaRegistrationEmailOtpSessionCommitMs,
     };
   }
   return {
     kind: 'ecdsa_disabled',
     ecdsaClientBootstrapMs: 0,
     ecdsaRegistrationPersistenceMs: 0,
+    ecdsaRegistrationSessionFinalizeMs: 0,
+    ecdsaRegistrationLocalRecordPersistenceMs: 0,
+    ecdsaRegistrationTargetCount: 0,
+    ecdsaRegistrationClientFinalizeMs: 0,
+    ecdsaRegistrationClientMaterialStoreMs: 0,
+    ecdsaRegistrationServerBootstrapMs: 0,
+    ecdsaRegistrationPasskeyBootstrapStoreMs: 0,
+    ecdsaRegistrationRoleLocalRecordPersistenceMs: 0,
+    ecdsaRegistrationWarmSessionHydrationMs: 0,
+    ecdsaRegistrationWarmSessionWorkerReadyMs: 0,
+    ecdsaRegistrationWarmSessionWorkerPutMs: 0,
+    ecdsaRegistrationWarmSessionSealedRecordPersistMs: 0,
+    ecdsaRegistrationWarmSessionSealResolveTransportMs: 0,
+    ecdsaRegistrationWarmSessionSealExistingRecordReadMs: 0,
+    ecdsaRegistrationWarmSessionSealPolicyReadMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyServerSealMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyClientSealMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyServerRouteMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyClientUnsealMs: 0,
+    ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs: 0,
+    ecdsaRegistrationWarmSessionSealRegisterMs: 0,
+    ecdsaRegistrationWarmSessionSealVerifyReadMs: 0,
+    ecdsaRegistrationEmailOtpSessionCommitMs: 0,
   };
 }
 
@@ -1210,6 +1422,42 @@ function buildRegistrationTimingBuckets(input: {
     thresholdEd25519SigningSessionHydrationMs: buckets.thresholdEd25519SigningSessionHydrationMs,
     thresholdEd25519SealedSessionPersistenceMs: buckets.thresholdEd25519SealedSessionPersistenceMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
+    ecdsaRegistrationSessionFinalizeMs: buckets.ecdsaRegistrationSessionFinalizeMs,
+    ecdsaRegistrationLocalRecordPersistenceMs: buckets.ecdsaRegistrationLocalRecordPersistenceMs,
+    ecdsaRegistrationTargetCount: buckets.ecdsaRegistrationTargetCount,
+    ecdsaRegistrationClientFinalizeMs: buckets.ecdsaRegistrationClientFinalizeMs,
+    ecdsaRegistrationClientMaterialStoreMs: buckets.ecdsaRegistrationClientMaterialStoreMs,
+    ecdsaRegistrationServerBootstrapMs: buckets.ecdsaRegistrationServerBootstrapMs,
+    ecdsaRegistrationPasskeyBootstrapStoreMs: buckets.ecdsaRegistrationPasskeyBootstrapStoreMs,
+    ecdsaRegistrationRoleLocalRecordPersistenceMs:
+      buckets.ecdsaRegistrationRoleLocalRecordPersistenceMs,
+    ecdsaRegistrationWarmSessionHydrationMs: buckets.ecdsaRegistrationWarmSessionHydrationMs,
+    ecdsaRegistrationWarmSessionWorkerReadyMs: buckets.ecdsaRegistrationWarmSessionWorkerReadyMs,
+    ecdsaRegistrationWarmSessionWorkerPutMs: buckets.ecdsaRegistrationWarmSessionWorkerPutMs,
+    ecdsaRegistrationWarmSessionSealedRecordPersistMs:
+      buckets.ecdsaRegistrationWarmSessionSealedRecordPersistMs,
+    ecdsaRegistrationWarmSessionSealResolveTransportMs:
+      buckets.ecdsaRegistrationWarmSessionSealResolveTransportMs,
+    ecdsaRegistrationWarmSessionSealExistingRecordReadMs:
+      buckets.ecdsaRegistrationWarmSessionSealExistingRecordReadMs,
+    ecdsaRegistrationWarmSessionSealPolicyReadMs:
+      buckets.ecdsaRegistrationWarmSessionSealPolicyReadMs,
+    ecdsaRegistrationWarmSessionSealApplyServerSealMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyServerSealMs,
+    ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs,
+    ecdsaRegistrationWarmSessionSealApplyClientSealMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyClientSealMs,
+    ecdsaRegistrationWarmSessionSealApplyServerRouteMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyServerRouteMs,
+    ecdsaRegistrationWarmSessionSealApplyClientUnsealMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyClientUnsealMs,
+    ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs:
+      buckets.ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs,
+    ecdsaRegistrationWarmSessionSealRegisterMs: buckets.ecdsaRegistrationWarmSessionSealRegisterMs,
+    ecdsaRegistrationWarmSessionSealVerifyReadMs:
+      buckets.ecdsaRegistrationWarmSessionSealVerifyReadMs,
+    ecdsaRegistrationEmailOtpSessionCommitMs: buckets.ecdsaRegistrationEmailOtpSessionCommitMs,
     walletStateActivationMs: buckets.walletStateActivationMs,
     immediateSigningLaneAssertionMs: buckets.immediateSigningLaneAssertionMs,
     auth: buildRegistrationAuthTiming({
@@ -1330,6 +1578,110 @@ class RegistrationTimingRecorder {
 
   totalMs(): number {
     return roundDurationMs(this.startedAt);
+  }
+}
+
+class RegistrationEcdsaSessionFinalizeDiagnostics implements FinalizeWalletRegistrationEcdsaSessionsDiagnostics {
+  constructor(private readonly registrationTiming: RegistrationTimingRecorder) {}
+
+  recordDuration(
+    bucket: FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket,
+    durationMs: number,
+  ): void {
+    switch (bucket) {
+      case 'client_finalize':
+        this.registrationTiming.record('ecdsaRegistrationClientFinalizeMs', durationMs);
+        return;
+      case 'client_material_store':
+        this.registrationTiming.record('ecdsaRegistrationClientMaterialStoreMs', durationMs);
+        return;
+      case 'server_bootstrap':
+        this.registrationTiming.record('ecdsaRegistrationServerBootstrapMs', durationMs);
+        return;
+      case 'passkey_bootstrap_store':
+        this.registrationTiming.record('ecdsaRegistrationPasskeyBootstrapStoreMs', durationMs);
+        return;
+      case 'passkey_role_local_ready_record':
+        this.registrationTiming.record('ecdsaRegistrationRoleLocalRecordPersistenceMs', durationMs);
+        return;
+      case 'passkey_warm_session_hydration':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionHydrationMs', durationMs);
+        return;
+      case 'passkey_warm_session_worker_ready':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionWorkerReadyMs', durationMs);
+        return;
+      case 'passkey_warm_session_worker_put':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionWorkerPutMs', durationMs);
+        return;
+      case 'passkey_warm_session_sealed_record_persist':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealedRecordPersistMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_resolve_transport':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealResolveTransportMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_existing_read':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealExistingRecordReadMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_policy_read':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionSealPolicyReadMs', durationMs);
+        return;
+      case 'passkey_warm_session_sealed_record_apply_server_seal':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyServerSealMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_runtime_setup':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_client_seal':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyClientSealMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_server_route':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyServerRouteMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_client_unseal':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyClientUnsealMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_policy_update':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_register':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionSealRegisterMs', durationMs);
+        return;
+      case 'passkey_warm_session_sealed_record_verify_read':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionSealVerifyReadMs', durationMs);
+        return;
+      case 'email_otp_session_commit':
+        this.registrationTiming.record('ecdsaRegistrationEmailOtpSessionCommitMs', durationMs);
+        return;
+      default:
+        assertNever(bucket);
+    }
   }
 }
 
@@ -3186,29 +3538,87 @@ async function persistRegistrationEd25519Session(args: {
 async function persistRegistrationEcdsaSessionsAndSigners(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
+  registrationTiming: RegistrationTimingRecorder;
   plan: RegistrationPersistencePlan;
   ecdsa: Extract<RegistrationPersistenceEcdsa, { kind: 'evm_family_ecdsa' }>;
 }): Promise<void> {
   const plan = args.plan;
-  await args.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
-    walletId: toWalletId(plan.walletId),
+  args.registrationTiming.record('ecdsaRegistrationTargetCount', args.ecdsa.walletKeys.length);
+  await finalizeRegistrationEcdsaSessions({
+    context: args.context,
     relayerUrl: args.relayerUrl,
-    sessions: [...args.ecdsa.sessions],
-    walletKeys: [...args.ecdsa.walletKeys],
-    auth:
-      plan.auth.kind === 'email_otp'
-        ? {
-            kind: 'email_otp',
-            emailOtpAuthContext: plan.auth.emailOtpAuthContext,
-          }
-        : {
-            kind: 'passkey',
-            credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(
-              firstRegistrationEcdsaSession(args.ecdsa).preparedClientBootstrap,
-            ),
-            rpId: plan.auth.rpId,
-          },
+    registrationTiming: args.registrationTiming,
+    plan,
+    ecdsa: args.ecdsa,
   });
+  await persistRegistrationEcdsaLocalRecords({
+    context: args.context,
+    registrationTiming: args.registrationTiming,
+    plan,
+    ecdsa: args.ecdsa,
+  });
+}
+
+async function finalizeRegistrationEcdsaSessions(args: {
+  context: RegistrationWebContext;
+  relayerUrl: string;
+  registrationTiming: RegistrationTimingRecorder;
+  plan: RegistrationPersistencePlan;
+  ecdsa: Extract<RegistrationPersistenceEcdsa, { kind: 'evm_family_ecdsa' }>;
+}): Promise<void> {
+  const startedAt = performance.now();
+  try {
+    await args.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
+      walletId: toWalletId(args.plan.walletId),
+      relayerUrl: args.relayerUrl,
+      sessions: [...args.ecdsa.sessions],
+      walletKeys: [...args.ecdsa.walletKeys],
+      diagnostics: new RegistrationEcdsaSessionFinalizeDiagnostics(args.registrationTiming),
+      auth:
+        args.plan.auth.kind === 'email_otp'
+          ? {
+              kind: 'email_otp',
+              emailOtpAuthContext: args.plan.auth.emailOtpAuthContext,
+            }
+          : {
+              kind: 'passkey',
+              credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(
+                firstRegistrationEcdsaSession(args.ecdsa).preparedClientBootstrap,
+              ),
+              rpId: args.plan.auth.rpId,
+            },
+    });
+  } finally {
+    args.registrationTiming.record(
+      'ecdsaRegistrationSessionFinalizeMs',
+      roundDurationMs(startedAt),
+    );
+  }
+}
+
+async function persistRegistrationEcdsaLocalRecords(args: {
+  context: RegistrationWebContext;
+  registrationTiming: RegistrationTimingRecorder;
+  plan: RegistrationPersistencePlan;
+  ecdsa: Extract<RegistrationPersistenceEcdsa, { kind: 'evm_family_ecdsa' }>;
+}): Promise<void> {
+  const startedAt = performance.now();
+  try {
+    await persistRegistrationEcdsaLocalRecordsWithoutTiming(args);
+  } finally {
+    args.registrationTiming.record(
+      'ecdsaRegistrationLocalRecordPersistenceMs',
+      roundDurationMs(startedAt),
+    );
+  }
+}
+
+async function persistRegistrationEcdsaLocalRecordsWithoutTiming(args: {
+  context: RegistrationWebContext;
+  plan: RegistrationPersistencePlan;
+  ecdsa: Extract<RegistrationPersistenceEcdsa, { kind: 'evm_family_ecdsa' }>;
+}): Promise<void> {
+  const plan = args.plan;
   if (plan.ed25519.kind === 'near_ed25519') {
     if (plan.auth.kind === 'passkey') {
       await args.context.signingEngine.storeWalletEcdsaSignerRecords({
@@ -3494,6 +3904,7 @@ async function commitRegistrationPersistencePlan(args: {
       persistRegistrationEcdsaSessionsAndSigners({
         context: args.context,
         relayerUrl: args.relayerUrl,
+        registrationTiming: args.registrationTiming,
         plan: args.plan,
         ecdsa,
       }),
@@ -4070,12 +4481,8 @@ async function registerWalletInternal(
       default:
         assertNever(args.precomputeMode);
     }
-    const {
-      relayerUrl,
-      intentResponse,
-      registrationWarmup,
-      thresholdRuntimePolicyScope,
-    } = precomputeReady;
+    const { relayerUrl, intentResponse, registrationWarmup, thresholdRuntimePolicyScope } =
+      precomputeReady;
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
     const registrationSessionRpId = requiredRegistrationRpId({
       context,

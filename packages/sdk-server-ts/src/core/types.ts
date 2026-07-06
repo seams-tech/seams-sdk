@@ -512,9 +512,14 @@ export type ThresholdEd25519HssAdvanceWithSessionResponse =
       advanceServerEvalTimings?: {
         decodeStateMs: number;
         serializedSessionMaterializeMs: number;
+        serializedSessionDecodeMs: number;
+        materializeRuntimeMs: number;
+        materializeEvaluatorSessionMs: number;
+        materializeGarblerSessionMs: number;
         advanceAddStageResponseMs: number;
         advanceMessageScheduleRoundsMs: number;
         advanceRoundCoreRoundsMs: number;
+        advanceOutputProjectionMs: number;
         encodeAdvancedStateMs: number;
       };
     }
@@ -529,15 +534,21 @@ export type ThresholdEd25519HssAdvanceForRegistrationResponse =
       ok: true;
       contextBindingB64u: string;
       advancedServerEvalStateB64u: string;
+      finalizeContextB64u: string;
       priorStageResponseMessageB64u: string;
       addStageRequestDigestB64u: string;
       projectionMode: ThresholdEd25519HssRegistrationProjectionMode;
       advanceServerEvalTimings?: {
         decodeStateMs: number;
         serializedSessionMaterializeMs: number;
+        serializedSessionDecodeMs: number;
+        materializeRuntimeMs: number;
+        materializeEvaluatorSessionMs: number;
+        materializeGarblerSessionMs: number;
         advanceAddStageResponseMs: number;
         advanceMessageScheduleRoundsMs: number;
         advanceRoundCoreRoundsMs: number;
+        advanceOutputProjectionMs: number;
         encodeAdvancedStateMs: number;
       };
     }
@@ -564,6 +575,7 @@ export type ThresholdEd25519HssServerEvalSource =
         contextBindingB64u: string;
         addStageRequestDigestB64u: string;
         advancedServerEvalStateB64u: string;
+        finalizeContextB64u: string;
         priorStageResponseMessageB64u: string;
       };
       finalizedReport?: never;
@@ -629,6 +641,10 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
       finalizeReportTimings?: {
         decodeArtifactMs: number;
         serializedSessionMaterializeMs: number;
+        serializedSessionDecodeMs: number;
+        materializeRuntimeMs: number;
+        materializeEvaluatorSessionMs: number;
+        materializeGarblerSessionMs: number;
         advanceAddStageResponseMs: number;
         advanceMessageScheduleRoundsMs: number;
         advanceRoundCoreRoundsMs: number;

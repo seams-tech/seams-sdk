@@ -167,6 +167,7 @@ test('D1 Ed25519 HSS durable records reject malformed durable boundaries', () =>
   const contextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(1));
   const addStageRequestDigestB64u = base64UrlEncode(new Uint8Array(32).fill(2));
   const advancedServerEvalStateB64u = base64UrlEncode(new Uint8Array([3, 4, 5]));
+  const finalizeContextB64u = base64UrlEncode(new Uint8Array([5, 6, 7]));
   const priorStageResponseMessageB64u = base64UrlEncode(new Uint8Array([4, 5, 6]));
   const clientOutputMessageB64u = base64UrlEncode(new Uint8Array([6, 7, 8]));
   const serverOutputMessageB64u = base64UrlEncode(new Uint8Array([9, 10, 11]));
@@ -179,6 +180,7 @@ test('D1 Ed25519 HSS durable records reject malformed durable boundaries', () =>
     addStageRequestDigestB64u,
     projectionMode: 'registration_seed_and_output',
     advancedServerEvalStateB64u,
+    finalizeContextB64u,
     priorStageResponseMessageB64u,
     createdAtMs,
     expiresAtMs,
@@ -399,6 +401,7 @@ test('D1 Ed25519 HSS durable store rejects key and record identity mismatch', as
     addStageRequestDigestB64u,
     projectionMode: 'registration_seed_and_output',
     advancedServerEvalStateB64u: base64UrlEncode(utf8Bytes('advanced-state')),
+    finalizeContextB64u: base64UrlEncode(utf8Bytes('finalize-context')),
     priorStageResponseMessageB64u: base64UrlEncode(utf8Bytes('prior-stage-response')),
     createdAtMs: Date.now(),
     expiresAtMs: Date.now() + 60_000,

@@ -299,6 +299,26 @@ function appendThresholdEd25519HssAdvanceRouteTimings(input: {
   );
   appendD1RegistrationRouteTiming(
     input.recorder,
+    'registrationHssAdvanceStateSerializedSessionDecodeMs',
+    input.timings.serializedSessionDecodeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateMaterializeRuntimeMs',
+    input.timings.materializeRuntimeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateMaterializeEvaluatorSessionMs',
+    input.timings.materializeEvaluatorSessionMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateMaterializeGarblerSessionMs',
+    input.timings.materializeGarblerSessionMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
     'registrationHssAdvanceStateAddStageResponseMs',
     input.timings.advanceAddStageResponseMs,
   );
@@ -311,6 +331,11 @@ function appendThresholdEd25519HssAdvanceRouteTimings(input: {
     input.recorder,
     'registrationHssAdvanceStateRoundCoreRoundsMs',
     input.timings.advanceRoundCoreRoundsMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssAdvanceStateOutputProjectionMs',
+    input.timings.advanceOutputProjectionMs,
   );
   appendD1RegistrationRouteTiming(
     input.recorder,
@@ -332,6 +357,26 @@ function appendThresholdEd25519HssFinalizeRouteTimings(input: {
     input.recorder,
     'registrationHssFinalizeSerializedSessionMaterializeMs',
     input.timings.serializedSessionMaterializeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeSerializedSessionDecodeMs',
+    input.timings.serializedSessionDecodeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeMaterializeRuntimeMs',
+    input.timings.materializeRuntimeMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeMaterializeEvaluatorSessionMs',
+    input.timings.materializeEvaluatorSessionMs,
+  );
+  appendD1RegistrationRouteTiming(
+    input.recorder,
+    'registrationHssFinalizeMaterializeGarblerSessionMs',
+    input.timings.materializeGarblerSessionMs,
   );
   appendD1RegistrationRouteTiming(
     input.recorder,
@@ -1826,6 +1871,7 @@ export class CloudflareD1WalletRegistrationService {
             addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
             projectionMode: advanced.projectionMode,
             advancedServerEvalStateB64u: advanced.advancedServerEvalStateB64u,
+            finalizeContextB64u: advanced.finalizeContextB64u,
             priorStageResponseMessageB64u: advanced.priorStageResponseMessageB64u,
             createdAtMs: Date.now(),
             expiresAtMs: ceremony.expiresAtMs,
@@ -2070,6 +2116,7 @@ export class CloudflareD1WalletRegistrationService {
               contextBindingB64u: durableAdvancedEval.contextBindingB64u,
               addStageRequestDigestB64u: durableAdvancedEval.addStageRequestDigestB64u,
               advancedServerEvalStateB64u: durableAdvancedEval.advancedServerEvalStateB64u,
+              finalizeContextB64u: durableAdvancedEval.finalizeContextB64u,
               priorStageResponseMessageB64u: durableAdvancedEval.priorStageResponseMessageB64u,
             },
           };

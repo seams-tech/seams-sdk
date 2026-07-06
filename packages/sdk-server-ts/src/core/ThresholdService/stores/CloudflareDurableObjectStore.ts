@@ -1030,6 +1030,7 @@ type DurableEd25519HssSessionCeremonyWireRecord = {
     contextBindingB64u: string;
     addStageRequestDigestB64u: string;
     advancedServerEvalStateB64u: string;
+    finalizeContextB64u: string;
     priorStageResponseMessageB64u: string;
   };
   evaluationResult?: {
@@ -1154,6 +1155,7 @@ function parseDurableEd25519HssAdvancedServerEval(raw: unknown):
       contextBindingB64u: string;
       addStageRequestDigestB64u: string;
       advancedServerEvalStateB64u: string;
+      finalizeContextB64u: string;
       priorStageResponseMessageB64u: string;
     }
   | undefined {
@@ -1162,6 +1164,7 @@ function parseDurableEd25519HssAdvancedServerEval(raw: unknown):
   const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
   const addStageRequestDigestB64u = toOptionalTrimmedString(raw.addStageRequestDigestB64u);
   const advancedServerEvalStateB64u = toOptionalTrimmedString(raw.advancedServerEvalStateB64u);
+  const finalizeContextB64u = toOptionalTrimmedString(raw.finalizeContextB64u);
   const priorStageResponseMessageB64u = toOptionalTrimmedString(
     raw.priorStageResponseMessageB64u,
   );
@@ -1169,6 +1172,7 @@ function parseDurableEd25519HssAdvancedServerEval(raw: unknown):
     !contextBindingB64u ||
     !addStageRequestDigestB64u ||
     !advancedServerEvalStateB64u ||
+    !finalizeContextB64u ||
     !priorStageResponseMessageB64u
   ) {
     throw new Error('durable Ed25519 HSS advancedServerEval is incomplete');
@@ -1176,11 +1180,13 @@ function parseDurableEd25519HssAdvancedServerEval(raw: unknown):
   base64UrlDecode(contextBindingB64u);
   base64UrlDecode(addStageRequestDigestB64u);
   base64UrlDecode(advancedServerEvalStateB64u);
+  base64UrlDecode(finalizeContextB64u);
   base64UrlDecode(priorStageResponseMessageB64u);
   return {
     contextBindingB64u,
     addStageRequestDigestB64u,
     advancedServerEvalStateB64u,
+    finalizeContextB64u,
     priorStageResponseMessageB64u,
   };
 }
@@ -1250,6 +1256,7 @@ function durableEd25519HssAdvancedServerEvalWire(
     contextBindingB64u: advancedServerEval.contextBindingB64u,
     addStageRequestDigestB64u: advancedServerEval.addStageRequestDigestB64u,
     advancedServerEvalStateB64u: advancedServerEval.advancedServerEvalStateB64u,
+    finalizeContextB64u: advancedServerEval.finalizeContextB64u,
     priorStageResponseMessageB64u: advancedServerEval.priorStageResponseMessageB64u,
   };
 }

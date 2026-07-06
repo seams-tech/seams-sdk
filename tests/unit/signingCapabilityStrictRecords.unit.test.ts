@@ -463,6 +463,35 @@ test.describe('selected signing capability strict persisted records', () => {
     });
   });
 
+  test('classifies Ed25519 records that are both expired and exhausted as expired', () => {
+    const record = makeEd25519Record({
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+    });
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+    record.remainingUses = 0;
+
+    runWithDateNow(record.expiresAtMs + 1, () => {
+      expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
+        kind: 'expired',
+        reason: 'expired',
+        expiresAtMs: record.expiresAtMs,
+        record,
+      });
+    });
+  });
+
+  test('rejects Ed25519 active-state classification with an invalid operation clock', () => {
+    const record = makeEd25519Record();
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEd25519PersistedSigningRecord(record, Number.NaN)).toMatchObject({
+      kind: 'invalid',
+      reason: 'invalid_budget',
+      record,
+    });
+  });
+
   test('invalidates selected Ed25519 runtime validation when Wallet Session auth changes', () => {
     const record = makeEd25519Record();
     const refreshedRecord = makeEd25519Record({
@@ -848,6 +877,35 @@ test.describe('selected signing capability strict persisted records', () => {
       ok: false,
       code: 'record_mismatch',
       message: 'Selected ECDSA session record is not Router A/B runtime-validated: exhausted',
+    });
+  });
+
+  test('classifies ECDSA records that are both expired and exhausted as expired', () => {
+    const record = makeEcdsaRecord({
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+    });
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    record.remainingUses = 0;
+
+    runWithDateNow(record.expiresAtMs + 1, () => {
+      expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+        kind: 'expired',
+        reason: 'expired',
+        expiresAtMs: record.expiresAtMs,
+        record,
+      });
+    });
+  });
+
+  test('rejects ECDSA active-state classification with an invalid operation clock', () => {
+    const record = makeEcdsaRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record, Number.NaN)).toMatchObject({
+      kind: 'invalid',
+      reason: 'invalid_budget',
+      record,
     });
   });
 

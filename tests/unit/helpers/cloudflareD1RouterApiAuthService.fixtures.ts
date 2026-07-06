@@ -580,6 +580,7 @@ export async function testEd25519AdvanceForRegistration(request: {
     ok: true as const,
     contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
     advancedServerEvalStateB64u: base64UrlEncode(utf8Bytes('advanced-server-eval-state')),
+    finalizeContextB64u: base64UrlEncode(utf8Bytes('finalize-context')),
     priorStageResponseMessageB64u: base64UrlEncode(utf8Bytes('prior-stage-response-message')),
     addStageRequestDigestB64u: base64UrlEncode(
       await sha256(base64UrlDecode(request.request.addStageRequestMessageB64u)),

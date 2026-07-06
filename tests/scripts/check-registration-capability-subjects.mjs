@@ -105,7 +105,9 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
   const passkeyAuthMenuTypes = readRepoSource(
     'packages/sdk-web/src/react/components/PasskeyAuthMenu/types.ts',
   );
-  const hostNear = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts');
+  const hostNear = readRepoSource(
+    'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts',
+  );
   const touchIdPrompt = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.ts',
   );
@@ -152,7 +154,11 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
     'createPasskeyAuthMenuRegistrationRequest',
     'PasskeyAuthMenu controller',
   );
-  assertContains(controller, 'props.onRegister?.(registrationRequest)', 'PasskeyAuthMenu controller');
+  assertContains(
+    controller,
+    'props.onRegister?.(registrationRequest)',
+    'PasskeyAuthMenu controller',
+  );
   assertContains(
     passkeyAuthMenuTypes,
     'export type PasskeyAuthMenuRegistrationRequest =',
@@ -272,11 +278,7 @@ function checkPostPrepareRegistrationRoutesUseStoredPreparedState() {
     'registrationSignerBranchesFromPlan(ceremony.signerPlan)',
     'finalize block',
   );
-  assertContains(
-    startBlock,
-    'preparedRegistrationState.preparation.signerPlan',
-    'start block',
-  );
+  assertContains(startBlock, 'preparedRegistrationState.preparation.signerPlan', 'start block');
   assertContains(
     startBlock,
     'preparedRegistrationState.preparation.preparedContext',
@@ -370,21 +372,71 @@ function checkRegistrationTimingKeepsTailBucketsObservational() {
     'thresholdEd25519SigningSessionHydrationMs',
     'thresholdEd25519SealedSessionPersistenceMs',
     'ecdsaRegistrationPersistenceMs',
+    'ecdsaRegistrationSessionFinalizeMs',
+    'ecdsaRegistrationLocalRecordPersistenceMs',
+    'ecdsaRegistrationTargetCount',
+    'ecdsaRegistrationClientFinalizeMs',
+    'ecdsaRegistrationClientMaterialStoreMs',
+    'ecdsaRegistrationServerBootstrapMs',
+    'ecdsaRegistrationPasskeyBootstrapStoreMs',
+    'ecdsaRegistrationRoleLocalRecordPersistenceMs',
+    'ecdsaRegistrationWarmSessionHydrationMs',
+    'ecdsaRegistrationWarmSessionWorkerReadyMs',
+    'ecdsaRegistrationWarmSessionWorkerPutMs',
+    'ecdsaRegistrationWarmSessionSealedRecordPersistMs',
+    'ecdsaRegistrationWarmSessionSealResolveTransportMs',
+    'ecdsaRegistrationWarmSessionSealExistingRecordReadMs',
+    'ecdsaRegistrationWarmSessionSealPolicyReadMs',
+    'ecdsaRegistrationWarmSessionSealApplyServerSealMs',
+    'ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs',
+    'ecdsaRegistrationWarmSessionSealApplyClientSealMs',
+    'ecdsaRegistrationWarmSessionSealApplyServerRouteMs',
+    'ecdsaRegistrationWarmSessionSealApplyClientUnsealMs',
+    'ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs',
+    'ecdsaRegistrationWarmSessionSealRegisterMs',
+    'ecdsaRegistrationWarmSessionSealVerifyReadMs',
+    'ecdsaRegistrationEmailOtpSessionCommitMs',
     'walletStateActivationMs',
     'immediateSigningLaneAssertionMs',
+  ];
+  const observationalBuckets = [
+    'thresholdEd25519SessionPersistenceMs',
+    'ecdsaRegistrationSessionFinalizeMs',
+    'ecdsaRegistrationLocalRecordPersistenceMs',
+    'ecdsaRegistrationTargetCount',
+    'ecdsaRegistrationClientFinalizeMs',
+    'ecdsaRegistrationClientMaterialStoreMs',
+    'ecdsaRegistrationServerBootstrapMs',
+    'ecdsaRegistrationPasskeyBootstrapStoreMs',
+    'ecdsaRegistrationRoleLocalRecordPersistenceMs',
+    'ecdsaRegistrationWarmSessionHydrationMs',
+    'ecdsaRegistrationWarmSessionWorkerReadyMs',
+    'ecdsaRegistrationWarmSessionWorkerPutMs',
+    'ecdsaRegistrationWarmSessionSealedRecordPersistMs',
+    'ecdsaRegistrationWarmSessionSealResolveTransportMs',
+    'ecdsaRegistrationWarmSessionSealExistingRecordReadMs',
+    'ecdsaRegistrationWarmSessionSealPolicyReadMs',
+    'ecdsaRegistrationWarmSessionSealApplyServerSealMs',
+    'ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs',
+    'ecdsaRegistrationWarmSessionSealApplyClientSealMs',
+    'ecdsaRegistrationWarmSessionSealApplyServerRouteMs',
+    'ecdsaRegistrationWarmSessionSealApplyClientUnsealMs',
+    'ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs',
+    'ecdsaRegistrationWarmSessionSealRegisterMs',
+    'ecdsaRegistrationWarmSessionSealVerifyReadMs',
+    'ecdsaRegistrationEmailOtpSessionCommitMs',
   ];
 
   for (const bucket of zeroInitializedBuckets) {
     assertContains(zeroBuckets, `${bucket}: 0`, 'zero registration timing buckets');
   }
-  for (const bucket of zeroInitializedBuckets.slice(1)) {
+  for (const bucket of zeroInitializedBuckets) {
+    if (observationalBuckets.includes(bucket)) continue;
     assertContains(criticalPathBuckets, `'${bucket}'`, 'registration critical path bucket list');
   }
-  assertNotContains(
-    criticalPathBuckets,
-    "'thresholdEd25519SessionPersistenceMs'",
-    'registration critical path bucket list',
-  );
+  for (const bucket of observationalBuckets) {
+    assertNotContains(criticalPathBuckets, `'${bucket}'`, 'registration critical path bucket list');
+  }
   assertContains(registration, 'registration_critical_path_summary_v1', 'registration');
   assertContains(registration, 'JSON.stringify(summary)', 'registration');
   assertNotContains(
@@ -504,11 +556,7 @@ function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
     "transition: args.source === 'registration' ? 'registration' : 'wallet_unlock'",
     'ECDSA current session commit',
   );
-  assertContains(
-    ecdsaPublication,
-    'commitEvmFamilyThresholdEcdsaSessions({',
-    'ECDSA publication',
-  );
+  assertContains(ecdsaPublication, 'commitEvmFamilyThresholdEcdsaSessions({', 'ECDSA publication');
   assertContains(
     ecdsaPublication,
     'persistEmailOtpEcdsaSigningSessionSealForUnlock(',
@@ -660,7 +708,14 @@ function checkEmailOtpUnlockSuccessBuildsTypedActivationPlan() {
       'timings: EmailOtpThresholdEcdsaLoginTimings;',
       'createEmailOtpThresholdEcdsaLoginTimings()',
       'mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings',
+      'tryActivateEmailOtpEd25519UnlockFromSealedMaterial({',
     ],
+    'Email OTP ECDSA login',
+  );
+  assertSourceOrder(
+    ecdsaLogin,
+    'tryActivateEmailOtpEd25519UnlockFromSealedMaterial({',
+    ': await ports.reconstructEd25519Session(ed25519ReconstructionArgs);',
     'Email OTP ECDSA login',
   );
   assertSourceHasAll(

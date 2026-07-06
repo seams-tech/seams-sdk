@@ -87,6 +87,7 @@ import type {
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionResponse,
   ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssOpenedSeedOutput,
   ThresholdEd25519HssOpenedServerOutput,
   ThresholdEd25519HssPrepareForRegistrationRequest,
   ThresholdEd25519HssPrepareForRegistrationResponse,
@@ -758,6 +759,10 @@ function durableFinalizedReportRetryTimings(input: {
   return {
     decodeArtifactMs: 0,
     serializedSessionMaterializeMs: 0,
+    serializedSessionDecodeMs: 0,
+    materializeRuntimeMs: 0,
+    materializeEvaluatorSessionMs: 0,
+    materializeGarblerSessionMs: 0,
     advanceAddStageResponseMs: 0,
     advanceMessageScheduleRoundsMs: 0,
     advanceRoundCoreRoundsMs: 0,
@@ -1613,6 +1618,19 @@ function parseThresholdEd25519HssRegistrationServerEvalSource(
         'serverEvalSource.advancedServerEval.advancedServerEvalStateB64u',
       );
       if (!advancedServerEvalState.ok) return advancedServerEvalState;
+      const finalizeContextB64u = toOptionalTrimmedString(advancedServerEval.finalizeContextB64u);
+      if (!finalizeContextB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'serverEvalSource.advancedServerEval.finalizeContextB64u is required',
+        };
+      }
+      const finalizeContext = decodeThresholdEd25519HssPresentBase64UrlField(
+        finalizeContextB64u,
+        'serverEvalSource.advancedServerEval.finalizeContextB64u',
+      );
+      if (!finalizeContext.ok) return finalizeContext;
       const priorStageResponseMessageB64u = toOptionalTrimmedString(
         advancedServerEval.priorStageResponseMessageB64u,
       );
@@ -1636,6 +1654,7 @@ function parseThresholdEd25519HssRegistrationServerEvalSource(
             contextBindingB64u: contextBindingB64u.value,
             addStageRequestDigestB64u: addStageRequestDigestB64u.value,
             advancedServerEvalStateB64u,
+            finalizeContextB64u,
             priorStageResponseMessageB64u,
           },
         },
@@ -5630,6 +5649,7 @@ export class ThresholdSigningService {
     >;
     finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
     serverOutput: ThresholdEd25519HssOpenedServerOutput;
+    openedSeedOutput?: ThresholdEd25519HssOpenedSeedOutput;
   }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
     if (!relayerKeyId) {
@@ -5665,6 +5685,7 @@ export class ThresholdSigningService {
       preparedServerSession: input.preparedServerSession,
       finalizedReport: input.finalizedReport,
       serverOutput: input.serverOutput,
+      ...(input.openedSeedOutput ? { openedSeedOutput: input.openedSeedOutput } : {}),
     });
     if (
       registrationMaterial.publicKey !== stored.publicKey ||
@@ -6075,6 +6096,7 @@ export class ThresholdSigningService {
         contextBindingB64u: advanced.contextBindingB64u,
         addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
         advancedServerEvalStateB64u: advanced.advancedServerEvalStateB64u,
+        finalizeContextB64u: advanced.finalizeContextB64u,
         priorStageResponseMessageB64u: advanced.priorStageResponseMessageB64u,
       };
       await this.ed25519HssCeremonyStore.put(ceremonyHandle, {
@@ -6304,6 +6326,7 @@ export class ThresholdSigningService {
         ok: true,
         contextBindingB64u: result.contextBindingB64u,
         advancedServerEvalStateB64u: result.advancedServerEvalStateB64u,
+        finalizeContextB64u: result.finalizeContextB64u,
         priorStageResponseMessageB64u: result.priorStageResponseMessageB64u,
         addStageRequestDigestB64u: result.addStageRequestDigestB64u,
         projectionMode: result.projectionMode,
@@ -6447,6 +6470,7 @@ export class ThresholdSigningService {
             preparedServerSession: respondedServerSession,
             finalizedReport: restoreFinalizedReport,
             serverOutput: result.serverOutput,
+            ...(result.openedSeedOutput ? { openedSeedOutput: result.openedSeedOutput } : {}),
           });
           if (!rotated.ok) return rotated;
         }
@@ -6500,6 +6524,7 @@ export class ThresholdSigningService {
     readonly finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
     readonly finalizedServerOutputMessageB64u: string;
     readonly serverOutput: Awaited<ReturnType<typeof openThresholdEd25519HssServerOutput>>;
+    readonly openedSeedOutput?: never;
     readonly finalizeReportTimings: NonNullable<
       Extract<
         ThresholdEd25519HssFinalizeForRegistrationResponse,
@@ -6674,6 +6699,7 @@ export class ThresholdSigningService {
         preparedServerSession: serverState.value.preparedServerSession,
         finalizedReport: result.finalizedReport,
         serverOutput: result.serverOutput,
+        ...(result.openedSeedOutput ? { openedSeedOutput: result.openedSeedOutput } : {}),
       });
       const resolvedNearAccountId = resolveThresholdEd25519FinalizeNearAccountId({
         accountResolution: input.request.accountResolution,
@@ -6732,6 +6758,10 @@ export class ThresholdSigningService {
           ...(result.finalizeReportTimings ?? {
             decodeArtifactMs: 0,
             serializedSessionMaterializeMs: 0,
+            serializedSessionDecodeMs: 0,
+            materializeRuntimeMs: 0,
+            materializeEvaluatorSessionMs: 0,
+            materializeGarblerSessionMs: 0,
             advanceAddStageResponseMs: 0,
             advanceMessageScheduleRoundsMs: 0,
             advanceRoundCoreRoundsMs: 0,
@@ -6745,7 +6775,9 @@ export class ThresholdSigningService {
             deriveRelayerVerifyingShareMs: 0,
             keyStorePutMs: 0,
           }),
-          openSeedOutputMs: registrationMaterial.timings.openSeedOutputMs,
+          openSeedOutputMs:
+            (result.finalizeReportTimings?.openSeedOutputMs ?? 0) +
+            registrationMaterial.timings.openSeedOutputMs,
           deriveSeedKeypairMs: registrationMaterial.timings.deriveSeedKeypairMs,
           deriveRelayerVerifyingShareMs: registrationMaterial.timings.deriveRelayerVerifyingShareMs,
           keyStorePutMs,
