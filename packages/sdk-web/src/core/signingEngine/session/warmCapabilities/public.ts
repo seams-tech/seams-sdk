@@ -1,6 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
+import type { WarmSessionMaterialWriteDiagnostics } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -39,6 +40,7 @@ export type HydrateSigningSessionInput = {
   expiresAtMs: number;
   remainingUses: number;
   transport?: WarmSessionSealTransportInput;
+  diagnostics?: WarmSessionMaterialWriteDiagnostics;
 };
 
 export type WarmCapabilitiesPublicDeps = {
@@ -84,12 +86,13 @@ export async function getWarmThresholdEd25519SessionStatus(
   const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
   const signingGrantId = String(record?.signingGrantId || '').trim();
   const recordWalletId = String(record?.walletId || '').trim();
-  const budgetStatusCheck = signingGrantId && recordWalletId
-    ? buildWalletBudgetStatusCheckForSession({
-        owner: ed25519WalletBudgetOwner(recordWalletId),
-        signingGrantId,
-      })
-    : null;
+  const budgetStatusCheck =
+    signingGrantId && recordWalletId
+      ? buildWalletBudgetStatusCheckForSession({
+          owner: ed25519WalletBudgetOwner(recordWalletId),
+          signingGrantId,
+        })
+      : null;
   const walletBudgetStatus = budgetStatusCheck
     ? await getWalletSigningBudgetAvailableStatusValue(
         {

@@ -355,11 +355,9 @@ function currentActiveSessionNowMs(): number {
   return Date.now();
 }
 
-function normalizeActiveSessionNowMs(nowMs: number): number {
+function normalizeActiveSessionNowMs(nowMs: number): number | null {
   const normalized = Math.floor(Number(nowMs));
-  return Number.isSafeInteger(normalized) && normalized >= 0
-    ? normalized
-    : currentActiveSessionNowMs();
+  return Number.isSafeInteger(normalized) && normalized >= 0 ? normalized : null;
 }
 
 function inactiveSigningSessionState(args: {
@@ -367,8 +365,8 @@ function inactiveSigningSessionState(args: {
   expiresAtMs: number;
   nowMs: number;
 }): { kind: 'expired'; expiresAtMs: number } | { kind: 'exhausted'; remainingUses: number } | null {
-  if (args.remainingUses <= 0) return { kind: 'exhausted', remainingUses: args.remainingUses };
   if (args.expiresAtMs <= args.nowMs) return { kind: 'expired', expiresAtMs: args.expiresAtMs };
+  if (args.remainingUses <= 0) return { kind: 'exhausted', remainingUses: args.remainingUses };
   return null;
 }
 
@@ -869,6 +867,7 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   nowMs: number = currentActiveSessionNowMs(),
 ): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
   const operationNowMs = normalizeActiveSessionNowMs(nowMs);
+  if (operationNowMs == null) return { ok: false, reason: 'invalid_budget' };
   const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
   if (!authority.ok) return authority;
   const sessionRecord = record;
@@ -928,6 +927,7 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   nowMs: number = currentActiveSessionNowMs(),
 ): RouterAbSigningWalletSessionResult<RouterAbEcdsaHssSigningWalletSession> {
   const operationNowMs = normalizeActiveSessionNowMs(nowMs);
+  if (operationNowMs == null) return { ok: false, reason: 'invalid_budget' };
   if (!record) return { ok: false, reason: 'missing_record' };
   if (record.thresholdSessionKind !== 'jwt') return { ok: false, reason: 'cookie_session' };
   const resolvedAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
@@ -1135,9 +1135,17 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
       reason: 'missing_record',
     };
   }
+  const operationNowMs = normalizeActiveSessionNowMs(nowMs);
+  if (operationNowMs == null) {
+    return {
+      kind: 'invalid',
+      record,
+      reason: 'invalid_budget',
+    };
+  }
   const parsed = buildActiveRouterAbEd25519SigningWalletSessionFromRecord({
     record,
-    nowMs: normalizeActiveSessionNowMs(nowMs),
+    nowMs: operationNowMs,
   });
   if (parsed.ok) {
     const restorableMaterial = routerAbEd25519RestorableWorkerMaterial(record);
@@ -1225,9 +1233,17 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
       reason: 'missing_record',
     };
   }
+  const operationNowMs = normalizeActiveSessionNowMs(nowMs);
+  if (operationNowMs == null) {
+    return {
+      kind: 'invalid',
+      record,
+      reason: 'invalid_budget',
+    };
+  }
   const parsed = buildActiveRouterAbEcdsaHssSigningWalletSessionFromRecord({
     record,
-    nowMs: normalizeActiveSessionNowMs(nowMs),
+    nowMs: operationNowMs,
   });
   if (parsed.ok) {
     if (isRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {

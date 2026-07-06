@@ -325,7 +325,7 @@ type EmailOtpEd25519UnlockRecordConflict = {
   thresholdSessionIds: readonly string[];
 };
 
-type EmailOtpEd25519SealedUnlockActivationResult =
+export type EmailOtpEd25519SealedUnlockActivationResult =
   | {
       kind: 'activated';
       result: EmailOtpThresholdEd25519ProvisioningResult;
@@ -535,7 +535,7 @@ function thresholdEd25519KeyMaterialFromUnlockRecord(
     kind: 'threshold_ed25519_v1',
     nearAccountId: record.nearAccountId,
     signerSlot: record.signerSlot,
-    publicKey: '',
+    publicKey: record.clientVerifyingShareB64u,
     relayerKeyId: record.relayerKeyId,
     keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
     participants: thresholdEd25519ParticipantsFromRecord(record),
@@ -692,7 +692,7 @@ async function hydrateEmailOtpEd25519RecoveryCodeSigningSession(args: {
   });
 }
 
-async function tryActivateEmailOtpEd25519UnlockFromSealedMaterial(args: {
+export async function tryActivateEmailOtpEd25519UnlockFromSealedMaterial(args: {
   walletId: WalletId;
   rpId: string;
   recoveryCodeSecret32B64u: string;

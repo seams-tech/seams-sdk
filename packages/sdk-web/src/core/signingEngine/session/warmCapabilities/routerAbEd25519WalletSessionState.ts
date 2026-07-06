@@ -46,6 +46,21 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
   });
 }
 
+export function resolveRouterAbEd25519WalletSessionStateForOperation(args: {
+  record: ThresholdEd25519SessionRecord;
+  nowMs: number;
+}): ResolvedRouterAbEd25519WalletSessionState | null {
+  const signingWalletSession = classifyRouterAbEd25519PersistedSigningRecord(
+    args.record,
+    args.nowMs,
+  );
+  if (signingWalletSession.kind !== 'runtime_validated') return null;
+  return resolveRouterAbEd25519WalletSessionStateFromParsedSession({
+    record: args.record,
+    signingWalletSession: signingWalletSession.value,
+  });
+}
+
 export function resolveRouterAbEd25519WalletSessionStateFromCurrentRecord(
   record: ThresholdEd25519SessionRecord | undefined,
 ): ResolvedRouterAbEd25519WalletSessionState | null {

@@ -1,5 +1,5 @@
- /**
-  * UiConfirm Manager
+/**
+ * UiConfirm Manager
  * Owns the worker/main-thread handshake for uiConfirm UI orchestration
  * and the warm-session material cache.
  */
@@ -16,6 +16,7 @@ import type {
   WarmSessionRehydratePayload,
   WarmSessionRehydrateResult,
   WarmSessionSealAndPersistPayload,
+  WarmSessionSealAndPersistDiagnostics,
   WarmSessionSealAndPersistResult,
   UiConfirmManagerConfig,
   UserConfirmWorkerMessage,
@@ -108,9 +109,7 @@ import type {
   RestorePersistedSessionPurpose,
   RestoreSealedRecordResult,
 } from '../session/sealedRecovery/sealedRecovery.types';
-import type {
-  SealedRecoveryRecord,
-} from '../session/sealedRecovery/recoveryRecord';
+import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
 import { sealedRecoveryWalletSessionJwt } from '../session/sealedRecovery/recoveryRecord';
 import {
   thresholdEcdsaChainTargetKey,
@@ -122,6 +121,10 @@ import type {
   ThresholdEd25519SessionStoreSource,
 } from '../session/identity/laneIdentity';
 import type { SealedSigningSessionWalletSessionAuth } from '@shared/utils/signingSessionSeal';
+import type {
+  WarmSessionMaterialWriteDiagnosticBucket,
+  WarmSessionMaterialWriteDiagnostics,
+} from '../session/passkey/warmSessionMaterialWriter';
 
 type PendingWorkerRequest = {
   id: string;
@@ -136,6 +139,42 @@ const USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS = 15_000;
 
 function roundUiConfirmDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
+function recordWarmSessionMaterialWriteDiagnosticDuration(args: {
+  diagnostics: WarmSessionMaterialWriteDiagnostics | undefined;
+  bucket: WarmSessionMaterialWriteDiagnosticBucket;
+  startedAt: number;
+}): void {
+  if (!args.diagnostics) return;
+  args.diagnostics.recordDuration(args.bucket, roundUiConfirmDurationMs(args.startedAt));
+}
+
+function recordWarmSessionSealAndPersistResultDiagnostics(args: {
+  diagnostics: WarmSessionMaterialWriteDiagnostics | undefined;
+  resultDiagnostics: WarmSessionSealAndPersistDiagnostics | undefined;
+}): void {
+  if (!args.diagnostics || !args.resultDiagnostics) return;
+  args.diagnostics.recordDuration(
+    'sealed_record_apply_runtime_setup',
+    args.resultDiagnostics.runtimeSetupMs,
+  );
+  args.diagnostics.recordDuration(
+    'sealed_record_apply_client_seal',
+    args.resultDiagnostics.clientSealMs,
+  );
+  args.diagnostics.recordDuration(
+    'sealed_record_apply_server_route',
+    args.resultDiagnostics.serverSealRouteMs,
+  );
+  args.diagnostics.recordDuration(
+    'sealed_record_apply_client_unseal',
+    args.resultDiagnostics.clientUnsealMs,
+  );
+  args.diagnostics.recordDuration(
+    'sealed_record_apply_policy_update',
+    args.resultDiagnostics.policyUpdateMs,
+  );
 }
 
 function ed25519RestoreWalletSessionAuthFields(
@@ -195,18 +234,21 @@ function firstSigningSessionSealKeyVersion(
 }
 
 function ed25519SealedWorkerMaterialMissingFields(
-  value: {
-    nearAccountId?: unknown;
-    nearEd25519SigningKeyId?: unknown;
-    clientVerifyingShareB64u?: unknown;
-    ed25519WorkerMaterialBindingDigest?: unknown;
-    sealedWorkerMaterialRef?: unknown;
-    materialFormatVersion?: unknown;
-    materialKeyId?: unknown;
-    materialCreatedAtMs?: unknown;
-    signerSlot?: unknown;
-    routerAbNormalSigning?: unknown;
-  } | null | undefined,
+  value:
+    | {
+        nearAccountId?: unknown;
+        nearEd25519SigningKeyId?: unknown;
+        clientVerifyingShareB64u?: unknown;
+        ed25519WorkerMaterialBindingDigest?: unknown;
+        sealedWorkerMaterialRef?: unknown;
+        materialFormatVersion?: unknown;
+        materialKeyId?: unknown;
+        materialCreatedAtMs?: unknown;
+        signerSlot?: unknown;
+        routerAbNormalSigning?: unknown;
+      }
+    | null
+    | undefined,
 ): string[] {
   const missing: string[] = [];
   if (!String(value?.nearAccountId || '').trim()) {
@@ -494,6 +536,19 @@ function parseWarmSessionStatusBatchResult(data: unknown): WarmSessionStatusBatc
   return { results };
 }
 
+function parseWarmSessionSealAndPersistDiagnostics(
+  data: unknown,
+): WarmSessionSealAndPersistDiagnostics | null {
+  if (!isObjectRecord(data)) return null;
+  return {
+    runtimeSetupMs: positiveInteger(data.runtimeSetupMs),
+    clientSealMs: positiveInteger(data.clientSealMs),
+    serverSealRouteMs: positiveInteger(data.serverSealRouteMs),
+    clientUnsealMs: positiveInteger(data.clientUnsealMs),
+    policyUpdateMs: positiveInteger(data.policyUpdateMs),
+  };
+}
+
 function parseWarmSessionSealAndPersistResult(
   data: unknown,
 ): WarmSessionSealAndPersistResult | null {
@@ -513,6 +568,7 @@ function parseWarmSessionSealAndPersistResult(
   ) {
     return null;
   }
+  const diagnostics = parseWarmSessionSealAndPersistDiagnostics(data.diagnostics);
   return {
     ok: true,
     sealedSecretB64u: data.sealedSecretB64u,
@@ -521,6 +577,7 @@ function parseWarmSessionSealAndPersistResult(
       : {}),
     remainingUses: data.remainingUses,
     expiresAtMs: data.expiresAtMs,
+    ...(diagnostics ? { diagnostics } : {}),
   };
 }
 
@@ -753,7 +810,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ? 'ed25519'
         : undefined) ||
       (explicitChainTarget ? 'ecdsa' : undefined) ||
-      (getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId) ? 'ecdsa' : undefined);
+      (getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId)
+        ? 'ecdsa'
+        : undefined);
     if (!curve) {
       console.warn('[UiConfirm] cannot resolve sealed refresh purpose for passkey session', {
         thresholdSessionId,
@@ -762,9 +821,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
     if (curve === 'ecdsa') {
       if (!explicitChainTarget) {
-        console.warn('[UiConfirm] cannot resolve ECDSA sealed refresh purpose without chain target', {
-          thresholdSessionId,
-        });
+        console.warn(
+          '[UiConfirm] cannot resolve ECDSA sealed refresh purpose without chain target',
+          {
+            thresholdSessionId,
+          },
+        );
         return null;
       }
       return { authMethod: 'passkey', curve, chainTarget: explicitChainTarget };
@@ -798,7 +860,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       );
       if (!ed25519Record) {
         if (args.authMethod) return args.authMethod;
-        throw new Error('[UiConfirm] cannot resolve Ed25519 sealed refresh auth without session record');
+        throw new Error(
+          '[UiConfirm] cannot resolve Ed25519 sealed refresh auth without session record',
+        );
       }
       const inferredAuthMethod = sealedAuthMethodForThresholdEd25519Source(ed25519Record.source);
       if (args.authMethod && args.authMethod !== inferredAuthMethod) {
@@ -812,7 +876,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
     if (!ecdsaRecord) {
       if (args.authMethod) return args.authMethod;
-      throw new Error('[UiConfirm] cannot resolve ECDSA sealed refresh auth without session record');
+      throw new Error(
+        '[UiConfirm] cannot resolve ECDSA sealed refresh auth without session record',
+      );
     }
     const inferredAuthMethod = sealedAuthMethodForThresholdEcdsaSource(ecdsaRecord.source);
     if (args.authMethod && args.authMethod !== inferredAuthMethod) {
@@ -928,7 +994,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       const walletId = String(refreshedMetadata.walletId || '').trim();
       const relayerUrl = String(existing.relayerUrl || '').trim();
       if (!walletId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
-        throw new Error('[SigningSessionSealedStore] invalid ECDSA sealed session refresh metadata');
+        throw new Error(
+          '[SigningSessionSealedStore] invalid ECDSA sealed session refresh metadata',
+        );
       }
       await this.registerSigningSession({
         thresholdSessionId: args.thresholdSessionId,
@@ -954,7 +1022,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       const walletId = String(refreshedMetadata.walletId || '').trim();
       const relayerUrl = String(existing.relayerUrl || '').trim();
       if (!walletId || !relayerUrl || !refreshedMetadata.ed25519Restore) {
-        throw new Error('[SigningSessionSealedStore] invalid Ed25519 sealed session refresh metadata');
+        throw new Error(
+          '[SigningSessionSealedStore] invalid Ed25519 sealed session refresh metadata',
+        );
       }
       await this.registerSigningSession({
         thresholdSessionId: args.thresholdSessionId,
@@ -973,9 +1043,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         relayerUrl,
         keyVersion: existing.keyVersion,
         shamirPrimeB64u: existing.shamirPrimeB64u,
-        ...(refreshedMetadata.ecdsaRestore
-          ? { ecdsaRestore: refreshedMetadata.ecdsaRestore }
-          : {}),
+        ...(refreshedMetadata.ecdsaRestore ? { ecdsaRestore: refreshedMetadata.ecdsaRestore } : {}),
         ed25519Restore: refreshedMetadata.ed25519Restore,
         issuedAtMs: existing.issuedAtMs,
         expiresAtMs: args.expiresAtMs,
@@ -1114,8 +1182,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         : {}),
       ...(args.refreshed.signingRootVersion || existing?.signingRootVersion
         ? {
-            signingRootVersion:
-              args.refreshed.signingRootVersion || existing?.signingRootVersion,
+            signingRootVersion: args.refreshed.signingRootVersion || existing?.signingRootVersion,
           }
         : {}),
       ...(args.refreshed.ecdsaRestore || existing?.ecdsaRestore
@@ -1144,13 +1211,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!thresholdSessionId) return null;
     const ed25519Record =
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
-    const ecdsaRecord =
-      explicitTransport?.chainTarget
-        ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-            thresholdSessionId,
-            chainTarget: explicitTransport.chainTarget,
-          })
-        : getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    const ecdsaRecord = explicitTransport?.chainTarget
+      ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+          thresholdSessionId,
+          chainTarget: explicitTransport.chainTarget,
+        })
+      : getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
     const curve =
       explicitTransport?.curve ||
       sealedRecordInput?.curve ||
@@ -1264,20 +1330,22 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       args.curve === 'ed25519'
         ? getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.thresholdSessionId)
         : null;
-	    const ecdsaRecord =
-	      args.curve === 'ecdsa'
-	        ? args.chainTarget
-	          ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-	              thresholdSessionId: args.thresholdSessionId,
-	              chainTarget: args.chainTarget,
-	            })
-	          : null
-	        : null;
-	    const ecdsaPasskeyCredentialId =
-	      ecdsaRecord?.ecdsaRoleLocalReadyRecord.authMethod.kind === 'passkey'
-	        ? ecdsaRecord.ecdsaRoleLocalReadyRecord.authMethod.credentialIdB64u
-	        : '';
-	    const walletId = String(ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '').trim();
+    const ecdsaRecord =
+      args.curve === 'ecdsa'
+        ? args.chainTarget
+          ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+              thresholdSessionId: args.thresholdSessionId,
+              chainTarget: args.chainTarget,
+            })
+          : null
+        : null;
+    const ecdsaPasskeyCredentialId =
+      ecdsaRecord?.ecdsaRoleLocalReadyRecord.authMethod.kind === 'passkey'
+        ? ecdsaRecord.ecdsaRoleLocalReadyRecord.authMethod.credentialIdB64u
+        : '';
+    const walletId = String(
+      ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '',
+    ).trim();
     const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
       .trim()
       .toLowerCase();
@@ -1289,11 +1357,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const ecdsaSigningRootId = String(ecdsaRecord?.signingRootId || '').trim();
     const ecdsaSigningRootVersion = String(ecdsaRecord?.signingRootVersion || '').trim();
     const ecdsaRestore =
-	      ecdsaRecord &&
-	      ecdsaRecord.chainTarget &&
-	      ecdsaPasskeySource &&
+      ecdsaRecord &&
+      ecdsaRecord.chainTarget &&
+      ecdsaPasskeySource &&
       ecdsaPasskeyCredentialId &&
-	      ecdsaWalletSessionAuth &&
+      ecdsaWalletSessionAuth &&
       ecdsaSigningRootId &&
       ecdsaSigningRootVersion &&
       ecdsaRecord.routerAbEcdsaHssNormalSigning &&
@@ -1327,24 +1395,27 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       : [];
     const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
     if (ed25519Record && !ed25519Restore) {
-      console.warn('[UiConfirm] skipping Ed25519 durable restore metadata without worker material', {
-        thresholdSessionId: args.thresholdSessionId,
-        curve: args.curve,
-        walletId: String(ed25519Record.walletId || args.walletId || '').trim(),
-        source: ed25519Record.source,
-        missingFields: ed25519MaterialMissingFields,
-        hasRuntimeMaterialHandle: Boolean(
-          String(ed25519Record.ed25519WorkerMaterialHandle || '').trim(),
-        ),
-        hasClientVerifier: Boolean(String(ed25519Record.clientVerifyingShareB64u || '').trim()),
-        hasMaterialBindingDigest: Boolean(
-          String(ed25519Record.ed25519WorkerMaterialBindingDigest || '').trim(),
-        ),
-        hasSealedWorkerMaterialRef: Boolean(
-          String(ed25519Record.sealedWorkerMaterialRef || '').trim(),
-        ),
-        hasMaterialKeyId: Boolean(String(ed25519Record.materialKeyId || '').trim()),
-      });
+      console.warn(
+        '[UiConfirm] skipping Ed25519 durable restore metadata without worker material',
+        {
+          thresholdSessionId: args.thresholdSessionId,
+          curve: args.curve,
+          walletId: String(ed25519Record.walletId || args.walletId || '').trim(),
+          source: ed25519Record.source,
+          missingFields: ed25519MaterialMissingFields,
+          hasRuntimeMaterialHandle: Boolean(
+            String(ed25519Record.ed25519WorkerMaterialHandle || '').trim(),
+          ),
+          hasClientVerifier: Boolean(String(ed25519Record.clientVerifyingShareB64u || '').trim()),
+          hasMaterialBindingDigest: Boolean(
+            String(ed25519Record.ed25519WorkerMaterialBindingDigest || '').trim(),
+          ),
+          hasSealedWorkerMaterialRef: Boolean(
+            String(ed25519Record.sealedWorkerMaterialRef || '').trim(),
+          ),
+          hasMaterialKeyId: Boolean(String(ed25519Record.materialKeyId || '').trim()),
+        },
+      );
     }
     return {
       ...(walletId ? { walletId } : {}),
@@ -1360,6 +1431,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private async ensureSealedRecordPersisted(
     thresholdSessionIdRaw: string,
     transport?: WarmSessionSealTransportInput | null,
+    diagnostics?: WarmSessionMaterialWriteDiagnostics,
   ): Promise<WarmSessionSealAndPersistResult | null> {
     if (!this.isSealedRefreshModeEnabled()) return null;
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
@@ -1373,6 +1445,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const persisted = await this.persistSigningSessionSealForThresholdSession({
       sessionId: thresholdSessionId,
       transport: resolvedTransport,
+      ...(diagnostics ? { diagnostics } : {}),
     });
     return persisted.ok || persisted.code !== 'missing_restore_metadata' ? persisted : null;
   }
@@ -1456,9 +1529,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             ...(chainTarget ? { chainTarget } : {}),
             relayerUrl: args.record.relayerUrl,
             signingGrantId: args.purpose.signingGrantId,
-            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
-              args.record.keyVersion,
-            ),
+            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
             shamirPrimeB64u: args.record.shamirPrimeB64u,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
           },
@@ -1504,8 +1575,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
                     ok: false,
                     code: 'worker_error',
                     message: String(
-                      rehydratedPeek?.error ||
-                        'Warm-session status read failed after rehydrate',
+                      rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
                     ),
                   };
                 }
@@ -1552,8 +1622,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
                       ok: false,
                       code: 'worker_error',
                       message: String(
-                        rehydratedPeek?.error ||
-                          'Warm-session status read failed after rehydrate',
+                        rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
                       ),
                     };
                   }
@@ -1585,12 +1654,21 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     expiresAtMs: number;
     remainingUses: number;
     transport?: WarmSessionSealTransportInput;
+    diagnostics?: WarmSessionMaterialWriteDiagnostics;
   }): Promise<void> => {
+    const { diagnostics, ...workerPayload } = args;
+    const workerReadyStartedAt = performance.now();
     await this.ensureWorkerReady(false);
+    recordWarmSessionMaterialWriteDiagnosticDuration({
+      diagnostics,
+      bucket: 'worker_ready',
+      startedAt: workerReadyStartedAt,
+    });
+    const workerPutStartedAt = performance.now();
     const res = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_PUT',
       id: this.generateMessageId(),
-      payload: args,
+      payload: workerPayload,
     });
     if (!res?.success) {
       throw new Error(String(res?.error || 'Failed to cache warm-session material'));
@@ -1602,9 +1680,20 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!parsed.ok) {
       throw new Error(`Warm-session cache failed (${parsed.code}): ${parsed.message}`);
     }
+    recordWarmSessionMaterialWriteDiagnosticDuration({
+      diagnostics,
+      bucket: 'worker_put',
+      startedAt: workerPutStartedAt,
+    });
+    const sealedRecordPersistStartedAt = performance.now();
     const persisted = args.transport
-      ? await this.ensureSealedRecordPersisted(args.sessionId, args.transport)
+      ? await this.ensureSealedRecordPersisted(args.sessionId, args.transport, diagnostics)
       : null;
+    recordWarmSessionMaterialWriteDiagnosticDuration({
+      diagnostics,
+      bucket: 'sealed_record_persist',
+      startedAt: sealedRecordPersistStartedAt,
+    });
     if (persisted && !persisted.ok) {
       throw new Error(
         `Warm-session cache could not persist sealed refresh material (${persisted.code}): ${persisted.message}`,
@@ -1658,9 +1747,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return parsed;
   };
 
-  restorePersistedSessionForSigning = async (args: {
-    authMethod: 'passkey';
-  } & RestorePersistedSessionForSigningInput): Promise<RestorePersistedSessionForSigningResult> => {
+  restorePersistedSessionForSigning = async (
+    args: {
+      authMethod: 'passkey';
+    } & RestorePersistedSessionForSigningInput,
+  ): Promise<RestorePersistedSessionForSigningResult> => {
     if (args.authMethod !== 'passkey' || !this.isSealedRefreshModeEnabled()) {
       return { kind: 'completed', attempted: 0, restored: 0, deferred: 0 };
     }
@@ -1822,20 +1913,25 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   persistSigningSessionSealForThresholdSession = async (args: {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
+    diagnostics?: WarmSessionMaterialWriteDiagnostics;
   }): Promise<WarmSessionSealAndPersistResult> => {
     if (!this.isSealedRefreshModeEnabled()) {
       return this.getSealedRefreshNotEnabledError('signing-session seal persistence');
     }
+    const diagnostics = args.diagnostics;
     const thresholdSessionId = String(args?.sessionId || '').trim();
     if (!thresholdSessionId) {
       return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
     }
+    const resolveTransportStartedAt = performance.now();
     const inferredTransport =
-      (await this.resolveSealTransportInput(
-        thresholdSessionId,
-        args?.transport || null,
-        null,
-      )) || null;
+      (await this.resolveSealTransportInput(thresholdSessionId, args?.transport || null, null)) ||
+      null;
+    recordWarmSessionMaterialWriteDiagnosticDuration({
+      diagnostics,
+      bucket: 'sealed_record_resolve_transport',
+      startedAt: resolveTransportStartedAt,
+    });
     const curve = args?.transport?.curve || inferredTransport?.curve;
     if (!curve) {
       console.warn('[UiConfirm] cannot persist sealed refresh without passkey curve', {
@@ -1948,6 +2044,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
 
     const task = (async (): Promise<WarmSessionSealAndPersistResult> => {
+      const existingRecordReadStartedAt = performance.now();
       const existingRecord = await readExactSealedSession(thresholdSessionId, purpose).catch(
         (error) => {
           console.warn('[UiConfirm] failed to read sealed refresh record', {
@@ -1958,10 +2055,21 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           return null;
         },
       );
+      recordWarmSessionMaterialWriteDiagnosticDuration({
+        diagnostics,
+        bucket: 'sealed_record_existing_read',
+        startedAt: existingRecordReadStartedAt,
+      });
       if (existingRecord) {
-        const currentPolicy = await this.getWarmSessionStatus({ sessionId: thresholdSessionId }).catch(
-          () => null,
-        );
+        const policyReadStartedAt = performance.now();
+        const currentPolicy = await this.getWarmSessionStatus({
+          sessionId: thresholdSessionId,
+        }).catch(() => null);
+        recordWarmSessionMaterialWriteDiagnosticDuration({
+          diagnostics,
+          bucket: 'sealed_record_policy_read',
+          startedAt: policyReadStartedAt,
+        });
         const nextExpiresAtMs = currentPolicy?.ok
           ? currentPolicy.expiresAtMs
           : existingRecord.expiresAtMs;
@@ -1976,8 +2084,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           const walletId = String(refreshedMetadata.walletId || '').trim();
           const relayerUrl = String(existingRecord.relayerUrl || '').trim();
           if (!walletId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
-            throw new Error('[SigningSessionSealedStore] invalid ECDSA persisted-session refresh metadata');
+            throw new Error(
+              '[SigningSessionSealedStore] invalid ECDSA persisted-session refresh metadata',
+            );
           }
+          const registerStartedAt = performance.now();
           await this.registerSigningSession({
             thresholdSessionId,
             sealedSecretB64u: existingRecord.sealedSecretB64u,
@@ -1998,12 +2109,20 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             remainingUses: nextRemainingUses,
             updatedAtMs: Date.now(),
           });
+          recordWarmSessionMaterialWriteDiagnosticDuration({
+            diagnostics,
+            bucket: 'sealed_record_register',
+            startedAt: registerStartedAt,
+          });
         } else {
           const walletId = String(refreshedMetadata.walletId || '').trim();
           const relayerUrl = String(existingRecord.relayerUrl || '').trim();
           if (!walletId || !relayerUrl || !refreshedMetadata.ed25519Restore) {
-            throw new Error('[SigningSessionSealedStore] invalid Ed25519 persisted-session refresh metadata');
+            throw new Error(
+              '[SigningSessionSealedStore] invalid Ed25519 persisted-session refresh metadata',
+            );
           }
+          const registerStartedAt = performance.now();
           await this.registerSigningSession({
             thresholdSessionId,
             sealedSecretB64u: existingRecord.sealedSecretB64u,
@@ -2029,6 +2148,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             expiresAtMs: nextExpiresAtMs,
             remainingUses: nextRemainingUses,
             updatedAtMs: Date.now(),
+          });
+          recordWarmSessionMaterialWriteDiagnosticDuration({
+            diagnostics,
+            bucket: 'sealed_record_register',
+            startedAt: registerStartedAt,
           });
         }
         return {
@@ -2106,9 +2230,19 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
               shamirPrimeB64u,
             };
+      const applyServerSealStartedAt = performance.now();
       const sealed = await this.sealAndPersistWarmSessionMaterial({
         sessionId: thresholdSessionId,
         transport,
+      });
+      recordWarmSessionMaterialWriteDiagnosticDuration({
+        diagnostics,
+        bucket: 'sealed_record_apply_server_seal',
+        startedAt: applyServerSealStartedAt,
+      });
+      recordWarmSessionSealAndPersistResultDiagnostics({
+        diagnostics,
+        resultDiagnostics: sealed.ok ? sealed.diagnostics : undefined,
       });
       if (!sealed.ok) return sealed;
 
@@ -2118,6 +2252,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           throw new Error('[SigningSessionSealedStore] missing ECDSA seal metadata');
         }
         const persistedAtMs = Date.now();
+        const registerStartedAt = performance.now();
         await this.registerSigningSession({
           thresholdSessionId,
           sealedSecretB64u: sealed.sealedSecretB64u,
@@ -2138,12 +2273,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           remainingUses: sealed.remainingUses,
           updatedAtMs: persistedAtMs,
         });
+        recordWarmSessionMaterialWriteDiagnosticDuration({
+          diagnostics,
+          bucket: 'sealed_record_register',
+          startedAt: registerStartedAt,
+        });
       } else {
         const walletId = String(recordMetadata.walletId || '').trim();
         if (!walletId || !recordMetadata.ed25519Restore) {
           throw new Error('[SigningSessionSealedStore] missing Ed25519 seal metadata');
         }
         const persistedAtMs = Date.now();
+        const registerStartedAt = performance.now();
         await this.registerSigningSession({
           thresholdSessionId,
           sealedSecretB64u: sealed.sealedSecretB64u,
@@ -2151,15 +2292,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           authMethod,
           signingGrantId,
           walletId,
-          ...(recordMetadata.signingRootId
-            ? { signingRootId: recordMetadata.signingRootId }
-            : {}),
+          ...(recordMetadata.signingRootId ? { signingRootId: recordMetadata.signingRootId } : {}),
           ...(recordMetadata.signingRootVersion
             ? { signingRootVersion: recordMetadata.signingRootVersion }
             : {}),
-          ...(recordMetadata.ecdsaRestore
-            ? { ecdsaRestore: recordMetadata.ecdsaRestore }
-            : {}),
+          ...(recordMetadata.ecdsaRestore ? { ecdsaRestore: recordMetadata.ecdsaRestore } : {}),
           ed25519Restore: recordMetadata.ed25519Restore,
           thresholdSessionIds: { ed25519: thresholdSessionId },
           relayerUrl,
@@ -2170,10 +2307,21 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           remainingUses: sealed.remainingUses,
           updatedAtMs: persistedAtMs,
         });
+        recordWarmSessionMaterialWriteDiagnosticDuration({
+          diagnostics,
+          bucket: 'sealed_record_register',
+          startedAt: registerStartedAt,
+        });
       }
+      const verifyReadStartedAt = performance.now();
       const persistedRecord = await readExactSealedSession(thresholdSessionId, purpose).catch(
         () => null,
       );
+      recordWarmSessionMaterialWriteDiagnosticDuration({
+        diagnostics,
+        bucket: 'sealed_record_verify_read',
+        startedAt: verifyReadStartedAt,
+      });
       if (!persistedRecord) {
         return {
           ok: false,
@@ -2213,12 +2361,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         message: String(res?.error || 'Warm-session claim failed'),
       };
     }
-    await this.recordSessionMaterialClaimed(
-      args.sessionId,
-      parsed,
-      args.curve,
-      chainTarget,
-    );
+    await this.recordSessionMaterialClaimed(args.sessionId, parsed, args.curve, chainTarget);
     return parsed;
   };
 
@@ -2284,12 +2427,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         message: String(res?.error || 'Warm-session consume failed'),
       };
     }
-    await this.recordSessionUseConsumed(
-      args.sessionId,
-      parsed,
-      args.curve,
-      chainTarget,
-    );
+    await this.recordSessionUseConsumed(args.sessionId, parsed, args.curve, chainTarget);
     return parsed;
   };
 
@@ -2305,9 +2443,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       payload: command,
     });
     if (!res?.success) {
-      throw new Error(
-        String(res?.error || 'Failed to clear volatile warm-session material'),
-      );
+      throw new Error(String(res?.error || 'Failed to clear volatile warm-session material'));
     }
   };
 

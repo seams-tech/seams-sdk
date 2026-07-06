@@ -207,6 +207,7 @@ test.describe('threshold-ed25519 HSS durable ceremony store', () => {
         contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(1)),
         addStageRequestDigestB64u: base64UrlEncode(new Uint8Array(32).fill(2)),
         advancedServerEvalStateB64u: base64UrlEncode(new Uint8Array([16, 17, 18])),
+        finalizeContextB64u: base64UrlEncode(new Uint8Array([22, 23, 24])),
         priorStageResponseMessageB64u: base64UrlEncode(new Uint8Array([19, 20, 21])),
       },
     });
@@ -227,6 +228,9 @@ test.describe('threshold-ed25519 HSS durable ceremony store', () => {
     ]);
     expect(restored?.advancedServerEval?.advancedServerEvalStateB64u).toBe(
       base64UrlEncode(new Uint8Array([16, 17, 18])),
+    );
+    expect(restored?.advancedServerEval?.finalizeContextB64u).toBe(
+      base64UrlEncode(new Uint8Array([22, 23, 24])),
     );
     const restoredServerEvalStateBytes =
       restored && 'serverEvalStateBytes' in restored.preparedServerSession

@@ -97,6 +97,7 @@ import {
 } from '../../session/operationState/preparedOperation';
 import {
   resolveRouterAbEd25519WalletSessionStateFromRecord,
+  resolveRouterAbEd25519WalletSessionStateForOperation,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
@@ -642,6 +643,7 @@ async function resolveNearTransactionPlannerReadiness(args: {
   preConfirmDeps: NearTransactionPreConfirmSigningDeps;
   nearAccount: NearCommandSubject['nearAccount'];
   record: ThresholdEd25519SessionRecord;
+  operationNowMs: number;
   requiredSignatureUses?: number;
 }): Promise<{
   readiness: SigningSessionReadiness;
@@ -688,7 +690,10 @@ async function resolveNearTransactionPlannerReadiness(args: {
     emailOtpAuthContext
       ? emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use'
       : false;
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(
+    args.record,
+    args.operationNowMs,
+  );
   if (persistedState.kind === 'expired') {
     return buildReadiness('expired', 0, persistedState.expiresAtMs);
   }
@@ -1479,6 +1484,7 @@ async function prepareNearEd25519TransactionOperation(args: {
 }): Promise<NearEd25519TransactionOperationPrepareResult> {
   const nearAccountId = args.commandSubject.nearAccount.accountId;
   const walletId = args.commandSubject.walletSession.walletId;
+  const operationNowMs = Date.now();
   const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
   const selectedSessionLane = args.selectedLane.lane;
   await restoreNearEd25519SelectedSigningSession({
@@ -1521,6 +1527,7 @@ async function prepareNearEd25519TransactionOperation(args: {
     },
     nearAccount: args.commandSubject.nearAccount,
     record: recordForLifecycle,
+    operationNowMs,
     requiredSignatureUses: operationUsesNeeded,
   });
   if (recordForLifecycle.source === 'email_otp' && readiness.readiness.status !== 'ready') {
@@ -1559,7 +1566,10 @@ async function prepareNearEd25519TransactionOperation(args: {
   const transactionOperation = prepareTransactionOperationFromReadiness(transactionReadinessState);
   const identity = requireResolvedNearEd25519SigningLane(lane);
   const walletSessionStateForBudget =
-    resolveRouterAbEd25519WalletSessionStateFromRecord(recordForLifecycle);
+    resolveRouterAbEd25519WalletSessionStateForOperation({
+      record: recordForLifecycle,
+      nowMs: operationNowMs,
+    });
   const trustedStatusAuth = walletSessionStateForBudget
     ? trustedBudgetStatusAuthFromEd25519WalletSessionState(walletSessionStateForBudget)
     : null;

@@ -120,6 +120,10 @@ export class EmailOtpWalletSessionRuntime {
         deps.getThresholdEd25519SessionRecordByThresholdSessionId,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
+    const recoveryCodeSigningSessionHydration =
+      createEmailOtpEd25519RecoveryCodeWarmSessionHydration({
+        hydrateSigningSession: deps.hydrateSigningSession,
+      });
     this.ecdsaLifecycleRuntime = new EmailOtpEcdsaLifecycleRuntime({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
@@ -127,6 +131,9 @@ export class EmailOtpWalletSessionRuntime {
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
       reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
+      getThresholdEd25519SessionRecordByThresholdSessionId:
+        deps.getThresholdEd25519SessionRecordByThresholdSessionId,
+      recoveryCodeSigningSessionHydration,
     });
     this.exportRecoveryRuntime = new EmailOtpExportRecoveryRuntime({
       getSignerWorkerContext: deps.getSignerWorkerContext,
@@ -184,10 +191,7 @@ export class EmailOtpWalletSessionRuntime {
       persistEmailOtpThresholdEd25519LocalMetadata:
         deps.persistEmailOtpThresholdEd25519LocalMetadata,
       persistWarmSessionEd25519Capability: deps.persistWarmSessionEd25519Capability,
-      recoveryCodeSigningSessionHydration:
-        createEmailOtpEd25519RecoveryCodeWarmSessionHydration({
-          hydrateSigningSession: deps.hydrateSigningSession,
-        }),
+      recoveryCodeSigningSessionHydration,
       readExactSealedSession: deps.readExactSealedSession,
       getThresholdEcdsaSessionRecordByThresholdSessionId:
         deps.getThresholdEcdsaSessionRecordByThresholdSessionId,

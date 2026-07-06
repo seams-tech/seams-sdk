@@ -44,7 +44,10 @@ import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
 } from '../session/sealedRecovery/sealedRecovery.types';
-import type { WarmSessionMaterialWriter } from '../session/passkey/warmSessionMaterialWriter';
+import type {
+  WarmSessionMaterialWriter,
+  WarmSessionMaterialWriteDiagnostics,
+} from '../session/passkey/warmSessionMaterialWriter';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
 import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
@@ -171,6 +174,7 @@ export interface WarmSessionSealPersister {
   persistSigningSessionSealForThresholdSession(args: {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
+    diagnostics?: WarmSessionMaterialWriteDiagnostics;
   }): Promise<WarmSessionSealAndPersistResult>;
 }
 
@@ -205,8 +209,7 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   VolatileWarmSessionMaterialClearer &
   VolatileWarmSessionMaterialClearAll;
 
-export type DurableSealedSessionPort =
-  WarmSessionSealPersister &
+export type DurableSealedSessionPort = WarmSessionSealPersister &
   WarmSessionRehydrator &
   WarmSessionPersistedRestorer &
   DurableSealedSessionRecordDeleter;
@@ -224,8 +227,7 @@ export type UiConfirmSigningSessionPort = UiConfirmSigningPort &
   UiConfirmSecureConfirmationPort &
   WarmSessionMaterialPort;
 
-export type UiConfirmSigningRuntimePort = UiConfirmContextPort &
-  UiConfirmSigningSessionPort;
+export type UiConfirmSigningRuntimePort = UiConfirmContextPort & UiConfirmSigningSessionPort;
 
 export type UiConfirmRuntimeBridgePort = PromptCapableBootstrapPort &
   WarmSessionMaterialPort &
@@ -269,7 +271,4 @@ export interface UiConfirmSecureConfirmationPort {
 }
 
 export interface UiConfirmManager
-  extends
-    PromptCapableBootstrapPort,
-    WarmSessionMaterialPort,
-    UiConfirmWorkerLifecyclePort {}
+  extends PromptCapableBootstrapPort, WarmSessionMaterialPort, UiConfirmWorkerLifecyclePort {}

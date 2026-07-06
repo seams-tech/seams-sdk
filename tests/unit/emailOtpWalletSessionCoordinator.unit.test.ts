@@ -10,7 +10,10 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { deriveEvmFamilySigningKeySlotId, requireWalletKeyId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -21,6 +24,7 @@ import {
   thresholdEcdsaLaneCandidateFromSessionRecord,
   type OperationUsableThresholdEd25519SessionRecord,
   type ThresholdEcdsaSessionRecord,
+  upsertThresholdEd25519SessionFact,
   upsertThresholdEcdsaSessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -61,12 +65,14 @@ import {
 } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import { buildEcdsaMaterialStateForCandidate } from '@/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
+import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { computeEcdsaHssRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
   parseSigningSessionSealKeyVersion,
 } from '@/core/signingEngine/session/keyMaterialBrands';
+import { buildRouterAbEd25519WorkerMaterialBinding } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
@@ -126,6 +132,7 @@ function ecdsaRestoreInput(args: {
       walletId: wallet,
       signingRootId: 'signing-root:dev',
       signingRootVersion: 'root-v1',
+      chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
     }),
     ecdsaThresholdKeyId: 'ecdsa-key',
     signingRootId: 'signing-root:dev',
@@ -272,6 +279,9 @@ const VALID_ECDSA_CONTEXT_BINDING_B64U = Buffer.from(new Uint8Array(32).fill(5))
 const VALID_ECDSA_APPLICATION_BINDING_DIGEST_B64U = Buffer.from(
   new Uint8Array(32).fill(6),
 ).toString('base64url');
+const VALID_ED25519_RECOVERY_CODE_SECRET32_B64U = Buffer.from(
+  new Uint8Array(32).fill(10),
+).toString('base64url');
 const DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA = {
   kind: 'defer',
   reason: 'not_needed_for_ecdsa',
@@ -345,6 +355,7 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
           walletId: args.walletId,
           signingRootId: args.signingRootId,
           signingRootVersion: args.signingRootVersion,
+          chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
         }),
       chainTarget: args.chainTarget,
       keyHandle: args.keyHandle,
@@ -386,6 +397,7 @@ function makeEmailOtpEcdsaRecordForSelection(args: {
     walletId: TEST_SUBJECT_ID,
     signingRootId,
     signingRootVersion,
+    chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
   });
   return {
     walletId: TEST_SUBJECT_ID,
@@ -522,6 +534,32 @@ function thresholdEcdsaSessionJwt(args: {
   })}.sig`;
 }
 
+function thresholdEd25519SessionJwt(args: {
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  relayerKeyId: string;
+  rpId: string;
+  participantIds: number[];
+  runtimePolicyScope?: RuntimePolicyScopeFixture;
+}): string {
+  return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    sub: args.walletId,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: args.relayerKeyId,
+    rpId: args.rpId,
+    participantIds: args.participantIds,
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+  })}.sig`;
+}
+
 function hexAddress20B64u(address: `0x${string}`): string {
   const hex = address.replace(/^0x/, '');
   if (hex.length !== 40) {
@@ -616,6 +654,26 @@ function emailOtpWorkerBackendBindingFixture(args: {
   };
 }
 
+function publicationTargetPlanForChainTarget(args: {
+  plans: unknown;
+  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
+}): any | null {
+  if (!Array.isArray(args.plans)) return null;
+  for (const plan of args.plans) {
+    if (thresholdEcdsaChainTargetsEqual(plan.chainTarget, args.chainTarget)) {
+      return plan;
+    }
+  }
+  return null;
+}
+
+function workerCallIsEd25519ValidateMaterial(call: any): boolean {
+  return (
+    call.kind === 'nearSigner' &&
+    call.request?.type === 'thresholdEd25519ValidateWorkerMaterial'
+  );
+}
+
 function emailOtpWorkerEcdsaBootstrapFixture(args: {
   call: any;
   chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
@@ -623,16 +681,25 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
   remainingUses?: number;
 }) {
   const payload = args.call.request.payload;
+  const publicationTargetPlan = publicationTargetPlanForChainTarget({
+    plans: payload.publicationTargetPlans,
+    chainTarget: args.chainTarget,
+  });
   const walletId = payload.walletId || 'alice.testnet';
   const thresholdSessionId = payload.sessionId || 'ecdsa-session';
   const signingGrantId = payload.signingGrantId || thresholdSessionId;
-  const keyHandle = 'key-handle-ecdsa';
+  const keyHandle = publicationTargetPlan?.keyHandle || payload.keyHandle || 'key-handle-ecdsa';
   const ecdsaThresholdKeyId = 'ecdsa-key';
-  const signingRootId = 'signing-root';
-  const signingRootVersion = 'root-v1';
+  const runtimePolicyScope = payload.runtimePolicyScope;
+  const signingRootId =
+    runtimePolicyScope?.projectId && runtimePolicyScope?.envId
+      ? `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`
+      : 'signing-root';
+  const signingRootVersion = runtimePolicyScope?.signingRootVersion || 'root-v1';
   const ethereumAddress = `0x${'33'.repeat(20)}` as `0x${string}`;
   const evmFamilySigningKeySlotId =
     args.evmFamilySigningKeySlotId ||
+    publicationTargetPlan?.evmFamilySigningKeySlotId ||
     deriveEvmFamilySigningKeySlotId({
       walletId: toWalletId(walletId),
       signingRootId,
@@ -654,6 +721,7 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
     thresholdSessionId,
     signingGrantId,
     chainTarget: args.chainTarget,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   });
   const remainingUses = args.remainingUses ?? 3;
   return {
@@ -782,6 +850,85 @@ function emailOtpEd25519ProvisioningResultFixture(args: {
   };
 }
 
+async function seedRuntimeValidatedEmailOtpEd25519UnlockRecord(args: {
+  runtimePolicyScope: RuntimePolicyScopeFixture;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+}) {
+  const participantIds = [1, 2];
+  const relayerKeyId = 'ed25519-relayer-key';
+  const materialCreatedAtMs = 1_700_000_000_321;
+  const clientVerifyingShareB64u = Buffer.from(new Uint8Array(32).fill(9)).toString(
+    'base64url',
+  );
+  const material = await buildRouterAbEd25519WorkerMaterialBinding({
+    nearAccountId: 'alice.testnet',
+    signerSlot: 1,
+    signingRootId: `${args.runtimePolicyScope.projectId}:${args.runtimePolicyScope.envId}`,
+    signingRootVersion: args.runtimePolicyScope.signingRootVersion,
+    relayerKeyId,
+    participantIds,
+    clientVerifyingShareB64u,
+    createdAtMs: materialCreatedAtMs,
+  });
+  const walletSessionJwt = thresholdEd25519SessionJwt({
+    walletId: TEST_WALLET_SESSION.walletId,
+    nearAccountId: 'alice.testnet',
+    nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId,
+    rpId: 'localhost',
+    participantIds,
+    runtimePolicyScope: args.runtimePolicyScope,
+  });
+  const record = upsertThresholdEd25519SessionFact({
+    walletId: TEST_WALLET_SESSION.walletId,
+    nearAccountId: 'alice.testnet',
+    nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
+    rpId: 'localhost',
+    relayerUrl: 'https://relay.example',
+    relayerKeyId,
+    participantIds,
+    signingRootId: `${args.runtimePolicyScope.projectId}:${args.runtimePolicyScope.envId}`,
+    signingRootVersion: args.runtimePolicyScope.signingRootVersion,
+    runtimePolicyScope: args.runtimePolicyScope,
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle: `ed25519-worker-material:${args.thresholdSessionId}`,
+    ed25519WorkerMaterialBindingDigest: material.materialBindingDigest,
+    sealedWorkerMaterialRef: `ed25519-worker-material-v1:${args.thresholdSessionId}`,
+    sealedWorkerMaterialB64u: 'sealed-ed25519-worker-material',
+    materialFormatVersion: 'ed25519_worker_material_v1',
+    materialKeyId: material.materialBinding.materialKeyId,
+    materialCreatedAtMs,
+    signerSlot: 1,
+    routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    walletSessionJwt,
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: args.remainingUses,
+    emailOtpAuthContext: emailOtpAuthContextFixture({
+      policy: 'session',
+      retention: 'session',
+      reason: 'login',
+      providerUserId: TEST_WALLET_SESSION.walletSessionUserId,
+    }),
+    updatedAtMs: Date.now(),
+    source: 'email_otp',
+  });
+  if (!record) {
+    throw new Error('failed to seed runtime-validated Email OTP Ed25519 unlock record');
+  }
+  if (!markRouterAbEd25519WorkerMaterialRuntimeValidated(record)) {
+    throw new Error('failed to mark Email OTP Ed25519 unlock record runtime validated');
+  }
+  return { record, material };
+}
+
 async function roleLocalEcdsaKeyHandle(args: {
   walletId: string;
   rpId: string;
@@ -856,6 +1003,7 @@ function buildEcdsaSealedRecordFixture(
         walletId: toWalletId(walletId),
         signingRootId,
         signingRootVersion: args.signingRootVersion || 'root-v1',
+        chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
       }),
     providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
     emailHashHex: args.ecdsaRestore?.emailHashHex || 'email-hash',
@@ -889,6 +1037,7 @@ function buildEcdsaSealedRecordFixture(
             walletId: toWalletId(walletId),
             signingRootId,
             signingRootVersion: args.signingRootVersion || 'root-v1',
+            chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
           }),
         ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
         signingRootId,
@@ -956,6 +1105,7 @@ function createCoordinator(overrides?: {
   acquireSigningSessionRestoreLease?: (args: any) => Promise<any>;
   releaseSigningSessionRestoreLease?: (lease: any) => Promise<void>;
   reconstructEd25519Session?: (args: any) => Promise<any>;
+  thresholdEd25519RecoveryCodeSecret32B64u?: string;
 }) {
   const workerCalls: any[] = [];
   let refreshCount = 0;
@@ -970,7 +1120,11 @@ function createCoordinator(overrides?: {
       }
       if (call.request?.type === 'loginWithEmailOtpWallet') {
         return {
-          recovery: { thresholdEd25519RecoveryCodeSecret32B64u: 'prf-first-ecdsa-login' },
+          recovery: {
+            thresholdEd25519RecoveryCodeSecret32B64u:
+              overrides?.thresholdEd25519RecoveryCodeSecret32B64u ||
+              'prf-first-ecdsa-login',
+          },
           clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
         };
       }
@@ -1047,6 +1201,73 @@ function createCoordinator(overrides?: {
               jwt: call.request.payload.transport.walletSessionJwt,
             },
           },
+        };
+      }
+      if (
+        call.kind === 'nearSigner' &&
+        call.request?.type === 'thresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization'
+      ) {
+        const payload = call.request.payload;
+        return {
+          ok: true,
+          unsealAuthorization: {
+            kind: 'recovery_code_material_authorization_handle_v1',
+            handle: 'recovery-code-unseal-handle',
+            purpose: 'unseal',
+            authSubjectId: payload.authSubjectId,
+            recoveryCodeBindingDigest: payload.recoveryCodeBindingDigest,
+            materialBindingDigest: payload.materialBindingDigest,
+            expiresAtMs: payload.expiresAtMs,
+          },
+          remainingUses: 1,
+        };
+      }
+      if (
+        call.kind === 'nearSigner' &&
+        call.request?.type === 'thresholdEd25519ValidateWorkerMaterial'
+      ) {
+        const payload = call.request.payload;
+        const material = await buildRouterAbEd25519WorkerMaterialBinding({
+          nearAccountId: payload.expectedMaterialBinding.nearAccountId,
+          signerSlot: payload.expectedMaterialBinding.signerSlot,
+          signingRootId: payload.expectedMaterialBinding.signingRootId,
+          signingRootVersion: payload.expectedMaterialBinding.signingRootVersion,
+          relayerKeyId: payload.expectedMaterialBinding.relayerKeyId,
+          participantIds: payload.expectedMaterialBinding.participantIds,
+          clientVerifyingShareB64u: payload.expectedMaterialBinding.clientVerifyingShareB64u,
+          createdAtMs: payload.expectedMaterialBinding.createdAtMs,
+        });
+        return {
+          materialHandle: payload.materialHandle,
+          bindingDigest: material.materialBindingDigest,
+          clientVerifyingShareB64u: payload.expectedMaterialBinding.clientVerifyingShareB64u,
+        };
+      }
+      if (
+        call.kind === 'nearSigner' &&
+        call.request?.type === 'thresholdEd25519RestoreWorkerMaterial'
+      ) {
+        const payload = call.request.payload;
+        const material = await buildRouterAbEd25519WorkerMaterialBinding({
+          nearAccountId: payload.expectedMaterialBinding.nearAccountId,
+          signerSlot: payload.expectedMaterialBinding.signerSlot,
+          signingRootId: payload.expectedMaterialBinding.signingRootId,
+          signingRootVersion: payload.expectedMaterialBinding.signingRootVersion,
+          relayerKeyId: payload.expectedMaterialBinding.relayerKeyId,
+          participantIds: payload.expectedMaterialBinding.participantIds,
+          clientVerifyingShareB64u: payload.expectedMaterialBinding.clientVerifyingShareB64u,
+          createdAtMs: payload.expectedMaterialBinding.createdAtMs,
+        });
+        return {
+          ok: true,
+          materialHandle: `ed25519-worker-material:${payload.expectedMaterialBinding.materialKeyId}`,
+          materialBindingDigest: material.materialBindingDigest,
+          clientVerifyingShareB64u: payload.expectedMaterialBinding.clientVerifyingShareB64u,
+          sealedWorkerMaterialRef: payload.sealedMaterial.sealedWorkerMaterialRef,
+          sealedWorkerMaterialB64u: 'sealed-ed25519-worker-material',
+          materialFormatVersion: payload.expectedMaterialBinding.materialFormatVersion,
+          materialKeyId: payload.expectedMaterialBinding.materialKeyId,
+          signerSlot: payload.expectedMaterialBinding.signerSlot,
         };
       }
       if (call.request?.type === 'enrollEmailOtpWallet') {
@@ -2089,6 +2310,14 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
 
     expect(result.bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId).toBe('ecdsa-key');
+    const expectedEvmFamilySigningKeySlotId = String(
+      deriveEvmFamilySigningKeySlotId({
+        walletId: 'alice.testnet',
+        signingRootId: 'proj:dev',
+        signingRootVersion: 'v1',
+        chainTargetKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
+      }),
+    );
     expect(workerCalls.at(-2)).toMatchObject({
       kind: 'emailOtp',
       request: {
@@ -2115,9 +2344,15 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           relayUrl: 'https://relay.example',
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
-          evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:proj%3Adev:v1',
-          keyHandle,
           participantIds: [1, 3],
+          publicationTargetPlans: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'existing_key_publication_target',
+              chainTarget: TEMPO_CHAIN_TARGET,
+              evmFamilySigningKeySlotId: expectedEvmFamilySigningKeySlotId,
+              keyHandle,
+            }),
+          ]),
           sessionKind: 'jwt',
           remainingUses: 3,
           routeAuth: { kind: 'app_session', jwt },
@@ -2529,6 +2764,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         walletId: 'alice.testnet',
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
+        chainTargetKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
       }),
       chainTarget: TEMPO_CHAIN_TARGET,
       relayerUrl: 'https://relay.example',
@@ -2634,6 +2870,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         walletId: 'alice.testnet',
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
+        chainTargetKey: thresholdEcdsaChainTargetKey(tempoChainTarget),
       }),
       chainTarget: tempoChainTarget,
       relayerUrl: 'https://relay.example',
@@ -3440,6 +3677,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                   walletId: toWalletId('alice.testnet'),
                   signingRootId: 'signing-root',
                   signingRootVersion: 'root-v1',
+                  chainTargetKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
                 }),
               },
               session: {
@@ -3790,6 +4028,167 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       },
     });
     expect(String(reconstructionCalls[0].signingGrantId || '')).toBeTruthy();
+  });
+
+  test('login activates persisted Ed25519 material before HSS reconstruction', async () => {
+    const reconstructionCalls: any[] = [];
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const expiresAtMs = Date.now() + 60_000;
+    clearAllStoredThresholdEd25519SessionRecords();
+    try {
+      const seeded = await seedRuntimeValidatedEmailOtpEd25519UnlockRecord({
+        runtimePolicyScope,
+        thresholdSessionId: 'ed25519-current-session',
+        signingGrantId: 'ed25519-current-grant',
+        expiresAtMs,
+        remainingUses: 2,
+      });
+      const { coordinator, hydratedSessions, workerCalls } = createCoordinator({
+        thresholdEd25519RecoveryCodeSecret32B64u: VALID_ED25519_RECOVERY_CODE_SECRET32_B64U,
+        reconstructEd25519Session: async (args) => {
+          reconstructionCalls.push(args);
+          throw new Error('Ed25519 HSS reconstruction should not run when current material exists');
+        },
+      });
+      const routeJwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
+
+      const result = await coordinator.loginWithEcdsaCapabilityInternal({
+        walletSession: TEST_WALLET_SESSION,
+        chainTarget: TEMPO_CHAIN_TARGET,
+        challengeId: 'challenge-1',
+        otpCode: '123456',
+        emailHashHex: 'email-hash',
+        routePlan: loginRoutePlanFromAppSessionJwt(routeJwt),
+        participantIds: [1, 3],
+        ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+        ed25519ReconstructionMode: 'await',
+        ed25519SessionReconstruction: {
+          kind: 'defer',
+          reason: 'missing_runtime_policy_scope',
+          ed25519Key: {
+            signer: TEST_ED25519_SIGNER,
+            relayerKeyId: 'ed25519-relayer-key',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            participantIds: [1, 2],
+          },
+        },
+        providerIdentity: { kind: 'derive_from_route_auth' },
+      });
+
+      expect(result.ed25519Reconstruction.kind).toBe('completed');
+      if (result.ed25519Reconstruction.kind !== 'completed') {
+        throw new Error('expected completed Ed25519 activation');
+      }
+      expect(result.ed25519Reconstruction.sessionMaterial.sessionId).toBe(
+        seeded.record.thresholdSessionId,
+      );
+      expect(reconstructionCalls).toHaveLength(0);
+      expect(hydratedSessions).toEqual([
+        expect.objectContaining({
+          sessionId: seeded.record.thresholdSessionId,
+          prfFirstB64u: VALID_ED25519_RECOVERY_CODE_SECRET32_B64U,
+          expiresAtMs: seeded.record.expiresAtMs,
+          remainingUses: seeded.record.remainingUses,
+          transport: expect.objectContaining({
+            curve: 'ed25519',
+            authMethod: 'email_otp',
+            walletId: TEST_WALLET_SESSION.walletId,
+            signingGrantId: seeded.record.signingGrantId,
+            walletSessionJwt: seeded.record.walletSessionJwt,
+          }),
+        }),
+      ]);
+      expect(workerCalls.some(workerCallIsEd25519ValidateMaterial)).toBe(true);
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
+  });
+
+  test('login reconstructs Ed25519 instead of activating expired sealed material', async () => {
+    const reconstructionCalls: any[] = [];
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    clearAllStoredThresholdEd25519SessionRecords();
+    try {
+      const seeded = await seedRuntimeValidatedEmailOtpEd25519UnlockRecord({
+        runtimePolicyScope,
+        thresholdSessionId: 'ed25519-expired-session',
+        signingGrantId: 'ed25519-expired-grant',
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 2,
+      });
+      seeded.record.expiresAtMs = Date.now() - 1_000;
+      const { coordinator } = createCoordinator({
+        thresholdEd25519RecoveryCodeSecret32B64u: VALID_ED25519_RECOVERY_CODE_SECRET32_B64U,
+        reconstructEd25519Session: async (args) => {
+          reconstructionCalls.push(args);
+          return emailOtpEd25519ProvisioningResultFixture({
+            relayerKeyId: args.ed25519Key.relayerKeyId,
+            keyVersion: args.ed25519Key.keyVersion,
+            sessionId: 'ed25519-reconstructed-session',
+            signingGrantId: args.signingGrantId,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+            participantIds: args.ed25519Key.participantIds,
+            jwt: 'ed25519-reconstructed-jwt',
+            clientVerifyingShareB64u: 'ed25519-reconstructed-client-verifying-share',
+          });
+        },
+      });
+      const routeJwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
+
+      const result = await coordinator.loginWithEcdsaCapabilityInternal({
+        walletSession: TEST_WALLET_SESSION,
+        chainTarget: TEMPO_CHAIN_TARGET,
+        challengeId: 'challenge-1',
+        otpCode: '123456',
+        emailHashHex: 'email-hash',
+        routePlan: loginRoutePlanFromAppSessionJwt(routeJwt),
+        participantIds: [1, 3],
+        ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+        ed25519ReconstructionMode: 'await',
+        ed25519SessionReconstruction: {
+          kind: 'defer',
+          reason: 'missing_runtime_policy_scope',
+          ed25519Key: {
+            signer: TEST_ED25519_SIGNER,
+            relayerKeyId: 'ed25519-relayer-key',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            participantIds: [1, 2],
+          },
+        },
+        providerIdentity: { kind: 'derive_from_route_auth' },
+      });
+
+      expect(result.ed25519Reconstruction.kind).toBe('completed');
+      if (result.ed25519Reconstruction.kind !== 'completed') {
+        throw new Error('expected completed Ed25519 reconstruction');
+      }
+      expect(result.ed25519Reconstruction.sessionMaterial.sessionId).toBe(
+        'ed25519-reconstructed-session',
+      );
+      expect(reconstructionCalls).toHaveLength(1);
+      expect(reconstructionCalls[0]).toMatchObject({
+        kind: 'session_ed25519_reconstruction',
+        ed25519Key: {
+          signer: TEST_ED25519_SIGNER,
+          relayerKeyId: 'ed25519-relayer-key',
+          keyVersion: 'threshold-ed25519-hss-v1',
+          participantIds: [1, 2],
+        },
+      });
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
   });
 
   test('login reconstructs Ed25519 when runtime scope is supplied out-of-band', async () => {

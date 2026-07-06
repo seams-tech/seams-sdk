@@ -79,8 +79,17 @@ import {
   type EmailOtpThresholdEd25519ProvisioningResult,
   type ReconstructEmailOtpEd25519SessionArgs,
 } from './provisioning';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from '../persistence/records';
 import { thresholdEcdsaEmailOtpAuthContext } from '../persistence/records';
+import {
+  tryActivateEmailOtpEd25519UnlockFromSealedMaterial,
+} from './ed25519Warmup';
+import type {
+  EmailOtpEd25519RecoveryCodeSigningSessionHydration,
+} from './recoveryCodeWarmSessionHydration';
 import {
   DEV_DEFAULT_UNLOCK_REMAINING_USES,
   normalizeStepUpOperationId,
@@ -344,6 +353,10 @@ export type EmailOtpEcdsaLoginPorts = {
   reconstructEd25519Session: (
     args: ReconstructEmailOtpEd25519SessionArgs,
   ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
+  getThresholdEd25519SessionRecordByThresholdSessionId: (
+    thresholdSessionId: string,
+  ) => ThresholdEd25519SessionRecord | null;
+  recoveryCodeSigningSessionHydration: EmailOtpEd25519RecoveryCodeSigningSessionHydration;
 };
 
 export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
@@ -679,7 +692,21 @@ export async function loginWithEmailOtpEcdsaCapability(
       };
       if (shouldAwaitEd25519Reconstruction) {
         timingStartedAtMs = nowMs();
-        const sessionMaterial = await ports.reconstructEd25519Session(ed25519ReconstructionArgs);
+        const sealedActivation = await tryActivateEmailOtpEd25519UnlockFromSealedMaterial({
+          walletId: toWalletId(args.walletSession.walletId),
+          rpId,
+          recoveryCodeSecret32B64u: thresholdEd25519RecoveryCodeSecret32B64u,
+          emailOtpAuthContext: ed25519ReconstructionAuthContext,
+          ed25519Key: resolvedEd25519Reconstruction.ed25519Key,
+          workerCtx,
+          getThresholdEd25519SessionRecordByThresholdSessionId:
+            ports.getThresholdEd25519SessionRecordByThresholdSessionId,
+          recoveryCodeSigningSessionHydration: ports.recoveryCodeSigningSessionHydration,
+        });
+        const sessionMaterial =
+          sealedActivation.kind === 'activated'
+            ? sealedActivation.result
+            : await ports.reconstructEd25519Session(ed25519ReconstructionArgs);
         addEmailOtpThresholdEcdsaLoginTiming(
           timings,
           'ed25519MaterialRestoreMs',
