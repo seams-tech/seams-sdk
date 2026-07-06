@@ -689,6 +689,12 @@ async function resolveNearTransactionPlannerReadiness(args: {
       ? emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use'
       : false;
   const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  if (persistedState.kind === 'expired') {
+    return buildReadiness('expired', 0, persistedState.expiresAtMs);
+  }
+  if (persistedState.kind === 'exhausted') {
+    return buildReadiness('exhausted', persistedState.remainingUses, resolveExpiresAtMs());
+  }
   const hasRuntimeValidatedWorkerMaterial = persistedState.kind === 'runtime_validated';
   const hasRestoreAvailablePasskeyWorkerMaterial =
     args.record.source !== 'email_otp' &&
@@ -1058,6 +1064,11 @@ function requireSignablePasskeyReconnectEd25519SessionState(args: {
     case 'runtime_validated':
       throw new Error(
         '[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: unresolved_signable_record',
+      );
+    case 'expired':
+    case 'exhausted':
+      throw new Error(
+        `[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: ${refreshedRecordState.reason}`,
       );
     case 'non_signing':
     case 'invalid':

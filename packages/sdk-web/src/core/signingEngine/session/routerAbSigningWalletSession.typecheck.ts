@@ -301,6 +301,26 @@ const ed25519NonSigningWithValue = {
 } satisfies RouterAbEd25519PersistedSigningRecordState;
 void ed25519NonSigningWithValue;
 
+const ed25519ExpiredWithValue = {
+  kind: 'expired',
+  record: validEd25519SessionRecord,
+  reason: 'expired',
+  expiresAtMs: 1_800_000_000_000,
+  // @ts-expect-error Expired Ed25519 persisted state cannot carry signing value.
+  value: validEd25519SigningWalletSession,
+} satisfies Extract<RouterAbEd25519PersistedSigningRecordState, { kind: 'expired' }>;
+void ed25519ExpiredWithValue;
+
+const ed25519ExhaustedWithValue = {
+  kind: 'exhausted',
+  record: validEd25519SessionRecord,
+  reason: 'exhausted',
+  remainingUses: 0,
+  // @ts-expect-error Exhausted Ed25519 persisted state cannot carry signing value.
+  value: validEd25519SigningWalletSession,
+} satisfies Extract<RouterAbEd25519PersistedSigningRecordState, { kind: 'exhausted' }>;
+void ed25519ExhaustedWithValue;
+
 const ecdsaMissingRouterAbState = {
   ...validEcdsaSigningWalletSession,
   // @ts-expect-error Signable ECDSA-HSS Wallet Session state requires Router A/B normal-signing state.

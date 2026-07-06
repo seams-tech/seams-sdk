@@ -186,6 +186,8 @@ function unavailableEcdsaSigningMaterialPlanForRecordState(
       };
     case 'restore_available':
     case 'material_hint_unvalidated':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
       return { kind: 'unavailable', reason: 'not_runtime_validated' };
     default: {

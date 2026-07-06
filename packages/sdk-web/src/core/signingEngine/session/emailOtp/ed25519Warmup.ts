@@ -606,6 +606,8 @@ function emailOtpEd25519UnlockRecordFact(args: {
       };
     case 'material_hint_unvalidated':
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return null;

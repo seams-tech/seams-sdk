@@ -26,6 +26,8 @@ export function ed25519AvailableMaterialStateFromRouterAbPersistedState(
     case 'auth_ready_material_pending':
       return { kind: 'material_pending' };
     case 'material_hint_unvalidated':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return null;

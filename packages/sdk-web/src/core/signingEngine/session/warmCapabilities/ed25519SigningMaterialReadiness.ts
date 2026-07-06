@@ -123,6 +123,9 @@ export function requireSignableRouterAbEd25519WalletSessionState(args: {
         thresholdSessionId,
         reason: 'restore_available',
       });
+    case 'expired':
+    case 'exhausted':
+      throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
     case 'non_signing':
       // This record is valid for some session/lifecycle purpose, but cannot authorize
       // Router A/B signing.
@@ -197,6 +200,9 @@ export async function requireOrRestoreRouterAbEd25519WalletSessionState(args: {
         thresholdSessionId,
         reason: 'pending_material',
       });
+    case 'expired':
+    case 'exhausted':
+      throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
     case 'non_signing':
     case 'invalid':
       throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
@@ -249,6 +255,9 @@ export async function requireOrRestoreRouterAbEd25519RecordSigningMaterial(args:
         thresholdSessionId: args.thresholdSessionId,
         reason: 'pending_material',
       });
+    case 'expired':
+    case 'exhausted':
+      throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
     case 'non_signing':
     case 'invalid':
       throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
@@ -413,6 +422,10 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
     throw new Error('Router A/B Ed25519 restored worker material persistence failed');
   }
   markRouterAbEd25519WorkerMaterialRuntimeValidated(persistedRecord);
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(persistedRecord);
+  if (persistedState.kind === 'expired' || persistedState.kind === 'exhausted') {
+    throw new Error(`Router A/B Ed25519 restored worker material session is ${persistedState.reason}`);
+  }
   const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(persistedRecord);
   if (!walletSessionState) {
     throw new Error('Router A/B Ed25519 restored worker material state did not become signable');

@@ -262,6 +262,86 @@ Check:
 - Server budget/session denial wins over local cache.
 - Local locks can be cleared without corrupting server state.
 
+## Phase 6A: Active Wallet Session Boundary
+
+Status: implemented July 6, 2026 as an independent correctness slice. This
+landed before the broader Refactor 85B capability-snapshot, local-material
+redesign, and schema-shrink phases. The slice changed parser/domain-state
+behavior and focused callers without a schema bump.
+
+Goal: expired or exhausted persisted wallet-session rows cannot become active
+signing domain state. IndexedDB session rows are durable hints until the boundary
+parser proves current lifetime, spend, authority binding, and material binding.
+
+Trigger: the July 6 auto-audit found that an expired Router A/B Ed25519
+wallet-session row can still parse as signable and classify as
+`runtime_validated`, causing NEAR readiness and available-lane policy to treat
+stale persisted state as ready until a later caller performs its own expiry
+check.
+
+Scope: fix the Ed25519 bug and audit the ECDSA twin in the same slice. If the
+ECDSA persisted-record classifier already rejects expired or exhausted session
+state, record the exact counterevidence in this phase before closing it.
+
+Do:
+
+- Split the Router A/B Ed25519 signing-session parser into an active-state
+  builder that requires `{ record, nowMs }` and returns an active session only
+  when wallet-session authority, JWT claims, signing root, Router A/B state,
+  material identity, `remainingUses`, and `expiresAtMs > nowMs` all hold.
+- Audit the Router A/B ECDSA HSS persisted-record classifier for the same
+  lifetime/spend hazard. Apply the same active-state boundary and tests if
+  expired or exhausted ECDSA records can classify as runtime-validated,
+  restorable-active, or ready.
+- Add explicit non-signable persisted-state variants for inactive sessions:
+  separate `expired` and `exhausted` branches. These branches must carry
+  `value?: never` so active signing-session values cannot exist in inactive
+  state.
+- Make `classifyRouterAbEd25519PersistedSigningRecord` emit inactive state
+  before `runtime_validated`, `restore_available`, or material-hint branches.
+  Previously validated worker material may remain restorable local material,
+  but it must not carry an active wallet-session value after session expiry.
+- Use one operation clock. The caller supplies `nowMs` once per signing/export
+  operation and threads it through active-state parsing, readiness, lane
+  selection, and restore planning instead of re-sampling time at each branch.
+- Update NEAR readiness, persisted available-lane policy, selected-lane
+  capability reads, material restore, seal restore, reconnect planning, and
+  implicit NEAR funding helpers to consume the inactive branch instead of
+  deriving readiness from raw persisted `expiresAtMs`.
+- Route sealed-session restore through the same active-state parser after
+  material is restored. Restoring local sealed material for an expired grant can
+  produce restorable local material state, but it must land in `expired` or
+  `exhausted` for signing authority.
+- Treat local `remainingUses` as a fail-fast hint only. Server grant/spend
+  state is authoritative: local non-exhausted state can still be denied by the
+  server, and server denial must never be "repaired" by adjusting local
+  `remainingUses`.
+- Keep the downstream signing RPC and presign expiry checks as defense in depth;
+  the active boundary becomes the primary domain invariant.
+- Add type fixtures or source guards that reject constructing an active
+  Router A/B signing-wallet session from a generic persisted record without the
+  active-state builder.
+
+Check:
+
+- A material-ready Ed25519 record with `expiresAtMs <= nowMs` and a previously
+  validated worker-material key classifies as `expired`, never
+  `runtime_validated`.
+- ECDSA HSS persisted-record classifiers either have equivalent expired and
+  exhausted test coverage or a documented counterexample proving the hazard does
+  not apply.
+- `resolveRouterAbEd25519WalletSessionStateFromRecord` returns `null` for
+  expired and exhausted records.
+- NEAR transaction readiness maps expired persisted wallet-session rows to
+  `expired`, and remaining-spend exhaustion maps to step-up/exhausted handling.
+- If a session is active at readiness time and expires before the signing RPC or
+  presign request lands, the operation maps to the existing reauth/step-up path
+  or a user-facing expired-session result, not an internal invariant error.
+- Persisted available lanes never advertise expired records as durable `ready`.
+- Seal restore for an expired grant cannot create an active signing session.
+- Future, non-exhausted runtime-validated records still sign, export, and
+  restore through the existing intended behaviour contracts.
+
 ## Phase 7: Schema Shrink
 
 Goal: reduce the physical IndexedDB schema.
@@ -313,6 +393,9 @@ Check:
   it does not delete server wallet/auth/capability records.
 - IndexedDB cannot authorize signing, export, recovery, policy, budget, or
   wallet existence without server state.
+- Expired or exhausted IndexedDB wallet-session rows cannot construct active
+  signing-session state, readiness, available-lane `ready` advisories, or
+  trusted wallet-session auth.
 - All core signing/export/unlock paths consume a server capability binding plus
   normalized local material state.
 - Local material records are keyed by `capabilityId` and validated against the
@@ -330,6 +413,7 @@ pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletCapab
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/runtimePostconditions.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/ed25519TransactionLaneSelection.unit.test.ts unit/nearSigning.sessionSelection.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/availableSigningLanes.ed25519Duplicates.unit.test.ts unit/availableSigningLanes.ecdsaDuplicates.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/signingCapabilityStrictRecords.unit.test.ts --reporter=line
 ```
 
 Manual checks:

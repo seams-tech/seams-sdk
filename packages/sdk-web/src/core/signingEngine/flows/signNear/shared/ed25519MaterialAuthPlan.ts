@@ -26,6 +26,8 @@ export function signingAuthPlanForEd25519MaterialReadiness(args: {
     case 'material_hint_unvalidated':
     case 'restore_available':
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return args.signingAuthPlan;

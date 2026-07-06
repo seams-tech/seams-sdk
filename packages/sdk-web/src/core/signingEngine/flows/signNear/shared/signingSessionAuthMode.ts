@@ -558,6 +558,8 @@ function classifyWarmPasskeyMaterialPendingPlannerState(
       return { kind: 'ready', capability };
     case 'material_hint_unvalidated':
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return { kind: 'passkey_refreshable', capability };
@@ -671,6 +673,8 @@ function classifyPostRefreshEd25519PlannerState(
       return { kind: 'restore_available', capability };
     case 'material_hint_unvalidated':
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return classifyPostRefreshCapabilityState(capability);
@@ -724,6 +728,8 @@ async function resolvePrePlanningPasskeyEd25519MaterialRestore(args: {
       return await restorePasskeyEd25519SessionBeforePlanning(args);
     case 'material_hint_unvalidated':
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return {

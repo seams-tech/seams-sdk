@@ -688,6 +688,37 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           thresholdSessionId: 'tsess-login-ecdsa',
           signingGrantId,
         });
+        const ecdsaWalletKeyId =
+          'wallet-key:evm-family:alice.testnet:proj_local%3Adev:default:tempo%3A42431';
+        const ecdsaRouterAbNormalSigning = {
+          kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+          scope: {
+            wallet_key_id: ecdsaWalletKeyId,
+            wallet_id: 'alice.testnet',
+            ecdsa_threshold_key_id: 'ehss-login-tempo',
+            signing_root_id: 'proj_local:dev',
+            signing_root_version: 'default',
+            context: {
+              application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+            },
+            public_identity: {
+              context_binding_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+              client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              ethereum_address20_b64u: 'qqqqqqqqqqqqqqqqqqqqqqqqqqo',
+              client_share_retry_counter: 0,
+              server_share_retry_counter: 0,
+            },
+            signing_worker: {
+              server_id: 'signing-worker-ecdsa-login',
+              key_epoch: 'epoch-ecdsa-login',
+              recipient_encryption_key:
+                'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+            },
+            activation_epoch: 'tsess-login-ecdsa',
+          },
+        };
         const ed25519WalletSessionJwt = unsignedJwt({
           kind: 'router_ab_ed25519_wallet_session_v1',
           sub: 'alice.testnet',
@@ -799,8 +830,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               source: 'login',
               rpId: 'example.localhost',
               credentialIdB64u: 'credential-ecdsa-login',
-              evmFamilySigningKeySlotId:
-                'wallet-key:evm-family:alice.testnet:proj_local%3Adev:default',
+              evmFamilySigningKeySlotId: ecdsaWalletKeyId,
               walletSessionJwt: ecdsaWalletSessionJwt,
               sessionKind: 'jwt',
               keyHandle: 'ehss-key-login-tempo',
@@ -816,6 +846,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 envId: 'dev',
                 signingRootVersion: 'default',
               },
+              routerAbEcdsaHssNormalSigning: ecdsaRouterAbNormalSigning,
             },
 	            ed25519Restore: {
 	              nearAccountId: 'alice.testnet',
@@ -1970,7 +2001,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
             walletId: 'alice.testnet',
             evmFamilySigningKeySlotId:
-              'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default',
+              'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default:evm%3Aeip155%3A5042002',
             chainTarget,
             keyHandle: 'key-handle-ecdsa',
             ecdsaThresholdKeyId: 'ecdsa-key-id',
@@ -1994,7 +2025,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const ecdsaNormalSigning = {
           kind: 'router_ab_ecdsa_hss_normal_signing_v1',
           scope: {
-            wallet_key_id: 'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default',
+            wallet_key_id:
+              'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default:evm%3Aeip155%3A5042002',
             wallet_id: 'alice.testnet',
             ecdsa_threshold_key_id: 'ecdsa-key-id',
             signing_root_id: 'proj-a:env-a',
@@ -2052,7 +2084,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             keygen: {
               ok: true,
               evmFamilySigningKeySlotId:
-                'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default',
+                'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default:evm%3Aeip155%3A5042002',
               ecdsaThresholdKeyId: 'ecdsa-key-id',
               clientVerifyingShareB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               relayerKeyId: 'rk-ecdsa',
@@ -2355,6 +2387,138 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         clientVerifierB64u: 'new-client-verifying-share',
       },
     });
+  });
+
+  test('inactive Router A/B Ed25519 sessions do not resolve as signable wallet-session state', async ({
+    page,
+  }) => {
+    const activeExpiresAtMs = Date.now() + 60_000;
+    const expiredWalletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'inactive-ed25519-wallet',
+      nearAccountId: 'inactive-ed25519.testnet',
+      nearEd25519SigningKeyId: 'inactive-ed25519-key',
+      thresholdSessionId: 'inactive-expired-threshold-session',
+      signingGrantId: 'inactive-expired-signing-grant',
+      relayerKeyId: 'rk-ed25519',
+    });
+    const exhaustedWalletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'inactive-ed25519-wallet',
+      nearAccountId: 'inactive-ed25519.testnet',
+      nearEd25519SigningKeyId: 'inactive-ed25519-key',
+      thresholdSessionId: 'inactive-exhausted-threshold-session',
+      signingGrantId: 'inactive-exhausted-signing-grant',
+      relayerKeyId: 'rk-ed25519',
+    });
+    const result = await page.evaluate(
+      async ({
+        paths,
+        activeExpiresAtMs,
+        expiredNowMs,
+        expiredWalletSessionJwt,
+        exhaustedWalletSessionJwt,
+      }) => {
+        const helperMod = await import(paths.routerAbEd25519WalletSessionState);
+        const signingSessionMod = await import(paths.routerAbSigningWalletSession);
+        const baseRecord = {
+          nearAccountId: 'inactive-ed25519.testnet',
+          walletId: 'inactive-ed25519-wallet',
+          nearEd25519SigningKeyId: 'inactive-ed25519-key',
+          rpId: 'example.localhost',
+          passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-ed25519',
+          participantIds: [1, 2],
+          signingRootId: 'proj-a:env-a',
+          signingRootVersion: 'v1',
+          runtimePolicyScope: {
+            orgId: 'org-a',
+            projectId: 'proj-a',
+            envId: 'env-a',
+            signingRootVersion: 'v1',
+          },
+          clientVerifyingShareB64u: 'inactive-client-verifying-share',
+          ed25519WorkerMaterialHandle: 'inactive-worker-material-handle',
+          ed25519WorkerMaterialBindingDigest: 'inactive-material-binding',
+          sealedWorkerMaterialRef: 'inactive-sealed-worker-material-ref',
+          sealedWorkerMaterialB64u: 'inactive-sealed-worker-material',
+          materialFormatVersion: 'ed25519_worker_material_v1',
+          materialKeyId: 'inactive-material-key',
+          materialCreatedAtMs: 1_700_000_000_000,
+          materialState: 'material_ready' as const,
+          signerSlot: 1,
+          keyVersion: 'threshold-ed25519-hss-v1',
+          thresholdSessionKind: 'jwt' as const,
+          expiresAtMs: activeExpiresAtMs,
+          remainingUses: 3,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: 'inactive-signing-worker',
+          },
+          source: 'login' as const,
+          updatedAtMs: 1_700_000_000_000,
+        };
+        const expiredRecord = {
+          ...baseRecord,
+          thresholdSessionId: 'inactive-expired-threshold-session',
+          signingGrantId: 'inactive-expired-signing-grant',
+          walletSessionJwt: expiredWalletSessionJwt,
+        };
+        const exhaustedRecord = {
+          ...baseRecord,
+          thresholdSessionId: 'inactive-exhausted-threshold-session',
+          signingGrantId: 'inactive-exhausted-signing-grant',
+          walletSessionJwt: exhaustedWalletSessionJwt,
+        };
+
+        const expiredMarked =
+          signingSessionMod.markRouterAbEd25519WorkerMaterialRuntimeValidated(expiredRecord);
+        const exhaustedMarked =
+          signingSessionMod.markRouterAbEd25519WorkerMaterialRuntimeValidated(exhaustedRecord);
+        exhaustedRecord.remainingUses = 0;
+
+        const expiredState = signingSessionMod.classifyRouterAbEd25519PersistedSigningRecord(
+          expiredRecord,
+          expiredNowMs,
+        );
+        expiredRecord.expiresAtMs = Date.now() - 1;
+        const expiredResolved =
+          helperMod.resolveRouterAbEd25519WalletSessionStateFromRecord(expiredRecord);
+        const exhaustedState =
+          signingSessionMod.classifyRouterAbEd25519PersistedSigningRecord(exhaustedRecord);
+        const exhaustedResolved =
+          helperMod.resolveRouterAbEd25519WalletSessionStateFromRecord(exhaustedRecord);
+        return {
+          expiredMarked,
+          exhaustedMarked,
+          expiredState,
+          expiredResolved,
+          exhaustedState,
+          exhaustedResolved,
+        };
+      },
+      {
+        paths: IMPORT_PATHS,
+        activeExpiresAtMs,
+        expiredNowMs: activeExpiresAtMs + 1,
+        expiredWalletSessionJwt,
+        exhaustedWalletSessionJwt,
+      },
+    );
+
+    expect(result.expiredMarked).toBe(true);
+    expect(result.exhaustedMarked).toBe(true);
+    expect(result.expiredState).toMatchObject({
+      kind: 'expired',
+      reason: 'expired',
+      expiresAtMs: activeExpiresAtMs,
+    });
+    expect(result.expiredResolved).toBeNull();
+    expect(result.exhaustedState).toMatchObject({
+      kind: 'exhausted',
+      reason: 'exhausted',
+      remainingUses: 0,
+    });
+    expect(result.exhaustedResolved).toBeNull();
   });
 
   test('material persistence replaces stale Ed25519 lane keys for the same threshold session', async ({

@@ -370,6 +370,16 @@ export function createWarmSessionStatusReader(
       case 'non_signing':
       case 'invalid':
         return null;
+      case 'expired':
+        return {
+          sessionId: thresholdSessionId,
+          status: 'expired',
+        };
+      case 'exhausted':
+        return {
+          sessionId: thresholdSessionId,
+          status: 'exhausted',
+        };
     }
     const remainingUses = Math.floor(Number(persistedState.value.remainingUses) || 0);
     const expiresAtMs = Math.floor(Number(persistedState.value.expiresAtMs) || 0);

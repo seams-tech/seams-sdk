@@ -1567,6 +1567,8 @@ async function restoreDurableThresholdEd25519WorkerMaterialFromCredential(args: 
       });
     case 'material_hint_unvalidated':
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return null;
@@ -1704,6 +1706,11 @@ export async function restoreThresholdEd25519WorkerMaterialFromCredential(args: 
         thresholdSessionId,
         state: signingSessionState,
       });
+    case 'expired':
+    case 'exhausted':
+      throw new Error(
+        `[threshold-ed25519] worker material restore requires active Router A/B signable session state: ${signingSessionState.reason}`,
+      );
     case 'non_signing':
     case 'invalid':
       throw new Error(

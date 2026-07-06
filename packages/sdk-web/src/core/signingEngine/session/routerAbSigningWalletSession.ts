@@ -104,7 +104,9 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_runtime_policy_scope'
   | 'missing_router_ab_state'
   | 'invalid_router_ab_state'
-  | 'invalid_budget';
+  | 'invalid_budget'
+  | 'expired'
+  | 'exhausted';
 
 export type RouterAbSigningWalletSessionResult<T> =
   | { ok: true; value: T }
@@ -251,6 +253,20 @@ type RouterAbEd25519PersistedSigningRecordStateBase<TRecord, TSession> =
       value?: never;
     }
   | {
+      kind: 'expired';
+      record: TRecord;
+      reason: 'expired';
+      expiresAtMs: number;
+      value?: never;
+    }
+  | {
+      kind: 'exhausted';
+      record: TRecord;
+      reason: 'exhausted';
+      remainingUses: number;
+      value?: never;
+    }
+  | {
       kind: 'material_hint_unvalidated';
       record: TRecord;
       reason: RouterAbEd25519MaterialHintUnvalidatedReason;
@@ -295,6 +311,20 @@ export type RouterAbEcdsaHssPersistedSigningRecordState =
       value?: never;
     }
   | {
+      kind: 'expired';
+      record: ThresholdEcdsaSessionRecord;
+      reason: 'expired';
+      expiresAtMs: number;
+      value?: never;
+    }
+  | {
+      kind: 'exhausted';
+      record: ThresholdEcdsaSessionRecord;
+      reason: 'exhausted';
+      remainingUses: number;
+      value?: never;
+    }
+  | {
       kind: 'material_hint_unvalidated';
       record: ThresholdEcdsaSessionRecord;
       reason: 'worker_material_unvalidated';
@@ -319,6 +349,27 @@ function nonEmptyString(value: unknown): string {
 
 function positiveInteger(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+function currentActiveSessionNowMs(): number {
+  return Date.now();
+}
+
+function normalizeActiveSessionNowMs(nowMs: number): number {
+  const normalized = Math.floor(Number(nowMs));
+  return Number.isSafeInteger(normalized) && normalized >= 0
+    ? normalized
+    : currentActiveSessionNowMs();
+}
+
+function inactiveSigningSessionState(args: {
+  remainingUses: number;
+  expiresAtMs: number;
+  nowMs: number;
+}): { kind: 'expired'; expiresAtMs: number } | { kind: 'exhausted'; remainingUses: number } | null {
+  if (args.remainingUses <= 0) return { kind: 'exhausted', remainingUses: args.remainingUses };
+  if (args.expiresAtMs <= args.nowMs) return { kind: 'expired', expiresAtMs: args.expiresAtMs };
+  return null;
 }
 
 function sha256CanonicalB64uSync(input: unknown): string {
@@ -538,6 +589,8 @@ function ed25519WorkerMaterialValidationFailureFromParseReason(
     case 'invalid_router_ab_state':
       return 'signing_worker_mismatch';
     case 'invalid_budget':
+    case 'expired':
+    case 'exhausted':
       return 'expired';
     case 'missing_record':
     case 'cookie_session':
@@ -813,7 +866,9 @@ function routerAbEd25519SigningMaterialRefFromReadyRecord(
 
 export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
+  nowMs: number = currentActiveSessionNowMs(),
 ): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
+  const operationNowMs = normalizeActiveSessionNowMs(nowMs);
   const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
   if (!authority.ok) return authority;
   const sessionRecord = record;
@@ -825,6 +880,23 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (!sessionRecord.routerAbNormalSigning) {
     return { ok: false, reason: 'missing_router_ab_state' };
   }
+  const remainingUses = positiveInteger(sessionRecord.remainingUses);
+  const expiresAtMs = positiveInteger(sessionRecord.expiresAtMs);
+  if (
+    !Number.isSafeInteger(sessionRecord.remainingUses) ||
+    !Number.isSafeInteger(sessionRecord.expiresAtMs) ||
+    sessionRecord.remainingUses < 0 ||
+    sessionRecord.expiresAtMs <= 0
+  ) {
+    return { ok: false, reason: 'invalid_budget' };
+  }
+  const inactive = inactiveSigningSessionState({
+    remainingUses: Math.max(0, Math.floor(Number(sessionRecord.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(sessionRecord.expiresAtMs) || 0)),
+    nowMs: operationNowMs,
+  });
+  if (inactive?.kind === 'exhausted') return { ok: false, reason: 'exhausted' };
+  if (inactive?.kind === 'expired') return { ok: false, reason: 'expired' };
   if (!isThresholdEd25519MaterialReadyRecord(sessionRecord)) {
     return { ok: false, reason: 'missing_material_handle' };
   }
@@ -832,8 +904,6 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
     return { ok: false, reason: 'material_identity_mismatch' };
   }
   const signingMaterial = routerAbEd25519SigningMaterialRefFromReadyRecord(sessionRecord);
-  const remainingUses = positiveInteger(sessionRecord.remainingUses);
-  const expiresAtMs = positiveInteger(sessionRecord.expiresAtMs);
   if (!remainingUses || !expiresAtMs) return { ok: false, reason: 'invalid_budget' };
   return {
     ok: true,
@@ -855,7 +925,9 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
 
 export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
+  nowMs: number = currentActiveSessionNowMs(),
 ): RouterAbSigningWalletSessionResult<RouterAbEcdsaHssSigningWalletSession> {
+  const operationNowMs = normalizeActiveSessionNowMs(nowMs);
   if (!record) return { ok: false, reason: 'missing_record' };
   if (record.thresholdSessionKind !== 'jwt') return { ok: false, reason: 'cookie_session' };
   const resolvedAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
@@ -869,6 +941,23 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   if (!record.routerAbEcdsaHssNormalSigning) {
     return { ok: false, reason: 'missing_router_ab_state' };
   }
+  const remainingUses = positiveInteger(record.remainingUses);
+  const expiresAtMs = positiveInteger(record.expiresAtMs);
+  if (
+    !Number.isSafeInteger(record.remainingUses) ||
+    !Number.isSafeInteger(record.expiresAtMs) ||
+    record.remainingUses < 0 ||
+    record.expiresAtMs <= 0
+  ) {
+    return { ok: false, reason: 'invalid_budget' };
+  }
+  const inactive = inactiveSigningSessionState({
+    remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(record.expiresAtMs) || 0)),
+    nowMs: operationNowMs,
+  });
+  if (inactive?.kind === 'exhausted') return { ok: false, reason: 'exhausted' };
+  if (inactive?.kind === 'expired') return { ok: false, reason: 'expired' };
   const identity = resolveRouterAbEcdsaHssSigningIdentityFromRecord(record);
   if (!identity.ok) return identity;
   let signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
@@ -895,8 +984,6 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   ) {
     return { ok: false, reason: 'signing_root_mismatch' };
   }
-  const remainingUses = positiveInteger(record.remainingUses);
-  const expiresAtMs = positiveInteger(record.expiresAtMs);
   if (!remainingUses || !expiresAtMs) return { ok: false, reason: 'invalid_budget' };
   return {
     ok: true,
@@ -912,6 +999,20 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
       routerAbEcdsaHssNormalSigning: record.routerAbEcdsaHssNormalSigning,
     },
   };
+}
+
+export function buildActiveRouterAbEd25519SigningWalletSessionFromRecord(args: {
+  record: ThresholdEd25519SessionRecord | null | undefined;
+  nowMs: number;
+}): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
+  return parseRouterAbEd25519SigningWalletSessionFromRecord(args.record, args.nowMs);
+}
+
+export function buildActiveRouterAbEcdsaHssSigningWalletSessionFromRecord(args: {
+  record: ThresholdEcdsaSessionRecord | null | undefined;
+  nowMs: number;
+}): RouterAbSigningWalletSessionResult<RouterAbEcdsaHssSigningWalletSession> {
+  return parseRouterAbEcdsaHssSigningWalletSessionFromRecord(args.record, args.nowMs);
 }
 
 function hasEd25519SealedWorkerMaterial(
@@ -987,6 +1088,8 @@ export function routerAbEd25519WorkerMaterialIdentityFromPersistedState(
       return state.restorableMaterial.identity;
     case 'auth_ready_material_pending':
     case 'material_hint_unvalidated':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return null;
@@ -1007,6 +1110,8 @@ export function hasRouterAbEd25519LoadedMaterialHint(
     case 'restore_available':
       return false;
     case 'auth_ready_material_pending':
+    case 'expired':
+    case 'exhausted':
     case 'non_signing':
     case 'invalid':
       return false;
@@ -1021,6 +1126,7 @@ export function hasRouterAbEd25519LoadedMaterialHint(
 // worker has loaded material for this exact session/grant/material binding.
 export function classifyRouterAbEd25519PersistedSigningRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
+  nowMs: number = currentActiveSessionNowMs(),
 ): RouterAbEd25519PersistedSigningRecordState {
   if (!record) {
     return {
@@ -1029,7 +1135,10 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
       reason: 'missing_record',
     };
   }
-  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
+  const parsed = buildActiveRouterAbEd25519SigningWalletSessionFromRecord({
+    record,
+    nowMs: normalizeActiveSessionNowMs(nowMs),
+  });
   if (parsed.ok) {
     const restorableMaterial = routerAbEd25519RestorableWorkerMaterial(record);
     if (!restorableMaterial) {
@@ -1053,6 +1162,22 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
       reason: 'loaded_material_missing',
       materialIdentity: restorableMaterial.identity,
       restorableMaterial,
+    };
+  }
+  if (parsed.reason === 'expired') {
+    return {
+      kind: 'expired',
+      record,
+      reason: 'expired',
+      expiresAtMs: Math.max(0, Math.floor(Number(record.expiresAtMs) || 0)),
+    };
+  }
+  if (parsed.reason === 'exhausted') {
+    return {
+      kind: 'exhausted',
+      record,
+      reason: 'exhausted',
+      remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
     };
   }
   if (parsed.reason === 'cookie_session') {
@@ -1091,6 +1216,7 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
 
 export function classifyRouterAbEcdsaHssPersistedSigningRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
+  nowMs: number = currentActiveSessionNowMs(),
 ): RouterAbEcdsaHssPersistedSigningRecordState {
   if (!record) {
     return {
@@ -1099,7 +1225,10 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
       reason: 'missing_record',
     };
   }
-  const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
+  const parsed = buildActiveRouterAbEcdsaHssSigningWalletSessionFromRecord({
+    record,
+    nowMs: normalizeActiveSessionNowMs(nowMs),
+  });
   if (parsed.ok) {
     if (isRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
       return {
@@ -1119,6 +1248,22 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
       kind: 'material_hint_unvalidated',
       record,
       reason: 'worker_material_unvalidated',
+    };
+  }
+  if (parsed.reason === 'expired') {
+    return {
+      kind: 'expired',
+      record,
+      reason: 'expired',
+      expiresAtMs: Math.max(0, Math.floor(Number(record.expiresAtMs) || 0)),
+    };
+  }
+  if (parsed.reason === 'exhausted') {
+    return {
+      kind: 'exhausted',
+      record,
+      reason: 'exhausted',
+      remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
     };
   }
   if (parsed.reason === 'cookie_session') {

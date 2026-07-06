@@ -10,6 +10,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { toAccountId } from '@/core/types/accountIds';
 import {
+  thresholdEcdsaChainTargetKey,
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -64,6 +65,7 @@ const ecdsaWalletKeyId = deriveEvmFamilySigningKeySlotId({
   walletId: ecdsaWalletId,
   signingRootId: ecdsaSigningRootId,
   signingRootVersion: ecdsaSigningRootVersion,
+  chainTargetKey: thresholdEcdsaChainTargetKey(ecdsaChainTarget),
 });
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-strict-threshold-key');
 const ecdsaOwnerAddress = `0x${'42'.repeat(20)}`;
@@ -90,13 +92,23 @@ function makeTestWalletSessionJwt(payload: Record<string, unknown>): string {
   ].join('.');
 }
 
+function runWithDateNow<TValue>(nowMs: number, run: () => TValue): TValue {
+  const originalDateNow = Date.now;
+  Date.now = () => nowMs;
+  try {
+    return run();
+  } finally {
+    Date.now = originalDateNow;
+  }
+}
+
 function makeLane() {
   return buildNearTransactionSigningLane({
     walletId: ed25519WalletId,
     nearAccountId: accountId,
     nearEd25519SigningKeyId,
-  signerSlot: 1,
-  auth: passkeyAuth,
+    signerSlot: 1,
+    auth: passkeyAuth,
     signingGrantId,
     thresholdSessionId,
     storageSource: 'login',
@@ -297,6 +309,8 @@ function makeEcdsaRecord(
     emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
       policy: 'session',
       retention: 'session',
+      walletId: ecdsaWalletId,
+      emailHashHex: 'strict-email-otp-auth-email-hash',
       reason: 'login',
       provider: 'google',
       providerUserId: 'strict-email-otp-auth-subject',
@@ -389,6 +403,63 @@ test.describe('selected signing capability strict persisted records', () => {
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record,
+    });
+  });
+
+  test('classifies previously validated Ed25519 records as expired after grant expiry', () => {
+    const lane = makeLane();
+    const record = makeEd25519Record({
+      expiresAtMs: Date.now() + 60_000,
+    });
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    runWithDateNow(record.expiresAtMs + 1, () => {
+      expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
+        kind: 'expired',
+        reason: 'expired',
+        expiresAtMs: record.expiresAtMs,
+        record,
+      });
+
+      const result = readSigningCapabilityRecord(
+        {
+          readEd25519SessionRecordByThresholdSessionId: () => record,
+        },
+        lane,
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        code: 'record_mismatch',
+        message: 'Selected Ed25519 session record is not Router A/B signable: expired',
+      });
+    });
+  });
+
+  test('classifies previously validated Ed25519 records as exhausted after local spend reaches zero', () => {
+    const lane = makeLane();
+    const record = makeEd25519Record({
+      remainingUses: 1,
+    });
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+    record.remainingUses = 0;
+
+    expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
+      kind: 'exhausted',
+      reason: 'exhausted',
+      remainingUses: 0,
+      record,
+    });
+
+    const result = readSigningCapabilityRecord(
+      {
+        readEd25519SessionRecordByThresholdSessionId: () => record,
+      },
+      lane,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'record_mismatch',
+      message: 'Selected Ed25519 session record is not Router A/B signable: exhausted',
     });
   });
 
@@ -720,6 +791,63 @@ test.describe('selected signing capability strict persisted records', () => {
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record,
+    });
+  });
+
+  test('classifies previously validated ECDSA records as expired after grant expiry', () => {
+    const lane = makeEcdsaLane();
+    const record = makeEcdsaRecord({
+      expiresAtMs: Date.now() + 60_000,
+    });
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    runWithDateNow(record.expiresAtMs + 1, () => {
+      expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+        kind: 'expired',
+        reason: 'expired',
+        expiresAtMs: record.expiresAtMs,
+        record,
+      });
+
+      const result = readSigningCapabilityRecord(
+        {
+          readEmailOtpEcdsaSessionRecord: () => record,
+        },
+        lane,
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        code: 'record_mismatch',
+        message: 'Selected ECDSA session record is not Router A/B runtime-validated: expired',
+      });
+    });
+  });
+
+  test('classifies previously validated ECDSA records as exhausted after local spend reaches zero', () => {
+    const lane = makeEcdsaLane();
+    const record = makeEcdsaRecord({
+      remainingUses: 1,
+    });
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    record.remainingUses = 0;
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'exhausted',
+      reason: 'exhausted',
+      remainingUses: 0,
+      record,
+    });
+
+    const result = readSigningCapabilityRecord(
+      {
+        readEmailOtpEcdsaSessionRecord: () => record,
+      },
+      lane,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'record_mismatch',
+      message: 'Selected ECDSA session record is not Router A/B runtime-validated: exhausted',
     });
   });
 

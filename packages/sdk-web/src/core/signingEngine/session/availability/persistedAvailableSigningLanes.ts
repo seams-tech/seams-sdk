@@ -160,6 +160,20 @@ function policyClaimForEd25519PersistedState(args: {
         expiresAtMs: args.state.value.expiresAtMs,
         state: 'ready',
       });
+    case 'expired':
+      return durableRecordPolicyAdvisory({
+        thresholdSessionId: args.sessionId,
+        remainingUses: args.state.record.remainingUses,
+        expiresAtMs: args.state.expiresAtMs,
+        state: 'deferred',
+      });
+    case 'exhausted':
+      return durableRecordPolicyAdvisory({
+        thresholdSessionId: args.sessionId,
+        remainingUses: args.state.remainingUses,
+        expiresAtMs: args.state.record.expiresAtMs,
+        state: 'deferred',
+      });
     case 'non_signing':
     case 'invalid':
       return null;
@@ -506,6 +520,20 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
                   state: 'restorable',
+                });
+              } else if (materialState.kind === 'expired') {
+                localAdvisory = durableRecordPolicyAdvisory({
+                  thresholdSessionId: sessionId,
+                  remainingUses: ecdsaRecord.remainingUses,
+                  expiresAtMs: materialState.expiresAtMs,
+                  state: 'deferred',
+                });
+              } else if (materialState.kind === 'exhausted') {
+                localAdvisory = durableRecordPolicyAdvisory({
+                  thresholdSessionId: sessionId,
+                  remainingUses: materialState.remainingUses,
+                  expiresAtMs: ecdsaRecord.expiresAtMs,
+                  state: 'deferred',
                 });
               } else if (materialState.kind === 'material_hint_unvalidated') {
                 localAdvisory = durableRecordPolicyAdvisory({
