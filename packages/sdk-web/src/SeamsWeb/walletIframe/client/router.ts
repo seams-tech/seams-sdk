@@ -318,6 +318,9 @@ type RegistrationActivationMountCleanup = {
   dispose(): void;
 };
 
+const REGISTRATION_ACTIVATION_TARGET_VISIBILITY_TIMEOUT_MS = 1200;
+const REGISTRATION_ACTIVATION_TARGET_VISIBILITY_MAX_FRAMES = 45;
+
 const REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE = 'data-seams-registration-button-active';
 const REGISTRATION_ACTIVATION_STATE_ATTRIBUTES = {
   hovered: 'data-seams-registration-button-hovered',
@@ -674,6 +677,27 @@ function visibleRegistrationActivationTargetRect(target: HTMLElement): DOMRectLi
   if (rect.left + rect.width <= 0 || rect.top + rect.height <= 0) return null;
   if (rect.left >= viewportWidth || rect.top >= viewportHeight) return null;
   return rect;
+}
+
+function nextRegistrationActivationLayoutFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 16);
+  });
+}
+
+async function waitForVisibleRegistrationActivationTarget(target: HTMLElement): Promise<boolean> {
+  const deadline = Date.now() + REGISTRATION_ACTIVATION_TARGET_VISIBILITY_TIMEOUT_MS;
+  let frames = 0;
+  while (frames < REGISTRATION_ACTIVATION_TARGET_VISIBILITY_MAX_FRAMES && Date.now() <= deadline) {
+    if (visibleRegistrationActivationTargetRect(target)) return true;
+    await nextRegistrationActivationLayoutFrame();
+    frames += 1;
+  }
+  return visibleRegistrationActivationTargetRect(target) !== null;
 }
 
 function collectRegistrationActivationGeometryTargets(target: HTMLElement): EventTarget[] {
@@ -1382,10 +1406,6 @@ export class WalletIframeRouter {
       kind: 'wallet_iframe_registration_activation_surface_v1',
       mount: (mountTarget: HTMLElement): void => {
         if (mounted || disposed) return;
-        if (!visibleRegistrationActivationTargetRect(mountTarget)) {
-          setState({ kind: 'cancelled', activationId, reason: 'target_unavailable' });
-          return;
-        }
         target = mountTarget;
         iframeTitleCleanup = installRegistrationActivationIframeAccessibility({
           iframe: this.transport.ensureIframeMounted(),
@@ -1410,6 +1430,12 @@ export class WalletIframeRouter {
         this.registrationActivationListeners.set(activationId, new Set([activationEventListener]));
         void (async () => {
           try {
+            const targetVisible = await waitForVisibleRegistrationActivationTarget(mountTarget);
+            if (disposed) return;
+            if (!targetVisible) {
+              cancelActivation('target_unavailable');
+              return;
+            }
             const safeOptions = removeFunctionsFromOptions(payload.options);
             const res = await this.post<RegistrationResult>(
               {

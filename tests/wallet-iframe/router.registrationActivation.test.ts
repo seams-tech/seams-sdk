@@ -420,6 +420,94 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     });
   });
 
+  test('waits for registration activation target layout before cancelling', async ({ page }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ extraScript: REGISTRATION_ACTIVATION_DELAYED_READY_SCRIPT }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const result = await page.evaluate(
+      async ({ routerPath, walletOrigin, waitForSource }) => {
+        try {
+          const waitForBrowser = eval(waitForSource) as typeof waitFor;
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 5000,
+            sdkBasePath: '/sdk',
+            testOptions: { ownerTag: 'tests' },
+          });
+          await router.init();
+
+          const target = document.createElement('div');
+          target.className = 'seams-passkey-registration-btn';
+          target.style.cssText =
+            'display:none;position:absolute;left:40px;top:80px;width:240px;height:60px;border-radius:30px;';
+          document.body.appendChild(target);
+
+          const states: Array<{ kind: string; reason?: string }> = [];
+          const walletId =
+            'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
+          const surface = router.createPasskeyRegistrationActivationSurface({
+            wallet: { kind: 'provided', walletId },
+            presentation: {
+              kind: 'outline_overlay',
+              label: 'Create with Passkey',
+              busyLabel: 'Creating passkey...',
+              accessibleLabel: 'Create passkey account',
+            },
+          });
+          const unsubscribe = surface.onStateChange((state) => {
+            states.push({
+              kind: state.kind,
+              ...('reason' in state ? { reason: state.reason } : {}),
+            });
+          });
+          surface.mount(target);
+          const mounting = await waitForBrowser(
+            () => states.some((state) => state.kind === 'mounting'),
+            1000,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          target.style.display = 'block';
+          const ready = await waitForBrowser(() => states.some((state) => state.kind === 'ready'), 3000);
+          const targetUnavailable = states.some(
+            (state) => state.kind === 'cancelled' && state.reason === 'target_unavailable',
+          );
+
+          unsubscribe();
+          surface.dispose();
+          target.remove();
+
+          return { success: true, mounting, ready, targetUnavailable };
+        } catch (error) {
+          return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+      },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.mounting).toBe(true);
+    expect(result.ready).toBe(true);
+    expect(result.targetUnavailable).toBe(false);
+  });
+
   test('routes pointer activation to the wallet-origin registration button', async ({ page }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     await registerWalletServiceRoute(
