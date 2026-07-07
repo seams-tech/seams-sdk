@@ -31,8 +31,8 @@ import {
   type ConsoleTeamRbacService,
   type ConsoleWalletService,
   type ConsoleWebhookService,
-} from '@server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
+} from '@seams-internal/console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, startExpressRouter } from './helpers';
 import type {
   PostgresTenantStorageRoute,

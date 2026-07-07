@@ -4,7 +4,7 @@ import {
   isConsoleOrgProjectEnvError,
   parseListConsoleEnvironmentsRequest,
   parseListConsoleProjectsRequest,
-} from '@server/console/orgProjectEnv';
+} from '@seams-internal/console-server/orgProjectEnv';
 
 async function expectOrgProjectEnvError(
   fn: () => unknown | Promise<unknown>,

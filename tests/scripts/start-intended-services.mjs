@@ -143,7 +143,7 @@ function printResolvedConfig() {
 
 function resetLocalState() {
   removePath('.router-ab-local');
-  removePath('packages/sdk-server-ts/.wrangler/state/seams-d1');
+  removePath('packages/console-server-ts/.wrangler/state/seams-d1');
   removePath('.runtime/intended-d1');
   removeAbsolutePath(d1LocalPersistPath);
   removeAbsolutePath(siteViteCacheDir);
@@ -190,7 +190,7 @@ function runRequiredBuild(label, args, env = process.env) {
 
 function assertD1LocalWasmArtifacts() {
   console.log('[intended-services] verifying D1 local WASM artifacts');
-  runRequiredBuild('d1-local-wasm', ['-C', 'packages/sdk-server-ts', 'run', 'd1:local:ensure-wasm'], {
+  runRequiredBuild('d1-local-wasm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
     ...process.env,
     SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
   });
@@ -274,25 +274,25 @@ function routerEnv() {
 
 function prepareD1LocalWranglerRuntimeConfig() {
   mkdirSync(d1LocalWranglerRuntimeDir, { recursive: true });
-  const sourceConfigPath = path.join(repoRoot, 'packages/sdk-server-ts/wrangler.d1-local.toml');
+  const sourceConfigPath = path.join(repoRoot, 'packages/console-server-ts/wrangler.d1-local.toml');
   const sourceConfig = readFileSync(sourceConfigPath, 'utf8');
   const runtimeConfig = sourceConfig
     .replace(
       'main = "src/router/cloudflare/d1LocalDevWorker.ts"',
-      'main = "../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"',
+      'main = "../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"',
     )
     .replace(
       'migrations_dir = "migrations/d1-console"',
-      'migrations_dir = "../../packages/sdk-server-ts/migrations/d1-console"',
+      'migrations_dir = "../../packages/console-server-ts/migrations/d1-console"',
     )
     .replace(
-      'migrations_dir = "migrations/d1-signer"',
+      'migrations_dir = "../sdk-server-ts/migrations/d1-signer"',
       'migrations_dir = "../../packages/sdk-server-ts/migrations/d1-signer"',
     );
   writeFileSync(d1LocalWranglerConfigPath, runtimeConfig);
 
-  const sourceDevVarsPath = path.join(repoRoot, 'packages/sdk-server-ts/.dev.vars');
-  const fallbackDevVarsPath = path.join(repoRoot, 'packages/sdk-server-ts/dev.vars');
+  const sourceDevVarsPath = path.join(repoRoot, 'packages/console-server-ts/.dev.vars');
+  const fallbackDevVarsPath = path.join(repoRoot, 'packages/console-server-ts/dev.vars');
   const runtimeDevVarsPath = path.join(d1LocalWranglerRuntimeDir, '.dev.vars');
   if (existsSync(sourceDevVarsPath)) {
     copyFileSync(sourceDevVarsPath, runtimeDevVarsPath);

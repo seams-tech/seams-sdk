@@ -4,7 +4,7 @@ import {
   makeApiKeyId,
   makeApiKeySecret,
   parseApiKeySecret,
-} from '@server/console/apiKeys/secret';
+} from '@seams-internal/console-server/apiKeys/secret';
 
 test.describe('console API key secret format', () => {
   test('creates short opaque publishable keys', async () => {

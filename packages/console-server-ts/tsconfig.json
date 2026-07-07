@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "types": ["node", "express"],
+    "useDefineForClassFields": false,
+    "paths": {
+      "@seams-internal/console-shared": ["../console-shared-ts/src/index.ts"],
+      "@seams-internal/console-shared/*": ["../console-shared-ts/src/*"],
+      "@seams-internal/console-server": ["src/index.ts"],
+      "@seams-internal/console-server/*": ["src/*"],
+      "@seams-internal/shared-ts/*": ["../shared-ts/src/*"],
+      "@seams/sdk-server/internal/*": ["../sdk-server-ts/src/*"],
+      "@shared/*": ["../shared-ts/src/*"],
+      "express": ["./node_modules/@types/express/index.d.ts"],
+      "*": ["./node_modules/*", "../node_modules/*", "../../node_modules/*"]
+    }
+  },
+  "include": ["src/**/*", "../console-shared-ts/src/**/*", "../shared-ts/src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

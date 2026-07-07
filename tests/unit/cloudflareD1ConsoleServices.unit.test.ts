@@ -13,9 +13,9 @@ import {
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices';
+} from '../../packages/console-server-ts/src/router/cloudflare/d1ConsoleServices';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { createHmacSessionAdapter } from '../../packages/sdk-server-ts/src/router/cloudflare/d1StagingSession';
+import { createHmacSessionAdapter } from '../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type {
   D1DatabaseLike,
@@ -23,9 +23,9 @@ import type {
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
-import localD1DevWorker from '../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import localD1DevWorker from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import { parseEcdsaHssClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { SponsoredEvmCallExecutorConfig } from '../../packages/sdk-server-ts/src/console/sponsorship/evmExecutorTypes';
+import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,

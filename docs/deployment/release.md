@@ -21,8 +21,8 @@ For changes touching threshold signing or D1/DO-backed relay behavior, also run:
 ```bash
 pnpm test:threshold-core
 pnpm test:threshold-ed25519:active-path
-pnpm -C packages/sdk-server-ts run d1:local:prepare
-pnpm -C packages/sdk-server-ts run d1:local:restore:drill
+pnpm -C packages/console-server-ts run d1:local:prepare
+pnpm -C packages/console-server-ts run d1:local:restore:drill
 ```
 
 ## Version And Tag

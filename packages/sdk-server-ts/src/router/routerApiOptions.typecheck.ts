@@ -4,8 +4,6 @@ import type {
   RouterApiOptions,
   RouterApiWebhookEmitter,
 } from './routerApi';
-import type { ConsoleRouterApiSignedDelegateRouteOptions } from '../console/router/routeExtensions';
-import type { SignedDelegateRouterApiAuthService } from '../console/router/routerApiSignedDelegate';
 import type {
   CreateSigningSessionSealOptionsInput,
   SigningSessionSealService,
@@ -14,7 +12,6 @@ import type {
 declare const emailRecoveryAuthService: RouterApiEmailRecoveryAuthService;
 declare const emailRecoveryExecutionService: RouterApiEmailRecoveryExecutionService;
 declare const routerApiWebhookEmitter: RouterApiWebhookEmitter;
-declare const signedDelegateAuthService: SignedDelegateRouterApiAuthService;
 declare const signingSessionSealService: SigningSessionSealService;
 
 const configuredEmailRecovery: RouterApiOptions = {
@@ -30,20 +27,6 @@ const emailRecoveryPrepareOnly: RouterApiOptions = {
     kind: 'prepare_only',
     authService: emailRecoveryAuthService,
   },
-};
-
-const signedDelegateRoute: ConsoleRouterApiSignedDelegateRouteOptions = {
-  route: '/signed-delegate',
-  authService: signedDelegateAuthService,
-  billing: null,
-  ledger: null,
-  runtimeSnapshots: null,
-  publishableKeyAuth: null,
-  observabilityIngestion: null,
-  prepaidReservations: null,
-  pricing: null,
-  spendCaps: null,
-  webhooks: null,
 };
 
 const signingSessionSeal: RouterApiOptions = {
@@ -80,20 +63,6 @@ const prepareOnlyEmailRecoveryWithExecution: RouterApiOptions = {
   },
 };
 
-// @ts-expect-error Signed delegate extension route capability requires its auth service.
-const signedDelegateRouteWithoutAuthService: ConsoleRouterApiSignedDelegateRouteOptions = {
-  route: '/signed-delegate',
-  billing: null,
-  ledger: null,
-  runtimeSnapshots: null,
-  publishableKeyAuth: null,
-  observabilityIngestion: null,
-  prepaidReservations: null,
-  pricing: null,
-  spendCaps: null,
-  webhooks: null,
-};
-
 const oldSigningSessionSealFlag: RouterApiOptions = {
   signingSessionSeal: {
     // @ts-expect-error Signing-session seal route capability is selected by providing the service.
@@ -121,13 +90,11 @@ const oldRouterApiWebhookServiceField: RouterApiOptions = {
 
 void configuredEmailRecovery;
 void emailRecoveryPrepareOnly;
-void signedDelegateRoute;
 void signingSessionSeal;
 void routerApiWebhookOptions;
 void oldEmailRecoveryFlag;
 void configuredEmailRecoveryWithoutExecution;
 void prepareOnlyEmailRecoveryWithExecution;
-void signedDelegateRouteWithoutAuthService;
 void oldSigningSessionSealFlag;
 void oldSigningSessionSealOptionsFlag;
 void oldRouterApiWebhookServiceField;

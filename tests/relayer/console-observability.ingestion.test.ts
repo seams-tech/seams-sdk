@@ -6,7 +6,7 @@ import {
   buildWebhookDeadLetterObservabilityEvent,
   buildWebhookRetryExhaustedObservabilityEvent,
   redactConsoleObservabilityMetadata,
-} from '@server/router/express-adaptor';
+} from '@seams-internal/console-server/router/express-adaptor';
 
 function parseJsonObject(raw: unknown): Record<string, unknown> {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {

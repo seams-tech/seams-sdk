@@ -6,23 +6,23 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBillingPrepaidReservationService,
   createInMemoryConsoleRuntimeSnapshotService,
+  createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleSponsorshipSpendCapService,
   type ConsoleApiKeyService,
-} from '@server/router/express-adaptor';
-import { createInMemoryConsoleSponsoredCallService } from '@server';
-import { createD1ConsoleBillingService } from '../../packages/sdk-server-ts/src/console/billing/d1';
+} from '@seams-internal/console-server/router/express-adaptor';
+import { createD1ConsoleBillingService } from '../../packages/console-server-ts/src/billing/d1';
 import type {
   ConsoleBillingContext,
   ConsoleBillingService,
-} from '../../packages/sdk-server-ts/src/console/billing/service';
+} from '../../packages/console-server-ts/src/billing/service';
 import type {
   BillingSponsoredExecutionDebitRequest,
   BillingUsageEventRequest,
-} from '../../packages/sdk-server-ts/src/console/billing/types';
-import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
-import type { ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/service';
-import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
-import type { ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/service';
+} from '../../packages/console-server-ts/src/billing/types';
+import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/service';
+import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
+import type { ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/service';
 import {
   fetchJson,
   startExpressRouter,

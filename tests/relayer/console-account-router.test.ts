@@ -11,8 +11,8 @@ import {
   type ConsoleOrgProjectEnvService,
   type ConsoleTeamRbacService,
   type SessionAdapter,
-} from '@server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
+} from '@seams-internal/console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
 import { callCf, fetchJson, startExpressRouter } from './helpers';
 
 function makeConsoleAuthAdapter(input: {

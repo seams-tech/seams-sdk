@@ -93,7 +93,7 @@ test('D1 staging KEK check builds metadata-only Secrets Store commands', async (
     },
   ]);
   expect(plan.commands).toEqual([
-    'pnpm --dir packages/sdk-server-ts exec wrangler secrets-store secret list 33333333333333333333333333333333 --remote --per-page 100',
+    'pnpm --dir packages/console-server-ts exec wrangler secrets-store secret list 33333333333333333333333333333333 --remote --per-page 100',
   ]);
 });
 
@@ -123,7 +123,7 @@ test('D1 staging KEK check remote mode records metadata presence without secret 
     {
       storeId: '33333333333333333333333333333333',
       command:
-        'pnpm --dir packages/sdk-server-ts exec wrangler secrets-store secret list 33333333333333333333333333333333 --remote --per-page 100',
+        'pnpm --dir packages/console-server-ts exec wrangler secrets-store secret list 33333333333333333333333333333333 --remote --per-page 100',
       status: 0,
       presentSecretNames: ['signing-root-kek-staging-r1'],
     },
@@ -181,5 +181,5 @@ test('D1 staging KEK check rejects failed remote listing commands', async () => 
       mode: 'remote',
       commandRunner: nonzeroListedSecretRunner,
     }),
-  ).toThrow(/Command failed: pnpm --dir packages\/sdk-server-ts exec wrangler secrets-store secret list/);
+  ).toThrow(/Command failed: pnpm --dir packages\/console-server-ts exec wrangler secrets-store secret list/);
 });

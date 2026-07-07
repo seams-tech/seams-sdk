@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { canTransitionPaymentState, listAllowedPaymentTransitions } from '@server/console/billing';
+import { canTransitionPaymentState, listAllowedPaymentTransitions } from '@seams-internal/console-server/billing';
 
 test.describe('billing payment state machine', () => {
   test('exposes allowed transitions for CREATED', async () => {

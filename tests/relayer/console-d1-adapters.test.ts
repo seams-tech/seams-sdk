@@ -1,50 +1,50 @@
 import { expect, test } from '@playwright/test';
-import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
-import { createD1ConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys/d1';
-import { createD1ConsoleApprovalService } from '../../packages/sdk-server-ts/src/console/approvals/d1';
-import { createD1ConsoleAuditService } from '../../packages/sdk-server-ts/src/console/audit/d1';
+import { createD1ConsoleAccountService } from '../../packages/console-server-ts/src/account/d1';
+import { createD1ConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys/d1';
+import { createD1ConsoleApprovalService } from '../../packages/console-server-ts/src/approvals/d1';
+import { createD1ConsoleAuditService } from '../../packages/console-server-ts/src/audit/d1';
 import {
   createD1ConsoleBillingService,
   runD1ConsoleBillingMonthlyFinalization,
-} from '../../packages/sdk-server-ts/src/console/billing/d1';
+} from '../../packages/console-server-ts/src/billing/d1';
 import {
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME,
   createD1ConsoleBillingPrepaidReservationService,
   getConsoleBillingPrepaidReservationD1Runtime,
   type ConsoleBillingPrepaidReservationD1Runtime,
-} from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
-import type { ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/service';
-import type { ConsoleBillingPrepaidReservation } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/types';
-import { createD1ConsoleBootstrapTokenService } from '../../packages/sdk-server-ts/src/console/bootstrapTokens/d1';
-import { createD1ConsoleKeyExportService } from '../../packages/sdk-server-ts/src/console/keyExports/d1';
+} from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/service';
+import type { ConsoleBillingPrepaidReservation } from '../../packages/console-server-ts/src/billingPrepaidReservations/types';
+import { createD1ConsoleBootstrapTokenService } from '../../packages/console-server-ts/src/bootstrapTokens/d1';
+import { createD1ConsoleKeyExportService } from '../../packages/console-server-ts/src/keyExports/d1';
 import {
   createD1ConsoleObservabilityIngestionService,
   createD1ConsoleObservabilityService,
-} from '../../packages/sdk-server-ts/src/console/observability/d1';
-import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
-import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
+} from '../../packages/console-server-ts/src/observability/d1';
+import { createD1ConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv/d1';
+import { createD1ConsolePolicyService } from '../../packages/console-server-ts/src/policies/d1';
 import {
   createD1ConsoleRuntimeSnapshotService,
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
   type D1ConsoleRuntimeSnapshotOutboxDispatchResult,
-} from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/d1';
-import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/types';
-import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
-import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/sdk-server-ts/src/console/sponsorshipSpendCaps/d1';
-import { createD1ConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/d1';
-import { createD1ConsoleWalletService } from '../../packages/sdk-server-ts/src/console/wallets/d1';
+} from '../../packages/console-server-ts/src/runtimeSnapshots/d1';
+import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/console-server-ts/src/runtimeSnapshots/types';
+import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
+import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/console-server-ts/src/sponsorshipSpendCaps/d1';
+import { createD1ConsoleTeamRbacService } from '../../packages/console-server-ts/src/teamRbac/d1';
+import { createD1ConsoleWalletService } from '../../packages/console-server-ts/src/wallets/d1';
 import {
   createAesGcmConsoleWebhookSecretCipher,
   createD1ConsoleWebhookService,
   runD1ConsoleWebhookRetryDispatch,
   type ConsoleWebhookSecretCipher,
   type D1ConsoleWebhookRetryDispatchResult,
-} from '../../packages/sdk-server-ts/src/console/webhooks/d1';
+} from '../../packages/console-server-ts/src/webhooks/d1';
 import type {
   WebhookDispatchAdapter,
   WebhookDispatchRequest,
   WebhookDispatchResult,
-} from '../../packages/sdk-server-ts/src/console/webhooks/service';
+} from '../../packages/console-server-ts/src/webhooks/service';
 import {
   D1EmailRecoveryPreparationStore,
   type EmailRecoveryPreparationRecord,
@@ -97,13 +97,13 @@ import {
 import {
   recordSponsoredExecution,
   type RecordSponsoredExecutionInput,
-} from '../../packages/sdk-server-ts/src/console/router/sponsorshipExecution';
+} from '../../packages/console-server-ts/src/router/sponsorshipExecution';
 import type {
   SponsorshipSpendPricingEstimateInput,
   SponsorshipSpendPricingFinalizeInput,
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,
-} from '../../packages/sdk-server-ts/src/console/sponsorship/spendCaps';
+} from '../../packages/console-server-ts/src/sponsorship/spendCaps';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

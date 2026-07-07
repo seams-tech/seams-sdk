@@ -4,7 +4,7 @@ import type {
   StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
-} from '@seams/sdk-server/router/express';
+} from '@seams-internal/console-server/router/express-adaptor';
 
 interface StripeApiErrorPayload {
   error?: {

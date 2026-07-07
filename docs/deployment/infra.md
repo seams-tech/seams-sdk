@@ -117,7 +117,7 @@ Travel window for short rollback, and run the local restore drill after changing
 D1 schemas:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:local:restore:drill
+pnpm --dir packages/console-server-ts run d1:local:restore:drill
 ```
 
 ## Router A/B Workers
@@ -236,7 +236,7 @@ target is D1/DO/R2, with no mixed Postgres runtime.
 
 | Domain                       | Cloudflare binding | Source of schema/state                                      |
 | ---------------------------- | ------------------ | ----------------------------------------------------------- |
-| console/control-plane        | `CONSOLE_DB`       | `packages/sdk-server-ts/migrations/d1-console`              |
+| console/control-plane        | `CONSOLE_DB`       | `packages/console-server-ts/migrations/d1-console`              |
 | signer/runtime metadata      | `SIGNER_DB`        | `packages/sdk-server-ts/migrations/d1-signer`               |
 | threshold/session/admission  | `THRESHOLD_STORE`  | `ThresholdStoreDurableObject` SQLite Durable Object storage |
 | dashboard and recovery files | R2                 | backup/export jobs and SDK publish workflows                |
@@ -244,12 +244,12 @@ target is D1/DO/R2, with no mixed Postgres runtime.
 Local development uses Wrangler/Miniflare with the same binding names:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:local:prepare
-pnpm --dir packages/sdk-server-ts run d1:local:dev
+pnpm --dir packages/console-server-ts run d1:local:prepare
+pnpm --dir packages/console-server-ts run d1:local:dev
 ```
 
 The local config is
-`packages/sdk-server-ts/wrangler.d1-local.toml`. It binds `seams-console` to
+`packages/console-server-ts/wrangler.d1-local.toml`. It binds `seams-console` to
 `CONSOLE_DB`, `seams-signer` to `SIGNER_DB`, and
 `ThresholdStoreDurableObject` to `THRESHOLD_STORE`.
 
@@ -259,11 +259,11 @@ Worker config used for that environment:
 ```bash
 wrangler d1 create seams-console-staging
 wrangler d1 create seams-signer-staging
-cp packages/sdk-server-ts/wrangler.d1-staging-console.toml.example \
-  packages/sdk-server-ts/wrangler.d1-staging-console.toml
-cp packages/sdk-server-ts/wrangler.d1-staging-router-api.toml.example \
-  packages/sdk-server-ts/wrangler.d1-staging-router-api.toml
-pnpm --dir packages/sdk-server-ts run d1:staging:check
+cp packages/console-server-ts/wrangler.d1-staging-console.toml.example \
+  packages/console-server-ts/wrangler.d1-staging-console.toml
+cp packages/console-server-ts/wrangler.d1-staging-router-api.toml.example \
+  packages/console-server-ts/wrangler.d1-staging-router-api.toml
+pnpm --dir packages/console-server-ts run d1:staging:check
 wrangler d1 migrations apply seams-console-staging --remote
 wrangler d1 migrations apply seams-signer-staging --remote
 ```
@@ -291,7 +291,7 @@ After the static staging check passes, generate the deployment log and command
 runbook:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:runbook -- \
+pnpm --dir packages/console-server-ts run d1:staging:runbook -- \
   --output ../../docs/deployment/refactor-82-staging-log.md \
   --r2-bucket <staging-r2-backup-bucket> \
   --console-origin <console-staging-origin> \
@@ -307,34 +307,34 @@ integrity checks.
 Capture the staging resource inventory before remote changes:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:resources -- --mode dry-run
-pnpm --dir packages/sdk-server-ts run d1:staging:resources -- --mode remote
+pnpm --dir packages/console-server-ts run d1:staging:resources -- --mode dry-run
+pnpm --dir packages/console-server-ts run d1:staging:resources -- --mode remote
 ```
 
 The inventory script records config-derived Worker names, D1 database IDs,
 Durable Object bindings, Secrets Store metadata, required secret names, and remote
 D1/Worker JSON metadata under
-`packages/sdk-server-ts/.wrangler/d1-staging-resource-inventory`.
+`packages/console-server-ts/.wrangler/d1-staging-resource-inventory`.
 
 Apply staging D1 migrations through the checked migration script:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:migrate -- --mode dry-run
-pnpm --dir packages/sdk-server-ts run d1:staging:migrate -- --mode remote
+pnpm --dir packages/console-server-ts run d1:staging:migrate -- --mode dry-run
+pnpm --dir packages/console-server-ts run d1:staging:migrate -- --mode remote
 ```
 
 The migration script validates the console and Router API staging configs, records
 local migration file hashes, runs remote `wrangler d1 migrations list`, applies
 remote migrations with `CI=true`, lists again after apply, and writes a manifest
-under `packages/sdk-server-ts/.wrangler/d1-staging-migrations`.
+under `packages/console-server-ts/.wrangler/d1-staging-migrations`.
 
 Capture D1 Time Travel bookmarks through the checked script:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:bookmark -- \
+pnpm --dir packages/console-server-ts run d1:staging:bookmark -- \
   --mode remote \
   --purpose before_fixture_import
-pnpm --dir packages/sdk-server-ts run d1:staging:bookmark -- \
+pnpm --dir packages/console-server-ts run d1:staging:bookmark -- \
   --mode remote \
   --purpose before_route_switch
 ```
@@ -342,31 +342,31 @@ pnpm --dir packages/sdk-server-ts run d1:staging:bookmark -- \
 The bookmark script validates the same console and Router API staging configs as the
 readiness gate, captures console and signer bookmark JSON via `wrangler d1
 time-travel info`, and writes manifests under
-`packages/sdk-server-ts/.wrangler/d1-staging-bookmarks`.
+`packages/console-server-ts/.wrangler/d1-staging-bookmarks`.
 
 Check hosted signer KEK metadata through Wrangler Secrets Store before deploying
 the Router API Worker:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:kek-check -- --mode dry-run
-pnpm --dir packages/sdk-server-ts run d1:staging:kek-check -- --mode remote
+pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode dry-run
+pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode remote
 ```
 
 The check reads the Router API staging Wrangler config, derives the expected
 Cloudflare Secrets Store secret names and binding names, lists remote Secrets
 Store metadata, and writes a manifest under
-`packages/sdk-server-ts/.wrangler/d1-staging-kek-checks`. Do not use `wrangler
+`packages/console-server-ts/.wrangler/d1-staging-kek-checks`. Do not use `wrangler
 secrets-store secret get` for this check; the deployment log needs metadata
 presence only.
 
 Import fixture SQL through the checked script:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:import-fixtures -- \
+pnpm --dir packages/console-server-ts run d1:staging:import-fixtures -- \
   --mode dry-run \
   --console-fixture ./staging/fixtures/console.sql \
   --signer-fixture ./staging/fixtures/signer.sql
-pnpm --dir packages/sdk-server-ts run d1:staging:import-fixtures -- \
+pnpm --dir packages/console-server-ts run d1:staging:import-fixtures -- \
   --mode remote \
   --console-fixture ./staging/fixtures/console.sql \
   --signer-fixture ./staging/fixtures/signer.sql
@@ -375,12 +375,12 @@ pnpm --dir packages/sdk-server-ts run d1:staging:import-fixtures -- \
 The import script uses the same console and Router API readiness checks as the runbook,
 rejects schema-changing SQL, rejects console fixtures touching signer tables and
 signer fixtures touching console tables, and writes a manifest with fixture hashes
-under `packages/sdk-server-ts/.wrangler/d1-staging-fixture-imports`.
+under `packages/console-server-ts/.wrangler/d1-staging-fixture-imports`.
 
 After both Workers deploy, capture readiness evidence with:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:smoke -- \
+pnpm --dir packages/console-server-ts run d1:staging:smoke -- \
   --mode remote \
   --console-origin <console-staging-origin> \
   --router-api-origin <router-api-staging-origin>
@@ -390,31 +390,31 @@ The smoke script checks `/console/readyz` on the console Worker, `/readyz` plus
 `/healthz` on the Router API Worker, and the configured signer custody health routes
 `/router-ab/ed25519/healthz` and `/router-ab/ecdsa-hss/healthz`. It records
 response bodies, statuses, and timestamps under
-`packages/sdk-server-ts/.wrangler/d1-staging-smoke`.
+`packages/console-server-ts/.wrangler/d1-staging-smoke`.
 
 Run read-only D1 reconciliation after staging smoke passes:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:reconcile -- --mode dry-run
-pnpm --dir packages/sdk-server-ts run d1:staging:reconcile -- --mode remote
+pnpm --dir packages/console-server-ts run d1:staging:reconcile -- --mode dry-run
+pnpm --dir packages/console-server-ts run d1:staging:reconcile -- --mode remote
 ```
 
 The reconciliation script uses remote D1 `SELECT` checks only. It validates
 dashboard billing balances, prepaid reservation summary totals,
 sponsored-EVM billing links, sponsored settlement amounts, and signer sealed-share
 KEK/lifecycle integrity, then writes evidence under
-`packages/sdk-server-ts/.wrangler/d1-staging-reconciliation`.
+`packages/console-server-ts/.wrangler/d1-staging-reconciliation`.
 
 Run the fixture-backed signer custody route drill after fixture import and
 reconciliation:
 
 ```bash
 export SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT="<fixture-wallet-session-jwt>"
-pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody -- \
+pnpm --dir packages/console-server-ts run d1:staging:signer-custody -- \
   --mode dry-run \
   --router-api-origin <router-api-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json
-pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody -- \
+pnpm --dir packages/console-server-ts run d1:staging:signer-custody -- \
   --mode remote \
   --router-api-origin <router-api-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json
@@ -423,7 +423,7 @@ pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody -- \
 The signer custody script calls the configured threshold route health endpoints
 and the production `/router-ab/ecdsa-hss/export/share` route with the fixture
 request. It writes redacted evidence under
-`packages/sdk-server-ts/.wrangler/d1-staging-signer-custody` and never records
+`packages/console-server-ts/.wrangler/d1-staging-signer-custody` and never records
 the wallet-session JWT or server export share. For the optional missing-KEK
 variant, rerun with `--missing-kek-fixture`,
 `--missing-kek-wallet-session-jwt-env`, `--missing-kek-expected-status`, and
@@ -432,10 +432,10 @@ variant, rerun with `--missing-kek-fixture`,
 Run the D1-to-R2 restore drill through the checked script:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:r2-restore-drill -- \
+pnpm --dir packages/console-server-ts run d1:staging:r2-restore-drill -- \
   --mode dry-run \
   --r2-bucket <staging-r2-backup-bucket>
-pnpm --dir packages/sdk-server-ts run d1:staging:r2-restore-drill -- \
+pnpm --dir packages/console-server-ts run d1:staging:r2-restore-drill -- \
   --mode remote \
   --r2-bucket <staging-r2-backup-bucket>
 ```
@@ -444,13 +444,13 @@ The drill exports both staging D1 databases, stores the SQL exports in R2 under 
 timestamped `refactor-82/` prefix, downloads the objects into a restore workspace,
 creates timestamped restore-drill D1 databases, imports the downloaded SQL, runs
 `PRAGMA integrity_check`, and records command/artifact evidence under
-`packages/sdk-server-ts/.wrangler/d1-staging-r2-restore-drills`.
+`packages/console-server-ts/.wrangler/d1-staging-r2-restore-drills`.
 
 After every remote Phase 6 command has produced a manifest, run the final
 evidence verifier:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:staging:evidence -- \
+pnpm --dir packages/console-server-ts run d1:staging:evidence -- \
   --resources <resource-inventory-remote-manifest.json> \
   --kek-check <kek-check-remote-manifest.json> \
   --migrations <migrations-remote-manifest.json> \

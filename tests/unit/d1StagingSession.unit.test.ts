@@ -5,17 +5,17 @@ import type {
   InviteConsoleTeamMemberRequest,
   ListConsoleTeamMembersRequest,
   UpdateConsoleTeamMemberRolesRequest,
-} from '../../packages/sdk-server-ts/src/console/teamRbac/types';
+} from '../../packages/console-server-ts/src/teamRbac/types';
 import type {
   ConsoleTeamRbacContext,
   ConsoleTeamRbacService,
-} from '../../packages/sdk-server-ts/src/console/teamRbac/service';
+} from '../../packages/console-server-ts/src/teamRbac/service';
 import {
   createCloudflareSecretsStoreKekProviderFromEnv,
   createConsoleSessionAuthAdapter,
   createHmacSessionAdapter,
   secretBindingNameForKekId,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1StagingSession';
+} from '../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
 
 const SESSION_SECRET = '0123456789abcdef0123456789abcdef';
 

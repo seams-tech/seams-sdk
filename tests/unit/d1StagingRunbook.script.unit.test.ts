@@ -66,19 +66,19 @@ test('D1 staging runbook renders exact Phase 6 command sequence from readiness-c
 
   expect(markdown).toContain('Generated: 2026-06-28T00:00:00.000Z');
   expect(markdown).toContain('Operator: staging-operator');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:resources');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:kek-check');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:migrate');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:bookmark');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:resources');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:kek-check');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:migrate');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:bookmark');
   expect(markdown).toContain('--purpose before_fixture_import');
   expect(markdown).toContain('--purpose before_route_switch');
   expect(markdown).toContain(
-    'pnpm --dir packages/sdk-server-ts run d1:staging:r2-restore-drill',
+    'pnpm --dir packages/console-server-ts run d1:staging:r2-restore-drill',
   );
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:smoke');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:reconcile');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody');
-  expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:evidence');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:smoke');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:reconcile');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:signer-custody');
+  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:evidence');
   for (const flag of finalEvidenceManifestFlags) expect(markdown).toContain(flag);
   expect(markdown).toContain('--origin https://console.staging.example');
   expect(markdown).toContain('--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');

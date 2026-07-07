@@ -29,16 +29,9 @@ const signerRouterFiles = [
   'packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts',
   'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
   'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/d1StagingSession.ts',
 ];
 
-const allowedSignerRouterImports = buildAllowedImportSet([
-  ['packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts', '../../console/sponsorship/evmWorkerExecutionAdapter'],
-  ['packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts', '../../console/sponsorship/evmWorkerExecutionAdapter'],
-  ['packages/sdk-server-ts/src/router/cloudflare/d1StagingSession.ts', '../../console/teamRbac/service'],
-]);
+const allowedSignerRouterImports = buildAllowedImportSet([]);
 
 const importSpecifierPatterns = [
   /\bimport\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g,

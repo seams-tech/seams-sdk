@@ -254,8 +254,8 @@ function isRecord(input: unknown): input is Record<string, unknown> {
 }
 
 function passingManifests(dir: string): PassingEvidenceManifests {
-  const consoleConfigPath = 'packages/sdk-server-ts/wrangler.d1-staging-console.toml';
-  const routerApiConfigPath = 'packages/sdk-server-ts/wrangler.d1-staging-router-api.toml';
+  const consoleConfigPath = 'packages/console-server-ts/wrangler.d1-staging-console.toml';
+  const routerApiConfigPath = 'packages/console-server-ts/wrangler.d1-staging-router-api.toml';
   const environmentName = 'staging';
   const tenant = {
     namespace: 'tenant-route-staging',
@@ -1037,7 +1037,7 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects mixed Router API config paths',
-    mutate: (m) => patchManifest(m.fixtureImport, { routerApiConfigPath: 'packages/sdk-server-ts/wrangler.other-router-api.toml' }),
+    mutate: (m) => patchManifest(m.fixtureImport, { routerApiConfigPath: 'packages/console-server-ts/wrangler.other-router-api.toml' }),
     expectedError: /routerApiConfigPath mismatch/,
   },
   {

@@ -78,6 +78,7 @@
   },
   "devDependencies": {
     "@seams-internal/console-shared": "workspace:*",
+    "@seams-internal/console-server": "workspace:*",
     "@noble/curves": "^2.0.1",
     "@noble/ed25519": "^2.1.0",
     "@playwright/test": "^1.40.0",

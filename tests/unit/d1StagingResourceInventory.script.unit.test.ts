@@ -155,7 +155,7 @@ test('D1 staging resource inventory rejects failed remote metadata commands', as
       mode: 'remote',
       commandRunner: failingResourceCommandRunner,
     }),
-  ).toThrow(/Command failed: pnpm --dir packages\/sdk-server-ts exec wrangler d1 info/);
+  ).toThrow(/Command failed: pnpm --dir packages\/console-server-ts exec wrangler d1 info/);
 });
 
 test('D1 staging resource inventory rejects empty remote JSON metadata', async () => {

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   createInMemoryConsoleBillingService,
   type ConsoleBillingService,
-} from '@server/router/express-adaptor';
+} from '@seams-internal/console-server/router/express-adaptor';
 
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;

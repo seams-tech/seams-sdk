@@ -348,8 +348,8 @@ Staging-required local development uses the Cloudflare D1/DO Worker in
 `packages/sdk-server-ts`:
 
 ```bash
-pnpm -C packages/sdk-server-ts run d1:local:prepare
-pnpm -C packages/sdk-server-ts run d1:local:dev
+pnpm -C packages/console-server-ts run d1:local:prepare
+pnpm -C packages/console-server-ts run d1:local:dev
 ```
 
 The Express Router API is a Node example. It stores WebAuthn authenticators

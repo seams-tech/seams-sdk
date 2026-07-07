@@ -127,30 +127,66 @@ test.describe('package export contracts', () => {
       default: './dist/esm/router/ror.js',
       types: './dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts',
     });
-    expect(exportsMap['./console']).toEqual({
-      import: './dist/esm/console/index.js',
-      default: './dist/esm/console/index.js',
-      types: './dist/types/sdk-server-ts/src/console/index.d.ts',
-    });
+    expect(exportsMap['./console']).toBeUndefined();
     const cloudflareTypes = readRepoFile(
       'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
     );
     expect(cloudflareTypes).toContain('RouterApiCloudflareSignerWorkerEnv');
-    expect(cloudflareTypes).toContain('RouterApiCloudflareConsoleWorkerEnv');
     expect(cloudflareTypes).toContain('SeamsD1SignerTenantStorageWorkerEnv');
-    expect(cloudflareTypes).toContain('SeamsD1ConsoleTenantStorageWorkerEnv');
+    expect(cloudflareTypes).not.toContain('RouterApiCloudflareConsoleWorkerEnv');
+    expect(cloudflareTypes).not.toContain('SeamsD1ConsoleTenantStorageWorkerEnv');
     expect(cloudflareTypes).not.toContain('interface RouterApiCloudflareWorkerEnv');
     expect(cloudflareTypes).not.toContain('interface SeamsD1DoTenantStorageWorkerEnv');
+    const expressAdaptor = readRepoFile('packages/sdk-server-ts/src/router/express-adaptor.ts');
+    const cloudflareAdaptor = readRepoFile(
+      'packages/sdk-server-ts/src/router/cloudflare-adaptor.ts',
+    );
+    expect(expressAdaptor).not.toContain('createConsoleRouter');
+    expect(expressAdaptor).not.toContain('@seams-internal/console-server');
+    expect(cloudflareAdaptor).not.toContain('createCloudflareConsoleRouter');
+    expect(cloudflareAdaptor).not.toContain('createCloudflareCron');
+    expect(cloudflareAdaptor).not.toContain('@seams-internal/console-server');
     expect(exportsMap['./storage/postgres']).toBeUndefined();
     expect(exportsMap['./wasm/signer']).toEqual({
       import: './dist/esm/wasm/signer.js',
       default: './dist/esm/wasm/signer.js',
       types: './dist/types/sdk-server-ts/src/wasm/signer.d.ts',
     });
+    expect(exportsMap['./internal/*']).toEqual({
+      import: './dist/esm/*.js',
+      default: './dist/esm/*.js',
+      types: './dist/types/sdk-server-ts/src/*.d.ts',
+    });
     expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).toContain('export { AuthService }');
     expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).not.toContain(
       "export * from './console/",
     );
+    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/console'))).toBe(false);
+    expect(
+      fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/router/console.ts')),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, 'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts'),
+      ),
+    ).toBe(false);
+    expect(readJson('packages/console-server-ts/package.json').exports).toEqual({
+      '.': {
+        import: './dist/esm/index.js',
+        default: './dist/esm/index.js',
+        types: './dist/types/console-server-ts/src/index.d.ts',
+      },
+      './*': {
+        import: './dist/esm/*.js',
+        default: './dist/esm/*.js',
+        types: './dist/types/console-server-ts/src/*.d.ts',
+      },
+    });
+    const consoleCloudflareTypes = readRepoFile(
+      'packages/console-server-ts/src/router/cloudflare/cloudflareConsole.types.ts',
+    );
+    expect(consoleCloudflareTypes).toContain('RouterApiCloudflareConsoleWorkerEnv');
+    expect(consoleCloudflareTypes).toContain('SeamsD1ConsoleTenantStorageWorkerEnv');
     expect(readRepoFile('packages/shared-ts/package.json')).not.toContain('./console');
     expect(fs.existsSync(path.join(repoRoot, 'packages/shared-ts/src/console'))).toBe(false);
     expect(readJson('packages/console-shared-ts/package.json').exports).toEqual({
@@ -162,7 +198,6 @@ test.describe('package export contracts', () => {
       './webhookEventCategories': './src/webhookEventCategories.ts',
     });
     expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/sdk-server-ts');
-    expect(fs.existsSync(resolveSdkServerPath(exportsMap['./console'].types))).toBe(true);
   });
 
   test('public runtime package export exposes runtime value constructors', async () => {

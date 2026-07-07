@@ -3,7 +3,7 @@ import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponso
 import {
   isSponsorshipSpendCapEnforcementError,
   resolveStaticSponsoredExecutionPricingFromEnv,
-} from '../../packages/sdk-server-ts/src/console/sponsorship';
+} from '../../packages/console-server-ts/src/sponsorship';
 
 function makeStaticPricingEnv(): NodeJS.ProcessEnv {
   return {

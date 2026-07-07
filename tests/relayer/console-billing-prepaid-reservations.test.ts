@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleBillingPrepaidReservationService } from '@server/router/express-adaptor';
+import { createInMemoryConsoleBillingPrepaidReservationService } from '@seams-internal/console-server/router/express-adaptor';
 
 async function expectReservationError(fn: () => Promise<unknown>, code: string): Promise<void> {
   let caught: any;

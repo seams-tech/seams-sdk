@@ -5,7 +5,7 @@ import {
   normalizeSigningRootScope,
   signingRootScopeFromRuntimePolicyScope,
 } from '../../packages/shared-ts/src/threshold/signingRootScope';
-import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv';
+import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv';
 import { resolveThresholdRuntimePolicyScope } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
 
 test('deriveSigningRootId composes projectId and envId without orgId', () => {

@@ -535,10 +535,10 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
 
 check('valid signing-session seal key ids use explicit domain names in active defaults', () => {
     const localD1Worker = readRepoSource(
-      'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
+      'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
     );
     const stagingD1Worker = readRepoSource(
-      'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
+      'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
     );
     const d1AuthConfig = readRepoSource(
       'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
-import { createConsoleRouterApiRouteExtensions } from '../../packages/sdk-server-ts/src/console/router/routeExtensions';
-import { authorizeConsoleRouteRequest } from '../../packages/sdk-server-ts/src/router/consoleRoutePolicy';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
+import { authorizeConsoleRouteRequest } from '../../packages/console-server-ts/src/router/consoleRoutePolicy';
 import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
 import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
 import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';

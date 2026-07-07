@@ -59,8 +59,9 @@
   `RouterApiWebhookEmitter` port, and burned down the `routerApi.ts`
   signer-console import guard allowlist entries.
 - Completed the Phase 4 B6 entrypoint split slice. The root package barrel no
-  longer exports console modules, `src/console/index.ts` owns the console
-  barrel, and `@seams/sdk-server/console` is now an explicit package subpath.
+  longer exports console modules, the console barrel is isolated from the root
+  export surface, and Phase 6 moved it to
+  `packages/console-server-ts/src/index.ts`.
 - Completed the Phase 4 B7 env-type split. Cloudflare Worker env types now
   separate signer variables, console variables, signer D1/DO bindings, console
   D1 bindings, and the composition intersections.
@@ -69,12 +70,24 @@
   `@seams-internal/console-shared`; `@seams-internal/shared-ts` no longer
   exports or contains a `console` subtree.
 - Updated server, site, and test imports to consume console constants from the
-  new console-owned shared package. Server console sources keep relative
-  source imports where required to preserve generated
-  `@seams/sdk-server/console` declaration output before the Phase 6 physical
-  package split.
+  new console-owned shared package.
 - Added package export contracts for the new console shared package and for
   removal of the old `shared-ts` console export surface.
+- Completed Phase 6 by creating `packages/console-server-ts` as
+  `@seams-internal/console-server` and moving console services, console router
+  assembly, console route extensions, Cloudflare console workers, B10
+  composition harnesses, `CONSOLE_DB` migrations, Wrangler configs, D1 scripts,
+  and console dev vars into the package.
+- Removed the interim `@seams/sdk-server/console` export and trimmed signer
+  router adapters back to signer-only exports. The console package now owns
+  `router/express-adaptor`, `router/cloudflare-adaptor`, and console
+  Cloudflare env/composition types.
+- Added the private `@seams/sdk-server/internal/*` subpath so the closed
+  console package can consume signer internals needed for composition without
+  restoring console code to the signer package.
+- Updated D1 operational docs, web-server imports, source guards, package
+  export contracts, staging script fixtures, and package install smoke tests
+  for the new console package home.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
@@ -92,8 +105,14 @@
   - `pnpm -C packages/console-shared-ts run type-check`
   - `pnpm -C packages/shared-ts run type-check`
   - `pnpm -C packages/sdk-server-ts run build`
+  - `pnpm -C packages/sdk-server-ts run type-check`
+  - `pnpm -C packages/console-server-ts run type-check`
+  - `pnpm -C packages/console-server-ts run build`
+  - `pnpm -C apps/web-server run build`
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C tests run check:workspace-package-boundaries`
+  - `pnpm -C tests run check:cloudflare-d1-runtime-boundaries`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/packageExports.contract.unit.test.ts unit/sdkPackageInstallSmoke.unit.test.ts`
   - `pnpm -C apps/seams-site typecheck`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/packageExports.contract.unit.test.ts unit/sdkPackageInstallSmoke.unit.test.ts unit/sponsorship.staticPricing.unit.test.ts unit/sponsorship.realPricing.unit.test.ts`
   - `VITE_CACHE_DIR=/tmp/seams-vite-cache-ref87-phase5-e2e W3A_TEST_FRONTEND_URL=http://127.0.0.1:5197 pnpm -C tests exec playwright test --reporter=line e2e/dashboard.webhooks.apiWiring.test.ts e2e/dashboard.consoleConfigPages.apiWiring.test.ts -g "dashboard webhooks|gas sponsorship page wires create|credentials page supports"`

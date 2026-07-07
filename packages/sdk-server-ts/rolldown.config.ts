@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'fs';
 
 const SERVER_ROOT_ABS = process.cwd();
 const SERVER_SRC_ROOT_ABS = path.resolve(SERVER_ROOT_ABS, 'src');
@@ -33,6 +34,25 @@ const external = [
   /\.wasm$/,
 ];
 
+const listSourceInputs = (dirAbs: string): string[] => {
+  const entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+  const inputs: string[] = [];
+  for (const entry of entries) {
+    const entryAbs = path.join(dirAbs, entry.name);
+    if (entry.isDirectory()) {
+      inputs.push(...listSourceInputs(entryAbs));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith('.ts')) continue;
+    if (entry.name.endsWith('.d.ts')) continue;
+    if (entry.name.endsWith('.typecheck.ts')) continue;
+    if (entry.name.endsWith('.test.ts')) continue;
+    inputs.push(toPosixPath(path.relative(SERVER_ROOT_ABS, entryAbs)));
+  }
+  return inputs.sort();
+};
+
 const aliasConfig = {
   '@seams-internal/console-shared': path.resolve(
     SERVER_ROOT_ABS,
@@ -55,7 +75,7 @@ const preservedEntryFileNames = (chunk: { facadeModuleId?: string | null; name: 
 
 export default [
   {
-    input: ['src/index.ts', 'src/console/index.ts'],
+    input: listSourceInputs(SERVER_SRC_ROOT_ABS),
     output: {
       dir: 'dist/esm',
       format: 'esm',

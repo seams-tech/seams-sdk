@@ -21,13 +21,13 @@ apps/web-server/.provision-cache.json
 clients/ios/.build
 
 examples/relay-cloudflare-worker/.wrangler
-packages/sdk-server-ts/.wrangler/
+packages/console-server-ts/.wrangler/
 .runtime/
 
-# Local Wrangler secrets. Use packages/sdk-server-ts/dev.vars as the checked-in template.
-packages/sdk-server-ts/.dev.vars
-packages/sdk-server-ts/wrangler.d1-staging-console.toml
-packages/sdk-server-ts/wrangler.d1-staging-router-api.toml
+# Local Wrangler secrets. Use packages/console-server-ts/dev.vars as the checked-in template.
+packages/console-server-ts/.dev.vars
+packages/console-server-ts/wrangler.d1-staging-console.toml
+packages/console-server-ts/wrangler.d1-staging-router-api.toml
 sqlite/
 
 # Playwright artifacts

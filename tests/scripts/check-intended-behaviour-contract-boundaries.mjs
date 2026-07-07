@@ -934,7 +934,7 @@ test('Refactor 88 intended CI config owns service startup', () => {
     expect(startupSource).toContain("spawnManaged('router'");
     expect(startupSource).toContain("['run', 'router', '--', '--fresh']");
     expect(startupSource).toContain("removePath('.router-ab-local')");
-    expect(startupSource).toContain("removePath('packages/sdk-server-ts/.wrangler/state/seams-d1')");
+    expect(startupSource).toContain("removePath('packages/console-server-ts/.wrangler/state/seams-d1')");
     expect(startupSource).toContain('VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId');
     expect(startupSource).toContain('VITE_SEAMS_PUBLISHABLE_KEY: publishableKey');
     expect(startupSource).toContain("waitForHttpOk(`${routerUrl}/readyz`, 'router readyz'");

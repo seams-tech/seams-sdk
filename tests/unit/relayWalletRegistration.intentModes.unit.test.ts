@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleOrgProjectEnvService } from '@server/console/orgProjectEnv';
+import { createInMemoryConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv';
 import { handleRouterApiWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import type { RouterApiWalletRegistrationRouteService } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import {

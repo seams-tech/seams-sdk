@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
-import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
-import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
+import { createInMemoryConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys';
+import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/console-server-ts/src/runtimeSnapshots';
+import { createInMemoryConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express-adaptor';
@@ -9,8 +9,8 @@ import {
   createRouterApiModule,
   type RouterApiModule,
 } from '../../packages/sdk-server-ts/src/router/modules';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/console/router/routerApiKeyAuth';
-import { createConsoleRouterApiRouteExtensions } from '../../packages/sdk-server-ts/src/console/router/routeExtensions';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/console-server-ts/src/router/routerApiKeyAuth';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
 import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/routerApiRouteSurface';

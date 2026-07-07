@@ -462,7 +462,7 @@ test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of 
     './routes/emailRecovery',
     './routes/wellKnown',
     './routes/sessions',
-    '../console',
+    '@seams-internal/console-server',
     'bootstrapGrantBroker',
     'HssWalletId',
   ]) {

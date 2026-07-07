@@ -1,25 +1,27 @@
 import express, { Express, type RequestHandler } from 'express';
 import {
   AuthService,
-  createInMemoryConsoleSponsorshipSpendCapService,
-  createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createHostedSigningRootShareResolver,
-  DEFAULT_TEMPO_ONBOARDING_CONTRACT,
-  ensureTempoOnboardingSponsorshipForAllOrganizations,
-  resolveCoinGeckoSponsoredExecutionPricingFromEnv,
-  resolveSponsoredEvmCallConfigFromEnv,
-  resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
   type SealedSigningRootShare,
-  type ConsoleBillingPrepaidReservationService,
-  type ConsoleSponsoredCallService,
-  type ConsoleSponsorshipSpendCapService,
   type SigningRootShareDecryptAdapter,
   type SigningRootSecretShareId,
   type SigningRootShareSource,
   type SigningRootShareResolver,
   type ThresholdStoreConfigInput,
 } from '@seams/sdk-server';
+import {
+  createInMemoryConsoleSponsorshipSpendCapService,
+  createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
+  DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+  ensureTempoOnboardingSponsorshipForAllOrganizations,
+  resolveCoinGeckoSponsoredExecutionPricingFromEnv,
+  resolveSponsoredEvmCallConfigFromEnv,
+  resolveStaticSponsoredExecutionPricingFromEnv,
+  type ConsoleBillingPrepaidReservationService,
+  type ConsoleSponsoredCallService,
+  type ConsoleSponsorshipSpendCapService,
+} from '@seams-internal/console-server';
 import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
@@ -57,7 +59,7 @@ import {
   type ConsoleWebhookService,
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
-} from '@seams/sdk-server/router/express';
+} from '@seams-internal/console-server/router/express-adaptor';
 
 import dotenv from 'dotenv';
 import { dirname, resolve } from 'node:path';

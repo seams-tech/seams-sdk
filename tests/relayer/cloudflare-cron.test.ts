@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createCloudflareCron } from '@server/router/cloudflare-adaptor';
+import { createCloudflareCron } from '@seams-internal/console-server/router/cloudflare-adaptor';
 
 const fakeD1Database = {} as any;
 const fakeWebhookSecretCipher = {} as any;

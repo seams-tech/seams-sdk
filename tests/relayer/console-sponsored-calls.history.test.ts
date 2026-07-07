@@ -7,8 +7,8 @@ import {
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
   type ConsoleSponsoredCallService,
-} from '@server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
+} from '@seams-internal/console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
 import { callCf, fetchJson, startExpressRouter } from './helpers';
 
 const baseNow = new Date('2026-03-19T00:00:00.000Z');

@@ -109,7 +109,9 @@ export function cleanupTemporaryD1Database(tempDir: string): void {
 export type D1MigrationDirectoryName = 'd1-console' | 'd1-signer';
 
 export function listD1MigrationFiles(directoryName: D1MigrationDirectoryName): readonly string[] {
-  const migrationsDir = path.join(repoRoot, 'packages/sdk-server-ts/migrations', directoryName);
+  const packageRoot =
+    directoryName === 'd1-console' ? 'packages/console-server-ts' : 'packages/sdk-server-ts';
+  const migrationsDir = path.join(repoRoot, packageRoot, 'migrations', directoryName);
   const files: string[] = [];
   for (const fileName of readdirSync(migrationsDir)) {
     if (isD1SqlMigrationFile(fileName)) files.push(path.join(migrationsDir, fileName));

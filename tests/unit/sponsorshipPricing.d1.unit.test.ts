@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   createD1ConsoleSponsorshipPricingService,
   seedD1ConsoleStaticEvmSponsorshipPricingRule,
-} from '../../packages/sdk-server-ts/src/console/sponsorshipPricing/d1';
+} from '../../packages/console-server-ts/src/sponsorshipPricing/d1';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

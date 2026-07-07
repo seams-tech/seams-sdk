@@ -16,6 +16,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@seams-internal/console-server": "workspace:*",
     "@seams/sdk": "workspace:*",
     "@seams/sdk-server": "workspace:*",
     "cors": "^2.8.5",

@@ -10,6 +10,7 @@ const ignoredDirectories = new Set(['.vite', 'dist', 'node_modules']);
 
 const requiredWorkspacePackages = [
   'packages/console-shared-ts',
+  'packages/console-server-ts',
   'packages/sdk-web',
   'packages/sdk-server-ts',
   'packages/shared-ts',

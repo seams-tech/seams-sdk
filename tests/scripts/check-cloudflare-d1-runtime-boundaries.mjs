@@ -50,7 +50,7 @@ const routerAbLocalDevScriptRoot = 'crates/router-ab-dev/scripts';
 const ciWorkflowPath = '.github/workflows/ci.yml';
 const gitignorePath = '.gitignore';
 const refactor82PlanPath = 'docs/refactor-82-cloudflare-D1-migration.md';
-const sdkServerReadmePath = 'packages/sdk-server-ts/README.md';
+const sdkServerReadmePath = 'packages/console-server-ts/README.md';
 const sdkServerTsconfigPath = 'packages/sdk-server-ts/tsconfig.json';
 const webServerPackagePath = 'apps/web-server/package.json';
 const accountSettingsDocPath = 'docs/saas/account-settings.md';
@@ -583,10 +583,10 @@ const staleSaasFrontendDocPatterns = [
 ];
 const sharedD1HelperPath = 'packages/sdk-server-ts/src/storage/d1Sql.ts';
 const sharedSqliteD1TestHelperPath = 'tests/helpers/sqliteD1.ts';
-const cloudflareD1ConsoleServicesPath = 'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts';
-const cloudflareD1ConsoleStagingWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
-const cloudflareD1LocalDevWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
-const cloudflareD1RouterApiStagingWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
+const cloudflareD1ConsoleServicesPath = 'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts';
+const cloudflareD1ConsoleStagingWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
+const cloudflareD1LocalDevWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
+const cloudflareD1RouterApiStagingWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
 const cloudflareD1RouterApiAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts';
 const cloudflareD1EmailOtpRecoveryServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts';
 const authServiceEmailOtpGrantPath = 'packages/sdk-server-ts/src/core/authService/emailOtpGrant.ts';
@@ -627,12 +627,12 @@ const activeRouterApiTextPaths = [
     'docs/auth-provider-integrations/okta.md',
     'docs/auth-provider-integrations/quickstarts-clerk-supabase-firebase.md',
     'packages/sdk-server-ts/src/README.md',
-    'packages/sdk-server-ts/README.md',
+    'packages/console-server-ts/README.md',
     'packages/sdk-web/README.md',
     'tests/README.md',
     'packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts',
     'packages/sdk-server-ts/src/core/defaultConfigsServer.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
+    'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts',
@@ -651,8 +651,8 @@ const activeRouterApiTextPaths = [
     'voiceId/docs/voiceId-mvp-2.md',
     'voiceId/docs/voiceId-normal-sdk-transaction-signing.md',
     'voiceId/docs/voiceId-sdk-auth-method-integration.md',
-    'packages/sdk-server-ts/wrangler.d1-staging-console.toml.example',
-    'packages/sdk-server-ts/wrangler.d1-staging-router-api.toml.example',
+    'packages/console-server-ts/wrangler.d1-staging-console.toml.example',
+    'packages/console-server-ts/wrangler.d1-staging-router-api.toml.example',
     'wasm/near_signer/src/types/signing.rs',
     apiKeysDocPath,
     'tests/package.json',
@@ -809,21 +809,21 @@ const staleRouterApiHarnessTokens = [
     'Relay server not healthy',
     '[test-relay]',
 ];
-const d1LocalBackupRestoreDrillScript = 'packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs';
+const d1LocalBackupRestoreDrillScript = 'packages/console-server-ts/scripts/d1-local-backup-restore-drill.mjs';
 const d1StagingManifestWriterScripts = [
     d1LocalBackupRestoreDrillScript,
-    'packages/sdk-server-ts/scripts/d1-staging-fixture-import.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-kek-check.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-migrate.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-reconciliation.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-signer-custody.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-smoke.mjs',
-    'packages/sdk-server-ts/scripts/d1-staging-time-travel-bookmark.mjs',
+    'packages/console-server-ts/scripts/d1-staging-fixture-import.mjs',
+    'packages/console-server-ts/scripts/d1-staging-kek-check.mjs',
+    'packages/console-server-ts/scripts/d1-staging-migrate.mjs',
+    'packages/console-server-ts/scripts/d1-staging-r2-restore-drill.mjs',
+    'packages/console-server-ts/scripts/d1-staging-reconciliation.mjs',
+    'packages/console-server-ts/scripts/d1-staging-resource-inventory.mjs',
+    'packages/console-server-ts/scripts/d1-staging-signer-custody.mjs',
+    'packages/console-server-ts/scripts/d1-staging-smoke.mjs',
+    'packages/console-server-ts/scripts/d1-staging-time-travel-bookmark.mjs',
 ];
-const d1StagingSharedHelperPath = 'packages/sdk-server-ts/scripts/d1-staging-config.mjs';
-const d1StagingCliHelperScripts = listJavaScriptFiles('packages/sdk-server-ts/scripts').filter((relativePath) => relativePath === d1LocalBackupRestoreDrillScript ||
+const d1StagingSharedHelperPath = 'packages/console-server-ts/scripts/d1-staging-config.mjs';
+const d1StagingCliHelperScripts = listJavaScriptFiles('packages/console-server-ts/scripts').filter((relativePath) => relativePath === d1LocalBackupRestoreDrillScript ||
     (path.basename(relativePath).startsWith('d1-staging-') &&
         relativePath !== d1StagingSharedHelperPath));
 const publicRegistrationRequestConstructionFiles = [
@@ -1622,6 +1622,7 @@ function staleRefactor82NameViolations() {
         ...listTypeScriptFiles('tests'),
         ...listJavaScriptFiles('apps/web-server/scripts'),
         ...listJavaScriptFiles('packages/sdk-server-ts/scripts'),
+        ...listJavaScriptFiles('packages/console-server-ts/scripts'),
         ...activeRouterApiTextPaths,
     ]) {
         if (relativePath === 'tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts') {
@@ -1828,7 +1829,7 @@ function routerApiStagingWorkerSignerCustodyViolations() {
 function d1WorkerRouterApiHandlerLifetimeViolations() {
     const violations = [];
     for (const relativePath of [
-        'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
+        cloudflareD1LocalDevWorkerPath,
         cloudflareD1RouterApiStagingWorkerPath,
         cloudflareD1ConsoleStagingWorkerPath,
     ]) {
@@ -1840,13 +1841,13 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
             violations.push(`${relativePath}: caches Router API handlers instead of request-independent live session stores`);
         }
     }
-    const localWorker = readSource('packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts');
+    const localWorker = readSource(cloudflareD1LocalDevWorkerPath);
     const stagingWorker = readSource(cloudflareD1RouterApiStagingWorkerPath);
     const ecdsaPoolFill = readSource('packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts');
     const thresholdStore = readSource('packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts');
     const thresholdStoreClient = readSource('packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts');
     if (localWorker.includes('localRouterApiEcdsaPoolFillLiveSessions')) {
-        violations.push('packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts: owns ECDSA pool-fill live sessions outside the Durable Object');
+        violations.push(`${cloudflareD1LocalDevWorkerPath}: owns ECDSA pool-fill live sessions outside the Durable Object`);
     }
     if (stagingWorker.includes('routerApiStagingEcdsaPoolFillLiveSessions')) {
         violations.push(`${cloudflareD1RouterApiStagingWorkerPath}: owns ECDSA pool-fill live sessions outside the Durable Object`);
@@ -1856,7 +1857,7 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
         violations.push('D1 Router API Worker constructs ECDSA pool-fill live-session stores directly');
     }
     for (const [relativePath, source] of [
-        ['packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts', localWorker],
+        [cloudflareD1LocalDevWorkerPath, localWorker],
         [cloudflareD1RouterApiStagingWorkerPath, stagingWorker],
     ]) {
         if (source.includes('ThresholdEcdsaPresignSession')) {
@@ -2381,8 +2382,8 @@ test('CI does not revive removed Postgres staging smoke jobs', () => {
 });
 test('concrete D1 staging Wrangler configs stay untracked', () => {
     const source = readSource(gitignorePath);
-    expect(source).toContain('packages/sdk-server-ts/wrangler.d1-staging-console.toml');
-    expect(source).toContain('packages/sdk-server-ts/wrangler.d1-staging-router-api.toml');
+    expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-console.toml');
+    expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-router-api.toml');
 });
 test('D1 staging README documents missing-KEK signer custody evidence', () => {
     const source = readSource(sdkServerReadmePath);

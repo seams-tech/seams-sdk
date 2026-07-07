@@ -66,7 +66,7 @@ Concrete blockers, each owned by a phase below:
 | B3 | Resolved July 8, 2026: signer-router auth files now depend on signer-owned credential/bootstrap ports; console-backed adapters live under `src/console/router` | `router/apiCredentialPorts.ts`, `console/router/routerApiKeyAuth.ts`, `console/router/bootstrapGrantBroker.ts`, `console/router/bootstrapTokenVerifier.ts` |
 | B4 | Resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules live under `console/router`; signed-delegate route ownership moved to the console route extension | `console/router/routeExtensions.ts`, `console/router/routerApiSignedDelegate.ts` |
 | B5 | Resolved July 8, 2026: `RouterApiOptions` now carries signer-owned ports and route extensions; console sponsorship services live in console route-extension options, and Router API lifecycle webhooks use a signer-owned emitter port | `router/routerApi.ts`, `console/router/routeExtensions.ts` |
-| B6 | Resolved July 8, 2026: the root barrel no longer re-exports console modules, and console exports are available through the explicit `./console` subpath | `src/index.ts`, `src/console/index.ts`, `package.json` |
+| B6 | Resolved July 8, 2026: the root barrel no longer re-exports console modules, the interim `./console` subpath is gone, and console exports live in `@seams-internal/console-server` | `packages/sdk-server-ts/src/index.ts`, `packages/console-server-ts/src/index.ts`, package manifests |
 | B7 | Resolved July 8, 2026: Cloudflare env types are split into signer, console, and composition intersections for Worker variables and D1/DO bindings | `router/cloudflare/cloudflare.types.ts` |
 | B8 | Resolved July 8, 2026: Cloudflare ECDSA now imports the same core Ethereum signer WASM leaf as the Express variant | `core/ThresholdService/ethSignerWasm` |
 | B9 | Resolved July 8, 2026: console constants moved out of signer-neutral `shared-ts` and into the console-owned `@seams-internal/console-shared` workspace package | `packages/console-shared-ts/src/` |
@@ -80,10 +80,11 @@ Two modules, staged as folders first and packages second:
   open-sourceable unit): `core`, `threshold`, `wasm`, `storage`,
   `delegateAction`, `email-recovery`, the signer Router API, signer D1
   adapters, `migrations/d1-signer`.
-- `@seams-internal/console-server` (new workspace package, name TBD in Phase 0)
+- `@seams-internal/console-server`
   owns `console`, `sponsorship`, the console routers, console D1 adapters,
   `migrations/d1-console`, and console shared constants. It depends on
-  `@seams/sdk-server`.
+  `@seams/sdk-server` through public signer APIs plus the private
+  `@seams/sdk-server/internal/*` subpath used by this closed workspace package.
 - Composition roots (local dev worker, staging workers, deployed Cloudflare
   bundles) import both and wire them together. They live with the console
   package or under `apps/`, never inside the signer core.
@@ -181,15 +182,15 @@ console package exports `consoleRouteExtensions(...)` /
     `packages/console-shared-ts` workspace package. After Phase 2 nothing in
     signer core imports them; the guard enforces that stays true. `shared-ts`
     keeps only signer/wallet-neutral types.
-- [ ] Phase 6: Physical package split.
-  - Create the console workspace package; `git mv` the console folders,
+- [x] Phase 6: Physical package split.
+  - [x] Create the console workspace package; `git mv` the console folders,
     console routers, console D1 adapters, `migrations/d1-console`, and
     console smoke scripts into it. Wire `tsconfig` project references,
     build, and typecheck per package.
-  - Move the composition harnesses (B10: `d1LocalDevWorker`,
+  - [x] Move the composition harnesses (B10: `d1LocalDevWorker`,
     `d1RouterApiStagingWorker`, `d1StagingSession`) and deployed Worker
     bundles to the console package or `apps/`, importing both packages.
-  - Split `package.json` scripts: `migrate:*`/`smoke:*` for signer stay in
+  - [x] Split `package.json` scripts: `migrate:*`/`smoke:*` for signer stay in
     `@seams/sdk-server`; console equivalents move with the console package.
 - [ ] Phase 7: Open-source readiness pass on the signer package (parked until
   a release decision).
@@ -209,9 +210,10 @@ console package exports `consoleRouteExtensions(...)` /
 
 ## Validation
 
-- CI import guard (Phase 0) green with an empty allowlist by end of Phase 5.
-- Deletion test, automated in CI after Phase 6: build and typecheck
-  `@seams/sdk-server` with the console package absent from the workspace.
+- CI import guard (Phase 0) green with an empty allowlist by end of Phase 6.
+- Package split contract test: `@seams/sdk-server` exposes no console source,
+  root, adapter, or `./console` subpath exports; `@seams-internal/console-server`
+  owns the console exports and operational assets.
 - Existing per-database migrate/smoke scripts pass unchanged in their new
   homes (`d1-signer` under signer core, `d1-console` under console).
 - Route-surface parity test (Phase 3): the signer router with no extensions

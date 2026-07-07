@@ -24,7 +24,10 @@ export const D1_STAGING_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..',
 );
-export const D1_STAGING_PACKAGE_ROOT = path.join(D1_STAGING_REPO_ROOT, 'packages/sdk-server-ts');
+export const D1_STAGING_PACKAGE_ROOT = path.join(
+  D1_STAGING_REPO_ROOT,
+  'packages/console-server-ts',
+);
 
 export async function loadD1StagingScriptModule<T>(scriptFileName: string): Promise<T> {
   const scriptPath = path.join(D1_STAGING_PACKAGE_ROOT, 'scripts', scriptFileName);
@@ -180,7 +183,7 @@ migrations_dir = "migrations/d1-console"
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging"
 database_id = "22222222-2222-4222-8222-222222222222"
-migrations_dir = "migrations/d1-signer"
+migrations_dir = "../sdk-server-ts/migrations/d1-signer"
 
 [[durable_objects.bindings]]
 name = "THRESHOLD_STORE"

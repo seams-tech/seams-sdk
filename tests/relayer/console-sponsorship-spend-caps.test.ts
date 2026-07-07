@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleSponsorshipSpendCapService } from '@server/router/express-adaptor';
+import { createInMemoryConsoleSponsorshipSpendCapService } from '@seams-internal/console-server/router/express-adaptor';
 
 async function expectSpendCapError(fn: () => Promise<unknown>, code: string): Promise<void> {
   let caught: any;

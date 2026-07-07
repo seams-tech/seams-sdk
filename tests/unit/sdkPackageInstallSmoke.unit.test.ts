@@ -165,20 +165,19 @@ test.describe('SDK package install smoke', () => {
             throw new Error('unexpected root console sponsored-call export');
           }
 
-          const consoleServer = await import('@seams/sdk-server/console');
-          if (typeof consoleServer.createInMemoryConsoleSponsoredCallService !== 'function') {
-            throw new Error('missing console sponsored-call export');
-          }
-          if (typeof consoleServer.createInMemoryConsoleSponsorshipSpendCapService !== 'function') {
-            throw new Error('missing console sponsorship spend-cap export');
+          try {
+            import.meta.resolve('@seams/sdk-server/console');
+            throw new Error('server console subpath still resolves');
+          } catch (error) {
+            if (!error || error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
           }
 
           const expressRouter = await import('@seams/sdk-server/router/express');
           if (typeof expressRouter.createRouterApiRouter !== 'function') {
             throw new Error('missing createRouterApiRouter export');
           }
-          if (typeof expressRouter.createConsoleRouter !== 'function') {
-            throw new Error('missing createConsoleRouter export');
+          if (typeof expressRouter.createConsoleRouter !== 'undefined') {
+            throw new Error('unexpected createConsoleRouter export');
           }
           if (typeof expressRouter.createPostgresConsoleBootstrapTokenService !== 'undefined') {
             throw new Error('unexpected Express partial Postgres console service export');
@@ -188,11 +187,11 @@ test.describe('SDK package install smoke', () => {
           if (typeof cloudflareRouter.createCloudflareRouter !== 'function') {
             throw new Error('missing createCloudflareRouter export');
           }
-          if (typeof cloudflareRouter.createCloudflareConsoleRouter !== 'function') {
-            throw new Error('missing createCloudflareConsoleRouter export');
+          if (typeof cloudflareRouter.createCloudflareConsoleRouter !== 'undefined') {
+            throw new Error('unexpected createCloudflareConsoleRouter export');
           }
-          if (typeof cloudflareRouter.createD1ConsoleBootstrapTokenService !== 'function') {
-            throw new Error('missing Cloudflare D1 bootstrap-token service export');
+          if (typeof cloudflareRouter.createD1ConsoleBootstrapTokenService !== 'undefined') {
+            throw new Error('unexpected Cloudflare D1 bootstrap-token service export');
           }
           if (typeof cloudflareRouter.createPostgresConsoleBootstrapTokenService !== 'undefined') {
             throw new Error('unexpected Cloudflare Postgres service export');
