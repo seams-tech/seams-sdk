@@ -419,4 +419,65 @@ test.describe('wallet session profile identity restore', () => {
       source: 'profile_projection',
     });
   });
+
+  test('treats an explicit wallet without capability subjects as logged out without warning', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const loginMod = await import(paths.login);
+        const subjectMod = await import(paths.walletUnlockSubject);
+        const thresholdSessionStore = await import(paths.thresholdSessionStore);
+        const walletId = 'refresh-empty-wallet-selection';
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => {
+          warnings.push(args);
+        };
+
+        try {
+          thresholdSessionStore.clearAllStoredThresholdEd25519SessionRecords();
+          const context = {
+            configs: {
+              network: { chains: [] },
+              signing: { mode: { mode: 'threshold-signer' } },
+            },
+            signingEngine: {
+              assertSealedRefreshStartupParity: async () => undefined,
+              getLastUser: async () => null,
+              getUserBySignerSlot: async () => null,
+              getWarmThresholdEd25519SessionStatus: async () => null,
+              listWarmThresholdEcdsaSessionStatuses: async () => [],
+              listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+              readPersistedAvailableSigningLanes: async () => null,
+              getNonceCoordinator: () => ({ getDiagnostics: () => null }),
+            },
+          };
+          const resolution = await subjectMod.resolveWalletSessionReadResolution(walletId);
+          const session = await loginMod.getWalletSession(context, walletId);
+
+          return {
+            resolutionKind: resolution.kind,
+            resolutionWalletId: String(resolution.walletId || ''),
+            resolutionReason: resolution.reason || null,
+            isLoggedIn: session.login.isLoggedIn,
+            walletId: String(session.login.walletId || ''),
+            warningCount: warnings.length,
+          };
+        } finally {
+          console.warn = originalWarn;
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      resolutionKind: 'no_session_for_wallet',
+      resolutionWalletId: 'refresh-empty-wallet-selection',
+      resolutionReason: 'missing_requested_capability_subject',
+      isLoggedIn: false,
+      walletId: 'refresh-empty-wallet-selection',
+      warningCount: 0,
+    });
+  });
 });

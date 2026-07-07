@@ -3162,6 +3162,23 @@ export async function getWalletSession(
 ): Promise<WalletSession> {
   const readResolution = await resolveWalletSessionReadResolution(walletId);
   if (readResolution.kind === 'no_session_request') return buildAnonymousWalletSession();
+  if (readResolution.kind === 'no_session_for_wallet') {
+    const login = buildLoggedOutLoginState({
+      walletId: readResolution.walletId,
+      nearAccountId: null,
+      thresholdEcdsaEthereumAddress: null,
+      thresholdEcdsaPublicKeyB64u: null,
+    });
+    return {
+      login,
+      signingSession: null,
+      currentAuthMethod: login.currentAuthMethod,
+      authMethods: login.authMethods,
+      authMethod: null,
+      retention: null,
+      nonceDiagnostics: null,
+    };
+  }
   if (readResolution.kind === 'unresolvable_profile') {
     console.warn('[WalletSession] wallet session profile is unresolvable', {
       profileId: readResolution.profileId,

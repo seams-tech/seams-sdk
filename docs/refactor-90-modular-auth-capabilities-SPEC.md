@@ -276,6 +276,12 @@ type WalletSessionReadResolution =
       source: WalletIdentitySource;
     }
   | {
+      kind: "no_session_for_wallet";
+      walletId: WalletId;
+      reason: "missing_requested_capability_subject";
+      source: WalletIdentitySource;
+    }
+  | {
       kind: "unresolvable";
       walletId: WalletId;
       reason: WalletIdentityResolveFailure;

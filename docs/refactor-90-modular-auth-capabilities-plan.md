@@ -507,6 +507,15 @@ type WalletSessionReadResolution =
         | 'host_last_used_profile';
     }
   | {
+      kind: 'no_session_for_wallet';
+      walletId: WalletId;
+      reason: 'missing_requested_capability_subject';
+      source:
+        | 'runtime_session_record'
+        | 'profile_projection'
+        | 'host_last_used_profile';
+    }
+  | {
       kind: 'unresolvable';
       walletId: WalletId;
       reason:
@@ -532,9 +541,11 @@ type WalletSessionReadResolution =
 - Update passkey and Email OTP unlock flows so auth prompts bind to wallet/auth
   subject identity, while capability warmup binds to the selected branch subject.
 - Update `getWalletSession`/page-refresh restoration to call the same resolver.
-  `no_session_request` means there was no wallet to restore; missing, corrupt,
-  or ambiguous durable identity is `unresolvable` and must remain observable in
-  diagnostics/tests.
+  `no_session_request` means there was no wallet to restore.
+  `no_session_for_wallet` means a requested or selected wallet has no active
+  capability subject and should read as logged out without warning noise.
+  Corrupt or ambiguous durable identity is `unresolvable` and must remain
+  observable in diagnostics/tests.
 - Model sealed-session display state as `active_warm`, `active_restorable`,
   `expired`, `exhausted`, or `unavailable`. A restorable sealed session may make
   the wallet look unlockable in UI, but the first signing/export operation still

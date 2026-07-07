@@ -67,6 +67,14 @@ export type WalletSessionReadResolution =
       reason?: never;
     }
   | {
+      kind: 'no_session_for_wallet';
+      walletId: WalletId;
+      profileId?: never;
+      reason: 'missing_requested_capability_subject';
+      source: WalletIdentitySource;
+      subjectSet?: never;
+    }
+  | {
       kind: 'unresolvable';
       walletId: WalletId;
       profileId?: never;
@@ -450,6 +458,14 @@ export async function resolveWalletSessionReadResolution(
   }
   const subjectSet = await resolveWalletUnlockSubjectSet(String(resolvedWalletId));
   const failure = walletSessionReadFailureForSubjectSet(subjectSet);
+  if (failure === 'missing_requested_capability_subject') {
+    return {
+      kind: 'no_session_for_wallet',
+      walletId: resolvedWalletId,
+      reason: failure,
+      source,
+    };
+  }
   if (failure) {
     return {
       kind: 'unresolvable',
