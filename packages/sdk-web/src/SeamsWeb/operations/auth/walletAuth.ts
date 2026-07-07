@@ -2,7 +2,6 @@ import { toError } from '@shared/utils/errors';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginHooksOptions } from '@/core/types/sdkSentEvents';
@@ -15,7 +14,6 @@ import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChai
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
-  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   getWalletSession as getWalletSessionCore,
@@ -27,15 +25,6 @@ import {
 import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import {
-  parseNearEd25519SigningKeyId,
-  type NearEd25519SigningKeyId,
-} from '@shared/utils/registrationIntent';
-import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
-import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
 import type {
   WalletAuthWebContext,
   EcdsaLoginSessionSurface,
@@ -43,32 +32,16 @@ import type {
 } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 import { walletIframeUnlockRequestFromLoginHooks } from '@/SeamsWeb/walletIframe/shared/unlockOptions';
+import {
+  resolveNearEd25519WalletUnlockSubject,
+  type WalletUnlockSubject,
+} from './walletUnlockSubject';
 
 type WalletAuthSigningSurface = Pick<
   RegistrationAccountSurface,
   'activateAuthenticatedWalletState'
 > &
   EcdsaLoginSessionSurface;
-
-export type WalletUnlockSubject =
-  | {
-      kind: 'near_ed25519_wallet';
-      walletId: WalletId;
-      nearAccountId: AccountId;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      signerSlot: SignerSlot;
-    }
-  | {
-      kind: 'evm_family_ecdsa_wallet';
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-    };
-
-type WalletUnlockSubjectSet = {
-  readonly kind: 'wallet_unlock_subject_set';
-  readonly walletId: WalletId;
-  readonly subjects: readonly WalletUnlockSubject[];
-};
 
 /**
  * SeamsWeb wallet-auth domain call graph:
@@ -90,181 +63,6 @@ export function resolveNearAccountIdForWalletAuthUnlockRecord(
   const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
   if (!record?.nearAccountId) return null;
   return toAccountId(String(record.nearAccountId));
-}
-
-function requiredWalletUnlockMetadataString(
-  metadata: Record<string, unknown> | undefined,
-  field: string,
-): string {
-  const value = metadata?.[field];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`wallet unlock signer metadata requires ${field}`);
-  }
-  return value.trim();
-}
-
-function nearEd25519WalletUnlockSubjectFromRuntimeRecord(
-  walletId: WalletId,
-): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
-  if (!record?.nearAccountId) return null;
-  const signerSlot = parseSignerSlot(record.signerSlot);
-  if (!signerSlot) return null;
-  return {
-    kind: 'near_ed25519_wallet',
-    walletId,
-    nearAccountId: toAccountId(String(record.nearAccountId)),
-    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(record.nearEd25519SigningKeyId),
-    signerSlot,
-  };
-}
-
-function nearEd25519WalletUnlockSubjectFromSigner(
-  walletId: WalletId,
-  signer: AccountSignerRecord,
-): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
-  try {
-    const metadataWalletId = String(signer.metadata?.walletId || '').trim();
-    if (metadataWalletId && metadataWalletId !== String(walletId)) return null;
-    const signerSlot = parseSignerSlot(signer.signerSlot);
-    if (!signerSlot) return null;
-    return {
-      kind: 'near_ed25519_wallet',
-      walletId,
-      nearAccountId: toAccountId(
-        requiredWalletUnlockMetadataString(signer.metadata, 'nearAccountId'),
-      ),
-      nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-        requiredWalletUnlockMetadataString(signer.metadata, 'nearEd25519SigningKeyId'),
-      ),
-      signerSlot,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function evmFamilyEcdsaWalletUnlockSubjectFromSigner(
-  walletId: WalletId,
-  signer: AccountSignerRecord,
-): Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }> | null {
-  try {
-    const metadataWalletId = String(signer.metadata?.walletId || '').trim();
-    if (metadataWalletId && metadataWalletId !== String(walletId)) return null;
-    return {
-      kind: 'evm_family_ecdsa_wallet',
-      walletId,
-      evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-        requiredWalletUnlockMetadataString(signer.metadata, 'evmFamilySigningKeySlotId'),
-      ),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function walletUnlockSubjectKey(subject: WalletUnlockSubject): string {
-  switch (subject.kind) {
-    case 'near_ed25519_wallet':
-      return [
-        subject.kind,
-        subject.walletId,
-        subject.nearAccountId,
-        subject.nearEd25519SigningKeyId,
-        subject.signerSlot,
-      ].join('\0');
-    case 'evm_family_ecdsa_wallet':
-      return [subject.kind, subject.walletId, subject.evmFamilySigningKeySlotId].join('\0');
-    default: {
-      const exhaustive: never = subject;
-      return exhaustive;
-    }
-  }
-}
-
-function walletUnlockSubjectsIncludeKey(
-  subjects: readonly WalletUnlockSubject[],
-  key: string,
-): boolean {
-  for (const subject of subjects) {
-    if (walletUnlockSubjectKey(subject) === key) return true;
-  }
-  return false;
-}
-
-function appendUniqueWalletUnlockSubject(
-  subjects: WalletUnlockSubject[],
-  subject: WalletUnlockSubject | null,
-): void {
-  if (!subject) return;
-  const key = walletUnlockSubjectKey(subject);
-  if (walletUnlockSubjectsIncludeKey(subjects, key)) return;
-  subjects.push(subject);
-}
-
-function noWalletUnlockSignerRecordsAfterLookupFailure(): AccountSignerRecord[] {
-  return [];
-}
-
-function isNearEd25519WalletUnlockSubject(
-  subject: WalletUnlockSubject,
-): subject is Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> {
-  return subject.kind === 'near_ed25519_wallet';
-}
-
-export async function resolveWalletUnlockSubjectSet(
-  walletId: string,
-): Promise<WalletUnlockSubjectSet> {
-  const normalizedWalletId = toWalletId(walletId);
-  const subjects: WalletUnlockSubject[] = [];
-  appendUniqueWalletUnlockSubject(
-    subjects,
-    nearEd25519WalletUnlockSubjectFromRuntimeRecord(normalizedWalletId),
-  );
-  const [nearSigners, ecdsaSigners] = await Promise.all([
-    IndexedDBManager.listActiveWalletSigners({
-      walletId: normalizedWalletId,
-      signerFamily: 'ed25519',
-    }).catch(noWalletUnlockSignerRecordsAfterLookupFailure),
-    IndexedDBManager.listActiveWalletSigners({
-      walletId: normalizedWalletId,
-      signerFamily: 'ecdsa',
-    }).catch(noWalletUnlockSignerRecordsAfterLookupFailure),
-  ]);
-  for (const signer of nearSigners) {
-    appendUniqueWalletUnlockSubject(
-      subjects,
-      nearEd25519WalletUnlockSubjectFromSigner(normalizedWalletId, signer),
-    );
-  }
-  for (const signer of ecdsaSigners) {
-    appendUniqueWalletUnlockSubject(
-      subjects,
-      evmFamilyEcdsaWalletUnlockSubjectFromSigner(normalizedWalletId, signer),
-    );
-  }
-  return {
-    kind: 'wallet_unlock_subject_set',
-    walletId: normalizedWalletId,
-    subjects,
-  };
-}
-
-function selectNearEd25519WalletUnlockSubject(
-  subjectSet: WalletUnlockSubjectSet,
-): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
-  const nearSubjects = subjectSet.subjects.filter(isNearEd25519WalletUnlockSubject);
-  if (nearSubjects.length === 0) return null;
-  if (nearSubjects.length > 1) {
-    throw new Error('wallet unlock found multiple active NEAR Ed25519 subjects');
-  }
-  return nearSubjects[0] || null;
-}
-
-export async function resolveNearEd25519WalletUnlockSubject(
-  walletId: string,
-): Promise<Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null> {
-  return selectNearEd25519WalletUnlockSubject(await resolveWalletUnlockSubjectSet(walletId));
 }
 
 async function requireNearEd25519UnlockSubjectForWallet(
