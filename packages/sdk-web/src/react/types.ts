@@ -247,7 +247,7 @@ export interface SeamsContextType {
 
   // Confirmation configuration functions
   setConfirmBehavior: (behavior: ConfirmationBehavior) => void;
-  setConfirmationConfig: (config: ConfirmationConfig) => void;
+  setConfirmationConfig: (config: Partial<ConfirmationConfig>) => void;
   getConfirmationConfig: () => ConfirmationConfig;
 
   // Account management functions

@@ -7,6 +7,16 @@ import {
   requirePMUnlockPayload,
 } from '../../shared/unlockOptions';
 
+function walletSessionRequestWalletId(
+  pm: Pick<ReturnType<HandlerDeps['getSeamsWeb']>, 'preferences'>,
+  payload: Req<'PM_GET_WALLET_SESSION'>['payload'],
+): string | undefined {
+  const requestedWalletId = String(payload?.walletId || '').trim();
+  if (requestedWalletId) return requestedWalletId;
+  const currentWalletId = String(pm.preferences.getCurrentWalletId() || '').trim();
+  return currentWalletId || undefined;
+}
+
 export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
@@ -30,7 +40,8 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_GET_WALLET_SESSION: async (req: Req<'PM_GET_WALLET_SESSION'>) => {
       const pm = deps.getSeamsWeb();
-      const result: WalletSession = await pm.auth.getWalletSession(req.payload?.walletId);
+      const walletId = walletSessionRequestWalletId(pm, req.payload);
+      const result: WalletSession = await pm.auth.getWalletSession(walletId);
       respondOkResult(deps, req.requestId, result);
     },
 

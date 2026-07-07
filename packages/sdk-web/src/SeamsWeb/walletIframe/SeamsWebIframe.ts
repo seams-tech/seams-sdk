@@ -1047,8 +1047,9 @@ export class SeamsWebIframe {
   }
 
   private setConfirmBehaviorDomain(behavior: 'requireClick' | 'skipClick'): void {
+    this.applyRemoteConfirmationConfig({ behavior });
     void this.router
-      .setConfirmBehavior(behavior)
+      .setConfirmBehavior(behavior, this.currentWalletId)
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
@@ -1062,10 +1063,10 @@ export class SeamsWebIframe {
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
-  private setConfirmationConfigDomain(config: ConfirmationConfig): void {
+  private setConfirmationConfigDomain(config: Partial<ConfirmationConfig>): void {
     this.applyRemoteConfirmationConfig(config);
     void this.router
-      .setConfirmationConfig(config)
+      .setConfirmationConfig(config, this.currentWalletId)
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
@@ -1235,9 +1236,10 @@ export class SeamsWebIframe {
     }
   }
 
-  private applyRemoteConfirmationConfig(cfg: ConfirmationConfig): void {
+  private applyRemoteConfirmationConfig(cfg: Partial<ConfirmationConfig>): void {
     this.lastConfirmationConfig = {
       ...DEFAULT_CONFIRMATION_CONFIG,
+      ...this.lastConfirmationConfig,
       ...(cfg || {}),
     } as ConfirmationConfig;
     for (const listener of this.confirmationConfigListeners) {

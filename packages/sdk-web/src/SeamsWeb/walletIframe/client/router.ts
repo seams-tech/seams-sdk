@@ -273,6 +273,24 @@ const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
 const WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
 
+type WalletIframeLoginStatusSnapshot = {
+  isLoggedIn: boolean;
+  walletId: string | null;
+};
+
+function walletIframeLoginStatusFromSession(session: WalletSession): WalletIframeLoginStatusSnapshot {
+  const walletId = String(session.login.walletId || '').trim();
+  return {
+    isLoggedIn: Boolean(session.login.isLoggedIn && walletId),
+    walletId: walletId || null,
+  };
+}
+
+function walletIdFromRecentUnlocks(result: GetRecentUnlocksResult | null): string | null {
+  const lastWalletId = String(result?.lastUsedAccount?.walletId || '').trim();
+  return lastWalletId || null;
+}
+
 function parseResolveExactKeyExportLaneResult(
   result: ResolveExactKeyExportLaneResult,
 ): ResolveExactKeyExportLaneResult {
@@ -2022,14 +2040,30 @@ export class WalletIframeRouter {
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
-  async checkLoginStatus(): Promise<PostResult<{ isLoggedIn: boolean; walletId: string | null }>> {
-    const { login: st } = await this.getWalletSession();
+  async checkLoginStatus(): Promise<PostResult<WalletIframeLoginStatusSnapshot>> {
+    const directSession = await this.getWalletSession();
+    const directStatus = walletIframeLoginStatusFromSession(directSession);
+    if (directStatus.isLoggedIn) {
+      return { ok: true, result: directStatus };
+    }
+
+    const recentUnlocks = await this.getRecentUnlocks().catch(() => null);
+    const fallbackWalletId = walletIdFromRecentUnlocks(recentUnlocks);
+    if (!fallbackWalletId) {
+      return { ok: true, result: directStatus };
+    }
+
+    const fallbackSession = await this.getWalletSession(fallbackWalletId).catch(() => null);
+    if (!fallbackSession) {
+      return { ok: true, result: directStatus };
+    }
+    const fallbackStatus = walletIframeLoginStatusFromSession(fallbackSession);
+    if (!fallbackStatus.isLoggedIn) {
+      return { ok: true, result: directStatus };
+    }
     return {
       ok: true,
-      result: {
-        isLoggedIn: !!st.isLoggedIn,
-        walletId: st.walletId ? String(st.walletId) : null,
-      },
+      result: fallbackStatus,
     };
   }
 
@@ -2250,17 +2284,20 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): Promise<void> {
+  async setConfirmBehavior(behavior: 'requireClick' | 'skipClick', walletId?: string | null): Promise<void> {
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
-      payload: { behavior },
+      payload: { behavior, ...(walletId ? { walletId } : {}) },
     });
   }
 
-  async setConfirmationConfig(config: ConfirmationConfig): Promise<void> {
+  async setConfirmationConfig(
+    config: Partial<ConfirmationConfig>,
+    walletId?: string | null,
+  ): Promise<void> {
     await this.post<void>({
       type: 'PM_SET_CONFIRMATION_CONFIG',
-      payload: { config },
+      payload: { config, ...(walletId ? { walletId } : {}) },
     });
   }
 
@@ -2271,6 +2308,19 @@ export class WalletIframeRouter {
 
   async setTheme(theme: 'dark' | 'light'): Promise<void> {
     await this.post<void>({ type: 'PM_SET_THEME', payload: { theme } });
+  }
+
+  /**
+   * Push appearance (theme name and/or color token overrides) to the wallet
+   * host at runtime. The host merges this with prior config and re-applies the
+   * Lit token override stylesheet, so embedded components (tx confirmer, etc.)
+   * re-theme without a re-init. Appearance is excluded from the runtime-reset
+   * fingerprint, so this never drops warm signing-session state.
+   */
+  async setAppearance(
+    appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>,
+  ): Promise<void> {
+    await this.post<void>({ type: 'PM_SET_CONFIG', payload: { appearance } });
   }
 
   async prefetchBlockheight(): Promise<void> {

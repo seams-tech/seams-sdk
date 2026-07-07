@@ -19,6 +19,7 @@ import type {
   WalletSession,
   RegistrationResult,
   ThemeName,
+  AppearanceConfigInput,
   EmailOtpAuthPolicy,
   SeamsConfigsReadonly,
   SeamsConfigsInput,
@@ -1197,6 +1198,40 @@ export class SeamsWeb {
         try {
           const router = await this.walletIframe.requireRouter();
           await router.setTheme(nextTheme);
+        } catch {}
+      })();
+    }
+  }
+
+  /**
+   * Update appearance (theme name and/or color token overrides) at runtime.
+   * Unlike `setTheme` (name only), this pushes the full token set to the wallet
+   * host so embedded components (tx confirmer, etc.) re-theme to match. Appearance
+   * is excluded from the runtime-reset fingerprint, so warm signing-session state
+   * is preserved. Fire-and-forget; never throws.
+   */
+  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void {
+    const nextTheme = coerceThemeName(appearance.theme);
+    if (nextTheme) {
+      this.theme = nextTheme;
+      try {
+        this.signingEngine.setTheme(nextTheme);
+      } catch {}
+      if (__isWalletIframeHostMode()) {
+        try {
+          document.documentElement.setAttribute('data-w3a-theme', nextTheme);
+        } catch {}
+      }
+    }
+
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      void (async () => {
+        try {
+          const router = await this.walletIframe.requireRouter();
+          await router.setAppearance({
+            ...(nextTheme ? { theme: nextTheme } : {}),
+            ...(appearance.tokens ? { tokens: appearance.tokens } : {}),
+          });
         } catch {}
       })();
     }

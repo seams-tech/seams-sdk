@@ -159,6 +159,15 @@ test.describe('Wallet iframe preferences sync', () => {
           const initialTheme = seams.theme;
           const initialConfig = seams.preferences.getConfirmationConfig();
 
+          seams.preferences.setConfirmationConfig({ uiMode: 'drawer' });
+          const optimisticUiMode = seams.preferences.getConfirmationConfig().uiMode;
+          seams.preferences.setConfirmBehavior('skipClick');
+          const optimisticBehavior = seams.preferences.getConfirmationConfig().behavior;
+          const publicPatchMirrored = await waitFor(() => {
+            const config = seams.preferences.getConfirmationConfig();
+            return config.uiMode === 'drawer' && config.behavior === 'skipClick';
+          }, 3000);
+
           // Flip confirmation config on the wallet host and ensure the app-origin mirrors it via PREFERENCES_CHANGED.
           const router = await (seams as any).walletIframe.requireRouter();
           await router.setConfirmationConfig({
@@ -166,10 +175,14 @@ test.describe('Wallet iframe preferences sync', () => {
             behavior: 'skipClick',
             autoProceedDelay: 5,
           });
-          const mirrored = await waitFor(
-            () => seams.preferences.getConfirmationConfig().uiMode === 'drawer',
-            3000,
-          );
+          const mirrored = await waitFor(() => {
+            const config = seams.preferences.getConfirmationConfig();
+            return (
+              config.uiMode === 'drawer' &&
+              config.behavior === 'skipClick' &&
+              config.autoProceedDelay === 5
+            );
+          }, 3000);
 
           return {
             success: true,
@@ -180,6 +193,9 @@ test.describe('Wallet iframe preferences sync', () => {
             currentWallet: String(seams.preferences.getCurrentWalletId?.() || ''),
             seeded,
             mirrored,
+            optimisticUiMode,
+            optimisticBehavior,
+            publicPatchMirrored,
           };
         } catch (error: any) {
           return { success: false, error: error?.message || String(error) };
@@ -196,6 +212,9 @@ test.describe('Wallet iframe preferences sync', () => {
 
     expect(result.initialTheme).toBe('dark');
     expect(result.mirrored).toBe(true);
+    expect(result.optimisticUiMode).toBe('drawer');
+    expect(result.optimisticBehavior).toBe('skipClick');
+    expect(result.publicPatchMirrored).toBe(true);
     expect(result.finalTheme).toBe('dark');
     expect(result.initialConfig).toEqual({
       behavior: 'requireClick',

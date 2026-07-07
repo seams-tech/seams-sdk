@@ -129,11 +129,21 @@ export class WalletIframeCoordinator {
     }
 
     if (this.iframeRouter) {
+      const loginStatus = await this.iframeRouter.checkLoginStatus().catch(() => null);
+      const loginWalletId = String(loginStatus?.result?.walletId || '').trim();
+      if (loginStatus?.result?.isLoggedIn && loginWalletId) {
+        this.userPreferences.setCurrentWallet(toWalletId(loginWalletId));
+      }
       // Best-effort pull snapshot to cover missed events / older hosts.
       const cfg = await this.iframeRouter.getConfirmationConfig().catch(() => null);
       if (cfg) {
+        const confirmationWalletId = walletId
+          ? toWalletId(walletId)
+          : loginWalletId
+            ? toWalletId(loginWalletId)
+            : null;
         this.userPreferences.applyWalletHostConfirmationConfig({
-          walletId: walletId ? toWalletId(walletId) : null,
+          walletId: confirmationWalletId,
           confirmationConfig: cfg,
         });
       }

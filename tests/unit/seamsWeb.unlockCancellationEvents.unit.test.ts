@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { unlock } from '@/SeamsWeb/operations/auth/login';
 import {
   resolveNearAccountIdForWalletAuthUnlockRecord,
-  resolveNearEd25519WalletUnlockSubject,
 } from '@/SeamsWeb/operations/auth/walletAuth';
+import { resolveNearEd25519WalletUnlockSubject } from '@/SeamsWeb/operations/auth/walletUnlockSubject';
 import { SeamsWeb } from '@/SeamsWeb';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';

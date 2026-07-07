@@ -52,6 +52,14 @@ const WALLET_STUB_RESPONSE_SCRIPT = String.raw`
           signingSession: null,
         });
       }
+      if (data.type === 'PM_GET_RECENT_UNLOCKS') {
+        respond({
+          walletIds: [],
+          accountIds: [],
+          accounts: [],
+          lastUsedAccount: null,
+        });
+      }
 
       if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
         respond({ behavior: 'requireClick', uiMode: 'modal' });
@@ -105,6 +113,100 @@ const WALLET_STUB_EARLY_PREFERENCES_SCRIPT = String.raw`
             userData: null,
           },
           signingSession: null,
+        });
+      }
+      if (data.type === 'PM_GET_RECENT_UNLOCKS') {
+        respond({
+          walletIds: [],
+          accountIds: [],
+          accounts: [],
+          lastUsedAccount: null,
+        });
+      }
+      if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
+        respond({ behavior: 'requireClick', uiMode: 'modal' });
+      }
+    };
+  };
+`;
+
+const WALLET_STUB_ACTIVE_SESSION_WITHOUT_PREFERENCES_SCRIPT = String.raw`
+  const originalAdoptPort = adoptPort;
+  adoptPort = function patchedAdoptPort(port) {
+    originalAdoptPort(port);
+    if (!adoptedPort) return;
+
+    const originalHandler = adoptedPort.onmessage;
+    adoptedPort.onmessage = (event) => {
+      originalHandler?.(event);
+      const data = event.data || {};
+      if (!data || typeof data !== 'object') return;
+      const requestId = data.requestId;
+      if (typeof requestId !== 'string') return;
+
+      const respond = (result) => {
+        try {
+          pendingRequests.delete(requestId);
+          adoptedPort.postMessage({ type: 'PM_RESULT', requestId, payload: { ok: true, result } });
+        } catch (err) {
+          console.error('post PM_RESULT failed', err);
+        }
+      };
+
+      if (data.type === 'PM_PREFETCH_BLOCKHEIGHT') {
+        respond(null);
+      }
+      if (data.type === 'PM_GET_WALLET_SESSION') {
+        const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+        const walletId = String(payload.walletId || '');
+        if (walletId === 'restored-session-wallet') {
+          respond({
+            login: {
+              isLoggedIn: true,
+              walletId: 'restored-session-wallet',
+              nearAccountId: 'restored-session-wallet.near',
+              publicKey: null,
+              userData: null,
+            },
+            signingSession: {
+              sessionId: 'sealed-session-1',
+              status: 'active',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60000,
+            },
+          });
+          return;
+        }
+        respond({
+          login: {
+            isLoggedIn: false,
+            nearAccountId: null,
+            publicKey: null,
+            userData: null,
+          },
+          signingSession: null,
+        });
+      }
+      if (data.type === 'PM_GET_RECENT_UNLOCKS') {
+        respond({
+          walletIds: ['restored-session-wallet'],
+          accountIds: ['restored-session-wallet.near'],
+          accounts: [
+            {
+              walletId: 'restored-session-wallet',
+              nearAccountId: 'restored-session-wallet.near',
+              displayName: 'restored-session-wallet.near',
+              signerSlot: 1,
+              authMethod: 'passkey',
+            },
+          ],
+          lastUsedAccount: {
+            walletId: 'restored-session-wallet',
+            nearAccountId: 'restored-session-wallet.near',
+            displayName: 'restored-session-wallet.near',
+            signerSlot: 1,
+            authMethod: 'passkey',
+          },
         });
       }
       if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
@@ -252,6 +354,53 @@ test.describe('SeamsWeb.initWalletIframe', () => {
       currentWalletId: 'restored-session-wallet',
       observedWalletIds: ['restored-session-wallet'],
       latePreferencesPayloads: ['restored-session-wallet'],
+    });
+  });
+
+  test('adopts wallet-host last-used active startup session without preferences push', async ({
+    page,
+  }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({
+        extraScript: WALLET_STUB_ACTIVE_SESSION_WITHOUT_PREFERENCES_SCRIPT,
+      }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const { SeamsWeb } = mod as any;
+        const observedWalletIds: string[] = [];
+
+        const pm = new SeamsWeb({
+          relayer: { url: 'http://localhost:3000' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+        pm.preferences.onCurrentWalletChange((walletId: string | null) => {
+          observedWalletIds.push(String(walletId || ''));
+        });
+
+        await pm.initWalletIframe();
+
+        return {
+          currentWalletId: String(pm.preferences.getCurrentWalletId() || ''),
+          observedWalletIds,
+        };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(result).toEqual({
+      currentWalletId: 'restored-session-wallet',
+      observedWalletIds: ['restored-session-wallet'],
     });
   });
 });
