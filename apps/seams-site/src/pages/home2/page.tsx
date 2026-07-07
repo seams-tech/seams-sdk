@@ -565,7 +565,7 @@ function Home2Bento(): React.JSX.Element {
             </div>
           </div>
           <div className="h2-bento__card h2-bento__card--sm">
-            <span className="h2-bento__icon h2-bento__icon--teal" aria-hidden>
+            <span className="h2-bento__icon h2-bento__icon--blue-red" aria-hidden>
               <ListChecks />
             </span>
             <div>
@@ -576,7 +576,7 @@ function Home2Bento(): React.JSX.Element {
             </div>
           </div>
           <div className="h2-bento__card h2-bento__card--sm">
-            <span className="h2-bento__icon h2-bento__icon--gold" aria-hidden>
+            <span className="h2-bento__icon h2-bento__icon--ember-moss" aria-hidden>
               <ScrollText />
             </span>
             <div>
@@ -588,7 +588,7 @@ function Home2Bento(): React.JSX.Element {
             </div>
           </div>
           <div className="h2-bento__card h2-bento__card--sm">
-            <span className="h2-bento__icon h2-bento__icon--wine" aria-hidden>
+            <span className="h2-bento__icon h2-bento__icon--sage-charcoal" aria-hidden>
               <KeyRound />
             </span>
             <div>

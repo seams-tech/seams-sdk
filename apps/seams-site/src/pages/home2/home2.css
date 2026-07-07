@@ -983,32 +983,35 @@ body:has(.h2-page) {
   height: 18px;
 }
 
-/* Fabric-gradient chip variants: at 40px the weave reads as a soft color blur */
-.h2-bento__icon--teal,
-.h2-bento__icon--gold,
-.h2-bento__icon--wine {
+/* Gradient chip variants (public/gradients set): darker picks so the white
+   icon keeps contrast at 40px */
+.h2-bento__icon--blue-red,
+.h2-bento__icon--ember-moss,
+.h2-bento__icon--sage-charcoal {
   border: none;
   color: #ffffff;
   background-size: cover;
   background-position: center;
 }
 
-.h2-bento__icon--teal svg,
-.h2-bento__icon--gold svg,
-.h2-bento__icon--wine svg {
+.h2-bento__icon--blue-red svg,
+.h2-bento__icon--ember-moss svg,
+.h2-bento__icon--sage-charcoal svg {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.28));
 }
 
-.h2-bento__icon--teal {
-  background-image: url('/seams-v9/imagegen-gradients/web/teal-coral.jpg');
+.h2-bento__icon--blue-red {
+  background-image: url('/gradients/web/blue-red.jpg');
 }
 
-.h2-bento__icon--gold {
-  background-image: url('/seams-v9/imagegen-gradients/web/gold-indigo.jpg');
+.h2-bento__icon--ember-moss {
+  background-image: url('/gradients/web/ember-moss.jpg');
 }
 
-.h2-bento__icon--wine {
-  background-image: url('/seams-v9/imagegen-gradients/web/wine-cyan.jpg');
+.h2-bento__icon--sage-charcoal {
+  background-image: url('/gradients/web/sage-charcoal.jpg');
+  /* sage-charcoal runs light at the top; anchor the darker lower half */
+  background-position: center 75%;
 }
 
 /* mock approval buttons inside bento mocks */
@@ -1057,8 +1060,8 @@ body:has(.h2-page) {
   gap: 40px;
 }
 
-/* Woven-fabric covers (seams-v9 imagegen set). Rendered ~340px wide from
-   1024px sources — small boxes only; too soft to survive full-bleed use. */
+/* Grainy blur-gradient covers (public/gradients set). Rendered ~340px wide
+   from 1024px sources — small boxes only; too soft to survive full-bleed use. */
 .h2-case__cover {
   display: grid;
   place-items: center;
@@ -1083,15 +1086,15 @@ body:has(.h2-page) {
 }
 
 .h2-case__cover--ops {
-  background-image: url('/seams-v9/imagegen-gradients/web/cobalt-apricot.jpg');
+  background-image: url('/gradients/web/sky-sand.jpg');
 }
 
 .h2-case__cover--staff {
-  background-image: url('/seams-v9/imagegen-gradients/web/moss-rose.jpg');
+  background-image: url('/gradients/web/cyan-lime.jpg');
 }
 
 .h2-case__cover--checkout {
-  background-image: url('/seams-v9/imagegen-gradients/web/violet-ember.jpg');
+  background-image: url('/gradients/web/dusk-blue-mauve.jpg');
 }
 
 .h2-case__title {
