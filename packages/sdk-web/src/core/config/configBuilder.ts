@@ -27,6 +27,22 @@ const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   refillAttemptTimeoutMs: { min: 5_000, max: 120_000 } satisfies IntRange,
 };
 
+export type BuildConfigsOptions = {
+  allowDirectWalletMode?: 'wallet_host';
+};
+
+export class HostedWalletOriginRequiredError extends Error {
+  readonly code = 'SEAMS_HOSTED_WALLET_ORIGIN_REQUIRED';
+
+  constructor() {
+    // Refactor 90 Phase 0E absorbs this named boundary error into the typed config-error taxonomy.
+    super(
+      '[SEAMS_HOSTED_WALLET_ORIGIN_REQUIRED] Missing required config: iframeWallet.walletOrigin. Browser wallet capabilities require a hosted wallet iframe origin.',
+    );
+    this.name = 'HostedWalletOriginRequiredError';
+  }
+}
+
 function resolveSigningSessionPersistenceMode(args: {
   value: unknown;
   fallback: SigningSessionPersistenceMode;
@@ -230,9 +246,11 @@ export function buildConfigsFromDefaults(args: {
   defaults: SeamsConfigsReadonly;
   overrides?: SeamsConfigsInput;
   fallbackRouterAbEcdsaHssPresignaturePoolPolicy: RouterAbEcdsaHssPresignaturePoolPolicy;
+  options?: BuildConfigsOptions;
 }): SeamsConfigsReadonly {
   const defaults = args.defaults;
   const overrides = args.overrides ?? {};
+  const allowDirectWalletMode = args.options?.allowDirectWalletMode === 'wallet_host';
 
   const chains = resolveChains(defaults.network.chains, overrides.chains);
   const relayerUrl = toTrimmedString(overrides.relayer?.url ?? defaults.network.relayer.url);
@@ -292,16 +310,13 @@ export function buildConfigsFromDefaults(args: {
   const overrideLightColors = toColorTokenRecord(overrides.appearance?.tokens?.light?.colors);
   const overrideDarkColors = toColorTokenRecord(overrides.appearance?.tokens?.dark?.colors);
 
-  const walletOriginOverrideProvided =
-    !!overrides.iframeWallet &&
-    Object.prototype.hasOwnProperty.call(overrides.iframeWallet, 'walletOrigin');
-  const walletOriginRaw = overrides.iframeWallet?.walletOrigin ?? defaults.wallet.iframe.origin;
+  const walletOriginRaw = overrides.iframeWallet?.walletOrigin;
   const walletOrigin = toTrimmedString(walletOriginRaw);
-  const walletMode: SeamsWalletMode = walletOriginOverrideProvided
-    ? walletOrigin
-      ? 'iframe'
-      : 'direct'
-    : defaults.wallet.mode;
+  const walletMode: SeamsWalletMode = walletOrigin
+    ? 'iframe'
+    : allowDirectWalletMode
+      ? 'direct'
+      : 'iframe';
 
   const walletRpIdOverride =
     overrides.iframeWallet?.rpIdOverride ?? defaults.wallet.iframe.rpIdOverride;
@@ -326,9 +341,7 @@ export function buildConfigsFromDefaults(args: {
     throw new Error('[configPresets] Missing required config: relayer.url');
   }
   if (walletMode === 'iframe' && !walletOrigin) {
-    throw new Error(
-      '[configPresets] Missing required config: iframeWallet.walletOrigin (iframe mode enabled)',
-    );
+    throw new HostedWalletOriginRequiredError();
   }
 
   const registration = resolveRegistrationConfig({

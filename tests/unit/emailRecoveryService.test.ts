@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const IMPORT_PATHS = {
-  server: '/sdk/esm/server/email-recovery/index.js',
+  server: '/_test-sdk/esm/server/email-recovery/index.js',
 } as const;
 
 const REPO_ROOT = process.env.W3A_REPO_ROOT || process.cwd();

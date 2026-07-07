@@ -1,227 +1,96 @@
-# Seams SDK Headers – Dev and Build
+# Seams SDK Plugin Helpers
 
-This folder contains header builders and small plugins for Vite and Next. They provide security headers needed for the wallet iframe, workers and WASM.
+App integrations should not use these helpers for wallet runtime delivery.
 
-Takeaways:
+The normal browser integration is:
 
-- Strict CSP is applied only to wallet HTML routes (`/wallet-service`, `/export-viewer`), not to your app pages.
-- COEP is **off by default**; enable it only when you need cross‑origin isolation (`coepMode: 'strict'` or `VITE_COEP_MODE=strict`).
-- COEP `require-corp` can break browser extensions (e.g., Bitwarden/1Password overlays); this is why the default is off.
-- Permissions‑Policy delegates WebAuthn + clipboard to your configured wallet origin.
-- CORS is echoed dynamically for SDK assets during dev; production CORS is opt‑in.
+1. Import SDK and React package code normally.
+2. Configure the hosted wallet iframe with `iframeWallet.walletOrigin`.
+3. Let the Seams-operated wallet origin serve `/wallet-service`, `/export-viewer`, `/sdk/*`, and `/sdk/workers/*`.
+4. Keep the app Vite or Next config focused on app concerns.
 
-## Pieces
-
-- `headers.ts`
-  - `buildPermissionsPolicy(walletOrigin?)`: Generates policy in structured header form:
-    - `publickey-credentials-get=(self "<wallet>")`
-    - `publickey-credentials-create=(self "<wallet>")`
-    - `clipboard-read=(self "<wallet>")`
-    - `clipboard-write=(self "<wallet>")`
-  - `buildWalletCsp({ mode, allowUnsafeEval, frameSrc, scriptSrcAllowlist })`:
-    - `mode: 'strict' | 'compatible'` (default strict). Strict adds `style-src-attr 'none'` and forbids inline.
-    - Wallet CSP always includes `'wasm-unsafe-eval'` because browser-side signer initialization compiles WASM.
-    - `allowUnsafeEval` is only for JS eval in dev runtimes like Next Fast Refresh.
-    - Typical use: apply strict CSP to wallet HTML only, not app pages.
-
-- `vite.ts`
-  - `seamsServeSdk({ sdkBasePath?, sdkDistRoot?, enableDebugRoutes?, coepMode? })`
-    - Serves SDK files under a stable base (default `/sdk`).
-    - Sets COEP/CORP only in strict mode; echoes CORS from request (dev only).
-    - Emits two tiny virtual assets used by wallet pages: `wallet-shims.js`, `wallet-service.css`.
-  - `seamsWalletService({ walletServicePath?, sdkBasePath?, walletHostVariant?, coepMode? })`
-    - Serves minimal wallet HTML with only external CSS/JS (no inline) so strict CSP works.
-    - `walletHostVariant` selects `runtime`, `full`, `near`, or `ecdsa` host bundles.
-  - `seamsWasmMime()`
-    - Forces `application/wasm` for any `.wasm` file.
-  - `seamsHeaders({ walletOrigin?, walletServicePath?, sdkBasePath?, devCSP?, coepMode? })`
-    - Adds: `COOP: same-origin` (except wallet HTML → `unsafe-none`), `COEP: require-corp`, `CORP: cross-origin` (when `coepMode !== 'off'`).
-    - Adds `Permissions-Policy` built from `walletOrigin`.
-    - Optional dev CSP on wallet HTML only: `devCSP: 'strict' | 'compatible'`.
-  - `seamsApp({ walletOrigin?, emitHeaders?, coepMode? })`
-    - Dev (serve): same behavior as `seamsAppServer({ walletOrigin })` (headers only on the app origin).
-    - Build (build): when `emitHeaders: true`, writes `_headers` (COOP + Permissions‑Policy; optional COEP/CORP when enabled; strict CSP scoped to wallet HTML routes).
-  - `seamsWallet({ walletOrigin?, walletServicePath?, sdkBasePath?, walletHostVariant?, emitHeaders?, coepMode? })`
-    - Dev (serve): same behavior as `seamsWalletServer({ ... })` (serves `/wallet-service` + `/sdk` with headers).
-    - Build (build): when `emitHeaders: true`, writes `_headers` (same as above; strict CSP scoped to wallet HTML routes).
-  - `seamsApp({ walletOrigin?, emitHeaders? })`
-    - Dev (serve): same behavior as `seamsAppServer({ walletOrigin })` (headers only on the app origin).
-    - Build (build): when `emitHeaders: true`, writes `_headers` (COOP + Permissions‑Policy; optional COEP/CORP when enabled; strict CSP scoped to wallet HTML routes).
-  - Convenience dev servers:
-    - `seamsWalletServer({...})` → wallet origin (`/wallet-service` + `/sdk` + headers)
-    - `seamsAppServer({...})` → app origin (headers only; combine with `seamsServeSdk` if needed)
-  - `seamsBuildHeaders({ walletOrigin?, cors?, coepMode? })`
-    - Writes a Pages/Netlify‑compatible `_headers` file into Vite `outDir`.
-    - Global: `COOP: same-origin`, `COEP: require-corp`, `CORP: cross-origin`, `Permissions-Policy` (COEP/CORP omitted when `coepMode === 'off'`).
-    - Wallet HTML (`/wallet-service`, `/export-viewer`): adds strict `Content-Security-Policy`.
-    - Optional: emit CORS for `/sdk/*` (prefer platform rules; avoid duplication).
-
-- `next.ts`
-  - Provides analogous helpers for Next.js via `headers()` config, sourcing values from `headers.ts`.
-
-## Dev behavior (Vite)
-
-- App pages: receive COOP and Permissions‑Policy. COEP/CORP are added only when `coepMode: 'strict'` (or `VITE_COEP_MODE=strict`). No CSP is attached, so inline styles/scripts in your app continue to work.
-- Wallet pages (`/wallet-service`): same headers + strict CSP by default (configurable via `VITE_WALLET_DEV_CSP=compatible`). COEP/CORP only in strict mode.
-- SDK assets (`/sdk/*`): dev CORS echo; COEP/CORP only in strict mode:
-  - JS: echoes `Access-Control-Allow-Origin` to the request `Origin`, includes `Allow-Credentials: true`.
-  - CSS: permits `*` without credentials (safe and cache‑friendly).
-
-## Environment variables
-
-- `VITE_WALLET_ORIGIN` – absolute wallet origin used in `Permissions-Policy`.
-- `VITE_WALLET_SERVICE_PATH` – path for wallet HTML (default `/wallet-service`).
-- `VITE_SDK_BASE_PATH` – path for SDK assets (default `/sdk`).
-- `VITE_COEP_MODE` – `'strict' | 'off'` (defaults to off; tests should set `strict`).
-- `VITE_WALLET_DEV_CSP` – `'strict' | 'compatible'` (dev only; default strict in tests and dev servers).
-
-## Recommended usage (wrappers)
-
-App (dev + optional build headers):
-
-```ts
-import { defineConfig, loadEnv } from 'vite';
-import react from '@vitejs/plugin-react';
-import { seamsApp } from '@seams/sdk/plugins/vite';
-
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
-  return {
-    plugins: [react(), seamsApp({ walletOrigin: env.VITE_WALLET_ORIGIN, emitHeaders: true })],
-  };
-});
-```
-
-Wallet (dev + optional build headers):
-
-```ts
-import { defineConfig, loadEnv } from 'vite';
-import { seamsWallet } from '@seams/sdk/plugins/vite';
-
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
-  return {
-    plugins: [
-      seamsWallet({
-        walletOrigin: env.VITE_WALLET_ORIGIN,
-        sdkBasePath: env.VITE_SDK_BASE_PATH || '/sdk',
-        walletServicePath: env.VITE_WALLET_SERVICE_PATH || '/wallet-service',
-        emitHeaders: true,
-      }),
-    ],
-  };
-});
-```
-
-## Next.js usage
-
-Use the Next helpers to apply Permissions-Policy and a wallet-friendly CSP via `next.config.js` headers().
-
-App origin:
-
-```js
-// next.config.js (ESM)
-import { seamsNextApp } from '@seams/sdk/plugins/next';
-
-const isDev = process.env.NODE_ENV !== 'production';
-const walletOrigin = process.env.NEXT_PUBLIC_WALLET_ORIGIN || 'https://wallet.example.localhost';
-
-const baseConfig = {
-  // Optional: silence workspace monorepo root warning
-  // outputFileTracingRoot: __dirname,
-};
-
-export default seamsNextApp({
-  walletOrigin,
-  // Relax CSP only in dev to accommodate Next's dev runtime
-  cspMode: isDev ? 'compatible' : 'strict',
-  allowUnsafeEvalDev: true,
-  compatibleInDev: true,
-  // Allow wallet origin for dev cross-origin modulepreload
-  extraScriptSrc: isDev ? [walletOrigin] : [],
-})(baseConfig);
-```
-
-Wallet origin (if you proxy wallet routes through Next in dev):
-
-```js
-import { seamsNextWallet } from '@seams/sdk/plugins/next';
-
-export default seamsNextWallet({
-  walletOrigin: process.env.NEXT_PUBLIC_WALLET_ORIGIN,
-})(/** base config **/);
-```
-
-Notes
-
-- `emitHeaders` has no effect for Next.js; headers are added via `headers()` in `next.config.js`.
-- In production, keep CSP strict on wallet HTML (no inline styles/scripts; include `style-src-attr 'none'` and allow only `'wasm-unsafe-eval'` for script compilation).
-
-## Advanced: granular/server-level composition
-
-If you need fine-grained control, you can compose the lower-level servers directly.
-
-App server (headers only):
+For Vite apps, that means a normal app config such as:
 
 ```ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { seamsHeaders } from '@seams/sdk/plugins/vite';
 
 export default defineConfig({
-  plugins: [react(), seamsHeaders({ walletOrigin: 'https://wallet.example.com' })],
+  plugins: [react()],
 });
 ```
 
-Wallet server (serve SDK + wallet HTML + headers):
+For SDK config during the stabilization milestone:
 
 ```ts
-import { defineConfig, loadEnv } from 'vite';
-import react from '@vitejs/plugin-react';
-import { seamsWalletServer, seamsBuildHeaders } from '@seams/sdk/plugins/vite';
-
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
-  return {
-    plugins: [
-      react(),
-      seamsWalletServer({
-        walletOrigin: env.VITE_WALLET_ORIGIN,
-        sdkBasePath: env.VITE_SDK_BASE_PATH || '/sdk',
-        walletServicePath: env.VITE_WALLET_SERVICE_PATH || '/wallet-service',
-      }),
-      seamsBuildHeaders({ walletOrigin: env.VITE_WALLET_ORIGIN }),
-    ],
-  };
-});
+const config = {
+  relayer: { url: 'https://router.example.com' },
+  iframeWallet: {
+    walletOrigin: 'https://wallet.seams.sh',
+    walletServicePath: '/wallet-service',
+    sdkBasePath: '/sdk',
+  },
+};
 ```
 
-## Which plugins to use
+After Refactor 90 Phase 0E lands, this moves to the typed
+`walletRuntime: hostedWalletIframe(...)` surface. The asset-hosting contract
+does not change.
 
-App integrators (your app server):
+## Hosted Wallet Asset Contract
 
-- Recommended (cross‑origin wallet):
-  - Dev+Build: `seamsApp({ walletOrigin, emitHeaders: true })`.
-  - Advanced: dev-only headers via `seamsHeaders({ walletOrigin })` if you manage build-time headers yourself.
-- Same‑origin (dev convenience only):
-  - Dev: If you must run a single server, use `seamsWallet({ ... })` on the app server. Avoid this in production.
-  - Advanced: `seamsWalletServer` / `seamsAppServer` exist for granular composition when needed.
+The SDK package build emits the wallet-origin artifact at
+`packages/sdk-web/dist/public`:
 
-Wallet deployers (wallet‑iframe host):
+- `sdk/*`
+- `sdk/workers/*`
+- `wallet-service/index.html`
+- `export-viewer/index.html`
+- `wallet-assets.manifest.json`
+- `headers.manifest.json`
 
-- Recommended: `seamsWallet({ walletOrigin, sdkBasePath, walletServicePath, emitHeaders: true })`.
-- Advanced: `seamsWalletServer({ ... })` in dev, `seamsBuildHeaders({ walletOrigin })` at build. Serve the generated `wallet-service/index.html`, `export-viewer/index.html`, and `/sdk/*` assets.
+Seams wallet hosting publishes that tree from the wallet origin:
 
-## Production guidance
+```txt
+GET https://wallet.seams.sh/sdk/*          -> dist/public/sdk/*
+GET https://wallet.seams.sh/wallet-service -> dist/public/wallet-service/index.html
+GET https://wallet.seams.sh/export-viewer  -> dist/public/export-viewer/index.html
+```
 
-- Keep strict CSP on wallet HTML; do not attach CSP to app pages via this plugin.
-- Ensure platform emits COEP/CORP and Permissions‑Policy. You can use `seamsBuildHeaders` on static hosts.
-- Avoid duplicating CORS headers for `/sdk/*`. If your platform injects `Access-Control-Allow-Origin`, do not also configure it via the plugin.
+App origins should return 404 for `/sdk/*`, `/wallet-service`, and
+`/export-viewer`. Wallet workers and WASM execute from the wallet origin.
 
-## FAQ
+## Headers And Embedding
 
-- Can the app use inline styles/scripts?
-  - Yes. Strict CSP is scoped to wallet HTML only; app routes are unaffected.
+The SDK-created iframe carries the WebAuthn and clipboard delegation through its
+`allow` attribute. App-platform `Permissions-Policy` is only required if a
+supported browser proves it is needed in hosted-origin smokes.
 
-- Why is COOP set to `unsafe-none` on the wallet route?
-  - To prevent Chromium occasionally dropping a transferred `MessagePort` for cross‑origin wallet pages, while still keeping COEP/CORP for worker/WASM embedding.
+Default hosted wallet asset headers are described by
+`dist/public/headers.manifest.json`:
+
+- asset routes require correct `Content-Type` and cache policy;
+- wallet document routes require embedding control for allowed parent origins;
+- COOP, COEP, CORP, and broad wallet CSP are optional hardening or legacy
+  strict-isolation settings, not default app integration requirements.
+
+`/.well-known/webauthn` belongs to the RP ID origin. In production that is app
+platform configuration. Local development may use a Router/auth dev helper when
+`rpId=localhost`.
+
+## Remaining Helpers
+
+Files in this directory still exist for package-internal build output, legacy
+tests, and migration work while Refactor 86 removes app runtime dependence on
+plugin serving.
+
+Do not add app examples that use:
+
+- `@seams/sdk/plugins/vite` for normal wallet runtime hosting;
+- `@seams/sdk/plugins/next` for normal wallet runtime hosting;
+- `seamsWallet()`, `seamsServeSdk()`, `seamsWalletService()`, or
+  `seamsWasmMime()` on an app origin;
+- app-owned `/sdk/*`, `/wallet-service`, or `/export-viewer` routes.
+
+When a helper remains necessary, keep its usage scoped to Seams-owned wallet
+origin development or hosted wallet artifact generation.

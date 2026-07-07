@@ -173,6 +173,7 @@ test.describe('SigningRuntime construction', () => {
         relayer: {
           url: 'http://127.0.0.1:9090',
         },
+        iframeWallet: { walletOrigin: 'https://wallet.example.test' },
       })),
       state,
     });

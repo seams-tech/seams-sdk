@@ -12,6 +12,7 @@ BUILD_TYPES="dist/types"
 # Source directories
 SOURCE_ROOT="src"
 SOURCE_CORE="src/core"
+SOURCE_STATIC="src/static"
 SOURCE_SIGNING_WORKERS="src/core/signingEngine/workerManager/workers"
 SOURCE_WASM_SIGNER="../../wasm/near_signer"
 SOURCE_WASM_HSS_CLIENT_SIGNER="../../wasm/hss_client_signer"
@@ -25,6 +26,7 @@ SOURCE_WASM_THRESHOLD_PRF="../../wasm/threshold_prf"
 CRITICAL_DIRS=(
     "src/core"
     "src/react"
+    "src/static"
     "src/utils"
     "../sdk-server-ts/src"
     "../shared-ts/src"
@@ -40,11 +42,6 @@ CRITICAL_DIRS=(
     "../../wasm/email_otp_runtime"
     "../../wasm/threshold_prf"
 )
-
-# Frontend deployment paths (used only for local dev/test copying)
-FRONTEND_ROOT="../../apps/seams-site/src/public"
-FRONTEND_SDK="../../apps/seams-site/src/public/sdk"
-FRONTEND_WORKERS="../../apps/seams-site/src/public/sdk/workers"
 
 # Runtime paths (used by workers and tests)
 RUNTIME_SDK_BASE="/sdk"
@@ -65,7 +62,9 @@ WORKER_WASM_SIGNER_WASM="wasm_signer_worker_bg.wasm"
 WORKER_HSS_CLIENT_SIGNER_JS="hss_client_signer.js"
 WORKER_HSS_CLIENT_SIGNER_WASM="hss_client_signer_bg.wasm"
 WORKER_WASM_ETH_SIGNER_WASM="eth_signer.wasm"
+WORKER_WASM_ETH_SIGNER_BG_WASM="eth_signer_bg.wasm"
 WORKER_WASM_TEMPO_SIGNER_WASM="tempo_signer.wasm"
+WORKER_WASM_TEMPO_SIGNER_BG_WASM="tempo_signer_bg.wasm"
 WORKER_SHAMIR3PASS_RUNTIME_JS="shamir3pass_runtime.js"
 WORKER_SHAMIR3PASS_RUNTIME_WASM="shamir3pass_runtime_bg.wasm"
 WORKER_EMAIL_OTP_RUNTIME_JS="email_otp_runtime.js"
@@ -101,8 +100,4 @@ get_worker_path() {
 
 get_runtime_worker_path() {
     echo "${RUNTIME_WORKERS_BASE}/$1"
-}
-
-get_frontend_worker_path() {
-    echo "${FRONTEND_WORKERS}/$1"
 }

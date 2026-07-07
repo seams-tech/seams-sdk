@@ -104,7 +104,9 @@ if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WOR
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "HSS client signer WASM copied"; else print_warning "HSS client signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer.wasm" 2>/dev/null; then print_success "eth_signer.wasm copied"; else print_warning "eth_signer.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer_bg.wasm" 2>/dev/null; then print_success "eth_signer_bg.wasm copied"; else print_warning "eth_signer_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer_bg.wasm" 2>/dev/null; then print_success "tempo_signer_bg.wasm copied"; else print_warning "tempo_signer_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$BUILD_WORKERS/shamir3pass_runtime.js" 2>/dev/null; then print_success "shamir3pass_runtime.js copied"; else print_warning "shamir3pass_runtime.js not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm" "$BUILD_WORKERS/shamir3pass_runtime_bg.wasm" 2>/dev/null; then print_success "shamir3pass_runtime_bg.wasm copied"; else print_warning "shamir3pass_runtime_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js" "$BUILD_WORKERS/email_otp_runtime.js" 2>/dev/null; then print_success "email_otp_runtime.js copied"; else print_warning "email_otp_runtime.js not found"; fi
@@ -119,6 +121,12 @@ if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "
 else
   print_warning "Browser HSS client WASM not found"
 fi
+
+print_step "Emitting hosted wallet static asset tree..."
+if node "$SDK_ROOT/scripts/build/emit-static-wallet-assets.mjs"; then print_success "Hosted wallet static asset tree emitted"; else print_error "Hosted wallet static asset emission failed"; exit 1; fi
+
+print_step "Asserting hosted wallet static asset tree..."
+if node "$SDK_ROOT/scripts/checks/assert-static-wallet-assets.mjs"; then print_success "Hosted wallet static assets OK"; else print_error "Hosted wallet static assets invalid"; exit 1; fi
 
 print_step "Hashing build inputs..."
 if "$SDK_ROOT/scripts/build/check-build-freshness.sh" --print-input-hash > "$BUILD_ROOT/.build-inputs.sha256"; then

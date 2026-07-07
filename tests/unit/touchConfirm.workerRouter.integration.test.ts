@@ -3,10 +3,10 @@ import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTo
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  touchConfirmManager: '/sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
+  touchConfirmManager: '/_test-sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
   thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/session/persistence/records.js',
-  sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
+    '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
+  sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
 } as const;
 
 function unsignedJwt(payload: Record<string, unknown>): string {

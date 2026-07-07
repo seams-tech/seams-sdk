@@ -307,6 +307,53 @@ test.describe('wallet iframe host registration activation', () => {
     );
   });
 
+  test('activation cancel during async button definition rejects pending prepare', async () => {
+    const document = installDomShim();
+    const posts: ChildToParentEnvelope[] = [];
+    const definition = createDeferred<void>();
+    (globalThis as { customElements?: unknown }).customElements = {
+      get: () => ({}),
+      whenDefined: () => definition.promise,
+    };
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        registerPasskey: async () => ({ success: true }),
+      }),
+    );
+
+    try {
+      const preparePromise = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq(),
+      );
+      await Promise.resolve();
+
+      await handlers.PM_REGISTRATION_ACTIVATION_CANCEL!({
+        type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
+        requestId: 'req-cancel',
+        payload: {
+          activationId: 'activation-1',
+          reason: 'disposed',
+        },
+      } as any);
+      definition.resolve();
+
+      await expect(preparePromise).rejects.toThrow('Registration activation cancelled');
+      expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
+      expect(posts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'PM_RESULT',
+            requestId: 'req-cancel',
+            payload: { ok: true },
+          }),
+        ]),
+      );
+    } finally {
+      delete (globalThis as { customElements?: unknown }).customElements;
+    }
+  });
+
   test('expired activation requests do not render a button or start registration', async () => {
     const document = installDomShim();
     const posts: ChildToParentEnvelope[] = [];

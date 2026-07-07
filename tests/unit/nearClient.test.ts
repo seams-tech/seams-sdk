@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 const IMPORT_PATHS = {
-  nearClient: '/sdk/esm/core/rpcClients/near/NearClient.js',
+  nearClient: '/_test-sdk/esm/core/rpcClients/near/NearClient.js',
 } as const;
 
 test.describe('encodeSignedTransactionBase64', () => {

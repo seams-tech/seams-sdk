@@ -3,8 +3,8 @@ import { setupBasicPasskeyTest } from '../setup';
 import { buildWalletServiceHtml, registerWalletServiceRoute, captureOverlay } from './harness';
 
 const IMPORT_PATHS = {
-  provider: '/sdk/esm/react/context/SeamsWebProvider.js',
-  passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
+  provider: '/_test-sdk/esm/react/context/SeamsWebProvider.js',
+  passkeyAuthMenu: '/_test-sdk/esm/react/components/PasskeyAuthMenu/public.js',
 } as const;
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
@@ -106,7 +106,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('clicking Scan and Link Device keeps wallet iframe overlay hidden', async ({ page }) => {
+  test('disabled Device2 linking keeps wallet iframe overlay hidden', async ({ page }) => {
     await page.evaluate(
       async ({ paths, walletOrigin }) => {
         const prevRoot = (window as any).__w3aQrRegressionRoot;
@@ -186,15 +186,11 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
     const duringLoading = await capture();
     expect(duringLoading.visible).toBe(false);
 
-    await expect(mount.locator('img[alt="Device Linking QR Code"]')).toBeVisible();
+    await expect(mount.locator('img[alt="Device Linking QR Code"]')).toHaveCount(0);
+    await page.waitForTimeout(300);
 
-    const afterQrReady = await capture();
-    expect(afterQrReady.visible).toBe(false);
-
-    const backButton = mount.getByRole('button', { name: 'Back' }).first();
-    await expect(backButton).toBeVisible();
-    await backButton.click();
-    await expect(mount.locator('.w3a-signup-menu-root[data-scan-device="false"]')).toBeVisible();
-    await expect(qrButton).toBeVisible();
+    const afterUnsupportedState = await capture();
+    expect(afterUnsupportedState.visible).toBe(false);
+    await expect(mount.locator('img[alt="Device Linking QR Code"]')).toHaveCount(0);
   });
 });

@@ -5,6 +5,7 @@ import type { EmailOtpSealedSessionStorePorts } from '@/core/signingEngine/sessi
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { CreateBrowserSigningRuntimeArgs } from './createBrowserSigningRuntime';
+import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/warmup';
 
 export type InitializeSigningRuntimePort = (args: {
   config: SeamsConfigsReadonly;
@@ -19,5 +20,5 @@ export type BrowserSigningSurfaceConstructorDeps = {
   sealedSigningSessionStore: EmailOtpSealedSessionStorePorts;
   createRuntime: (args: CreateBrowserSigningRuntimeArgs) => SigningRuntime;
   initializeRuntime: InitializeSigningRuntimePort;
-  shouldPrewarmWorkers: (workerBaseOrigin: string) => boolean;
+  workerWarmupPolicy: WorkerResourceWarmupPolicy;
 };

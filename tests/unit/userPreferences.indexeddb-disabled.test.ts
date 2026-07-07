@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  indexedDBManager: '/sdk/esm/core/indexedDB/index.js',
-  userPreferences: '/sdk/esm/core/signingEngine/session/userPreferences.js',
+  indexedDBManager: '/_test-sdk/esm/core/indexedDB/index.js',
+  userPreferences: '/_test-sdk/esm/core/signingEngine/session/userPreferences.js',
 } as const;
 
 test.describe('UserPreferences when IndexedDB is disabled', () => {

@@ -331,7 +331,7 @@ export class BrowserSigningSurface {
       thresholdEcdsaCommitQueueByKey: this.thresholdEcdsaCommitQueueByKey,
       thresholdEd25519CommitQueueByKey: this.thresholdEd25519CommitQueueByKey,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
-      shouldPrewarmWorkers: deps.shouldPrewarmWorkers,
+      workerWarmupPolicy: deps.workerWarmupPolicy,
       getTheme: () => this.theme,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       restorePasskeyEd25519SigningMaterial:

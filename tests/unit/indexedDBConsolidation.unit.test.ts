@@ -56,8 +56,8 @@ test.describe('IndexedDB consolidation', () => {
   test('fresh seams wallet databases match the schema manifest', async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
       const manifest = schemaNames.SEAMS_WALLET_SCHEMA_MANIFEST as Array<{
         store: string;
         keyPath: string | string[];
@@ -135,8 +135,8 @@ test.describe('IndexedDB consolidation', () => {
   test('schema upgrade replaces stale unique auth-method identifier index', async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `auth_method_index_upgrade_${crypto.randomUUID()}`,
       );
@@ -200,10 +200,10 @@ test.describe('IndexedDB consolidation', () => {
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
       const repositoryModule = await import(
-        '/sdk/esm/core/indexedDB/seamsWalletDB/repositories.js'
+        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js'
       );
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `repositories_${crypto.randomUUID()}`,
@@ -373,9 +373,9 @@ test.describe('IndexedDB consolidation', () => {
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `signer_mirrors_${crypto.randomUUID()}`,
       );
@@ -550,9 +550,9 @@ test.describe('IndexedDB consolidation', () => {
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `missing_key_material_${crypto.randomUUID()}`,
       );
@@ -622,9 +622,9 @@ test.describe('IndexedDB consolidation', () => {
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `auth_method_guards_${crypto.randomUUID()}`,
       );
@@ -769,9 +769,9 @@ test.describe('IndexedDB consolidation', () => {
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `existing_missing_key_material_${crypto.randomUUID()}`,
       );
@@ -891,9 +891,9 @@ test.describe('IndexedDB consolidation', () => {
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
-      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `key_material_shadow_${crypto.randomUUID()}`,
       );

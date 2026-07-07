@@ -3,11 +3,11 @@ import { setupBasicPasskeyTest } from '../setup';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
-  types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
-  localOnly: '/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
-  litRegistry: '/sdk/esm/core/signingEngine/uiConfirm/ui/registry.js',
-  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
+  handle: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  types: '/_test-sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
+  localOnly: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
+  litRegistry: '/_test-sdk/esm/core/signingEngine/uiConfirm/ui/registry.js',
+  nonceCoordinator: '/_test-sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
 test.describe('confirmTxFlow – success paths', () => {

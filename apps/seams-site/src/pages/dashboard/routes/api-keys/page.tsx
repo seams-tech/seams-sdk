@@ -193,22 +193,33 @@ function buildSecretKeyServerSnippet(credential: string, environmentId: string):
   ].join('\n');
 }
 
+function jsStringLiteral(value: string): string {
+  return JSON.stringify(value);
+}
+
 function buildPublishableKeyManagedSnippet(
   credential: string,
   environmentId: string,
   allowedOrigins: string[],
+  walletOrigin: string,
 ): string {
   const envScope = String(environmentId || '').trim() || '<environment-id>';
   const allowedOrigin = allowedOrigins[0] || 'https://app.example.com';
+  const hostedWalletOrigin = String(walletOrigin || '').trim() || 'https://wallet.example.com';
   return [
     "import { SeamsWeb } from '@seams/sdk';",
     '',
     'const seams = new SeamsWeb({',
     "  relayer: { url: '$RELAYER_URL' },",
+    '  iframeWallet: {',
+    `    walletOrigin: ${jsStringLiteral(hostedWalletOrigin)},`,
+    "    walletServicePath: '/wallet-service',",
+    "    sdkBasePath: '/sdk',",
+    '  },',
     '  registration: {',
     "    mode: 'managed',",
-    `    environmentId: '${envScope}',`,
-    `    publishableKey: '${credential}',`,
+    `    projectEnvironmentId: ${jsStringLiteral(envScope)},`,
+    `    publishableKey: ${jsStringLiteral(credential)},`,
     '  },',
     '});',
     '',
@@ -854,6 +865,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                     revealedCredential.credential,
                     revealedCredential.apiKey.environmentId,
                     revealedCredential.apiKey.allowedOrigins,
+                    walletOriginHint,
                   )
                 : buildSecretKeyServerSnippet(
                     revealedCredential.credential,

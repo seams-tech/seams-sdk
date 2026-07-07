@@ -86,4 +86,34 @@ test.describe('Wallet iframe handshake', () => {
 
     expect(readyState).toBe(false);
   });
+
+  test('rejects when READY advertises a mismatched protocol version', async ({ page }) => {
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ protocolVersion: '0.0.0' }),
+      WALLET_SERVICE_ROUTE,
+    );
+    await initRouter(page, { walletOrigin: WALLET_ORIGIN, connectTimeoutMs: 1000 });
+
+    const result = await page.evaluate(async () => {
+      const router = (window as any).__walletRouter;
+      try {
+        await router.init();
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, name: err?.name, message: err?.message };
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.name).toBe('WalletIframeProtocolVersionMismatchError');
+    expect(result.message).toContain('expected 1.0.0, received 0.0.0');
+
+    const readyState = await page.evaluate(() => {
+      const router = (window as any).__walletRouter;
+      return router.isReady();
+    });
+
+    expect(readyState).toBe(false);
+  });
 });

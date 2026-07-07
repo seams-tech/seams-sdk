@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  unifiedDb: '/sdk/esm/core/indexedDB/index.js',
+  unifiedDb: '/_test-sdk/esm/core/indexedDB/index.js',
 } as const;
 
 test.describe('local signer reconciliation', () => {

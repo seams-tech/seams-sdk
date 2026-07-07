@@ -132,7 +132,7 @@ export type CreateSigningEnginePortsArgs = {
   ) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
-  shouldPrewarmWorkers: WorkerResourceWarmupDeps['shouldPrewarmWorkers'];
+  workerWarmupPolicy: WorkerResourceWarmupDeps['workerWarmupPolicy'];
   getTheme: () => ThemeName;
   signTempo: SigningEngineConveniencePorts['signTempo'];
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
@@ -290,7 +290,7 @@ export function createWorkerResourceWarmupDepsFactory(
     nearClient: args.nearClient,
     nonceCoordinator: args.nonceCoordinator,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
-    shouldPrewarmWorkers: args.shouldPrewarmWorkers,
+    workerWarmupPolicy: args.workerWarmupPolicy,
     prewarmUiConfirmUi: async () => {
       await Promise.all([args.touchConfirm.initialize(), prewarmTxConfirmerUi()]);
     },

@@ -184,7 +184,7 @@ export function ensureSeamsWeb(ctx: HostContext): SeamsWeb {
     const cfg = sanitizeWalletHostConfigs(walletConfigs);
     assertWalletHostConfigsNoNestedIframeWallet(cfg);
     __setWalletIframeHostMode(true);
-    ctx.seamsWeb = new SeamsWeb(cfg, ctx.nearClient);
+    ctx.seamsWeb = new SeamsWeb(cfg, ctx.nearClient, { allowDirectWalletMode: 'wallet_host' });
     try {
       void ctx.seamsWeb.initWalletIframe().catch(() => {});
     } catch {}

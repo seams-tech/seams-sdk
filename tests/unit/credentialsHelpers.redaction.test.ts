@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   credentialExtensions:
-    '/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js',
+    '/_test-sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js',
 } as const;
 
 test.describe('credentialExtensions – redaction', () => {

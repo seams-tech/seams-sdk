@@ -364,6 +364,39 @@ const REGISTRATION_ACTIVATION_READY_BUTTON_STATE: RegistrationActivationButtonIn
   disabled: false,
 };
 
+type RegistrationActivationCancelReason = Extract<
+  RegistrationActivationSurfaceState,
+  { kind: 'cancelled' }
+>['reason'];
+
+function getErrorCode(error: Error): string {
+  if (!isObject(error)) return '';
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : '';
+}
+
+function shouldTreatRegistrationActivationErrorAsExpired(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  if (message.includes('registration activation expired')) return true;
+  return message.includes('wallet request timeout for pm_registration_activation_prepare');
+}
+
+function shouldCancelRegistrationActivationOnDispose(
+  state: RegistrationActivationSurfaceState,
+): boolean {
+  switch (state.kind) {
+    case 'idle':
+    case 'mounting':
+    case 'ready':
+    case 'starting':
+      return true;
+    case 'completed':
+    case 'cancelled':
+    case 'failed':
+      return false;
+  }
+}
+
 function createTerminalProgressForRequest(args: {
   requestType: ParentToChildEnvelope['type'];
   requestId: string;
@@ -1359,17 +1392,13 @@ export class WalletIframeRouter {
       cleanupActivationMount();
       this.releaseOverlayLockAndHideWhenIdle();
     };
-    const postActivationCancel = (
-      reason: Extract<RegistrationActivationSurfaceState, { kind: 'cancelled' }>['reason'],
-    ): void => {
+    const postActivationCancel = (reason: RegistrationActivationCancelReason): void => {
       void this.post({
         type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
         payload: { activationId, reason },
       }).catch(() => {});
     };
-    const cancelActivation = (
-      reason: Extract<RegistrationActivationSurfaceState, { kind: 'cancelled' }>['reason'],
-    ): void => {
+    const cancelActivation = (reason: RegistrationActivationCancelReason): void => {
       if (disposed) return;
       disposed = true;
       this.registrationActivationListeners.delete(activationId);
@@ -1483,9 +1512,12 @@ export class WalletIframeRouter {
           } catch (error) {
             if (disposed) return;
             const err = toError(error);
-            const code = (err as { code?: unknown }).code;
+            const code = getErrorCode(err);
             if (code === 'cancelled') {
               setState({ kind: 'cancelled', activationId, reason: 'user_cancelled' });
+            } else if (shouldTreatRegistrationActivationErrorAsExpired(err)) {
+              postActivationCancel('expired');
+              setState({ kind: 'cancelled', activationId, reason: 'expired' });
             } else {
               setState({
                 kind: 'failed',
@@ -1503,8 +1535,8 @@ export class WalletIframeRouter {
         if (disposed) return;
         disposed = true;
         this.registrationActivationListeners.delete(activationId);
-        postActivationCancel('disposed');
-        if (currentState.kind !== 'completed' && currentState.kind !== 'failed') {
+        if (shouldCancelRegistrationActivationOnDispose(currentState)) {
+          postActivationCancel('disposed');
           setState({ kind: 'cancelled', activationId, reason: 'disposed' });
         }
         releaseActivationOverlay();

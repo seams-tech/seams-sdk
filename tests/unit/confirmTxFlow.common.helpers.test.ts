@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  helpers: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmCommon.js',
+  helpers: '/_test-sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmCommon.js',
 } as const;
 
 test.describe('confirmTxFlow common helpers', () => {

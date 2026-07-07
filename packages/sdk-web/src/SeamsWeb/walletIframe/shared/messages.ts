@@ -47,7 +47,9 @@ export type {
   PMUnlockPayload,
 } from '@/core/types/login.types';
 
-export type WalletProtocolVersion = '1.0.0';
+export const WALLET_PROTOCOL_VERSION = '1.0.0' as const;
+
+export type WalletProtocolVersion = typeof WALLET_PROTOCOL_VERSION;
 
 export type ParentToChildType =
   | 'PING'

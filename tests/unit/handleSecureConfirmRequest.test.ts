@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  handle: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
 } as const;
 
 test.describe('handlePromptFromWorker - Orchestrator Unit Tests', () => {
@@ -138,7 +138,7 @@ test.describe('handlePromptFromWorker - Orchestrator Unit Tests', () => {
           const mod = await import(paths.handle);
           const handle = mod.handlePromptFromWorker as Function;
           const types =
-            await import('/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js');
+            await import('/_test-sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js');
 
           const ctx: any = {
             userPreferencesManager: {

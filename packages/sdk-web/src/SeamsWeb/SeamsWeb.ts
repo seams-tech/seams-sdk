@@ -58,7 +58,7 @@ import {
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
-import { shouldPrewarmBrowserWorkers } from './assembly/browserWorkerWarmupPolicy';
+import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
 import { createBrowserSigningRuntime } from './assembly/createBrowserSigningRuntime';
 import { createBrowserSigningStores } from './assembly/createBrowserSigningStores';
@@ -957,8 +957,16 @@ export class SeamsWeb {
   private readonly walletIframeControls: WalletIframeControlCapability;
   private emailOtpUnlockPrewarmRecord: EmailOtpUnlockPrewarmRecord = { kind: 'none' };
 
-  constructor(configs: SeamsConfigsInput, nearClient?: NearClient) {
-    this.configs = buildConfigsFromEnv(configs);
+  constructor(
+    configs: SeamsConfigsInput,
+    nearClient?: NearClient,
+    internalOptions?: { allowDirectWalletMode?: 'wallet_host' },
+  ) {
+    this.configs = buildConfigsFromEnv(configs, {
+      ...(internalOptions?.allowDirectWalletMode === 'wallet_host'
+        ? { allowDirectWalletMode: 'wallet_host' }
+        : {}),
+    });
     configureBrowserIndexedDB(this.configs);
     // Use provided client or create default one
     this.nearClient =
@@ -970,7 +978,7 @@ export class SeamsWeb {
       sealedSigningSessionStore: browserSigningStores.sealedSigningSessionStore,
       createRuntime: createBrowserSigningRuntime,
       initializeRuntime: initializeBrowserSigningRuntime,
-      shouldPrewarmWorkers: shouldPrewarmBrowserWorkers,
+      workerWarmupPolicy: resolveBrowserWorkerWarmupPolicy(this.configs),
     });
 
     this.theme = coerceThemeName(this.configs.ui.appearance?.theme) ?? 'dark';
@@ -1239,8 +1247,8 @@ export class SeamsWeb {
 
   /**
    * Pre-warm resources on a best-effort basis without changing visible state.
-   * - When iframe=true, initializes the wallet iframe client (and warms local resources).
-   * - When workers=true, warms local critical resources (nonce, IndexedDB, workers) without touching iframe.
+   * - When iframe=true, initializes the wallet iframe client.
+   * - When workers=true, warms local critical resources only outside app-origin iframe mode.
    * - When both are false/omitted, does nothing.
    */
   async prewarm(opts?: SeamsWebPrewarmOptions): Promise<void> {
@@ -1255,12 +1263,10 @@ export class SeamsWeb {
     if (iframe) {
       // initWalletIframe also calls the browser signing surface warmup internally.
       tasks.push(this.initWalletIframe(nearAccountBinding?.wallet.walletId));
-    } else if (workers) {
+    } else if (workers && !this.walletIframe.shouldUseWalletIframe()) {
       // Warm local-only resources without touching the iframe.
-      // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
-      const shouldAvoidLocalUserState = this.walletIframe.shouldUseWalletIframe();
       const accountContext =
-        nearAccountBinding && !shouldAvoidLocalUserState
+        nearAccountBinding
           ? { kind: 'near_account_bound' as const, account: nearAccountBinding }
           : { kind: 'none' as const };
       tasks.push(this.signingEngine.warmCriticalResources(accountContext));

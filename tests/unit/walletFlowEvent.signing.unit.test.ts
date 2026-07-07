@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  seamsTypes: '/sdk/esm/core/types/sdkSentEvents.js',
+  seamsTypes: '/_test-sdk/esm/core/types/sdkSentEvents.js',
 } as const;
 
 test.describe('wallet flow event invariants', () => {

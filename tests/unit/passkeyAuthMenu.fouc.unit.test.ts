@@ -7,19 +7,19 @@ import { setupBasicPasskeyTest } from '../setup';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const IMPORT_PATHS = {
-  provider: '/sdk/esm/react/context/SeamsWebProvider.js',
-  contextIndex: '/sdk/esm/react/context/index.js',
-  seamsManagerSingleton: '/sdk/esm/react/context/seamsManagerSingleton.js',
-  reactIndex: '/sdk/esm/react/index.js',
-  passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
-  passkeyAuthMenuClient: '/sdk/esm/react/components/PasskeyAuthMenu/client.js',
+  provider: '/_test-sdk/esm/react/context/SeamsWebProvider.js',
+  contextIndex: '/_test-sdk/esm/react/context/index.js',
+  seamsManagerSingleton: '/_test-sdk/esm/react/context/seamsManagerSingleton.js',
+  reactIndex: '/_test-sdk/esm/react/index.js',
+  passkeyAuthMenu: '/_test-sdk/esm/react/components/PasskeyAuthMenu/public.js',
+  passkeyAuthMenuClient: '/_test-sdk/esm/react/components/PasskeyAuthMenu/client.js',
   passkeyAuthMenuController:
-    '/sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
-  seamsContextValue: '/sdk/esm/react/context/useSeamsContextValue.js',
-  loginStateRefresher: '/sdk/esm/react/context/useLoginStateRefresher.js',
-  passkeyInput: '/sdk/esm/react/components/PasskeyAuthMenu/ui/PasskeyInput.js',
-  authMenuTypes: '/sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
-  reactStyles: '/sdk/esm/react/styles/styles.css',
+    '/_test-sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
+  seamsContextValue: '/_test-sdk/esm/react/context/useSeamsContextValue.js',
+  loginStateRefresher: '/_test-sdk/esm/react/context/useLoginStateRefresher.js',
+  passkeyInput: '/_test-sdk/esm/react/components/PasskeyAuthMenu/ui/PasskeyInput.js',
+  authMenuTypes: '/_test-sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
+  reactStyles: '/_test-sdk/esm/react/styles/styles.css',
 } as const;
 
 function readRepoSource(relativePath: string): string {
@@ -71,8 +71,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          // Disable wallet iframe mode for this unit test (no iframe handshake / COEP concerns).
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         const root = ReactDOMClient.createRoot(mount);
@@ -126,7 +125,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         const root = ReactDOMClient.createRoot(mount);
@@ -191,7 +190,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         const root = ReactDOMClient.createRoot(mount);
@@ -224,7 +223,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('.w3a-social-helper')).toHaveCount(0);
 
     await mount.getByRole('button', { name: 'Register' }).click();
-    await expect(mount.getByRole('button', { name: 'Create with Passkey' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Create passkey account' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Register with Google SSO' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
@@ -271,7 +270,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         (window as any).__emailRecoveryModes = [];
@@ -304,17 +303,13 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
     await expect(mount.locator('.w3a-seg-btn.sync')).toHaveCount(0);
     await expect(mount.getByRole('button', { name: /^Sync$/ })).toHaveCount(0);
-    await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(
-      0,
-    );
+    await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
 
     await mount.getByRole('button', { name: 'Register' }).click();
-    await expect(mount.getByRole('button', { name: 'Create with Passkey' })).toBeVisible();
-    await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(
-      0,
-    );
+    await expect(mount.getByRole('button', { name: 'Create passkey account' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
 
@@ -473,24 +468,21 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               {
                 walletId: 'jade-orchid-2caqh9',
                 displayName: 'jade-orchid-2caqh9',
-                nearAccountId:
-                  '13f209913f2d5d9cd8d7ec99a9a93f8c7b00c53326c4dd978a32b9f3b8d25b9b',
+                nearAccountId: '13f209913f2d5d9cd8d7ec99a9a93f8c7b00c53326c4dd978a32b9f3b8d25b9b',
                 signerSlot: 1,
                 authMethod: 'passkey',
               },
               {
                 walletId: 'frost-violet-8n1lfz',
                 displayName: 'frost-violet-8n1lfz',
-                nearAccountId:
-                  '654d84f7bf7475554e18f970148c744842288a79aaf7d82010d50d9a3b40d1a2',
+                nearAccountId: '654d84f7bf7475554e18f970148c744842288a79aaf7d82010d50d9a3b40d1a2',
                 signerSlot: 1,
                 authMethod: 'passkey',
               },
               {
                 walletId: 'cedar-harvest-r9a4kp',
                 displayName: 'n6378056@gmail.com',
-                nearAccountId:
-                  '82c97f62d2ea8b7033fc24a4b525b3bb3240298f9ed220bd1b7427f2b0229978',
+                nearAccountId: '82c97f62d2ea8b7033fc24a4b525b3bb3240298f9ed220bd1b7427f2b0229978',
                 signerSlot: 1,
                 authMethod: 'email_otp',
               },
@@ -556,7 +548,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         (window as any).__otpSubmitted = '';
@@ -636,7 +628,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         (window as any).__otpRerollCalls = 0;
@@ -666,8 +658,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                           accountId: 'ember-river.testnet',
                           emailHint: 'alice@example.com',
                           title: 'Check your email to finish registration',
-                          description:
-                            'Enter the 6-digit setup code we sent to alice@example.com.',
+                          description: 'Enter the 6-digit setup code we sent to alice@example.com.',
                           submitLabel: 'Create wallet',
                           helperText:
                             'Google started your wallet registration. The email code secures wallet signing for this account.',
@@ -731,7 +722,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         (window as any).__otpRecoverySubmit = null;
@@ -777,14 +768,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
     await expect(mount.getByText('Recover this device')).toBeVisible();
 
-    await mount.getByLabel('Email code').fill('123456');
+    const recoveryKeyInput = mount.getByLabel('Recovery key');
+    await expect(recoveryKeyInput).toBeVisible();
+    await recoveryKeyInput.fill('008j4ct4ank7f24snaxwsqfezw834n3p');
+    await expect(recoveryKeyInput).toHaveValue('008J-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P');
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__otpRecoverySubmit))
       .toBeNull();
 
-    const recoveryKeyInput = mount.getByLabel('Recovery key');
-    await recoveryKeyInput.fill('008j4ct4ank7f24snaxwsqfezw834n3p');
-    await expect(recoveryKeyInput).toHaveValue('008J-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P');
+    await mount.getByLabel('Email code').fill('123456');
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__otpRecoverySubmit))
       .toEqual({
@@ -828,7 +820,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         (window as any).__otpResendCalls = 0;
@@ -926,7 +918,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         const root = ReactDOMClient.createRoot(mount);
@@ -1170,7 +1162,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                     },
                     delivery: 'sent',
                     expiresAtMs: Date.now() + 60_000,
-                    resend: async () => ({ ok: false, error: { code: 'email_otp_challenge_failed', message: 'no resend' } }),
+                    resend: async () => ({
+                      ok: false,
+                      error: { code: 'email_otp_challenge_failed', message: 'no resend' },
+                    }),
                     submit: async (input: { otpCode: string }) => {
                       (window as any).__headlessSubmitted = input.otpCode;
                       return {
@@ -1211,7 +1206,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               ? React.createElement(
                   React.Fragment,
                   null,
-                  React.createElement('div', { id: 'headless-otp-ready' }, controller.otpPrompt.title),
+                  React.createElement(
+                    'div',
+                    { id: 'headless-otp-ready' },
+                    controller.otpPrompt.title,
+                  ),
                   React.createElement('input', {
                     'aria-label': 'Email code',
                     value: controller.otpPrompt.code,
@@ -1357,9 +1356,21 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               ? React.createElement(
                   React.Fragment,
                   null,
-                  React.createElement('div', { id: 'registration-title' }, controller.registrationPrompt.title),
-                  React.createElement('div', { id: 'registration-account' }, controller.registrationPrompt.accountId),
-                  React.createElement('button', { type: 'button' }, controller.registrationPrompt.submitLabel),
+                  React.createElement(
+                    'div',
+                    { id: 'registration-title' },
+                    controller.registrationPrompt.title,
+                  ),
+                  React.createElement(
+                    'div',
+                    { id: 'registration-account' },
+                    controller.registrationPrompt.accountId,
+                  ),
+                  React.createElement(
+                    'button',
+                    { type: 'button' },
+                    controller.registrationPrompt.submitLabel,
+                  ),
                   React.createElement(
                     'button',
                     {
@@ -1383,9 +1394,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#pam2-google-headless-registration-mount');
     await mount.getByRole('button', { name: 'Start registration' }).click();
-    await expect(mount.locator('#registration-title')).toHaveText(
-      'Create your Email OTP wallet',
-    );
+    await expect(mount.locator('#registration-title')).toHaveText('Create your Email OTP wallet');
     await expect(mount.getByRole('button', { name: 'Create wallet' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Generate another name' })).toBeVisible();
     await expect(mount.getByText('Check your email to unlock your wallet')).toHaveCount(0);
@@ -1455,7 +1464,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                     },
                     delivery: 'sent',
                     expiresAtMs: Date.now() + 60_000,
-                    resend: async () => ({ ok: false, error: { code: 'email_otp_challenge_failed', message: 'no resend' } }),
+                    resend: async () => ({
+                      ok: false,
+                      error: { code: 'email_otp_challenge_failed', message: 'no resend' },
+                    }),
                     submit: async () => ({
                       ok: true,
                       value: {
@@ -1487,7 +1499,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                   React.Fragment,
                   null,
                   React.createElement('div', { id: 'existing-title' }, controller.otpPrompt.title),
-                  React.createElement('button', { type: 'button' }, controller.otpPrompt.submitLabel),
+                  React.createElement(
+                    'button',
+                    { type: 'button' },
+                    controller.otpPrompt.submitLabel,
+                  ),
                   controller.otpPrompt.onRerollAccount
                     ? React.createElement(
                         'button',
@@ -1564,7 +1580,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         (window as any).__pamGoogleModes = [];
@@ -1655,9 +1671,21 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           return React.createElement(
             'div',
             null,
-            React.createElement('div', { id: 'implicit-show-input' }, String(controller.showAccountInput)),
-            React.createElement('div', { id: 'implicit-readonly' }, String(controller.accountInputReadOnly)),
-            React.createElement('div', { id: 'implicit-wallet-id' }, String(controller.currentValue || '')),
+            React.createElement(
+              'div',
+              { id: 'implicit-show-input' },
+              String(controller.showAccountInput),
+            ),
+            React.createElement(
+              'div',
+              { id: 'implicit-readonly' },
+              String(controller.accountInputReadOnly),
+            ),
+            React.createElement(
+              'div',
+              { id: 'implicit-wallet-id' },
+              String(controller.currentValue || ''),
+            ),
             React.createElement(
               'div',
               { id: 'implicit-activation-wallet-id' },
@@ -1705,7 +1733,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await mount.getByRole('button', { name: 'Generate another wallet name' }).click();
     await expect(mount.locator('#implicit-wallet-id')).not.toHaveText(initialWalletId || '');
     const generatedWalletId = await mount.locator('#implicit-wallet-id').textContent();
-    await expect(mount.locator('#implicit-activation-wallet-id')).toHaveText(generatedWalletId || '');
+    await expect(mount.locator('#implicit-activation-wallet-id')).toHaveText(
+      generatedWalletId || '',
+    );
     const button = mount.getByRole('button', { name: 'Create with Passkey' });
     await expect(button).toBeEnabled();
     await button.click();
@@ -1968,15 +1998,144 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const mount = page.locator('#pam2-passkey-register-activation-cancelled-mount');
     const button = mount.getByRole('button', { name: 'Create with Passkey' });
     await expect(button).toBeVisible();
-    await expect
-      .poll(async () => await button.evaluate((node) => node.tagName))
-      .toBe('BUTTON');
+    await expect.poll(async () => await button.evaluate((node) => node.tagName)).toBe('BUTTON');
     await button.click();
     await expect
       .poll(
-        async () => await page.evaluate(() => (window as any).__pamActivationCancelledRegisterCalls),
+        async () =>
+          await page.evaluate(() => (window as any).__pamActivationCancelledRegisterCalls),
       )
       .toBe(1);
+  });
+
+  test('Passkey implicit registration refreshes activation surface after expiry', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-passkey-register-activation-expiry-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const contextMod: any = await import(paths.contextIndex);
+        const singletonMod: any = await import(paths.seamsManagerSingleton);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
+        const useSeams = contextMod.useSeams;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+        const activationId = 'expired-before-click';
+
+        type LifecycleEvent = {
+          event: 'create' | 'mount' | 'dispose' | 'subscribe' | 'unsubscribe';
+          walletId: string;
+        };
+        const lifecycle: LifecycleEvent[] = [];
+        (window as any).__pamActivationExpiryLifecycle = lifecycle;
+        (window as any).__pamActivationExpiryPatchInstalled = false;
+
+        function installActivationSurfacePatch(seams: any): void {
+          if ((window as any).__pamActivationExpiryPatchInstalled) return;
+          (window as any).__pamActivationExpiryPatchInstalled = true;
+          let mountCount = 0;
+          seams.initWalletIframe = async () => undefined;
+          seams.isWalletIframeReady = () => true;
+          seams.onWalletIframeReady = () => () => undefined;
+          seams.onWalletIframeLoginStatusChanged = () => () => undefined;
+          seams.onWalletIframePreferencesChanged = () => () => undefined;
+          seams.preferences.getCurrentWalletId = () => '';
+          seams.registration.createPasskeyRegistrationActivationSurface = (args: {
+            wallet: { walletId: string };
+          }) => {
+            const walletId = String(args.wallet.walletId || '');
+            let stateListener: ((state: unknown) => void) | null = null;
+            lifecycle.push({ event: 'create', walletId });
+            return {
+              kind: 'wallet_iframe_registration_activation_surface_v1',
+              mount: (target: HTMLElement) => {
+                mountCount += 1;
+                lifecycle.push({ event: 'mount', walletId });
+                target.setAttribute('data-activation-expiry-mount-count', String(mountCount));
+                if (mountCount === 1) {
+                  window.setTimeout(() => {
+                    stateListener?.({
+                      kind: 'cancelled',
+                      activationId,
+                      reason: 'expired',
+                    });
+                  }, 0);
+                }
+              },
+              dispose: () => {
+                lifecycle.push({ event: 'dispose', walletId });
+              },
+              state: () => ({ kind: 'idle' }),
+              onStateChange: (listener: (state: unknown) => void) => {
+                stateListener = listener;
+                lifecycle.push({ event: 'subscribe', walletId });
+                return () => {
+                  lifecycle.push({ event: 'unsubscribe', walletId });
+                };
+              },
+            };
+          };
+        }
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://router-api.localhost' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
+        };
+
+        function Harness() {
+          useSeams();
+          const rawSeams = singletonMod.getOrCreateSeamsManager(config, {});
+          installActivationSurfacePatch(rawSeams);
+          return React.createElement(PasskeyAuthMenu, {
+            defaultMode: AuthMenuMode.Register,
+          });
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Provider, { config }, React.createElement(Harness)));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-passkey-register-activation-expiry-mount');
+    const activationButton = mount.locator('.seams-passkey-registration-btn');
+    await activationButton.waitFor({ state: 'attached' });
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(() => {
+            const lifecycle = ((window as any).__pamActivationExpiryLifecycle || []) as Array<{
+              event: string;
+            }>;
+            return {
+              mountCount: lifecycle.filter((entry) => entry.event === 'mount').length,
+              disposeCount: lifecycle.filter((entry) => entry.event === 'dispose').length,
+              unsubscribeCount: lifecycle.filter((entry) => entry.event === 'unsubscribe').length,
+            };
+          }),
+      )
+      .toEqual({
+        mountCount: 2,
+        disposeCount: 1,
+        unsubscribeCount: 1,
+      });
+    await expect(activationButton).toHaveAttribute('data-activation-expiry-mount-count', '2');
+    await expect(mount.getByRole('alert')).toHaveCount(0);
+    await expect(mount.getByRole('button', { name: 'Create passkey account' })).toBeVisible();
   });
 
   test('Passkey sponsored named registration keeps username input required', async ({ page }) => {
@@ -2029,8 +2188,16 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           return React.createElement(
             'div',
             null,
-            React.createElement('div', { id: 'sponsored-show-input' }, String(controller.showAccountInput)),
-            React.createElement('div', { id: 'sponsored-can-submit' }, String(controller.canSubmit)),
+            React.createElement(
+              'div',
+              { id: 'sponsored-show-input' },
+              String(controller.showAccountInput),
+            ),
+            React.createElement(
+              'div',
+              { id: 'sponsored-can-submit' },
+              String(controller.canSubmit),
+            ),
             controller.methodError
               ? React.createElement('div', { role: 'alert' }, controller.methodError)
               : null,
@@ -2063,7 +2230,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       'Pick a username to create a passkey account.',
     );
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamSponsoredPasskeyRegisterCalls))
+      .poll(
+        async () => await page.evaluate(() => (window as any).__pamSponsoredPasskeyRegisterCalls),
+      )
       .toBe(0);
   });
 
@@ -2116,9 +2285,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             runtime,
           );
 
-          const status = controller.waiting
-            ? `waiting:${controller.waitingReason}`
-            : 'not-waiting';
+          const status = controller.waiting ? `waiting:${controller.waitingReason}` : 'not-waiting';
 
           return React.createElement(
             'div',
@@ -2252,6 +2419,19 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                 type: 'button',
                 onClick: () =>
                   controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'cancelled',
+                    activationId: 'activation-expired',
+                    reason: 'expired',
+                  }),
+              },
+              'Expire activation',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
                     kind: 'completed',
                     activationId: 'activation-completed-cancelled',
                     result: {
@@ -2291,6 +2471,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.getByRole('alert')).toHaveCount(0);
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
 
+    await mount.getByRole('button', { name: 'Expire activation' }).click();
+    await expect(mount.getByRole('alert')).toHaveCount(0);
+    await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
+
     await mount.getByRole('button', { name: 'Complete cancellation result' }).click();
     await expect(mount.getByRole('alert')).toHaveCount(0);
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
@@ -2300,7 +2484,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
   });
 
-  test('Register segment clears the full account input for new account creation', async ({
+  test('Register segment replaces the full account input with generated wallet creation input', async ({
     page,
   }) => {
     await page.evaluate(
@@ -2382,7 +2566,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const state = mount.locator('#register-clear-state');
     await expect(state).toHaveAttribute('data-input', 'gorp79');
     await mount.getByRole('button', { name: 'Register tab' }).click();
-    await expect(state).toHaveAttribute('data-input', '');
+    await expect(state).toHaveAttribute('data-input', /^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
     await expect(state).toHaveAttribute('data-mode', '0');
   });
 
@@ -2636,7 +2820,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         const root = ReactDOMClient.createRoot(mount);
@@ -2646,7 +2830,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               Provider,
               { config },
               React.createElement(PasskeyAuthMenu, {
-                defaultMode: AuthMenuMode.Register,
+                defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: async () => {
                     throw new Error('Email OTP rate limit exceeded');
@@ -2662,7 +2846,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#pam2-google-error-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Register with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
     await expect(mount.getByRole('alert')).toHaveText('Email OTP rate limit exceeded');
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__pamUnhandledRejectionCount))
@@ -2689,7 +2873,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
         const authMethodNames = [

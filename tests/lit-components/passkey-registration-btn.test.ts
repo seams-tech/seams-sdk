@@ -248,7 +248,7 @@ test.describe('seams-passkey-registration-btn', () => {
             <head><meta charset="utf-8" /></head>
             <body>
               <script>
-                window.__W3A_WALLET_SDK_BASE__ = '/sdk/esm/sdk/';
+                window.__W3A_WALLET_SDK_BASE__ = '/_test-sdk/esm/sdk/';
               </script>
               <script type="module">
                 const modulePath = ${JSON.stringify(modulePath)};

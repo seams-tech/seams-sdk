@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  indexedDB: '/sdk/esm/core/indexedDB/index.js',
+  indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
 } as const;
 
 test.describe('Seams wallet repositories', () => {

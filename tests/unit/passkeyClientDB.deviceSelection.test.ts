@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  unifiedDB: '/sdk/esm/core/indexedDB/index.js',
-  nearKeyMaterial: '/sdk/esm/core/accountData/near/keyMaterial.js',
-  signerSlot: '/sdk/esm/core/signingEngine/webauthnAuth/device/signerSlot.js',
+  unifiedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  nearKeyMaterial: '/_test-sdk/esm/core/accountData/near/keyMaterial.js',
+  signerSlot: '/_test-sdk/esm/core/signingEngine/webauthnAuth/device/signerSlot.js',
 } as const;
 
 test.describe('Seams wallet device selection', () => {

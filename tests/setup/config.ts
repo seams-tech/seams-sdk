@@ -10,12 +10,16 @@ const FRONTEND_URL =
 // default `iframeWallet.rpIdOverride` (example.localhost) so WebAuthn rpIdHash checks
 // stay consistent across app + wallet origins (wallet.example.localhost).
 const RP_ID = String(process.env.W3A_TEST_RP_ID || '').trim() || 'example.localhost';
+const WALLET_ORIGIN =
+  String(process.env.W3A_TEST_WALLET_ORIGIN || process.env.VITE_WALLET_ORIGIN || '').trim() ||
+  'https://wallet.example.localhost';
 
 export const DEFAULT_TEST_CONFIG: PasskeyTestConfig = {
   frontendUrl: FRONTEND_URL,
   nearNetwork: 'testnet',
   nearRpcUrl: 'https://test.rpc.fastnear.com',
   relayerAccount: 'w3a-v1.testnet',
+  walletOrigin: WALLET_ORIGIN,
   rpId: RP_ID,
   relayer: {
     url: 'https://router-api.localhost',

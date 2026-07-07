@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  progressBus: '/sdk/esm/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.js',
-  seamsTypes: '/sdk/esm/core/types/sdkSentEvents.js',
+  progressBus: '/_test-sdk/esm/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.js',
+  seamsTypes: '/_test-sdk/esm/core/types/sdkSentEvents.js',
 } as const;
 
 test.describe('defaultOverlayIntentResolver', () => {

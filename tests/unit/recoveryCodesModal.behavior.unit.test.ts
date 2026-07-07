@@ -30,7 +30,7 @@ test.describe('RecoveryCodesModal behavior', () => {
   test('loads retained recovery codes from local wallet storage', async ({ page }) => {
     const result = await page.evaluate(async ({ recoveryCodes }) => {
       const mod = await import(
-        '/sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
+        '/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
       );
       const calls: Array<string | [string, unknown]> = [];
       const status = {
@@ -121,7 +121,7 @@ test.describe('RecoveryCodesModal behavior', () => {
   test('delegates missing local code display through the iframe presenter', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const mod = await import(
-        '/sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
+        '/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
       );
       const calls: Array<string | [string, unknown]> = [];
       const status = {
@@ -184,7 +184,7 @@ test.describe('RecoveryCodesModal behavior', () => {
   test('keeps local unavailable state when iframe has no stored backup to display', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const mod = await import(
-        '/sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
+        '/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
       );
       const calls: Array<string | [string, unknown]> = [];
       const status = {

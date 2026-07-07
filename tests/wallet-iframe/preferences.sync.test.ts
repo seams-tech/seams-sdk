@@ -15,11 +15,16 @@ const PREFERENCES_PUSH_STUB = `
     const makeLoginSession = () => ({
       login: {
         isLoggedIn: true,
+        walletId,
         nearAccountId: walletId,
         publicKey: null,
         userData: null,
+        currentAuthMethod: { kind: 'none' },
+        authMethods: [],
       },
       signingSession: null,
+      currentAuthMethod: { kind: 'none' },
+      authMethods: [],
     });
 
     const respond = (requestId, result) => {
@@ -102,7 +107,7 @@ const PREFERENCES_PUSH_STUB = `
 
 test.describe('Wallet iframe preferences sync', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page);
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     await page.waitForTimeout(200);
     await registerWalletServiceRoute(
       page,

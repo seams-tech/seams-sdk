@@ -550,7 +550,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     });
     expect(result.capturedPayload).toEqual({
       kind: 'custom_options',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       options: {
         kind: 'pm_unlock_options_v1',
         signerSlot: { kind: 'value', value: 2 },

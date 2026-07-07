@@ -28,21 +28,6 @@
       "default": "./dist/esm/runtime.js",
       "types": "./dist/types/sdk-web/src/runtime.d.ts"
     },
-    "./plugins/headers": {
-      "import": "./dist/esm/plugins/headers.js",
-      "default": "./dist/esm/plugins/headers.js",
-      "types": "./dist/types/sdk-web/src/plugins/headers.d.ts"
-    },
-    "./plugins/next": {
-      "import": "./dist/esm/plugins/next.js",
-      "default": "./dist/esm/plugins/next.js",
-      "types": "./dist/types/sdk-web/src/plugins/next.d.ts"
-    },
-    "./plugins/vite": {
-      "import": "./dist/esm/plugins/vite.js",
-      "default": "./dist/esm/plugins/vite.js",
-      "types": "./dist/types/sdk-web/src/plugins/vite.d.ts"
-    },
     "./react": {
       "import": "./dist/esm/react/index.js",
       "default": "./dist/esm/react/index.js",
@@ -83,10 +68,7 @@
       "import": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
       "default": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
       "types": "./dist/types/sdk-web/src/SeamsWeb/walletIframe/client/html.d.ts"
-    },
-    "./worker": "./dist/near-signer.worker.js",
-    "./wasm": "./dist/wasm_signer_worker_bg.wasm",
-    "./wasm-js": "./dist/wasm_signer_worker.js"
+    }
   },
   "files": [
     "dist/",
@@ -122,6 +104,7 @@
     "build:wasm": "./scripts/build/build-wasm.sh",
     "build:sdk-full": "./scripts/build/build-full.sh",
     "build:prod": "./scripts/build/build-prod.sh",
+    "build:static-wallet-assets": "node ./scripts/build/emit-static-wallet-assets.mjs",
     "build:rolldown": "rolldown -c rolldown.config.ts",
     "dev": "rolldown -c rolldown.config.ts -w",
     "test": "pnpm -C ../../tests test",
@@ -141,6 +124,9 @@
     "build:check:fresh": "./scripts/build/check-build-freshness.sh",
     "check:bundle-size": "node ./scripts/checks/report-wallet-iframe-bundle-size.mjs",
     "check:runtime-entry-bundles": "node ./scripts/checks/assert-runtime-entry-bundles.mjs",
+    "check:static-wallet-assets": "node ./scripts/checks/assert-static-wallet-assets.mjs",
+    "check:hosted-wallet-docs": "node ./scripts/checks/assert-hosted-wallet-docs.mjs",
+    "smoke:static-wallet-origin": "node ./scripts/checks/smoke-static-wallet-origin.mjs",
     "check:wasm-exports": "node ./scripts/checks/report-wasm-export-surface.mjs",
     "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
     "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",

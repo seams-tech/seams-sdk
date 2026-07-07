@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
-const IMPORT_PATH = '/sdk/esm/core/rpcClients/relayer/sealedRefreshCapabilities.js' as const;
+const IMPORT_PATH = '/_test-sdk/esm/core/rpcClients/relayer/sealedRefreshCapabilities.js' as const;
 
 type TestConfig = {
   network: {

@@ -12,6 +12,8 @@ const SDK_ROOT_ABS = process.cwd();
 const CLIENT_SRC_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src');
 const CLIENT_REACT_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/react');
 const CLIENT_PLUGINS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/plugins');
+const WALLET_STATIC_ASSETS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/static/wallet-assets');
+const WALLET_STATIC_ASSET_FILES = ['wallet-shims.js', 'wallet-service.css'] as const;
 const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
   '../../wasm/near_signer/pkg/wasm_signer_worker.js',
@@ -144,36 +146,20 @@ const aliasConfig = {
   '@shared/*': path.resolve(SDK_ROOT_ABS, '../shared-ts/src/*'),
 };
 
-// Static assets expected to be served under `/sdk/*` by hosts.
-// Emitting them into dist/esm/sdk ensures deploy steps that rsync the SDK
-// directory (often with --delete) keep these files available in production.
-const WALLET_SHIM_SOURCE = [
-  // Minimal globals used by some deps in browser context
-  'window.global ||= window; window.process ||= { env: {} };',
-  // Infer absolute SDK base from this script's src and set it for embedded iframes (about:srcdoc)
-  '(function(){try{',
-  "  var s = (typeof document !== 'undefined' && document.currentScript) ? document.currentScript.src : '';",
-  '  if(!s) return;',
-  "  var u = new URL(s, (typeof location !== 'undefined' ? location.href : ''));",
-  '  var href = u.href;',
-  "  var base = href.slice(0, href.lastIndexOf('/') + 1);",
-  "  if (typeof window !== 'undefined' && !window.__W3A_WALLET_SDK_BASE__) { window.__W3A_WALLET_SDK_BASE__ = base; }",
-  '}catch(e){}})();\n',
-].join('\n');
-const WALLET_SURFACE_CSS = [
-  'html, body { background: transparent !important; margin:0; padding:0; }',
-  '',
-  // Class-based surface for strict CSP setups (toggled by wallet host bootstrap)
-  'html.w3a-transparent, body.w3a-transparent { background: transparent !important; margin:0; padding:0; }',
-  '',
-  // Minimal portal styles used by confirm-ui (no animation; child components handle transitions)
-  '.w3a-portal { position: relative; z-index: 2147483647; opacity: 0; pointer-events: none; }',
-  '.w3a-portal.w3a-portal--visible { opacity: 1; pointer-events: auto; }',
-  '',
-  // Offscreen utility for legacy clipboard fallback (avoids inline styles under strict CSP)
-  '.w3a-offscreen { position: fixed; left: -9999px; top: 0; opacity: 0; pointer-events: none; }',
-  '',
-].join('\n');
+type WalletStaticAssetFile = (typeof WALLET_STATIC_ASSET_FILES)[number];
+
+const walletStaticAssetSourcePath = (fileName: WalletStaticAssetFile): string =>
+  path.join(WALLET_STATIC_ASSETS_ROOT_ABS, fileName);
+
+const copyWalletStaticAsset = (sdkDir: string, fileName: WalletStaticAssetFile): void => {
+  fs.copyFileSync(walletStaticAssetSourcePath(fileName), path.join(sdkDir, fileName));
+};
+
+const copyWalletStaticAssets = (sdkDir: string): void => {
+  for (const fileName of WALLET_STATIC_ASSET_FILES) {
+    copyWalletStaticAsset(sdkDir, fileName);
+  }
+};
 
 const W3A_COMPONENT_HOSTS = [
   'w3a-tx-tree',
@@ -291,16 +277,11 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
   const sdkDir = path.join(sdkRoot, `${BUILD_PATHS.BUILD.ESM}/sdk`);
   fs.mkdirSync(sdkDir, { recursive: true });
 
-  const writeFileIfMissing = (filePath: string, contents: string) => {
-    if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, contents, 'utf-8');
-  };
-
   const copyIfMissing = (src: string, dest: string) => {
     if (fs.existsSync(src) && !fs.existsSync(dest)) fs.copyFileSync(src, dest);
   };
 
-  writeFileIfMissing(path.join(sdkDir, 'wallet-shims.js'), WALLET_SHIM_SOURCE);
-  writeFileIfMissing(path.join(sdkDir, 'wallet-service.css'), WALLET_SURFACE_CSS);
+  copyWalletStaticAssets(sdkDir);
 
   try {
     const w3aComponentsCss = await buildW3AComponentsCss(sdkRoot);

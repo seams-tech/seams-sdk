@@ -66,6 +66,9 @@ const configs = buildConfigsFromEnv({
   relayer: {
     url: 'https://relayer.example.test',
   },
+  iframeWallet: {
+    walletOrigin: 'https://wallet.example.test',
+  },
 });
 
 function targetKeys(targets: ReturnType<typeof emailOtpEcdsaPublicationChainTargets>): string[] {

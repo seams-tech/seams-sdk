@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  useAccountInput: '/sdk/esm/react/hooks/useAccountInput.js',
-  accountExistsBadge: '/sdk/esm/react/components/PasskeyAuthMenu/ui/AccountExistsBadge.js',
-  authMenuTypes: '/sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
+  useAccountInput: '/_test-sdk/esm/react/hooks/useAccountInput.js',
+  accountExistsBadge: '/_test-sdk/esm/react/components/PasskeyAuthMenu/ui/AccountExistsBadge.js',
+  authMenuTypes: '/_test-sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
 } as const;
 
 test.describe('Passkey auth account availability', () => {

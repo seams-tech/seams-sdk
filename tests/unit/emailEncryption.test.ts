@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
+  server: '/_test-sdk/esm/server/index.js',
 } as const;
 
 test.describe('Email encryption round-trip (Outlayer DKIM flow)', () => {

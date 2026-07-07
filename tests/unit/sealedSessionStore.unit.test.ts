@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  indexedDB: '/sdk/esm/core/indexedDB/index.js',
-  sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
+  indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   thresholdWarmSessionBootstrap:
-    '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
-  records: '/sdk/esm/core/signingEngine/session/persistence/records.js',
+    '/_test-sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
+  records: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 const ECDSA_RESTORE = {

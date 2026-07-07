@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
-  types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
-  events: '/sdk/esm/core/browser/walletIframe/events.js',
-  localOnly: '/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
-  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
+  handle: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  types: '/_test-sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
+  events: '/_test-sdk/esm/core/browser/walletIframe/events.js',
+  localOnly: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
+  nonceCoordinator: '/_test-sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
 test.describe('confirmTxFlow – defensive paths', () => {

@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
-  types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
-  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
+  handle: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  types: '/_test-sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
+  nonceCoordinator: '/_test-sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
 test.describe('UserConfirm – warm signing', () => {

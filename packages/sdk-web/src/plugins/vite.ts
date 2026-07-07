@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildPermissionsPolicy, buildWalletCsp } from './headers';
 import {
   addPreconnectLink,
@@ -60,6 +61,11 @@ export type DevHeadersOptions = {
   coepMode?: 'strict' | 'off';
 };
 
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const WALLET_STATIC_ASSET_NAMES = ['wallet-shims.js', 'wallet-service.css'] as const;
+
+type WalletStaticAssetName = (typeof WALLET_STATIC_ASSET_NAMES)[number];
+
 function tryFile(...candidates: string[]): string | undefined {
   for (const file of candidates) {
     try {
@@ -70,36 +76,26 @@ function tryFile(...candidates: string[]): string | undefined {
   return undefined;
 }
 
-const WALLET_SHIM_SOURCE = 'window.global ||= window; window.process ||= { env: {} };\n';
-const WALLET_SURFACE_CSS = [
-  'html, body { background: transparent !important; margin:0; padding:0; }',
-  'html, body { color-scheme: normal; }',
-  '',
-  // Class-based surface for strict CSP setups toggled by JS
-  'html.w3a-transparent, body.w3a-transparent { background: transparent !important; margin:0; padding:0; color-scheme: normal; }',
-  '',
-  // Minimal portal styles used by confirm-ui (no animation; child components handle transitions)
-  '.w3a-portal { position: relative; z-index: 2147483647; opacity: 0; pointer-events: none; }',
-  '.w3a-portal.w3a-portal--visible { opacity: 1; pointer-events: auto; }',
-  '',
-  // Provide baseline tokens only when the document does not declare a theme.
-  // This avoids overriding :root[data-w3a-theme] values supplied by token sheet
-  // or integrator-injected themes.
-  ':root:not([data-w3a-theme]) {',
-  '  --w3a-colors-textPrimary: #f6f7f8;',
-  '  --w3a-colors-textSecondary: rgba(255,255,255,0.7);',
-  '  --w3a-colors-surface: rgba(255,255,255,0.08);',
-  '  --w3a-colors-surface2: rgba(255,255,255,0.06);',
-  '  --w3a-colors-surface3: rgba(255,255,255,0.04);',
-  '  --w3a-colors-borderPrimary: rgba(255,255,255,0.14);',
-  '  --w3a-colors-borderSecondary: rgba(255,255,255,0.1);',
-  '  --w3a-colors-colorBackground: #0b0c10;',
-  '  /* Default viewport custom properties for width/height calculations */',
-  '  --w3a-vw: 100vw;',
-  '  --w3a-vh: 100vh;',
-  '}',
-  '',
-].join('\n');
+function walletStaticAssetCandidates(fileName: WalletStaticAssetName): string[] {
+  return [
+    path.resolve(MODULE_DIR, '../static/wallet-assets', fileName),
+    path.resolve(MODULE_DIR, '../sdk', fileName),
+    path.resolve(MODULE_DIR, '../../public/sdk', fileName),
+    path.resolve(process.cwd(), 'src/static/wallet-assets', fileName),
+    path.resolve(process.cwd(), 'packages/sdk-web/src/static/wallet-assets', fileName),
+  ];
+}
+
+function resolveWalletStaticAsset(fileName: WalletStaticAssetName): string {
+  const assetPath = tryFile(...walletStaticAssetCandidates(fileName));
+  if (assetPath) return assetPath;
+  throw new Error(`Missing wallet static asset source: ${fileName}`);
+}
+
+function copyWalletStaticAssetIfMissing(fileName: WalletStaticAssetName, destination: string): void {
+  if (fs.existsSync(destination)) return;
+  fs.copyFileSync(resolveWalletStaticAsset(fileName), destination);
+}
 
 /**
  * Seams SDK plugin: serve SDK assets under a stable base (default: /sdk) with optional COEP/CORP (strict mode) and permissive CORS.
@@ -124,34 +120,6 @@ export function seamsServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
-      // Serve a tiny shim as a virtual asset to enable strict CSP (no inline scripts)
-      server.middlewares.use((req: any, res: any, next: any) => {
-        const url = (req.url || '').split('?')[0];
-        if (url === configuredBase + '/wallet-shims.js') {
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-          res.setHeader('Cache-Control', 'no-store, max-age=0');
-          // Align with SDK asset headers so COEP/CORP environments can import
-          applyCoepCorpIfNeeded(res, coepMode);
-          // Dev-only CORS echo (no preflight handling on this route)
-          echoCorsFromRequest(res, req, { handlePreflight: false });
-          res.end(WALLET_SHIM_SOURCE);
-          return;
-        }
-        if (url === configuredBase + '/wallet-service.css') {
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'text/css; charset=utf-8');
-          res.setHeader('Cache-Control', 'no-store, max-age=0');
-          // Important: provide CORP for cross‑origin CSS so COEP documents can load it
-          applyCoepCorpIfNeeded(res, coepMode);
-          // Dev-only CORS echo (no preflight handling on this route)
-          echoCorsFromRequest(res, req, { handlePreflight: false });
-          res.end(WALLET_SURFACE_CSS);
-          return;
-        }
-        next();
-      });
-
       // Optional debug route to confirm resolution
       if (enableDebugRoutes) {
         server.middlewares.use('/__sdk-root', (req: any, res: any) => {
@@ -510,13 +478,9 @@ export function seamsBuildHeaders(
           fs.mkdirSync(sdkDir, { recursive: true });
         } catch {}
         const shimPath = path.join(sdkDir, 'wallet-shims.js');
-        if (!fs.existsSync(shimPath)) {
-          fs.writeFileSync(shimPath, WALLET_SHIM_SOURCE, 'utf-8');
-        }
+        copyWalletStaticAssetIfMissing('wallet-shims.js', shimPath);
         const cssPath = path.join(sdkDir, 'wallet-service.css');
-        if (!fs.existsSync(cssPath)) {
-          fs.writeFileSync(cssPath, WALLET_SURFACE_CSS, 'utf-8');
-        }
+        copyWalletStaticAssetIfMissing('wallet-service.css', cssPath);
 
         // Emit minimal wallet-service/index.html if the app hasn't provided one
         const walletRel = walletServicePath.replace(/^\//, '');

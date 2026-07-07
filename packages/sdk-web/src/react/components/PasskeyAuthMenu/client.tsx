@@ -84,6 +84,22 @@ function canUseRegistrationActivationSurface(state: RegistrationActivationSurfac
   }
 }
 
+function shouldRefreshRegistrationActivationSurface(
+  state: RegistrationActivationSurfaceState,
+): boolean {
+  return state.kind === 'cancelled' && state.reason === 'expired';
+}
+
+function registrationActivationSurfaceStateForView(
+  state: RegistrationActivationSurfaceState,
+): RegistrationActivationSurfaceState {
+  return shouldRefreshRegistrationActivationSurface(state) ? { kind: 'idle' } : state;
+}
+
+function nextRegistrationActivationSurfaceRevision(current: number): number {
+  return current + 1;
+}
+
 export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   onLogin,
   onRegister,
@@ -104,6 +120,8 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   const { withSdkEventsHandler } = useSDKEvents({ sdkFlow: runtime.sdkFlow });
   const [registrationActivationSurfaceState, setRegistrationActivationSurfaceState] =
     React.useState<RegistrationActivationSurfaceState>({ kind: 'idle' });
+  const [registrationActivationSurfaceRevision, setRegistrationActivationSurfaceRevision] =
+    React.useState(0);
 
   const onLoginWithSDKEvents = React.useMemo(
     () => withSdkEventsHandler('login', onLogin, 60_000),
@@ -214,7 +232,10 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     isRegistrationActivationSurfacePreparing(registrationActivationSurfaceState);
   const handleRegistrationActivationSurfaceStateChange = React.useCallback(
     (state: RegistrationActivationSurfaceState): void => {
-      setRegistrationActivationSurfaceState(state);
+      setRegistrationActivationSurfaceState(registrationActivationSurfaceStateForView(state));
+      if (shouldRefreshRegistrationActivationSurface(state)) {
+        setRegistrationActivationSurfaceRevision(nextRegistrationActivationSurfaceRevision);
+      }
       controller.onRegistrationActivationSurfaceStateChange(state);
     },
     [controller.onRegistrationActivationSurfaceStateChange],
@@ -238,6 +259,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     });
   }, [
     controller.registrationActivationWallet,
+    registrationActivationSurfaceRevision,
     handleRegistrationActivationSurfaceStateChange,
     useIframeRegistrationActivationButton,
     runtime.seamsWeb,

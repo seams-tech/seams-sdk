@@ -79,7 +79,7 @@ test.describe('Wallet iframe assetsBaseUrl normalization', () => {
   test('uses /sdk/ when sdkBasePath is an empty string', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         const pm = new SeamsWeb({

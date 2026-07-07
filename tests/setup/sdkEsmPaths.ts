@@ -1,11 +1,11 @@
-export const SDK_ESM_BASE_PATH = '/sdk/esm';
+export const SDK_ESM_BASE_PATH = '/_test-sdk/esm';
 
 export function sdkEsmPath(subpath: string): string {
   const cleaned = String(subpath || '').replace(/^\/+/, '');
   return `${SDK_ESM_BASE_PATH}/${cleaned}`;
 }
 
-// Canonical browser-only dynamic imports from /sdk/esm/*
+// Canonical browser-only dynamic imports from Playwright's test ESM route.
 export const SDK_ESM_PATHS = {
   index: sdkEsmPath('index.js'),
   base64: sdkEsmPath('utils/base64.js'),

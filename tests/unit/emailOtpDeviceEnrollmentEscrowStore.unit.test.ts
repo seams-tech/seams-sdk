@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  store: '/sdk/esm/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.js',
+  store: '/_test-sdk/esm/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.js',
 } as const;
 
 test.describe('Email OTP device enrollment escrow store', () => {
@@ -210,7 +210,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
         const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
         let unavailableMessage = '';
         try {
-          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          const singletons = await import('/_test-sdk/esm/core/indexedDB/singletons.js');
           singletons.seamsWalletDB.setDisabled(true);
           unavailableMessage = await mod
             .writeEmailOtpDeviceEnrollmentEscrowRecord({
@@ -228,7 +228,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
               (error: unknown) => String((error as Error)?.message || error),
             );
         } finally {
-          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          const singletons = await import('/_test-sdk/esm/core/indexedDB/singletons.js');
           singletons.seamsWalletDB.setDisabled(false);
           if (descriptor) {
             Object.defineProperty(globalThis, 'indexedDB', descriptor);
@@ -265,7 +265,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
         let disabledMessage = '';
         let openCalledWhileDisabled = false;
         try {
-          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          const singletons = await import('/_test-sdk/esm/core/indexedDB/singletons.js');
           const originalIndexedDB = globalThis.indexedDB;
           Object.defineProperty(globalThis, 'indexedDB', {
             configurable: true,
@@ -283,7 +283,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
             (error: unknown) => String((error as Error)?.message || error),
           );
         } finally {
-          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          const singletons = await import('/_test-sdk/esm/core/indexedDB/singletons.js');
           singletons.seamsWalletDB.setDisabled(false);
           if (indexedDbDescriptor) {
             Object.defineProperty(globalThis, 'indexedDB', indexedDbDescriptor);

@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import { encodeFunctionData, parseAbi } from 'viem';
 
 const IMPORT_PATHS = {
-  nearBuilder: '/sdk/esm/core/signingEngine/chains/near/display.js',
-  evmBuilder: '/sdk/esm/core/signingEngine/chains/evm/display/evmTx.js',
-  tempoBuilder: '/sdk/esm/core/signingEngine/chains/tempo/display.js',
-  txTreeUtils: '/sdk/esm/core/signingEngine/uiConfirm/ui/lit-components/TxTree/tx-tree-utils.js',
+  nearBuilder: '/_test-sdk/esm/core/signingEngine/chains/near/display.js',
+  evmBuilder: '/_test-sdk/esm/core/signingEngine/chains/evm/display/evmTx.js',
+  tempoBuilder: '/_test-sdk/esm/core/signingEngine/chains/tempo/display.js',
+  txTreeUtils: '/_test-sdk/esm/core/signingEngine/uiConfirm/ui/lit-components/TxTree/tx-tree-utils.js',
 } as const;
 
 const ERC20_ABI = parseAbi(['function transfer(address to, uint256 amount)']);

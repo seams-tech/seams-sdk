@@ -2,9 +2,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  provider: '/sdk/esm/react/context/SeamsWebProvider.js',
-  theme: '/sdk/esm/react/components/theme/ThemeProvider.js',
-  context: '/sdk/esm/react/context/index.js',
+  provider: '/_test-sdk/esm/react/context/SeamsWebProvider.js',
+  theme: '/_test-sdk/esm/react/components/theme/ThemeProvider.js',
+  context: '/_test-sdk/esm/react/context/index.js',
 } as const;
 
 async function getColorBackgroundVar(page: Page, scopeSelector: string): Promise<string> {
@@ -137,7 +137,7 @@ test.describe('React Theme integration', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: 'https://router-api.localhost' },
-              iframeWallet: { walletOrigin: '' },
+              iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
               appearance: {
                 theme: 'dark',
                 tokens: {
@@ -202,7 +202,7 @@ test.describe('React Theme integration', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: 'https://router-api.localhost' },
-              iframeWallet: { walletOrigin: '' },
+              iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
               appearance: {
                 theme: 'dark',
                 tokens: {
@@ -275,7 +275,7 @@ test.describe('React Theme integration', () => {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
           appearance: {
             theme: 'light',
             tokens: {
@@ -388,7 +388,7 @@ test.describe('React Theme integration', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: 'https://router-api.localhost' },
-              iframeWallet: { walletOrigin: '' },
+              iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
             };
 
             const ControlledApp: React.FC = () => {

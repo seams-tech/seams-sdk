@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  useAccountInput: '/sdk/esm/react/hooks/useAccountInput.js',
+  useAccountInput: '/_test-sdk/esm/react/hooks/useAccountInput.js',
 } as const;
 
 test.describe('useAccountInput refresh prefill behavior', () => {

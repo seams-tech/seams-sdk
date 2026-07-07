@@ -7,7 +7,7 @@ test.describe('export viewer host cleanup', () => {
     const result = await page.evaluate(async () => {
       const mod = await import(
         new URL(
-          '/sdk/esm/react/core/signingEngine/uiConfirm/ui/export-viewer-host.js',
+          '/_test-sdk/esm/react/core/signingEngine/uiConfirm/ui/export-viewer-host.js',
           window.location.origin,
         ).toString()
       );
@@ -32,7 +32,7 @@ test.describe('export viewer host cleanup', () => {
     const result = await page.evaluate(async () => {
       const mod = await import(
         new URL(
-          '/sdk/esm/react/core/signingEngine/uiConfirm/ui/export-viewer-host.js',
+          '/_test-sdk/esm/react/core/signingEngine/uiConfirm/ui/export-viewer-host.js',
           window.location.origin,
         ).toString()
       );

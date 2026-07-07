@@ -5,10 +5,16 @@
 	}
 }
 
-# App (Vite dev server) - headers set by Vite plugin
+# App (Vite dev server)
 localhost {
 	tls internal
 	encode gzip
+	@app_wallet_assets {
+		path /sdk/* /wallet-service /wallet-service/* /export-viewer /export-viewer/*
+	}
+	handle @app_wallet_assets {
+		respond 404
+	}
 	handle {
 		reverse_proxy localhost:3600
 	}
@@ -21,11 +27,54 @@ docs.localhost {
 	reverse_proxy localhost:5222
 }
 
-# Wallet host (self-contained mode - shares same Vite server) - headers set by Vite plugin
+# Wallet host (static SDK wallet asset tree)
 localhost:8443 {
 	tls internal
 	encode gzip
-	reverse_proxy localhost:3600
+	root * {$SEAMS_WALLET_PUBLIC_ROOT}
+
+	@wallet_documents {
+		path /wallet-service /wallet-service/ /export-viewer /export-viewer/
+	}
+	header @wallet_documents Cache-Control "no-store, max-age=0"
+	header @wallet_documents Content-Security-Policy "frame-ancestors 'self' http://localhost:* https://localhost:*"
+
+	@sdk_assets path /sdk/*
+	header @sdk_assets Cache-Control "public, max-age=300, must-revalidate"
+	header @sdk_assets -Content-Security-Policy
+	header @sdk_assets -Cross-Origin-Embedder-Policy
+	header @sdk_assets -Cross-Origin-Opener-Policy
+	header @sdk_assets -Cross-Origin-Resource-Policy
+	header @sdk_assets -Permissions-Policy
+
+	handle /wallet-service {
+		rewrite * /wallet-service/index.html
+		file_server
+	}
+	handle /wallet-service/ {
+		rewrite * /wallet-service/index.html
+		file_server
+	}
+	handle /export-viewer {
+		rewrite * /export-viewer/index.html
+		file_server
+	}
+	handle /export-viewer/ {
+		rewrite * /export-viewer/index.html
+		file_server
+	}
+	handle /sdk/* {
+		file_server
+	}
+	handle /wallet-assets.manifest.json {
+		file_server
+	}
+	handle /headers.manifest.json {
+		file_server
+	}
+	handle {
+		respond "Seams wallet asset origin" 200
+	}
 }
 
 # Router server on separate origin

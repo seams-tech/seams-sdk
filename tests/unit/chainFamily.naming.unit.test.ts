@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  chains: '/sdk/esm/core/config/chains.js',
-  defaults: '/sdk/esm/core/config/defaultConfigs.js',
+  chains: '/_test-sdk/esm/core/config/chains.js',
+  defaults: '/_test-sdk/esm/core/config/defaultConfigs.js',
 } as const;
 
 test.describe('chain family naming', () => {
@@ -120,6 +120,7 @@ test.describe('chain family naming', () => {
           builtNetworks: defaultsMod
             .buildConfigsFromEnv({
               relayer: { url: 'https://relay.example' },
+              iframeWallet: { walletOrigin: 'https://wallet.example.test' },
               chains: [
                 {
                   network: 'near-testnet',

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  userHandle: '/sdk/esm/core/WebAuthnManager/userHandle.js',
+  userHandle: '/_test-sdk/esm/core/WebAuthnManager/userHandle.js',
 } as const;
 
 test.describe('parseAccountIdFromUserHandle', () => {

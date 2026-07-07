@@ -13,6 +13,41 @@ function createAbortError(): Error {
   return new Error('Wallet iframe connect aborted');
 }
 
+export class WalletIframeProtocolVersionMismatchError extends Error {
+  readonly code = 'WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH';
+  readonly expectedProtocolVersion: string;
+  readonly receivedProtocolVersion: string | null;
+
+  constructor(args: { expectedProtocolVersion: string; receivedProtocolVersion: string | null }) {
+    super(
+      `[IframeTransport] Wallet iframe protocol version mismatch: expected ${args.expectedProtocolVersion}, received ${args.receivedProtocolVersion ?? 'missing'}`,
+    );
+    this.name = 'WalletIframeProtocolVersionMismatchError';
+    this.expectedProtocolVersion = args.expectedProtocolVersion;
+    this.receivedProtocolVersion = args.receivedProtocolVersion;
+  }
+}
+
+function protocolVersionFromReady(data: ChildToParentEnvelope): string | null {
+  if (data.type !== 'READY') return null;
+  const payload = data.payload;
+  if (!payload || typeof payload !== 'object') return null;
+  const protocolVersion = (payload as { protocolVersion?: unknown }).protocolVersion;
+  return typeof protocolVersion === 'string' ? protocolVersion : null;
+}
+
+function createProtocolVersionMismatchError(args: {
+  expectedProtocolVersion: string;
+  data: ChildToParentEnvelope;
+}): WalletIframeProtocolVersionMismatchError | null {
+  const receivedProtocolVersion = protocolVersionFromReady(args.data);
+  if (receivedProtocolVersion === args.expectedProtocolVersion) return null;
+  return new WalletIframeProtocolVersionMismatchError({
+    expectedProtocolVersion: args.expectedProtocolVersion,
+    receivedProtocolVersion,
+  });
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw createAbortError();
@@ -106,6 +141,7 @@ type HandshakeOptions = {
   walletServiceUrl: URL;
   connectType: string;
   readyType: string;
+  expectedProtocolVersion: string;
   getTargetOrigin: (attempt: number) => string;
   onAttempt?: (attempt: number, elapsedMs: number) => void;
   scheduler?: HandshakeScheduler;
@@ -158,6 +194,14 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
     port1.onmessage = (e: MessageEvent<ChildToParentEnvelope>) => {
       const data = e.data;
       if (data.type === opts.readyType) {
+        const mismatch = createProtocolVersionMismatchError({
+          expectedProtocolVersion: opts.expectedProtocolVersion,
+          data,
+        });
+        if (mismatch) {
+          rejectOnce(mismatch);
+          return;
+        }
         resolveOnce(port1);
       }
     };

@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  login: '/sdk/esm/SeamsWeb/operations/auth/login.js',
-  walletUnlockSubject: '/sdk/esm/SeamsWeb/operations/auth/walletUnlockSubject.js',
-  indexedDB: '/sdk/esm/core/indexedDB/index.js',
-  thresholdSessionStore: '/sdk/esm/core/signingEngine/session/persistence/records.js',
+  login: '/_test-sdk/esm/SeamsWeb/operations/auth/login.js',
+  walletUnlockSubject: '/_test-sdk/esm/SeamsWeb/operations/auth/walletUnlockSubject.js',
+  indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 test.describe('wallet session profile identity restore', () => {

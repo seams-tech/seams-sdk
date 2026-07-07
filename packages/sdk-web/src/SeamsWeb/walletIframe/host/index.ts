@@ -3,8 +3,8 @@ import type {
   ChildToParentEnvelope,
   ParentToChildEnvelope,
   PMSetConfigPayload,
-  ReadyPayload,
 } from '../shared/messages';
+import { WALLET_PROTOCOL_VERSION } from '../shared/messages';
 import type { SeamsConfigsInput } from '@/core/types/seams';
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { isObject } from '@shared/utils/validation';
@@ -17,7 +17,6 @@ import {
   routeWalletHostRequest,
 } from './requestRouter';
 
-const PROTOCOL: ReadyPayload['protocolVersion'] = '1.0.0';
 let initialized = false;
 
 const CONFIRM_UI_SELECTORS = [
@@ -220,7 +219,7 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
       state.port.onmessage = (ev) => onPortMessage(ev as MessageEvent<ParentToChildEnvelope>);
       state.port.start?.();
     } catch {}
-    post({ type: 'READY', payload: { protocolVersion: PROTOCOL } });
+    post({ type: 'READY', payload: { protocolVersion: WALLET_PROTOCOL_VERSION } });
   };
 
   window.addEventListener('message', onWindowMessage);

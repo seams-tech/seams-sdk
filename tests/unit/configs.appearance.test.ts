@@ -1,10 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 
+const iframeWallet = { walletOrigin: 'https://wallet.example.test' } as const;
+
 test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
   test('applies default appearance when overrides are omitted', async () => {
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },
+      iframeWallet,
     });
 
     expect(cfg.ui.appearance).toEqual({
@@ -20,6 +23,7 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
   test('merges explicit appearance overrides', async () => {
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },
+      iframeWallet,
       appearance: {
         theme: 'light',
         palette: 'default',
@@ -48,6 +52,7 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
     expect(() =>
       buildConfigsFromEnv({
         relayer: { url: 'https://relay.example' },
+        iframeWallet,
         appearance: {
           theme: 'sepia' as any,
           palette: 'midnight' as any,

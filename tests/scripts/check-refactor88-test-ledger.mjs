@@ -450,8 +450,8 @@ const retainedBoundaryAuditEvidenceTokens = {
         'PM_SET_CONFIG',
     ],
     'tests/wallet-iframe/csp.strict.violation-free.test.ts': [
-        'wallet-service under strict CSP has no inline style tags or style attributes',
-        'style-src-attr',
+        'wallet-service default route does not emit legacy strict CSP',
+        'content-security-policy',
     ],
     'tests/wallet-iframe/export.flow.integration.test.ts': [
         'wallet-origin export flow integration',
@@ -467,7 +467,7 @@ const retainedBoundaryAuditEvidenceTokens = {
     ],
     'tests/wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts': [
         'PasskeyAuthMenu QR button overlay regression',
-        'clicking Scan and Link Device keeps wallet iframe overlay hidden',
+        'disabled Device2 linking keeps wallet iframe overlay hidden',
         'PM_START_DEVICE2_LINKING_FLOW',
     ],
     'tests/wallet-iframe/preferences.sync.test.ts': [

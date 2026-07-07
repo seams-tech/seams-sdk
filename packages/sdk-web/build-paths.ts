@@ -14,6 +14,7 @@ export const BUILD_PATHS = {
   SOURCE: {
     ROOT: 'src',
     CORE: 'src/core',
+    STATIC: 'src/static',
     SIGNING_WORKERS: 'src/core/signingEngine/workerManager/workers',
     WASM_SIGNER: '../../wasm/near_signer',
     WASM_HSS_CLIENT_SIGNER: '../../wasm/hss_client_signer',
@@ -24,6 +25,7 @@ export const BUILD_PATHS = {
     CRITICAL_DIRS: [
       'src/core',
       'src/react',
+      'src/static',
       'src/utils',
       '../sdk-server-ts/src',
       '../shared-ts/src',
@@ -34,13 +36,6 @@ export const BUILD_PATHS = {
       '../../wasm/shamir3pass_runtime',
       '../../wasm/email_otp_runtime',
     ],
-  },
-
-  // Frontend deployment paths
-  FRONTEND: {
-    ROOT: '../../apps/seams-site/src/public',
-    SDK: '../../apps/seams-site/src/public/sdk',
-    WORKERS: '../../apps/seams-site/src/public/sdk/workers',
   },
 
   // Runtime paths (used by workers and tests)
@@ -64,6 +59,10 @@ export const BUILD_PATHS = {
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
     HSS_CLIENT_SIGNER_JS: 'hss_client_signer.js',
     HSS_CLIENT_SIGNER_WASM: 'hss_client_signer_bg.wasm',
+    WASM_ETH_SIGNER_WASM: 'eth_signer.wasm',
+    WASM_ETH_SIGNER_BG_WASM: 'eth_signer_bg.wasm',
+    WASM_TEMPO_SIGNER_WASM: 'tempo_signer.wasm',
+    WASM_TEMPO_SIGNER_BG_WASM: 'tempo_signer_bg.wasm',
     EMAIL_OTP_RUNTIME_JS: 'email_otp_runtime.js',
     EMAIL_OTP_RUNTIME_WASM: 'email_otp_runtime_bg.wasm',
   },
@@ -79,6 +78,10 @@ export const BUILD_PATHS = {
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',
     HSS_CLIENT_SIGNER_JS: '/sdk/workers/hss_client_signer.js',
     HSS_CLIENT_SIGNER_WASM: '/sdk/workers/hss_client_signer_bg.wasm',
+    WASM_ETH_SIGNER_WASM: '/sdk/workers/eth_signer.wasm',
+    WASM_ETH_SIGNER_BG_WASM: '/sdk/workers/eth_signer_bg.wasm',
+    WASM_TEMPO_SIGNER_WASM: '/sdk/workers/tempo_signer.wasm',
+    WASM_TEMPO_SIGNER_BG_WASM: '/sdk/workers/tempo_signer_bg.wasm',
     EMAIL_OTP_RUNTIME_JS: '/sdk/workers/email_otp_runtime.js',
     EMAIL_OTP_RUNTIME_WASM: '/sdk/workers/email_otp_runtime_bg.wasm',
   },
@@ -89,8 +92,6 @@ export const getWorkerPath = (workerName: string): string =>
   `${BUILD_PATHS.BUILD.WORKERS}/${workerName}`;
 export const getRuntimeWorkerPath = (workerName: string): string =>
   `${BUILD_PATHS.RUNTIME.WORKERS_BASE}/${workerName}`;
-export const getFrontendWorkerPath = (workerName: string): string =>
-  `${BUILD_PATHS.FRONTEND.WORKERS}/${workerName}`;
 
 // Default export for easier importing
 export default BUILD_PATHS;

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  nonceBackend: '/sdk/esm/core/rpcClients/evm/nonceBackend.js',
+  nonceBackend: '/_test-sdk/esm/core/rpcClients/evm/nonceBackend.js',
 } as const;
 
 const TEST_SENDER = `0x${'11'.repeat(20)}`;

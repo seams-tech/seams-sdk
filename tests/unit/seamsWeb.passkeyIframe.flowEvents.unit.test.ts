@@ -153,7 +153,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
   test('forwards passkey registration and unlock sequences through onEvent', async ({ page }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const pm = new SeamsWeb({
           relayer: { url: 'https://relay.example' },
@@ -299,7 +299,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
   }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const pm = new SeamsWeb({
           relayer: { url: 'https://relay.example' },

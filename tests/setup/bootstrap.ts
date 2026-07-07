@@ -5,14 +5,14 @@ import { printStepLine } from './logging';
 import { installWalletSdkCorsShim } from './cross-origin-headers';
 import type { PasskeyTestConfig } from './types';
 import { DEFAULT_TEST_CONFIG } from './config';
-import { SDK_ESM_PATHS } from './sdkEsmPaths';
+import { SDK_ESM_BASE_PATH, SDK_ESM_PATHS } from './sdkEsmPaths';
 import {
   buildTestBrowserImportMapHtml,
   TEST_BROWSER_IMPORT_MAP_ATTR,
   TEST_BROWSER_IMPORT_MAP_MARKER,
 } from './importMap';
 
-const SERVER_ESM_ROUTE_PATTERN = '**/sdk/esm/server/**';
+const TEST_ESM_ROUTE_PATTERN = `**${SDK_ESM_BASE_PATH}/**`;
 
 function resolveRepoRoot(): string {
   if (process.env.W3A_REPO_ROOT) return process.env.W3A_REPO_ROOT;
@@ -25,6 +25,8 @@ function contentTypeForEsmFixture(filePath: string): string {
   switch (path.extname(filePath)) {
     case '.js':
       return 'application/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
     case '.map':
     case '.json':
       return 'application/json; charset=utf-8';
@@ -35,15 +37,19 @@ function contentTypeForEsmFixture(filePath: string): string {
   }
 }
 
-function resolveServerEsmFixturePath(url: string): string | null {
+function resolveEsmFixturePath(url: string): string | null {
   const parsed = new URL(url);
-  const marker = '/sdk/esm/server/';
+  const marker = `${SDK_ESM_BASE_PATH}/`;
   const markerIndex = parsed.pathname.indexOf(marker);
   if (markerIndex < 0) return null;
 
   const rel = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
-  const root = path.join(resolveRepoRoot(), 'packages/sdk-server-ts/dist/esm');
-  const candidate = path.normalize(path.join(root, rel));
+  const isServerFixture = rel === 'server' || rel.startsWith('server/');
+  const root = isServerFixture
+    ? path.join(resolveRepoRoot(), 'packages/sdk-server-ts/dist/esm')
+    : path.join(resolveRepoRoot(), 'packages/sdk-web/dist/esm');
+  const fileRel = isServerFixture ? rel.replace(/^server\/?/, '') : rel;
+  const candidate = path.normalize(path.join(root, fileRel));
   const normalizedRoot = path.normalize(root);
   if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}${path.sep}`)) {
     return null;
@@ -51,11 +57,29 @@ function resolveServerEsmFixturePath(url: string): string | null {
   return candidate;
 }
 
-async function installServerEsmDynamicModuleRoute(page: Page): Promise<void> {
+function shouldServeCssAsModule(route: Route, filePath: string): boolean {
+  if (path.extname(filePath) !== '.css') return false;
+  return route.request().resourceType() === 'script';
+}
+
+function buildCssModuleFixture(filePath: string): string {
+  const css = fs.readFileSync(filePath, 'utf8');
+  return [
+    `const css = ${JSON.stringify(css)};`,
+    'const style = document.createElement("style");',
+    'style.setAttribute("data-w3a-test-css-module", "1");',
+    'style.textContent = css;',
+    'document.head.appendChild(style);',
+    'export default css;',
+    '',
+  ].join('\n');
+}
+
+async function installTestEsmDynamicModuleRoute(page: Page): Promise<void> {
   const context = page.context();
-  await context.unroute(SERVER_ESM_ROUTE_PATTERN as any).catch(() => undefined);
-  await context.route(SERVER_ESM_ROUTE_PATTERN as any, async (route) => {
-    const filePath = resolveServerEsmFixturePath(route.request().url());
+  await context.unroute(TEST_ESM_ROUTE_PATTERN as any).catch(() => undefined);
+  await context.route(TEST_ESM_ROUTE_PATTERN as any, async (route) => {
+    const filePath = resolveEsmFixturePath(route.request().url());
     if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
       return route.fulfill({
         status: 404,
@@ -63,7 +87,18 @@ async function installServerEsmDynamicModuleRoute(page: Page): Promise<void> {
           'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store, max-age=0',
         },
-        body: JSON.stringify({ error: 'server ESM fixture not found' }),
+        body: JSON.stringify({ error: 'test ESM fixture not found' }),
+      });
+    }
+
+    if (shouldServeCssAsModule(route, filePath)) {
+      return route.fulfill({
+        status: 200,
+        body: buildCssModuleFixture(filePath),
+        headers: {
+          'content-type': 'application/javascript; charset=utf-8',
+          'cache-control': 'no-store, max-age=0',
+        },
       });
     }
 
@@ -111,7 +146,7 @@ export async function injectImportMap(
   page: Page,
   options?: { frontendUrl: string },
 ): Promise<void> {
-  await installServerEsmDynamicModuleRoute(page);
+  await installTestEsmDynamicModuleRoute(page);
 
   // Import maps must be present in the HTML during parsing (before any module scripts run).
   // The Vite example app includes `<script type="module" src="/src/main.tsx">`, so we inject
@@ -277,6 +312,12 @@ async function loadSeamsWebDynamically(
               relayerAccount: setupOptions.relayerAccount,
               nearRpcUrl: setupOptions.nearRpcUrl,
               relayer: setupOptions.relayer,
+              iframeWallet: {
+                walletOrigin: setupOptions.walletOrigin,
+                walletServicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: setupOptions.rpId,
+              },
               // Additional centralized configuration
               frontendUrl: setupOptions.frontendUrl,
               rpId: setupOptions.rpId,
@@ -433,6 +474,7 @@ export async function executeSequentialSetup(
   })();
   await installWalletSdkCorsShim(page, {
     appOrigin,
+    walletOrigin: configs.walletOrigin,
     logStyle: 'setup',
     mirror: mirrorWalletOrigin,
     injectWalletServiceImportMap: options.injectWalletServiceImportMap,

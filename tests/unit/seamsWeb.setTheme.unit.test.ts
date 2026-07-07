@@ -8,14 +8,14 @@ test.describe('SeamsWeb.setTheme', () => {
 
   test('updates theme synchronously', async ({ page }) => {
     const result = await page.evaluate(async () => {
-      const mod = await import('/sdk/esm/SeamsWeb/index.js');
+      const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
       const { SeamsWeb } = mod as any;
 
       const seams = new SeamsWeb({
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
         relayer: { url: 'https://router-api.localhost' },
-        iframeWallet: { walletOrigin: '' },
+        iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
       });
 
       const before = seams.theme;
@@ -29,7 +29,7 @@ test.describe('SeamsWeb.setTheme', () => {
 
   test('initializes theme from config appearance.theme', async ({ page }) => {
     const result = await page.evaluate(async () => {
-      const mod = await import('/sdk/esm/SeamsWeb/index.js');
+      const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
       const { SeamsWeb } = mod as any;
 
       const seams = new SeamsWeb({
@@ -37,7 +37,7 @@ test.describe('SeamsWeb.setTheme', () => {
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
         relayer: { url: 'https://router-api.localhost' },
-        iframeWallet: { walletOrigin: '' },
+        iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
       });
 
       return { theme: seams.theme };

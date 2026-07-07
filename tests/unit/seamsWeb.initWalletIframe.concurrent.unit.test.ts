@@ -5,6 +5,14 @@ import { buildWalletServiceHtml, registerWalletServiceRoute } from '../wallet-if
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 
+function removeWalletOverlayElements(elements: Element[]): void {
+  for (const el of elements) {
+    try {
+      el.remove();
+    } catch {}
+  }
+}
+
 // Extend the default wallet-service stub so initWalletIframe() can complete.
 // initWalletIframe() triggers router.init() + getWalletSession() paths that await
 // responses for PM_SET_CONFIG, PM_GET_WALLET_SESSION, and PM_PREFETCH_BLOCKHEIGHT.
@@ -232,17 +240,12 @@ test.describe('SeamsWeb.initWalletIframe', () => {
   });
 
   test('does not mount multiple wallet iframes on concurrent init', async ({ page }) => {
+    await page.locator('iframe.w3a-wallet-overlay').evaluateAll(removeWalletOverlayElements);
+
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
-
-        // Defensive: ensure a clean slate.
-        for (const el of Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay'))) {
-          try {
-            el.remove();
-          } catch {}
-        }
 
         const pm = new SeamsWeb({
           relayer: { url: 'http://localhost:3000' },
@@ -307,6 +310,59 @@ test.describe('SeamsWeb.initWalletIframe', () => {
     expect(result.iframeCount).toBe(1);
   });
 
+  test('does not construct app-origin workers during iframe-mode warmup', async ({ page }) => {
+    await page.locator('iframe.w3a-wallet-overlay').evaluateAll(removeWalletOverlayElements);
+
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
+        const { SeamsWeb } = mod as any;
+        const workerCreations: string[] = [];
+        const NativeWorker = window.Worker;
+
+        const BlockingWorker = function BlockingWorker(url: URL | string) {
+          workerCreations.push(String(url));
+          throw new Error(`app-origin worker construction blocked: ${String(url)}`);
+        } as unknown as typeof Worker;
+
+        Object.defineProperty(window, 'Worker', {
+          configurable: true,
+          value: BlockingWorker,
+        });
+
+        try {
+          const pm = new SeamsWeb({
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: {
+              walletOrigin,
+              walletServicePath: '/wallet-service',
+              sdkBasePath: '/sdk',
+            },
+          });
+
+          await pm.prewarm({ workers: true });
+          await pm.initWalletIframe();
+
+          return {
+            workerCreations,
+            iframeCount: document.querySelectorAll('iframe.w3a-wallet-overlay').length,
+            routerReady: pm.isWalletIframeReady?.() === true,
+          };
+        } finally {
+          Object.defineProperty(window, 'Worker', {
+            configurable: true,
+            value: NativeWorker,
+          });
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(result.workerCreations).toEqual([]);
+    expect(result.iframeCount).toBe(1);
+    expect(result.routerReady).toBe(true);
+  });
+
   test('adopts wallet-host current wallet from early preferences event', async ({ page }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
@@ -318,7 +374,7 @@ test.describe('SeamsWeb.initWalletIframe', () => {
 
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const observedWalletIds: string[] = [];
 
@@ -372,7 +428,7 @@ test.describe('SeamsWeb.initWalletIframe', () => {
 
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const observedWalletIds: string[] = [];
 

@@ -94,10 +94,18 @@ The customer app must point the SDK at the customer-owned wallet origin:
 iframeWallet: {
   walletOrigin: 'https://wallet.dev1.com',
   walletServicePath: '/wallet-service',
+  sdkBasePath: '/sdk',
 }
 ```
 
-The app must also delegate WebAuthn to the wallet origin via `Permissions-Policy` and iframe `allow` attributes.
+The application imports SDK package code normally. It should not serve or
+reverse-proxy `/sdk/*`, `/wallet-service`, or `/export-viewer` from the app
+origin, and it should not add Seams SDK Vite or Next plugins for wallet runtime
+hosting.
+
+The SDK-created iframe owns the default WebAuthn delegation through its `allow`
+attribute. Add an app-origin `Permissions-Policy` only if hosted-origin browser
+validation proves a supported browser requires it.
 
 ### 4. Freeze the RP boundary
 
@@ -117,10 +125,12 @@ Changing this later turns the project into a passkey migration.
    - `CNAME` target for wallet traffic,
    - ownership verification `TXT` record,
    - temporary ACME / certificate-validation `TXT` records when required.
-3. Support browser-transparent serving of:
+3. Support browser-transparent Seams-operated serving of:
    - `/wallet-service`
+   - `/export-viewer`
    - `/sdk/*` assets
-   - wallet CSP and WebAuthn delegation headers
+   - `/sdk/workers/*` worker and WASM assets
+   - wallet document embedding control for allowed app origins
 4. Add TLS issuance/renewal support for customer wallet hostnames after DNS verification succeeds.
 
 ### Phase 2. Tenant configuration
@@ -136,10 +146,10 @@ Changing this later turns the project into a passkey migration.
 ### Phase 3. Runtime support
 
 1. Ensure relay/session flows use the customer-configured `rpId`.
-2. Ensure `/.well-known/webauthn` and related-origin configuration stay aligned with the customer wallet hostname and allowed app origins.
+2. Ensure `/.well-known/webauthn` and related-origin configuration stay aligned with the selected RP ID origin and allowed wallet origins. This file is served from the RP ID origin, normally the app platform, not from the wallet asset host.
 3. Keep vendor-hosted runtime behavior identical to later self-hosted expectations:
    - same wallet paths,
-   - same headers,
+   - same asset/header manifest contract,
    - same origin,
    - same `rpId`.
 
@@ -148,11 +158,16 @@ Changing this later turns the project into a passkey migration.
 When the customer is ready to self-host:
 
 1. Customer deploys the wallet service under the same hostname and path contract.
-2. Customer deploys the same wallet asset/runtime bundle or a supported equivalent.
+2. Customer deploys the same wallet asset/runtime bundle or a supported equivalent from the wallet origin, preserving the hosted wallet asset contract:
+   - `/wallet-service`
+   - `/export-viewer`
+   - `/sdk/*`
+   - `/sdk/workers/*`
 3. Customer preserves:
    - `https://wallet.dev1.com`
    - the same `rpId`
-   - the same WebAuthn delegation and wallet CSP behavior
+   - the same iframe embedding authorization
+   - the same wallet asset/header manifest behavior
 4. Customer updates the `CNAME` target or equivalent edge routing from vendor infrastructure to customer infrastructure.
 5. Vendor and customer perform a short validation window for:
    - registration,

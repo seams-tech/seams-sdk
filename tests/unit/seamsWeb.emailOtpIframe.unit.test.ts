@@ -311,7 +311,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
   }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const walletId = 'frost-vermillion-k7p9m2';
         const nearAccountId = 'alice.testnet';
@@ -495,7 +495,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const { IndexedDBManager, seamsWalletDB } = await import(
-          '/sdk/esm/core/indexedDB/index.js'
+          '/_test-sdk/esm/core/indexedDB/index.js'
         );
         const forbiddenKeys = new Set([
           'S',
@@ -795,7 +795,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
   test('routes Email OTP signing-session refresh with explicit ECDSA subject', async ({ page }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const walletId = 'frost-refresh-k7p9m2';
         const walletSessionRef = {
@@ -866,7 +866,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
   }) => {
     const firstLoad = await page.evaluate(
       async ({ walletOrigin }) => {
-        const { SeamsWeb } = (await import('/sdk/esm/SeamsWeb/index.js')) as any;
+        const { SeamsWeb } = (await import('/_test-sdk/esm/SeamsWeb/index.js')) as any;
         const walletId = 'frost-reload-k7p9m2';
         const nearAccountId = 'alice.testnet';
         const walletSessionRef = {
@@ -921,7 +921,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
 
     const afterReload = await page.evaluate(
       async ({ walletOrigin }) => {
-        const { SeamsWeb } = (await import('/sdk/esm/SeamsWeb/index.js')) as any;
+        const { SeamsWeb } = (await import('/_test-sdk/esm/SeamsWeb/index.js')) as any;
         const walletId = 'frost-reload-k7p9m2';
         const walletSession = {
           walletId,

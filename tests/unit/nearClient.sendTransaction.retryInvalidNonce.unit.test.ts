@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  nearClient: '/sdk/esm/core/rpcClients/near/NearClient.js',
+  nearClient: '/_test-sdk/esm/core/rpcClients/near/NearClient.js',
 } as const;
 
 test.describe('MinimalNearClient.sendTransaction', () => {

@@ -3,26 +3,26 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   routerAbEd25519WalletSessionState:
-    '/sdk/esm/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState.js',
+    '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState.js',
   routerAbWalletSessionCredential:
-    '/sdk/esm/core/signingEngine/session/warmCapabilities/routerAbWalletSessionCredential.js',
+    '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/routerAbWalletSessionCredential.js',
   warmSessionCapabilityReader:
-    '/sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
-  thresholdSessionStore: '/sdk/esm/core/signingEngine/session/persistence/records.js',
+    '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
+  thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
   routerAbSigningWalletSession:
-    '/sdk/esm/core/signingEngine/session/routerAbSigningWalletSession.js',
+    '/_test-sdk/esm/core/signingEngine/session/routerAbSigningWalletSession.js',
   ed25519SigningMaterialReadiness:
-    '/sdk/esm/core/signingEngine/session/warmCapabilities/ed25519SigningMaterialReadiness.js',
+    '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/ed25519SigningMaterialReadiness.js',
   ed25519MaterialRestoreAuthorization:
-    '/sdk/esm/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.js',
-  emailOtpClientSecretSource: '/sdk/esm/core/signingEngine/session/emailOtp/clientSecretSource.js',
-  workerMaterialBinding: '/sdk/esm/core/signingEngine/threshold/ed25519/workerMaterialBinding.js',
-  indexedDB: '/sdk/esm/core/indexedDB/index.js',
-  sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
-  signerWorkerTypes: '/sdk/esm/core/types/signer-worker.js',
-  ecdsaRoleLocalRecords: '/sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
+    '/_test-sdk/esm/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.js',
+  emailOtpClientSecretSource: '/_test-sdk/esm/core/signingEngine/session/emailOtp/clientSecretSource.js',
+  workerMaterialBinding: '/_test-sdk/esm/core/signingEngine/threshold/ed25519/workerMaterialBinding.js',
+  indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
+  signerWorkerTypes: '/_test-sdk/esm/core/types/signer-worker.js',
+  ecdsaRoleLocalRecords: '/_test-sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
   thresholdWarmSessionBootstrap:
-    '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
+    '/_test-sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
 } as const;
 
 function base64UrlEncodeJsonFixture(value: unknown): string {

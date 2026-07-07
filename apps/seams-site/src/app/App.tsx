@@ -2,7 +2,6 @@ import React from 'react';
 import { SeamsWebProvider } from '@seams/sdk/react/provider';
 import { useTheme } from '@seams/sdk/react';
 
-import { HomePage } from '@/pages/home/page';
 import { Home2Page } from '@/pages/home2/page';
 import { PricingPage } from '@/pages/pricing/page';
 import { CompanyPage } from '@/pages/company/page';
@@ -99,7 +98,7 @@ export const App: React.FC = () => {
   const page = React.useMemo(() => {
     switch (pathname) {
       case '/':
-        return <HomePage />;
+      // legacy alias from when the redesign staged at /home2; keeps old links alive
       case '/home2':
         return <Home2Page />;
       case '/pricing':

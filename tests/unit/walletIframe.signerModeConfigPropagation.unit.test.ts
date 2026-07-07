@@ -97,7 +97,7 @@ test.describe('Wallet iframe config propagation', () => {
   test('forwards signing-session config in PM_SET_CONFIG', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         const pm = new SeamsWeb({
@@ -214,7 +214,7 @@ test.describe('Wallet iframe config propagation', () => {
   }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         const pm = new SeamsWeb({
@@ -255,7 +255,7 @@ test.describe('Wallet iframe config propagation', () => {
   test('forwards managed registration config in PM_SET_CONFIG', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         const pm = new SeamsWeb({
@@ -298,7 +298,7 @@ test.describe('Wallet iframe config propagation', () => {
   test('fails fast when sealed refresh is enabled without shamirPrimeB64u', async ({ page }) => {
     const result = await page.evaluate(async () => {
       try {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         new SeamsWeb({
           relayer: { url: 'http://localhost:3000' },
@@ -328,7 +328,7 @@ test.describe('Wallet iframe config propagation', () => {
   }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         const pm = new SeamsWeb({

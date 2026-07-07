@@ -12,6 +12,7 @@ export interface PasskeyTestConfig {
   nearNetwork: 'testnet' | 'mainnet';
   nearRpcUrl: string;
   relayerAccount: string;
+  walletOrigin: string;
   rpId: string;
   relayer?: {
     url: string;
@@ -29,7 +30,7 @@ export type PasskeyTestSetupOptions = PasskeyTestConfigOverrides & {
   skipSeamsWebInit?: boolean;
   /**
    * When true, inject the test import map into wallet-service iframe documents.
-   * Use only for tests that evaluate /sdk/esm modules inside the wallet frame.
+   * Use only for tests that evaluate /_test-sdk/esm modules inside the wallet frame.
    */
   injectWalletServiceImportMap?: boolean;
 };

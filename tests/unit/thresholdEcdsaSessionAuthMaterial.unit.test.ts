@@ -3,13 +3,13 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/session/persistence/records.js',
+    '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
   warmSessionCapabilityReader:
-    '/sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
+    '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
   routerAbEcdsaWalletSessionAuth:
-    '/sdk/esm/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.js',
+    '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.js',
   ecdsaRoleLocalRecords:
-    '/sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
+    '/_test-sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
 } as const;
 
 test.describe('threshold ECDSA warm-session auth material', () => {

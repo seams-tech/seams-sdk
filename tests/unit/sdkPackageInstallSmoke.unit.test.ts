@@ -93,13 +93,14 @@ test.describe('SDK package install smoke', () => {
       fs.writeFileSync(
         path.join(tmpRoot, 'import-browser-subpaths.mjs'),
         `
-          async function expectMissingServerSubpath() {
+          function expectMissingSubpath(specifier) {
             try {
-              await import('@seams/sdk/server');
-            } catch {
-              return;
+              import.meta.resolve(specifier);
+            } catch (error) {
+              if (error && error.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') return;
+              throw error;
             }
-            throw new Error('old @seams/sdk/server subpath still resolves');
+            throw new Error(specifier + ' still resolves');
           }
 
           const runtime = await import('@seams/sdk/runtime');
@@ -113,7 +114,10 @@ test.describe('SDK package install smoke', () => {
           if (typeof root.SeamsWeb !== 'function') {
             throw new Error('missing SeamsWeb export');
           }
-          await expectMissingServerSubpath();
+          expectMissingSubpath('@seams/sdk/server');
+          expectMissingSubpath('@seams/sdk/worker');
+          expectMissingSubpath('@seams/sdk/wasm');
+          expectMissingSubpath('@seams/sdk/wasm-js');
         `,
       );
       run(process.execPath, ['import-browser-subpaths.mjs'], tmpRoot);

@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/session/persistence/records.js',
+    '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 test.describe('threshold Ed25519 Wallet Session rehydrate', () => {

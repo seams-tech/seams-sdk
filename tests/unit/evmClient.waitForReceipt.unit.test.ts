@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
-const IMPORT_PATH = '/sdk/esm/core/rpcClients/evm/EvmClient.js' as const;
+const IMPORT_PATH = '/_test-sdk/esm/core/rpcClients/evm/EvmClient.js' as const;
 
 test.describe('evm client waitForTransactionReceipt', () => {
   test.beforeEach(async ({ page }) => {

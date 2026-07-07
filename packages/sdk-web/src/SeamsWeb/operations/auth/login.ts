@@ -226,7 +226,7 @@ type LoginWalletBindingResolution =
     };
 
 type WalletSessionStatusIdentity = {
-  kind: 'wallet_subject_set';
+  kind: 'wallet_session_subject_set';
   walletId: WalletId;
   subjectSet: ResolvedWalletUnlockSubjectSet;
 };
@@ -3219,7 +3219,7 @@ export async function getWalletSession(
     ? await resolveSigningSessionStatusForUi(
         context,
         {
-          kind: 'wallet_subject_set',
+          kind: 'wallet_session_subject_set',
           walletId: readResolution.walletId,
           subjectSet: readResolution.subjectSet,
         },
@@ -4072,7 +4072,7 @@ async function getLoginStateInternal(
                 .catch(() => null)
             : null);
     const sessionStatusIdentity: WalletSessionStatusIdentity = {
-      kind: 'wallet_subject_set',
+      kind: 'wallet_session_subject_set',
       walletId: resolvedWalletId,
       subjectSet: readResolution.subjectSet,
     };

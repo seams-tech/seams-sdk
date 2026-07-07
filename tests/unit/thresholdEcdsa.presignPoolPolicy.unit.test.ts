@@ -105,6 +105,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
     expect(() =>
       buildConfigsFromEnv({
         relayer: { url: 'https://relay.example' },
+        iframeWallet: { walletOrigin: 'https://wallet.example.test' },
         routerAbEcdsaHssPresignaturePool: {
           enabled: false,
           targetDepth: 99,
@@ -121,6 +122,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
   test('accepts larger target depth policy for pooled warm signing', async () => {
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },
+      iframeWallet: { walletOrigin: 'https://wallet.example.test' },
       routerAbEcdsaHssPresignaturePool: {
         enabled: true,
         targetDepth: 12,

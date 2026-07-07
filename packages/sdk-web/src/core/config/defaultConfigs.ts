@@ -7,6 +7,7 @@ import type {
   RouterAbEcdsaHssPresignaturePoolPolicy,
 } from '../types/seams';
 import { buildConfigsFromDefaults } from './configBuilder';
+import type { BuildConfigsOptions } from './configBuilder';
 
 export {
   THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID,
@@ -183,10 +184,14 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
   },
 };
 
-export function buildConfigsFromEnv(overrides: SeamsConfigsInput = {}): SeamsConfigsReadonly {
+export function buildConfigsFromEnv(
+  overrides: SeamsConfigsInput = {},
+  options?: BuildConfigsOptions,
+): SeamsConfigsReadonly {
   return buildConfigsFromDefaults({
     defaults: PASSKEY_MANAGER_DEFAULT_CONFIGS,
     overrides,
     fallbackRouterAbEcdsaHssPresignaturePoolPolicy: DEFAULT_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_POLICY,
+    options,
   });
 }

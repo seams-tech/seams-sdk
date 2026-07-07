@@ -71,18 +71,162 @@ function normalizeSignedTransaction(
   return candidate;
 }
 
-type RegistrationActivationRecord = {
+type RegistrationActivationDeferred = {
+  promise: Promise<RegistrationResult>;
+  resolve(result: RegistrationResult): void;
+  reject(error: Error): void;
+};
+
+type RegistrationActivationRecordBase = {
   activationId: string;
   requestId: string | undefined;
-  container: HTMLElement;
-  reject(error: Error): void;
-  cancelled: boolean;
-  started: boolean;
+  deferred: RegistrationActivationDeferred;
 };
+
+type RegistrationActivationRecord =
+  | (RegistrationActivationRecordBase & {
+      kind: 'preparing';
+      container?: never;
+    })
+  | (RegistrationActivationRecordBase & {
+      kind: 'ready';
+      container: HTMLElement;
+    })
+  | (RegistrationActivationRecordBase & {
+      kind: 'started';
+      container: HTMLElement;
+    });
+
+type RegistrationActivationRecordWithContainer = Extract<
+  RegistrationActivationRecord,
+  { kind: 'ready' | 'started' }
+>;
+
+type RegistrationActivationCancelErrorCode = 'cancelled' | 'registration_activation_expired';
+
+type RegistrationActivationCancelError = Error & {
+  code: RegistrationActivationCancelErrorCode;
+};
+
+type RegistrationActivationStartResult =
+  | { kind: 'missing' }
+  | { kind: 'already_started' }
+  | { kind: 'expired'; record: RegistrationActivationRecord }
+  | { kind: 'started'; record: Extract<RegistrationActivationRecord, { kind: 'started' }> };
+
+type RegistrationActivationRenderResult =
+  | { kind: 'cancelled_during_render' }
+  | { kind: 'ready'; record: Extract<RegistrationActivationRecord, { kind: 'ready' }> };
+
+type RegistrationActivationFocusTarget =
+  | { kind: 'available'; container: HTMLElement }
+  | { kind: 'unavailable' };
 
 const registrationActivationRecords = new Map<string, RegistrationActivationRecord>();
 const REGISTRATION_ACTIVATION_START_EVENT = 'seams-registration-activation-start';
 const REGISTRATION_ACTIVATION_STATE_EVENT = 'seams-registration-activation-state';
+
+function createRegistrationActivationDeferred(): RegistrationActivationDeferred {
+  let resolveDeferred!: (result: RegistrationResult) => void;
+  let rejectDeferred!: (error: Error) => void;
+  const promise = new Promise<RegistrationResult>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+  void promise.catch(() => undefined);
+  return {
+    promise,
+    resolve: resolveDeferred,
+    reject: rejectDeferred,
+  };
+}
+
+function createPreparingRegistrationActivationRecord(args: {
+  activationId: string;
+  requestId: string | undefined;
+  deferred: RegistrationActivationDeferred;
+}): RegistrationActivationRecord {
+  return {
+    kind: 'preparing',
+    activationId: args.activationId,
+    requestId: args.requestId,
+    deferred: args.deferred,
+  };
+}
+
+function registrationActivationRecordWithContainer(
+  record: RegistrationActivationRecord,
+): RegistrationActivationRecordWithContainer | null {
+  switch (record.kind) {
+    case 'ready':
+    case 'started':
+      return record;
+    case 'preparing':
+      return null;
+  }
+}
+
+function createReadyRegistrationActivationRecord(args: {
+  record: RegistrationActivationRecord;
+  container: HTMLElement;
+}): Extract<RegistrationActivationRecord, { kind: 'ready' }> {
+  return {
+    kind: 'ready',
+    activationId: args.record.activationId,
+    requestId: args.record.requestId,
+    deferred: args.record.deferred,
+    container: args.container,
+  };
+}
+
+function createStartedRegistrationActivationRecord(
+  record: Extract<RegistrationActivationRecord, { kind: 'ready' }>,
+): Extract<RegistrationActivationRecord, { kind: 'started' }> {
+  return {
+    kind: 'started',
+    activationId: record.activationId,
+    requestId: record.requestId,
+    deferred: record.deferred,
+    container: record.container,
+  };
+}
+
+function markRegistrationActivationReady(args: {
+  activationId: string;
+  container: HTMLElement;
+}): RegistrationActivationRenderResult {
+  const record = registrationActivationRecords.get(args.activationId);
+  if (!record) {
+    args.container.remove();
+    return { kind: 'cancelled_during_render' };
+  }
+  const readyRecord = createReadyRegistrationActivationRecord({
+    record,
+    container: args.container,
+  });
+  registrationActivationRecords.set(args.activationId, readyRecord);
+  return { kind: 'ready', record: readyRecord };
+}
+
+function markRegistrationActivationStarted(args: {
+  activationId: string;
+  expiresAtMs: number;
+}): RegistrationActivationStartResult {
+  const record = registrationActivationRecords.get(args.activationId);
+  if (!record) return { kind: 'missing' };
+  switch (record.kind) {
+    case 'preparing':
+      return { kind: 'missing' };
+    case 'started':
+      return { kind: 'already_started' };
+    case 'ready': {
+      if (Date.now() >= args.expiresAtMs) return { kind: 'expired', record };
+      const startedRecord = createStartedRegistrationActivationRecord(record);
+      registrationActivationRecords.set(args.activationId, startedRecord);
+      return { kind: 'started', record: startedRecord };
+    }
+  }
+}
 const ALLOWED_REGISTRATION_BUTTON_CSS_PROPERTIES = new Set<RegistrationActivationButtonCssProperty>(
   [
     'width',
@@ -142,15 +286,38 @@ function parseRegistrationActivationProvidedWallet(
 function removeRegistrationActivationRecord(activationId: string): void {
   const record = registrationActivationRecords.get(activationId);
   registrationActivationRecords.delete(activationId);
+  const recordWithContainer = record ? registrationActivationRecordWithContainer(record) : null;
   try {
-    record?.container.remove();
+    recordWithContainer?.container.remove();
   } catch {}
 }
 
-function registrationActivationCancelledError(): Error & { code: string } {
-  const error = new Error('Registration activation cancelled') as Error & { code: string };
+function registrationActivationCancelledError(): RegistrationActivationCancelError {
+  const error = new Error('Registration activation cancelled') as RegistrationActivationCancelError;
   error.code = 'cancelled';
   return error;
+}
+
+function registrationActivationExpiredError(): RegistrationActivationCancelError {
+  const error = new Error('Registration activation expired') as RegistrationActivationCancelError;
+  error.code = 'registration_activation_expired';
+  return error;
+}
+
+function rejectRegistrationActivationRecord(
+  record: RegistrationActivationRecord,
+  error: Error,
+): void {
+  record.deferred.reject(error);
+}
+
+function registrationActivationFocusTarget(
+  activationId: string,
+): RegistrationActivationFocusTarget {
+  const record = registrationActivationRecords.get(activationId);
+  const recordWithContainer = record ? registrationActivationRecordWithContainer(record) : null;
+  if (!recordWithContainer) return { kind: 'unavailable' };
+  return { kind: 'available', container: recordWithContainer.container };
 }
 
 type RegistrationActivationButtonElement = HTMLElement & {
@@ -461,6 +628,75 @@ function focusRegistrationActivationButton(container: HTMLElement): void {
   fallback?.focus?.({ preventScroll: true });
 }
 
+async function runRegistrationActivationPasskeyRegistration(args: {
+  pm: ReturnType<HandlerDeps['getSeamsWeb']>;
+  deps: HandlerDeps;
+  requestId: string | undefined;
+  payload: PMRegistrationActivationPreparePayload;
+  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
+}): Promise<RegistrationResult> {
+  const hooksOptions = withProgress(
+    args.deps,
+    args.requestId,
+    registrationOptionsWithoutActivation(args.payload.options),
+  ) as RegistrationHooksOptions;
+  return await args.pm.registration.registerPasskey({
+    wallet: args.wallet,
+    ...hooksOptions,
+    confirmationConfig: {
+      ...(args.payload.confirmationConfig || {}),
+      uiMode: 'none',
+      behavior: 'skipClick',
+      autoProceedDelay: 0,
+    },
+    walletIframeActivation: {
+      kind: 'wallet_iframe_registration_activation_v1',
+      activationId: args.payload.activationId,
+      activatedAtMs: Date.now(),
+    },
+  });
+}
+
+function startRegistrationActivation(args: {
+  pm: ReturnType<HandlerDeps['getSeamsWeb']>;
+  deps: HandlerDeps;
+  requestId: string | undefined;
+  payload: PMRegistrationActivationPreparePayload;
+  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
+}): void {
+  const startResult = markRegistrationActivationStarted({
+    activationId: args.payload.activationId,
+    expiresAtMs: args.payload.expiresAtMs,
+  });
+  switch (startResult.kind) {
+    case 'missing':
+    case 'already_started':
+      return;
+    case 'expired':
+      rejectRegistrationActivationRecord(startResult.record, registrationActivationExpiredError());
+      removeRegistrationActivationRecord(args.payload.activationId);
+      return;
+    case 'started':
+      args.deps.post({
+        type: 'PM_REGISTRATION_ACTIVATION_STARTED',
+        requestId: args.requestId,
+        payload: { activationId: args.payload.activationId },
+      });
+      void runRegistrationActivationPasskeyRegistration(args).then(
+        startResult.record.deferred.resolve,
+        startResult.record.deferred.reject,
+      );
+      return;
+  }
+}
+
+function expireRegistrationActivationBeforeStart(activationId: string): void {
+  const record = registrationActivationRecords.get(activationId);
+  if (!record || record.kind === 'started') return;
+  rejectRegistrationActivationRecord(record, registrationActivationExpiredError());
+  removeRegistrationActivationRecord(activationId);
+}
+
 export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_REGISTRATION_ACTIVATION_PREPARE: async (req: Req<'PM_REGISTRATION_ACTIVATION_PREPARE'>) => {
@@ -474,95 +710,54 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const presentation = normalizeRegistrationActivationPresentation(payload.presentation);
 
       removeRegistrationActivationRecord(payload.activationId);
-      let startRegistration!: () => void;
-      let rejectRegistration!: (error: Error) => void;
-      const resultPromise = new Promise<RegistrationResult>((resolve, reject) => {
-        rejectRegistration = reject;
-        startRegistration = () => {
-          void (async () => {
-            const record = registrationActivationRecords.get(payload.activationId);
-            if (!record || record.cancelled) {
-              reject(new Error('Registration activation cancelled'));
-              return;
-            }
-            if (record.started) return;
-            if (Date.now() >= payload.expiresAtMs) {
-              reject(new Error('Registration activation expired'));
-              return;
-            }
-            record.started = true;
-            deps.post({
-              type: 'PM_REGISTRATION_ACTIVATION_STARTED',
-              requestId: req.requestId,
-              payload: { activationId: payload.activationId },
-            });
-            try {
-              const hooksOptions = withProgress(
-                deps,
-                req.requestId,
-                registrationOptionsWithoutActivation(payload.options),
-              ) as RegistrationHooksOptions;
-              const result = await pm.registration.registerPasskey({
-                wallet,
-                ...hooksOptions,
-                confirmationConfig: {
-                  ...(payload.confirmationConfig || {}),
-                  uiMode: 'none',
-                  behavior: 'skipClick',
-                  autoProceedDelay: 0,
-                },
-                walletIframeActivation: {
-                  kind: 'wallet_iframe_registration_activation_v1',
-                  activationId: payload.activationId,
-                  activatedAtMs: Date.now(),
-                },
-              });
-              resolve(result);
-            } catch (error) {
-              reject(error);
-            }
-          })();
-        };
-      });
+      const deferred = createRegistrationActivationDeferred();
+      registrationActivationRecords.set(
+        payload.activationId,
+        createPreparingRegistrationActivationRecord({
+          activationId: payload.activationId,
+          requestId: req.requestId,
+          deferred,
+        }),
+      );
 
       const expiryTimer = window.setTimeout(
-        () => {
-          const record = registrationActivationRecords.get(payload.activationId);
-          if (!record || record.started) return;
-          record.reject(new Error('Registration activation expired'));
-          removeRegistrationActivationRecord(payload.activationId);
-        },
+        () => expireRegistrationActivationBeforeStart(payload.activationId),
         Math.max(1, payload.expiresAtMs - Date.now()),
       );
 
-      const container = await renderRegistrationActivationButton({
-        payload,
-        presentation,
-        onStart: () => startRegistration(),
-        onState: (state) =>
-          postRegistrationActivationButtonState({
-            deps,
-            requestId: req.requestId,
-            activationId: payload.activationId,
-            state,
-          }),
-      });
-      registrationActivationRecords.set(payload.activationId, {
-        activationId: payload.activationId,
-        requestId: req.requestId,
-        container,
-        reject: rejectRegistration,
-        cancelled: false,
-        started: false,
-      });
-      deps.post({
-        type: 'PM_REGISTRATION_ACTIVATION_READY',
-        requestId: req.requestId,
-        payload: { activationId: payload.activationId, expiresAtMs: payload.expiresAtMs },
-      });
-
       try {
-        const result = await resultPromise;
+        const container = await renderRegistrationActivationButton({
+          payload,
+          presentation,
+          onStart: () =>
+            startRegistrationActivation({
+              pm,
+              deps,
+              requestId: req.requestId,
+              payload,
+              wallet,
+            }),
+          onState: (state) =>
+            postRegistrationActivationButtonState({
+              deps,
+              requestId: req.requestId,
+              activationId: payload.activationId,
+              state,
+            }),
+        });
+        const renderResult = markRegistrationActivationReady({
+          activationId: payload.activationId,
+          container,
+        });
+        if (renderResult.kind === 'ready') {
+          deps.post({
+            type: 'PM_REGISTRATION_ACTIVATION_READY',
+            requestId: req.requestId,
+            payload: { activationId: payload.activationId, expiresAtMs: payload.expiresAtMs },
+          });
+        }
+
+        const result = await deferred.promise;
         if (deps.respondIfCancelled(req.requestId)) return;
         respondOkResult(deps, req.requestId, result);
       } finally {
@@ -575,8 +770,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const payload = req.payload!;
       const record = registrationActivationRecords.get(payload.activationId);
       if (record) {
-        record.cancelled = true;
-        record.reject(registrationActivationCancelledError());
+        rejectRegistrationActivationRecord(record, registrationActivationCancelledError());
         removeRegistrationActivationRecord(payload.activationId);
       }
       respondOk(deps, req.requestId);
@@ -584,9 +778,9 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_REGISTRATION_ACTIVATION_FOCUS: async (req: Req<'PM_REGISTRATION_ACTIVATION_FOCUS'>) => {
       const payload = req.payload!;
-      const record = registrationActivationRecords.get(payload.activationId);
-      if (record) {
-        focusRegistrationActivationButton(record.container);
+      const focusTarget = registrationActivationFocusTarget(payload.activationId);
+      if (focusTarget.kind === 'available') {
+        focusRegistrationActivationButton(focusTarget.container);
       }
       respondOk(deps, req.requestId);
     },

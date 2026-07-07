@@ -8,7 +8,8 @@ Featuring:
 
 - **Core SDK**: Framework-agnostic JavaScript/TypeScript library
 - **React Components**: Drop-in components and hooks for React applications
-- **Plugins**: plugins to setup the right headers for Vite, Next.js, etc
+- **Hosted wallet runtime**: static wallet-service, export-viewer, worker, and
+  WASM artifacts for the wallet origin
 
 ## Installation
 
@@ -149,33 +150,42 @@ origin owns Email OTP recovery-code backup UI, acknowledgement, workers, sealed
 refresh state, and threshold-session state. App-origin iframe responses carry
 only non-secret flow metadata and submit results.
 
-## Vite Plugin Integration
+## Hosted Wallet Integration
 
-Use the Vite plugins to serve wallet assets in dev and emit the right headers
-for production.
+Applications import the SDK as package code and configure the hosted wallet
+origin. They do not serve Seams wallet assets from the app Vite config.
 
 ```typescript
 // vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { seamsDev, seamsBuildHeaders } from '@seams/sdk/plugins/vite';
 
 export default defineConfig({
-  plugins: [
-    react(),
-    seamsDev({
-      walletOrigin: process.env.VITE_WALLET_ORIGIN,
-      sdkBasePath: '/sdk',
-      walletServicePath: '/wallet-service',
-    }),
-    seamsBuildHeaders({
-      walletOrigin: process.env.VITE_WALLET_ORIGIN,
-    }),
-  ],
+  plugins: [react()],
 });
 ```
 
-See `apps/seams-site` and `apps/docs` for full app examples.
+During the stabilization milestone, configure the hosted wallet through the
+existing `iframeWallet` surface:
+
+```typescript
+const config = {
+  relayer: { url: 'https://router.example.com' },
+  iframeWallet: {
+    walletOrigin: 'https://wallet.seams.sh',
+    walletServicePath: '/wallet-service',
+    sdkBasePath: '/sdk',
+  },
+};
+```
+
+The Seams-operated wallet origin serves `/wallet-service`, `/export-viewer`,
+`/sdk/*`, and `/sdk/workers/*` from `@seams/sdk/dist/public`. App origins should
+not route those paths.
+
+The SDK-created wallet iframe carries the default WebAuthn delegation through
+its `allow` attribute. App-platform `Permissions-Policy` should only be added
+if hosted-origin browser smokes prove a supported browser requires it.
 
 ## Stable API Surfaces
 

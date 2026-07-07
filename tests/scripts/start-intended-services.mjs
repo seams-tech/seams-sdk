@@ -44,7 +44,6 @@ const requiredSdkDistArtifacts = [
   'packages/sdk-web/dist/esm/core/idempotency/createIntentId.js',
   'packages/sdk-web/dist/esm/core/rpcClients/evm/EvmClient.js',
   'packages/sdk-web/dist/esm/core/rpcClients/near/NearClient.js',
-  'packages/sdk-web/dist/esm/plugins/vite.js',
   'packages/sdk-web/dist/esm/react/context/SeamsWebProvider.js',
   'packages/sdk-web/dist/esm/react/context/index.js',
   'packages/sdk-web/dist/esm/react/index.js',

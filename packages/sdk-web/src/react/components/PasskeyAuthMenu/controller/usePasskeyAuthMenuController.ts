@@ -1468,7 +1468,7 @@ export function usePasskeyAuthMenuController(
             return;
           }
           if (state.reason === 'expired') {
-            setMethodError('Passkey registration expired. Try again.');
+            setMethodError('');
             return;
           }
           setMethodError('');

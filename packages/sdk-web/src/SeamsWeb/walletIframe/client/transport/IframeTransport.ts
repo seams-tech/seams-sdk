@@ -28,6 +28,7 @@
 
 import { isObject } from '@shared/utils/validation';
 import { WebAuthnBridgeMessage } from '@/core/signingEngine/webauthnAuth/fallbacks/safari-fallbacks';
+import { WALLET_PROTOCOL_VERSION } from '../../shared/messages';
 import { createWalletIframe, removeExistingOverlaysForOrigin } from './iframe-transport-dom';
 import { performHandshake, waitForBootHint, waitForLoad } from './iframe-transport-handshake';
 import { handleWebAuthnBridgeMessage } from './webauthn-bridge';
@@ -233,6 +234,7 @@ export class IframeTransport {
         walletServiceUrl: this.walletServiceUrl,
         connectType: IframeMessage.Connect,
         readyType: IframeMessage.Ready,
+        expectedProtocolVersion: WALLET_PROTOCOL_VERSION,
         getTargetOrigin: (attempt) => this.getConnectTargetOrigin(attempt),
         onAttempt: (attempt) => {
           handshakeAttempts = attempt;

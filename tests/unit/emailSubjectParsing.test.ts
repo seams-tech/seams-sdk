@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  emailParsers: '/sdk/esm/server/email-recovery/emailParsers.js',
+  emailParsers: '/_test-sdk/esm/server/email-recovery/emailParsers.js',
 } as const;
 
 test.describe('email recovery subject parsing with request_id', () => {

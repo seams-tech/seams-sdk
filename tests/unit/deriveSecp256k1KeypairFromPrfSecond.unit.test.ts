@@ -3,8 +3,8 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chains/evm/bytes';
 
 const IMPORT_PATHS = {
-  ethSignerWasm: '/sdk/esm/core/signingEngine/chains/evm/ethSignerWasm.js',
-  signerGateway: '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
+  ethSignerWasm: '/_test-sdk/esm/core/signingEngine/chains/evm/ethSignerWasm.js',
+  signerGateway: '/_test-sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 
 test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {

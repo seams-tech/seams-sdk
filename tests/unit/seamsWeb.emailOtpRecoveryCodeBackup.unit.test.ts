@@ -53,7 +53,7 @@ Store these codes somewhere private. Each code can be used once.
 
 async function configureTestDb(page: import('@playwright/test').Page): Promise<void> {
   await page.evaluate(async () => {
-    const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+    const indexedDbMod = await import('/_test-sdk/esm/core/indexedDB/index.js');
     indexedDbMod.seamsWalletDB.setDisabled(false);
     indexedDbMod.seamsWalletDB.setDbName(
       indexedDbMod.createSeamsTestWalletDbName(`otp-backup-${crypto.randomUUID()}`),
@@ -64,7 +64,7 @@ async function configureTestDb(page: import('@playwright/test').Page): Promise<v
 async function readStoredBackup(page: import('@playwright/test').Page): Promise<unknown> {
   return await page.evaluate(async ({ enrollment }) => {
     const mod = await import(
-      '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
+      '/_test-sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
     );
     return await mod.emailOtpRecoveryCodeBackupRepository.readMatching({
       walletId: 'alice.testnet',
@@ -83,7 +83,7 @@ test.describe('SeamsWeb Email OTP recovery-code backup persistence', () => {
   test('stores recovery codes without showing a blocking registration modal', async ({ page }) => {
     const result = await page.evaluate(async ({ enrollment }) => {
       const mod = await import(
-        '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+        '/_test-sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
       );
       const beforeDialogs = document.querySelectorAll('[role="dialog"]').length;
       const enrollmentResult = await mod.backupEmailOtpRecoveryCodes({
@@ -126,10 +126,10 @@ test.describe('SeamsWeb Email OTP recovery-code backup persistence', () => {
   test('download helper builds the recovery-code file without deleting storage', async ({ page }) => {
     await page.evaluate(async ({ enrollment }) => {
       const mod = await import(
-        '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+        '/_test-sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
       );
       const reactMod = await import(
-        '/sdk/esm/react/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+        '/_test-sdk/esm/react/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
       );
       await mod.backupEmailOtpRecoveryCodes({
         relayUrl: 'https://relay.example',

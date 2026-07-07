@@ -1,18 +1,17 @@
 # Seams Site Dev Server
 
-This app runs a dedicated wallet/service origin for local development. It serves a cross-origin WalletIframe page that hosts the Seams SDK, wasm signers, and related workers. The Vite dev plugin `@seams/sdk/plugins/vite` wires up the service route and SDK assets.
+This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from `packages/sdk-web/dist/public`.
 
 - Dev server: `http://localhost:3600`
 - Docs origin (via Caddy): `https://docs.localhost`
 - Wallet origin (via Caddy): `https://localhost:8443`
 - Router API origin (via Caddy): `https://localhost:9444`
 - Service path: `/wallet-service`
-- SDK assets base: `/sdk/*` (served from `packages/sdk-web/dist` in the workspace)
+- SDK assets base: `/sdk/*` (served from `packages/sdk-web/dist/public/sdk`)
 
 ## Usage
 
-- In one terminal, build or watch the SDK so `dist/` exists:
-  - Watch: `pnpm -C packages/sdk-web dev`
+- In one terminal, build the SDK so `packages/sdk-web/dist/public` exists:
   - One-off build: `pnpm build:sdk`
 - In another terminal, start this dev server:
 
@@ -20,21 +19,20 @@ This app runs a dedicated wallet/service origin for local development. It serves
 pnpm -C apps/seams-site dev
 ```
 
-- This command runs `docs:build` before starting Vite so the `/docs` route always serves the latest static output.
-- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it starts Caddy for you; run `pnpm router` separately so the Router API origin `https://localhost:9444` is available.
+- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it builds the SDK and starts Caddy for you; run `pnpm router` separately so the Router API origin `https://localhost:9444` is available.
 
 Open:
 
 - `https://localhost:8443/wallet-service` – the iframe service page
-- `https://localhost:8443` – splash page with links
 - `https://localhost:9444` – Router API origin
 - `https://docs.localhost` – docs site
 
 ## Notes
 
-- The route `/wallet-service` is provided by the Vite plugin and loads `/sdk/wallet-iframe-host-runtime.js`.
-- The dev server includes cross-origin isolation headers (COEP/COOP) and a WebAuthn `Permissions-Policy` (via `server.headers` and Caddy). Avoid setting conflicting headers in multiple places.
-- The `/sdk/*` path is mapped by the plugin to the workspace `packages/sdk-web/dist` (zero-copy). Keep the SDK in `dev` or re-run `build` after changes.
+- The route `/wallet-service` is served by Caddy from `packages/sdk-web/dist/public/wallet-service/index.html` and loads `/sdk/wallet-iframe-host-runtime.js` from the same wallet origin.
+- App-origin requests for `/sdk/*`, `/wallet-service`, and `/export-viewer` return 404 through Caddy to catch accidental app-hosted wallet asset dependencies.
+- The wallet origin does not use app COOP, COEP, CORP, or Permissions-Policy defaults for SDK assets. Document routes keep the local `frame-ancestors` policy emitted in the static header manifest.
+- Keep the SDK build current by re-running `pnpm build:sdk` after wallet runtime changes.
 - Docs are served from the VitePress dev server at `https://docs.localhost`.
 
 ### Dashboard inline modal scrolling

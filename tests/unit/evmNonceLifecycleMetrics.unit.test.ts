@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  tempoSigningApi: '/sdk/esm/core/signingEngine/flows/signEvmFamily/signEvmFamily.js',
+  tempoSigningApi: '/_test-sdk/esm/core/signingEngine/flows/signEvmFamily/signEvmFamily.js',
 } as const;
 
 test.describe('evm nonce lifecycle metrics', () => {

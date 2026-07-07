@@ -5,6 +5,7 @@ import { SDK_ESM_PATHS } from '../setup/sdkEsmPaths';
 export interface WalletServiceHtmlOptions {
   respondReady?: boolean;
   handshakeDelayMs?: number;
+  protocolVersion?: string;
   extraScript?: string;
 }
 
@@ -30,8 +31,13 @@ const baseWalletServiceTemplate = (script: string): string => `<!DOCTYPE html>
 </html>`;
 
 export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): string => {
-  const { respondReady = true, handshakeDelayMs = 0, extraScript = '' } = options;
-  const config = JSON.stringify({ respondReady, handshakeDelayMs });
+  const {
+    respondReady = true,
+    handshakeDelayMs = 0,
+    protocolVersion = '1.0.0',
+    extraScript = '',
+  } = options;
+  const config = JSON.stringify({ respondReady, handshakeDelayMs, protocolVersion });
 
   const script = `
     const CONFIG = ${config};
@@ -121,7 +127,10 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
       const sendReady = () => {
         if (!CONFIG.respondReady) return;
         console.log('[wallet-stub] posting READY');
-        try { adoptedPort.postMessage({ type: 'READY' }); } catch (err) {
+        const payload = typeof CONFIG.protocolVersion === 'string'
+          ? { protocolVersion: CONFIG.protocolVersion }
+          : undefined;
+        try { adoptedPort.postMessage({ type: 'READY', payload }); } catch (err) {
           console.error('Failed to post READY', err);
         }
       };

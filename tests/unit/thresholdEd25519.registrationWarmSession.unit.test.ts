@@ -9,11 +9,11 @@ import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/
 
 const IMPORT_PATHS = {
   thresholdWarmSessionBootstrap:
-    '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
-  login: '/sdk/esm/SeamsWeb/operations/auth/login.js',
-  indexedDb: '/sdk/esm/core/indexedDB/index.js',
-  keyMaterialBrands: '/sdk/esm/core/signingEngine/session/keyMaterialBrands.js',
-  thresholdSessionStore: '/sdk/esm/core/signingEngine/session/persistence/records.js',
+    '/_test-sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
+  login: '/_test-sdk/esm/SeamsWeb/operations/auth/login.js',
+  indexedDb: '/_test-sdk/esm/core/indexedDB/index.js',
+  keyMaterialBrands: '/_test-sdk/esm/core/signingEngine/session/keyMaterialBrands.js',
+  thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 async function evaluateMismatchedWarmSessionIdentity(args: {

@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  store: '/sdk/esm/server/core/RecoveryExecutionStore.js',
-  records: '/sdk/esm/server/core/recoveryExecutionRecords.js',
+  store: '/_test-sdk/esm/server/core/RecoveryExecutionStore.js',
+  records: '/_test-sdk/esm/server/core/recoveryExecutionRecords.js',
 } as const;
 
 test.describe('recovery execution canonical store', () => {

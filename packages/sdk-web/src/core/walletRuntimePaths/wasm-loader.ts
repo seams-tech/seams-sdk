@@ -5,15 +5,14 @@
  *
  * - Production (wallet origin)
  *   - WASM Workers live under the wallet site at `${walletOrigin}/sdk/workers/*`.
- *   - COOP/COEP/CORP and CORS headers must be present on the wallet site;
- *     `.wasm` must be served with `Content-Type: application/wasm`.
+ *   - `.wasm` must be served with `Content-Type: application/wasm`.
  *   - The wallet iframe announces `window.__W3A_WALLET_SDK_BASE__ = ${walletOrigin}/sdk/`.
  *   - resolveWorkerBaseOrigin() uses that base; resolveWasmUrl() uses the bundler-relative
  *     URL first (import.meta.url) and falls back to `/sdk/workers/*` when needed.
  *
- * - Development (same‑origin)
- *   - Vite dev plugin serves `/sdk/*` and `/sdk/workers/*` from the SDK dist output.
- *   - import.meta.url and relative paths work; prewarm is allowed.
+ * - Development (wallet origin)
+ *   - Local Caddy/static hosting serves `/sdk/*` and `/sdk/workers/*` from `dist/public`.
+ *   - import.meta.url and relative paths work inside the wallet origin.
  *
  * - Development (cross‑origin: app + wallet on different hosts)
  *   - The app does not construct workers from its own origin to avoid SecurityError.

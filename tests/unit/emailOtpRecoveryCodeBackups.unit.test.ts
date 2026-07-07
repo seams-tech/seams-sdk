@@ -21,9 +21,9 @@ test.describe('Email OTP recovery-code backup repository', () => {
 
   test('retains stored codes across display and download metadata updates', async ({ page }) => {
     const result = await page.evaluate(async ({ recoveryCodes }) => {
-      const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+      const indexedDbMod = await import('/_test-sdk/esm/core/indexedDB/index.js');
       const mod = await import(
-        '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
+        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
       );
       indexedDbMod.seamsWalletDB.setDisabled(false);
       indexedDbMod.seamsWalletDB.setDbName(
@@ -81,9 +81,9 @@ test.describe('Email OTP recovery-code backup repository', () => {
 
   test('rejects raw recovery-code arrays and leaves mismatched enrollment seals intact', async ({ page }) => {
     const result = await page.evaluate(async ({ recoveryCodes }) => {
-      const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+      const indexedDbMod = await import('/_test-sdk/esm/core/indexedDB/index.js');
       const mod = await import(
-        '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
+        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
       );
       indexedDbMod.seamsWalletDB.setDisabled(false);
       indexedDbMod.seamsWalletDB.setDbName(
@@ -157,9 +157,9 @@ test.describe('Email OTP recovery-code backup repository', () => {
 
   test('explicit deletion removes plaintext rows without leaving tombstones', async ({ page }) => {
     const result = await page.evaluate(async ({ recoveryCodes }) => {
-      const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+      const indexedDbMod = await import('/_test-sdk/esm/core/indexedDB/index.js');
       const mod = await import(
-        '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
+        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
       );
       indexedDbMod.seamsWalletDB.setDisabled(false);
       indexedDbMod.seamsWalletDB.setDbName(

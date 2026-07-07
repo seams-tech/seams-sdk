@@ -282,6 +282,37 @@ const REGISTRATION_ACTIVATION_CLICK_SCRIPT = String.raw`
       };
 `;
 
+const REGISTRATION_ACTIVATION_TIMEOUT_CANCEL_SCRIPT = String.raw`
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+
+        const respondOk = (requestId, result) => {
+          if (!requestId) return;
+          pendingRequests.delete(requestId);
+          adoptedPort.postMessage({
+            type: 'PM_RESULT',
+            requestId,
+            payload: { ok: true, result }
+          });
+        };
+
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object') return;
+          const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+
+          if (data.type === 'PM_REGISTRATION_ACTIVATION_CANCEL') {
+            respondOk(requestId, undefined);
+            return;
+          }
+        };
+      };
+`;
+
 test.describe('WalletIframeRouter registration activation surface', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -506,6 +537,110 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     expect(result.mounting).toBe(true);
     expect(result.ready).toBe(true);
     expect(result.targetUnavailable).toBe(false);
+  });
+
+  test('maps idle activation prepare timeout to expired cancellation', async ({ page }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ extraScript: REGISTRATION_ACTIVATION_TIMEOUT_CANCEL_SCRIPT }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const result = await page.evaluate(
+      async ({ routerPath, walletOrigin, waitForSource }) => {
+        try {
+          const waitForBrowser = eval(waitForSource) as typeof waitFor;
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 5000,
+            sdkBasePath: '/sdk',
+            testOptions: { ownerTag: 'tests' },
+          });
+          await router.init();
+
+          const nativeDateNow = Date.now.bind(Date);
+          const nativeSetTimeout = window.setTimeout.bind(window);
+          let fakeNow = nativeDateNow();
+          Date.now = () => fakeNow;
+          window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+            const timeoutMs = Number(timeout);
+            if (Number.isFinite(timeoutMs) && timeoutMs > 60_000) {
+              return nativeSetTimeout(() => {
+                fakeNow += timeoutMs + 1;
+                if (typeof handler === 'function') {
+                  handler(...args);
+                }
+              }, 30);
+            }
+            return nativeSetTimeout(handler, timeout, ...args);
+          }) as typeof window.setTimeout;
+
+          const target = document.createElement('div');
+          target.className = 'seams-passkey-registration-btn';
+          target.style.cssText =
+            'position:absolute;left:40px;top:80px;width:240px;height:60px;border-radius:30px;';
+          document.body.appendChild(target);
+
+          const states: Array<{ kind: string; reason?: string; error?: string }> = [];
+          const walletId =
+            'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
+          const surface = router.createPasskeyRegistrationActivationSurface({
+            wallet: { kind: 'provided', walletId },
+            presentation: {
+              kind: 'outline_overlay',
+              label: 'Create with Passkey',
+              busyLabel: 'Creating passkey...',
+              accessibleLabel: 'Create passkey account',
+            },
+          });
+          const unsubscribe = surface.onStateChange((state) => {
+            states.push({
+              kind: state.kind,
+              ...('reason' in state ? { reason: state.reason } : {}),
+              ...('error' in state ? { error: state.error } : {}),
+            });
+          });
+          surface.mount(target);
+          const expired = await waitForBrowser(
+            () => states.some((state) => state.kind === 'cancelled' && state.reason === 'expired'),
+            1000,
+          );
+          const failedErrors = states
+            .filter((state) => state.kind === 'failed')
+            .map((state) => state.error || '');
+
+          unsubscribe();
+          surface.dispose();
+          target.remove();
+          Date.now = nativeDateNow;
+          window.setTimeout = nativeSetTimeout;
+
+          return { success: true, expired, failedErrors, states };
+        } catch (error) {
+          return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+      },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.expired).toBe(true);
+    expect(result.failedErrors).toEqual([]);
   });
 
   test('routes pointer activation to the wallet-origin registration button', async ({ page }) => {

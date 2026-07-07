@@ -14,7 +14,6 @@
     "paths": {
       "@seams/sdk": ["../../packages/sdk-web/dist/types/sdk-web/src/index.d.ts"],
       "@seams/sdk/advanced": ["../../packages/sdk-web/dist/types/sdk-web/src/advanced.d.ts"],
-      "@seams/sdk/plugins/vite": ["../../packages/sdk-web/dist/types/sdk-web/src/plugins/vite.d.ts"],
       "@seams/sdk/react": ["../../packages/sdk-web/dist/types/sdk-web/src/react/index.d.ts"],
       "@seams/sdk/react/provider": [
         "../../packages/sdk-web/dist/types/sdk-web/src/react/context/SeamsWebProvider.d.ts"

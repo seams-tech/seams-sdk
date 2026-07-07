@@ -193,10 +193,8 @@ export interface SigningSessionSealConfig {
  * - `relayer.url` is required after defaults are merged; missing values fail fast.
  * - Managed registration uses `${relayer.url}/v1/registration/bootstrap-grants`
  *   to obtain a one-time bootstrap token before creating a wallet-registration intent.
- * - `iframeWallet.walletOrigin` controls iframe-wallet mode:
- *   - provided non-empty: iframe mode
- *   - provided empty string: force direct mode
- *   - omitted: keep default mode
+ * - `iframeWallet.walletOrigin` is required when `iframeWallet` is configured.
+ *   Browser wallet capabilities run through hosted iframe mode.
  * - `relayer.emailRecovery.emailDkimVerifierContract` configures the DKIM verifier
  *   contract account used by email recovery flows.
  */
