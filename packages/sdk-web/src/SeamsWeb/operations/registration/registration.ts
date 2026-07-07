@@ -2774,20 +2774,6 @@ async function emailOtpEmailHashHex(email: string): Promise<string> {
   return sha256HexUtf8(normalizedEmail);
 }
 
-type RegistrationThresholdWarmSessionGrantSource =
-  | {
-      kind: 'generated_registration_signing_grant';
-      signingGrantId?: never;
-      ttlMs?: never;
-      remainingUses?: never;
-    }
-  | {
-      kind: 'shared_ecdsa_registration_signing_grant';
-      signingGrantId: string;
-      ttlMs: number;
-      remainingUses: number;
-    };
-
 async function buildRegistrationEmailOtpAuthContext(args: {
   configs: SeamsConfigsReadonly;
   walletId: WalletId;
@@ -2814,28 +2800,13 @@ function createRegistrationThresholdWarmSessionPolicyDraft(args: {
   context: ThresholdWarmSessionContext;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  grantSource: RegistrationThresholdWarmSessionGrantSource;
 }): ThresholdWarmSessionPolicyDraft | null {
   const participantIds = [...args.participantIds];
-  switch (args.grantSource.kind) {
-    case 'generated_registration_signing_grant':
-      return createThresholdWarmSessionPolicyDraft(args.context, {
-        kind: 'generated_signing_grant',
-        participantIds,
-        runtimePolicyScope: args.runtimePolicyScope,
-      });
-    case 'shared_ecdsa_registration_signing_grant':
-      return createThresholdWarmSessionPolicyDraft(args.context, {
-        kind: 'shared_signing_grant',
-        participantIds,
-        runtimePolicyScope: args.runtimePolicyScope,
-        signingGrantId: args.grantSource.signingGrantId,
-        ttlMs: args.grantSource.ttlMs,
-        remainingUses: args.grantSource.remainingUses,
-      });
-    default:
-      return assertNever(args.grantSource);
-  }
+  return createThresholdWarmSessionPolicyDraft(args.context, {
+    kind: 'generated_signing_grant',
+    participantIds,
+    runtimePolicyScope: args.runtimePolicyScope,
+  });
 }
 
 type FinalizedRegistrationEd25519 = NonNullable<WalletRegistrationFinalizeResponse['ed25519']>;
@@ -3249,39 +3220,19 @@ type RegistrationEcdsaSession = {
   bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
 };
 
-function registrationEcdsaSessionSigningGrantSource(
+function assertRegistrationEcdsaSessionsHaveTargetScopedWarmSessions(
   sessions: readonly RegistrationEcdsaSession[],
-): RegistrationThresholdWarmSessionGrantSource {
-  if (sessions.length === 0) {
-    return { kind: 'generated_registration_signing_grant' };
-  }
-  const first = sessions[0];
-  const firstBootstrap = first.preparedClientBootstrap.clientBootstrap;
-  const signingGrantId = requireRegistrationActiveStateString(
-    firstBootstrap.signingGrantId,
-    'ECDSA registration signing grant id',
-  );
-  const ttlMs = Number(firstBootstrap.ttlMs);
-  const remainingUses = Number(firstBootstrap.remainingUses);
-  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || !Number.isFinite(remainingUses) || remainingUses <= 0) {
-    throw new Error('ECDSA registration signing grant has invalid budget limits');
-  }
+): void {
   for (const session of sessions) {
-    const bootstrap = session.preparedClientBootstrap.clientBootstrap;
-    if (
-      bootstrap.signingGrantId !== signingGrantId ||
-      Number(bootstrap.ttlMs) !== ttlMs ||
-      Number(bootstrap.remainingUses) !== remainingUses
-    ) {
-      throw new Error('ECDSA registration targets must share one signing grant and budget limits');
-    }
+    requireRegistrationActiveStateString(
+      session.preparedClientBootstrap.clientBootstrap.signingGrantId,
+      'ECDSA registration signing grant id',
+    );
+    requireRegistrationActiveStateString(
+      session.preparedClientBootstrap.clientBootstrap.thresholdSessionId,
+      'ECDSA registration threshold session id',
+    );
   }
-  return {
-    kind: 'shared_ecdsa_registration_signing_grant',
-    signingGrantId,
-    ttlMs,
-    remainingUses: Math.floor(remainingUses),
-  };
 }
 
 function registrationEcdsaResponseBootstrapForTarget(args: {
@@ -4947,11 +4898,11 @@ async function registerWalletInternal(
     }
     registrationTiming.captureRouteDiagnostics(advancedState.registrationDiagnostics);
 
+    assertRegistrationEcdsaSessionsHaveTargetScopedWarmSessions(ecdsaSessions);
     const requestedPolicy = createRegistrationThresholdWarmSessionPolicyDraft({
       context,
       participantIds: hssClientMaterial.hssContext.participantIds,
       runtimePolicyScope: thresholdRuntimePolicyScope,
-      grantSource: registrationEcdsaSessionSigningGrantSource(ecdsaSessions),
     });
     if (!requestedPolicy) {
       throw new Error('Threshold warm-session defaults are disabled for registration');

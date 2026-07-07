@@ -194,7 +194,10 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
         expect(packageJson.scripts).not.toHaveProperty('router:smoke');
         expect(packageJson.scripts).not.toHaveProperty('router:smoke:bundled');
         expect(packageJson.scripts).not.toHaveProperty('site:router');
-        expect(packageJson.scripts?.site).toContain('VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID=local-signing-worker');
+        expect(packageJson.scripts?.site).toBe('pnpm run build:sdk-full && pnpm run site:serve');
+        expect(packageJson.scripts?.['site:serve']).toContain(
+            'VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID=local-signing-worker',
+        );
         const source = readRepoSource('crates/router-ab-dev/scripts/dev-local-workers.mjs');
         const workerRolesSource = constArraySource(source, 'workerRoles');
         const staleWorkerRolesSource = constArraySource(source, 'staleWorkerRoles');

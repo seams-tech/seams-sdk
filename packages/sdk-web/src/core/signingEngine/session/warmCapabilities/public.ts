@@ -1,7 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
-import type { WarmSessionMaterialWriteDiagnostics } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
+import type { WarmSessionMaterialWriteDiagnostics } from './types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
