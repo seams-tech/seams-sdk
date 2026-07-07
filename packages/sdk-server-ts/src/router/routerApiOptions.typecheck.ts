@@ -2,6 +2,7 @@ import type {
   RouterApiEmailRecoveryAuthService,
   RouterApiEmailRecoveryExecutionService,
   RouterApiOptions,
+  RouterApiWebhookEmitter,
 } from './routerApi';
 import type { ConsoleRouterApiSignedDelegateRouteOptions } from '../console/router/routeExtensions';
 import type { SignedDelegateRouterApiAuthService } from '../console/router/routerApiSignedDelegate';
@@ -12,6 +13,7 @@ import type {
 
 declare const emailRecoveryAuthService: RouterApiEmailRecoveryAuthService;
 declare const emailRecoveryExecutionService: RouterApiEmailRecoveryExecutionService;
+declare const routerApiWebhookEmitter: RouterApiWebhookEmitter;
 declare const signedDelegateAuthService: SignedDelegateRouterApiAuthService;
 declare const signingSessionSealService: SigningSessionSealService;
 
@@ -47,6 +49,12 @@ const signedDelegateRoute: ConsoleRouterApiSignedDelegateRouteOptions = {
 const signingSessionSeal: RouterApiOptions = {
   signingSessionSeal: {
     service: signingSessionSealService,
+  },
+};
+
+const routerApiWebhookOptions: RouterApiOptions = {
+  routerApiWebhooks: {
+    emitter: routerApiWebhookEmitter,
   },
 };
 
@@ -103,15 +111,25 @@ const oldSigningSessionSealOptionsFlag: CreateSigningSessionSealOptionsInput = {
   thresholdStoreConfig: {},
 };
 
+const oldRouterApiWebhookServiceField: RouterApiOptions = {
+  routerApiWebhooks: {
+    emitter: routerApiWebhookEmitter,
+    // @ts-expect-error Router API webhooks use the signer-owned emitter port.
+    service: routerApiWebhookEmitter,
+  },
+};
+
 void configuredEmailRecovery;
 void emailRecoveryPrepareOnly;
 void signedDelegateRoute;
 void signingSessionSeal;
+void routerApiWebhookOptions;
 void oldEmailRecoveryFlag;
 void configuredEmailRecoveryWithoutExecution;
 void prepareOnlyEmailRecoveryWithExecution;
 void signedDelegateRouteWithoutAuthService;
 void oldSigningSessionSealFlag;
 void oldSigningSessionSealOptionsFlag;
+void oldRouterApiWebhookServiceField;
 
 export {};

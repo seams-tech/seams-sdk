@@ -65,7 +65,7 @@ Concrete blockers, each owned by a phase below:
 | B2 | Resolved July 8, 2026: managed bootstrap grants, API-wallet reads, sponsored EVM calls, and signed-delegate execution now mount through console-owned route extensions | `console/router/routeExtensions.ts` |
 | B3 | Resolved July 8, 2026: signer-router auth files now depend on signer-owned credential/bootstrap ports; console-backed adapters live under `src/console/router` | `router/apiCredentialPorts.ts`, `console/router/routerApiKeyAuth.ts`, `console/router/bootstrapGrantBroker.ts`, `console/router/bootstrapTokenVerifier.ts` |
 | B4 | Resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules live under `console/router`; signed-delegate route ownership moved to the console route extension | `console/router/routeExtensions.ts`, `console/router/routerApiSignedDelegate.ts` |
-| B5 | Partially resolved July 8, 2026: API credential auth, bootstrap-token verification, managed-mode environment resolution, managed bootstrap grants, API-wallet reads, sponsored EVM calls, and signed-delegate execution now use signer-owned ports or console route extensions; broader `RouterApiOptions` console refs remain for the Phase 2 option split | `router/routerApi.ts` |
+| B5 | Resolved July 8, 2026: `RouterApiOptions` now carries signer-owned ports and route extensions; console sponsorship services live in console route-extension options, and Router API lifecycle webhooks use a signer-owned emitter port | `router/routerApi.ts`, `console/router/routeExtensions.ts` |
 | B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./console/sponsorship`); `package.json` has no signer-only or console-only subpath |
 | B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
 | B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
@@ -132,21 +132,21 @@ console package exports `consoleRouteExtensions(...)` /
     (or a sibling folder slated for the console package). Its console imports
     become intra-console; its one crypto leaf used by signer code is gone
     after B8.
-- [ ] Phase 2: Invert the auth and scope-resolution dependencies (B3, B5).
+- [x] Phase 2: Invert the auth and scope-resolution dependencies (B3, B5).
   - [x] Declare signer-core ports: `ProjectEnvironmentResolver` (replacing the
     `ConsoleOrgProjectEnvService` type in `commonRouterUtils.ts:15`),
     `ApiCredentialAuthenticator`, `BootstrapTokenVerifier`.
   - [x] Move the console-backed API-key auth, publishable-key auth, billing
     usage meter, bootstrap-token verifier, and bootstrap-grant broker to
     console-owned files that implement those ports.
-  - [ ] Finish splitting `RouterApiOptions` (`routerApi.ts:18-28`): core options carry only
-    ports and signer services; a console-side
-    `ConsoleRouterApiExtensions` type carries the remaining `Console*Service`
+  - [x] Finish splitting `RouterApiOptions` (`routerApi.ts:18-28`): core options carry only
+    ports and signer services; console-side
+    `ConsoleRouterApiRouteExtensionsOptions` carries the remaining `Console*Service`
     fields. `@shared/console/apiKeyScopes` usage in signer core is replaced by
     a scope-string type owned by the port.
   - [x] Move managed bootstrap-grant and API-wallet service ownership off
     `RouterApiOptions` and into console-owned route extension closures.
-- [ ] Phase 3: Split the route surface (B2, B4).
+- [x] Phase 3: Split the route surface (B2, B4).
   - [x] Use the existing `routeExtensions` injection in `createCloudflareRouter`
     and the fetch-backed express `createRouterApiRouter` to move
     `handleBootstrapGrant` and `handleApiWallets` into a console-owned route
@@ -161,9 +161,8 @@ console package exports `consoleRouteExtensions(...)` /
     `console/router`.
   - [x] Move `handleSignedDelegate` route ownership and remaining route/runtime
     helpers into console-owned route extension modules.
-  - `handleSignedDelegate`'s signer-only path (delegate action relay without
-    console billing) stays in core; metering hooks become an injected
-    observer port.
+  - The signer-owned `delegateAction` execution primitive stays in core; console
+    metering composes through the signed-delegate route extension.
   - Contract: with no extensions injected, the signer router serves exactly
     the self-hosted route surface it serves today when those options are
     absent. Route-surface parity is asserted by test, not by inspection.

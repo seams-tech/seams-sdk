@@ -53,6 +53,11 @@
   imports `routes/signedDelegate`, `RouterApiOptions` no longer carries
   `signedDelegate`, and route surfaces derive `signedDelegatePath` from
   declared extension routes.
+- Finished the Phase 2 `RouterApiOptions` split for the signer Router API.
+  Removed dead top-level sponsorship and observability-ingestion options,
+  replaced the console webhook service type with the signer-owned
+  `RouterApiWebhookEmitter` port, and burned down the `routerApi.ts`
+  signer-console import guard allowlist entries.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
@@ -64,3 +69,4 @@
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts unit/router.routeDefinitions.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/cloudflareD1ConsoleServices.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts`

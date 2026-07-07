@@ -19,11 +19,6 @@ import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
-import type { ConsoleWebhookService } from '../console/webhooks';
-import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
-import type { ConsoleObservabilityIngestionService } from '../console/observability';
-import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
-import type { SponsorshipSpendPricingService } from '../console/sponsorship/spendCaps';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -180,10 +175,7 @@ export interface RouterApiRuntimeSnapshotConsumer {
 }
 
 export interface RouterApiWebhookOptions {
-  /**
-   * Console webhook service used for Router API lifecycle webhook delivery.
-   */
-  service: ConsoleWebhookService;
+  emitter: RouterApiWebhookEmitter;
   /**
    * Optional actor metadata attached to emitted events.
    */
@@ -197,6 +189,32 @@ export interface RouterApiWebhookOptions {
    * Claim keys checked in order when deriving orgId from session claims.
    */
   orgIdClaimKeys?: string[];
+}
+
+export interface RouterApiWebhookContext {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+}
+
+export interface RouterApiWebhookEventRequest {
+  eventId?: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+}
+
+export interface RouterApiWebhookEventResult {
+  eventId: string;
+  attempted: number;
+  delivered: number;
+  failed: number;
+}
+
+export interface RouterApiWebhookEmitter {
+  emitEvent(
+    ctx: RouterApiWebhookContext,
+    request: RouterApiWebhookEventRequest,
+  ): Promise<RouterApiWebhookEventResult> | RouterApiWebhookEventResult;
 }
 
 export type RouterApiEmailRecoveryResult =
@@ -418,11 +436,6 @@ export interface RouterApiOptions {
    * Pass raw strings; the router normalizes/merges internally.
    */
   corsOrigins?: Array<string | undefined>;
-  sponsorship?: {
-    spendCaps?: ConsoleSponsorshipSpendCapService | null;
-    pricing?: SponsorshipSpendPricingService | null;
-    prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
-  };
   // Optional: customize canonical app-session read route.
   sessionRoutes?: { state?: string };
   // Optional: pluggable session adapter
@@ -447,8 +460,6 @@ export interface RouterApiOptions {
    * emit export-specific audit events with `policySource=default_allow`.
    */
   emailOtpExportPolicy?: RouterApiEmailOtpExportPolicyAdapter | null;
-  // Optional observability ingestion adapter used by sponsorship runtime signals.
-  observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**
    * Optional Router API key authentication adapter for gas-costing routes.
    *

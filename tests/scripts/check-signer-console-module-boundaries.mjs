@@ -35,15 +35,6 @@ const signerRouterFiles = [
 ];
 
 const allowedSignerRouterImports = buildAllowedImportSet([
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/billing'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/billingPrepaidReservations'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/observability'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/runtimeSnapshots'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/sponsoredCalls'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/sponsorshipSpendCaps'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/wallets'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/webhooks'],
-  ['packages/sdk-server-ts/src/router/routerApi.ts', '../console/sponsorship/spendCaps'],
   ['packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts', '../../console/sponsorship/evmWorkerExecutionAdapter'],
   ['packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts', '../../console/sponsorship/evmWorkerExecutionAdapter'],
   ['packages/sdk-server-ts/src/router/cloudflare/d1StagingSession.ts', '../../console/teamRbac/service'],

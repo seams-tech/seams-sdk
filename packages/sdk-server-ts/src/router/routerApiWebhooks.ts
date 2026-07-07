@@ -28,7 +28,7 @@ export async function emitRouterApiWebhookEvent(input: {
   const eventType = toOptionalTrimmedString(input.eventType);
   if (!eventType) return;
   const webhooks = input.webhooks;
-  if (!webhooks?.service) return;
+  if (!webhooks?.emitter) return;
 
   const claimKeys = (
     Array.isArray(webhooks.orgIdClaimKeys) && webhooks.orgIdClaimKeys.length
@@ -54,7 +54,7 @@ export async function emitRouterApiWebhookEvent(input: {
   const roles = Array.isArray(webhooks.roles) && webhooks.roles.length ? webhooks.roles : ['ops'];
 
   try {
-    await webhooks.service.emitEvent(
+    await webhooks.emitter.emitEvent(
       {
         orgId,
         actorUserId,

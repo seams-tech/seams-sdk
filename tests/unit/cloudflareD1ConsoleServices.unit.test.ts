@@ -697,15 +697,11 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
-  expect(bundle.routerApiRouterOptions.sponsorship).toMatchObject({
-    spendCaps: bundle.spendCaps,
-    pricing: sponsorshipPricing,
-    prepaidReservations: bundle.prepaidReservations,
-  });
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsorship');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
   expect(bundle.routerApiRouterOptions.bootstrapTokenVerifier).toBeTruthy();
   expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
-  expect(bundle.routerApiRouterOptions.observabilityIngestion).toBe(bundle.observabilityIngestion);
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('observabilityIngestion');
   expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
   expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
   expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
@@ -774,7 +770,6 @@ test('D1 Router API storage options attach sponsored EVM route extension with ex
     metering: { kind: 'gas', ledger: 'evm' },
     requiredServices: ['routerApiSponsoredEvmCall'],
   });
-  expect(bundle.routerApiRouterOptions.sponsorship.pricing).toBeTruthy();
   expect(sponsoredEvmCallConfig.executorsByChain.size).toBe(1);
 });
 

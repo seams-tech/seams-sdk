@@ -225,8 +225,6 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
 }
 
 export interface CloudflareD1RouterApiStorageOptions {
-  readonly sponsorship: NonNullable<RouterApiOptions['sponsorship']>;
-  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
@@ -1139,12 +1137,6 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   });
   const bootstrapTokenVerifier = createRouterApiBootstrapTokenVerifier(input.bootstrapTokens);
   return {
-    sponsorship: {
-      spendCaps: input.spendCaps,
-      pricing: input.sponsorshipPricing,
-      prepaidReservations: input.prepaidReservations,
-    },
-    observabilityIngestion: input.observabilityIngestion,
     apiKeyAuth,
     publishableKeyAuth,
     apiKeyUsageMeter: createRouterApiBillingUsageMeterAdapter(input.billing, {
