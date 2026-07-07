@@ -1,17 +1,17 @@
-import type { ConsoleWalletService, ConsoleWalletsContext } from '../console/wallets/service';
-import type { ConsoleWallet, ConsoleWalletPage } from '../console/wallets/types';
-import { isConsoleWalletError } from '../console/wallets/errors';
+import type { ConsoleWalletService, ConsoleWalletsContext } from '../wallets/service';
+import type { ConsoleWallet, ConsoleWalletPage } from '../wallets/types';
+import { isConsoleWalletError } from '../wallets/errors';
 import {
   parseListConsoleWalletsRequest,
   parseSearchConsoleWalletsRequest,
-} from '../console/wallets/requests';
-import { enforceRoutePolicy } from './enforceRoutePolicy';
-import type { NormalizedRouterLogger } from './logger';
-import { resolveSecretKeyApiCredentialAuth } from './routerApiCredentialAuth';
-import type { RouterApiKeyAuthAdapter, RouterApiKeyPrincipal } from './routerApi';
-import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
-import type { RouteDefinition } from './routeDefinitions';
-import { routeJson } from './routeResponses';
+} from '../wallets/requests';
+import { enforceRoutePolicy } from '../../router/enforceRoutePolicy';
+import type { NormalizedRouterLogger } from '../../router/logger';
+import { resolveSecretKeyApiCredentialAuth } from '../../router/routerApiCredentialAuth';
+import type { RouterApiKeyAuthAdapter, RouterApiKeyPrincipal } from '../../router/routerApi';
+import type { HeaderRecord, RouteResponse } from '../../router/routeExecutionContext';
+import type { RouteDefinition } from '../../router/routeDefinitions';
+import { routeJson } from '../../router/routeResponses';
 
 type RouterApiWalletErrorBody = {
   ok: false;

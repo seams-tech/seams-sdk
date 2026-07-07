@@ -1,4 +1,5 @@
 import { defineRoute, type RouteDefinition } from './routeDefinitions';
+import type { NormalizedRouterLogger } from './logger';
 
 export type RouterApiRouteExtensionTransport = 'cloudflare';
 
@@ -7,6 +8,7 @@ export interface RouterApiCloudflareRouteExtensionInput {
   route: RouteDefinition;
   pathname: string;
   method: string;
+  logger: NormalizedRouterLogger;
   env?: unknown;
   cfCtx?: unknown;
 }

@@ -26,7 +26,6 @@ import type { ConsoleObservabilityIngestionService } from '../console/observabil
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
-import type { ConsoleWalletService } from '../console/wallets';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmExecutionAdapterResolver,
@@ -495,10 +494,6 @@ export interface RouterApiOptions {
    */
   apiKeyUsageMeter?: RouterApiUsageMeterAdapter | null;
   /**
-   * Optional managed bootstrap broker used by browser-safe publishable_key flows.
-   */
-  bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
-  /**
    * Optional bootstrap-token verifier used to redeem managed registration grants.
    */
   bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
@@ -547,10 +542,6 @@ export interface RouterApiOptions {
    * keeping concrete feature ownership outside wallet/auth router core.
    */
   modules?: readonly RouterApiModule[];
-  /**
-   * Optional high-level wallet read service used by API credential wallet routes.
-   */
-  wallets?: ConsoleWalletService | null;
   /**
    * Optional org/project/environment service used to resolve environment -> project scope.
    */

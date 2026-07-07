@@ -26,8 +26,15 @@
   related scope/bootstrap imports. `commonRouterUtils`,
   `walletRegistrationRoutes`, and `routeAuthPolicy` now use signer-owned port
   types or constants for this slice.
+- Started Phase 3 by moving managed bootstrap-grant and API-wallet read route
+  ownership into `console/router/routeExtensions.ts`. The core Cloudflare
+  router no longer statically imports `routes/bootstrapGrants` or
+  `routes/apiWallets`, and `RouterApiOptions` no longer carries
+  `bootstrapGrantBroker` or `wallets`; the D1 composition closes over those
+  services inside the console route extension.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/sponsorship.staticPricing.unit.test.ts unit/sponsorship.realPricing.unit.test.ts unit/sponsorship.evmRelayConfig.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts relayer/console-d1-adapters.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/cloudflareD1ConsoleServices.unit.test.ts unit/relayWalletRegistration.boundary.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`

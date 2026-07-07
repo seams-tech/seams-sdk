@@ -89,7 +89,6 @@ import { ensureTempoOnboardingSponsorshipForExistingEnvironments } from '../../c
 import type { ConsoleGasSponsorshipPolicyProjection } from '../../console/gasSponsorship/types';
 import type {
   RouterApiKeyAuthAdapter,
-  RouterApiBootstrapGrantBroker,
   RouterApiBootstrapTokenVerifier,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiOptions,
@@ -103,6 +102,7 @@ import {
 } from '../../console/router/routerApiKeyAuth';
 import { createRouterApiBootstrapGrantBroker } from '../../console/router/bootstrapGrantBroker';
 import { createRouterApiBootstrapTokenVerifier } from '../../console/router/bootstrapTokenVerifier';
+import { createConsoleRouterApiRouteExtensions } from '../../console/router/routeExtensions';
 import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSigningWorker';
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
@@ -223,11 +223,10 @@ export interface CloudflareD1RouterApiStorageOptions {
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
-  readonly bootstrapGrantBroker: RouterApiBootstrapGrantBroker;
   readonly bootstrapTokenVerifier: RouterApiBootstrapTokenVerifier;
   readonly sponsoredEvmCall?: NonNullable<RouterApiOptions['sponsoredEvmCall']>;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
-  readonly wallets: ConsoleWalletService;
+  readonly routeExtensions: NonNullable<RouterApiOptions['routeExtensions']>;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
 }
 
@@ -1113,7 +1112,22 @@ function createCloudflareD1RouterApiStorageOptions(input: {
     storageNamespace: options.namespace,
   });
   const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;
+  const apiKeyAuth = createRouterApiKeyAuthAdapter(input.apiKeys);
   const publishableKeyAuth = createRouterApiPublishableKeyAuthAdapter(input.apiKeys);
+  const bootstrapGrantBroker = createRouterApiBootstrapGrantBroker({
+    apiKeys: input.apiKeys,
+    tokenStore: input.bootstrapTokens,
+    orgProjectEnv: input.orgProjectEnv,
+    tokenTtlMs: options.bootstrapGrantTokenTtlMs,
+    rateLimitsByBucket: {
+      default: { windowMs: 60_000, maxIssued: 60 },
+      default_web_v1: { windowMs: 60_000, maxIssued: 60 },
+    },
+    quotasByBucket: {
+      default: { maxIssued: 1_000 },
+      free_registrations_v1: { maxIssued: 100_000 },
+    },
+  });
   const bootstrapTokenVerifier = createRouterApiBootstrapTokenVerifier(input.bootstrapTokens);
   return {
     sponsorship: {
@@ -1122,25 +1136,11 @@ function createCloudflareD1RouterApiStorageOptions(input: {
       prepaidReservations: input.prepaidReservations,
     },
     observabilityIngestion: input.observabilityIngestion,
-    apiKeyAuth: createRouterApiKeyAuthAdapter(input.apiKeys),
+    apiKeyAuth,
     publishableKeyAuth,
     apiKeyUsageMeter: createRouterApiBillingUsageMeterAdapter(input.billing, {
       orgProjectEnv: input.orgProjectEnv,
       wallets: input.wallets,
-    }),
-    bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
-      apiKeys: input.apiKeys,
-      tokenStore: input.bootstrapTokens,
-      orgProjectEnv: input.orgProjectEnv,
-      tokenTtlMs: options.bootstrapGrantTokenTtlMs,
-      rateLimitsByBucket: {
-        default: { windowMs: 60_000, maxIssued: 60 },
-        default_web_v1: { windowMs: 60_000, maxIssued: 60 },
-      },
-      quotasByBucket: {
-        default: { maxIssued: 1_000 },
-        free_registrations_v1: { maxIssued: 100_000 },
-      },
     }),
     bootstrapTokenVerifier,
     ...(sponsoredEvmCallConfig
@@ -1155,7 +1155,11 @@ function createCloudflareD1RouterApiStorageOptions(input: {
         }
       : {}),
     orgProjectEnv: input.orgProjectEnv,
-    wallets: input.wallets,
+    routeExtensions: createConsoleRouterApiRouteExtensions({
+      apiKeyAuth,
+      bootstrapGrantBroker,
+      wallets: input.wallets,
+    }),
     routerAbNormalSigningAdmission:
       createRouterAbNormalSigningAdmissionAdapter(admissionStore),
   };

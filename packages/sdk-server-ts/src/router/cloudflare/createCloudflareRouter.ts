@@ -4,8 +4,6 @@ import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { json, withCors } from './http';
-import { handleApiWallets } from './routes/apiWallets';
-import { handleBootstrapGrant } from './routes/bootstrapGrants';
 import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleRecoverEmail } from './routes/recoverEmail';
@@ -115,9 +113,7 @@ export function createCloudflareRouter(
 
   const handlers: Array<(c: CloudflareRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
-    handleBootstrapGrant,
     handleWalletRegistration,
-    handleApiWallets,
     handleSponsoredEvmCall,
     handleSignedDelegate,
     handleAuth,
@@ -173,6 +169,7 @@ export function createCloudflareRouter(
           route,
           pathname: c.pathname,
           method: c.method,
+          logger: c.logger,
           env: c.env,
           cfCtx: c.cfCtx,
         });

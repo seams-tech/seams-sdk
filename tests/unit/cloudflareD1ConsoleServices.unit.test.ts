@@ -705,14 +705,13 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
   expect(bundle.routerApiRouterOptions.bootstrapTokenVerifier).toBeTruthy();
   expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
-  expect(bundle.routerApiRouterOptions.wallets).toBe(bundle.wallets);
   expect(bundle.routerApiRouterOptions.observabilityIngestion).toBe(bundle.observabilityIngestion);
   expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
   expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
   expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
-  expect(typeof bundle.routerApiRouterOptions.bootstrapGrantBroker.authenticatePublishableKey).toBe(
-    'function',
-  );
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('bootstrapGrantBroker');
+  expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
 });
 
 test('Cloudflare D1 console-only bundle omits signer custody bindings', async () => {
@@ -905,6 +904,19 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   await expect(bootstrapGrant.json()).resolves.toMatchObject({
     ok: false,
     code: 'publishable_key_missing',
+  });
+
+  const apiWallets = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/v1/wallets', {
+      method: 'GET',
+    }),
+    env,
+    ctx,
+  );
+  expect(apiWallets.status).toBe(401);
+  await expect(apiWallets.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'secret_key_missing',
   });
 });
 

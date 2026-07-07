@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/sdk-server-ts/src/console/router/routeExtensions';
 import { authorizeConsoleRouteRequest } from '../../packages/sdk-server-ts/src/router/consoleRoutePolicy';
 import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
 import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
@@ -132,18 +133,6 @@ test.describe('route definition scaffolding', () => {
     });
     expect(walletRevokeAuthMethod?.metering).toEqual({ kind: 'none' });
 
-    const apiWalletList = routes.find((route) => route.id === 'api_wallets_list');
-    expect(apiWalletList).toBeTruthy();
-    expect(apiWalletList?.auth).toMatchObject({
-      plane: 'api_credentials',
-      credentials: ['secret_key'],
-      scopes: ['wallets.read'],
-    });
-    expect(apiWalletList?.metering).toEqual({ kind: 'none' });
-
-    const apiWalletRoute = findRouteDefinitionForRequest(routes, 'GET', '/v1/wallets/wlt_123');
-    expect(apiWalletRoute?.id).toBe('api_wallets_get');
-
     const signedDelegate = routes.find((route) => route.id === 'signed_delegate');
     expect(signedDelegate).toBeTruthy();
     expect(signedDelegate?.auth).toMatchObject({
@@ -180,7 +169,12 @@ test.describe('route definition scaffolding', () => {
     const prfApply = routes.find((route) => route.id === 'signing_session_seal_apply_server_seal');
     expect(prfApply?.path).toBe(`${WALLET_SESSION_SEAL_BASE_PATH}/apply-server-seal`);
 
-    const apiCredentialRoutes = routes.filter((route) => route.auth.plane === 'api_credentials');
+    const consoleRouterApiExtensionRoutes = createConsoleRouterApiRouteExtensions({}).flatMap(
+      (extension) => [...extension.routes],
+    );
+    const apiCredentialRoutes = [...routes, ...consoleRouterApiExtensionRoutes].filter(
+      (route) => route.auth.plane === 'api_credentials',
+    );
     expect(apiCredentialRoutes.length).toBeGreaterThan(0);
     for (const route of apiCredentialRoutes) {
       const auth = route.auth as Extract<RouteDefinition['auth'], { plane: 'api_credentials' }>;

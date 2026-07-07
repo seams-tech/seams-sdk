@@ -10,6 +10,7 @@ import {
   type RouterApiModule,
 } from '../../packages/sdk-server-ts/src/router/modules';
 import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/console/router/routerApiKeyAuth';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/sdk-server-ts/src/console/router/routeExtensions';
 import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/routerApiRouteSurface';
@@ -487,6 +488,34 @@ test.describe('Router API route surface wiring', () => {
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
     expect(expressIds.has('voiceid_owner_presence_cloudflare')).toBe(true);
     expect(expressIds.has('voiceid_capabilities')).toBe(true);
+  });
+
+  test('console Router API route extensions own managed registration and wallet API routes', async () => {
+    const service = makeRouterApiServiceBagFixture();
+    const extensions = createConsoleRouterApiRouteExtensions({});
+    const cloudflareSurface = getRouterApiRouteSurface(
+      createCloudflareRouter(service, { routeExtensions: extensions }),
+    );
+    const routes = cloudflareSurface?.routeDefinitions || [];
+
+    const bootstrapGrant = routes.find((route) => route.id === 'registration_bootstrap_grants');
+    expect(bootstrapGrant).toBeTruthy();
+    expect(bootstrapGrant?.auth).toMatchObject({
+      plane: 'api_credentials',
+      credentials: ['publishable_key'],
+    });
+
+    const apiWalletList = routes.find((route) => route.id === 'api_wallets_list');
+    expect(apiWalletList).toBeTruthy();
+    expect(apiWalletList?.auth).toMatchObject({
+      plane: 'api_credentials',
+      credentials: ['secret_key'],
+      scopes: ['wallets.read'],
+    });
+    expect(apiWalletList?.metering).toEqual({ kind: 'none' });
+
+    const apiWalletRoute = routes.find((route) => route.id === 'api_wallets_get');
+    expect(apiWalletRoute?.path).toBe('/v1/wallets/:id');
   });
 
   test('route extensions cannot shadow existing Router API routes', async () => {
