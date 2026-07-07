@@ -60,6 +60,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     walletId: input.walletId,
     evmFamilySigningKeySlotId,
   });
+  const signingGrantId = `wss_${secureRandomBase64Url(24)}`;
   for (const chainTarget of input.chainTargets) {
     const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);
     targets.push({
@@ -78,7 +79,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
           : {}),
         requestId: `${input.registrationCeremonyId}:ecdsa:${encodeURIComponent(chainTargetKey)}`,
         thresholdSessionId: `tehss_${secureRandomBase64Url(24)}`,
-        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+        signingGrantId,
         ttlMs: 10 * 60_000,
         remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
         participantIds: [...input.participantIds],
