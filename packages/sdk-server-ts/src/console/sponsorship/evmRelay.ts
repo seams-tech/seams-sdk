@@ -22,7 +22,7 @@ import {
 import type { SponsorshipSpendPricingService } from './spendCaps';
 import { createRouterApiPublishableKeyAuthAdapter } from '../router/routerApiKeyAuth';
 import { coerceRouterLogger, type RouterLogger } from '../../router/logger';
-import { handleRouterApiSponsoredEvmCall } from '../../router/routerApiSponsoredEvmCall';
+import { handleRouterApiSponsoredEvmCall } from '../router/routerApiSponsoredEvmCall';
 import type { RouteDefinition } from '../../router/routeDefinitions';
 import { sendExpressRouteResponse } from '../../router/routeResponses';
 import {

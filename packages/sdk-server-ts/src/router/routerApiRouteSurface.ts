@@ -42,11 +42,9 @@ export function resolveRouterApiRouteDefinitionOptions(
     enableRecoverEmail: isRecoverEmailRouteEnabled(opts),
     enableSigningSessionSeal: Boolean(opts.signingSessionSeal),
     enableReadyz: Boolean(opts.readyz),
-    enableSponsoredEvmCall: Boolean(opts.sponsoredEvmCall),
     signingSessionSealBasePath: opts.signingSessionSeal?.basePath,
     sessionStatePath: mePath,
     signedDelegatePath: signedDelegatePath || undefined,
-    sponsoredEvmCallPath: opts.sponsoredEvmCall?.route,
   };
 }
 

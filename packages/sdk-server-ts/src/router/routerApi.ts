@@ -26,10 +26,6 @@ import type { ConsoleObservabilityIngestionService } from '../console/observabil
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
-import type {
-  SponsoredEvmCallExecutorConfig,
-  SponsoredEvmExecutionAdapterResolver,
-} from '../console/sponsorship/evmExecutorTypes';
 import type { SponsorshipSpendPricingService } from '../console/sponsorship/spendCaps';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -522,15 +518,6 @@ export interface RouterApiOptions {
    * Router A/B normal-signing requests.
    */
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
-  sponsoredEvmCall?: {
-    route?: string;
-    publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
-    billing: ConsoleBillingService;
-    ledger: ConsoleSponsoredCallService;
-    runtimeSnapshots: ConsoleRuntimeSnapshotService;
-    config: SponsoredEvmCallExecutorConfig;
-    resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
-  };
   /**
    * Optional route extensions mounted by the Router API router. Each extension declares
    * explicit runtime support so a Cloudflare Worker can expose Worker-native

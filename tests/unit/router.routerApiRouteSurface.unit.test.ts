@@ -114,6 +114,23 @@ function makeTestPublishableKeyAuth() {
   return createRouterApiPublishableKeyAuthAdapter(createInMemoryConsoleApiKeyService());
 }
 
+function makeSponsoredEvmRouteExtensions(route: string): readonly RouterApiRouteExtension[] {
+  return createConsoleRouterApiRouteExtensions({
+    sponsoredEvmCall: {
+      route,
+      publishableKeyAuth: makeTestPublishableKeyAuth(),
+      billing: {} as any,
+      ledger: createInMemoryConsoleSponsoredCallService(),
+      runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
+      config: makeSponsoredEvmExecutorConfig(),
+      observabilityIngestion: null,
+      prepaidReservations: null,
+      pricing: null,
+      spendCaps: null,
+    },
+  });
+}
+
 function canonicalRouteKeys(
   input: { method: string; path: string; aliases?: readonly string[] }[],
 ): string[] {
@@ -277,14 +294,7 @@ test.describe('Router API route surface wiring', () => {
       },
       sessionRoutes: { state: '/session/me' },
       signedDelegate: { route: '/delegate/submit', authService: service },
-      sponsoredEvmCall: {
-        route: '/gas/relay',
-        publishableKeyAuth: makeTestPublishableKeyAuth(),
-        billing: {} as any,
-        ledger: {} as any,
-        runtimeSnapshots: {} as any,
-        config: makeSponsoredEvmExecutorConfig(),
-      },
+      routeExtensions: makeSponsoredEvmRouteExtensions('/gas/relay'),
     };
 
     const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
@@ -362,14 +372,7 @@ test.describe('Router API route surface wiring', () => {
       readyz: true,
       sessionRoutes: { state: '/session/me' },
       signedDelegate: { route: '/delegate/submit', authService: service },
-      sponsoredEvmCall: {
-        route: '/gas/relay',
-        publishableKeyAuth: makeTestPublishableKeyAuth(),
-        billing: {} as any,
-        ledger: {} as any,
-        runtimeSnapshots: {} as any,
-        config: makeSponsoredEvmExecutorConfig(),
-      },
+      routeExtensions: makeSponsoredEvmRouteExtensions('/gas/relay'),
     };
 
     const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
@@ -380,9 +383,6 @@ test.describe('Router API route surface wiring', () => {
 
   test('cloudflare handler recognizes every seeded Router API route definition', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const apiKeys = createInMemoryConsoleApiKeyService();
-    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       healthz: true,
@@ -394,32 +394,7 @@ test.describe('Router API route surface wiring', () => {
       },
       sessionRoutes: { state: '/session/me' },
       signedDelegate: { route: '/delegate/submit', authService: service },
-      sponsoredEvmCall: {
-        route: '/gas/relay',
-        publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
-        billing: {
-          async recordUsageEvent() {
-            return {
-              accepted: true,
-              counted: true,
-              monthUtc: '2026-03',
-              monthlyActiveWallets: 1,
-            };
-          },
-          async recordSponsoredExecutionDebit() {
-            return {
-              accepted: true,
-              debitAppliedMinor: 0,
-              creditBalanceMinor: 0,
-              monthUtc: '2026-03',
-              statementId: 'inv_202603_001',
-            };
-          },
-        } as any,
-        ledger,
-        runtimeSnapshots,
-        config: makeSponsoredEvmExecutorConfig(),
-      },
+      routeExtensions: makeSponsoredEvmRouteExtensions('/gas/relay'),
     });
     const surface = getRouterApiRouteSurface(handler);
     expect(surface).toBeTruthy();
@@ -492,7 +467,11 @@ test.describe('Router API route surface wiring', () => {
 
   test('console Router API route extensions own managed registration and wallet API routes', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const extensions = createConsoleRouterApiRouteExtensions({});
+    const extensions = createConsoleRouterApiRouteExtensions({
+      apiKeyAuth: {} as any,
+      bootstrapGrantBroker: {} as any,
+      wallets: {} as any,
+    });
     const cloudflareSurface = getRouterApiRouteSurface(
       createCloudflareRouter(service, { routeExtensions: extensions }),
     );

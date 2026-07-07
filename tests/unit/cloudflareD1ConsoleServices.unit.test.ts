@@ -712,6 +712,11 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('bootstrapGrantBroker');
   expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
+  expect(
+    bundle.routerApiRouterOptions.routeExtensions
+      .flatMap((extension) => extension.routes)
+      .some((route) => route.id === 'sponsored_evm_call'),
+  ).toBe(false);
 });
 
 test('Cloudflare D1 console-only bundle omits signer custody bindings', async () => {
@@ -739,7 +744,7 @@ test('Cloudflare D1 console-only bundle omits signer custody bindings', async ()
   expect(bundle.consoleRouterOptions.sponsoredCalls).toBe(bundle.sponsoredCalls);
 });
 
-test('D1 Router API storage options expose sponsored EVM only with executor config', async () => {
+test('D1 Router API storage options attach sponsored EVM route extension with executor config', async () => {
   const database = new FakeD1Database();
   const sponsoredEvmCallConfig = createSponsoredEvmCallExecutorConfig();
   const bundle = await createCloudflareD1ConsoleServiceBundle({
@@ -758,16 +763,19 @@ test('D1 Router API storage options expose sponsored EVM only with executor conf
     },
   });
 
-  expect(bundle.routerApiRouterOptions.sponsoredEvmCall).toMatchObject({
-    billing: bundle.billing,
-    ledger: bundle.sponsoredCalls,
-    runtimeSnapshots: bundle.runtimeSnapshots,
-    config: sponsoredEvmCallConfig,
+  const extensionRoutes = bundle.routerApiRouterOptions.routeExtensions.flatMap(
+    (extension) => extension.routes,
+  );
+  const sponsoredRoute = extensionRoutes.find((route) => route.id === 'sponsored_evm_call');
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
+  expect(sponsoredRoute).toMatchObject({
+    method: 'POST',
+    path: '/sponsorships/evm/call',
+    metering: { kind: 'gas', ledger: 'evm' },
+    requiredServices: ['routerApiSponsoredEvmCall'],
   });
   expect(bundle.routerApiRouterOptions.sponsorship.pricing).toBeTruthy();
-  expect(bundle.routerApiRouterOptions.sponsoredEvmCall?.publishableKeyAuth).toBe(
-    bundle.routerApiRouterOptions.publishableKeyAuth,
-  );
+  expect(sponsoredEvmCallConfig.executorsByChain.size).toBe(1);
 });
 
 test('local D1 Worker ready smoke validates D1 tables and DO admission', async () => {

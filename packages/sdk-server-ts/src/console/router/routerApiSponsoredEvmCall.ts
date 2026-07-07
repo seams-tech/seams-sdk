@@ -1,13 +1,13 @@
-import type { ConsoleBillingService } from '../console/billing';
-import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
-import type { ConsoleObservabilityIngestionService } from '../console/observability';
-import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
+import type { ConsoleBillingService } from '../billing';
+import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../observability';
+import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
 import type {
   ConsoleSponsoredCallReceiptStatus,
   ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallService,
-} from '../console/sponsoredCalls';
-import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
+} from '../sponsoredCalls';
+import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import {
   matchResolvedSponsoredEvmCallPolicy,
   normalizeEvmAddress,
@@ -17,12 +17,12 @@ import {
   type SponsoredEvmCallRequest,
   type SponsoredEvmPolicyMatch,
   type SponsoredEvmPolicyMismatch,
-} from '../console/sponsorship/evm';
-import { DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID } from '../console/sponsorship/evmRoutes';
+} from '../sponsorship/evm';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID } from '../sponsorship/evmRoutes';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmExecutionAdapterResolver,
-} from '../console/sponsorship/evmExecutorTypes';
+} from '../sponsorship/evmExecutorTypes';
 import {
   buildSponsoredSpendCapSourceEventId,
   isSponsorshipSpendCapEnforcementError,
@@ -31,41 +31,41 @@ import {
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
-} from '../console/sponsorship/spendCaps';
+} from '../sponsorship/spendCaps';
 import {
   isSponsorshipPrepaidBalanceEnforcementError,
   reserveSponsoredPrepaidBalance,
-} from '../console/sponsorship/prepaidBalance';
-import { executeSponsorshipAdapter } from '../console/sponsorship/executionAdapter';
-import { enforceRoutePolicy } from './enforceRoutePolicy';
-import type { NormalizedRouterLogger } from './logger';
-import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
-import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
+} from '../sponsorship/prepaidBalance';
+import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
+import { enforceRoutePolicy } from '../../router/enforceRoutePolicy';
+import type { NormalizedRouterLogger } from '../../router/logger';
+import { resolvePublishableKeyApiCredentialAuth } from '../../router/routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from '../../router/routerApiKeyAuth';
 import {
   recordSponsoredExecution,
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
-} from './sponsorshipExecution';
+} from '../../router/sponsorshipExecution';
 import {
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
-} from './sponsorshipBillingEvents';
-import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
+} from '../../router/sponsorshipBillingEvents';
+import type { RouterApiPublishableKeyAuthAdapter } from '../../router/apiCredentialPorts';
 import {
   buildSponsorshipRoutePolicyFailureResponse,
   resolveSponsorshipReplayOrMatch,
   resolveSponsorshipRuntimeForPublishableKeyRoute,
-} from './sponsorshipRuntime';
+} from '../../router/sponsorshipRuntime';
 import {
   logSponsorshipSpendCapRejected,
   logSponsorshipSpendCapReserved,
   logSponsorshipSpendCapSettled,
-} from './sponsorshipSpendCapObservability';
-import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
-import type { RouteDefinition } from './routeDefinitions';
-import type { RouteErrorBody } from './routeResponses';
-import { routeJson } from './routeResponses';
-import type { ConsoleWebhookService } from '../console/webhooks';
+} from '../../router/sponsorshipSpendCapObservability';
+import type { HeaderRecord, RouteResponse } from '../../router/routeExecutionContext';
+import type { RouteDefinition } from '../../router/routeDefinitions';
+import type { RouteErrorBody } from '../../router/routeResponses';
+import { routeJson } from '../../router/routeResponses';
+import type { ConsoleWebhookService } from '../webhooks';
 import { isPlainObject } from '@shared/utils/validation';
 
 type SponsoredEvmExecution = {

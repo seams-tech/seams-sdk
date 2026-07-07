@@ -108,7 +108,10 @@ import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from '../routerAbNormalSigningAdmissionCore';
-import type { SponsoredEvmCallExecutorConfig } from '../../console/sponsorship/evmExecutorTypes';
+import type {
+  SponsoredEvmCallExecutorConfig,
+  SponsoredEvmExecutionAdapterResolver,
+} from '../../console/sponsorship/evmExecutorTypes';
 import type { SponsorshipSpendPricingService } from '../../console/sponsorship/spendCaps';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
@@ -177,6 +180,7 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly bootstrapGrantTokenTtlMs?: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
+  readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
 }
 
 export interface CloudflareD1ConsoleServiceBundleOptions {
@@ -191,7 +195,10 @@ export interface CloudflareD1ConsoleOnlyServiceBundleOptions {
   readonly route: Pick<CloudflareD1ConsoleRouteOptions, 'namespace'>;
   readonly adapters?: Omit<
     CloudflareD1ConsoleAdapterOptions,
-    'bootstrapGrantTokenTtlMs' | 'sponsorshipPricing' | 'sponsoredEvmCallConfig'
+    | 'bootstrapGrantTokenTtlMs'
+    | 'sponsorshipPricing'
+    | 'sponsoredEvmCallConfig'
+    | 'resolveSponsoredEvmExecutionAdapter'
   >;
 }
 
@@ -224,7 +231,6 @@ export interface CloudflareD1RouterApiStorageOptions {
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
   readonly bootstrapTokenVerifier: RouterApiBootstrapTokenVerifier;
-  readonly sponsoredEvmCall?: NonNullable<RouterApiOptions['sponsoredEvmCall']>;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly routeExtensions: NonNullable<RouterApiOptions['routeExtensions']>;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
@@ -322,6 +328,7 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions
   readonly bootstrapGrantTokenTtlMs: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
+  readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
 }
 
 interface CloudflareD1ConsoleCommonServices {
@@ -663,6 +670,7 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     ),
     sponsorshipPricing: options.adapters?.sponsorshipPricing,
     sponsoredEvmCallConfig: options.adapters?.sponsoredEvmCallConfig,
+    resolveSponsoredEvmExecutionAdapter: options.adapters?.resolveSponsoredEvmExecutionAdapter,
   };
 }
 
@@ -1105,6 +1113,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+  readonly webhooks: ConsoleWebhookService | null;
 }): CloudflareD1RouterApiStorageOptions {
   const { options } = input;
   const admissionStore = createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore({
@@ -1143,21 +1152,27 @@ function createCloudflareD1RouterApiStorageOptions(input: {
       wallets: input.wallets,
     }),
     bootstrapTokenVerifier,
-    ...(sponsoredEvmCallConfig
-      ? {
-          sponsoredEvmCall: {
-            publishableKeyAuth,
-            billing: input.billing,
-            ledger: input.sponsoredCalls,
-            runtimeSnapshots: input.runtimeSnapshots,
-            config: sponsoredEvmCallConfig,
-          },
-        }
-      : {}),
     orgProjectEnv: input.orgProjectEnv,
     routeExtensions: createConsoleRouterApiRouteExtensions({
       apiKeyAuth,
       bootstrapGrantBroker,
+      ...(sponsoredEvmCallConfig
+        ? {
+            sponsoredEvmCall: {
+              publishableKeyAuth,
+              billing: input.billing,
+              ledger: input.sponsoredCalls,
+              runtimeSnapshots: input.runtimeSnapshots,
+              config: sponsoredEvmCallConfig,
+              resolveExecutionAdapter: options.resolveSponsoredEvmExecutionAdapter || null,
+              observabilityIngestion: input.observabilityIngestion,
+              prepaidReservations: input.prepaidReservations,
+              pricing: input.sponsorshipPricing,
+              spendCaps: input.spendCaps,
+              webhooks: input.webhooks,
+            },
+          }
+        : {}),
       wallets: input.wallets,
     }),
     routerAbNormalSigningAdmission:
@@ -1222,6 +1237,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     sponsoredCalls: servicesWithApiKeys.sponsoredCalls,
     runtimeSnapshots: servicesWithApiKeys.runtimeSnapshots,
     observabilityIngestion: servicesWithApiKeys.observabilityIngestion,
+    webhooks: servicesWithApiKeys.webhooks,
   });
   return {
     tenantStorageRouteResolver,

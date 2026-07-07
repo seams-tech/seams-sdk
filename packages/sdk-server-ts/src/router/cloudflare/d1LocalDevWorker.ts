@@ -770,14 +770,9 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     adapters: {
       ensureSchema: false,
       sponsoredEvmCallConfig,
+      resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
     },
   });
-  const sponsoredEvmCall = bundle.routerApiRouterOptions.sponsoredEvmCall
-    ? {
-        ...bundle.routerApiRouterOptions.sponsoredEvmCall,
-        resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
-      }
-    : undefined;
   const sessionCookieName = localRouterApiSessionCookieName(env);
   const routerApiService = createLocalD1RouterApiAuthService(env);
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
@@ -794,7 +789,6 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
       audience: localRouterApiSessionAudience(env),
     }),
     ...(sessionCookieName ? { sessionCookieName } : {}),
-    ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
     emailRecovery: {
       kind: 'prepare_only',
       authService: emailRecoveryAuthService,

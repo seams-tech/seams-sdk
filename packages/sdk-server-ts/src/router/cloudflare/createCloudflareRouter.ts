@@ -8,7 +8,6 @@ import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleWalletRegistration } from './routes/walletRegistration';
-import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
 import {
   handleSessionState,
   handleSessionExchange,
@@ -114,7 +113,6 @@ export function createCloudflareRouter(
   const handlers: Array<(c: CloudflareRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleWalletRegistration,
-    handleSponsoredEvmCall,
     handleSignedDelegate,
     handleAuth,
     handleSyncAccount,

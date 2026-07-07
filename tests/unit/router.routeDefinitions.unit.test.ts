@@ -82,11 +82,9 @@ test.describe('route definition scaffolding', () => {
       enableHealthz: true,
       enableSigningSessionSeal: true,
       enableReadyz: true,
-      enableSponsoredEvmCall: true,
       signingSessionSealBasePath: WALLET_SESSION_SEAL_BASE_PATH,
       sessionStatePath: '/session/state',
       signedDelegatePath: '/signed-delegate',
-      sponsoredEvmCallPath: '/sponsorships/evm/call',
     });
 
     const ids = routes.map((route) => route.id);
@@ -140,6 +138,7 @@ test.describe('route definition scaffolding', () => {
       credentials: ['publishable_key'],
     });
     expect(signedDelegate?.metering).toEqual({ kind: 'gas', ledger: 'near_delegate' });
+    expect(routes.find((route) => route.id === 'sponsored_evm_call')).toBeUndefined();
 
     expect(routes.find((route) => route.id === 'threshold_ecdsa_sign_init')).toBeUndefined();
 
@@ -169,9 +168,11 @@ test.describe('route definition scaffolding', () => {
     const prfApply = routes.find((route) => route.id === 'signing_session_seal_apply_server_seal');
     expect(prfApply?.path).toBe(`${WALLET_SESSION_SEAL_BASE_PATH}/apply-server-seal`);
 
-    const consoleRouterApiExtensionRoutes = createConsoleRouterApiRouteExtensions({}).flatMap(
-      (extension) => [...extension.routes],
-    );
+    const consoleRouterApiExtensionRoutes = createConsoleRouterApiRouteExtensions({
+      apiKeyAuth: {} as any,
+      bootstrapGrantBroker: {} as any,
+      wallets: {} as any,
+    }).flatMap((extension) => [...extension.routes]);
     const apiCredentialRoutes = [...routes, ...consoleRouterApiExtensionRoutes].filter(
       (route) => route.auth.plane === 'api_credentials',
     );

@@ -108,6 +108,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     adapters: {
       ensureSchema: false,
       sponsoredEvmCallConfig,
+      resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
     },
   });
   const thresholdStoreConfig = stagingThresholdStoreConfig(env, namespace);
@@ -151,12 +152,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     ),
     thresholdStore: thresholdStoreConfig,
   });
-  const sponsoredEvmCall = bundle.routerApiRouterOptions.sponsoredEvmCall
-    ? {
-        ...bundle.routerApiRouterOptions.sponsoredEvmCall,
-        resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
-      }
-    : undefined;
   const session = createHmacSessionAdapterFromEnv({
     env,
     secretName: 'RELAY_SESSION_HMAC_SECRET',
@@ -173,7 +168,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     readyCheck: createRouterApiReadyCheck(env),
     signingSessionSeal: stagingSigningSessionSealOptions(env, thresholdStoreConfig),
-    ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
   });
 }
 

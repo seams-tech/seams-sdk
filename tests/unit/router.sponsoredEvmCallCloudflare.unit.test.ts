@@ -4,6 +4,7 @@ import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/sdk-server-ts/src/console/router/routeExtensions';
 import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/console/router/routerApiKeyAuth';
 import { callCf } from '../relayer/helpers';
 
@@ -68,6 +69,10 @@ function makeSponsoredOptions() {
     } as any,
     ledger: createInMemoryConsoleSponsoredCallService(),
     runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
+    observabilityIngestion: null,
+    prepaidReservations: null,
+    pricing: null,
+    spendCaps: null,
     config: {
       executorsByChain: new Map([
         [
@@ -120,7 +125,9 @@ test.describe('cloudflare sponsored evm call route', () => {
     const warnings: unknown[][] = [];
     const handler = createCloudflareRouter(makeRouterApiServiceBagFixture(), {
       corsOrigins: ['https://example.localhost'],
-      sponsoredEvmCall: makeSponsoredOptions(),
+      routeExtensions: createConsoleRouterApiRouteExtensions({
+        sponsoredEvmCall: makeSponsoredOptions(),
+      }),
       logger: {
         warn: (...args: unknown[]) => {
           warnings.push(args);

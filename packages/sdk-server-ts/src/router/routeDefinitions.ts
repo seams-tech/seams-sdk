@@ -1,4 +1,3 @@
-import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../console/sponsorship/evmRoutes';
 import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,
@@ -59,11 +58,9 @@ export interface RouterApiRouteDefinitionOptions {
   enableHealthz?: boolean;
   enableSigningSessionSeal?: boolean;
   enableReadyz?: boolean;
-  enableSponsoredEvmCall?: boolean;
   signingSessionSealBasePath?: string;
   sessionStatePath?: string;
   signedDelegatePath?: string;
-  sponsoredEvmCallPath?: string;
 }
 
 const CONSOLE_CONFIG_MUTATION_ROLES: NonNullable<
@@ -1420,8 +1417,6 @@ export function createRouterApiRouteDefinitions(
   const sessionStateAliases =
     sessionStatePath === '/session/state' ? undefined : ['/session/state'];
   const signedDelegatePath = String(options.signedDelegatePath || '').trim();
-  const sponsoredEvmCallPath =
-    String(options.sponsoredEvmCallPath || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
   const signingSessionSealBasePath = resolveSigningSessionSealBasePath(
     options.signingSessionSealBasePath,
   );
@@ -2176,25 +2171,6 @@ export function createRouterApiRouteDefinitions(
             'Recover-email remains auth-free for now and should be revisited if it starts incurring billable execution cost.',
         },
         ROUTER_API_RECOVER_EMAIL_SERVICES,
-      ),
-    );
-  }
-
-  if (options.enableSponsoredEvmCall) {
-    definitions.push(
-      apiCredentialRoute(
-        'sponsored_evm_call',
-        'POST',
-        sponsoredEvmCallPath,
-        'Execute a sponsored EVM call',
-        {
-          plane: 'api_credentials',
-          credentials: ['publishable_key'],
-          environmentBinding: 'required',
-          originBinding: 'required',
-        },
-        { kind: 'gas', ledger: 'evm' },
-        ['routerApiSponsoredEvmCall'],
       ),
     );
   }

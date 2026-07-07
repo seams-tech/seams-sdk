@@ -3,10 +3,25 @@ import { handleRouterApiBootstrapGrant } from '../../router/routerApiBootstrapGr
 import { resolveSourceIpFromFetchHeaders } from '../../router/routerApiKeyAuth';
 import type { NormalizedRouterLogger } from '../../router/logger';
 import type { RouteDefinition } from '../../router/routeDefinitions';
-import { toFetchRouteResponse } from '../../router/routeResponses';
+import { routeJson, toFetchRouteResponse } from '../../router/routeResponses';
 import type { RouterApiRouteExtension } from '../../router/routeExtensions';
 import { readJson } from '../../router/cloudflare/http';
+import type { RouterApiPublishableKeyAuthAdapter } from '../../router/apiCredentialPorts';
+import type { ConsoleBillingService } from '../billing';
+import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../observability';
+import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
+import type { ConsoleSponsoredCallService } from '../sponsoredCalls';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../sponsorship/evmRoutes';
+import type {
+  SponsoredEvmCallExecutorConfig,
+  SponsoredEvmExecutionAdapterResolver,
+} from '../sponsorship/evmExecutorTypes';
+import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
+import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
+import type { ConsoleWebhookService } from '../webhooks';
 import type { ConsoleWalletService } from '../wallets/service';
+import { handleRouterApiSponsoredEvmCall } from './routerApiSponsoredEvmCall';
 import {
   handleRouterApiWalletGet,
   handleRouterApiWalletList,
@@ -14,10 +29,31 @@ import {
 } from './routerApiWallets';
 
 const API_WALLET_DETAIL_PREFIX = '/v1/wallets/';
+const ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID = 'sponsored_evm_call';
+const SPONSORED_EVM_MVP_DISABLED_MESSAGE =
+  'EVM gas sponsorship pricing is not configured on this server.';
+
+export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
+  readonly route?: string;
+  readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
+  readonly billing: ConsoleBillingService;
+  readonly ledger: ConsoleSponsoredCallService;
+  readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
+  readonly config: SponsoredEvmCallExecutorConfig;
+  readonly resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService | null;
+  readonly prepaidReservations: ConsoleBillingPrepaidReservationService | null;
+  readonly pricing: SponsorshipSpendPricingService | null;
+  readonly spendCaps: ConsoleSponsorshipSpendCapService | null;
+  readonly webhooks?: ConsoleWebhookService | null;
+  readonly webhookActorUserId?: string;
+  readonly webhookRoles?: string[];
+}
 
 export interface ConsoleRouterApiRouteExtensionsOptions {
   readonly apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   readonly bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
+  readonly sponsoredEvmCall?: ConsoleRouterApiSponsoredEvmCallRouteOptions | null;
   readonly wallets?: ConsoleWalletService | null;
 }
 
@@ -102,13 +138,38 @@ function apiWalletGetRoute(): RouteDefinition {
   };
 }
 
-function consoleRouterApiRoutes(): readonly RouteDefinition[] {
-  return [
-    registrationBootstrapGrantRoute(),
-    apiWalletListRoute(),
-    apiWalletSearchRoute(),
-    apiWalletGetRoute(),
-  ];
+function sponsoredEvmCallRoute(routePath?: string): RouteDefinition {
+  return {
+    id: ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID,
+    surface: 'relay',
+    method: 'POST',
+    path: String(routePath || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE,
+    summary: 'Execute a sponsored EVM call',
+    auth: {
+      plane: 'api_credentials',
+      credentials: ['publishable_key'],
+      environmentBinding: 'required',
+      originBinding: 'required',
+    },
+    metering: { kind: 'gas', ledger: 'evm' },
+    requiredServices: ['routerApiSponsoredEvmCall'],
+  };
+}
+
+function consoleRouterApiRoutes(
+  options: ConsoleRouterApiRouteExtensionsOptions,
+): readonly RouteDefinition[] {
+  const routes: RouteDefinition[] = [];
+  if (options.bootstrapGrantBroker) {
+    routes.push(registrationBootstrapGrantRoute());
+  }
+  if (options.apiKeyAuth && options.wallets) {
+    routes.push(apiWalletListRoute(), apiWalletSearchRoute(), apiWalletGetRoute());
+  }
+  if (options.sponsoredEvmCall) {
+    routes.push(sponsoredEvmCallRoute(options.sponsoredEvmCall.route));
+  }
+  return routes;
 }
 
 async function handleConsoleBootstrapGrantRoute(input: {
@@ -173,6 +234,54 @@ async function handleConsoleApiWalletRoute(input: {
   return toFetchRouteResponse(response);
 }
 
+async function handleConsoleSponsoredEvmCallRoute(input: {
+  readonly request: Request;
+  readonly route: RouteDefinition;
+  readonly logger: NormalizedRouterLogger;
+  readonly sponsoredEvmCall: ConsoleRouterApiSponsoredEvmCallRouteOptions;
+}): Promise<Response> {
+  const options = input.sponsoredEvmCall;
+  if (!options.pricing) {
+    input.logger.warn('[sponsored-evm-call][pricing-unconfigured]', {
+      path: input.route.path,
+      reason: SPONSORED_EVM_MVP_DISABLED_MESSAGE,
+    });
+    return toFetchRouteResponse(
+      routeJson(503, {
+        ok: false,
+        code: 'sponsorship_pricing_unavailable',
+        message: SPONSORED_EVM_MVP_DISABLED_MESSAGE,
+      }),
+    );
+  }
+
+  const response = await handleRouterApiSponsoredEvmCall({
+    body: await readJson(input.request),
+    headers: routeHeaders(input.request.headers),
+    logger: input.logger,
+    origin: routeOrigin(input.request.headers),
+    route: input.route,
+    services: {
+      routerApiSponsoredEvmCall: {
+        billing: options.billing,
+        config: options.config,
+        resolveExecutionAdapter: options.resolveExecutionAdapter || null,
+        observabilityIngestion: options.observabilityIngestion,
+        prepaidReservations: options.prepaidReservations,
+        publishableKeyAuth: options.publishableKeyAuth,
+        pricing: options.pricing,
+        runtimeSnapshots: options.runtimeSnapshots,
+        spendCaps: options.spendCaps,
+        sponsoredCalls: options.ledger,
+        webhooks: options.webhooks || null,
+        webhookActorUserId: options.webhookActorUserId,
+        webhookRoles: options.webhookRoles,
+      },
+    },
+  });
+  return toFetchRouteResponse(response);
+}
+
 function walletIdFromPath(pathname: string): string | null {
   if (!pathname.startsWith(API_WALLET_DETAIL_PREFIX)) return null;
   const walletId = decodeURIComponent(pathname.slice(API_WALLET_DETAIL_PREFIX.length));
@@ -183,11 +292,14 @@ function walletIdFromPath(pathname: string): string | null {
 export function createConsoleRouterApiRouteExtensions(
   options: ConsoleRouterApiRouteExtensionsOptions,
 ): readonly RouterApiRouteExtension[] {
+  const routes = consoleRouterApiRoutes(options);
+  if (routes.length === 0) return [];
+
   return [
     {
       kind: 'cloudflare_route_extension',
       id: 'console_router_api_managed_routes',
-      routes: consoleRouterApiRoutes(),
+      routes,
       async handleCloudflareRoute(input) {
         const logger = input.logger;
         if (input.route.id === 'registration_bootstrap_grants') {
@@ -196,6 +308,18 @@ export function createConsoleRouterApiRouteExtensions(
             route: input.route,
             logger,
             broker: options.bootstrapGrantBroker,
+          });
+        }
+
+        if (
+          input.route.id === ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID &&
+          options.sponsoredEvmCall
+        ) {
+          return await handleConsoleSponsoredEvmCallRoute({
+            request: input.request,
+            route: input.route,
+            logger,
+            sponsoredEvmCall: options.sponsoredEvmCall,
           });
         }
 
