@@ -17,6 +17,10 @@ import {
   SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
 } from '@/core/signingEngine/session/budget/budget';
 import {
+  classifySigningGrantAdmissionFailure,
+  SigningGrantAdmissionError,
+} from '@/core/signingEngine/session/budget/admission';
+import {
   requireRouterAbNormalSigningPrepareMatchesRequest,
   requireRouterAbNormalSigningResponseMatchesRequest,
 } from '@/core/rpcClients/relayer/routerAbNormalSigningValidation';
@@ -287,8 +291,12 @@ test.describe('Router A/B normal-signing response validation', () => {
 
     expect(exhausted).toBeInstanceOf(Error);
     expect(inFlight).toBeInstanceOf(Error);
+    expect(exhausted).toBeInstanceOf(SigningGrantAdmissionError);
+    expect(inFlight).toBeInstanceOf(SigningGrantAdmissionError);
     expect(String((exhausted as Error).message)).toContain(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
     expect(String((inFlight as Error).message)).toContain(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+    expect(classifySigningGrantAdmissionFailure(exhausted)?.kind).toBe('exhausted');
+    expect(classifySigningGrantAdmissionFailure(inFlight)?.kind).toBe('in_flight');
     expect(isSigningSessionBudgetAdmissionBlockedError(exhausted)).toBe(true);
     expect(isSigningSessionBudgetAdmissionBlockedError(inFlight)).toBe(true);
   });

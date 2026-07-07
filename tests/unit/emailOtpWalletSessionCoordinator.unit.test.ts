@@ -2135,6 +2135,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         record: ed25519Record,
         authority: ed25519SigningAuthority,
       }),
+      remainingUses: 3,
     });
 
     expect(result.sessionId).toBe('ed-session');
@@ -2158,11 +2159,12 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         keyVersion: 'threshold-ed25519-hss-v1',
         participantIds: [1, 2],
       },
-      remainingUses: 1,
+      remainingUses: 3,
       ecdsaThresholdSessionId: 'ecdsa-session',
       emailOtpAuthContext: emailOtpAuthContextFixture({
-        policy: 'per_operation',
-        retention: 'single_use',
+        policy: 'session',
+        retention: 'session',
+        reason: 'sign',
         providerUserId: 'google:subject',
       }),
     });
@@ -2729,7 +2731,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     expect(sealedRecordWrites.length).toBeGreaterThan(0);
   });
 
-  test('Email OTP per-operation ECDSA signing mints a fresh signing grant id', async () => {
+  test('Email OTP ECDSA signing step-up mints a budgeted signing grant id', async () => {
     const { coordinator, workerCalls } = createCoordinator({
       configs: {
         signing: {
@@ -2818,6 +2820,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       committedLane: emailOtpEcdsaCommittedLaneFromRecord(record),
+      remainingUses: 3,
     });
 
     const loginCall = workerCalls.find((call) => call.request?.type === 'loginWithEmailOtpWallet');

@@ -82,7 +82,7 @@ export function createEvmFamilySigningDeps(args: {
         challengeId,
         otpCode,
         committedLane,
-        ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+        remainingUses,
       }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),

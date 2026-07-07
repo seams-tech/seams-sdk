@@ -47,10 +47,15 @@ import {
   type SigningSessionBudgetStatusAuth,
   type SigningBudgetFinalizationResult,
   type SigningSessionPreparedBudgetIdentity,
-  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
   isSigningSessionBudgetReservation,
   type SigningSessionBudgetReserveResult,
 } from '../../session/budget/budget';
+import {
+  buildSigningGrantAdmissionQueueKey,
+  SigningGrantAdmissionError,
+  signingGrantAdmissionAuthorityKeyFromAuth,
+  waitForSigningGrantAdmissionRetry,
+} from '../../session/budget/admission';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmCapabilities/sealedRefreshParity';
@@ -249,7 +254,11 @@ function buildFreshEcdsaBudgetIdentityFromReadySignerSession(args: {
   const remainingUses = Math.max(0, Math.floor(Number(session.policy.remainingUses) || 0));
   const usesNeeded = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
   if (remainingUses < usesNeeded) {
-    throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+    throw new SigningGrantAdmissionError({
+      kind: 'exhausted',
+      source: 'trusted_status',
+      detail: `fresh ECDSA signer session remaining uses ${remainingUses} is below required uses ${usesNeeded}`,
+    });
   }
   const expiresAtMs = Math.max(0, Math.floor(Number(session.policy.expiresAtMs) || 0));
   const projectionVersion = walletBudgetProjectionVersion({
@@ -372,6 +381,25 @@ function trustedBudgetStatusAuthForEcdsaBudgetOperation(args: {
     );
   }
   return trustedBudgetStatusAuthFromReadySignerSession(args.signerSession);
+}
+
+function ecdsaSigningGrantAdmissionQueueKey(args: {
+  walletId: string;
+  prepared: PreparedEvmFamilyEcdsaSigningSession;
+}): ReturnType<typeof buildSigningGrantAdmissionQueueKey> {
+  const signingGrantId = args.prepared.signingLane.signingGrantId;
+  const projectionVersion =
+    args.prepared.budget.kind === 'BudgetAdmitted'
+      ? args.prepared.budget.operation.budgetAdmission.budgetIdentity.projectionVersion
+      : 'projection-unadmitted';
+  return buildSigningGrantAdmissionQueueKey({
+    walletId: args.walletId,
+    curve: 'ecdsa',
+    signingGrantId,
+    projectionVersion,
+    authorityKey: signingGrantAdmissionAuthorityKeyFromAuth(args.prepared.signingLane.auth),
+    targetKey: thresholdEcdsaChainTargetKey(args.prepared.signingLane.chainTarget),
+  });
 }
 
 export {
@@ -691,7 +719,7 @@ async function signEvmFamilyAttempt(
           challengeId: string;
           otpCode: string;
           committedLane: EmailOtpEcdsaCommittedLane;
-          remainingUses?: number;
+          remainingUses: number;
         }) =>
           await loginWithEmailOtpEcdsaCapabilityForSigning({
             walletSession: loginArgs.walletSession,
@@ -699,9 +727,7 @@ async function signEvmFamilyAttempt(
             challengeId: loginArgs.challengeId,
             otpCode: loginArgs.otpCode,
             committedLane: loginArgs.committedLane,
-            ...(typeof loginArgs.remainingUses === 'number'
-              ? { remainingUses: loginArgs.remainingUses }
-              : {}),
+            remainingUses: loginArgs.remainingUses,
           })
       : undefined,
   };
@@ -1475,17 +1501,43 @@ async function signEvmFamilyAttempt(
     });
     recordFreshAuthRetryDecision(decision, error);
     if (decision.kind !== 'retry') return null;
+    if (decision.retryMode === 'wait_and_retry_admission') {
+      await waitForSigningGrantAdmissionRetry(decision.retryAfterMs);
+      const result = await signEvmFamilyAttempt(deps, args, {
+        forceFreshAuth: false,
+        operationIds,
+        retryingFreshAuth: attempt.retryingFreshAuth,
+        signingSessionCoordinator,
+      });
+      freshAuthRetryHandledFinalization = true;
+      return result;
+    }
     emitEvmFamilyFreshAuthRetryEvent({
       walletId,
       chain: args.request.chain,
       accountAuth: resolvedAccountAuth,
       onEvent: args.onEvent,
     });
-    const result = await signEvmFamilyAttempt(deps, args, {
-      forceFreshAuth: true,
-      operationIds,
-      retryingFreshAuth: true,
-      signingSessionCoordinator,
+    const queueKey = ecdsaSigningGrantAdmissionQueueKey({
+      walletId,
+      prepared: getPreparedEcdsaSigningSession(),
+    });
+    const result = await signingSessionCoordinator.runSigningGrantAdmissionRetry({
+      queueKey,
+      refresh: async () =>
+        await signEvmFamilyAttempt(deps, args, {
+          forceFreshAuth: true,
+          operationIds,
+          retryingFreshAuth: true,
+          signingSessionCoordinator,
+        }),
+      retryAfterRefresh: async () =>
+        await signEvmFamilyAttempt(deps, args, {
+          forceFreshAuth: false,
+          operationIds,
+          retryingFreshAuth: attempt.retryingFreshAuth,
+          signingSessionCoordinator,
+        }),
     });
     freshAuthRetryHandledFinalization = true;
     return result;

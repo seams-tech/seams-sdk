@@ -1,6 +1,6 @@
 import { SigningSessionIds } from '../operationState/types';
 import {
-  buildSingleOperationStepUpBudgetPolicy,
+  buildPostExhaustionStepUpBudgetPolicy,
   buildWalletUnlockBudgetPolicy,
   parseServerEnvironmentBudgetAllowance,
 } from './policy';
@@ -16,16 +16,16 @@ void buildWalletUnlockBudgetPolicy({
   }),
 });
 
-void buildSingleOperationStepUpBudgetPolicy({
+void buildPostExhaustionStepUpBudgetPolicy({
   operationId,
   requiredSignatureUses: 1,
 });
 
-// @ts-expect-error single-operation step-up requires operationId
-void buildSingleOperationStepUpBudgetPolicy({});
+// @ts-expect-error post-exhaustion step-up requires operationId
+void buildPostExhaustionStepUpBudgetPolicy({});
 
-// @ts-expect-error single-operation step-up requires the operation signature count
-void buildSingleOperationStepUpBudgetPolicy({ operationId });
+// @ts-expect-error post-exhaustion step-up requires the operation signature count
+void buildPostExhaustionStepUpBudgetPolicy({ operationId });
 
 // @ts-expect-error wallet unlock policy must not accept operation-scoped fields
 void buildWalletUnlockBudgetPolicy({ operationId });

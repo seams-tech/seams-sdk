@@ -74,7 +74,7 @@ export function createNearSigningDeps(args: {
         challengeId,
         otpCode,
         committedLane,
-        ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+        remainingUses,
       }) || Promise.reject(new Error('Email OTP Ed25519 signing bootstrap is not configured')),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),

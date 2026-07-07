@@ -302,7 +302,10 @@ export function buildRestoreWorkItemLookupResult(
   input: RestorePersistedSessionForSigningInput,
   record: RawSigningSessionSealedStoreRecord,
 ): RestoreWorkItemLookupResult {
-  const normalized = normalizeSealedRecoveryRecord(record);
+  const normalized = normalizeSealedRecoveryRecord(record, {
+    allowExpired: input.curve === 'ed25519',
+    allowExhausted: input.curve === 'ed25519',
+  });
   if (normalized.kind === 'rejected') {
     return {
       kind: 'rejected',

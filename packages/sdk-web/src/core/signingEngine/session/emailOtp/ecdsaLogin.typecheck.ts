@@ -22,8 +22,20 @@ const transactionStepUpWithCommittedLane: EmailOtpEcdsaTransactionStepUpInput = 
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
 };
 void transactionStepUpWithCommittedLane;
+
+// @ts-expect-error transaction step-up requires a concrete budget allowance.
+const transactionStepUpWithoutRemainingUses: EmailOtpEcdsaTransactionStepUpInput = {
+  mode: 'transaction_step_up',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+};
+void transactionStepUpWithoutRemainingUses;
 
 const transactionStepUpWithRecordAuthLane: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
@@ -32,6 +44,7 @@ const transactionStepUpWithRecordAuthLane: EmailOtpEcdsaTransactionStepUpInput =
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
   // @ts-expect-error transaction step-up does not accept loose auth lanes.
   authLane: { kind: 'cookie' },
 };
@@ -44,6 +57,7 @@ const transactionStepUpWithRouteAuth: EmailOtpEcdsaTransactionStepUpInput = {
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
   // @ts-expect-error transaction step-up does not accept loose route auth.
   routeAuth: { kind: 'wallet_session', jwt: 'jwt' },
 };
@@ -56,6 +70,7 @@ const transactionStepUpMissingAuth: EmailOtpEcdsaTransactionStepUpInput = {
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
+  remainingUses: 3,
 };
 void transactionStepUpMissingAuth;
 
@@ -66,6 +81,7 @@ const transactionStepUpWithRegistrationAttempt: EmailOtpEcdsaTransactionStepUpIn
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
   // @ts-expect-error transaction step-up does not accept registration attempts.
   registrationAttemptId: 'registration-attempt',
 };
@@ -77,8 +93,19 @@ const signingCapabilityWithCommittedLane: LoginEmailOtpEcdsaCapabilityForSigning
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
 };
 void signingCapabilityWithCommittedLane;
+
+// @ts-expect-error signing capability refresh requires a concrete budget allowance.
+const signingCapabilityWithoutRemainingUses: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+};
+void signingCapabilityWithoutRemainingUses;
 
 // @ts-expect-error signing capability refresh requires a committed ECDSA lane.
 const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
@@ -86,6 +113,7 @@ const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSign
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
+  remainingUses: 3,
 };
 void signingCapabilityWithoutCommittedLane;
 

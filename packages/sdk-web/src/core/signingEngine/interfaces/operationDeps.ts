@@ -102,7 +102,7 @@ export type NearSigningApiDeps = {
     otpCode: string;
     committedLane: Ed25519SigningLane;
     record?: never;
-    remainingUses?: number;
+    remainingUses: number;
     authLane?: never;
   }) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
   restorePersistedSessionForSigning?: (
@@ -205,7 +205,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       challengeId: string;
       otpCode: string;
       committedLane: EmailOtpEcdsaCommittedLane;
-      remainingUses?: number;
+      remainingUses: number;
     }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
     restorePersistedSessionForSigning: (
       args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,

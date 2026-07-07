@@ -4,9 +4,15 @@ import {
   classifyEvmFamilyFreshAuthRetry,
   type EvmFamilyFreshAuthRetryDecision,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/freshAuthRetryPolicy';
-import { SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+import {
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 
-function classifyBudgetRetry(error: Error): EvmFamilyFreshAuthRetryDecision {
+function classifyBudgetRetry(
+  error: Error,
+  overrides: Partial<Parameters<typeof classifyEvmFamilyFreshAuthRetry>[0]> = {},
+): EvmFamilyFreshAuthRetryDecision {
   return classifyEvmFamilyFreshAuthRetry({
     trigger: 'wallet_signing_budget_exhausted',
     error,
@@ -16,6 +22,7 @@ function classifyBudgetRetry(error: Error): EvmFamilyFreshAuthRetryDecision {
       linkedAuthMethods: [SIGNER_AUTH_METHODS.passkey],
     },
     sideEffectState: 'no_auth_side_effect_started',
+    ...overrides,
   });
 }
 
@@ -25,6 +32,32 @@ test.describe('EVM-family fresh-auth retry policy', () => {
       kind: 'retry',
       trigger: 'wallet_signing_budget_exhausted',
       sideEffectState: 'no_auth_side_effect_started',
+      retryMode: 'wait_and_retry_admission',
+      retryAfterMs: 150,
+      admissionDecision: {
+        kind: 'wait_and_retry_admission',
+        retryAfterMs: 150,
+        failure: {
+          kind: 'in_flight',
+          source: 'local_projection',
+          detail: SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
+          retryAfterMs: 150,
+        },
+      },
+    });
+  });
+
+  test('allows budget exhaustion retry after auth side effects when server admission loses the race', () => {
+    expect(
+      classifyBudgetRetry(new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR), {
+        hasStepUpAuthPlan: true,
+        sideEffectState: 'auth_confirmed',
+      }),
+    ).toEqual({
+      kind: 'retry',
+      trigger: 'wallet_signing_budget_exhausted',
+      sideEffectState: 'auth_confirmed',
+      retryMode: 'fresh_auth',
     });
   });
 });

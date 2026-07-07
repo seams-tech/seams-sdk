@@ -10,6 +10,7 @@ import {
 import {
   listNearEd25519TransactionReadyLanes,
   selectTransactionLane,
+  toNearEd25519TransactionSelectableLane,
   toNearEd25519TransactionReadyLane,
 } from '@/core/signingEngine/session/identity/selectLane';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -202,6 +203,56 @@ test('NEAR Ed25519 transaction ready lanes model restorable lanes as sealed mate
     },
   });
   expect(toNearEd25519TransactionReadyLane(deferredWithMaterial)).toBeNull();
+});
+
+test('NEAR Ed25519 transaction selection carries expired sealed lanes as reauth anchors', () => {
+  const expiredDurableLane = {
+    ...ed25519Lane({
+      source: 'durable_sealed_record',
+      state: 'expired',
+      includeMaterial: true,
+    }),
+    expiresAtMs: Date.now() - 1_000,
+  };
+
+  const selected = selectTransactionLane({
+    intent: {
+      walletId,
+      curve: 'ed25519',
+      chain: 'near',
+      authSelectionPolicy: { kind: 'any' },
+      operationUsesNeeded: 1,
+    },
+    availableLanes: availableSigningLanes([expiredDurableLane]),
+  });
+
+  expect(toNearEd25519TransactionReadyLane(expiredDurableLane)).toBeNull();
+  expect(toNearEd25519TransactionSelectableLane(expiredDurableLane)).toMatchObject({
+    kind: 'near_ed25519_transaction_reauth_lane',
+    availableLane: {
+      state: 'expired',
+      signingGrantId: 'wss_ed25519_transaction_selection',
+      thresholdSessionId: 'tsess_ed25519_transaction_selection',
+    },
+    material: {
+      kind: 'sealed_worker_material',
+      identity: {
+        bindingDigest: 'ed25519-material-binding-digest',
+        materialKeyId: 'ed25519-material-key-id',
+      },
+    },
+  });
+  expect(selected).toMatchObject({
+    ok: true,
+    availableLane: {
+      state: 'expired',
+      signingGrantId: 'wss_ed25519_transaction_selection',
+      thresholdSessionId: 'tsess_ed25519_transaction_selection',
+    },
+    selectionCandidate: {
+      kind: 'near_ed25519_transaction_reauth_lane',
+    },
+  });
 });
 
 test('NEAR Ed25519 transaction selection accepts restorable runtime lanes with worker material', () => {

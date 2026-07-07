@@ -845,6 +845,14 @@ export type EmailOtpEd25519WarmupPorts = {
   ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
 };
 
+function normalizeEmailOtpEd25519SigningRemainingUses(value: unknown): number {
+  const remainingUses = Math.floor(Number(value) || 0);
+  if (!Number.isFinite(remainingUses) || remainingUses <= 0) {
+    throw new Error('[SigningEngine][email-otp][ed25519] signing remainingUses is required');
+  }
+  return remainingUses;
+}
+
 export class EmailOtpEd25519Warmup {
   constructor(private readonly ports: EmailOtpEd25519WarmupPorts) {}
 
@@ -996,7 +1004,7 @@ export class EmailOtpEd25519Warmup {
     record?: never;
     routeAuth?: never;
     authLane?: never;
-    remainingUses?: number;
+    remainingUses: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     const nearAccountId = args.nearAccountId;
     const record = args.committedLane.record;
@@ -1011,7 +1019,7 @@ export class EmailOtpEd25519Warmup {
       authLane: assertEmailOtpSigningSessionAuthLane(args.committedLane.authLane),
       operation,
     });
-    const defaultRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
+    const defaultRemainingUses = normalizeEmailOtpEd25519SigningRemainingUses(args.remainingUses);
     const signingGrantId = String(record.signingGrantId || '').trim();
     if (!signingGrantId) {
       throw new Error('Email OTP Ed25519 signing requires a signing-grant identity');
@@ -1042,7 +1050,7 @@ export class EmailOtpEd25519Warmup {
       }),
       relayUrl,
       chainTarget: ecdsaCompanionRecord.chainTarget,
-      emailOtpAuthPolicy: 'per_operation',
+      emailOtpAuthPolicy: 'session',
       emailOtpAuthReason: 'sign',
       challengeId: args.challengeId,
       otpCode: args.otpCode,

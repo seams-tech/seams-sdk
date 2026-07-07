@@ -167,7 +167,7 @@ export type CreateSigningEnginePortsArgs = {
     otpCode: string;
     committedLane: Ed25519SigningLane;
     record?: never;
-    remainingUses?: number;
+    remainingUses: number;
     authLane?: never;
   }) => Promise<{ sessionId: string }>;
   provisionThresholdEd25519Session: (
@@ -186,6 +186,7 @@ export type CreateSigningEnginePortsArgs = {
     challengeId: string;
     otpCode: string;
     committedLane: EmailOtpEcdsaCommittedLane;
+    remainingUses: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   restorePersistedSessionForSigning: (
     args: RestorePersistedSessionForSigningInput,

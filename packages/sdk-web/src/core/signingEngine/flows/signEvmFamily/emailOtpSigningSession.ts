@@ -111,6 +111,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   selectedLane?: ResolvedEvmFamilyEcdsaSigningLane;
   committedLane: EmailOtpEcdsaCommittedLane;
+  remainingUses: number;
   reauthSource: { kind: 'material' } | { kind: 'reauth_anchor'; anchor: ReauthAnchorIdentity };
   onEvent?: EvmFamilyLifecycleEventCallback;
   requestEmailOtpTransactionSigningChallenge?: (args: {
@@ -125,7 +126,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     challengeId: string;
     otpCode: string;
     committedLane: EmailOtpEcdsaCommittedLane;
-    remainingUses?: number;
+    remainingUses: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
   const committedAuthLane = args.committedLane.authLane;
@@ -133,7 +134,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   return {
     challenge: async () => {
       if (typeof args.requestEmailOtpTransactionSigningChallenge !== 'function') {
-        throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
+        throw new Error('[SigningEngine] Email OTP ECDSA signing step-up is not configured');
       }
       emitEvmFamilySigningEvent(args.onEvent, {
         phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
@@ -173,7 +174,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     },
     complete: async ({ challengeId, code }) => {
       if (typeof args.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function') {
-        throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
+        throw new Error('[SigningEngine] Email OTP ECDSA signing step-up is not configured');
       }
       return await args.loginWithEmailOtpEcdsaCapabilityForSigning({
         walletSession: args.walletSession,
@@ -181,7 +182,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         challengeId,
         otpCode: code,
         committedLane: args.committedLane,
-        remainingUses: 1,
+        remainingUses: args.remainingUses,
       });
     },
   };

@@ -14,10 +14,16 @@ import type {
   SigningSessionCoordinator,
   SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
+import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
-  isSigningSessionBudgetAdmissionBlockedError,
-  type SigningSessionBudgetStatusAuth,
-} from '../../session/budget/budget';
+  decideSigningGrantAdmissionError,
+  waitForSigningGrantAdmissionRetry,
+} from '../../session/budget/admission';
+import {
+  normalizeStepUpOperationId,
+  resolvePostExhaustionStepUpBudgetPolicy,
+  resolveSigningBudgetPolicyRemainingUses,
+} from '../../session/budget/policy';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
@@ -75,7 +81,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     challengeId: string;
     otpCode: string;
     committedLane: EmailOtpEcdsaCommittedLane;
-    remainingUses?: number;
+    remainingUses: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
@@ -169,6 +175,18 @@ function buildReadyEcdsaBackingReadiness(input: {
       kind: 'no_trusted_budget_status_auth',
     },
   };
+}
+
+function resolveEvmFamilyEmailOtpStepUpRemainingUses(
+  operation: PreparedThresholdSigningOperation['operation'],
+): number {
+  const policy = resolvePostExhaustionStepUpBudgetPolicy({
+    operationId: normalizeStepUpOperationId(
+      operation?.operationId || 'evm-family-email-otp-post-exhaustion-step-up',
+    ),
+    requiredSignatureUses: 1,
+  });
+  return resolveSigningBudgetPolicyRemainingUses(policy);
 }
 
 function trustedBudgetStatusAuthFromReadyEcdsaMaterial(
@@ -279,7 +297,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     kind: 'trusted_budget_status_auth';
     auth: SigningSessionBudgetStatusAuth;
   };
-} | null> {
+  } | null> {
   const record = getEcdsaMaterialRecord(args.material);
   if (
     !record ||
@@ -295,10 +313,31 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
     walletSessionJwt,
   };
+  return await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
+    ...args,
+    trustedStatusAuth,
+    inFlightRetry: 'available',
+  });
+}
+
+async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
+  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'signingSessionCoordinator'>;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  trustedStatusAuth: SigningSessionBudgetStatusAuth;
+  inFlightRetry: 'available' | 'spent';
+}): Promise<{
+  readiness: SigningSessionReadiness;
+  expiresAtMs: number;
+  remainingUses: number;
+  trustedBudgetStatusAuth: {
+    kind: 'trusted_budget_status_auth';
+    auth: SigningSessionBudgetStatusAuth;
+  };
+} | null> {
   try {
     const budgetIdentity = await args.deps.signingSessionCoordinator.prepareBudgetIdentity({
       lane: args.lane,
-      trustedStatusAuth,
+      trustedStatusAuth: args.trustedStatusAuth,
       operationUsesNeeded: 1,
     });
     return {
@@ -312,11 +351,23 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
       trustedBudgetStatusAuth: {
         kind: 'trusted_budget_status_auth',
-        auth: trustedStatusAuth,
+        auth: args.trustedStatusAuth,
       },
     };
   } catch (error: unknown) {
-    if (!isSigningSessionBudgetAdmissionBlockedError(error)) return null;
+    const admissionDecision = decideSigningGrantAdmissionError(error);
+    if (!admissionDecision) return null;
+    if (
+      admissionDecision.kind === 'wait_and_retry_admission' &&
+      args.inFlightRetry === 'available'
+    ) {
+      await waitForSigningGrantAdmissionRetry(admissionDecision.retryAfterMs);
+      return await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
+        ...args,
+        inFlightRetry: 'spent',
+      });
+    }
+    if (admissionDecision.kind === 'wait_and_retry_admission') return null;
     return {
       readiness: {
         status: 'exhausted',
@@ -328,7 +379,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       remainingUses: 0,
       trustedBudgetStatusAuth: {
         kind: 'trusted_budget_status_auth',
-        auth: trustedStatusAuth,
+        auth: args.trustedStatusAuth,
       },
     };
   }
@@ -389,6 +440,9 @@ export async function resolveEvmFamilyTransactionStepUp(
             confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
           loginWithEmailOtpEcdsaCapabilityForSigning:
             confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning,
+          remainingUses: resolveEvmFamilyEmailOtpStepUpRemainingUses(
+            args.preparedOperation.operation,
+          ),
         })
       : null;
   const signingIntent = SigningOperationIntent.TransactionSign;

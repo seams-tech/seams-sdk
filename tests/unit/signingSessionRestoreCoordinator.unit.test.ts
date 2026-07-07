@@ -65,6 +65,46 @@ const TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
   signingRootVersion: 'v1',
 });
 
+function ethereumAddress20B64u(address: string): string {
+  return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
+}
+
+function fixedBytesB64u(length: number, byte: number): string {
+  return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
+}
+
+function restoreEcdsaNormalSigningState(args: { thresholdSessionId: string }) {
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      wallet_key_id: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+      wallet_id: 'restore.testnet',
+      ecdsa_threshold_key_id: 'ecdsa-key-restore',
+      signing_root_id: TEST_ECDSA_SIGNING_ROOT_ID,
+      signing_root_version: 'v1',
+      context: {
+        application_binding_digest_b64u: fixedBytesB64u(32, 7),
+      },
+      public_identity: {
+        context_binding_b64u: fixedBytesB64u(32, 1),
+        client_public_key33_b64u: fixedBytesB64u(33, 2),
+        server_public_key33_b64u: fixedBytesB64u(33, 3),
+        threshold_public_key33_b64u: fixedBytesB64u(33, 4),
+        ethereum_address20_b64u: ethereumAddress20B64u(`0x${'33'.repeat(20)}`),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-restore',
+        key_epoch: 'epoch-restore',
+        recipient_encryption_key:
+          'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      activation_epoch: args.thresholdSessionId,
+    },
+  } as const;
+}
+
 function ecdsaRestoreInput(
   args: Partial<Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>> = {},
 ): Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }> {
@@ -175,45 +215,53 @@ function makeSealedRecord(args: {
   updatedAtMs?: number;
 }): SigningSessionSealedStoreRecord {
   const authMethod = args.authMethod || 'email_otp';
-	  const curve = args.curve || 'ecdsa';
-	  const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
-	  const chain = args.chain || 'tempo';
-	  const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
-	  const ecdsaRestore =
-	    authMethod === 'passkey'
-		      ? {
-		          chainTarget,
-            evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-            runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
-		          rpId: 'example.com',
-	          credentialIdB64u: 'credential-restore',
-	          sessionKind: 'jwt' as const,
-	          walletSessionJwt: 'jwt-restore',
-	          keyHandle: 'key-handle-restore',
-	          ecdsaThresholdKeyId: 'ecdsa-key-restore',
-	          ethereumAddress: `0x${'33'.repeat(20)}`,
-	          relayerKeyId: 'relayer-key-restore',
-	          clientVerifyingShareB64u: 'client-verifying-share-restore',
-	          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-	          participantIds: [1, 2],
-	        }
-	      : {
-		          chainTarget,
-            evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-            runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
-		          providerSubjectId: 'google:restore',
+  const curve = args.curve || 'ecdsa';
+  const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
+  const chain = args.chain || 'tempo';
+  const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
+  const ecdsaRestore =
+    authMethod === 'passkey'
+      ? {
+          source: 'login' as const,
+          chainTarget,
+          evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+          runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+          rpId: 'example.com',
+          credentialIdB64u: 'credential-restore',
+          sessionKind: 'jwt' as const,
+          walletSessionJwt: 'jwt-restore',
+          keyHandle: 'key-handle-restore',
+          ecdsaThresholdKeyId: 'ecdsa-key-restore',
+          ethereumAddress: `0x${'33'.repeat(20)}`,
+          relayerKeyId: 'relayer-key-restore',
+          clientVerifyingShareB64u: 'client-verifying-share-restore',
+          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
+          participantIds: [1, 2],
+          routerAbEcdsaHssNormalSigning: restoreEcdsaNormalSigningState({
+            thresholdSessionId,
+          }),
+        }
+      : {
+          source: 'email_otp' as const,
+          chainTarget,
+          evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+          runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+          providerSubjectId: 'google:restore',
           emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-	          sessionKind: 'jwt' as const,
-	          walletSessionJwt: 'jwt-restore',
-	          keyHandle: 'key-handle-restore',
-	          ecdsaThresholdKeyId: 'ecdsa-key-restore',
-	          ethereumAddress: `0x${'33'.repeat(20)}`,
-	          relayerKeyId: 'relayer-key-restore',
-	          clientVerifyingShareB64u: 'client-verifying-share-restore',
-	          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-	          participantIds: [1, 2],
-	        };
-	  return {
+          sessionKind: 'jwt' as const,
+          walletSessionJwt: 'jwt-restore',
+          keyHandle: 'key-handle-restore',
+          ecdsaThresholdKeyId: 'ecdsa-key-restore',
+          ethereumAddress: `0x${'33'.repeat(20)}`,
+          relayerKeyId: 'relayer-key-restore',
+          clientVerifyingShareB64u: 'client-verifying-share-restore',
+          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
+          participantIds: [1, 2],
+          routerAbEcdsaHssNormalSigning: restoreEcdsaNormalSigningState({
+            thresholdSessionId,
+          }),
+        };
+  return {
     v: 1,
     alg: 'shamir3pass-v1',
     storageScope: 'iframe_origin_indexeddb',
@@ -230,25 +278,25 @@ function makeSealedRecord(args: {
     relayerUrl: 'https://relay.example',
     ...(curve === 'ecdsa'
       ? {
-	          keyVersion: 'signing-session-seal-kek-test-r1',
-	          shamirPrimeB64u: 'prime-b64u',
-	          ecdsaRestore,
-	        }
+          keyVersion: 'signing-session-seal-kek-test-r1',
+          shamirPrimeB64u: 'prime-b64u',
+          ecdsaRestore,
+        }
       : {
-	          ed25519Restore: {
-	            nearAccountId: 'restore.testnet',
-	            nearEd25519SigningKeyId: 'restore.testnet',
-	            rpId: 'example.com',
+          ed25519Restore: {
+            nearAccountId: 'restore.testnet',
+            nearEd25519SigningKeyId: 'restore.testnet',
+            rpId: 'example.com',
             ...(authMethod === 'passkey'
               ? { credentialIdB64u: 'credential-restore' }
               : {
                   providerSubjectId: 'google:restore',
                   emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
                 }),
-		            relayerKeyId: 'relayer-key-restore',
-		            participantIds: [1, 2],
-		            ...TEST_ED25519_SEALED_MATERIAL,
-		            sessionKind: 'jwt' as const,
+            relayerKeyId: 'relayer-key-restore',
+            participantIds: [1, 2],
+            ...TEST_ED25519_SEALED_MATERIAL,
+            sessionKind: 'jwt' as const,
             walletSessionJwt: 'jwt-restore',
             signerSlot: 1,
           },
@@ -275,14 +323,14 @@ function makeEd25519RecordWithEcdsaCompanion(args: {
       ecdsa: args.ecdsaThresholdSessionId,
       ed25519: args.thresholdSessionId,
     },
-	    ecdsaRestore: {
-	      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+    ecdsaRestore: {
+      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
       source: 'email_otp',
       evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
-	      providerSubjectId: 'google:restore',
+      providerSubjectId: 'google:restore',
       emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-	      sessionKind: 'jwt',
+      sessionKind: 'jwt',
       walletSessionJwt: 'jwt-restore',
       keyHandle: 'key-handle-restore',
       ecdsaThresholdKeyId: 'ecdsa-key-restore',
@@ -291,6 +339,9 @@ function makeEd25519RecordWithEcdsaCompanion(args: {
       clientVerifyingShareB64u: 'client-verifying-share-restore',
       thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
       participantIds: [1, 2],
+      routerAbEcdsaHssNormalSigning: restoreEcdsaNormalSigningState({
+        thresholdSessionId: args.ecdsaThresholdSessionId,
+      }),
     },
   };
 }
@@ -311,22 +362,19 @@ function makeEcdsaRecordWithEd25519Companion(args: {
         ed25519: args.ed25519ThresholdSessionId,
       },
     }),
-	    ed25519Restore: {
-	      nearAccountId: 'restore.testnet',
-	      nearEd25519SigningKeyId: 'restore.testnet',
-	      rpId: 'example.com',
-		      providerSubjectId: 'google:restore',
+    ed25519Restore: {
+      nearAccountId: 'restore.testnet',
+      nearEd25519SigningKeyId: 'restore.testnet',
+      rpId: 'example.com',
+      providerSubjectId: 'google:restore',
       emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-		      relayerKeyId: 'relayer-key-restore',
-		      participantIds: [1, 2],
-		      ...TEST_ED25519_SEALED_MATERIAL,
-		      sessionKind: 'jwt',
+      relayerKeyId: 'relayer-key-restore',
+      participantIds: [1, 2],
+      ...TEST_ED25519_SEALED_MATERIAL,
+      sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ed25519-companion',
       signerSlot: 1,
-      runtimePolicyScope: {
-        mode: 'single_domain',
-        parentOrigin: 'https://wallet.example.localhost',
-      },
+      runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
     },
   };
 }
@@ -479,6 +527,37 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
     expect(restoreCalls).toBe(0);
+  });
+
+  test('passes expired Ed25519 exact-purpose sealed records to the curve adapter', async () => {
+    let restoreCalls = 0;
+    let restoredRecord: SealedRecoveryRecord | null = null;
+
+    const result = await restorePersistedSessionForSigningCommand(
+      ed25519RestoreInput(),
+      {
+        listExactSealedSessionsForWallet: async () => [
+          makeSealedRecord({
+            curve: 'ed25519',
+            expiresAtMs: Date.now() - 1,
+            remainingUses: 3,
+          }),
+        ],
+        restoreSealedRecordForWallet: async ({ record }) => {
+          restoreCalls += 1;
+          restoredRecord = record;
+          return 'deferred';
+        },
+      },
+    );
+
+    expect(result).toEqual({ kind: 'completed', attempted: 1, restored: 0, deferred: 1 });
+    expect(restoreCalls).toBe(1);
+    expect(restoredRecord).toMatchObject({
+      curve: 'ed25519',
+      expiresAtMs: expect.any(Number),
+      remainingUses: 3,
+    });
   });
 
   test('surfaces rejected exact-purpose records through the rejection callback', async () => {

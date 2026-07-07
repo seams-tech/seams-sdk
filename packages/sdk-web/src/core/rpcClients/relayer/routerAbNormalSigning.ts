@@ -16,10 +16,7 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
-import {
-  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
-} from '@/core/signingEngine/session/budget/budget';
+import { routerAbNormalSigningAdmissionErrorFromPayload } from '@/core/signingEngine/session/budget/admission';
 
 const INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -965,26 +962,16 @@ function parseRouterAbSigningErrorPayload(bodyText: string): RouterAbSigningErro
   }
 }
 
-function routerAbSigningBudgetErrorPrefix(code: string): string | null {
-  switch (code) {
-    case 'wallet_budget_exhausted':
-      return SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR;
-    case 'wallet_budget_in_flight':
-    case 'wallet_budget_reserved':
-      return SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR;
-    default:
-      return null;
-  }
-}
-
 function routerAbSigningHttpError(args: { path: string; status: number; bodyText: string }): Error {
   const payload = parseRouterAbSigningErrorPayload(args.bodyText);
-  const budgetPrefix = payload ? routerAbSigningBudgetErrorPrefix(payload.code) : null;
-  if (payload && budgetPrefix) {
-    const detail = payload.message || payload.code;
-    return new Error(
-      `${budgetPrefix}: Router A/B signing ${args.path} returned HTTP ${args.status}: ${detail}`,
-    );
+  if (payload) {
+    const admissionError = routerAbNormalSigningAdmissionErrorFromPayload({
+      code: payload.code,
+      message: payload.message,
+      path: args.path,
+      status: args.status,
+    });
+    if (admissionError) return admissionError;
   }
   return new Error(
     `Router A/B signing ${args.path} returned HTTP ${args.status}${

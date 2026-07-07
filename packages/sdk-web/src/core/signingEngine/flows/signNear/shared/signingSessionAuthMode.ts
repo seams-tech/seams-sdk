@@ -248,6 +248,10 @@ type TrustedInactiveEd25519SigningSessionStatus =
   | {
       sessionId: string;
       status: 'not_found';
+    }
+  | {
+      sessionId: string;
+      status: 'active_restorable';
     };
 
 type TrustedEd25519SigningSessionStatus =
@@ -905,6 +909,7 @@ function admitTrustedEd25519SigningSessionStatus(args: {
     case 'budget_unknown':
     case 'not_found':
     case 'missing_status':
+    case 'active_restorable':
       return buildEd25519PlannerReadiness({
         status: 'missing_session',
         thresholdSessionId: args.thresholdSessionId,
@@ -1111,6 +1116,8 @@ function toTrustedEd25519SigningSessionStatus(
         projectionVersion,
       };
     }
+    case 'active_restorable':
+      return { sessionId: status.sessionId, status: 'active_restorable' };
     case 'exhausted':
       return { sessionId: status.sessionId, status: 'exhausted' };
     case 'expired':

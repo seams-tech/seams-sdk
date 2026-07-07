@@ -129,14 +129,25 @@ const loginForSigningWithCommittedLane: LoginForSigningArgs = {
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
 };
 void loginForSigningWithCommittedLane;
+
+// @ts-expect-error Email OTP Ed25519 signing requires a concrete budget allowance.
+const loginForSigningWithoutRemainingUses: LoginForSigningArgs = {
+  nearAccountId,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+};
+void loginForSigningWithoutRemainingUses;
 
 const loginForSigningWithLooseRecord: LoginForSigningArgs = {
   nearAccountId,
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
   // @ts-expect-error Email OTP Ed25519 signing carries records through the committed lane.
   record,
 };
@@ -147,6 +158,7 @@ const loginForSigningWithLooseWalletRouteAuth: LoginForSigningArgs = {
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
   // @ts-expect-error Email OTP Ed25519 signing carries wallet-session auth through the committed lane.
   routeAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
 };
@@ -157,6 +169,7 @@ const loginForSigningWithLooseAuthLane: LoginForSigningArgs = {
   challengeId: 'challenge-1',
   otpCode: '123456',
   committedLane,
+  remainingUses: 3,
   // @ts-expect-error Email OTP Ed25519 signing carries auth lane through the committed lane.
   authLane: { kind: 'cookie' },
 };

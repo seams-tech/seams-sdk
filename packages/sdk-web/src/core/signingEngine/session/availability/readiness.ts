@@ -1124,6 +1124,10 @@ function admitRecordPolicyLaneFromTrustedStatus(args: {
         code: 'exhausted',
         message: 'record-policy signing session exhausted',
       };
+    case 'active_restorable':
+      return invalidRecordPolicyBudgetStatus(
+        'active server budget status is required for record-policy signing session',
+      );
     case 'not_found':
     case 'unavailable':
     case 'budget_unknown':

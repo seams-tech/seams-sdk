@@ -34,22 +34,38 @@ test.describe('signing budget policy', () => {
     });
   });
 
-  test('defaults post-exhaustion step-up to a single-use budget', () => {
+  test('defaults post-exhaustion step-up to the wallet signing allowance', () => {
     const policy = resolvePostExhaustionStepUpBudgetPolicy({
       operationId: SigningSessionIds.signingOperation('tx-step-up-1'),
       requiredSignatureUses: 1,
     });
-    expect(policy.kind).toBe('single_operation_step_up_budget_policy');
-    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(1);
+    expect(policy.kind).toBe('post_exhaustion_step_up_budget_policy');
+    expect(policy.allowance).toEqual({
+      kind: 'post_exhaustion_step_up_allowance',
+      remainingUses: DEV_DEFAULT_UNLOCK_REMAINING_USES,
+      requiredSignatureUses: 1,
+      source: 'sdk_step_up_default',
+    });
+    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(3);
   });
 
-  test('scales single-operation step-up budget to the operation signature count', () => {
+  test('keeps default step-up budget when the operation needs fewer signatures', () => {
     const policy = resolvePostExhaustionStepUpBudgetPolicy({
       operationId: SigningSessionIds.signingOperation('near-batched-tx-step-up'),
       requiredSignatureUses: 2,
     });
-    expect(policy.kind).toBe('single_operation_step_up_budget_policy');
-    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(2);
+    expect(policy.kind).toBe('post_exhaustion_step_up_budget_policy');
+    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(3);
+  });
+
+  test('scales post-exhaustion step-up budget to larger batched operation counts', () => {
+    const policy = resolvePostExhaustionStepUpBudgetPolicy({
+      operationId: SigningSessionIds.signingOperation('near-large-batched-tx-step-up'),
+      requiredSignatureUses: 5,
+    });
+    expect(policy.kind).toBe('post_exhaustion_step_up_budget_policy');
+    expect(policy.allowance.requiredSignatureUses).toBe(5);
+    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(5);
   });
 
   test('normalizes unlock overrides through wallet-unlock policy parsing', () => {

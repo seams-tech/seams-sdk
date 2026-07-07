@@ -1,6 +1,9 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { isSigningSessionBudgetAdmissionBlockedError } from '../../session/budget/budget';
+import {
+  decideSigningGrantAdmissionError,
+  type SigningGrantAdmissionDecision,
+} from '../../session/budget/admission';
 import { isSigningSessionAuthUnavailableError } from '../../threshold/sessionPolicy';
 import { isFreshEmailOtpReauthRequiredError } from './errors';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
@@ -36,6 +39,21 @@ export type EvmFamilyFreshAuthRetryDecision =
       kind: 'retry';
       trigger: EvmFamilyFreshAuthRetryTrigger;
       sideEffectState: EvmFamilyFreshAuthRetrySideEffectState;
+      retryMode: 'fresh_auth';
+      admissionDecision?: never;
+      retryAfterMs?: never;
+      blockedReason?: never;
+    }
+  | {
+      kind: 'retry';
+      trigger: Extract<EvmFamilyFreshAuthRetryTrigger, 'wallet_signing_budget_exhausted'>;
+      sideEffectState: EvmFamilyFreshAuthRetrySideEffectState;
+      retryMode: 'wait_and_retry_admission';
+      retryAfterMs: number;
+      admissionDecision: Extract<
+        SigningGrantAdmissionDecision,
+        { kind: 'wait_and_retry_admission' }
+      >;
       blockedReason?: never;
     }
   | {
@@ -84,7 +102,17 @@ export function classifyEvmFamilyFreshAuthRetry(args: {
   });
   if (args.alreadyRetryingFreshAuth) return blocked('already_retrying');
   if (args.senderSignatureAlgorithm !== 'secp256k1') return blocked('non_secp256k1_sender');
-  if (args.sideEffectState !== 'no_auth_side_effect_started') {
+  const admissionDecision =
+    args.trigger === 'wallet_signing_budget_exhausted'
+      ? decideSigningGrantAdmissionError(args.error)
+      : null;
+  const admissionCanRetryAfterSideEffect =
+    admissionDecision?.kind === 'request_fresh_step_up' ||
+    admissionDecision?.kind === 'wait_and_retry_admission';
+  if (
+    args.sideEffectState !== 'no_auth_side_effect_started' &&
+    !admissionCanRetryAfterSideEffect
+  ) {
     return blocked('auth_side_effect_started');
   }
 
@@ -100,9 +128,25 @@ export function classifyEvmFamilyFreshAuthRetry(args: {
       return blocked('primary_auth_not_email_otp');
     }
   } else {
-    if (args.hasStepUpAuthPlan) return blocked('step_up_auth_plan_already_selected');
-    if (!isSigningSessionBudgetAdmissionBlockedError(args.error)) {
+    if (!admissionDecision) {
       return blocked('error_not_retryable');
+    }
+    if (
+      args.hasStepUpAuthPlan &&
+      admissionDecision.kind !== 'request_fresh_step_up' &&
+      admissionDecision.kind !== 'wait_and_retry_admission'
+    ) {
+      return blocked('step_up_auth_plan_already_selected');
+    }
+    if (admissionDecision.kind === 'wait_and_retry_admission') {
+      return {
+        kind: 'retry',
+        trigger: args.trigger,
+        sideEffectState: args.sideEffectState,
+        retryMode: 'wait_and_retry_admission',
+        retryAfterMs: admissionDecision.retryAfterMs,
+        admissionDecision,
+      };
     }
   }
 
@@ -110,5 +154,6 @@ export function classifyEvmFamilyFreshAuthRetry(args: {
     kind: 'retry',
     trigger: args.trigger,
     sideEffectState: args.sideEffectState,
+    retryMode: 'fresh_auth',
   };
 }

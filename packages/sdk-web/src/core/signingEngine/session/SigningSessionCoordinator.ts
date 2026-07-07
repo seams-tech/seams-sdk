@@ -40,6 +40,7 @@ import {
   type WalletBudgetOwner,
   type ZeroWalletBudgetSpend,
 } from './budget/budget';
+import type { SigningGrantAdmissionQueueKey } from './budget/admission';
 import { signingLaneAuthMethod } from './identity/signingLaneAuthBinding';
 import { BudgetCoordinator } from './budget/BudgetCoordinator';
 import { budgetUnknownSigningSessionStatus } from './budget/budgetProjection';
@@ -208,6 +209,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudget: BudgetCoordinator;
   private readonly operationIdBindings: SigningOperationIdBindingRegistry;
+  private readonly signingGrantAdmissionRefreshQueues = new Map<string, Promise<unknown>>();
 
   constructor(deps: SigningSessionCoordinatorDeps = {}) {
     this.onPlannerTrace = deps.onPlannerTrace;
@@ -493,6 +495,29 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
 
   hasRecorded(operationId: Parameters<SigningSessionBudget['hasRecorded']>[0]): boolean {
     return this.walletBudget.hasRecorded(String(operationId));
+  }
+
+  async runSigningGrantAdmissionRetry<TValue>(args: {
+    queueKey: SigningGrantAdmissionQueueKey;
+    refresh: () => Promise<TValue>;
+    retryAfterRefresh: () => Promise<TValue>;
+  }): Promise<TValue> {
+    const queueKey = String(args.queueKey);
+    const existing = this.signingGrantAdmissionRefreshQueues.get(queueKey);
+    if (existing) {
+      await existing.catch(() => undefined);
+      return await args.retryAfterRefresh();
+    }
+    const refreshPromise = args.refresh();
+    const queueEntry = refreshPromise
+      .catch(() => undefined)
+      .then(() => {
+        if (this.signingGrantAdmissionRefreshQueues.get(queueKey) === queueEntry) {
+          this.signingGrantAdmissionRefreshQueues.delete(queueKey);
+        }
+      });
+    this.signingGrantAdmissionRefreshQueues.set(queueKey, queueEntry);
+    return await refreshPromise;
   }
 
   private async applyWalletBudgetToReadiness(

@@ -470,6 +470,27 @@ test.describe('Ed25519 export lane selection', () => {
     expect(restoreCalls).toEqual({ passkey: 1, emailOtp: 0 });
   });
 
+  test('restores expired passkey Ed25519 export lanes as fresh-auth anchors', async () => {
+    const restoreCalls = { passkey: 0, emailOtp: 0 };
+    const lane = ed25519Lane({
+      authMethod: 'passkey',
+      state: 'expired',
+      source: 'durable_sealed_record',
+      signingGrantId: 'wallet-ed25519-passkey-expired',
+      thresholdSessionId: 'threshold-ed25519-passkey-expired',
+      expiresAtMs: Date.now() - 1_000,
+      remainingUses: 3,
+    });
+    const selected = await restoreNearEd25519SessionForExport(
+      depsForEd25519([lane], restoreCalls),
+      { signer: NEAR_EXPORT_SIGNER, laneIdentity: ed25519LaneIdentity(lane) },
+    );
+
+    expect(selected.state).toBe('expired');
+    expect(selected.material.kind).toBe('sealed_worker_material');
+    expect(restoreCalls).toEqual({ passkey: 1, emailOtp: 0 });
+  });
+
   test('rejects duplicate Ed25519 export lanes without auth ranking', async () => {
     const restoreCalls = { passkey: 0, emailOtp: 0 };
     const lane = ed25519Lane({

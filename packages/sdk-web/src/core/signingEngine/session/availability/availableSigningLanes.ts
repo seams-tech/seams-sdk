@@ -1438,6 +1438,14 @@ function recordToEd25519Lane(args: {
   const signingGrantId = String(recoveryRecord.signingGrantId || '').trim();
   if (!thresholdSessionId || !signingGrantId) return null;
   const policyHint = durablePolicyHint(args.record);
+  const expiresAtMs = Math.floor(Number(recoveryRecord.expiresAtMs) || 0);
+  const remainingUses = Math.max(0, Math.floor(Number(recoveryRecord.remainingUses) || 0));
+  const state: AvailableSigningLaneState =
+    expiresAtMs > 0 && expiresAtMs <= Date.now()
+      ? 'expired'
+      : remainingUses <= 0
+        ? 'exhausted'
+        : 'restorable';
   const auth = ed25519RecoveryRecordAuthBinding(recoveryRecord);
   if (!auth) return null;
   const signerSlot = parseSignerSlot(recoveryRecord.signerSlot);
@@ -1460,14 +1468,14 @@ function recordToEd25519Lane(args: {
       recoveryRecord.nearEd25519SigningKeyId,
     ),
     signerSlot,
-    // IndexedDB policy fields are lookup hints until authenticated sealed
-    // payload metadata or trusted runtime/server status confirms them.
-    state: 'restorable',
+    state,
     source: 'durable_sealed_record',
     signingGrantId,
     updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
     thresholdSessionId,
     material,
+    ...(remainingUses >= 0 ? { remainingUses } : {}),
+    ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
     ...(policyHint ? { policyHint } : {}),
   };
 }

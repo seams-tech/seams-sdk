@@ -366,6 +366,7 @@ export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   challengeId: string;
   otpCode: string;
   committedLane: EmailOtpEcdsaCommittedLane;
+  remainingUses: number;
   record?: never;
   routeAuth?: never;
   authLane?: never;
@@ -378,12 +379,21 @@ export type EmailOtpEcdsaTransactionStepUpInput = {
   challengeId: string;
   otpCode: string;
   committedLane: EmailOtpEcdsaCommittedLane;
+  remainingUses: number;
   record?: never;
   routeAuth?: never;
   authLane?: never;
   appSessionJwt?: never;
   registrationAttemptId?: never;
 };
+
+function normalizeEmailOtpEcdsaSigningRemainingUses(value: unknown): number {
+  const remainingUses = Math.floor(Number(value) || 0);
+  if (!Number.isFinite(remainingUses) || remainingUses <= 0) {
+    throw new Error('[SigningEngine][email-otp][ecdsa] signing remainingUses is required');
+  }
+  return remainingUses;
+}
 
 export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   args: LoginEmailOtpEcdsaCapabilityForSigningArgs,
@@ -395,8 +405,8 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   },
 ): Promise<EmailOtpThresholdEcdsaLoginResult> {
   const operation = WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
-  const emailOtpAuthPolicy: EmailOtpAuthPolicy = 'per_operation';
-  const remainingUses = 1;
+  const emailOtpAuthPolicy: EmailOtpAuthPolicy = 'session';
+  const remainingUses = normalizeEmailOtpEcdsaSigningRemainingUses(args.remainingUses);
   const committedLane = args.committedLane;
   if (committedLane.source !== 'record_backed') {
     throw new Error(
@@ -449,8 +459,9 @@ export async function loginWithEmailOtpEcdsaCapability(
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
   const emailOtpAuthReason = args.emailOtpAuthReason || 'login';
+  const isSigningStepUp = emailOtpAuthReason === 'sign';
   const emailOtpAuthRetention =
-    emailOtpAuthReason === 'sign' && emailOtpAuthPolicy === 'per_operation'
+    isSigningStepUp && emailOtpAuthPolicy === 'per_operation'
       ? 'single_use'
       : 'session';
   const emailOtpAuthContextPolicy: EmailOtpAuthPolicy =
@@ -490,10 +501,9 @@ export async function loginWithEmailOtpEcdsaCapability(
     ),
     requiredSignatureUses: requestedStepUpSignatureUses,
   });
-  const remainingUses =
-    emailOtpAuthRetention === 'single_use'
-      ? resolveSigningBudgetPolicyRemainingUses(postExhaustionStepUpBudgetPolicy)
-      : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
+  const remainingUses = isSigningStepUp
+    ? resolveSigningBudgetPolicyRemainingUses(postExhaustionStepUpBudgetPolicy)
+    : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
   const workerCtx = ports.getSignerWorkerContext();
   const rpId = ports.requireRpId('Email OTP login');
   const routePlan = args.routePlan;

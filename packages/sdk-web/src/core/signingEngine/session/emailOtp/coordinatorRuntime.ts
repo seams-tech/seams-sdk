@@ -361,7 +361,7 @@ export class EmailOtpWalletSessionRuntime {
     record?: never;
     routeAuth?: never;
     authLane?: never;
-    remainingUses?: number;
+    remainingUses: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     return await this.ed25519Warmup.loginForSigning(args);
   }

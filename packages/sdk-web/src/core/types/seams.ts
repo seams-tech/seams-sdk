@@ -529,7 +529,14 @@ export type LoginResult =
 
 export interface SigningSessionStatus {
   sessionId: string;
-  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable' | 'budget_unknown';
+  status:
+    | 'active'
+    | 'active_restorable'
+    | 'exhausted'
+    | 'expired'
+    | 'not_found'
+    | 'unavailable'
+    | 'budget_unknown';
   statusCode?: string;
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;

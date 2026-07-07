@@ -49,6 +49,8 @@ function sealedEd25519Record(args: {
   signingGrantId: string;
   thresholdSessionId: string;
   updatedAtMs: number;
+  expiresAtMs?: number;
+  remainingUses?: number;
 }): SigningSessionSealedStoreRecord {
   const issuedAtMs = Date.now();
   const record = buildCurrentSealedSessionRecord({
@@ -95,8 +97,8 @@ function sealedEd25519Record(args: {
       },
     },
     issuedAtMs,
-    expiresAtMs: issuedAtMs + 60_000,
-    remainingUses: 1,
+    expiresAtMs: args.expiresAtMs ?? issuedAtMs + 60_000,
+    remainingUses: args.remainingUses ?? 1,
     updatedAtMs: args.updatedAtMs,
   });
   if (!record) {
@@ -185,6 +187,40 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
       updatedAtMs: 200,
+    });
+  });
+
+  test('classifies expired durable Ed25519 sealed records as stale reauth anchors', async () => {
+    const expiresAtMs = Date.now() - 1_000;
+    const availableLanes = await readAvailableLanes({
+      sealedRecords: [
+        sealedEd25519Record({
+          authMethod: 'passkey',
+          signingGrantId: 'wsess-expired-ed25519',
+          thresholdSessionId: 'tsess-expired-ed25519',
+          expiresAtMs,
+          remainingUses: 3,
+          updatedAtMs: 300,
+        }),
+      ],
+    });
+
+    expect(availableLanes.candidates.ed25519.near).toHaveLength(1);
+    expect(availableLanes.candidates.ed25519.near[0]).toMatchObject({
+      auth: { kind: 'passkey' },
+      source: 'durable_sealed_record',
+      state: 'expired',
+      signingGrantId: 'wsess-expired-ed25519',
+      thresholdSessionId: 'tsess-expired-ed25519',
+      remainingUses: 3,
+      expiresAtMs,
+      material: {
+        kind: 'sealed_worker_material',
+        identity: {
+          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
+          materialKeyId: ED25519_MATERIAL_KEY_ID,
+        },
+      },
     });
   });
 

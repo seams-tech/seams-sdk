@@ -29,16 +29,21 @@ export type WalletUnlockBudgetPolicy = {
   operationId?: never;
 };
 
-export type SingleOperationStepUpBudgetPolicy = {
-  kind: 'single_operation_step_up_budget_policy';
-  allowance: { kind: 'single_operation_allowance'; remainingUses: PositiveRemainingUses };
-  scope: 'single_operation_step_up';
+export type PostExhaustionStepUpBudgetPolicy = {
+  kind: 'post_exhaustion_step_up_budget_policy';
+  allowance: {
+    kind: 'post_exhaustion_step_up_allowance';
+    remainingUses: PositiveRemainingUses;
+    requiredSignatureUses: PositiveRemainingUses;
+    source: 'sdk_step_up_default';
+  };
+  scope: 'post_exhaustion_step_up';
   operationId: SigningOperationId;
 };
 
 export type SigningBudgetPolicy =
   | WalletUnlockBudgetPolicy
-  | SingleOperationStepUpBudgetPolicy;
+  | PostExhaustionStepUpBudgetPolicy;
 
 export const DEV_DEFAULT_SIGNING_BUDGET_ALLOWANCE: DevDefaultBudgetAllowance = {
   kind: 'dev_default_budget_allowance',
@@ -102,20 +107,27 @@ export function resolveWalletUnlockBudgetPolicyFromRequestedUses(args: {
   });
 }
 
-export function buildSingleOperationStepUpBudgetPolicy(args: {
+export function buildPostExhaustionStepUpBudgetPolicy(args: {
   operationId: SigningOperationId;
   requiredSignatureUses: unknown;
-}): SingleOperationStepUpBudgetPolicy {
+}): PostExhaustionStepUpBudgetPolicy {
+  const requiredSignatureUses = parsePositiveRemainingUses(
+    args.requiredSignatureUses,
+    'requiredSignatureUses',
+  );
+  const remainingUses = Math.max(
+    DEV_DEFAULT_UNLOCK_REMAINING_USES,
+    requiredSignatureUses,
+  ) as PositiveRemainingUses;
   return {
-    kind: 'single_operation_step_up_budget_policy',
+    kind: 'post_exhaustion_step_up_budget_policy',
     allowance: {
-      kind: 'single_operation_allowance',
-      remainingUses: parsePositiveRemainingUses(
-        args.requiredSignatureUses,
-        'requiredSignatureUses',
-      ),
+      kind: 'post_exhaustion_step_up_allowance',
+      remainingUses,
+      requiredSignatureUses,
+      source: 'sdk_step_up_default',
     },
-    scope: 'single_operation_step_up',
+    scope: 'post_exhaustion_step_up',
     operationId: args.operationId,
   };
 }
@@ -123,8 +135,8 @@ export function buildSingleOperationStepUpBudgetPolicy(args: {
 export function resolvePostExhaustionStepUpBudgetPolicy(args: {
   operationId: SigningOperationId;
   requiredSignatureUses: unknown;
-}): SingleOperationStepUpBudgetPolicy {
-  return buildSingleOperationStepUpBudgetPolicy({
+}): PostExhaustionStepUpBudgetPolicy {
+  return buildPostExhaustionStepUpBudgetPolicy({
     operationId: args.operationId,
     requiredSignatureUses: args.requiredSignatureUses,
   });
@@ -134,7 +146,7 @@ export function resolveSigningBudgetPolicyRemainingUses(policy: SigningBudgetPol
   switch (policy.kind) {
     case 'wallet_unlock_budget_policy':
       return policy.allowance.remainingUses;
-    case 'single_operation_step_up_budget_policy':
+    case 'post_exhaustion_step_up_budget_policy':
       return policy.allowance.remainingUses;
   }
   policy satisfies never;
