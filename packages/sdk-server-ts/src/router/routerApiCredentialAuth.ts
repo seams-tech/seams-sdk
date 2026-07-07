@@ -1,7 +1,4 @@
 import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
-import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens/service';
-import { parseBootstrapToken } from '../console/bootstrapTokens/secret';
-import type { ConsoleApiKey } from '../console/apiKeys/types';
 import {
   enforceRoutePolicy,
   type RoutePolicyResolutionResult,
@@ -11,12 +8,23 @@ import {
   extractRouterApiEnvironmentId,
 } from './routerApiKeyAuth';
 import type {
+  RouterApiAuthenticatedPublishableCredential,
   RouterApiKeyAuthAdapter,
   RouterApiBootstrapGrantBroker,
+  RouterApiBootstrapTokenVerifier,
   RouterApiPublishableKeyAuthAdapter,
 } from './routerApi';
 import type { HeaderRecord } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
+
+const ROUTER_API_BOOTSTRAP_TOKEN_PREFIX = 'tbt_v1_';
+
+function isRouterApiBootstrapTokenCandidate(credential: string): boolean {
+  const token = String(credential || '').trim();
+  if (!token.startsWith(ROUTER_API_BOOTSTRAP_TOKEN_PREFIX)) return false;
+  const encodedParts = token.slice(ROUTER_API_BOOTSTRAP_TOKEN_PREFIX.length).split('.');
+  return encodedParts.length === 3 && encodedParts.every((part) => String(part || '').trim());
+}
 
 function inferEnvIdFromEnvironmentId(input: {
   projectId?: unknown;
@@ -116,14 +124,14 @@ interface ResolveBootstrapGrantApiCredentialAuthInput {
   broker: RouterApiBootstrapGrantBroker;
   headers: HeaderRecord;
   origin?: string;
-  onAuthenticated(apiKey: ConsoleApiKey): void;
+  onAuthenticated(credential: RouterApiAuthenticatedPublishableCredential): void;
   route: RouteDefinition;
 }
 
 interface ResolveRegistrationBootstrapApiCredentialAuthInput {
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   body: unknown;
-  bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
+  bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
   headers: HeaderRecord;
   origin?: string;
   route: RouteDefinition;
@@ -256,16 +264,16 @@ export async function resolveBootstrapGrantApiCredentialAuth(
     };
   }
 
-  input.onAuthenticated(authResult.apiKey);
+  input.onAuthenticated(authResult.credential);
   return {
     ok: true,
     principal: {
       kind: 'api_credentials',
       credentialType: 'publishable_key',
       principal: {
-        apiKeyId: authResult.apiKey.id,
-        orgId: authResult.apiKey.orgId,
-        environmentId: authResult.apiKey.environmentId,
+        apiKeyId: authResult.credential.apiKeyId,
+        orgId: authResult.credential.orgId,
+        environmentId: authResult.credential.environmentId,
         scopes: [],
       },
     },
@@ -279,14 +287,14 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
     return routeAuthNotConfigured('Registration bootstrap requires API credential auth policy');
   }
 
-  const { apiKeyAuth, bootstrapTokenStore } = input;
-  if (!apiKeyAuth && !bootstrapTokenStore) {
+  const { apiKeyAuth, bootstrapTokenVerifier } = input;
+  if (!apiKeyAuth && !bootstrapTokenVerifier) {
     return routeAuthNotConfigured('Router API credential auth is not configured for this route');
   }
 
   const credential = extractBearerCredential(input.headers);
   if (!credential) {
-    if (bootstrapTokenStore && !apiKeyAuth) {
+    if (bootstrapTokenVerifier && !apiKeyAuth) {
       return {
         ok: false,
         status: 401,
@@ -302,9 +310,11 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
     };
   }
 
-  const tokenCandidate = parseBootstrapToken(credential);
-  if (tokenCandidate) {
-    if (!bootstrapTokenStore) {
+  const bootstrapTokenCandidate =
+    bootstrapTokenVerifier?.isBootstrapToken(credential) ||
+    isRouterApiBootstrapTokenCandidate(credential);
+  if (bootstrapTokenCandidate) {
+    if (!bootstrapTokenVerifier) {
       return {
         ok: false,
         status: 401,
@@ -312,7 +322,7 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         message: 'bootstrap_token_invalid: Invalid bootstrap token',
       };
     }
-    const tokenRecord = await bootstrapTokenStore.peekTokenRecord(credential);
+    const tokenRecord = await bootstrapTokenVerifier.peekTokenRecord(credential);
     if (!tokenRecord) {
       return {
         ok: false,
@@ -328,7 +338,7 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
             : {},
         )
       : undefined;
-    const redeemResult = await bootstrapTokenStore.redeemToken({
+    const redeemResult = await bootstrapTokenVerifier.redeemToken({
       token: credential,
       origin: String(input.origin || '').trim(),
       method: input.route.method,
@@ -419,7 +429,7 @@ export async function resolveSecretKeyApiCredentialAuth(
     };
   }
 
-  if (parseBootstrapToken(credential)) {
+  if (isRouterApiBootstrapTokenCandidate(credential)) {
     return {
       ok: false,
       status: 401,

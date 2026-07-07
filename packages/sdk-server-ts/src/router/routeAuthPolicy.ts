@@ -4,8 +4,7 @@ import type {
 } from '../core/ThresholdService/validation';
 import type { ConsoleAuthClaims, ConsoleRole } from './consoleAuth';
 import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
-
-import { API_CREDENTIAL_SCOPES } from "@shared/console/apiKeyScopes";
+import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
 
 export type RouteAuthPlane =
   | 'console'
@@ -21,7 +20,7 @@ export const API_CREDENTIAL_TYPES = [
 ] as const;
 export type ApiCredentialType = (typeof API_CREDENTIAL_TYPES)[number];
 
-export const API_CREDENTIAL_ROUTE_SCOPES = API_CREDENTIAL_SCOPES;
+export const API_CREDENTIAL_ROUTE_SCOPES = ROUTER_API_CREDENTIAL_SCOPES;
 export type ApiCredentialRouteScope = (typeof API_CREDENTIAL_ROUTE_SCOPES)[number];
 
 export const PUBLIC_PROOF_TYPES = [

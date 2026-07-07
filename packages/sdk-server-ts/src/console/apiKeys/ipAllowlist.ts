@@ -30,14 +30,6 @@ function ipv4CidrContains(input: { cidr: string; ip: string }): boolean {
   return (baseInt & mask) === (ipInt & mask);
 }
 
-export function normalizeSourceIp(raw: string | undefined): string | null {
-  const value = String(raw || '').trim();
-  if (!value) return null;
-  const maybeForwarded = value.includes(',') ? value.split(',')[0] : value;
-  const trimmed = String(maybeForwarded || '').trim();
-  return trimmed || null;
-}
-
 export function isIpAllowlistMatch(input: {
   allowlist: string[];
   sourceIp?: string;
@@ -57,3 +49,4 @@ export function isIpAllowlistMatch(input: {
   }
   return false;
 }
+import { normalizeSourceIp } from '../../router/routerApiKeyAuth';

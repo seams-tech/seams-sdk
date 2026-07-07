@@ -1,9 +1,11 @@
-import type { ConsoleApiKey } from '../console/apiKeys';
 import { RouterApiBootstrapGrantError, parseRouterApiBootstrapGrantIssueBody } from './bootstrapGrantBroker';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolveBootstrapGrantApiCredentialAuth } from './routerApiCredentialAuth';
-import type { RouterApiBootstrapGrantBroker } from './routerApi';
+import type {
+  RouterApiAuthenticatedPublishableCredential,
+  RouterApiBootstrapGrantBroker,
+} from './routerApi';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
@@ -39,7 +41,7 @@ export async function handleRouterApiBootstrapGrant(
   input: RouterApiBootstrapGrantInput,
 ): Promise<RouteResponse<Record<string, unknown> | RouteErrorBody>> {
   const broker = input.services.bootstrapGrantBroker || null;
-  let authenticatedApiKey: ConsoleApiKey | null = null;
+  let authenticatedCredential: RouterApiAuthenticatedPublishableCredential | null = null;
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
     logger: input.logger,
@@ -57,8 +59,8 @@ export async function handleRouterApiBootstrapGrant(
               origin: input.origin,
               route: input.route,
               broker,
-              onAuthenticated(apiKey) {
-                authenticatedApiKey = apiKey;
+              onAuthenticated(credential) {
+                authenticatedCredential = credential;
               },
             }),
         }
@@ -92,7 +94,7 @@ export async function handleRouterApiBootstrapGrant(
 
   try {
     const parsedBody = parseRouterApiBootstrapGrantIssueBody(input.body);
-    if (!authenticatedApiKey) {
+    if (!authenticatedCredential) {
       return routeJson(500, {
         ok: false,
         code: 'internal',
@@ -100,7 +102,7 @@ export async function handleRouterApiBootstrapGrant(
       });
     }
     const result = await broker!.issueGrantForAuthenticatedKey({
-      authenticatedApiKey,
+      authenticatedCredential,
       origin: String(input.origin || '').trim(),
       ...parsedBody,
     });

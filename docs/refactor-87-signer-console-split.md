@@ -63,13 +63,13 @@ Concrete blockers, each owned by a phase below:
 |---|----------|----------|
 | B1 | Resolved July 8, 2026: sponsorship now lives under `src/console/sponsorship`, so its console imports are intra-console | `console/sponsorship/*` |
 | B2 | Signer router statically wires console-adjacent handlers into one array | `router/cloudflare/createCloudflareRouter.ts:116-184` (`handleBootstrapGrant`, `handleApiWallets`, `handleSponsoredEvmCall`, `handleSignedDelegate` beside `handleThresholdEd25519`/`Ecdsa`); mirrored in `router/express/createRouterApiRouter.ts:92-95` |
-| B3 | Console-aware auth value-imports console | `router/routerApiKeyAuth.ts` (console/apiKeys, ipAllowlist), `router/routerApiCredentialAuth.ts:3` (bootstrapTokens/secret), `router/bootstrapGrantBroker.ts:6` (apiKeys) |
+| B3 | Resolved July 8, 2026: signer-router auth files now depend on signer-owned credential/bootstrap ports; console-backed adapters live under `src/console/router` | `router/apiCredentialPorts.ts`, `console/router/routerApiKeyAuth.ts`, `console/router/bootstrapGrantBroker.ts`, `console/router/bootstrapTokenVerifier.ts` |
 | B4 | Sponsored-call execution/billing glue value-imports console | `router/sponsorshipExecution.ts`, `router/sponsorshipBillingEvents.ts:2`, `router/routerApiSponsoredEvmCall.ts`, `router/routerApiWallets.ts:3` |
-| B5 | `RouterApiOptions` types reference 11 `Console*Service` types | `router/routerApi.ts:18-28`; also `router/commonRouterUtils.ts:15` (`ConsoleOrgProjectEnvService` for managed-mode scope resolution), type-only refs in `routerApiSignedDelegate.ts`, `walletRegistrationRoutes.ts:49-50`, `sponsorshipRuntime.ts`, `sponsorshipSpendCapObservability.ts:7` |
+| B5 | Partially resolved July 8, 2026: API credential auth, bootstrap-token verification, and managed-mode environment resolution now use signer-owned ports; sponsorship/webhook/wallet console service refs remain for Phase 3 route-surface extraction | `router/routerApi.ts`, `router/commonRouterUtils.ts`, `walletRegistrationRoutes.ts`, sponsorship route/runtime files |
 | B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./console/sponsorship`); `package.json` has no signer-only or console-only subpath |
 | B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
 | B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
-| B9 | Shared constants for console features live in the shared package | `packages/shared-ts/src/console/` (apiKeyScopes, gasSponsorshipChains, gasSponsorshipSpendCapTargets, organizationIdentity, webhookEventCategories) — imported by `router/routerApi.ts:36` among others |
+| B9 | Shared constants for console features live in the shared package; the signer auth scope constants are now owned by `router/apiCredentialPorts.ts` | `packages/shared-ts/src/console/` (gasSponsorshipChains, gasSponsorshipSpendCapTargets, organizationIdentity, webhookEventCategories, and console API-key helpers still used by console code) |
 | B10 | Dev/staging composition harnesses boot both worlds | `router/cloudflare/d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`, `d1StagingSession.ts` (uses `ConsoleTeamRbacService`) |
 
 ## Target shape
@@ -133,15 +133,15 @@ console package exports `consoleRouteExtensions(...)` /
     become intra-console; its one crypto leaf used by signer code is gone
     after B8.
 - [ ] Phase 2: Invert the auth and scope-resolution dependencies (B3, B5).
-  - Declare signer-core ports: `ProjectEnvironmentResolver` (replacing the
+  - [x] Declare signer-core ports: `ProjectEnvironmentResolver` (replacing the
     `ConsoleOrgProjectEnvService` type in `commonRouterUtils.ts:15`),
     `ApiCredentialAuthenticator`, `BootstrapTokenVerifier`.
-  - Move the console-backed implementations (`routerApiKeyAuth`,
-    `routerApiCredentialAuth`, `bootstrapGrantBroker`) to console-owned files
-    that implement those ports.
-  - Split `RouterApiOptions` (`routerApi.ts:18-28`): core options carry only
+  - [x] Move the console-backed API-key auth, publishable-key auth, billing
+    usage meter, bootstrap-token verifier, and bootstrap-grant broker to
+    console-owned files that implement those ports.
+  - [ ] Finish splitting `RouterApiOptions` (`routerApi.ts:18-28`): core options carry only
     ports and signer services; a console-side
-    `ConsoleRouterApiExtensions` type carries the 11 `Console*Service`
+    `ConsoleRouterApiExtensions` type carries the remaining `Console*Service`
     fields. `@shared/console/apiKeyScopes` usage in signer core is replaced by
     a scope-string type owned by the port.
 - [ ] Phase 3: Split the route surface (B2, B4).

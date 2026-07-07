@@ -20,7 +20,7 @@ import {
   encodeEip1559SignedTxFromSignature65,
 } from '../../core/ThresholdService/ethSignerWasm';
 import type { SponsorshipSpendPricingService } from './spendCaps';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../router/routerApiKeyAuth';
+import { createRouterApiPublishableKeyAuthAdapter } from '../router/routerApiKeyAuth';
 import { coerceRouterLogger, type RouterLogger } from '../../router/logger';
 import { handleRouterApiSponsoredEvmCall } from '../../router/routerApiSponsoredEvmCall';
 import type { RouteDefinition } from '../../router/routeDefinitions';

@@ -170,16 +170,6 @@ export type {
   ListConsoleAuditExportsRequest,
   CreateConsoleAuditExportRequest,
 } from '../console/auditExports';
-export type {
-  RouterApiBootstrapGrantRateLimitPolicy,
-  RouterApiBootstrapGrantQuotaPolicy,
-  RouterApiBootstrapGrantBrokerOptions,
-} from './bootstrapGrantBroker';
-export {
-  RouterApiBootstrapGrantError,
-  createRouterApiBootstrapGrantBroker,
-  parseRouterApiBootstrapGrantIssueBody,
-} from './bootstrapGrantBroker';
 export {
   CONSOLE_BOOTSTRAP_TOKENS_D1_RUNTIME,
   CONSOLE_BOOTSTRAP_TOKENS_D1_SCHEMA_SQL,
@@ -913,14 +903,31 @@ export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
 } from './runtimeSnapshotConsumer';
 export {
-  createRouterApiKeyAuthAdapter,
-  createRouterApiPublishableKeyAuthAdapter,
-  createRouterApiBillingUsageMeterAdapter,
   extractBearerCredential,
   extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
 } from './routerApiKeyAuth';
+export {
+  createRouterApiKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiBillingUsageMeterAdapter,
+} from '../console/router/routerApiKeyAuth';
+export {
+  createRouterApiBootstrapGrantBroker,
+} from '../console/router/bootstrapGrantBroker';
+export type {
+  RouterApiBootstrapGrantRateLimitPolicy,
+  RouterApiBootstrapGrantQuotaPolicy,
+  RouterApiBootstrapGrantBrokerOptions,
+} from '../console/router/bootstrapGrantBroker';
+export {
+  RouterApiBootstrapGrantError,
+  parseRouterApiBootstrapGrantIssueBody,
+} from './bootstrapGrantBroker';
+export {
+  createRouterApiBootstrapTokenVerifier,
+} from '../console/router/bootstrapTokenVerifier';
 
 export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 export { createCloudflareConsoleRouter } from './cloudflare/createCloudflareConsoleRouter';

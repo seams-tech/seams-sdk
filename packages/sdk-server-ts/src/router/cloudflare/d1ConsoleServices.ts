@@ -90,6 +90,7 @@ import type { ConsoleGasSponsorshipPolicyProjection } from '../../console/gasSpo
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiBootstrapGrantBroker,
+  RouterApiBootstrapTokenVerifier,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiOptions,
   RouterApiUsageMeterAdapter,
@@ -99,8 +100,9 @@ import {
   createRouterApiKeyAuthAdapter,
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiPublishableKeyAuthAdapter,
-} from '../routerApiKeyAuth';
-import { createRouterApiBootstrapGrantBroker } from '../bootstrapGrantBroker';
+} from '../../console/router/routerApiKeyAuth';
+import { createRouterApiBootstrapGrantBroker } from '../../console/router/bootstrapGrantBroker';
+import { createRouterApiBootstrapTokenVerifier } from '../../console/router/bootstrapTokenVerifier';
 import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSigningWorker';
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
@@ -222,7 +224,7 @@ export interface CloudflareD1RouterApiStorageOptions {
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
   readonly bootstrapGrantBroker: RouterApiBootstrapGrantBroker;
-  readonly bootstrapTokenStore: ConsoleBootstrapTokenService;
+  readonly bootstrapTokenVerifier: RouterApiBootstrapTokenVerifier;
   readonly sponsoredEvmCall?: NonNullable<RouterApiOptions['sponsoredEvmCall']>;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly wallets: ConsoleWalletService;
@@ -1112,6 +1114,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   });
   const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;
   const publishableKeyAuth = createRouterApiPublishableKeyAuthAdapter(input.apiKeys);
+  const bootstrapTokenVerifier = createRouterApiBootstrapTokenVerifier(input.bootstrapTokens);
   return {
     sponsorship: {
       spendCaps: input.spendCaps,
@@ -1139,7 +1142,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
         free_registrations_v1: { maxIssued: 100_000 },
       },
     }),
-    bootstrapTokenStore: input.bootstrapTokens,
+    bootstrapTokenVerifier,
     ...(sponsoredEvmCallConfig
       ? {
           sponsoredEvmCall: {

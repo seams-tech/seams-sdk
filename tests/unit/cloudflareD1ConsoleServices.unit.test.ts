@@ -703,7 +703,7 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
     prepaidReservations: bundle.prepaidReservations,
   });
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
-  expect(bundle.routerApiRouterOptions.bootstrapTokenStore).toBe(bundle.bootstrapTokens);
+  expect(bundle.routerApiRouterOptions.bootstrapTokenVerifier).toBeTruthy();
   expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
   expect(bundle.routerApiRouterOptions.wallets).toBe(bundle.wallets);
   expect(bundle.routerApiRouterOptions.observabilityIngestion).toBe(bundle.observabilityIngestion);

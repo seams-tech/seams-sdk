@@ -721,22 +721,29 @@ export {
   createAppSessionConsoleAuthAdapter,
 } from './consoleAppSessionAuth';
 export {
-  createRouterApiKeyAuthAdapter,
-  createRouterApiPublishableKeyAuthAdapter,
-  createRouterApiBillingUsageMeterAdapter,
   extractBearerCredential,
   extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
 } from './routerApiKeyAuth';
+export {
+  createRouterApiKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiBillingUsageMeterAdapter,
+} from '../console/router/routerApiKeyAuth';
 export type {
   RouterApiBootstrapGrantRateLimitPolicy,
   RouterApiBootstrapGrantQuotaPolicy,
   RouterApiBootstrapGrantBrokerOptions,
-} from './bootstrapGrantBroker';
+} from '../console/router/bootstrapGrantBroker';
+export {
+  createRouterApiBootstrapGrantBroker,
+} from '../console/router/bootstrapGrantBroker';
+export {
+  createRouterApiBootstrapTokenVerifier,
+} from '../console/router/bootstrapTokenVerifier';
 export {
   RouterApiBootstrapGrantError,
-  createRouterApiBootstrapGrantBroker,
   parseRouterApiBootstrapGrantIssueBody,
 } from './bootstrapGrantBroker';
 export {

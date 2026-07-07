@@ -19,9 +19,7 @@ import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
-import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
-import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../console/observability';
@@ -29,7 +27,6 @@ import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots'
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { ConsoleWalletService } from '../console/wallets';
-import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmExecutionAdapterResolver,
@@ -37,11 +34,19 @@ import type {
 import type { SponsorshipSpendPricingService } from '../console/sponsorship/spendCaps';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
 import type { EmailRecoveryService } from '../email-recovery';
+import type {
+  RouterApiAuthenticatedPublishableCredential,
+  RouterApiBootstrapGrantPublishableKeyAuthResult,
+  RouterApiBootstrapTokenVerifier,
+  RouterApiKeyAuthAdapter,
+  RouterApiProjectEnvironmentResolver,
+  RouterApiPublishableKeyAuthAdapter,
+  RouterApiUsageMeterAdapter,
+} from './apiCredentialPorts';
 import type {
   ExecuteSignedDelegateRequest,
   ExecuteSignedDelegateResult,
@@ -53,6 +58,31 @@ import type {
   RespondEmailRecoveryEcdsaRequest,
 } from './emailRecoveryRequestValidation';
 import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
+
+export type {
+  RouterApiAuthenticatedPublishableCredential,
+  RouterApiBootstrapGrantPublishableKeyAuthResult,
+  RouterApiBootstrapTokenRecord,
+  RouterApiBootstrapTokenRedeemFailureCode,
+  RouterApiBootstrapTokenRedeemRequest,
+  RouterApiBootstrapTokenRedeemResult,
+  RouterApiBootstrapTokenVerifier,
+  RouterApiCredentialScope,
+  RouterApiKeyAuthAdapter,
+  RouterApiKeyAuthFailureCode,
+  RouterApiKeyAuthRequest,
+  RouterApiKeyAuthResult,
+  RouterApiKeyPrincipal,
+  RouterApiProjectEnvironment,
+  RouterApiProjectEnvironmentResolver,
+  RouterApiPublishableKeyAuthAdapter,
+  RouterApiPublishableKeyAuthFailureCode,
+  RouterApiPublishableKeyAuthRequest,
+  RouterApiPublishableKeyAuthResult,
+  RouterApiUsageMeterAction,
+  RouterApiUsageMeterAdapter,
+  RouterApiUsageMeterEvent,
+} from './apiCredentialPorts';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -280,88 +310,6 @@ export interface RouterApiEmailOtpExportPolicyAdapter {
   ): Promise<RouterApiEmailOtpExportPolicyDecision> | RouterApiEmailOtpExportPolicyDecision;
 }
 
-export type RouterApiKeyAuthFailureCode =
-  | 'secret_key_missing'
-  | 'secret_key_invalid'
-  | 'secret_key_revoked'
-  | 'secret_key_forbidden_scope'
-  | 'secret_key_ip_blocked'
-  | 'secret_key_environment_mismatch';
-
-export interface RouterApiKeyAuthRequest {
-  secret: string;
-  endpoint: string;
-  requiredScopes: ApiCredentialScope[];
-  sourceIp?: string;
-  environmentId?: string;
-}
-
-export interface RouterApiKeyPrincipal {
-  apiKeyId: string;
-  orgId: string;
-  projectId?: string;
-  envId?: string;
-  environmentId: string;
-  scopes: ApiCredentialScope[];
-}
-
-export type RouterApiKeyAuthResult =
-  | { ok: true; principal: RouterApiKeyPrincipal }
-  | {
-      ok: false;
-      status: 401 | 403;
-      code: RouterApiKeyAuthFailureCode;
-      message: string;
-    };
-
-export interface RouterApiKeyAuthAdapter {
-  authenticate(input: RouterApiKeyAuthRequest): Promise<RouterApiKeyAuthResult>;
-}
-
-export type RouterApiPublishableKeyAuthFailureCode =
-  | 'publishable_key_missing'
-  | 'publishable_key_invalid'
-  | 'publishable_key_revoked'
-  | 'publishable_key_origin_blocked'
-  | 'publishable_key_environment_mismatch';
-
-export interface RouterApiPublishableKeyAuthRequest {
-  secret: string;
-  origin: string;
-  environmentId: string;
-}
-
-export type RouterApiPublishableKeyAuthResult =
-  | { ok: true; principal: RouterApiKeyPrincipal }
-  | {
-      ok: false;
-      status: 401 | 403;
-      code: RouterApiPublishableKeyAuthFailureCode;
-      message: string;
-    };
-
-export interface RouterApiPublishableKeyAuthAdapter {
-  authenticate(input: RouterApiPublishableKeyAuthRequest): Promise<RouterApiPublishableKeyAuthResult>;
-}
-
-export type RouterApiUsageMeterAction = 'wallet_created';
-
-export interface RouterApiUsageMeterEvent {
-  orgId: string;
-  environmentId: string;
-  apiKeyId: string;
-  endpoint: string;
-  walletId: string;
-  action: RouterApiUsageMeterAction;
-  succeeded: boolean;
-  occurredAt?: string;
-  sourceEventId?: string;
-}
-
-export interface RouterApiUsageMeterAdapter {
-  recordEvent(input: RouterApiUsageMeterEvent): Promise<void>;
-}
-
 export type RouterApiBootstrapGrantMode = 'free' | 'paid';
 
 export type RouterApiBootstrapGrantFailureCode =
@@ -431,43 +379,15 @@ export type RouterApiBootstrapGrantIssueResult =
       payment?: RouterApiBootstrapGrantPaymentRequirement;
     };
 
-export interface RouterApiBootstrapTokenRecord {
-  id: string;
-  tokenHash: string;
-  tokenPrefix: string;
-  publishableKeyId: string;
-  orgId: string;
-  projectId: string;
-  environmentId: string;
-  newAccountId: string;
-  rpId: string;
-  origin: string;
-  method: string;
-  path: string;
-  allowedPaths: string[];
-  requestHashSha256: string | null;
-  maxUses: number;
-  usedCount: number;
-  status: 'issued' | 'redeemed' | 'expired';
-  riskDecision: string;
-  paymentReference: string | null;
-  replacementForTokenId: string | null;
-  issuedAt: string;
-  expiresAt: string;
-  redeemedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface RouterApiBootstrapGrantBroker {
   authenticatePublishableKey(input: {
     publishableKey: string;
     origin: string;
     environmentId?: string;
-  }): Promise<import('../console/apiKeys').AuthenticateConsolePublishableKeyResult>;
+  }): Promise<RouterApiBootstrapGrantPublishableKeyAuthResult>;
   issueGrantForAuthenticatedKey(
     input: Omit<RouterApiBootstrapGrantIssueRequest, 'publishableKey'> & {
-      authenticatedApiKey: import('../console/apiKeys').ConsoleApiKey;
+      authenticatedCredential: RouterApiAuthenticatedPublishableCredential;
     },
   ): Promise<RouterApiBootstrapGrantIssueResult>;
 }
@@ -579,9 +499,9 @@ export interface RouterApiOptions {
    */
   bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
   /**
-   * Optional bootstrap-token store used to redeem managed registration grants.
+   * Optional bootstrap-token verifier used to redeem managed registration grants.
    */
-  bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
+  bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
   /**
    * Optional standalone Signing-session seal/unlock routes.
    *
@@ -634,7 +554,7 @@ export interface RouterApiOptions {
   /**
    * Optional org/project/environment service used to resolve environment -> project scope.
    */
-  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+  orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

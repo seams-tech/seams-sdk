@@ -4,7 +4,7 @@ import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApiKeyAuth';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/console/router/routerApiKeyAuth';
 import { callCf } from '../relayer/helpers';
 
 function makeUnexpectedRouterApiServiceValue(path: string): unknown {

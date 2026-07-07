@@ -48,8 +48,6 @@ import {
 import {
   registrationPreparationIdFromString
 } from '../core/registrationContracts';
-import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
-import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
 import {
   thresholdEcdsaChainTargetFromValue,
@@ -70,7 +68,12 @@ import {
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolveRegistrationBootstrapApiCredentialAuth } from './routerApiCredentialAuth';
-import type { RouterApiKeyAuthAdapter, SessionAdapter } from './routerApi';
+import type {
+  RouterApiBootstrapTokenVerifier,
+  RouterApiKeyAuthAdapter,
+  RouterApiProjectEnvironmentResolver,
+  SessionAdapter,
+} from './routerApi';
 import type { HeaderRecord, RouteResponse, RouteServices } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
@@ -118,8 +121,8 @@ import {
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
-  bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
-  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+  bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
+  orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
 };
@@ -2271,7 +2274,7 @@ export async function handleRouterApiWalletRegistrationIntent(
         await resolveRegistrationBootstrapApiCredentialAuth({
           apiKeyAuth: input.services.apiKeyAuth,
           body: input.body as Record<string, unknown>,
-          bootstrapTokenStore: input.services.bootstrapTokenStore,
+          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
           headers: input.headers,
           origin,
           route: input.route,
@@ -2338,7 +2341,7 @@ export async function handleRouterApiWalletAddSignerIntent(
         await resolveRegistrationBootstrapApiCredentialAuth({
           apiKeyAuth: input.services.apiKeyAuth,
           body: input.body as Record<string, unknown>,
-          bootstrapTokenStore: input.services.bootstrapTokenStore,
+          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
           headers: input.headers,
           origin,
           route: input.route,
@@ -2645,7 +2648,7 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
         await resolveRegistrationBootstrapApiCredentialAuth({
           apiKeyAuth: input.services.apiKeyAuth,
           body: input.body as Record<string, unknown>,
-          bootstrapTokenStore: input.services.bootstrapTokenStore,
+          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
           headers: input.headers,
           origin,
           route: input.route,

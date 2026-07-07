@@ -14,7 +14,7 @@ export const ROUTE_SERVICE_KEYS = [
   'auditExports',
   'billing',
   'bootstrapGrantBroker',
-  'bootstrapTokenStore',
+  'bootstrapTokenVerifier',
   'emailOtp',
   'emailRecoveryAuth',
   'emailRecoveryExecution',

@@ -11,8 +11,10 @@ import {
   type RouterAbEcdsaHssWalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { SessionAdapter } from './routerApi';
-import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
-import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
+import type {
+  RouterApiProjectEnvironmentResolver,
+  RouterApiPublishableKeyAuthAdapter,
+} from './routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
@@ -749,7 +751,7 @@ export async function resolveThresholdRuntimePolicyScope(input: {
   headers: Headers | Record<string, string | string[] | undefined>;
   origin?: string | null;
   publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
-  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+  orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
 }): Promise<ThresholdRuntimePolicyScopeResolution> {
   if (isPlainObject(input.explicitScopeRaw)) {
     try {
@@ -832,7 +834,7 @@ export async function resolveThresholdRuntimePolicyScope(input: {
 }
 
 export async function resolveActiveRuntimePolicyScopeFromFields(input: {
-  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  orgProjectEnv: RouterApiProjectEnvironmentResolver | null;
   fields: Omit<ThresholdRuntimePolicyScope, 'signingRootVersion'> & {
     readonly signingRootVersion?: string;
   };
@@ -849,7 +851,7 @@ export async function resolveActiveRuntimePolicyScopeFromFields(input: {
 }
 
 export async function resolveActiveRuntimePolicyScopeForEnvironment(input: {
-  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  orgProjectEnv: RouterApiProjectEnvironmentResolver | null;
   orgId: string;
   environmentId?: string;
   projectId?: string;
@@ -883,7 +885,7 @@ export async function resolveActiveRuntimePolicyScopeForEnvironment(input: {
 }
 
 async function resolveRuntimeProjectEnvironment(input: {
-  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  orgProjectEnv: RouterApiProjectEnvironmentResolver | null;
   orgId: string;
   environmentId?: string;
   projectId?: string;

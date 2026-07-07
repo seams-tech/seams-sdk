@@ -9,7 +9,7 @@ import {
   createRouterApiModule,
   type RouterApiModule,
 } from '../../packages/sdk-server-ts/src/router/modules';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApiKeyAuth';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/console/router/routerApiKeyAuth';
 import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/routerApiRouteSurface';
