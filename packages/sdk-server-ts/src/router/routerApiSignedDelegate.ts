@@ -18,21 +18,21 @@ import {
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
-} from '../sponsorship/spendCaps';
+} from '../console/sponsorship/spendCaps';
 import {
   matchResolvedSponsoredNearDelegatePolicy,
   parseResolvedSponsoredNearDelegatePolicies,
-} from '../sponsorship/near';
+} from '../console/sponsorship/near';
 import {
   isSponsorshipPrepaidBalanceEnforcementError,
   reserveSponsoredPrepaidBalance,
   settleSponsoredPrepaidBalance,
-} from '../sponsorship/prepaidBalance';
-import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
+} from '../console/sponsorship/prepaidBalance';
+import { executeSponsorshipAdapter } from '../console/sponsorship/executionAdapter';
 import {
   createSponsoredNearDelegateExecutionAdapter,
   type SponsoredNearDelegateAuthService,
-} from '../sponsorship/nearExecutionAdapter';
+} from '../console/sponsorship/nearExecutionAdapter';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';

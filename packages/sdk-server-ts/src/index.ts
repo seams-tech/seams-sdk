@@ -261,4 +261,4 @@ export * from './console/gasSponsorship';
 export * from './console/sponsorshipSpendCaps';
 export * from './console/billingPrepaidReservations';
 export * from './console/sponsoredCalls';
-export * from './sponsorship';
+export * from './console/sponsorship';

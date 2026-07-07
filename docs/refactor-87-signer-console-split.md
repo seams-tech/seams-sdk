@@ -61,12 +61,12 @@ Concrete blockers, each owned by a phase below:
 
 | # | Coupling | Location |
 |---|----------|----------|
-| B1 | `src/sponsorship` (17 files, ~3.6k lines) has value imports into console but lives outside it | `sponsorship/spendCaps.ts:6`, `sponsorship/prepaidBalance.ts:6`, `sponsorship/evm.ts:2`, plus type imports across `sponsorship/*` |
+| B1 | Resolved July 8, 2026: sponsorship now lives under `src/console/sponsorship`, so its console imports are intra-console | `console/sponsorship/*` |
 | B2 | Signer router statically wires console-adjacent handlers into one array | `router/cloudflare/createCloudflareRouter.ts:116-184` (`handleBootstrapGrant`, `handleApiWallets`, `handleSponsoredEvmCall`, `handleSignedDelegate` beside `handleThresholdEd25519`/`Ecdsa`); mirrored in `router/express/createRouterApiRouter.ts:92-95` |
 | B3 | Console-aware auth value-imports console | `router/routerApiKeyAuth.ts` (console/apiKeys, ipAllowlist), `router/routerApiCredentialAuth.ts:3` (bootstrapTokens/secret), `router/bootstrapGrantBroker.ts:6` (apiKeys) |
 | B4 | Sponsored-call execution/billing glue value-imports console | `router/sponsorshipExecution.ts`, `router/sponsorshipBillingEvents.ts:2`, `router/routerApiSponsoredEvmCall.ts`, `router/routerApiWallets.ts:3` |
 | B5 | `RouterApiOptions` types reference 11 `Console*Service` types | `router/routerApi.ts:18-28`; also `router/commonRouterUtils.ts:15` (`ConsoleOrgProjectEnvService` for managed-mode scope resolution), type-only refs in `routerApiSignedDelegate.ts`, `walletRegistrationRoutes.ts:49-50`, `sponsorshipRuntime.ts`, `sponsorshipSpendCapObservability.ts:7` |
-| B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./sponsorship`); `package.json` has no signer-only or console-only subpath |
+| B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./console/sponsorship`); `package.json` has no signer-only or console-only subpath |
 | B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
 | B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
 | B9 | Shared constants for console features live in the shared package | `packages/shared-ts/src/console/` (apiKeyScopes, gasSponsorshipChains, gasSponsorshipSpendCapTargets, organizationIdentity, webhookEventCategories) — imported by `router/routerApi.ts:36` among others |
@@ -125,10 +125,10 @@ console package exports `consoleRouteExtensions(...)` /
     per phase; the guard blocks new coupling immediately. Follow the pattern
     of the existing runtime import scan from Refactor 82 (the one that rejects
     Postgres storage and mixed console barrels).
-- [ ] Phase 1: Quick wins with no behavior change.
+- [x] Phase 1: Quick wins with no behavior change.
   - [x] B8: repoint `router/cloudflare/routes/thresholdEcdsa.ts:43` to
     `core/ThresholdService/ethSignerWasm`, matching the express variant.
-  - [ ] B1 (location only): move `src/sponsorship` to `src/console/sponsorship`
+  - [x] B1 (location only): move `src/sponsorship` to `src/console/sponsorship`
     (or a sibling folder slated for the console package). Its console imports
     become intra-console; its one crypto leaf used by signer code is gone
     after B8.

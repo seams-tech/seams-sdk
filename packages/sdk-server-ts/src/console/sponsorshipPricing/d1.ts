@@ -6,7 +6,7 @@ import {
   type SponsorshipSpendPricingFinalizeInput,
   type SponsorshipSpendPricingQuote,
   type SponsorshipSpendPricingService,
-} from '../../sponsorship/spendCaps';
+} from '../sponsorship/spendCaps';
 
 export interface D1ConsoleSponsorshipPricingSchemaOptions {
   readonly database: D1DatabaseLike;

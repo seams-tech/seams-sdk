@@ -3,7 +3,7 @@ import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
-} from '../../sponsorship/evmWorkerExecutionAdapter';
+} from '../../console/sponsorship/evmWorkerExecutionAdapter';
 import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
 import type { CloudflareD1EmailOtpServerSealConfig } from './d1RouterApiAuthConfig';

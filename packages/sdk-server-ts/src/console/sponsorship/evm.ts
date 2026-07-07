@@ -1,5 +1,5 @@
-import type { ResolvedGasSponsorshipEvmPolicy } from '../console/gasSponsorship/types';
-import { deriveConsolePolicyFunctionSelector } from '../console/policies/rules';
+import type { ResolvedGasSponsorshipEvmPolicy } from '../gasSponsorship/types';
+import { deriveConsolePolicyFunctionSelector } from '../policies/rules';
 
 export type SponsoredEvmCall = {
   to: `0x${string}`;

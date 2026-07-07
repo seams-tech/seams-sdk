@@ -2,7 +2,7 @@ import {
   buildDelegateActionPolicyFromResolvedRule,
   type ResolvedSponsoredNearDelegatePolicy,
 } from './near';
-import type { ExecuteSignedDelegateRequest, ExecuteSignedDelegateResult } from '../delegateAction';
+import type { ExecuteSignedDelegateRequest, ExecuteSignedDelegateResult } from '../../delegateAction';
 import type { SponsorshipExecutionAdapter } from './executionAdapter';
 
 export interface SponsoredNearDelegateAuthService {

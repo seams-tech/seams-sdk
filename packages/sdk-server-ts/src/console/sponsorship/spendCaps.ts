@@ -1,17 +1,17 @@
 import type {
   ConsoleSponsorshipSpendCapContext,
   ConsoleSponsorshipSpendCapService,
-} from '../console/sponsorshipSpendCaps/service';
-import type { ConsoleSponsorshipSpendCapPeriod } from '../console/sponsorshipSpendCaps/types';
-import { isConsoleSponsorshipSpendCapError } from '../console/sponsorshipSpendCaps/errors';
+} from '../sponsorshipSpendCaps/service';
+import type { ConsoleSponsorshipSpendCapPeriod } from '../sponsorshipSpendCaps/types';
+import { isConsoleSponsorshipSpendCapError } from '../sponsorshipSpendCaps/errors';
 import type {
   ConsoleSponsoredCallChainFamily,
   ConsoleSponsoredCallExecutorKind,
   ConsoleSponsoredCallFeeUnit,
   ConsoleSponsoredCallIntentKind,
   ConsoleSponsoredCallReceiptStatus,
-} from '../console/sponsoredCalls/types';
-import type { ConsoleGasSponsorshipPolicySpendCap } from '../console/policies/types';
+} from '../sponsoredCalls/types';
+import type { ConsoleGasSponsorshipPolicySpendCap } from '../policies/types';
 
 export class SponsorshipSpendCapEnforcementError extends Error {
   readonly code: string;

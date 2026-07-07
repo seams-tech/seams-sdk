@@ -17,12 +17,12 @@ import {
   type SponsoredEvmCallRequest,
   type SponsoredEvmPolicyMatch,
   type SponsoredEvmPolicyMismatch,
-} from '../sponsorship/evm';
-import { DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID } from '../sponsorship/evmRoutes';
+} from '../console/sponsorship/evm';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID } from '../console/sponsorship/evmRoutes';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmExecutionAdapterResolver,
-} from '../sponsorship/evmExecutorTypes';
+} from '../console/sponsorship/evmExecutorTypes';
 import {
   buildSponsoredSpendCapSourceEventId,
   isSponsorshipSpendCapEnforcementError,
@@ -31,12 +31,12 @@ import {
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
-} from '../sponsorship/spendCaps';
+} from '../console/sponsorship/spendCaps';
 import {
   isSponsorshipPrepaidBalanceEnforcementError,
   reserveSponsoredPrepaidBalance,
-} from '../sponsorship/prepaidBalance';
-import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
+} from '../console/sponsorship/prepaidBalance';
+import { executeSponsorshipAdapter } from '../console/sponsorship/executionAdapter';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';

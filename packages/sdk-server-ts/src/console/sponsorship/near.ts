@@ -1,6 +1,6 @@
 import { ActionType } from '@shared/near/actions';
-import type { DelegateActionPolicy } from '../delegateAction';
-import type { ResolvedGasSponsorshipNearPolicy } from '../console/gasSponsorship/types';
+import type { DelegateActionPolicy } from '../../delegateAction';
+import type { ResolvedGasSponsorshipNearPolicy } from '../gasSponsorship/types';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

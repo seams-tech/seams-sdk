@@ -46,7 +46,7 @@ import { createHmacSessionAdapter } from './d1StagingSession';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
-} from '../../sponsorship/evmWorkerExecutionAdapter';
+} from '../../console/sponsorship/evmWorkerExecutionAdapter';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,

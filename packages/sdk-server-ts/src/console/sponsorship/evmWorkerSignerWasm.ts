@@ -6,7 +6,7 @@ import {
   signSecp256k1Recoverable,
   type ServerEip1559UnsignedTx,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
-} from '../core/ThresholdService/ethSignerWasm';
+} from '../../core/ThresholdService/ethSignerWasm';
 
 export type WorkerEip1559UnsignedTx = ServerEip1559UnsignedTx;
 

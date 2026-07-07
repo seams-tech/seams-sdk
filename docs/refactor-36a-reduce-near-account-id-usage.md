@@ -891,7 +891,7 @@ Detailed completed Phase 6 subtasks:
     `chainTarget`, session ids, or signing root.
 
   - [x] Keep hosted NEAR account ids only in hosted-account protocols.
-  - [x] Audit `server/src/sponsorship/evm.ts`,
+  - [x] Audit `server/src/console/sponsorship/evm.ts`,
     `server/src/router/relaySponsoredEvmCall.ts`.
   - [x] Rename non-protocol EVM sponsorship identity to wallet/session naming.
   - [x] Add a short boundary comment at every retained `nearAccountIdHash`.
@@ -1180,7 +1180,7 @@ server/src/core/ThresholdService/ThresholdSigningService.ts
 server/src/core/ThresholdService/signingHandlers.ts
 server/src/core/ThresholdService/validation.ts
 server/src/router/relaySponsoredEvmCall.ts
-server/src/sponsorship/evm.ts
+server/src/console/sponsorship/evm.ts
 ```
 
 Guard checks:

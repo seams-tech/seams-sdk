@@ -3,14 +3,14 @@ import {
   createEvmClient,
   parseRpcHexQuantity as parseEvmRpcHexQuantity,
 } from './evmRpcClient';
-import type { ConsoleApiKeyService } from '../console/apiKeys';
-import type { ConsoleBillingService } from '../console/billing';
-import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
-import type { ConsoleObservabilityIngestionService } from '../console/observability';
-import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
-import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
-import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
-import type { ConsoleWebhookService } from '../console/webhooks';
+import type { ConsoleApiKeyService } from '../apiKeys';
+import type { ConsoleBillingService } from '../billing';
+import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../observability';
+import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
+import type { ConsoleSponsoredCallService } from '../sponsoredCalls';
+import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
+import type { ConsoleWebhookService } from '../webhooks';
 import {
   type ServerEip1559UnsignedTx,
   computeEip1559TxHash,
@@ -18,13 +18,13 @@ import {
   secp256k1PublicKey33ToEthereumAddress,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
-} from '../core/ThresholdService/ethSignerWasm';
+} from '../../core/ThresholdService/ethSignerWasm';
 import type { SponsorshipSpendPricingService } from './spendCaps';
-import { createRouterApiPublishableKeyAuthAdapter } from '../router/routerApiKeyAuth';
-import { coerceRouterLogger, type RouterLogger } from '../router/logger';
-import { handleRouterApiSponsoredEvmCall } from '../router/routerApiSponsoredEvmCall';
-import type { RouteDefinition } from '../router/routeDefinitions';
-import { sendExpressRouteResponse } from '../router/routeResponses';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../router/routerApiKeyAuth';
+import { coerceRouterLogger, type RouterLogger } from '../../router/logger';
+import { handleRouterApiSponsoredEvmCall } from '../../router/routerApiSponsoredEvmCall';
+import type { RouteDefinition } from '../../router/routeDefinitions';
+import { sendExpressRouteResponse } from '../../router/routeResponses';
 import {
   normalizeEvmAddress,
   type SponsoredEvmCall,

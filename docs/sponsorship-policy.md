@@ -49,9 +49,9 @@ What already exists:
 
 - EVM sponsorship config exists in [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](../packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
 - runtime snapshots already publish resolved EVM `sponsoredCallPolicies` in [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
-- the shared server package now owns the EVM sponsorship route and execution path in [packages/sdk-server-ts/src/sponsorship/evmRelay.ts](../packages/sdk-server-ts/src/sponsorship/evmRelay.ts) and [packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts](../packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts)
+- the shared server package now owns the EVM sponsorship route and execution path in [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](../packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts) and [packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts](../packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts)
 - shared onboarding seeding now lives in [packages/sdk-server-ts/src/console/gasSponsorship/seeding.ts](../packages/sdk-server-ts/src/console/gasSponsorship/seeding.ts)
-- shared EVM sponsorship parsing and matching primitives exist in [packages/sdk-server-ts/src/sponsorship/evm.ts](../packages/sdk-server-ts/src/sponsorship/evm.ts)
+- shared EVM sponsorship parsing and matching primitives exist in [packages/sdk-server-ts/src/console/sponsorship/evm.ts](../packages/sdk-server-ts/src/console/sponsorship/evm.ts)
 - exact sponsored spend is stored through a chain-aware ledger model in [packages/sdk-server-ts/src/console/sponsoredCalls/types.ts](../packages/sdk-server-ts/src/console/sponsoredCalls/types.ts)
 - NEAR delegate validation and relaying primitives already exist in [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
 

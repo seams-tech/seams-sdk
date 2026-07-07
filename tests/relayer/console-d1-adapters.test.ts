@@ -103,7 +103,7 @@ import type {
   SponsorshipSpendPricingFinalizeInput,
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,
-} from '../../packages/sdk-server-ts/src/sponsorship/spendCaps';
+} from '../../packages/sdk-server-ts/src/console/sponsorship/spendCaps';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

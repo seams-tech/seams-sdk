@@ -33,8 +33,8 @@ import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmExecutionAdapterResolver,
-} from '../sponsorship/evmExecutorTypes';
-import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
+} from '../console/sponsorship/evmExecutorTypes';
+import type { SponsorshipSpendPricingService } from '../console/sponsorship/spendCaps';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';

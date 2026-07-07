@@ -25,7 +25,7 @@ import type {
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import localD1DevWorker from '../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import { parseEcdsaHssClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { SponsoredEvmCallExecutorConfig } from '../../packages/sdk-server-ts/src/sponsorship/evmExecutorTypes';
+import type { SponsoredEvmCallExecutorConfig } from '../../packages/sdk-server-ts/src/console/sponsorship/evmExecutorTypes';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,

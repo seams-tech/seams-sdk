@@ -189,7 +189,7 @@ This is the runtime execution path for gas sponsorship.
 
 Code reference:
 
-- [packages/sdk-server-ts/src/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/sponsorship/evmRelay.ts)
+- [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
 
 ## Flows
 
@@ -261,7 +261,7 @@ Relevant code:
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/sponsorship/evmRelay.ts)
+- [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
 - [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
 
 ### 6. Tempo onboarding gas policy flow

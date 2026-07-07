@@ -40,13 +40,13 @@ import type { ConsoleBillingPrepaidReservationContext } from '../console/billing
 import type { ConsoleSponsoredCallContext } from '../console/sponsoredCalls/service';
 import type { D1PreparedStatementLike, D1ResultLike } from '../storage/tenantRoute';
 import type { RouteResponse } from './routeExecutionContext';
-import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
+import type { SponsorshipSpendPricingService } from '../console/sponsorship/spendCaps';
 import type {
   SponsoredPrepaidReservationHandle,
   SponsoredPrepaidReservationSettlement,
   SponsoredPrepaidSettlementQuote,
-} from '../sponsorship/prepaidBalance';
-import { resolveSponsoredPrepaidSettlementQuote } from '../sponsorship/prepaidBalance';
+} from '../console/sponsorship/prepaidBalance';
+import { resolveSponsoredPrepaidSettlementQuote } from '../console/sponsorship/prepaidBalance';
 import type { SponsorshipBillingEventServices } from './sponsorshipBillingEvents';
 import {
   emitSponsorshipBalanceTransitionEvents,

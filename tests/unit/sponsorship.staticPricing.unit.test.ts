@@ -3,7 +3,7 @@ import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTa
 import {
   isSponsorshipSpendCapEnforcementError,
   resolveStaticSponsoredExecutionPricingFromEnv,
-} from '../../packages/sdk-server-ts/src/sponsorship';
+} from '../../packages/sdk-server-ts/src/console/sponsorship';
 
 function makeStaticPricingEnv(): NodeJS.ProcessEnv {
   return {
