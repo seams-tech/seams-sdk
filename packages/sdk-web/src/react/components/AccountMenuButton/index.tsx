@@ -6,8 +6,6 @@ import { LinkIcon } from './icons/LinkIcon';
 import { SlidersIcon } from './icons/SlidersIcon';
 import { RecoveryCodesIcon } from './icons/RecoveryCodesIcon';
 import { SpinnerIcon } from './icons/SpinnerIcon';
-import { SunIcon } from './icons/SunIcon';
-import { MoonIcon } from './icons/MoonIcon';
 import { UserAccountButton } from './UserAccountButton';
 import { ProfileDropdown } from './ProfileDropdown';
 import { useProfileState } from './hooks/useProfileState';
@@ -21,6 +19,7 @@ import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { requirePrimaryChainByFamily } from '@/core/config/chains';
+import type { ConfirmationBehavior, ConfirmationConfig } from '@/core/types/signer-worker';
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
@@ -97,7 +96,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   highlightedMenuItem,
 }) => {
   // Get values from context if not provided as props
-  const { loginState, seams, lock, themeCapabilities } = useSeams();
+  const { loginState, seams, lock } = useSeams();
 
   // Use props if provided, otherwise fall back to context
   const accountName =
@@ -117,7 +116,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
   const [exportRestrictionMessage, setExportRestrictionMessage] = useState<string | null>(null);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
-  const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
+  const [currentConfirmConfig, setCurrentConfirmConfig] = useState<ConfirmationConfig | null>(null);
 
   // State management
   const { isOpen, refs, handleToggle, handleClose } = useProfileState({
@@ -153,7 +152,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     }
     setCurrentConfirmConfig(seams.preferences.getConfirmationConfig());
 
-    const unsubConfirmConfig = seams.preferences.onConfirmationConfigChange?.((cfg: any) => {
+    const unsubConfirmConfig = seams.preferences.onConfirmationConfigChange?.((cfg) => {
       if (cancelled) return;
       setCurrentConfirmConfig(cfg);
     });
@@ -166,44 +165,31 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Handlers for transaction settings
   const handleSetUiMode = (mode: 'none' | 'modal' | 'drawer') => {
-    // Only patch the field we intend to change to avoid overwriting theme or other values
-    seams.preferences.setConfirmationConfig({ uiMode: mode } as any);
+    setCurrentConfirmConfig((current) => ({
+      ...(current ?? seams.preferences.getConfirmationConfig()),
+      uiMode: mode,
+    }));
+    seams.preferences.setConfirmationConfig({ uiMode: mode });
   };
 
   const handleToggleSkipClick = () => {
     if (!currentConfirmConfig) return;
-    const newBehavior =
+    const newBehavior: ConfirmationBehavior =
       currentConfirmConfig.behavior === 'requireClick' ? 'skipClick' : 'requireClick';
+    setCurrentConfirmConfig((current) => ({
+      ...(current ?? seams.preferences.getConfirmationConfig()),
+      behavior: newBehavior,
+      autoProceedDelay: newBehavior === 'skipClick' ? 0 : (current?.autoProceedDelay ?? 0),
+    }));
     seams.preferences.setConfirmBehavior(newBehavior);
   };
 
   const handleSetDelay = (delay: number) => {
-    // Only patch delay; avoid passing a stale theme from local state
-    seams.preferences.setConfirmationConfig({ autoProceedDelay: delay } as any);
-  };
-
-  const handleToggleTheme = () => {
-    if (!themeCapabilities.canSetHostTheme) {
-      console.error('theme/setTheme needs to be passed to the SDK');
-      return;
-    }
-    // Determine next theme from current visible theme when possible
-    const newTheme =
-      theme === 'dark'
-        ? 'light'
-        : theme === 'light'
-          ? 'dark'
-          : currentConfirmConfig?.theme === 'dark'
-            ? 'light'
-            : 'dark';
-    seams.setTheme(newTheme);
-    // Always show a quick pulse to acknowledge the press
-    if (typeof document !== 'undefined' && document.body) {
-      document.body.setAttribute('data-w3a-theme-pulse', '1');
-      window.setTimeout(() => {
-        document.body?.removeAttribute('data-w3a-theme-pulse');
-      }, 220);
-    }
+    setCurrentConfirmConfig((current) => ({
+      ...(current ?? seams.preferences.getConfirmationConfig()),
+      autoProceedDelay: delay,
+    }));
+    seams.preferences.setConfirmationConfig({ autoProceedDelay: delay });
   };
 
   const startExportKeyFlow = useCallback(
@@ -333,16 +319,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     );
 
     items.push({
-      id: PROFILE_MENU_ITEM_IDS.TOGGLE_THEME,
-      icon: theme === 'dark' ? <SunIcon /> : <MoonIcon />,
-      label: 'Toggle Theme',
-      description: theme === 'dark' ? 'Dark Mode' : 'Light Mode',
-      disabled: false,
-      onClick: handleToggleTheme,
-      keepOpenOnClick: true,
-    });
-
-    items.push({
       id: PROFILE_MENU_ITEM_IDS.TRANSACTION_SETTINGS,
       icon: <SlidersIcon />,
       label: 'Transaction Settings',
@@ -352,7 +328,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn, theme, handleToggleTheme]);
+  }, [canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -418,7 +394,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         onSetUiMode={handleSetUiMode}
         onToggleSkipClick={handleToggleSkipClick}
         onSetDelay={handleSetDelay}
-        onToggleTheme={handleToggleTheme}
         transactionSettingsOpen={transactionSettingsOpen}
         theme={theme}
         highlightedMenuItemId={highlightedMenuItemId}

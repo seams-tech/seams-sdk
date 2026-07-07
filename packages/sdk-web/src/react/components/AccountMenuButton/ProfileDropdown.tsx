@@ -3,17 +3,17 @@ import { MenuItem } from './MenuItem';
 import { LockMenuItem } from './LockMenuItem';
 import { TransactionSettingsSection } from './TransactionSettingsSection';
 import type { ProfileDropdownProps } from './types';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import './ProfileDropdown.css';
 
 interface ProfileDropdownWithRefs extends Omit<ProfileDropdownProps, 'menuItemsRef'> {
   menuItemsRef: React.MutableRefObject<(HTMLElement | null)[]>;
   // Transaction settings props
-  currentConfirmConfig?: any;
+  currentConfirmConfig?: ConfirmationConfig | null;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
   onToggleShowDetails?: () => void;
   onToggleSkipClick?: () => void;
   onSetDelay?: (delay: number) => void;
-  onToggleTheme?: () => void;
   transactionSettingsOpen?: boolean;
 }
 
@@ -31,7 +31,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       onToggleShowDetails,
       onToggleSkipClick,
       onSetDelay,
-      onToggleTheme,
       transactionSettingsOpen = false,
       theme = 'dark',
       highlightedMenuItemId,
@@ -96,7 +95,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
                 onToggleShowDetails={onToggleShowDetails}
                 onToggleSkipClick={onToggleSkipClick}
                 onSetDelay={onSetDelay}
-                onToggleTheme={onToggleTheme}
                 isOpen={transactionSettingsOpen}
                 theme={theme}
                 // Set CSS variable to calculate stagger delay in CSS stylesheet

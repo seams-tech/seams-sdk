@@ -5,7 +5,6 @@ const IMPORT_PATHS = {
   provider: '/sdk/esm/react/context/SeamsWebProvider.js',
   theme: '/sdk/esm/react/components/theme/ThemeProvider.js',
   context: '/sdk/esm/react/context/index.js',
-  accountMenu: '/sdk/esm/react/components/AccountMenuButton/index.js',
 } as const;
 
 async function getColorBackgroundVar(page: Page, scopeSelector: string): Promise<string> {
@@ -435,72 +434,4 @@ test.describe('React Theme integration', () => {
     await expect(sdkTheme).toHaveText('dark');
   });
 
-  test('AccountMenuButton toggle calls host setTheme', async ({ page }) => {
-    const mountId = 'w3a-theme-harness-account-menu';
-
-    await page.evaluate(
-      async ({ paths, mountId }) => {
-        const mount = document.createElement('div');
-        mount.id = mountId;
-        document.body.appendChild(mount);
-
-        const React = await import('react');
-        const ReactDOMClient = await import('react-dom/client');
-        const ReactDOM = await import('react-dom');
-
-        const providerMod: any = await import(paths.provider);
-        const accountMod: any = await import(paths.accountMenu);
-        const themeMod: any = await import(paths.theme);
-
-        const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const AccountMenuButton = accountMod.AccountMenuButton || accountMod.default;
-        const useTheme = themeMod.useTheme;
-
-        const ThemeReadout: React.FC = () => {
-          const { theme } = useTheme();
-          return React.createElement('div', { id: `${mountId}-theme` }, theme);
-        };
-
-        const config = {
-          nearNetwork: 'testnet',
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
-        };
-
-        const ControlledApp: React.FC = () => {
-          const [theme, setTheme] = React.useState<'light' | 'dark'>('light');
-          return React.createElement(
-            Provider,
-            { config, theme: { theme, setTheme } },
-            React.createElement(ThemeReadout, null),
-            React.createElement(AccountMenuButton, { username: 'alice' }),
-          );
-        };
-
-        const root = ReactDOMClient.createRoot(mount);
-        ReactDOM.flushSync(() => {
-          root.render(React.createElement(ControlledApp, null));
-        });
-      },
-      { paths: IMPORT_PATHS, mountId },
-    );
-
-    const themeReadout = page.locator(`#${mountId}-theme`);
-    await expect(themeReadout).toHaveText('light');
-
-    const trigger = page.locator(`#${mountId} .w3a-user-account-button-trigger`);
-    await trigger.click();
-
-    const recoveryCodesItem = page.locator(
-      `#${mountId} .w3a-dropdown-menu-item:has-text("Recovery Codes")`,
-    );
-    await expect(recoveryCodesItem).toHaveCount(0);
-
-    const toggleItem = page.locator(`#${mountId} .w3a-dropdown-menu-item:has-text("Toggle Theme")`);
-    await expect(toggleItem).toBeVisible();
-    await toggleItem.click();
-
-    await expect(themeReadout).toHaveText('dark');
-  });
 });

@@ -2,30 +2,77 @@
 
 /* Bridge Sonner internals to SDK theme tokens. */
 [data-sonner-toaster][data-theme] {
-  --normal-bg: var(--w3a-colors-surface) !important;
-  --normal-border: var(--w3a-colors-borderPrimary) !important;
-  --normal-text: var(--w3a-colors-textPrimary) !important;
-  --success-text: var(--w3a-colors-textPrimary) !important;
-  --info-text: var(--w3a-colors-textPrimary) !important;
-  --warning-text: var(--w3a-colors-textPrimary) !important;
-  --error-text: var(--w3a-colors-textPrimary) !important;
-  --gray1: color-mix(in srgb, var(--w3a-colors-surface2) 88%, var(--w3a-colors-surface) 12%);
+  --w3a-toast-bg: var(--site-toast-background, var(--w3a-colors-surface));
+  --w3a-toast-border: var(--site-toast-border, var(--w3a-colors-borderPrimary));
+  --w3a-toast-text: var(--site-toast-text-primary, var(--w3a-colors-textPrimary));
+  --w3a-toast-muted: var(--site-toast-text-secondary, var(--w3a-colors-textSecondary));
+  --w3a-toast-link: var(--site-toast-link, var(--w3a-colors-primary));
+  --w3a-toast-icon: var(--site-toast-icon, var(--w3a-colors-textSecondary));
+  --w3a-toast-success: var(--site-toast-success, var(--w3a-colors-success));
+  --w3a-toast-info: var(--site-toast-info, var(--w3a-colors-info, var(--w3a-colors-primary)));
+  --w3a-toast-warning: var(--site-toast-warning, var(--w3a-colors-warning));
+  --w3a-toast-error: var(--site-toast-error, var(--w3a-colors-error));
+  --w3a-toast-close-bg: var(--site-toast-close-bg, var(--w3a-colors-surface2));
+  --w3a-toast-close-hover-bg: var(--site-toast-close-hover-bg, var(--w3a-colors-surface3));
+  --w3a-toast-shadow: var(--site-toast-shadow, var(--w3a-shadows-lg));
+  --normal-bg: var(--w3a-toast-bg) !important;
+  --normal-border: var(--w3a-toast-border) !important;
+  --normal-text: var(--w3a-toast-text) !important;
+  --normal-bg-hover: var(--w3a-toast-close-hover-bg) !important;
+  --normal-border-hover: var(--w3a-toast-border) !important;
+  --success-bg: var(--w3a-toast-bg) !important;
+  --success-border: color-mix(
+    in srgb,
+    var(--w3a-toast-success) 38%,
+    var(--w3a-toast-border) 62%
+  ) !important;
+  --success-text: var(--w3a-toast-text) !important;
+  --info-bg: var(--w3a-toast-bg) !important;
+  --info-border: color-mix(
+    in srgb,
+    var(--w3a-toast-info) 38%,
+    var(--w3a-toast-border) 62%
+  ) !important;
+  --info-text: var(--w3a-toast-text) !important;
+  --warning-bg: var(--w3a-toast-bg) !important;
+  --warning-border: color-mix(
+    in srgb,
+    var(--w3a-toast-warning) 38%,
+    var(--w3a-toast-border) 62%
+  ) !important;
+  --warning-text: var(--w3a-toast-text) !important;
+  --error-bg: var(--w3a-toast-bg) !important;
+  --error-border: color-mix(
+    in srgb,
+    var(--w3a-toast-error) 38%,
+    var(--w3a-toast-border) 62%
+  ) !important;
+  --error-text: var(--w3a-toast-text) !important;
+  --gray1: var(--w3a-toast-close-bg);
+  --gray2: var(--w3a-toast-close-hover-bg);
+  --gray4: var(--w3a-toast-border);
+  --gray5: color-mix(in srgb, var(--w3a-toast-border) 76%, var(--w3a-toast-text) 24%);
+  --gray11: var(--w3a-toast-muted);
+  --gray12: var(--w3a-toast-text);
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast][data-styled='true'] {
-  color: var(--w3a-colors-textPrimary) !important;
+  background: var(--w3a-toast-bg) !important;
+  border-color: var(--w3a-toast-border) !important;
+  color: var(--w3a-toast-text) !important;
+  box-shadow: var(--w3a-toast-shadow) !important;
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast] [data-title] {
-  color: var(--w3a-colors-textPrimary) !important;
+  color: var(--w3a-toast-text) !important;
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast] [data-description] {
-  color: var(--w3a-colors-textSecondary) !important;
+  color: var(--w3a-toast-muted) !important;
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast] [data-description] a {
-  color: var(--w3a-colors-primary) !important;
+  color: var(--w3a-toast-link) !important;
   text-decoration: underline;
 }
 
@@ -34,12 +81,12 @@
 }
 
 .w3a-toast {
-  background: var(--w3a-colors-surface);
-  color: var(--w3a-colors-textPrimary);
-  border: 1px solid var(--w3a-colors-borderPrimary);
+  background: var(--w3a-toast-bg, var(--w3a-colors-surface));
+  color: var(--w3a-toast-text, var(--w3a-colors-textPrimary));
+  border: 1px solid var(--w3a-toast-border, var(--w3a-colors-borderPrimary));
   border-radius: 12px;
   padding: 12px 14px;
-  box-shadow: var(--w3a-shadows-sm);
+  box-shadow: var(--w3a-toast-shadow, var(--w3a-shadows-sm));
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -51,16 +98,16 @@
   place-items: center;
   width: 20px;
   height: 20px;
-  color: var(--w3a-colors-textSecondary);
+  color: var(--w3a-toast-icon, var(--w3a-colors-textSecondary));
 }
 
 .w3a-toast-title {
   font-weight: 600;
-  color: var(--w3a-colors-textPrimary);
+  color: var(--w3a-toast-text, var(--w3a-colors-textPrimary));
 }
 
 .w3a-toast-desc {
-  color: var(--w3a-colors-textSecondary);
+  color: var(--w3a-toast-muted, var(--w3a-colors-textSecondary));
   margin-top: 2px;
 }
 
@@ -73,16 +120,20 @@
   border-radius: 6px;
   display: grid;
   place-items: center;
-  color: var(--w3a-colors-textSecondary);
+  color: var(--w3a-toast-muted, var(--w3a-colors-textSecondary));
   transition: background-color var(--w3a-transitions-fast, 150ms) ease;
 }
 .w3a-toast-close:hover {
-  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 85%);
+  background: color-mix(
+    in srgb,
+    var(--w3a-toast-muted, var(--w3a-colors-textSecondary)),
+    transparent 85%
+  );
 }
 
 .w3a-toast-action {
-  background: var(--w3a-colors-primary);
-  color: #fff;
+  background: var(--w3a-toast-link, var(--w3a-colors-primary));
+  color: var(--w3a-colors-textButton, #fff);
   border: none;
   border-radius: 8px;
   padding: 6px 10px;
@@ -91,18 +142,50 @@
 
 .w3a-toast-cancel {
   background: transparent;
-  color: var(--w3a-colors-textSecondary);
-  border: 1px solid var(--w3a-colors-borderPrimary);
+  color: var(--w3a-toast-muted, var(--w3a-colors-textSecondary));
+  border: 1px solid var(--w3a-toast-border, var(--w3a-colors-borderPrimary));
   border-radius: 8px;
   padding: 6px 10px;
 }
 
 /* Success / error accents */
 .w3a-toast[data-type='success'] {
-  border-color: color-mix(in srgb, var(--w3a-colors-success), transparent 65%);
+  border-color: color-mix(
+    in srgb,
+    var(--w3a-toast-success, var(--w3a-colors-success)),
+    transparent 65%
+  );
 }
 .w3a-toast[data-type='error'] {
-  border-color: color-mix(in srgb, var(--w3a-colors-error), transparent 65%);
+  border-color: color-mix(
+    in srgb,
+    var(--w3a-toast-error, var(--w3a-colors-error)),
+    transparent 65%
+  );
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast] [data-icon] {
+  color: var(--w3a-toast-icon) !important;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast][data-type='success'] [data-icon] {
+  color: var(--w3a-toast-success) !important;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast][data-type='info'] [data-icon] {
+  color: var(--w3a-toast-info) !important;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast][data-type='warning'] [data-icon] {
+  color: var(--w3a-toast-warning) !important;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast][data-type='error'] [data-icon] {
+  color: var(--w3a-toast-error) !important;
+}
+
+[data-sonner-toaster][data-theme] .sonner-loading-bar {
+  background: var(--w3a-toast-link) !important;
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast] [data-close-button] {
@@ -120,19 +203,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--gray1) !important;
-  color: var(--w3a-colors-textSecondary) !important;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 78%, transparent) !important;
+  background: var(--w3a-toast-close-bg) !important;
+  color: var(--w3a-toast-muted) !important;
+  border: 1px solid color-mix(in srgb, var(--w3a-toast-border) 78%, transparent) !important;
   border-radius: 999px;
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast] [data-close-button]:hover {
-  background: color-mix(
-    in srgb,
-    var(--w3a-colors-surface3) 76%,
-    var(--w3a-colors-primary) 24%
-  ) !important;
-  color: var(--w3a-colors-textPrimary) !important;
+  background: var(--w3a-toast-close-hover-bg) !important;
+  color: var(--w3a-toast-text) !important;
 }
 
 /* Normalize buttons inside Sonner toast list */

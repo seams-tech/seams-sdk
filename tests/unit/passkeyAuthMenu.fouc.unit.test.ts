@@ -2177,6 +2177,129 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe(1);
   });
 
+  test('Passkey registration cancellation states do not render inline errors', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-registration-cancellation-silent-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+        const registrationCancelledMessage =
+          "Registration was cancelled. Please try again when you're ready to set up your passkey.";
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('alice');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              passkeyCredentialExists: false,
+              inputUsername,
+              targetWalletId: inputUsername,
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            { defaultMode: AuthMenuMode.Register },
+            runtime,
+          );
+
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'div',
+              { id: 'registration-cancellation-waiting' },
+              controller.waiting ? `waiting:${controller.waitingReason}` : 'not-waiting',
+            ),
+            controller.methodError
+              ? React.createElement('div', { role: 'alert' }, controller.methodError)
+              : null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'cancelled',
+                    activationId: 'activation-user-cancelled',
+                    reason: 'user_cancelled',
+                  }),
+              },
+              'Cancel activation',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'completed',
+                    activationId: 'activation-completed-cancelled',
+                    result: {
+                      success: false,
+                      error: registrationCancelledMessage,
+                    },
+                  }),
+              },
+              'Complete cancellation result',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'failed',
+                    activationId: 'activation-failed-cancelled',
+                    error: registrationCancelledMessage,
+                  }),
+              },
+              'Fail cancellation result',
+            ),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-registration-cancellation-silent-mount');
+    await mount.getByRole('button', { name: 'Cancel activation' }).click();
+    await expect(mount.getByRole('alert')).toHaveCount(0);
+    await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
+
+    await mount.getByRole('button', { name: 'Complete cancellation result' }).click();
+    await expect(mount.getByRole('alert')).toHaveCount(0);
+    await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
+
+    await mount.getByRole('button', { name: 'Fail cancellation result' }).click();
+    await expect(mount.getByRole('alert')).toHaveCount(0);
+    await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
+  });
+
   test('Register segment clears the full account input for new account creation', async ({
     page,
   }) => {

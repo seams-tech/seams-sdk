@@ -1,6 +1,7 @@
 import type { ToggleColorProps } from './Toggle';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/signingEngine/uiConfirm/ui/confirm-ui-types';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 
 export interface ProfileDimensions {
   width: number;
@@ -18,7 +19,6 @@ export const PROFILE_MENU_ITEM_IDS = {
   RECOVERY_CODES: 'recovery-codes',
   SCAN_LINK_DEVICE: 'scan-link-device',
   LINKED_DEVICES: 'linked-devices',
-  TOGGLE_THEME: 'toggle-theme',
   TRANSACTION_SETTINGS: 'transaction-settings',
 } as const;
 
@@ -96,12 +96,11 @@ export interface ProfileDropdownProps {
   onClose: () => void;
   toggleColors?: ToggleColorProps;
   theme?: ThemeName;
-  currentConfirmConfig?: any;
+  currentConfirmConfig?: ConfirmationConfig | null;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
   onToggleShowDetails?: () => void;
   onToggleSkipClick?: () => void;
   onSetDelay?: (delay: number) => void;
-  onToggleTheme?: () => void;
   transactionSettingsOpen?: boolean;
   menuItemsRef: React.MutableRefObject<(HTMLElement | null)[]>;
   // Optional ARIA linkage
@@ -131,12 +130,11 @@ export interface ProfileRelayerToggleSectionProps {
 }
 
 export interface TransactionSettingsSectionProps {
-  currentConfirmConfig: any;
+  currentConfirmConfig: ConfirmationConfig;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
   onToggleShowDetails?: () => void;
   onToggleSkipClick: () => void;
   onSetDelay: (delay: number) => void;
-  onToggleTheme?: () => void;
   className?: string;
   style?: React.CSSProperties;
   isOpen?: boolean;

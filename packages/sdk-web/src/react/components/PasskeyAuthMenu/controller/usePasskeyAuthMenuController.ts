@@ -30,6 +30,7 @@ import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
 import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
+import { isUserCancellationError } from '@shared/utils/errors';
 import {
   createReadableWalletId,
   type RegisterWalletInput,
@@ -448,6 +449,22 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function getRegistrationCancellationErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error;
+  return getErrorMessage(error, '');
+}
+
+function isRegistrationCancellationError(error: unknown): boolean {
+  if (isUserCancellationError(error)) return true;
+  const lower = getRegistrationCancellationErrorMessage(error).toLowerCase();
+  return (
+    lower.includes('registration was cancelled') ||
+    lower.includes('registration was canceled') ||
+    lower.includes('passkey registration was cancelled') ||
+    lower.includes('passkey registration was canceled')
+  );
+}
+
 function assertNeverRegistrationActivationSurfaceState(state: never): never {
   throw new Error(`Unhandled registration activation surface state: ${JSON.stringify(state)}`);
 }
@@ -864,6 +881,7 @@ export function usePasskeyAuthMenuController(
           return;
         }
         onResetToStart();
+        if (isRegistrationCancellationError(error)) return;
       }
     })();
   }, [
@@ -1412,9 +1430,13 @@ export function usePasskeyAuthMenuController(
         case 'completed': {
           const result = state.result;
           if (!result.success) {
-            setMethodError(result.error || 'Wallet registration failed.');
             setWaiting(false);
             setWaitingReason(null);
+            if (isRegistrationCancellationError(result.error)) {
+              setMethodError('');
+              return;
+            }
+            setMethodError(result.error || 'Wallet registration failed.');
             return;
           }
           const walletId = String(result.walletId || '').trim();
@@ -1449,12 +1471,16 @@ export function usePasskeyAuthMenuController(
             setMethodError('Passkey registration expired. Try again.');
             return;
           }
-          setMethodError('Passkey registration was cancelled.');
+          setMethodError('');
           return;
         case 'failed':
-          setMethodError(state.error || 'Wallet registration failed.');
           setWaiting(false);
           setWaitingReason(null);
+          if (isRegistrationCancellationError(state.error)) {
+            setMethodError('');
+            return;
+          }
+          setMethodError(state.error || 'Wallet registration failed.');
           return;
         default:
           return assertNeverRegistrationActivationSurfaceState(state);
