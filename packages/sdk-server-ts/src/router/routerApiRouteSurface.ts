@@ -1,4 +1,3 @@
-import { ensureLeadingSlash } from '@shared/utils/validation';
 import type { RouterApiOptions } from './routerApi';
 import {
   createRouterApiRouteDefinitions,
@@ -13,6 +12,7 @@ import {
 import { resolveRouterApiModuleRouteExtensions } from './modules';
 
 const ROUTER_API_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.routerApiRouteSurface');
+const SIGNED_DELEGATE_ROUTE_ID = 'signed_delegate';
 
 export interface RouterApiRouteSurface {
   mePath: string;
@@ -32,10 +32,6 @@ export function resolveRouterApiRouteDefinitionOptions(
   opts: RouterApiOptions,
 ): RouterApiRouteDefinitionOptions {
   const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
-  let signedDelegatePath = '';
-  if (opts.signedDelegate) {
-    signedDelegatePath = ensureLeadingSlash(opts.signedDelegate.route) || '/signed-delegate';
-  }
   return {
     enableHealthz: Boolean(opts.healthz),
     enableEmailRecoveryPrepare: isEmailRecoveryPrepareRoutesEnabled(opts),
@@ -44,8 +40,13 @@ export function resolveRouterApiRouteDefinitionOptions(
     enableReadyz: Boolean(opts.readyz),
     signingSessionSealBasePath: opts.signingSessionSeal?.basePath,
     sessionStatePath: mePath,
-    signedDelegatePath: signedDelegatePath || undefined,
   };
+}
+
+function findSignedDelegatePath(routeDefinitions: readonly RouteDefinition[]): string {
+  return (
+    routeDefinitions.find((route) => route.id === SIGNED_DELEGATE_ROUTE_ID)?.path || ''
+  );
 }
 
 export function resolveRouterApiRouteSurface(
@@ -53,10 +54,6 @@ export function resolveRouterApiRouteSurface(
   input: { transport?: RouterApiRouteExtensionTransport } = {},
 ): RouterApiRouteSurface {
   const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
-  let signedDelegatePath = '';
-  if (opts.signedDelegate) {
-    signedDelegatePath = ensureLeadingSlash(opts.signedDelegate.route) || '/signed-delegate';
-  }
   const transport = input.transport || 'cloudflare';
   const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
   const routeDefinitions = [
@@ -67,7 +64,7 @@ export function resolveRouterApiRouteSurface(
   return {
     mePath,
     routeDefinitions: Object.freeze(routeDefinitions),
-    signedDelegatePath,
+    signedDelegatePath: findSignedDelegatePath(routeDefinitions),
   };
 }
 

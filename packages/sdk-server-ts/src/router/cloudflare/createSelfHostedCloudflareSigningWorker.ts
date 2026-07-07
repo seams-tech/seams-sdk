@@ -367,7 +367,6 @@ function createSelfHostedContext(input: {
     logger: input.logger,
     mePath: '/me',
     routeDefinitions: [],
-    signedDelegatePath: '/signed-delegate',
   };
 }
 

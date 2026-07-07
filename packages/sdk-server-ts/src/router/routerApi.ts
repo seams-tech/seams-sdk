@@ -20,11 +20,8 @@ import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import type { ConsoleWebhookService } from '../console/webhooks';
-import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../console/observability';
-import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
-import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { SponsorshipSpendPricingService } from '../console/sponsorship/spendCaps';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
@@ -42,10 +39,6 @@ import type {
   RouterApiPublishableKeyAuthAdapter,
   RouterApiUsageMeterAdapter,
 } from './apiCredentialPorts';
-import type {
-  ExecuteSignedDelegateRequest,
-  ExecuteSignedDelegateResult,
-} from '../delegateAction';
 import type {
   FinalizeEmailRecoveryEd25519Request,
   PrepareEmailRecoveryRequest,
@@ -204,11 +197,6 @@ export interface RouterApiWebhookOptions {
    * Claim keys checked in order when deriving orgId from session claims.
    */
   orgIdClaimKeys?: string[];
-}
-
-export interface RouterApiSignedDelegateAuthService {
-  executeSignedDelegate(input: ExecuteSignedDelegateRequest): Promise<ExecuteSignedDelegateResult>;
-  getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
 }
 
 export type RouterApiEmailRecoveryResult =
@@ -430,18 +418,6 @@ export interface RouterApiOptions {
    * Pass raw strings; the router normalizes/merges internally.
    */
   corsOrigins?: Array<string | undefined>;
-  /**
-   * Optional route for submitting NEP-461 SignedDelegate meta-transactions.
-   * - When omitted: route is not mounted.
-   * - When set: route is mounted at `route`.
-   */
-  signedDelegate?: {
-    route: string;
-    authService: RouterApiSignedDelegateAuthService;
-    billing?: ConsoleBillingService | null;
-    ledger?: ConsoleSponsoredCallService | null;
-    runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
-  };
   sponsorship?: {
     spendCaps?: ConsoleSponsorshipSpendCapService | null;
     pricing?: SponsorshipSpendPricingService | null;

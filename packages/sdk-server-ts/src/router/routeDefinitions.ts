@@ -60,7 +60,6 @@ export interface RouterApiRouteDefinitionOptions {
   enableReadyz?: boolean;
   signingSessionSealBasePath?: string;
   sessionStatePath?: string;
-  signedDelegatePath?: string;
 }
 
 const CONSOLE_CONFIG_MUTATION_ROLES: NonNullable<
@@ -205,14 +204,6 @@ const ROUTER_API_RECOVER_EMAIL_SERVICES = [
   'recovery',
   'emailRecoveryExecution',
 ] as const satisfies readonly RouteServiceKey[];
-const ROUTER_API_SIGNED_DELEGATE_SERVICES = [
-  'signedDelegateAuth',
-  'publishableKeyAuth',
-  'billing',
-  'runtimeSnapshots',
-  'sponsoredCalls',
-] as const satisfies readonly RouteServiceKey[];
-
 function normalizeAliases(
   path: string,
   aliases: readonly string[] | undefined,
@@ -1416,7 +1407,6 @@ export function createRouterApiRouteDefinitions(
   const sessionStatePath = String(options.sessionStatePath || '').trim() || '/session/state';
   const sessionStateAliases =
     sessionStatePath === '/session/state' ? undefined : ['/session/state'];
-  const signedDelegatePath = String(options.signedDelegatePath || '').trim();
   const signingSessionSealBasePath = resolveSigningSessionSealBasePath(
     options.signingSessionSealBasePath,
   );
@@ -2190,25 +2180,6 @@ export function createRouterApiRouteDefinitions(
         buildSigningSessionSealRemovePath(signingSessionSealBasePath),
         'Remove signing session server seal',
         ['signingSessionSeal', 'session'],
-      ),
-    );
-  }
-
-  if (signedDelegatePath) {
-    definitions.push(
-      apiCredentialRoute(
-        'signed_delegate',
-        'POST',
-        signedDelegatePath,
-        'Execute signed NEAR delegate',
-        {
-          plane: 'api_credentials',
-          credentials: ['publishable_key'],
-          environmentBinding: 'required',
-          originBinding: 'required',
-        },
-        { kind: 'gas', ledger: 'near_delegate' },
-        ROUTER_API_SIGNED_DELEGATE_SERVICES,
       ),
     );
   }

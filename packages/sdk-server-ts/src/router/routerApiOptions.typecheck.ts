@@ -2,8 +2,9 @@ import type {
   RouterApiEmailRecoveryAuthService,
   RouterApiEmailRecoveryExecutionService,
   RouterApiOptions,
-  RouterApiSignedDelegateAuthService,
 } from './routerApi';
+import type { ConsoleRouterApiSignedDelegateRouteOptions } from '../console/router/routeExtensions';
+import type { SignedDelegateRouterApiAuthService } from '../console/router/routerApiSignedDelegate';
 import type {
   CreateSigningSessionSealOptionsInput,
   SigningSessionSealService,
@@ -11,7 +12,7 @@ import type {
 
 declare const emailRecoveryAuthService: RouterApiEmailRecoveryAuthService;
 declare const emailRecoveryExecutionService: RouterApiEmailRecoveryExecutionService;
-declare const signedDelegateAuthService: RouterApiSignedDelegateAuthService;
+declare const signedDelegateAuthService: SignedDelegateRouterApiAuthService;
 declare const signingSessionSealService: SigningSessionSealService;
 
 const configuredEmailRecovery: RouterApiOptions = {
@@ -29,11 +30,18 @@ const emailRecoveryPrepareOnly: RouterApiOptions = {
   },
 };
 
-const signedDelegate: RouterApiOptions = {
-  signedDelegate: {
-    route: '/signed-delegate',
-    authService: signedDelegateAuthService,
-  },
+const signedDelegateRoute: ConsoleRouterApiSignedDelegateRouteOptions = {
+  route: '/signed-delegate',
+  authService: signedDelegateAuthService,
+  billing: null,
+  ledger: null,
+  runtimeSnapshots: null,
+  publishableKeyAuth: null,
+  observabilityIngestion: null,
+  prepaidReservations: null,
+  pricing: null,
+  spendCaps: null,
+  webhooks: null,
 };
 
 const signingSessionSeal: RouterApiOptions = {
@@ -64,9 +72,18 @@ const prepareOnlyEmailRecoveryWithExecution: RouterApiOptions = {
   },
 };
 
-const signedDelegateWithoutAuthService: RouterApiOptions = {
-  // @ts-expect-error Signed delegate route capability requires its auth service.
-  signedDelegate: { route: '/signed-delegate' },
+// @ts-expect-error Signed delegate extension route capability requires its auth service.
+const signedDelegateRouteWithoutAuthService: ConsoleRouterApiSignedDelegateRouteOptions = {
+  route: '/signed-delegate',
+  billing: null,
+  ledger: null,
+  runtimeSnapshots: null,
+  publishableKeyAuth: null,
+  observabilityIngestion: null,
+  prepaidReservations: null,
+  pricing: null,
+  spendCaps: null,
+  webhooks: null,
 };
 
 const oldSigningSessionSealFlag: RouterApiOptions = {
@@ -88,12 +105,12 @@ const oldSigningSessionSealOptionsFlag: CreateSigningSessionSealOptionsInput = {
 
 void configuredEmailRecovery;
 void emailRecoveryPrepareOnly;
-void signedDelegate;
+void signedDelegateRoute;
 void signingSessionSeal;
 void oldEmailRecoveryFlag;
 void configuredEmailRecoveryWithoutExecution;
 void prepareOnlyEmailRecoveryWithExecution;
-void signedDelegateWithoutAuthService;
+void signedDelegateRouteWithoutAuthService;
 void oldSigningSessionSealFlag;
 void oldSigningSessionSealOptionsFlag;
 

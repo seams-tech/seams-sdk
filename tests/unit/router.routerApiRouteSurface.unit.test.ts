@@ -131,6 +131,44 @@ function makeSponsoredEvmRouteExtensions(route: string): readonly RouterApiRoute
   });
 }
 
+function makeSignedDelegateRouteOptions(route: string, authService: unknown) {
+  return {
+    route,
+    authService: authService as any,
+    billing: {} as any,
+    ledger: createInMemoryConsoleSponsoredCallService(),
+    runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
+    publishableKeyAuth: makeTestPublishableKeyAuth(),
+    observabilityIngestion: null,
+    prepaidReservations: null,
+    pricing: null,
+    spendCaps: null,
+    webhooks: null,
+  };
+}
+
+function makeManagedSponsorshipRouteExtensions(input: {
+  readonly signedDelegateRoute: string;
+  readonly sponsoredEvmRoute: string;
+  readonly authService: unknown;
+}): readonly RouterApiRouteExtension[] {
+  return createConsoleRouterApiRouteExtensions({
+    signedDelegate: makeSignedDelegateRouteOptions(input.signedDelegateRoute, input.authService),
+    sponsoredEvmCall: {
+      route: input.sponsoredEvmRoute,
+      publishableKeyAuth: makeTestPublishableKeyAuth(),
+      billing: {} as any,
+      ledger: createInMemoryConsoleSponsoredCallService(),
+      runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
+      config: makeSponsoredEvmExecutorConfig(),
+      observabilityIngestion: null,
+      prepaidReservations: null,
+      pricing: null,
+      spendCaps: null,
+    },
+  });
+}
+
 function canonicalRouteKeys(
   input: { method: string; path: string; aliases?: readonly string[] }[],
 ): string[] {
@@ -293,8 +331,11 @@ test.describe('Router API route surface wiring', () => {
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
-      signedDelegate: { route: '/delegate/submit', authService: service },
-      routeExtensions: makeSponsoredEvmRouteExtensions('/gas/relay'),
+      routeExtensions: makeManagedSponsorshipRouteExtensions({
+        signedDelegateRoute: '/delegate/submit',
+        sponsoredEvmRoute: '/gas/relay',
+        authService: service,
+      }),
     };
 
     const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
@@ -371,8 +412,11 @@ test.describe('Router API route surface wiring', () => {
       },
       readyz: true,
       sessionRoutes: { state: '/session/me' },
-      signedDelegate: { route: '/delegate/submit', authService: service },
-      routeExtensions: makeSponsoredEvmRouteExtensions('/gas/relay'),
+      routeExtensions: makeManagedSponsorshipRouteExtensions({
+        signedDelegateRoute: '/delegate/submit',
+        sponsoredEvmRoute: '/gas/relay',
+        authService: service,
+      }),
     };
 
     const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
@@ -393,8 +437,11 @@ test.describe('Router API route surface wiring', () => {
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
-      signedDelegate: { route: '/delegate/submit', authService: service },
-      routeExtensions: makeSponsoredEvmRouteExtensions('/gas/relay'),
+      routeExtensions: makeManagedSponsorshipRouteExtensions({
+        signedDelegateRoute: '/delegate/submit',
+        sponsoredEvmRoute: '/gas/relay',
+        authService: service,
+      }),
     });
     const surface = getRouterApiRouteSurface(handler);
     expect(surface).toBeTruthy();

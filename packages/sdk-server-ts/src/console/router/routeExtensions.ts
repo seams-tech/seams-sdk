@@ -21,6 +21,11 @@ import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../webhooks';
 import type { ConsoleWalletService } from '../wallets/service';
+import { ensureLeadingSlash } from '@shared/utils/validation';
+import {
+  handleRouterApiSignedDelegate,
+  type SignedDelegateRouterApiAuthService,
+} from './routerApiSignedDelegate';
 import { handleRouterApiSponsoredEvmCall } from './routerApiSponsoredEvmCall';
 import {
   handleRouterApiWalletGet,
@@ -29,9 +34,34 @@ import {
 } from './routerApiWallets';
 
 const API_WALLET_DETAIL_PREFIX = '/v1/wallets/';
+const ROUTER_API_SIGNED_DELEGATE_ROUTE_ID = 'signed_delegate';
 const ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID = 'sponsored_evm_call';
+const DEFAULT_SIGNED_DELEGATE_ROUTE = '/signed-delegate';
 const SPONSORED_EVM_MVP_DISABLED_MESSAGE =
   'EVM gas sponsorship pricing is not configured on this server.';
+const ROUTER_API_SIGNED_DELEGATE_SERVICES = [
+  'signedDelegateAuth',
+  'publishableKeyAuth',
+  'billing',
+  'runtimeSnapshots',
+  'sponsoredCalls',
+] as const;
+
+export interface ConsoleRouterApiSignedDelegateRouteOptions {
+  readonly route: string;
+  readonly authService: SignedDelegateRouterApiAuthService;
+  readonly billing: ConsoleBillingService | null;
+  readonly ledger: ConsoleSponsoredCallService | null;
+  readonly runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
+  readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter | null;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService | null;
+  readonly prepaidReservations: ConsoleBillingPrepaidReservationService | null;
+  readonly pricing: SponsorshipSpendPricingService | null;
+  readonly spendCaps: ConsoleSponsorshipSpendCapService | null;
+  readonly webhooks: ConsoleWebhookService | null;
+  readonly webhookActorUserId?: string;
+  readonly webhookRoles?: string[];
+}
 
 export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
   readonly route?: string;
@@ -53,6 +83,7 @@ export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
 export interface ConsoleRouterApiRouteExtensionsOptions {
   readonly apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   readonly bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
+  readonly signedDelegate?: ConsoleRouterApiSignedDelegateRouteOptions | null;
   readonly sponsoredEvmCall?: ConsoleRouterApiSponsoredEvmCallRouteOptions | null;
   readonly wallets?: ConsoleWalletService | null;
 }
@@ -138,6 +169,24 @@ function apiWalletGetRoute(): RouteDefinition {
   };
 }
 
+function signedDelegateRoute(routePath: string): RouteDefinition {
+  return {
+    id: ROUTER_API_SIGNED_DELEGATE_ROUTE_ID,
+    surface: 'relay',
+    method: 'POST',
+    path: ensureLeadingSlash(routePath) || DEFAULT_SIGNED_DELEGATE_ROUTE,
+    summary: 'Execute signed NEAR delegate',
+    auth: {
+      plane: 'api_credentials',
+      credentials: ['publishable_key'],
+      environmentBinding: 'required',
+      originBinding: 'required',
+    },
+    metering: { kind: 'gas', ledger: 'near_delegate' },
+    requiredServices: ROUTER_API_SIGNED_DELEGATE_SERVICES,
+  };
+}
+
 function sponsoredEvmCallRoute(routePath?: string): RouteDefinition {
   return {
     id: ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID,
@@ -165,6 +214,9 @@ function consoleRouterApiRoutes(
   }
   if (options.apiKeyAuth && options.wallets) {
     routes.push(apiWalletListRoute(), apiWalletSearchRoute(), apiWalletGetRoute());
+  }
+  if (options.signedDelegate) {
+    routes.push(signedDelegateRoute(options.signedDelegate.route));
   }
   if (options.sponsoredEvmCall) {
     routes.push(sponsoredEvmCallRoute(options.sponsoredEvmCall.route));
@@ -230,6 +282,37 @@ async function handleConsoleApiWalletRoute(input: {
   const response = await handleRouterApiWalletGet({
     ...common,
     walletId: input.walletId,
+  });
+  return toFetchRouteResponse(response);
+}
+
+async function handleConsoleSignedDelegateRoute(input: {
+  readonly request: Request;
+  readonly route: RouteDefinition;
+  readonly logger: NormalizedRouterLogger;
+  readonly signedDelegate: ConsoleRouterApiSignedDelegateRouteOptions;
+}): Promise<Response> {
+  const options = input.signedDelegate;
+  const response = await handleRouterApiSignedDelegate({
+    body: await readJson(input.request),
+    headers: routeHeaders(input.request.headers),
+    logger: input.logger,
+    origin: routeOrigin(input.request.headers),
+    route: input.route,
+    services: {
+      signedDelegateAuth: options.authService,
+      billing: options.billing,
+      observabilityIngestion: options.observabilityIngestion,
+      prepaidReservations: options.prepaidReservations,
+      pricing: options.pricing,
+      publishableKeyAuth: options.publishableKeyAuth,
+      runtimeSnapshots: options.runtimeSnapshots,
+      spendCaps: options.spendCaps,
+      sponsoredCalls: options.ledger,
+      webhooks: options.webhooks,
+      webhookActorUserId: options.webhookActorUserId,
+      webhookRoles: options.webhookRoles,
+    },
   });
   return toFetchRouteResponse(response);
 }
@@ -320,6 +403,18 @@ export function createConsoleRouterApiRouteExtensions(
             route: input.route,
             logger,
             sponsoredEvmCall: options.sponsoredEvmCall,
+          });
+        }
+
+        if (
+          input.route.id === ROUTER_API_SIGNED_DELEGATE_ROUTE_ID &&
+          options.signedDelegate
+        ) {
+          return await handleConsoleSignedDelegateRoute({
+            request: input.request,
+            route: input.route,
+            logger,
+            signedDelegate: options.signedDelegate,
           });
         }
 

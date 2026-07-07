@@ -37,7 +37,6 @@ import {
   handleWalletUnlockChallenge,
   handleWalletUnlockVerify,
 } from './routes/sessions';
-import { handleSignedDelegate } from './routes/signedDelegate';
 import { handleSyncAccount } from './routes/syncAccount';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
 import { handleThresholdEcdsa } from './routes/thresholdEcdsa';
@@ -76,7 +75,6 @@ export interface CloudflareRouterApiContext {
 
   mePath: string;
   routeDefinitions: readonly RouteDefinition[];
-  signedDelegatePath: string;
 }
 
 export function createCloudflareRouter(
@@ -102,7 +100,7 @@ export function createCloudflareRouter(
 
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRouterApiRouteSurface(effectiveOpts, { transport: 'cloudflare' });
-  const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
+  const { mePath, routeDefinitions } = routeSurface;
   const emailRecoveryPrepareRoutesEnabled = isEmailRecoveryPrepareRoutesEnabled(effectiveOpts);
   const recoverEmailRouteEnabled = isRecoverEmailRouteEnabled(effectiveOpts);
   const cloudflareRouteExtensions = getRouterApiRouteExtensionsForTransport(
@@ -113,7 +111,6 @@ export function createCloudflareRouter(
   const handlers: Array<(c: CloudflareRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleWalletRegistration,
-    handleSignedDelegate,
     handleAuth,
     handleSyncAccount,
     ...(emailRecoveryPrepareRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
@@ -202,7 +199,6 @@ export function createCloudflareRouter(
       logger,
       mePath,
       routeDefinitions,
-      signedDelegatePath,
     };
 
     const ctx: CloudflareRouterApiContext = {

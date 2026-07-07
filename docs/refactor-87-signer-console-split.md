@@ -62,10 +62,10 @@ Concrete blockers, each owned by a phase below:
 | # | Coupling | Location |
 |---|----------|----------|
 | B1 | Resolved July 8, 2026: sponsorship now lives under `src/console/sponsorship`, so its console imports are intra-console | `console/sponsorship/*` |
-| B2 | Partially resolved July 8, 2026: managed bootstrap grants, API-wallet reads, and sponsored EVM calls now mount through a console-owned route extension; signed-delegate remains statically wired | `router/cloudflare/createCloudflareRouter.ts`, `console/router/routeExtensions.ts` |
+| B2 | Resolved July 8, 2026: managed bootstrap grants, API-wallet reads, sponsored EVM calls, and signed-delegate execution now mount through console-owned route extensions | `console/router/routeExtensions.ts` |
 | B3 | Resolved July 8, 2026: signer-router auth files now depend on signer-owned credential/bootstrap ports; console-backed adapters live under `src/console/router` | `router/apiCredentialPorts.ts`, `console/router/routerApiKeyAuth.ts`, `console/router/bootstrapGrantBroker.ts`, `console/router/bootstrapTokenVerifier.ts` |
-| B4 | Partially resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules moved to `console/router`; signed-delegate route ownership still remains in core until its route extraction lands | `router/cloudflare/routes/signedDelegate.ts`, `router/routerApi.ts`, `console/router/routerApiSignedDelegate.ts` |
-| B5 | Partially resolved July 8, 2026: API credential auth, bootstrap-token verification, managed-mode environment resolution, managed bootstrap grants, API-wallet reads, and sponsored EVM calls now use signer-owned ports or console route extensions; signed-delegate sponsorship/webhook console service refs remain for Phase 3 route-surface extraction | `router/routerApi.ts`, sponsorship route/runtime files |
+| B4 | Resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules live under `console/router`; signed-delegate route ownership moved to the console route extension | `console/router/routeExtensions.ts`, `console/router/routerApiSignedDelegate.ts` |
+| B5 | Partially resolved July 8, 2026: API credential auth, bootstrap-token verification, managed-mode environment resolution, managed bootstrap grants, API-wallet reads, sponsored EVM calls, and signed-delegate execution now use signer-owned ports or console route extensions; broader `RouterApiOptions` console refs remain for the Phase 2 option split | `router/routerApi.ts` |
 | B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./console/sponsorship`); `package.json` has no signer-only or console-only subpath |
 | B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
 | B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
@@ -159,7 +159,7 @@ console package exports `consoleRouteExtensions(...)` /
     console-owned route helper modules.
   - [x] Move the console-metered signed-delegate implementation module into
     `console/router`.
-  - Move `handleSignedDelegate` route ownership and remaining route/runtime
+  - [x] Move `handleSignedDelegate` route ownership and remaining route/runtime
     helpers into console-owned route extension modules.
   - `handleSignedDelegate`'s signer-only path (delegate action relay without
     console billing) stays in core; metering hooks become an injected
@@ -223,10 +223,9 @@ console package exports `consoleRouteExtensions(...)` /
 
 ## Risks
 
-- The `handleSignedDelegate` split (Phase 3) is the only place where signer
-  and console logic interleave inside one handler; the metering-observer port
-  needs care to keep billing events identical. Mitigate with a
-  before/after billing-event fixture test.
+- Any future signer-only signed-delegate relay needs a narrow observer port so
+  billing events remain identical when console metering is composed in.
+  Mitigate with a before/after billing-event fixture test.
 - Hidden type-only coupling tends to surface late; running `tsc` against a
   console-less workspace (the deletion test) early — even before Phase 6, via
   a scripted temporary exclusion — catches stragglers cheaply.
