@@ -1,5 +1,5 @@
 import { ConfirmationConfig, DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
-import type { IndexedDBEvent, UserPreferences } from '../../indexedDB';
+import type { AccountSignerRecord, IndexedDBEvent, UserPreferences } from '../../indexedDB';
 import { getLastSelectedNearAccount } from '../../accountData/near/accountProjection';
 import type { ProfileLastSelectionPort } from '../../indexedDB/profileAccountProjection';
 import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
@@ -7,6 +7,10 @@ import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
 export type UserPreferencesStorePort = ProfileLastSelectionPort & {
   isDisabled: () => boolean;
   onChange: (callback: (event: IndexedDBEvent) => void) => () => void;
+  listAccountSignersByProfile: (args: {
+    profileId: string;
+    status?: AccountSignerRecord['status'];
+  }) => Promise<AccountSignerRecord[]>;
   getWalletPreferences: (walletId: WalletId) => Promise<Partial<UserPreferences>>;
   updateWalletPreferences: (args: {
     walletId: WalletId;
@@ -17,6 +21,44 @@ export type UserPreferencesStorePort = ProfileLastSelectionPort & {
 export type UserPreferencesManagerDeps = {
   store: UserPreferencesStorePort;
 };
+
+function accountSignerMetadataWalletId(signer: AccountSignerRecord): WalletId | null {
+  const walletId = String(signer.metadata?.walletId || '').trim();
+  if (!walletId) return null;
+  try {
+    return toWalletId(walletId);
+  } catch {
+    return null;
+  }
+}
+
+function uniqueWalletIdsFromAccountSigners(signers: readonly AccountSignerRecord[]): WalletId[] {
+  const walletIds: WalletId[] = [];
+  const seen = new Set<string>();
+  for (const signer of signers) {
+    const walletId = accountSignerMetadataWalletId(signer);
+    if (!walletId) continue;
+    const key = String(walletId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    walletIds.push(walletId);
+  }
+  return walletIds;
+}
+
+async function resolveWalletIdForLastSelectedProfile(args: {
+  store: UserPreferencesStorePort;
+  profileId: string;
+}): Promise<WalletId | null> {
+  const signers = await args.store
+    .listAccountSignersByProfile({
+      profileId: args.profileId,
+      status: 'active',
+    })
+    .catch(() => []);
+  const walletIds = uniqueWalletIdsFromAccountSigners(signers);
+  return walletIds.length === 1 ? walletIds[0]! : null;
+}
 
 export class UserPreferencesManager {
   private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> =
@@ -214,7 +256,15 @@ export class UserPreferencesManager {
       console.debug('[SigningEngine]: No last user found, using default settings');
       return;
     }
-    this.currentWalletId = toWalletId(last.profileId);
+    const walletId = await resolveWalletIdForLastSelectedProfile({
+      store: this.deps.store,
+      profileId: last.profileId,
+    });
+    if (!walletId) {
+      console.debug('[SigningEngine]: Last profile has no wallet-bound signer metadata');
+      return;
+    }
+    this.currentWalletId = walletId;
     await this.loadSettingsForWallet(this.currentWalletId);
   }
 
