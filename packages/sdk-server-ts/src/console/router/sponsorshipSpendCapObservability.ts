@@ -1,14 +1,14 @@
-import type { NormalizedRouterLogger } from './logger';
+import type { NormalizedRouterLogger } from '../../router/logger';
 import type {
   ConsoleSponsoredCallChainFamily,
   ConsoleSponsoredCallExecutorKind,
   ConsoleSponsoredCallIntentKind,
   ConsoleSponsoredCallReceiptStatus,
-} from '../console/sponsoredCalls';
+} from '../sponsoredCalls';
 import type {
   SponsorshipSpendCapReservationHandle,
   SponsorshipSpendCapSettlement,
-} from '../console/sponsorship/spendCaps';
+} from '../sponsorship/spendCaps';
 
 type SponsorshipSpendCapLogBase = {
   logger: NormalizedRouterLogger;

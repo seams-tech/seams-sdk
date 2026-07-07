@@ -40,6 +40,10 @@
 - Burned down the signer-console guard exception for
   `router/routerApiSponsoredEvmCall.ts`; the handler now lives at
   `console/router/routerApiSponsoredEvmCall.ts`.
+- Moved the shared sponsorship execution, billing-event, runtime, and
+  spend-cap observability helpers from `router/` to `console/router/`. The
+  guard no longer treats those helpers as signer-router files; the remaining
+  signed-delegate coupling is now concentrated in `routerApiSignedDelegate.ts`.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
@@ -47,3 +51,4 @@
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/cloudflareD1ConsoleServices.unit.test.ts unit/relayWalletRegistration.boundary.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts relayer/console-d1-adapters.test.ts`

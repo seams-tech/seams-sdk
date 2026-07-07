@@ -45,22 +45,22 @@ import {
   recordSponsoredExecution,
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
-} from '../../router/sponsorshipExecution';
+} from './sponsorshipExecution';
 import {
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
-} from '../../router/sponsorshipBillingEvents';
+} from './sponsorshipBillingEvents';
 import type { RouterApiPublishableKeyAuthAdapter } from '../../router/apiCredentialPorts';
 import {
   buildSponsorshipRoutePolicyFailureResponse,
   resolveSponsorshipReplayOrMatch,
   resolveSponsorshipRuntimeForPublishableKeyRoute,
-} from '../../router/sponsorshipRuntime';
+} from './sponsorshipRuntime';
 import {
   logSponsorshipSpendCapRejected,
   logSponsorshipSpendCapReserved,
   logSponsorshipSpendCapSettled,
-} from '../../router/sponsorshipSpendCapObservability';
+} from './sponsorshipSpendCapObservability';
 import type { HeaderRecord, RouteResponse } from '../../router/routeExecutionContext';
 import type { RouteDefinition } from '../../router/routeDefinitions';
 import type { RouteErrorBody } from '../../router/routeResponses';

@@ -2,19 +2,23 @@ import type {
   ConsoleRuntimeSnapshot,
   ConsoleRuntimeSnapshotContext,
   ConsoleRuntimeSnapshotService,
-} from '../console/runtimeSnapshots';
+} from '../runtimeSnapshots';
 import type {
   ConsoleSponsoredCallContext,
   ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallService,
-} from '../console/sponsoredCalls';
+} from '../sponsoredCalls';
 import type {
   EnforceRoutePolicyResult,
   RoutePolicyResolutionFailure,
-} from './enforceRoutePolicy';
-import type { RoutePrincipal } from './routeAuthPolicy';
-import type { RouteExecutionContext, RouteResponse, RouteServices } from './routeExecutionContext';
-import { routeJson } from './routeResponses';
+} from '../../router/enforceRoutePolicy';
+import type { RoutePrincipal } from '../../router/routeAuthPolicy';
+import type {
+  RouteExecutionContext,
+  RouteResponse,
+  RouteServices,
+} from '../../router/routeExecutionContext';
+import { routeJson } from '../../router/routeResponses';
 
 type PublishableKeyRoutePrincipal = Extract<RoutePrincipal, { kind: 'api_credentials' }> & {
   credentialType: 'publishable_key';

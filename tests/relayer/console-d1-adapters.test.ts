@@ -97,7 +97,7 @@ import {
 import {
   recordSponsoredExecution,
   type RecordSponsoredExecutionInput,
-} from '../../packages/sdk-server-ts/src/router/sponsorshipExecution';
+} from '../../packages/sdk-server-ts/src/console/router/sponsorshipExecution';
 import type {
   SponsorshipSpendPricingEstimateInput,
   SponsorshipSpendPricingFinalizeInput,

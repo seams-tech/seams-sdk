@@ -1,13 +1,13 @@
-import type { ConsoleBillingContext, ConsoleBillingService } from '../console/billing/service';
-import { resolveBillingLiveEnvironmentState } from '../console/billing/readiness';
-import type { BillingLiveEnvironmentState } from '../console/billing/types';
+import type { ConsoleBillingContext, ConsoleBillingService } from '../billing/service';
+import { resolveBillingLiveEnvironmentState } from '../billing/readiness';
+import type { BillingLiveEnvironmentState } from '../billing/types';
 import {
   buildBillingBalanceTransitionObservabilityEvent,
   buildBillingSponsorshipBlockedObservabilityEvent,
-} from '../console/observability/adapters';
-import type { ConsoleObservabilityIngestionService } from '../console/observability/ingestionService';
-import type { ConsoleWebhookService } from '../console/webhooks/service';
-import type { NormalizedRouterLogger } from './logger';
+} from '../observability/adapters';
+import type { ConsoleObservabilityIngestionService } from '../observability/ingestionService';
+import type { ConsoleWebhookService } from '../webhooks/service';
+import type { NormalizedRouterLogger } from '../../router/logger';
 
 export interface SponsorshipBillingBalanceSnapshot {
   creditBalanceMinor: number;

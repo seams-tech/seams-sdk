@@ -46,22 +46,22 @@ import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
 import {
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
-} from './sponsorshipExecution';
+} from '../console/router/sponsorshipExecution';
 import {
   buildSponsorshipRoutePolicyFailureResponse,
   resolveSponsorshipReplayOrMatch,
   resolveSponsorshipRuntimeForPublishableKeyRoute,
-} from './sponsorshipRuntime';
+} from '../console/router/sponsorshipRuntime';
 import {
   logSponsorshipSpendCapRejected,
   logSponsorshipSpendCapReserved,
   logSponsorshipSpendCapSettled,
-} from './sponsorshipSpendCapObservability';
+} from '../console/router/sponsorshipSpendCapObservability';
 import {
   emitSponsorshipBalanceTransitionEvents,
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
-} from './sponsorshipBillingEvents';
+} from '../console/router/sponsorshipBillingEvents';
 import { isPlainObject } from '@shared/utils/validation';
 
 interface SignedDelegateRequestBody {

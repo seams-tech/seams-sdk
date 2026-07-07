@@ -195,7 +195,7 @@ import type { SessionAdapter } from '../routerApi';
 import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,
-} from '../sponsorshipBillingEvents';
+} from '../../console/router/sponsorshipBillingEvents';
 import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
 import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
 import type { RouteDefinition } from '../routeDefinitions';
