@@ -869,11 +869,17 @@ test('Refactor 88 source-script suite name no longer refers to Router API server
     expect(scripts['test:unit:scripts']).toBe('playwright test -c playwright.scripts.config.ts --reporter=line');
     expect(Object.hasOwn(scripts, 'test:unit:router-api-server-scripts')).toBe(false);
 });
-test('Refactor 88 wallet-service e2e header smoke follows local wallet origin', () => {
+test('Refactor 88 wallet-service e2e header smoke stays off SDK plugin headers', () => {
     const source = fs.readFileSync(walletServiceHeadersTestPath, 'utf8');
-    expect(source).toContain("const DEFAULT_LOCAL_WALLET_ORIGIN = 'https://localhost:8443'");
-    expect(source).toContain('resolveExpectedWalletOrigin()');
-    expect(source).toContain('buildPermissionsPolicy(walletOrigin)');
+    expect(source).toContain('app-origin wallet-service path does not emit SDK plugin headers');
+    expect(source).toContain("headers['permissions-policy']");
+    expect(source).toContain("headers['content-security-policy']");
+    expect(source).toContain("headers['cross-origin-opener-policy']");
+    expect(source).toContain("headers['cross-origin-embedder-policy']");
+    expect(source).toContain("headers['cross-origin-resource-policy']");
+    expect(source).not.toContain('buildPermissionsPolicy');
+    expect(source).not.toContain('buildWalletCsp');
+    expect(source).not.toContain('DEFAULT_LOCAL_WALLET_ORIGIN');
     expect(source).not.toContain("'https://wallet.example.localhost'");
 });
 test('Refactor 88 sibling plans name the intended lifecycle pre-merge gate', () => {

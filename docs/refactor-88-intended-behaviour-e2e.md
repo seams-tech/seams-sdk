@@ -1286,7 +1286,7 @@ This phase owns the exhaustive test ledger, not a sampled audit. Every file
 under `tests/unit`, `tests/e2e`, `tests/relayer`, `tests/lit-components`,
 `tests/wallet-iframe`, and `tests/unit/helpers` gets one ledger row (455 files
 at the current sweep: 381 unit/helper files, 13 e2e files, 42 relayer files,
-6 Lit component files, and 13 wallet-iframe files).
+6 Lit component files, and 14 wallet-iframe files).
 The audit table below is that ledger in progress — a file absent from the
 table is *unaudited*, not implicitly kept. This ledger supersedes
 `docs/refactor-53-test-inventory.csv`, which covered only the June
@@ -1445,6 +1445,7 @@ Initial audit:
 | `tests/wallet-iframe/router.computeOverlayIntent.test.ts` | keep | Pure router overlay-intent coverage for activation-required preflight fullscreen behaviour. This is protocol decision coverage, not lifecycle success coverage. |
 | `tests/wallet-iframe/router.registrationActivation.test.ts` | keep | Registration activation iframe protocol coverage. It rejects forged, malformed, and early activation button-state messages and verifies anchored hit-target release when iframe registration starts. |
 | `tests/wallet-iframe/router.signingProgressForwarding.test.ts` | keep | Signing progress forwarding coverage. It verifies v2 EVM threshold signing progress is forwarded to app `onEvent`; intended contracts consume structured events but do not isolate this iframe forwarding boundary. |
+| `tests/wallet-iframe/static-wallet-assets.browser.test.ts` | keep | Static wallet-origin asset browser coverage. It serves `dist/public`, loads the generated wallet-service page, constructs wallet worker modules, and fetches/compiles worker WASM companions outside the lifecycle contract matrix. |
 | `tests/wallet-iframe/preferences.sync.test.ts` | keep | Wallet-host preference synchronization coverage. It verifies confirmation config and theme updates propagate between app origin and wallet iframe, outside the lifecycle contract matrix. |
 | `tests/wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts` | keep | QR-button overlay regression coverage. It ensures disabled Device2 linking does not surface the wallet iframe overlay, a UI boundary outside intended lifecycle success. |
 | `tests/unit/seamsWeb.namespacedSigningSurface.unit.test.ts` | keep | Public API shape guard. It verifies signing methods live under `near`, `tempo`, and `evm` namespaces and do not leak back onto the flat `SeamsWeb` root object. |

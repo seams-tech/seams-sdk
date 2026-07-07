@@ -14,6 +14,9 @@ plugin-free app serving, direct-mode fail-closed behavior, protocol-version
 handshake, package export cleanup, and source/static guards. The 0E config
 surface, full browser matrix, and hosted per-tenant embedding authorization
 remain parked/open as noted below.
+Updated: July 8, 2026 — removed the remaining Vite helper default header/MIME
+paths, added generated static asset authority/header guards, and added a
+browser static-wallet worker/WASM smoke against `dist/public`.
 
 Status: stabilization implementation complete for the checked Phase 1-5a and
 Phase 7 items. Phase 5b and 6b park on Refactor 90; Safari/Firefox WebAuthn
@@ -438,7 +441,7 @@ Tasks:
 - [x] Remove `Cross-Origin-Embedder-Policy`,
       `Cross-Origin-Opener-Policy`, and `Cross-Origin-Resource-Policy` from the
       default `headers.manifest.json`.
-- [ ] If strict cross-origin isolation is still useful for tests, model it as a
+- [x] If strict cross-origin isolation is still useful for tests, model it as a
       separate optional header profile, not the default.
 - [x] Define `wallet-assets.manifest.json` with `route`, `sourceFile`,
       `contentType`, `cachePolicy`, `requiredHeaders`, and `owner`.
@@ -487,10 +490,10 @@ Tasks:
       SDK entry chunks, worker scripts, and CSS from `dist/public`.
 - [x] Ensure WASM workers locate their `.wasm` files by stable relative URLs
       from the worker/static asset location.
-- [ ] Add a build/browser check that loads the generated wallet-service page,
+- [x] Add a build/browser check that loads the generated wallet-service page,
       instantiates every wallet worker, and verifies each worker can load its
       paired WASM from `dist/public`.
-- [ ] Add a build check that rejects generated wallet runtime JS with
+- [x] Add a build check that rejects generated wallet runtime JS with
       app-origin `/sdk/workers/` authority assumptions outside wallet-hosted
       entrypoints.
 - [x] Add a package export smoke that imports:
@@ -506,7 +509,7 @@ Acceptance:
 - [x] The hosted wallet deploy can publish `dist/public` directly.
 - [x] The static tree is a packaging copy of existing build output, with no new
       runtime URL scheme introduced in this phase.
-- [ ] A browser can load worker JS and the worker can load its WASM without a
+- [x] A browser can load worker JS and the worker can load its WASM without a
       Vite plugin.
 
 ### Phase 3: Static Smoke And Repo Dogfood
@@ -604,19 +607,19 @@ Tasks:
 - [x] If any helpers remain, keep them as examples or optional dev utilities
       for Seams-owned wallet-origin development only.
 - [x] Remove build-time `_headers` emission from app Vite plugin usage.
-- [ ] Remove `seamsWasmMime()` if static file serving sets MIME correctly
+- [x] Remove `seamsWasmMime()` if static file serving sets MIME correctly
       through the shared static mount.
-- [ ] Remove default `Cross-Origin-Embedder-Policy` emission from
+- [x] Remove default `Cross-Origin-Embedder-Policy` emission from
       `packages/sdk-web/src/plugins/vite.ts`.
-- [ ] Remove default `Cross-Origin-Opener-Policy` emission from
+- [x] Remove default `Cross-Origin-Opener-Policy` emission from
       `packages/sdk-web/src/plugins/vite.ts`.
-- [ ] Remove default `Cross-Origin-Resource-Policy` emission from
+- [x] Remove default `Cross-Origin-Resource-Policy` emission from
       `packages/sdk-web/src/plugins/vite.ts`.
-- [ ] Remove default `Content-Security-Policy` emission from
+- [x] Remove default `Content-Security-Policy` emission from
       `packages/sdk-web/src/plugins/vite.ts`.
-- [ ] Keep any remaining COOP/COEP/CORP code behind an explicit strict-isolation
+- [x] Keep any remaining COOP/COEP/CORP code behind an explicit strict-isolation
       option, or delete it if no current test/runtime path needs it.
-- [ ] Keep any remaining wallet HTML CSP generation behind an explicit hardening
+- [x] Keep any remaining wallet HTML CSP generation behind an explicit hardening
       option, or delete it if no current deployment path needs it.
 - [x] Remove debug routes from default app usage.
 - [x] Delete virtual `/sdk/wallet-shims.js` and `/sdk/wallet-service.css`
@@ -763,13 +766,13 @@ Tasks:
 - [x] Add a config test proving browser wallet capabilities cannot silently fall
       back to direct app-origin worker mode when `walletOrigin` is omitted.
 - [x] Delete stale docs that recommend broad `seamsWallet()` app integration.
-- [ ] Delete `seamsWasmMime()` if no remaining route needs it.
+- [x] Delete `seamsWasmMime()` if no remaining route needs it.
 - [x] Delete virtual shim/CSS middleware from `packages/sdk-web/src/plugins/vite.ts`
       after static files serve those assets.
 - [x] Delete default debug routes from app examples.
-- [ ] Add a source guard that rejects default COOP/COEP/CORP emission in app or
+- [x] Add a source guard that rejects default COOP/COEP/CORP emission in app or
       wallet static hosting helpers.
-- [ ] Add a source guard that rejects default Content-Security-Policy emission in
+- [x] Add a source guard that rejects default Content-Security-Policy emission in
       app or wallet static hosting helpers.
 - [x] Record every guard added by this phase in the
       [Refactor 89](./refactor-89-clean-source-guards.md) ledger with intake

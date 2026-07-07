@@ -57,7 +57,6 @@ export type DevHeadersOptions = {
   walletOrigin?: string;
   walletServicePath?: string;
   sdkBasePath?: string;
-  devCSP?: 'strict' | 'compatible';
   coepMode?: 'strict' | 'off';
 };
 
@@ -197,11 +196,6 @@ export function seamsWalletService(opts: WalletServiceOptions = {}): VitePlugin 
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store, max-age=0');
           res.setHeader('Pragma', 'no-cache');
-          // Important: allow embedding this wallet HTML into COEP=require-corp apps even
-          // when the wallet itself is not running with COEP enabled.
-          // Without CORP, the iframe can be blocked and remain on an opaque 'null' origin,
-          // causing CONNECT/READY handshake timeouts in the parent.
-          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
           applyCoepCorpIfNeeded(res, coepMode);
           res.end(html);
           return;
@@ -213,33 +207,8 @@ export function seamsWalletService(opts: WalletServiceOptions = {}): VitePlugin 
 }
 
 /**
- * Dev plugin: force the correct `.wasm` MIME type (application/wasm) for any served wasm file.
- * Where it runs: both app and wallet-iframe dev servers.
- */
-export function seamsWasmMime(): VitePlugin {
-  return {
-    name: 'seams:wasm-mime',
-    apply: 'serve',
-    enforce: 'pre',
-    configureServer(server) {
-      server.middlewares.use((req: any, res: any, next: any) => {
-        if (!req.url) return next();
-        const url = req.url.split('?')[0];
-        if (url.endsWith('.wasm')) {
-          res.setHeader('Content-Type', 'application/wasm');
-        }
-        next();
-      });
-    },
-  };
-}
-
-/**
- * Dev plugin: add Permissions-Policy (delegating WebAuthn + clipboard), COOP, optional COEP/CORP, and optional dev CSP.
- * Where it runs: both app and wallet-iframe dev servers.
- * Notes:
- * - Uses Structured Header format for Permissions-Policy (double-quoted origins).
- * - Wallet dev CSP can be toggled strict/compatible via opts.devCSP.
+ * Dev plugin: serve the RP ID related-origin helper and optional strict-isolation headers.
+ * Where it runs: Seams-owned local development only.
  */
 export function seamsHeaders(opts: DevHeadersOptions = {}): VitePlugin {
   const walletOriginRaw = opts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN;
@@ -249,12 +218,7 @@ export function seamsHeaders(opts: DevHeadersOptions = {}): VitePlugin {
     '/wallet-service',
   );
   const sdkBasePath = toBasePath(opts.sdkBasePath || process.env.VITE_SDK_BASE_PATH, '/sdk');
-  const devCSPMode =
-    opts.devCSP ?? (process.env.VITE_WALLET_DEV_CSP as 'strict' | 'compatible' | undefined);
   const coepMode = resolveCoepMode(opts.coepMode);
-
-  // Build headers via shared helpers to avoid drift.
-  const permissionsPolicy = buildPermissionsPolicy(walletOrigin);
 
   const rorOrigins = resolveRorOrigins({
     configuredOrigins: parseConfiguredRorOrigins(
@@ -279,23 +243,10 @@ export function seamsHeaders(opts: DevHeadersOptions = {}): VitePlugin {
 
       server.middlewares.use((req: any, res: any, next: any) => {
         const url = (req.url || '').split('?')[0] || '';
-        const isWalletRoute =
-          url === walletServicePath ||
-          url === `${walletServicePath}/` ||
-          url === `${walletServicePath}//`;
-        res.setHeader('Cross-Origin-Opener-Policy', isWalletRoute ? 'unsafe-none' : 'same-origin');
         if (coepMode !== 'off') {
           res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
           res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         }
-        res.setHeader('Permissions-Policy', permissionsPolicy);
-        // Optional dev-time CSP for the wallet service page only (app pages are unaffected)
-        if (isWalletRoute && devCSPMode) {
-          const mode = devCSPMode === 'strict' ? 'strict' : 'compatible';
-          const walletCsp = buildWalletCsp({ mode });
-          res.setHeader('Content-Security-Policy', walletCsp);
-        }
-        // Resource hints: help parent pages preconnect to the wallet origin early in dev
         addPreconnectLink(res, walletOrigin);
 
         // Serve /.well-known/webauthn for ROR from server-owned configuration in dev.
@@ -337,7 +288,7 @@ function createDevServerPlugin(
   const walletHostVariant = normalizeWalletHostVariant(
     options.walletHostVariant || process.env.VITE_WALLET_HOST_VARIANT,
   );
-  const setDevHeaders = options.setDevHeaders !== false; // default true
+  const setDevHeaders = options.setDevHeaders === true;
   const enableDebugRoutes = options.enableDebugRoutes === true;
   const sdkDistRoot = resolveSdkDistRoot(options.sdkDistRoot);
   const coepMode = resolveCoepMode(options.coepMode);
@@ -349,9 +300,8 @@ function createDevServerPlugin(
     walletHostVariant,
     coepMode,
   });
-  const wasmMimePlugin = seamsWasmMime();
   const headersPlugin = setDevHeaders
-    ? seamsHeaders({ walletOrigin, walletServicePath, sdkBasePath, devCSP: 'strict', coepMode })
+    ? seamsHeaders({ walletOrigin, walletServicePath, sdkBasePath, coepMode })
     : undefined;
 
   return {
@@ -360,7 +310,6 @@ function createDevServerPlugin(
     enforce: 'pre',
     configureServer(server) {
       sdkPlugin.configureServer?.(server);
-      wasmMimePlugin.configureServer?.(server);
       if (headersPlugin) headersPlugin.configureServer?.(server);
       if (includeWalletService) walletPlugin.configureServer?.(server);
     },
@@ -368,35 +317,23 @@ function createDevServerPlugin(
 }
 
 // === Build-time helper: emit Cloudflare Pages/Netlify _headers ===
-// This plugin writes a _headers file into Vite's outDir with COOP and optional COEP and a
-// Permissions-Policy delegating WebAuthn to the configured wallet origin.
-// It is a no-op if a _headers file already exists (to avoid overriding app settings).
 /**
- * Build-time plugin: writes a Cloudflare Pages/Netlify-compatible `_headers` file into Vite's `outDir`.
- * Adds COOP + Permissions-Policy and optional COEP/CORP (configurable via coepMode) delegating WebAuthn to the configured wallet origin.
- * Where it runs: build for either the app or a static wallet host (not used in dev).
- * Notes: no-ops if `_headers` already exists in `outDir` (to avoid overriding platform config).
+ * Build-time plugin: writes optional static-host `_headers` only for explicitly requested CORS or strict isolation.
+ * Where it runs: Seams-owned static wallet host development.
  */
 export function seamsBuildHeaders(
   opts: {
-    walletOrigin?: string;
     cors?: { accessControlAllowOrigin?: string };
     coepMode?: 'strict' | 'off';
     walletHostVariant?: WalletHostVariant;
   } = {},
 ): VitePlugin {
-  const walletOriginRaw = opts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN;
-  const walletOrigin = walletOriginRaw?.trim();
   const walletServicePath = toBasePath(process.env.VITE_WALLET_SERVICE_PATH, '/wallet-service');
   const sdkBasePath = toBasePath(process.env.VITE_SDK_BASE_PATH, '/sdk');
   const walletHostVariant = normalizeWalletHostVariant(
     opts.walletHostVariant || process.env.VITE_WALLET_HOST_VARIANT,
   );
   const coepMode = resolveCoepMode(opts.coepMode);
-
-  // Build headers via shared helpers to avoid drift between frameworks
-  const permissionsPolicy = buildPermissionsPolicy(walletOrigin);
-  const walletCsp = buildWalletCsp({ mode: 'strict' });
 
   let outDir = 'dist';
 
@@ -416,41 +353,16 @@ export function seamsBuildHeaders(
           // Do not override existing headers; leave a note in build logs
           console.warn('[seams] _headers already exists in outDir; skipping auto-emission');
         } else {
-          // Strict CSP is emitted only for wallet HTML routes; not for app pages.
           const contentLines: string[] = [
-            '/*',
-            '  Cross-Origin-Opener-Policy: same-origin',
             ...(coepMode === 'off'
               ? []
               : [
+                  '/*',
                   '  Cross-Origin-Embedder-Policy: require-corp',
                   '  Cross-Origin-Resource-Policy: cross-origin',
+                  '',
                 ]),
-            `  Permissions-Policy: ${permissionsPolicy}`,
-            '',
-            `${walletServicePath}`,
-            '  Cross-Origin-Opener-Policy: unsafe-none',
-            // Always allow COEP=require-corp apps to embed wallet HTML, even when
-            // the wallet host itself is not using COEP.
-            '  Cross-Origin-Resource-Policy: cross-origin',
-            `  Permissions-Policy: ${permissionsPolicy}`,
-            `  Content-Security-Policy: ${walletCsp}`,
-            `${walletServicePath}/`,
-            '  Cross-Origin-Opener-Policy: unsafe-none',
-            '  Cross-Origin-Resource-Policy: cross-origin',
-            `  Permissions-Policy: ${permissionsPolicy}`,
-            `  Content-Security-Policy: ${walletCsp}`,
-            '/export-viewer',
-            '  Cross-Origin-Opener-Policy: unsafe-none',
-            '  Cross-Origin-Resource-Policy: cross-origin',
-            `  Permissions-Policy: ${permissionsPolicy}`,
-            '/export-viewer/',
-            '  Cross-Origin-Opener-Policy: unsafe-none',
-            '  Cross-Origin-Resource-Policy: cross-origin',
-            `  Permissions-Policy: ${permissionsPolicy}`,
           ];
-          // Optional: emit CORS headers when explicitly configured via plugin option.
-          // Prefer a single source of truth (platform or plugin), not both.
           const configuredAcaOrigin = (
             opts.cors && typeof opts.cors.accessControlAllowOrigin === 'string'
               ? opts.cors.accessControlAllowOrigin.trim()
@@ -462,15 +374,16 @@ export function seamsBuildHeaders(
               `  Access-Control-Allow-Origin: ${configuredAcaOrigin}`,
             );
           }
-          const content = contentLines.join('\n') + '\n';
-          fs.mkdirSync(outDir, { recursive: true });
-          fs.writeFileSync(hdrPath, content, 'utf-8');
-          console.log(
-            '[seams] emitted _headers with COOP' +
-              (coepMode === 'off' ? '' : '/COEP/CORP') +
-              ' + Permissions-Policy' +
-              (configuredAcaOrigin ? ' + CORS' : ''),
-          );
+          if (contentLines.length > 0) {
+            const content = contentLines.join('\n') + '\n';
+            fs.mkdirSync(outDir, { recursive: true });
+            fs.writeFileSync(hdrPath, content, 'utf-8');
+            console.log(
+              '[seams] emitted _headers' +
+                (coepMode === 'off' ? '' : ' with strict isolation') +
+                (configuredAcaOrigin ? ' + CORS' : ''),
+            );
+          }
         }
 
         const sdkDir = path.join(outDir, sdkBasePath.replace(/^\//, ''));
@@ -535,11 +448,9 @@ export function seamsApp(
   options: Web3AuthnDevOptions & { emitHeaders?: boolean } = {},
 ): any[] /* Vite Plugin[] */ {
   const { emitHeaders, ...devOpts } = options;
-  const walletOrigin = (devOpts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
   const app = seamsAppServer(devOpts);
   const hdr = emitHeaders
     ? seamsBuildHeaders({
-        walletOrigin,
         coepMode: devOpts.coepMode,
         walletHostVariant: devOpts.walletHostVariant,
       })
@@ -551,11 +462,9 @@ export function seamsWallet(
   options: Web3AuthnDevOptions & { emitHeaders?: boolean } = {},
 ): any[] /* Vite Plugin[] */ {
   const { emitHeaders, ...devOpts } = options;
-  const walletOrigin = (devOpts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
   const wallet = seamsWalletServer(devOpts);
   const hdr = emitHeaders
     ? seamsBuildHeaders({
-        walletOrigin,
         coepMode: devOpts.coepMode,
         walletHostVariant: devOpts.walletHostVariant,
       })

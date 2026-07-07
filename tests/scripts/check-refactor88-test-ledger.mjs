@@ -95,6 +95,7 @@ const retainedBoundaryAuditRows = [
     'tests/wallet-iframe/router.computeOverlayIntent.test.ts',
     'tests/wallet-iframe/router.registrationActivation.test.ts',
     'tests/wallet-iframe/router.signingProgressForwarding.test.ts',
+    'tests/wallet-iframe/static-wallet-assets.browser.test.ts',
 ];
 const retainedBoundaryAuditRowSet = new Set(retainedBoundaryAuditRows);
 const retainedBoundaryAuditEvidenceTokens = {
@@ -516,6 +517,12 @@ const retainedBoundaryAuditEvidenceTokens = {
         'forwards v2 EVM threshold signing progress to app onEvent',
         'PM_SIGN_TEMPO',
         'Ignored wrong-flow progress',
+    ],
+    'tests/wallet-iframe/static-wallet-assets.browser.test.ts': [
+        'static wallet-service loads workers and worker WASM from dist/public',
+        'WORKER_ROUTES',
+        'WORKER_WASM_ROUTES',
+        'WebAssembly.compile',
     ],
 };
 

@@ -89,7 +89,7 @@ Do not add app examples that use:
 - `@seams/sdk/plugins/vite` for normal wallet runtime hosting;
 - `@seams/sdk/plugins/next` for normal wallet runtime hosting;
 - `seamsWallet()`, `seamsServeSdk()`, `seamsWalletService()`, or
-  `seamsWasmMime()` on an app origin;
+  other SDK static-serving helpers on an app origin;
 - app-owned `/sdk/*`, `/wallet-service`, or `/export-viewer` routes.
 
 When a helper remains necessary, keep its usage scoped to Seams-owned wallet

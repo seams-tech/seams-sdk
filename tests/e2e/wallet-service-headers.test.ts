@@ -1,30 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { buildPermissionsPolicy, buildWalletCsp } from '@/plugins/headers';
 
-const DEFAULT_LOCAL_WALLET_ORIGIN = 'https://localhost:8443';
-
-function resolveExpectedWalletOrigin(): string {
-  return process.env.VITE_WALLET_ORIGIN || DEFAULT_LOCAL_WALLET_ORIGIN;
-}
-
-test('wallet-service headers are present and consistent', async ({ request }) => {
-  const walletOrigin = resolveExpectedWalletOrigin();
-
+test('app-origin wallet-service path does not emit SDK plugin headers', async ({ request }) => {
   const res = await request.get('/wallet-service');
-  expect(res.ok()).toBeTruthy();
 
   const headers = res.headers();
-  // Header names are lower-cased by Playwright
-  const pp = headers['permissions-policy'];
-  const csp = headers['content-security-policy'];
-  const coop = headers['cross-origin-opener-policy'];
-  const coep = headers['cross-origin-embedder-policy'];
-  const corp = headers['cross-origin-resource-policy'];
-
-  expect(pp).toBe(buildPermissionsPolicy(walletOrigin));
-  // Dev server defaults to strict CSP for wallet route
-  expect(csp).toBe(buildWalletCsp({ mode: 'strict' }));
-  expect(coop).toBe('unsafe-none');
-  expect(coep).toBe('require-corp');
-  expect(corp).toBe('cross-origin');
+  expect(headers['permissions-policy']).toBeUndefined();
+  expect(headers['content-security-policy']).toBeUndefined();
+  expect(headers['cross-origin-opener-policy']).toBeUndefined();
+  expect(headers['cross-origin-embedder-policy']).toBeUndefined();
+  expect(headers['cross-origin-resource-policy']).toBeUndefined();
 });

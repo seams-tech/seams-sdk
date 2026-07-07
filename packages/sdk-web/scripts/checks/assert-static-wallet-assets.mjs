@@ -86,6 +86,28 @@ const REQUIRED_HEADER_ROUTE_CLASSES = [
   '/*.manifest.json',
 ];
 
+const WALLET_HOST_ENTRY_ROUTES = [
+  '/sdk/wallet-iframe-host-runtime.js',
+  '/sdk/wallet-iframe-host-near.js',
+  '/sdk/wallet-iframe-host-ecdsa.js',
+  '/sdk/wallet-iframe-host-full.js',
+];
+
+const FORBIDDEN_STATIC_ASSET_DEFAULT_HEADERS = [
+  'Content-Security-Policy',
+  'Cross-Origin-Embedder-Policy',
+  'Cross-Origin-Opener-Policy',
+  'Cross-Origin-Resource-Policy',
+  'Permissions-Policy',
+];
+
+const FORBIDDEN_DOCUMENT_DEFAULT_HEADERS = [
+  'Cross-Origin-Embedder-Policy',
+  'Cross-Origin-Opener-Policy',
+  'Cross-Origin-Resource-Policy',
+  'Permissions-Policy',
+];
+
 const CANONICAL_WALLET_STATIC_ASSETS = ['wallet-shims.js', 'wallet-service.css'];
 
 const REFERENCED_ROUTE_CLASSES = new Set(['javascript', 'css', 'htmlDocument']);
@@ -120,6 +142,14 @@ function assetByRoute(assets) {
 
 function isReferencedRouteAsset(asset) {
   return REFERENCED_ROUTE_CLASSES.has(asset.routeClass);
+}
+
+function isJavaScriptAsset(asset) {
+  return asset.routeClass === 'javascript';
+}
+
+function isWalletWorkerRoute(route) {
+  return route.startsWith('/sdk/workers/');
 }
 
 function isIgnoredReference(specifier) {
@@ -268,6 +298,58 @@ async function assertAssetReferencesResolve(assets, routes) {
   }
 }
 
+async function buildAssetReferenceGraph(assets, routes) {
+  const graph = new Map();
+  for (const asset of assets.filter(isReferencedRouteAsset)) {
+    const content = await fs.readFile(sourceFileToFilePath(asset.sourceFile), 'utf-8');
+    const references = referencesForAsset(asset, content);
+    const edges = [];
+    for (const reference of references) {
+      const referencedRoute = referencedRouteForSpecifier(asset.route, reference);
+      if (referencedRoute && routes.has(referencedRoute)) edges.push(referencedRoute);
+    }
+    graph.set(asset.route, edges);
+  }
+  return graph;
+}
+
+function reachableRoutesFromEntries(graph, entryRoutes) {
+  const reachable = new Set();
+  const pending = [...entryRoutes];
+  while (pending.length > 0) {
+    const route = pending.pop();
+    if (!route || reachable.has(route)) continue;
+    reachable.add(route);
+    for (const child of graph.get(route) || []) {
+      if (!reachable.has(child)) pending.push(child);
+    }
+  }
+  return reachable;
+}
+
+async function assertWorkerAuthorityReferencesScoped(assets, routes) {
+  const graph = await buildAssetReferenceGraph(assets, routes);
+  const reachableFromWalletHost = reachableRoutesFromEntries(graph, WALLET_HOST_ENTRY_ROUTES);
+  const offenders = [];
+
+  for (const entryRoute of WALLET_HOST_ENTRY_ROUTES) {
+    assert(routes.has(entryRoute), `Missing wallet host entry route: ${entryRoute}`);
+  }
+
+  for (const asset of assets.filter(isJavaScriptAsset)) {
+    const content = await fs.readFile(sourceFileToFilePath(asset.sourceFile), 'utf-8');
+    if (!content.includes('/sdk/workers/')) continue;
+    if (isWalletWorkerRoute(asset.route)) continue;
+    if (reachableFromWalletHost.has(asset.route)) continue;
+    offenders.push(asset.route);
+  }
+
+  assert(
+    offenders.length === 0,
+    `Generated JS contains /sdk/workers/ authority assumptions outside wallet-hosted runtime: ${offenders.join(', ')}`,
+  );
+}
+
 function assertWorkerCompanions(routes) {
   for (const pair of WORKER_WASM_COMPANIONS) {
     assert(routes.has(pair.worker), `Missing worker route: ${pair.worker}`);
@@ -282,6 +364,55 @@ function assertHeaderManifest(headersManifest) {
   const classes = new Set(headersManifest.routeClasses?.map((entry) => entry.routePattern) || []);
   for (const routeClass of REQUIRED_HEADER_ROUTE_CLASSES) {
     assert(classes.has(routeClass), `headers.manifest.json missing route class ${routeClass}`);
+  }
+}
+
+function assertForbiddenDefaultHeaders(headersManifest) {
+  for (const routeClass of headersManifest.routeClasses || []) {
+    const forbidden = new Set(
+      (routeClass.forbiddenDefaultHeaders || []).map((header) => header.toLowerCase()),
+    );
+    const required = routeClass.requiredHeaders || [];
+    for (const header of required) {
+      const name = String(header.name || '').toLowerCase();
+      assert(
+        !forbidden.has(name),
+        `${routeClass.routePattern} requires forbidden default header ${header.name}`,
+      );
+    }
+  }
+}
+
+function assertForbiddenDefaultHeaderCoverage(headersManifest) {
+  const classes = new Map(
+    (headersManifest.routeClasses || []).map((entry) => [entry.routePattern, entry]),
+  );
+  for (const routePattern of [
+    '/sdk/*.js',
+    '/sdk/*.css',
+    '/sdk/workers/*.js',
+    '/sdk/workers/*.wasm',
+  ]) {
+    const routeClass = classes.get(routePattern);
+    const forbidden = new Set(routeClass?.forbiddenDefaultHeaders || []);
+    for (const header of FORBIDDEN_STATIC_ASSET_DEFAULT_HEADERS) {
+      assert(forbidden.has(header), `${routePattern} must forbid default ${header}`);
+    }
+  }
+  for (const routePattern of ['/wallet-service', '/export-viewer']) {
+    const routeClass = classes.get(routePattern);
+    const forbidden = new Set(routeClass?.forbiddenDefaultHeaders || []);
+    for (const header of FORBIDDEN_DOCUMENT_DEFAULT_HEADERS) {
+      assert(forbidden.has(header), `${routePattern} must forbid default ${header}`);
+    }
+    const csp = (routeClass?.requiredHeaders || []).find((header) => {
+      return header.name === 'Content-Security-Policy';
+    });
+    assert(csp, `${routePattern} must declare embedding-control CSP`);
+    assert(
+      String(csp.value || '').startsWith('frame-ancestors '),
+      `${routePattern} CSP must stay limited to frame-ancestors embedding control`,
+    );
   }
 }
 
@@ -325,6 +456,8 @@ async function assertStaticWalletAssets() {
   const headersManifest = await readJson(HEADERS_MANIFEST_PATH);
   assertManifestShape(assetsManifest, headersManifest);
   assertHeaderManifest(headersManifest);
+  assertForbiddenDefaultHeaders(headersManifest);
+  assertForbiddenDefaultHeaderCoverage(headersManifest);
   const assets = assetsManifest.assets;
   assertUniqueAssets(assets);
   await assertManifestFilesExist(assets);
@@ -334,6 +467,7 @@ async function assertStaticWalletAssets() {
   assertRequiredRoutes(routes);
   await assertCanonicalWalletStaticAssets();
   await assertAssetReferencesResolve(assets, routes);
+  await assertWorkerAuthorityReferencesScoped(assets, routes);
   assertWorkerCompanions(routes);
   console.log(`Static wallet asset manifest OK (${assets.length} assets)`);
 }

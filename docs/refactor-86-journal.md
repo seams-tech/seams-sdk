@@ -1,5 +1,25 @@
 # Refactor 86 Journal
 
+## July 8, 2026
+
+- Removed `seamsWasmMime()` and stopped composing it into the remaining Vite helper. The shared SDK static serving path now owns `.wasm` content type through `setContentType`, and hosted `dist/public` manifests verify `application/wasm`.
+- Changed the remaining Vite app/wallet helper composition so dev headers are opt-in (`setDevHeaders === true`). The default wallet-service helper no longer emits COOP, COEP, CORP, CSP, or Permissions-Policy headers.
+- Reduced `_headers` emission from `seamsBuildHeaders()` to explicit CORS and explicit strict-isolation output. It no longer emits default COOP, Permissions-Policy, wallet CSP, or wallet-route CORP.
+- Added `tests/scripts/check-static-wallet-asset-boundaries.mjs` and wired it into `tests` source guards. The guard rejects `seamsWasmMime()`, default dev header composition, default wallet-service security headers, and default build-time CSP/COOP/Permissions behavior.
+- Extended `assert-static-wallet-assets.mjs` so generated `headers.manifest.json` cannot require headers it declares forbidden, document CSP stays limited to `frame-ancestors`, and `/sdk/workers/` authority strings are confined to wallet-worker files or chunks reachable from wallet-host entrypoints.
+- Added `tests/wallet-iframe/static-wallet-assets.browser.test.ts`, which serves `packages/sdk-web/dist/public`, loads the generated `/wallet-service` page, constructs every wallet worker as a module worker, and fetches/compiles every worker WASM companion from the static wallet origin.
+- Replaced stale header tests that asserted plugin-era defaults with hosted-wallet assertions: app-origin `/wallet-service` no longer receives SDK plugin headers, default wallet-service serving emits no legacy isolation/CSP headers, and strict isolation appears only when requested.
+
+Validation:
+
+- `pnpm -C tests run check:static-wallet-asset-boundaries`
+- `pnpm -C packages/sdk-web run check:static-wallet-assets`
+- `pnpm -C packages/sdk-web exec tsc -p tsconfig.build.json --noEmit`
+- `pnpm -C packages/sdk-web run build:sdk`
+- `pnpm -C tests exec playwright test --reporter=line wallet-iframe/static-wallet-assets.browser.test.ts wallet-iframe/csp.strict.violation-free.test.ts`
+- `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/vite-wallet-corp.unit.test.ts unit/pluginRorOrigins.unit.test.ts`
+- `pnpm -C tests exec playwright test --reporter=line e2e/wallet-service-headers.test.ts`
+
 ## July 7, 2026
 
 - Added build-owned hosted wallet asset emission for `packages/sdk-web/dist/public`, including `/sdk/*`, `/sdk/workers/*`, `/wallet-service`, `/export-viewer`, `wallet-assets.manifest.json`, and `headers.manifest.json`.
