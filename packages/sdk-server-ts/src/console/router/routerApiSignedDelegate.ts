@@ -1,14 +1,14 @@
-import type { ConsoleBillingService } from '../console/billing';
-import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
-import type { ConsoleObservabilityIngestionService } from '../console/observability';
-import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
+import type { ConsoleBillingService } from '../billing';
+import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../observability';
+import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
 import type {
   ConsoleSponsoredCallReceiptStatus,
   ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallService,
-} from '../console/sponsoredCalls';
-import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
-import type { ConsoleWebhookService } from '../console/webhooks';
+} from '../sponsoredCalls';
+import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
+import type { ConsoleWebhookService } from '../webhooks';
 import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   buildSponsoredSpendCapSourceEventId,
@@ -18,50 +18,53 @@ import {
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
-} from '../console/sponsorship/spendCaps';
+} from '../sponsorship/spendCaps';
 import {
   matchResolvedSponsoredNearDelegatePolicy,
   parseResolvedSponsoredNearDelegatePolicies,
-} from '../console/sponsorship/near';
+} from '../sponsorship/near';
 import {
   isSponsorshipPrepaidBalanceEnforcementError,
   reserveSponsoredPrepaidBalance,
   settleSponsoredPrepaidBalance,
-} from '../console/sponsorship/prepaidBalance';
-import { executeSponsorshipAdapter } from '../console/sponsorship/executionAdapter';
+} from '../sponsorship/prepaidBalance';
+import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
 import {
   createSponsoredNearDelegateExecutionAdapter,
   type SponsoredNearDelegateAuthService,
-} from '../console/sponsorship/nearExecutionAdapter';
-import { applyRouteMetering } from './applyRouteMetering';
-import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
-import type { NormalizedRouterLogger } from './logger';
-import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
-import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
-import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
-import type { RouteDefinition } from './routeDefinitions';
-import type { RouteErrorBody } from './routeResponses';
-import { routeJson } from './routeResponses';
-import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
+} from '../sponsorship/nearExecutionAdapter';
+import { applyRouteMetering } from '../../router/applyRouteMetering';
+import {
+  enforceRoutePolicy,
+  type RoutePolicyResolutionResult,
+} from '../../router/enforceRoutePolicy';
+import type { NormalizedRouterLogger } from '../../router/logger';
+import { resolvePublishableKeyApiCredentialAuth } from '../../router/routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from '../../router/routerApiKeyAuth';
+import type { HeaderRecord, RouteResponse } from '../../router/routeExecutionContext';
+import type { RouteDefinition } from '../../router/routeDefinitions';
+import type { RouteErrorBody } from '../../router/routeResponses';
+import { routeJson } from '../../router/routeResponses';
+import type { RouterApiPublishableKeyAuthAdapter } from '../../router/apiCredentialPorts';
 import {
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
-} from '../console/router/sponsorshipExecution';
+} from './sponsorshipExecution';
 import {
   buildSponsorshipRoutePolicyFailureResponse,
   resolveSponsorshipReplayOrMatch,
   resolveSponsorshipRuntimeForPublishableKeyRoute,
-} from '../console/router/sponsorshipRuntime';
+} from './sponsorshipRuntime';
 import {
   logSponsorshipSpendCapRejected,
   logSponsorshipSpendCapReserved,
   logSponsorshipSpendCapSettled,
-} from '../console/router/sponsorshipSpendCapObservability';
+} from './sponsorshipSpendCapObservability';
 import {
   emitSponsorshipBalanceTransitionEvents,
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
-} from '../console/router/sponsorshipBillingEvents';
+} from './sponsorshipBillingEvents';
 import { isPlainObject } from '@shared/utils/validation';
 
 interface SignedDelegateRequestBody {

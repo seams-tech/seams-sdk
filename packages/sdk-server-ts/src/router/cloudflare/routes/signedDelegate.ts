@@ -1,5 +1,5 @@
 import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { handleRouterApiSignedDelegate } from '../../routerApiSignedDelegate';
+import { handleRouterApiSignedDelegate } from '../../../console/router/routerApiSignedDelegate';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { toFetchRouteResponse } from '../../routeResponses';
 import { readJson } from '../http';

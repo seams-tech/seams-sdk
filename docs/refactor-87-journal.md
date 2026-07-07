@@ -44,6 +44,10 @@
   spend-cap observability helpers from `router/` to `console/router/`. The
   guard no longer treats those helpers as signer-router files; the remaining
   signed-delegate coupling is now concentrated in `routerApiSignedDelegate.ts`.
+- Moved `routerApiSignedDelegate.ts` into `console/router`. The hosted
+  Cloudflare route wrapper still owns the route mount, but the console
+  sponsorship implementation and helper imports are now outside signer-router
+  guard scope.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
@@ -52,3 +56,4 @@
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts relayer/console-d1-adapters.test.ts`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts unit/router.routeDefinitions.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`

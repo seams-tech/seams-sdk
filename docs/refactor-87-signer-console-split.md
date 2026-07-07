@@ -64,7 +64,7 @@ Concrete blockers, each owned by a phase below:
 | B1 | Resolved July 8, 2026: sponsorship now lives under `src/console/sponsorship`, so its console imports are intra-console | `console/sponsorship/*` |
 | B2 | Partially resolved July 8, 2026: managed bootstrap grants, API-wallet reads, and sponsored EVM calls now mount through a console-owned route extension; signed-delegate remains statically wired | `router/cloudflare/createCloudflareRouter.ts`, `console/router/routeExtensions.ts` |
 | B3 | Resolved July 8, 2026: signer-router auth files now depend on signer-owned credential/bootstrap ports; console-backed adapters live under `src/console/router` | `router/apiCredentialPorts.ts`, `console/router/routerApiKeyAuth.ts`, `console/router/bootstrapGrantBroker.ts`, `console/router/bootstrapTokenVerifier.ts` |
-| B4 | Partially resolved July 8, 2026: API-wallet, sponsored EVM, and shared sponsorship helper modules moved to `console/router`; signed-delegate still value-imports console sponsorship services until its route extraction lands | `router/routerApiSignedDelegate.ts`, `console/router/sponsorship*.ts` |
+| B4 | Partially resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules moved to `console/router`; signed-delegate route ownership still remains in core until its route extraction lands | `router/cloudflare/routes/signedDelegate.ts`, `router/routerApi.ts`, `console/router/routerApiSignedDelegate.ts` |
 | B5 | Partially resolved July 8, 2026: API credential auth, bootstrap-token verification, managed-mode environment resolution, managed bootstrap grants, API-wallet reads, and sponsored EVM calls now use signer-owned ports or console route extensions; signed-delegate sponsorship/webhook console service refs remain for Phase 3 route-surface extraction | `router/routerApi.ts`, sponsorship route/runtime files |
 | B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./console/sponsorship`); `package.json` has no signer-only or console-only subpath |
 | B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
@@ -157,8 +157,10 @@ console package exports `consoleRouteExtensions(...)` /
   - [x] Move `sponsorshipExecution`, `sponsorshipBillingEvents`,
     `sponsorshipRuntime`, and `sponsorshipSpendCapObservability` into
     console-owned route helper modules.
-  - Move the console-metered parts of `handleSignedDelegate` and remaining
-    route/runtime helpers into console-owned route extension modules.
+  - [x] Move the console-metered signed-delegate implementation module into
+    `console/router`.
+  - Move `handleSignedDelegate` route ownership and remaining route/runtime
+    helpers into console-owned route extension modules.
   - `handleSignedDelegate`'s signer-only path (delegate action relay without
     console billing) stays in core; metering hooks become an injected
     observer port.
