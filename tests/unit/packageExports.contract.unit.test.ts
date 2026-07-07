@@ -127,6 +127,11 @@ test.describe('package export contracts', () => {
       default: './dist/esm/router/ror.js',
       types: './dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts',
     });
+    expect(exportsMap['./console']).toEqual({
+      import: './dist/esm/console/index.js',
+      default: './dist/esm/console/index.js',
+      types: './dist/types/sdk-server-ts/src/console/index.d.ts',
+    });
     expect(exportsMap['./storage/postgres']).toBeUndefined();
     expect(exportsMap['./wasm/signer']).toEqual({
       import: './dist/esm/wasm/signer.js',
@@ -134,7 +139,11 @@ test.describe('package export contracts', () => {
       types: './dist/types/sdk-server-ts/src/wasm/signer.d.ts',
     });
     expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).toContain('export { AuthService }');
+    expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).not.toContain(
+      "export * from './console/",
+    );
     expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/sdk-server-ts');
+    expect(fs.existsSync(resolveSdkServerPath(exportsMap['./console'].types))).toBe(true);
   });
 
   test('public runtime package export exposes runtime value constructors', async () => {

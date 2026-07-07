@@ -28,6 +28,11 @@
       "import": "./dist/esm/router/ror.js",
       "default": "./dist/esm/router/ror.js"
     },
+    "./console": {
+      "types": "./dist/types/sdk-server-ts/src/console/index.d.ts",
+      "import": "./dist/esm/console/index.js",
+      "default": "./dist/esm/console/index.js"
+    },
     "./storage/tenant-route": {
       "types": "./dist/types/sdk-server-ts/src/storage/tenantRoute.d.ts",
       "import": "./dist/esm/storage/tenantRoute.js",

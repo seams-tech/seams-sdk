@@ -58,6 +58,9 @@
   replaced the console webhook service type with the signer-owned
   `RouterApiWebhookEmitter` port, and burned down the `routerApi.ts`
   signer-console import guard allowlist entries.
+- Completed the Phase 4 B6 entrypoint split slice. The root package barrel no
+  longer exports console modules, `src/console/index.ts` owns the console
+  barrel, and `@seams/sdk-server/console` is now an explicit package subpath.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
@@ -70,3 +73,4 @@
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/cloudflareD1ConsoleServices.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/packageExports.contract.unit.test.ts unit/sdkPackageInstallSmoke.unit.test.ts`

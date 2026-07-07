@@ -49,7 +49,7 @@ const preservedEntryFileNames = (chunk: { facadeModuleId?: string | null; name: 
 
 export default [
   {
-    input: 'src/index.ts',
+    input: ['src/index.ts', 'src/console/index.ts'],
     output: {
       dir: 'dist/esm',
       format: 'esm',

@@ -161,6 +161,17 @@ test.describe('SDK package install smoke', () => {
           if (typeof server.createRouterApiModule !== 'function') {
             throw new Error('missing createRouterApiModule export');
           }
+          if (typeof server.createInMemoryConsoleSponsoredCallService !== 'undefined') {
+            throw new Error('unexpected root console sponsored-call export');
+          }
+
+          const consoleServer = await import('@seams/sdk-server/console');
+          if (typeof consoleServer.createInMemoryConsoleSponsoredCallService !== 'function') {
+            throw new Error('missing console sponsored-call export');
+          }
+          if (typeof consoleServer.createInMemoryConsoleSponsorshipSpendCapService !== 'function') {
+            throw new Error('missing console sponsorship spend-cap export');
+          }
 
           const expressRouter = await import('@seams/sdk-server/router/express');
           if (typeof expressRouter.createRouterApiRouter !== 'function') {

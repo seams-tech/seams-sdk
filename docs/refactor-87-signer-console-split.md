@@ -66,7 +66,7 @@ Concrete blockers, each owned by a phase below:
 | B3 | Resolved July 8, 2026: signer-router auth files now depend on signer-owned credential/bootstrap ports; console-backed adapters live under `src/console/router` | `router/apiCredentialPorts.ts`, `console/router/routerApiKeyAuth.ts`, `console/router/bootstrapGrantBroker.ts`, `console/router/bootstrapTokenVerifier.ts` |
 | B4 | Resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules live under `console/router`; signed-delegate route ownership moved to the console route extension | `console/router/routeExtensions.ts`, `console/router/routerApiSignedDelegate.ts` |
 | B5 | Resolved July 8, 2026: `RouterApiOptions` now carries signer-owned ports and route extensions; console sponsorship services live in console route-extension options, and Router API lifecycle webhooks use a signer-owned emitter port | `router/routerApi.ts`, `console/router/routeExtensions.ts` |
-| B6 | Main barrel exports both worlds | `src/index.ts:261-266` (`export *` from five `console/*` paths and `./console/sponsorship`); `package.json` has no signer-only or console-only subpath |
+| B6 | Resolved July 8, 2026: the root barrel no longer re-exports console modules, and console exports are available through the explicit `./console` subpath | `src/index.ts`, `src/console/index.ts`, `package.json` |
 | B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
 | B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
 | B9 | Shared constants for console features live in the shared package; the signer auth scope constants are now owned by `router/apiCredentialPorts.ts` | `packages/shared-ts/src/console/` (gasSponsorshipChains, gasSponsorshipSpendCapTargets, organizationIdentity, webhookEventCategories, and console API-key helpers still used by console code) |
@@ -167,7 +167,7 @@ console package exports `consoleRouteExtensions(...)` /
     the self-hosted route surface it serves today when those options are
     absent. Route-surface parity is asserted by test, not by inspection.
 - [ ] Phase 4: Split entry points and Env types (B6, B7).
-  - Trim `src/index.ts:261-266`; console/sponsorship exports move to the
+  - [x] Trim `src/index.ts:261-266`; console/sponsorship exports move to the
     console module's own barrel. Until the physical package split, expose
     them via a `./console` subpath export so existing consumers migrate with
     a one-line import change.
