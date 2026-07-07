@@ -2432,6 +2432,19 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                 type: 'button',
                 onClick: () =>
                   controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'cancelled',
+                    activationId: 'activation-target-unavailable',
+                    reason: 'target_unavailable',
+                  }),
+              },
+              'Lose activation target',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
                     kind: 'completed',
                     activationId: 'activation-completed-cancelled',
                     result: {
@@ -2472,6 +2485,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
 
     await mount.getByRole('button', { name: 'Expire activation' }).click();
+    await expect(mount.getByRole('alert')).toHaveCount(0);
+    await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
+
+    await mount.getByRole('button', { name: 'Lose activation target' }).click();
     await expect(mount.getByRole('alert')).toHaveCount(0);
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
 

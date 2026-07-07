@@ -1463,10 +1463,6 @@ export function usePasskeyAuthMenuController(
           if (state.reason === 'disposed') return;
           setWaiting(false);
           setWaitingReason(null);
-          if (state.reason === 'target_unavailable') {
-            setMethodError('Passkey registration button is no longer available. Try again.');
-            return;
-          }
           if (state.reason === 'expired') {
             setMethodError('');
             return;
