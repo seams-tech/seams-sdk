@@ -2,7 +2,7 @@
 
 Date created: July 4, 2026
 
-Status: planning.
+Status: in progress.
 
 Dated progress entries and validation evidence go to a companion journal file
 (`refactor-87-journal.md`, created on first entry), not this plan.
@@ -114,11 +114,11 @@ console package exports `consoleRouteExtensions(...)` /
 
 ## Phases
 
-- [ ] Phase 0: Decisions and enforcement baseline.
-  - Decide the console package name and whether it lives under `packages/`
+- [x] Phase 0: Decisions and enforcement baseline.
+  - [x] Decide the console package name and whether it lives under `packages/`
     (recommended: `packages/console-server-ts`, name
     `@seams-internal/console-server`).
-  - Add a CI import guard that fails on any `console/*` or `sponsorship/*`
+  - [x] Add a CI import guard that fails on any `console/*` or `sponsorship/*`
     import (value or type) from `src/{core,threshold,wasm,storage,
     delegateAction,email-recovery}` and from an explicit signer-router file
     list. Seed an allowlist with the B1–B10 inventory above and burn it down
@@ -126,9 +126,9 @@ console package exports `consoleRouteExtensions(...)` /
     of the existing runtime import scan from Refactor 82 (the one that rejects
     Postgres storage and mixed console barrels).
 - [ ] Phase 1: Quick wins with no behavior change.
-  - B8: repoint `router/cloudflare/routes/thresholdEcdsa.ts:43` to
+  - [x] B8: repoint `router/cloudflare/routes/thresholdEcdsa.ts:43` to
     `core/ThresholdService/ethSignerWasm`, matching the express variant.
-  - B1 (location only): move `src/sponsorship` to `src/console/sponsorship`
+  - [ ] B1 (location only): move `src/sponsorship` to `src/console/sponsorship`
     (or a sibling folder slated for the console package). Its console imports
     become intra-console; its one crypto leaf used by signer code is gone
     after B8.
