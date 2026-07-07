@@ -59,7 +59,7 @@ provider through `betterAuthSessionProvider(auth)`.
 Rename the parent concept from `signing-session` to `SeamsSession`.
 
 `SeamsSession` owns identity, auth factors, and session state. Seams
-authorization owns grant evidence, capability grants, budgets, and audit envelopes.
+authorization owns grant evidence, capability grants, grant-use limits, and audit envelopes.
 MPC signing is a capability that uses this shared layer. Vault access is another
 capability that uses the same shared layer.
 
@@ -189,8 +189,7 @@ type InteractiveGrantEvidenceKind =
   | "passkey_assertion"
   | "email_otp"
   | "slack_otp"
-  | "wallet_login"
-  | "recovery_code";
+  | "wallet_login";
 
 type GrantEvidenceKind =
   | "seams_session"
@@ -202,9 +201,101 @@ type GrantEvidenceKind =
 
 type MpcCapabilityAuthFactorKind = Extract<
   AuthFactorKind,
-  "passkey" | "email_otp" | "wallet_login"
+  "passkey" | "email_otp"
 >;
 ```
+
+Wallet-login evidence is session/auth-factor evidence. MPC signing policies
+accept only digest-bound native grant evidence (`passkey_assertion`,
+`email_otp`) or derived `mpc_signer_proof`; wallet-login evidence never gates
+signing.
+
+### Wallet Session Restoration Boundary
+
+Page refresh and iframe startup currently need to rebuild wallet-session UI from
+durable local records after volatile runtime signing records disappear. The
+resolver for that flow must compose the same branch-specific
+`WalletUnlockSubject` model used by unlock. It must not create a parallel
+NEAR-only session subject.
+
+Refactor move:
+
+- parse raw `walletId`, last-used account hints, and profile rows once at the
+  session-read boundary;
+- resolve durable wallet identity into `WalletUnlockSubjectSet`;
+- compute wallet-session display state from branch subjects plus sealed/session
+  records;
+- surface missing, corrupt, or ambiguous durable identity as typed
+  `unresolvable` results;
+- keep provenance (`runtime_session_record`, `profile_projection`,
+  `host_last_used_profile`) as diagnostics only;
+- represent restorable sealed sessions as `active_restorable`, then let signing
+  or export prepare perform exact material restore and demote to re-auth on
+  typed restore failure.
+
+Target shape:
+
+```ts
+type WalletUnlockSubject =
+  | {
+      kind: "near_ed25519_wallet";
+      walletId: WalletId;
+      nearAccountId: NearAccountId;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      signerSlot: SignerSlot;
+    }
+  | {
+      kind: "evm_family_ecdsa_wallet";
+      walletId: WalletId;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+    };
+
+type WalletUnlockSubjectSet = {
+  kind: "wallet_unlock_subject_set";
+  walletId: WalletId;
+  subjects: NonEmptyArray<WalletUnlockSubject>;
+};
+
+type WalletIdentitySource =
+  | "runtime_session_record"
+  | "profile_projection"
+  | "host_last_used_profile";
+
+type WalletIdentityResolveFailure =
+  | "missing_wallet_profile"
+  | "ambiguous_wallet_profile"
+  | "missing_requested_capability_subject"
+  | "invalid_wallet_profile";
+
+type WalletSessionReadResolution =
+  | { kind: "no_session_request" }
+  | {
+      kind: "resolved";
+      walletId: WalletId;
+      subjectSet: WalletUnlockSubjectSet;
+      source: WalletIdentitySource;
+    }
+  | {
+      kind: "unresolvable";
+      walletId: WalletId;
+      reason: WalletIdentityResolveFailure;
+    };
+
+type WalletSessionDisplayState =
+  | { kind: "locked" }
+  | { kind: "active_warm"; subjectSet: WalletUnlockSubjectSet }
+  | { kind: "active_restorable"; subjectSet: WalletUnlockSubjectSet }
+  | { kind: "expired"; subjectSet: WalletUnlockSubjectSet }
+  | { kind: "exhausted"; subjectSet: WalletUnlockSubjectSet }
+  | { kind: "unavailable"; subjectSet: WalletUnlockSubjectSet };
+```
+
+`WalletUnlockSubjectSet` is the only wallet/capability subject shape consumed
+below the session-read boundary. NEAR account identity exists only on the
+`near_ed25519_wallet` branch. ECDSA-only restoration must not import NEAR
+account validators or fabricate a NEAR account subject. Auth-method display
+must come from wallet-auth-method bindings or session evidence, never from
+`publicKey` heuristics.
 
 ### Signing-Centered Grant-Evidence UI
 
@@ -290,7 +381,7 @@ type RouterApiModuleManifest =
   | {
       kind: "router_api_module_manifest";
       moduleId: RouterApiModuleId;
-      capabilityKind: CapabilityKind | "seams_auth" | "seams_session" | "management";
+      capabilityKind: CapabilityKind | "seams_auth" | "session" | "management";
       routeDefinitions: readonly RouterApiRouteDefinition[];
       requiredServices: readonly RouteServiceKey[];
       importGuard: RouterModuleImportGuard;
@@ -305,8 +396,8 @@ type RuntimeRouterApiModule<TRuntime extends RouteRuntimeKind> =
     };
 ```
 
-The manifest must be runtime-neutral. Cloudflare and Express handler factories
-live in runtime-specific files so Worker bundles do not import Node-only code.
+The manifest must be runtime-neutral. Cloudflare and Node handler factories live
+in runtime-specific files so Worker bundles do not import Node-only code.
 The module builder should reject duplicate module IDs, duplicate route IDs,
 route definitions without handlers for enabled runtimes, and handlers that
 request services outside `requiredServices`.
@@ -357,10 +448,10 @@ function buildCloudflareRouteModules(
 
 ### Runtime Adapter Decision
 
-Cloudflare Workers are the primary runtime target for this refactor. The current
-Express router stays only as a thin adapter over the same route modules. Do not
-maintain duplicated Express route behavior or separate Express-only route
-definitions.
+Cloudflare Workers are the primary runtime target for this refactor. The Node
+web-server consumes the same route modules through a thin adapter. Express is an
+on-demand adapter contract over the same handlers if a customer requests Express
+hosting.
 
 Capability modularity has two levels:
 
@@ -374,18 +465,17 @@ Decision:
 
 - route definitions, auth policy, service-port requirements, and capability
   metadata are runtime-neutral;
-- Cloudflare and Express adapters share manifests and load runtime-specific
+- Cloudflare and Node adapters share manifests and load runtime-specific
   handler factories from separate modules;
 - Cloudflare is the release gate for Centaur/cloud deployment;
-- Express parity means same route table, same route policy, same request parser,
-  and same response envelope through an Express adapter;
-- if Express cannot consume the module contract cleanly, remove the Express
-  router during this breaking refactor rather than preserving duplicate route
-  implementations.
+- Express adapter parity, when introduced, means same route table, same route
+  policy, same request parser, and same response envelope through a thin
+  adapter.
 
-Validation should compare Cloudflare and Express route manifests for every
-enabled product shape while keeping Cloudflare bundle/import guards as the
-deployment-critical checks.
+Validation should compare Cloudflare and Node route manifests for every enabled
+product shape while keeping Cloudflare bundle/import guards as the
+deployment-critical checks. An Express adapter, if introduced, must pass the
+same manifest contract tests.
 
 ### Route Auth Policy Planes
 
@@ -406,7 +496,7 @@ Management-plane decision:
   membership, policy editing, capability provisioning, approval decisions, API
   key management, audit views, and IdP configuration;
 - use `management_api_key` for programmatic administration and automation;
-- use `seams_session` for product routes that need an authenticated principal
+- use `session_principal` for product routes that need an authenticated principal
   without an exact capability operation;
 - use `capability_grant` for vault reveal/export/proxy-use, MPC signing, key
   export, break-glass reveal, and IdP high-risk scope issuance;
@@ -512,7 +602,7 @@ Grant evidence rules:
   capability;
 - authorization resolves policy server-side from capability config,
   environment, principal binding, operation kind, and grant evidence;
-- issued grants are short-lived, operation-bound, budgeted, and audited;
+- issued grants are short-lived, operation-bound, use-limited, and audited;
 - a service-account API key can request an capability grant only when policy names
   that key, service account, operation, resource scope, and environment as
   allowed.
@@ -521,7 +611,7 @@ Route policy refactor move:
 
 - replace `console` with `management_console`;
 - replace `api_credentials` with `management_api_key`;
-- replace `user_session` with `seams_session`;
+- replace `user_session` with `session_principal`;
 - replace `threshold_session` with `capability_grant`;
 - add `managementOperationKind` and required tenant/project/environment scope to
   management route policies;
@@ -547,7 +637,7 @@ type RouteAuthPolicy =
       scopes: readonly ApiCredentialScope[];
       scope: ManagementResourceScope;
     }
-  | { plane: "seams_session" }
+  | { plane: "session_principal" }
   | {
       plane: "capability_grant";
       capabilityKind: CapabilityKind;
@@ -575,7 +665,7 @@ type RoutePrincipal =
       scope: ManagementResourceScope;
     }
   | {
-      plane: "seams_session";
+      plane: "session_principal";
       session: ActiveSeamsSessionRecord;
     }
   | {
@@ -607,8 +697,9 @@ The split is by evidence grade, permanently (plan Decided Point 12):
   product patterns. Seams never rebuilds these natively.
 - **Seams-native factor modules are exactly those that produce MPC-grade,
   operation-digest-bound evidence or drive the Seams confirmation UI** —
-  passkey and Email OTP today. They bind registration to MPC ceremonies and
-  are never ported into Better Auth plugins.
+  passkey and Email OTP for signing-grade flows, plus Slack OTP when a tenant
+  policy accepts Slack OTP as operation-bound grant evidence. They are never
+  ported into Better Auth plugins.
 - Both normalize into `SeamsSession` through the same exchange boundary.
   Better Auth is optional at assembly: a signing-only tenant runs native
   factors alone.
@@ -684,12 +775,13 @@ Better Auth should provide:
 - organization and API-key scaffolding where useful;
 - development ergonomics for client and server auth flows.
 
-Better Auth does not provide the wallet-grade factors. The existing
-Seams-native passkey and Email OTP factor modules stay first-party even during
-development: their registration flows mint MPC signer material, their
-assertions bind to operation digests, and the Seams UI components are built
-against them. They plug into the same session exchange as peer evidence
-sources beside the Better Auth provider.
+Better Auth does not provide wallet-grade or Seams-operation-bound factors. The
+existing Seams-native passkey and Email OTP factor modules stay first-party even
+during development: their signing-grade flows can bind registration or unlock
+ceremonies, their assertions bind to operation digests, and the Seams UI
+components are built against them. Slack OTP is native whenever it is accepted
+as operation-bound vault grant evidence. These modules plug into the same
+session exchange as peer evidence sources beside the Better Auth provider.
 
 Seams should own from the start:
 
@@ -739,7 +831,7 @@ POST /seams/grant-evidence/passkey/verify
 
 Challenge endpoint responsibilities:
 
-- require a valid Better Auth session;
+- require an active session from the configured session provider;
 - normalize the session into `SeamsSession`;
 - accept a capability-local operation request and normalize it at the capability
   route boundary;
@@ -752,7 +844,7 @@ Challenge endpoint responsibilities:
 
 Verify endpoint responsibilities:
 
-- require the same active Better Auth session;
+- require the same active `SeamsSession`;
 - parse the WebAuthn assertion at the request boundary;
 - verify origin, RP ID, challenge, credential ID, user presence, and user
   verification policy;
@@ -858,7 +950,7 @@ type SessionExchangeCommand =
       kind: "seams_factor_assertion";
       tenantId: TenantId;
       providerId: AuthProviderId;
-      factorKind: Extract<AuthFactorKind, "passkey" | "email_otp" | "slack_otp">;
+      factorKind: Extract<AuthFactorKind, "passkey" | "email_otp" | "slack_otp" | "recovery_code">;
       assertionDigest: DigestB64u;
       device: SessionDeviceEvidence;
       origin: HttpsOrigin;
@@ -943,6 +1035,17 @@ type SessionExchangeFailure =
   | { kind: "refresh_family_revoked"; tenantId: TenantId; refreshTokenId: SessionRefreshTokenId };
 ```
 
+Session handle rules:
+
+- Bearer `SeamsSession` values are bearer authority. SDKs must never log them,
+  store them outside the selected session store, or persist them in diagnostics.
+- Browser-cookie delivery stores the session token only in an HttpOnly cookie.
+  The SDK handle wraps delivery mode plus CSRF binding metadata, not the token.
+- Hosted wallet iframe deployments cannot rely on unrestricted third-party
+  cookies. Cross-origin iframe mode must use a first-party storage/access flow
+  or an explicit postMessage/token-exchange boundary that resolves to the same
+  `SeamsSessionRecord` server-side.
+
 Default exchange behavior:
 
 - `betterAuthSessionProvider(auth)` verifies the Better Auth session and emits
@@ -957,6 +1060,13 @@ Default exchange behavior:
   principal-wide logout are explicit commands.
 - Session exchange cannot mint `CapabilityGrant` records, provision
   capabilities, or satisfy grant evidence requirements by itself.
+
+Device identity is minted and managed by the `session/` module. Session exchange
+accepts a boundary-normalized `SessionDeviceEvidence`, looks up or creates the
+`auth_devices` row for the principal, rejects revoked devices, and stores the
+resulting `deviceId` on sessions, challenges, grant evidence, MPC signer
+proofs, and audit events. Core authorization and capability code require
+`DeviceId`; they never fingerprint a device directly.
 
 ### Enterprise SSO
 
@@ -1041,7 +1151,7 @@ Type-sketch amendments applied July 3, 2026:
 | --- | --- |
 | signing session | `SeamsSession` |
 | signing grant | `CapabilityGrant` |
-| signing budget | `CapabilityGrantBudget` |
+| signing budget | capability grant use limits (`CapabilityGrantPolicy.maxUses` plus active grant `remainingUses`) |
 | capability-specific signing scope | capability-local lane |
 | signing auth method | `AuthFactor` |
 | signer material | capability-owned runtime material |
@@ -1061,6 +1171,30 @@ as `intentDigest`.
 
 `CapabilityDisplay` means the canonical prompt and audit display derived from a
 parsed intent. It is bound as `displayDigest`.
+
+### Digest Canonicalization
+
+`authorization/digests` is the authoritative owner for lane, intent, display,
+challenge, evidence-set, and audit digest construction. Capability modules
+produce typed lane/intent/display objects, then call this module for canonical
+bytes and digest labels.
+
+Canonical bytes:
+
+- UTF-8 JSON with explicit domain labels such as
+  `seams.capability.intent.v1`;
+- stable lexicographic ordering for object keys;
+- original order preserved for arrays;
+- no `undefined`, sparse arrays, non-finite numbers, functions, symbols, or raw
+  class instances;
+- branded ID strings and integer counters encoded as strings when precision
+  matters across TypeScript and Rust;
+- every digest input includes `tenantId`, `capabilityKind`, `operationKind`,
+  and a schema version.
+
+A3 owns TypeScript fixtures plus Rust parity vectors before any capability
+depends on a digest. A capability can add a new lane or intent only by adding
+vectors for its canonical bytes and digest output.
 
 ## Layering Rules
 
@@ -1087,7 +1221,8 @@ Use an auth provider plus capability-specific grant policies.
 
 `seamsAuth(...)` is a composition layer, not a Better Auth reimplementation
 (plan Decided Point 12). It wires the Seams-native factor modules (passkey,
-Email OTP) plus an optional Better Auth instance and the session exchange. In
+Email OTP, Slack OTP when enabled for operation-bound evidence, and recovery
+codes) plus an optional Better Auth instance and the session exchange. In
 the sketch below, `emailAndPassword`, `socialProviders`, `enterpriseSSO`, and
 `organization` are reachable only through the optional Better Auth provider
 composition — they are not implemented natively, and the native surface does
@@ -1209,13 +1344,17 @@ export const seams = createSeamsAuthorization({
   capabilities: [
     vaultAccessCapability({
       operationPolicies: {
-        proxyUse: requireSession(),
+        proxyUse: requireAnyGrantEvidence(["seams_session", "service_account_api_key"]),
         revealSecret: requireAnyGrantEvidence([
           "passkey_assertion",
           "email_otp",
           "slack_otp",
         ]),
         exportSecret: requireAnyGrantEvidence(["passkey_assertion"]),
+        rotateSecret: requireAnyGrantEvidence([
+          "passkey_assertion",
+          "service_account_api_key",
+        ]),
         changePermissions: requireAnyGrantEvidence(["passkey_assertion"]),
         breakGlassReveal: requireGrantEvidence([
           "approval_decision",
@@ -1251,7 +1390,7 @@ import {
 } from "@seams/sdk";
 
 const config = createSeamsConfig({
-  environmentId: "proj_...",
+  environmentId: "env_...",
   publishableKey: "pk_...",
   walletRuntime: hostedWalletIframe({
     origin: "https://wallet.seams.sh",
@@ -1287,11 +1426,18 @@ type TenantRuntimeConfig = {
 };
 ```
 
+`publishableKey` and `environmentId` are public lookup inputs. Session exchange
+and capability initialization resolve them through the server tenant-runtime
+config boundary into `tenantId`, `projectId`, and `environmentId`, then core
+logic receives only the normalized IDs. A publishable key that resolves to a
+different tenant or environment than the request body fails before session
+creation or capability initialization.
+
 Auth-only applications can omit the wallet runtime:
 
 ```ts
 const config = createSeamsConfig({
-  environmentId: "proj_...",
+  environmentId: "env_...",
   publishableKey: "pk_...",
   authMethods: [passkeyAuth()],
 });
@@ -1364,7 +1510,6 @@ const auth = betterAuth({
     emailOTP(),
     organization(),
     apiKey(),
-    seamsSlackOtp(),
     seamsPasskeyGrantEvidence({
       grantEvidenceBridge: seamsGrantEvidenceBridge,
     }),
@@ -1386,13 +1531,14 @@ The embedded defaults should be conservative:
 
 | Capability operation | Default capability grant policy |
 | --- | --- |
-| Vault proxy use | active session plus RBAC |
+| Vault proxy use | active session plus RBAC, or service-account API-key evidence plus an explicit proxy-use policy |
 | Vault reveal | passkey assertion, Email OTP, or Slack OTP evidence |
 | Vault export | passkey assertion evidence |
+| Vault rotation | passkey assertion evidence, or service-account API-key evidence plus an explicit rotation policy |
 | Vault permission change | passkey assertion evidence |
 | Vault break-glass reveal | approval plus passkey assertion evidence |
 | MPC transaction signing (`near.sign_transaction`, `evm.sign_transaction`) | passkey assertion or Email OTP evidence |
-| MPC signer-proof production (`produceAuthProof`) | inherited signer capability grant policy |
+| MPC signer-proof production (`mpc.produce_signer_proof`) | inherited signer capability grant policy |
 | Vault export with high-assurance policy | passkey assertion plus MPC signer proof evidence |
 
 Tenant policy can make defaults stricter. It should not silently weaken the
@@ -1422,7 +1568,8 @@ type CapabilityOperationKind =
   | "vault.permission_change"
   | "vault.break_glass_reveal"
   | "near.sign_transaction"
-  | "evm.sign_transaction";
+  | "evm.sign_transaction"
+  | "mpc.produce_signer_proof";
 
 type RecordStatus = "active" | "suspended" | "deleted";
 
@@ -1468,8 +1615,7 @@ type InteractiveGrantEvidenceKind =
   | "passkey_assertion"
   | "email_otp"
   | "slack_otp"
-  | "wallet_login"
-  | "recovery_code";
+  | "wallet_login";
 
 type SessionGrantEvidenceKind = "seams_session";
 type ServiceAccountGrantEvidenceKind = "service_account_api_key";
@@ -1545,11 +1691,17 @@ type AuthPrincipal =
 type PrincipalKind = AuthPrincipal["kind"];
 
 type AuthFactorModule = {
-  tenantId: TenantId;
   factorKind: AuthFactorKind;
   schema: AuthFactorSchema;
   routes: AuthRoute[];
   clientModule: LazyClientModule;
+};
+
+type TenantAuthFactorEnablement = {
+  tenantId: TenantId;
+  factorKind: AuthFactorKind;
+  configDigest: DigestB64u;
+  status: RecordStatus;
 };
 
 type AuthProvider =
@@ -1642,8 +1794,10 @@ type IdpTokenIssueRequest =
       scopes: NonEmptyArray<OidcScope>;
     };
 
-// Public opaque handle. It wraps the session token and resolves server-side
-// to a SeamsSessionId; there is no separate handle-to-id mapping table.
+// Public opaque handle. In bearer-token delivery it wraps the access token and
+// resolves server-side to a SeamsSessionId. In browser-cookie delivery it is an
+// SDK-local handle to the HttpOnly cookie plus CSRF binding metadata; the SDK
+// never reads the session token.
 type SeamsSession = Brand<string, "SeamsSession">;
 
 type SeamsSessionState =
@@ -1741,6 +1895,8 @@ type GrantEvidenceRequirement =
 type CapabilityGrantPolicy = {
   tenantId: TenantId;
   policyId: PolicyId;
+  capabilityKind: CapabilityKind;
+  operationKind: CapabilityOperationKind;
   allowedPrincipalKinds: NonEmptyArray<PrincipalKind>;
   allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
   requiredEvidence: NonEmptyArray<GrantEvidenceRequirement>;
@@ -1769,8 +1925,8 @@ The proof inherits the capability grant policy of the signer capability operatio
 produces it:
 
 ```text
-MPC capability produceAuthProof policy
-  -> passkey assertion, Email OTP, wallet login, or tenant-defined evidence
+MPC capability mpc.produce_signer_proof policy
+  -> passkey assertion, Email OTP, or tenant-defined native digest-bound evidence
   -> MPC signer signs typed Seams auth challenge
   -> MpcSignerProof
   -> mpc_signer_proof grant evidence
@@ -1787,8 +1943,8 @@ Evaluation rules:
   resolve an MPC signer capability;
 - the signer capability must exist, be active, and have a valid
   `CapabilityBinding` for the requesting principal;
-- the signer capability must support `produceAuthProof`;
-- the `produceAuthProof` operation runs the signer capability's inherited
+- the signer capability must support `mpc.produce_signer_proof`;
+- the `mpc.produce_signer_proof` operation runs the signer capability's inherited
   capability grant policy;
 - the proof challenge must bind tenant, principal, session, signer capability,
   target operation, lane digest, intent digest, display digest, device ID,
@@ -1909,9 +2065,22 @@ type MpcSignerProofFailure =
       tenantId: TenantId;
       principalId: PrincipalId;
       signerCapabilityId: CapabilityId;
-      operationKind: "produceAuthProof";
+      operationKind: "mpc.produce_signer_proof";
     };
 ```
+
+Grant-use consumption is one-way. Handlers must complete cheap boundary parsing,
+route policy checks, capability lookup, and replay checks before consuming a
+use. Once the operation crosses the consume boundary, a later vault, network,
+signing, or downstream failure records a failed `capability_grant_uses` row and
+does not refund the use. Retrying a failed operation requires a remaining use on
+the same grant or a fresh grant. This is the intentional replacement for the old
+signing-budget reserve/commit/release lifecycle.
+
+`capability_grant_uses.result_kind` distinguishes at least `succeeded`,
+`failed_before_side_effect`, `failed_after_side_effect`, and `denied_replay` so
+operators can audit failed consumed attempts without reconstructing them from
+logs.
 
 ## Capability Boundaries
 
@@ -1929,7 +2098,7 @@ Owns:
 - policy resolution from capability ID, operation kind, resource scope,
   principal binding, and grant evidence;
 - short-lived capability grants;
-- replay and budget accounting;
+- replay and grant-use accounting;
 - audit envelopes;
 - auth provider evidence parsing.
 
@@ -1956,7 +2125,9 @@ Owns:
 - `VaultAccessPayload`;
 - vault digest, display, and policy descriptors registered with
   `seams-authorization`;
-- Secret Broker and Egress Gateway integration;
+- Secret Broker and Egress Gateway adapter contracts;
+- a minimal local Worker-compatible broker/gateway adapter for Slice A
+  proxy-use tests;
 - reveal, rotate, delegate, and proxy-only use policies;
 - capability-local default capability grant policy config.
 
@@ -1967,6 +2138,12 @@ Uses `seams-authorization` for:
 - capability grant minting;
 - server-side policy resolution;
 - audit envelope generation.
+
+Slice A requires `vault.proxy_use` to execute against the minimal local
+broker/gateway adapter. Production Secret Broker and Egress Gateway Workers,
+including the separate service-bound deployment split from
+[centaur-secrets-vault.md](./centaur-secrets-vault.md), remain capability-vault
+work after the grant model is proven.
 
 ### `capability-near-ed25519-mpc`
 
@@ -1981,7 +2158,7 @@ Owns:
   `seams-authorization`;
 - capability-local default capability grant policy config.
 
-Uses `seams-authorization` for session, grant evidence, budget, grants, and
+Uses `seams-authorization` for session, grant evidence, grant-use limits, grants, and
 audit.
 
 ### `capability-evm-ecdsa-mpc`
@@ -1994,12 +2171,12 @@ Owns:
 - HSS prepare/finalize;
 - signer WASM loading;
 - ECDSA key export;
-- EVM-family transaction display and nonce/budget coupling;
+- EVM-family transaction display and nonce/grant-use coupling;
 - EVM digest, display, and policy descriptors registered with
   `seams-authorization`;
 - capability-local default capability grant policy config.
 
-Uses `seams-authorization` for session, grant evidence, budget, grants, and
+Uses `seams-authorization` for session, grant evidence, grant-use limits, grants, and
 audit.
 
 ## Lazy Loading Rules
@@ -2044,17 +2221,17 @@ Worker/runtime:
 Source boundaries:
 
 ```text
-session/
-  seamsSession
-  providerAdapters/betterAuth
-  idp
 authFactor/
   passkey
   emailOtp
   slackOtp
   walletLogin
   recoveryCode
+session/
+  seamsSession
+  providerSessionAdapters
 authorization/
+  capabilityKinds
   grantEvidence
   capabilityGrants
   policies
@@ -2063,14 +2240,24 @@ capability/
   vault
   nearEd25519Mpc
   evmEcdsaMpc
+idp/
+  oidcProvider
+  relyingParties
 router/
   routeModules
   cloudflareAdapter
-  expressAdapter
+  nodeAdapter
+  (expressAdapter)
+sdkWeb/
+  config
+  walletRuntime/hostedIframe
+  authFactorUi
+  capabilityUi
 ```
 
-Package extraction is optional later. The first implementation should create
-internal folders/modules with these ownership boundaries.
+Internal module/folder names are authoritative for this refactor. Package names
+such as `seams-auth-idp` and `capability-vault` are future extraction labels
+until these boundaries are stable.
 
 `session/` owns `SeamsSession` and provider session normalization.
 
@@ -2080,10 +2267,10 @@ Slack OTP, wallet login, and recovery codes.
 `authorization/` owns grant evidence, grant domain, policy evaluators, and audit
 envelope builders.
 
-`session/providerAdapters/betterAuth` owns Better Auth adapters that convert
+`session/providerSessionAdapters/betterAuth` owns Better Auth adapters that convert
 Better Auth sessions and operation-bound assertions into Seams grant evidence.
 
-`session/idp` owns optional IdP endpoints, relying-party registration, OIDC
+`idp/` owns optional IdP endpoints, relying-party registration, OIDC
 Provider metadata, authorization-code issuance, token issuance, refresh-token
 rotation, JWKS publication, and SAML IdP support if it is added.
 
@@ -2431,6 +2618,7 @@ authorization_audit_events(
   principal_id,
   actor_principal_kind,
   session_id,
+  device_id,
   capability_id,
   operation_kind,
   lane_digest,
@@ -2443,7 +2631,20 @@ authorization_audit_events(
 )
 ```
 
-IdP tables stay in `seams-auth-idp`:
+Retention and abuse controls:
+
+- A1 adds expiry indexes for challenges, evidence rows, refresh tokens, and
+  capability grants.
+- A3 owns a pruning job interface for expired grant challenges, expired or
+  consumed grant evidence, expired grants, revoked refresh-token families after
+  the retention window, and old audit-export scratch rows.
+- A2 and A6 add rate-limit ports for session exchange, OTP challenge minting,
+  WebAuthn grant-evidence challenge minting, and verification attempts. A7 adds
+  the same controls for service-account grant requests.
+- Default adapters must expose a D1-compatible scheduled cleanup path; hosts can
+  wire it to Cloudflare cron, a Node scheduler, or an explicit admin task.
+
+IdP tables stay with the `idp/` module:
 
 ```text
 idp_relying_parties(...)
@@ -2453,7 +2654,7 @@ idp_refresh_tokens(...)
 idp_token_events(...)
 ```
 
-Vault tables stay in `capability-vault`:
+Vault tables stay with the `capability/vault` module:
 
 ```text
 vaults(

@@ -11,9 +11,11 @@ their owning phases.
 Status: implementation complete for Phases 1-10C for Passkey and Google SSO
 Email OTP accounts. Manual browser validation passed registration, wallet
 unlock, NEAR/Tempo/Arc signing, NEAR/Tempo/Arc step-up signing, and
-Ed25519/ECDSA key export. Direct Email OTP challenge validation remains open
-only if that path stays a supported product entrypoint. Deployment and
-CI/intended-behavior promotion remain deferred to Phase 11.
+Ed25519/ECDSA key export. Phase 10D has landed the typed Router A/B admission
+boundary plus EVM, Tempo, and NEAR concurrency retry paths. Direct Email OTP
+challenge validation remains open only if that path stays a supported product
+entrypoint. Deployment and CI/intended-behavior promotion remain deferred to
+Phase 11.
 
 Parent plan: [Cloudflare D1 Migration Plan](./refactor-82-cloudflare-D1-migration.md)
 
@@ -3040,11 +3042,143 @@ Tracking:
       anomalies.
 - [x] Run `pnpm build:sdk` and focused supersession tests.
 
+## Phase 10D: Signing Grant Admission Concurrency
+
+Status: in progress. Manual Tempo step-up testing found a concurrency race at
+the signing-grant admission boundary:
+
+```text
+[SigningSessionBudget] signing grant budget is exhausted:
+Router A/B signing /router-ab/ecdsa-hss/sign/prepare returned HTTP 409:
+signing grant exhausted
+```
+
+The server response is correct. Router A/B owns the authoritative grant-use
+counter, so a request can lose the last-use race even after the browser selected
+a locally usable lane. The current SDK has a tactical EVM-family retry guard for
+this specific 409, but the canonical model belongs in shared signing-grant
+admission: budget exhaustion, in-flight reservations, and stale projection
+states are expected lifecycle results, not generic thrown strings and not
+EVM-only retry branches.
+
+Goal: make concurrent signing attempts safe when `remainingUses` reaches zero.
+The first operation that wins admission signs; losing operations either wait for
+an in-flight admission to settle or request one fresh step-up admission through a
+single shared path. No user-visible transaction failure should occur solely
+because local budget projection lagged the server by one operation.
+
+Target domain shape:
+
+```ts
+type SigningGrantAdmissionResult =
+  | {
+      kind: 'admitted';
+      operation: BudgetAdmittedOperation<SelectedSigningLane>;
+      reservation: SigningSessionBudgetReservation | null;
+    }
+  | {
+      kind: 'exhausted';
+      grant: SigningGrantAdmissionRef;
+      status: ActiveSigningGrantStatus;
+      source: 'server_prepare' | 'trusted_status';
+    }
+  | {
+      kind: 'in_flight';
+      grant: SigningGrantAdmissionRef;
+      retryAfterMs: number;
+      source: 'local_projection' | 'server_prepare';
+    }
+  | {
+      kind: 'stale_projection';
+      grant: SigningGrantAdmissionRef;
+      localProjectionVersion: SigningBudgetProjectionVersion;
+      serverProjectionVersion: SigningBudgetProjectionVersion;
+    };
+
+type SigningGrantAdmissionDecision =
+  | { kind: 'proceed'; admitted: Extract<SigningGrantAdmissionResult, { kind: 'admitted' }> }
+  | { kind: 'wait_and_retry_admission'; retryAfterMs: number }
+  | { kind: 'request_fresh_step_up'; reason: 'exhausted' | 'stale_projection' };
+```
+
+Do:
+
+- Parse Router A/B normal-signing budget errors at the HTTP boundary into typed
+  admission failures. Core signing code must not inspect
+  `SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR`, HTTP status text, or route-specific
+  error strings.
+- Add a shared admission interpreter that maps local budget projection results
+  and Router A/B prepare failures into `SigningGrantAdmissionResult`.
+- Add a per-wallet/per-grant/per-projection admission queue in the signing
+  coordinator. Concurrent operations for the same grant projection must not all
+  race into Router A/B after the projection is known to be exhausted.
+- Coalesce fresh step-up after exhaustion. If multiple operations discover
+  exhaustion together, exactly one fresh authorization flow should mint the next
+  grant/session; other operations wait for the canonical current-session commit
+  and then re-run admission against the new projection.
+- Keep admission identity narrow. Admission refresh queue keys must include
+  wallet id, wallet-bound authority reference, signing grant id, projection
+  version, curve, and chain target where applicable. Operation fingerprints stay
+  in the operation binding/finalization path so separate operations can coalesce
+  on the same exhausted grant projection. Diagnostics cannot participate in key
+  construction.
+- Route EVM, Tempo, and NEAR through the same admission result/decision model.
+  Curve-specific signing and material preparation stay in their existing
+  adapters.
+- Replace the tactical EVM-only "budget retry after auth side effect" with the
+  shared admission decision once the queue and typed boundary are in place.
+- Preserve the one-retry guard at the operation level. A second
+  `request_fresh_step_up` for the same operation is an anomaly and must surface
+  diagnostics instead of looping.
+- Keep this phase compatible with Refactor 90 B3. The implementation may live
+  under current `budget` modules, but the domain shape should be named around
+  signing-grant admission/consumption so the later budget-to-grant-use rename is
+  mechanical.
+
+Exit criteria:
+
+- Two concurrent EVM-family submissions with one remaining use produce one
+  successful sign and one fresh-admission retry, not a user-visible 409.
+- Tempo and Arc share the same EVM-family admission concurrency behavior.
+- NEAR uses the same `SigningGrantAdmissionResult`/decision model for exhausted
+  and in-flight grant states.
+- Server `wallet_budget_exhausted`, `wallet_budget_reserved`, and
+  `wallet_budget_in_flight` payloads are parsed once at the Router A/B response
+  boundary.
+- Core signing flows no longer branch on budget error strings.
+- Fresh step-up coalesces per wallet/grant/projection when multiple operations
+  hit exhaustion together.
+- Focused tests cover:
+  - same-projection concurrent EVM-family operations with one remaining use;
+  - server 409 after auth side effect;
+  - server in-flight response followed by successful admission;
+  - stale local projection followed by fresh step-up;
+  - NEAR parity for exhausted and in-flight grant states.
+- `pnpm build:sdk` and focused signing-grant admission tests pass.
+
+Tracking:
+
+- [x] Add typed Router A/B normal-signing admission error parsing.
+- [x] Add `SigningGrantAdmissionResult` and `SigningGrantAdmissionDecision`
+      unions.
+- [x] Add the shared admission interpreter for local projection and server
+      prepare results.
+- [x] Add the per-wallet/per-grant/per-projection admission queue.
+- [x] Coalesce fresh step-up admission after exhaustion for EVM-family signing.
+- [x] Route EVM and Tempo through the shared admission decision.
+- [x] Route NEAR through the shared admission decision.
+- [x] Delete the tactical EVM-only budget retry opt-in after shared admission
+      owns the behavior.
+- [ ] Add focused concurrency/admission tests for full EVM-family and NEAR
+      signing flows.
+- [x] Run `pnpm build:sdk` and focused signing-grant admission tests.
+
 ## Phase 11: Deferred Deployment And CI Gate
 
-Status: deferred. Start only after Phase 10 manual runtime validation and
-Phase 10A/10B/10C canonical lane-inventory cleanup has passed for Passkey and
-Email OTP flows.
+Status: deferred. Start only after Phase 10 manual runtime validation,
+Phase 10A/10B/10C canonical lane-inventory cleanup, and Phase 10D
+signing-grant admission concurrency have passed for Passkey and Email OTP
+flows.
 
 Do:
 
