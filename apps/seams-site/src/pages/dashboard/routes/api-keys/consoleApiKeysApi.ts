@@ -8,7 +8,7 @@ import {
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
-} from '@seams-internal/shared-ts/console/apiKeyScopes';
+} from '@seams-internal/console-shared/apiKeyScopes';
 
 export interface DashboardConsoleApiKey {
   id: string;

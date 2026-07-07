@@ -7,7 +7,7 @@
     "strict": true,
     "rootDir": ".."
   },
-  "include": ["src/**/*", "../shared-ts/src/**/*"],
+  "include": ["src/**/*", "../console-shared-ts/src/**/*", "../shared-ts/src/**/*"],
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",

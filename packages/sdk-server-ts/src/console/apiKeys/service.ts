@@ -13,7 +13,7 @@ import { normalizeCorsOrigin } from '../../core/SessionService';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
-} from "@shared/console/apiKeyScopes";
+} from "../../../../console-shared-ts/src/apiKeyScopes";
 import type {
   AuthenticateConsoleApiKeyRequest,
   AuthenticateConsoleApiKeyResult,

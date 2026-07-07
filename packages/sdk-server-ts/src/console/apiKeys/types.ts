@@ -1,4 +1,4 @@
-import type { ApiCredentialScope } from "@shared/console/apiKeyScopes";
+import type { ApiCredentialScope } from "../../../../console-shared-ts/src/apiKeyScopes";
 
 export type ConsoleApiKeyStatus = 'ACTIVE' | 'REVOKED';
 export type ConsoleCredentialKind = 'secret_key' | 'publishable_key';

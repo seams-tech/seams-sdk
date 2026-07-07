@@ -1,5 +1,5 @@
 import { parseOptionalPositiveInteger } from './evm';
-import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '../../../../console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import type {
   SponsorshipSpendPricingEstimateInput,
   SponsorshipSpendPricingFinalizeInput,

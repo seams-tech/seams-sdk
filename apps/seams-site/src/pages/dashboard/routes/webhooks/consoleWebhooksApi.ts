@@ -1,7 +1,7 @@
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@seams-internal/shared-ts/console/webhookEventCategories';
+} from '@seams-internal/console-shared/webhookEventCategories';
 import {
   buildConsoleAcceptHeaders,
   buildConsoleJsonHeaders,

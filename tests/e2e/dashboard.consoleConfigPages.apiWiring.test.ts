@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
 
 function iso(ts: string): string {
   return new Date(ts).toISOString();
@@ -8903,7 +8903,7 @@ test.describe('dashboard console config page api wiring', () => {
     ).toHaveAttribute('aria-pressed', 'true');
     await expect(
       existingSecretEditModal.getByRole('group', { name: 'Scopes toggles' }).getByRole('button'),
-    ).toHaveCount(1);
+    ).toHaveCount(4);
     await existingSecretEditModal.getByRole('button', { name: 'Cancel' }).click();
     const revokedRow = page
       .locator('section[aria-label="Credentials table"] .dashboard-data-table__row')
@@ -8969,7 +8969,7 @@ test.describe('dashboard console config page api wiring', () => {
     ).toContainText('Managed browser bootstrap snippet');
     await expect(
       page.locator('section[aria-label="Credential integration snippet"]'),
-    ).toContainText("publishableKey: 'pk_publishablecreated'");
+    ).toContainText('publishableKey: "pk_publishablecreated"');
     await expect(page.locator('.dashboard-secret-banner')).toContainText(
       'Save this publishable key now',
     );

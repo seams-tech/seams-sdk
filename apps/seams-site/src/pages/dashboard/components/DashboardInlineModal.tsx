@@ -48,8 +48,10 @@ export function DashboardInlineModal({
     const previousActiveElement =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousBodyOverflow = document.body.style.overflow;
+    const previousOverlayAriaHidden = overlayHost?.getAttribute('aria-hidden') ?? null;
     if (overlayHost) {
       overlayHost.classList.add('dashboard-overlay-layer--modal-open');
+      overlayHost.removeAttribute('aria-hidden');
     }
     if (host) {
       host.classList.add('dashboard-main--modal-open');
@@ -65,6 +67,11 @@ export function DashboardInlineModal({
       window.cancelAnimationFrame(focusModal);
       if (overlayHost) {
         overlayHost.classList.remove('dashboard-overlay-layer--modal-open');
+        if (previousOverlayAriaHidden === null) {
+          overlayHost.removeAttribute('aria-hidden');
+        } else {
+          overlayHost.setAttribute('aria-hidden', previousOverlayAriaHidden);
+        }
       }
       if (host) {
         host.classList.remove('dashboard-main--modal-open');

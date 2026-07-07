@@ -3,7 +3,7 @@ import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@shared/console/webhookEventCategories';
+} from '../../../../console-shared-ts/src/webhookEventCategories';
 
 export const DELIVERY_RESPONSE_BODY_MAX_LEN = 2_048;
 const WEBHOOK_DISPATCH_TIMEOUT_MS = 10_000;

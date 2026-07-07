@@ -518,7 +518,7 @@ not capability grants.
 
 ### API Credential Scope Taxonomy
 
-`packages/shared-ts/src/console/apiKeyScopes.ts` is currently wallet-only:
+`packages/console-shared-ts/src/apiKeyScopes.ts` is currently wallet-only:
 `accounts.create`, `wallets.read`, `wallets.auth_methods.create`, and
 `wallets.signers.create`. Replace those with management scopes that match the
 auth-first model.

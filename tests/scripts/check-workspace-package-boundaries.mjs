@@ -9,6 +9,7 @@ const repoRoot = path.resolve(scriptDir, '../..');
 const ignoredDirectories = new Set(['.vite', 'dist', 'node_modules']);
 
 const requiredWorkspacePackages = [
+  'packages/console-shared-ts',
   'packages/sdk-web',
   'packages/sdk-server-ts',
   'packages/shared-ts',

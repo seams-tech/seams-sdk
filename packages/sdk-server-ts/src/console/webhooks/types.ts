@@ -1,5 +1,5 @@
-export type { ConsoleWebhookEventCategory } from '@shared/console/webhookEventCategories';
-import type { ConsoleWebhookEventCategory } from '@shared/console/webhookEventCategories';
+export type { ConsoleWebhookEventCategory } from '../../../../console-shared-ts/src/webhookEventCategories';
+import type { ConsoleWebhookEventCategory } from '../../../../console-shared-ts/src/webhookEventCategories';
 
 export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 

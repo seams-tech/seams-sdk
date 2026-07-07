@@ -1,5 +1,6 @@
 packages:
   - tests
+  - packages/console-shared-ts
   - packages/sdk-web
   - packages/sdk-server-ts
   - packages/shared-ts

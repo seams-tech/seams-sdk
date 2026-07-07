@@ -3,7 +3,7 @@ import {
   API_CREDENTIAL_SCOPES,
   isApiCredentialScope,
   type ApiCredentialScope,
-} from "@shared/console/apiKeyScopes";
+} from "../../../../console-shared-ts/src/apiKeyScopes";
 import {
   readOptionalStringField as readOptionalString,
   readRequiredStringField as readRequiredString,

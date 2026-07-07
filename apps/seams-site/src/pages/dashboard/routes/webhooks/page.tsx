@@ -2,7 +2,7 @@ import React from 'react';
 import {
   CONSOLE_WEBHOOK_EVENT_CATEGORIES,
   type ConsoleWebhookEventCategory,
-} from '@seams-internal/shared-ts/console/webhookEventCategories';
+} from '@seams-internal/console-shared/webhookEventCategories';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -30,7 +30,7 @@ import {
 } from './consoleWebhooksApi';
 
 const DEFAULT_WEBHOOK_EVENT_CATEGORIES: ConsoleWebhookEventCategory[] = ['billing'];
-const WEBHOOK_EVENT_CATEGORY_OPTIONS: readonly DashboardScopeOption[] =
+const WEBHOOK_EVENT_CATEGORY_OPTIONS: readonly DashboardScopeOption<ConsoleWebhookEventCategory>[] =
   CONSOLE_WEBHOOK_EVENT_CATEGORIES.map((value) => ({
     value,
     label:
@@ -510,7 +510,7 @@ export function WebhooksPage(): React.JSX.Element {
             label="Event categories"
             options={WEBHOOK_EVENT_CATEGORY_OPTIONS}
             values={eventCategories}
-            onChange={(next) => setEventCategories(next as ConsoleWebhookEventCategory[])}
+            onChange={setEventCategories}
             disabled={creating}
             addLabel=""
             emptyLabel="No event categories selected."

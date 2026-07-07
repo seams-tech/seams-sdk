@@ -1,5 +1,5 @@
 import { ConsolePolicyError } from './errors';
-import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '../../../../console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import { keccak256Bytes } from '@shared/utils/keccak';
 import type {
   ConsoleGasSponsorshipExecutionMode,

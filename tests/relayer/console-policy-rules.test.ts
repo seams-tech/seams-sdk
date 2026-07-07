@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
 import {
   evaluateConsolePolicyRules,
   isConsoleGasSponsorshipPolicyRules,

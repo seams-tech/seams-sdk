@@ -1,16 +1,16 @@
 import React from 'react';
 
-export interface DashboardScopeOption {
-  value: string;
+export interface DashboardScopeOption<Value extends string = string> {
+  value: Value;
   label: string;
   description: string;
 }
 
-interface ScopePickerProps {
+interface ScopePickerProps<Value extends string = string> {
   label: string;
-  options: readonly DashboardScopeOption[];
-  values: string[];
-  onChange(next: string[]): void;
+  options: readonly DashboardScopeOption<Value>[];
+  values: readonly Value[];
+  onChange(next: Value[]): void;
   disabled?: boolean;
   variant?: 'picker' | 'segmented';
   addLabel?: string;
@@ -18,11 +18,10 @@ interface ScopePickerProps {
   placeholderLabel?: string;
 }
 
-function dedupeScopes(values: string[]): string[] {
-  const out: string[] = [];
+function dedupeScopes<Value extends string>(values: readonly Value[]): Value[] {
+  const out: Value[] = [];
   const seen = new Set<string>();
-  for (const raw of Array.isArray(values) ? values : []) {
-    const value = String(raw || '').trim();
+  for (const value of Array.isArray(values) ? values : []) {
     if (!value) continue;
     const key = value.toLowerCase();
     if (seen.has(key)) continue;
@@ -32,7 +31,9 @@ function dedupeScopes(values: string[]): string[] {
   return out;
 }
 
-export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
+export function ScopePicker<Value extends string = string>(
+  props: ScopePickerProps<Value>,
+): React.JSX.Element {
   const {
     label,
     options,
@@ -58,6 +59,7 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
         <div className="dashboard-scope-picker__segments" role="group" aria-label={`${label} toggles`}>
           {options.map((option) => {
             const active = selected.includes(option.value);
+            const stateLabel = active ? 'On' : 'Off';
             return (
               <button
                 key={option.value}
@@ -69,6 +71,7 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
                   .filter(Boolean)
                   .join(' ')}
                 aria-pressed={active}
+                aria-label={`${option.value} ${stateLabel}: ${option.description}`}
                 disabled={disabled}
                 onClick={() =>
                   onChange(
@@ -88,7 +91,7 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
                       .filter(Boolean)
                       .join(' ')}
                   >
-                    {active ? 'On' : 'Off'}
+                    {stateLabel}
                   </span>
                 </span>
                 <span>{option.description}</span>
@@ -117,8 +120,9 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
           aria-label={`${label} dropdown`}
           onChange={(event) => {
             const nextValue = String(event.target.value || '').trim();
-            if (!nextValue) return;
-            onChange([...selected, nextValue]);
+            const nextOption = options.find((option) => option.value === nextValue);
+            if (!nextOption) return;
+            onChange([...selected, nextOption.value]);
           }}
         >
           <option value="">

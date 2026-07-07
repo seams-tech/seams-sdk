@@ -1,4 +1,4 @@
-import { secureRandomUintBelow } from '../utils/secureRandomId';
+import { secureRandomUintBelow } from '@seams-internal/shared-ts/utils/secureRandomId';
 
 const CONSOLE_ORGANIZATION_ID_PREFIX = 'org_';
 const CONSOLE_ORGANIZATION_ID_RANDOM_LENGTH = 12;

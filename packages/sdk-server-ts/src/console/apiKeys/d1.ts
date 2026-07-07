@@ -11,7 +11,7 @@ import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
-} from '@shared/console/apiKeyScopes';
+} from '../../../../console-shared-ts/src/apiKeyScopes';
 import { ConsoleApiKeyError } from './errors';
 import { isIpAllowlistMatch } from './ipAllowlist';
 import { buildPublishableKeyOriginBlockedMessage } from './originMessage';

@@ -68,8 +68,8 @@ Concrete blockers, each owned by a phase below:
 | B5 | Resolved July 8, 2026: `RouterApiOptions` now carries signer-owned ports and route extensions; console sponsorship services live in console route-extension options, and Router API lifecycle webhooks use a signer-owned emitter port | `router/routerApi.ts`, `console/router/routeExtensions.ts` |
 | B6 | Resolved July 8, 2026: the root barrel no longer re-exports console modules, and console exports are available through the explicit `./console` subpath | `src/index.ts`, `src/console/index.ts`, `package.json` |
 | B7 | Resolved July 8, 2026: Cloudflare env types are split into signer, console, and composition intersections for Worker variables and D1/DO bindings | `router/cloudflare/cloudflare.types.ts` |
-| B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
-| B9 | Shared constants for console features live in the shared package; the signer auth scope constants are now owned by `router/apiCredentialPorts.ts` | `packages/shared-ts/src/console/` (gasSponsorshipChains, gasSponsorshipSpendCapTargets, organizationIdentity, webhookEventCategories, and console API-key helpers still used by console code) |
+| B8 | Resolved July 8, 2026: Cloudflare ECDSA now imports the same core Ethereum signer WASM leaf as the Express variant | `core/ThresholdService/ethSignerWasm` |
+| B9 | Resolved July 8, 2026: console constants moved out of signer-neutral `shared-ts` and into the console-owned `@seams-internal/console-shared` workspace package | `packages/console-shared-ts/src/` |
 | B10 | Dev/staging composition harnesses boot both worlds | `router/cloudflare/d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`, `d1StagingSession.ts` (uses `ConsoleTeamRbacService`) |
 
 ## Target shape
@@ -142,7 +142,7 @@ console package exports `consoleRouteExtensions(...)` /
   - [x] Finish splitting `RouterApiOptions` (`routerApi.ts:18-28`): core options carry only
     ports and signer services; console-side
     `ConsoleRouterApiRouteExtensionsOptions` carries the remaining `Console*Service`
-    fields. `@shared/console/apiKeyScopes` usage in signer core is replaced by
+    fields. Shared console API-key-scope usage in signer core is replaced by
     a scope-string type owned by the port.
   - [x] Move managed bootstrap-grant and API-wallet service ownership off
     `RouterApiOptions` and into console-owned route extension closures.
@@ -176,11 +176,11 @@ console package exports `consoleRouteExtensions(...)` /
     Env (`CONSOLE_DB`, billing/webhook/snapshot vars) owned by console; the
     combined shape becomes an intersection type defined at the composition
     root.
-- [ ] Phase 5: Move shared console constants (B9).
-  - Relocate `packages/shared-ts/src/console/` into the console module (or a
-    console-owned shared subpath). After Phase 2 nothing in signer core
-    imports it; the guard enforces that stays true. `shared-ts` keeps only
-    signer/wallet-neutral types.
+- [x] Phase 5: Move shared console constants (B9).
+  - [x] Relocate console constants into the console-owned
+    `packages/console-shared-ts` workspace package. After Phase 2 nothing in
+    signer core imports them; the guard enforces that stays true. `shared-ts`
+    keeps only signer/wallet-neutral types.
 - [ ] Phase 6: Physical package split.
   - Create the console workspace package; `git mv` the console folders,
     console routers, console D1 adapters, `migrations/d1-console`, and

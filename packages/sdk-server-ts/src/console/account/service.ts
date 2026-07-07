@@ -1,4 +1,4 @@
-import { generateConsoleOrganizationId } from '@shared/console/organizationIdentity';
+import { generateConsoleOrganizationId } from '../../../../console-shared-ts/src/organizationIdentity';
 import { ConsoleAccountError } from './errors';
 import type {
   DeleteConsoleAccountOrganizationResult,

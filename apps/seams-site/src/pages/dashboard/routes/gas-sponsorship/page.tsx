@@ -7,7 +7,7 @@ import {
   type GasSponsorshipChainMatrixRow,
   type GasSponsorshipChainTarget,
   type GasSponsorshipTargetNetworkClass,
-} from '@seams-internal/shared-ts/console/gasSponsorshipChains';
+} from '@seams-internal/console-shared/gasSponsorshipChains';
 import {
   DashboardTable,
   DashboardTableActionButton,

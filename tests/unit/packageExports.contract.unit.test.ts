@@ -151,6 +151,16 @@ test.describe('package export contracts', () => {
     expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).not.toContain(
       "export * from './console/",
     );
+    expect(readRepoFile('packages/shared-ts/package.json')).not.toContain('./console');
+    expect(fs.existsSync(path.join(repoRoot, 'packages/shared-ts/src/console'))).toBe(false);
+    expect(readJson('packages/console-shared-ts/package.json').exports).toEqual({
+      '.': './src/index.ts',
+      './apiKeyScopes': './src/apiKeyScopes.ts',
+      './gasSponsorshipChains': './src/gasSponsorshipChains.ts',
+      './gasSponsorshipSpendCapTargets': './src/gasSponsorshipSpendCapTargets.ts',
+      './organizationIdentity': './src/organizationIdentity.ts',
+      './webhookEventCategories': './src/webhookEventCategories.ts',
+    });
     expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/sdk-server-ts');
     expect(fs.existsSync(resolveSdkServerPath(exportsMap['./console'].types))).toBe(true);
   });

@@ -9,7 +9,7 @@ import type {
 } from '../sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../webhooks';
-import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '../../../../console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import {
   buildSponsoredSpendCapSourceEventId,
   isSponsorshipSpendCapEnforcementError,

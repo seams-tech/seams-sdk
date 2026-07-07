@@ -2,7 +2,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@shared/console/webhookEventCategories';
+} from '../../../../console-shared-ts/src/webhookEventCategories';
 import type { NormalizedLogger } from '../../core/logger';
 import {
   d1Integer as toNumber,

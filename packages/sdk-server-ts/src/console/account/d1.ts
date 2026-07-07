@@ -1,4 +1,4 @@
-import { generateConsoleOrganizationId } from '@shared/console/organizationIdentity';
+import { generateConsoleOrganizationId } from '../../../../console-shared-ts/src/organizationIdentity';
 import { d1Number as toNumber, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import type { ConsoleOnboardingService } from '../onboarding';

@@ -9,16 +9,16 @@ export const CONSOLE_WEBHOOK_EVENT_CATEGORIES = [
 
 export type ConsoleWebhookEventCategory = (typeof CONSOLE_WEBHOOK_EVENT_CATEGORIES)[number];
 
-const CONSOLE_WEBHOOK_EVENT_CATEGORY_SET = new Set<string>(CONSOLE_WEBHOOK_EVENT_CATEGORIES);
-
 export function normalizeConsoleWebhookEventCategory(
   value: unknown,
 ): ConsoleWebhookEventCategory | null {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
-  if (!CONSOLE_WEBHOOK_EVENT_CATEGORY_SET.has(normalized)) return null;
-  return normalized as ConsoleWebhookEventCategory;
+  for (const category of CONSOLE_WEBHOOK_EVENT_CATEGORIES) {
+    if (category === normalized) return category;
+  }
+  return null;
 }
 
 export function isConsoleWebhookEventCategory(

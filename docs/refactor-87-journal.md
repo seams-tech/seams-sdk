@@ -64,6 +64,17 @@
 - Completed the Phase 4 B7 env-type split. Cloudflare Worker env types now
   separate signer variables, console variables, signer D1/DO bindings, console
   D1 bindings, and the composition intersections.
+- Completed the Phase 5 B9 console-constant split. Console-owned shared
+  constants now live in `packages/console-shared-ts` as
+  `@seams-internal/console-shared`; `@seams-internal/shared-ts` no longer
+  exports or contains a `console` subtree.
+- Updated server, site, and test imports to consume console constants from the
+  new console-owned shared package. Server console sources keep relative
+  source imports where required to preserve generated
+  `@seams/sdk-server/console` declaration output before the Phase 6 physical
+  package split.
+- Added package export contracts for the new console shared package and for
+  removal of the old `shared-ts` console export surface.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`
@@ -77,3 +88,12 @@
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routerApiRouteSurface.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/cloudflareD1ConsoleServices.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/packageExports.contract.unit.test.ts unit/sdkPackageInstallSmoke.unit.test.ts`
+  - `pnpm install --ignore-scripts`
+  - `pnpm -C packages/console-shared-ts run type-check`
+  - `pnpm -C packages/shared-ts run type-check`
+  - `pnpm -C packages/sdk-server-ts run build`
+  - `pnpm -C tests run check:signer-console-module-boundaries`
+  - `pnpm -C tests run check:workspace-package-boundaries`
+  - `pnpm -C apps/seams-site typecheck`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/packageExports.contract.unit.test.ts unit/sdkPackageInstallSmoke.unit.test.ts unit/sponsorship.staticPricing.unit.test.ts unit/sponsorship.realPricing.unit.test.ts`
+  - `VITE_CACHE_DIR=/tmp/seams-vite-cache-ref87-phase5-e2e W3A_TEST_FRONTEND_URL=http://127.0.0.1:5197 pnpm -C tests exec playwright test --reporter=line e2e/dashboard.webhooks.apiWiring.test.ts e2e/dashboard.consoleConfigPages.apiWiring.test.ts -g "dashboard webhooks|gas sponsorship page wires create|credentials page supports"`

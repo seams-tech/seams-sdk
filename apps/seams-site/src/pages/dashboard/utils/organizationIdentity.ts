@@ -1,7 +1,7 @@
 import {
   deriveConsoleOrganizationSlug,
   generateConsoleOrganizationId,
-} from '@seams-internal/shared-ts/console/organizationIdentity';
+} from '@seams-internal/console-shared/organizationIdentity';
 
 export function normalizeDashboardOrganizationIdentity(value: string): string {
   return String(value || '')

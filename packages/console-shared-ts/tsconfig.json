@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@seams-internal/shared-ts/*": ["../shared-ts/src/*"]
+    }
+  },
+  "include": ["src/**/*", "../shared-ts/src/**/*"],
+  "exclude": ["node_modules"]
+}

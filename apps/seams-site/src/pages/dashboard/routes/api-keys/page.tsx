@@ -33,7 +33,7 @@ import {
   API_CREDENTIAL_SCOPE_OPTIONS,
   isApiCredentialScope,
   type ApiCredentialScope,
-} from '@seams-internal/shared-ts/console/apiKeyScopes';
+} from '@seams-internal/console-shared/apiKeyScopes';
 
 const DEFAULT_RATE_LIMIT_BUCKET = 'default_web_v1';
 const DEFAULT_QUOTA_BUCKET = 'free_registrations_v1';
@@ -66,7 +66,8 @@ const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymen
   },
 ] as const;
 
-const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = API_CREDENTIAL_SCOPE_OPTIONS;
+const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption<ApiCredentialScope>[] =
+  API_CREDENTIAL_SCOPE_OPTIONS;
 const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.3, 0.9, 0.95, 0.7, 1.05, 1.2, 0.85, 1.15);
 const DEFAULT_SECRET_SCOPES: ApiCredentialScope[] = ['accounts.create'];
 
@@ -337,7 +338,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const [credentialKindInput, setCredentialKindInput] =
     React.useState<DashboardCredentialKind>('secret_key');
   const [nameInput, setNameInput] = React.useState<string>('');
-  const [scopesInput, setScopesInput] = React.useState<string[]>(DEFAULT_SECRET_SCOPES);
+  const [scopesInput, setScopesInput] =
+    React.useState<ApiCredentialScope[]>(DEFAULT_SECRET_SCOPES);
   const [ipAllowlistInput, setIpAllowlistInput] = React.useState<string>('');
   const [allowedOriginsInput, setAllowedOriginsInput] =
     React.useState<string[]>(defaultPublishableOrigins);
@@ -352,7 +354,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const [copyCredentialStatus, setCopyCredentialStatus] = React.useState<string>('');
   const [editingApiKeyId, setEditingApiKeyId] = React.useState<string>('');
   const [editingNameInput, setEditingNameInput] = React.useState<string>('');
-  const [editingScopesInput, setEditingScopesInput] = React.useState<string[]>([]);
+  const [editingScopesInput, setEditingScopesInput] = React.useState<ApiCredentialScope[]>([]);
   const [editingIpAllowlistInput, setEditingIpAllowlistInput] = React.useState<string>('');
   const [editingAllowedOriginsInput, setEditingAllowedOriginsInput] = React.useState<string[]>([]);
   const [editingPaymentPolicyInput, setEditingPaymentPolicyInput] =

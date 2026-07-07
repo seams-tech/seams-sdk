@@ -3,7 +3,7 @@ import {
   CONSOLE_WEBHOOK_EVENT_CATEGORIES,
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@shared/console/webhookEventCategories';
+} from '../../../../console-shared-ts/src/webhookEventCategories';
 import {
   readOptionalQueryBooleanField as readOptionalQueryBoolean,
   readOptionalQueryPositiveIntegerField as readOptionalQueryInteger,

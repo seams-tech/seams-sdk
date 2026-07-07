@@ -6,8 +6,6 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./console": "./src/console/index.ts",
-    "./console/*": "./src/console/*.ts",
     "./near": "./src/near/index.ts",
     "./near/*": "./src/near/*.ts",
     "./signing-lanes": "./src/signing-lanes/index.ts",
