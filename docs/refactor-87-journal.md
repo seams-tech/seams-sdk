@@ -61,6 +61,9 @@
 - Completed the Phase 4 B6 entrypoint split slice. The root package barrel no
   longer exports console modules, `src/console/index.ts` owns the console
   barrel, and `@seams/sdk-server/console` is now an explicit package subpath.
+- Completed the Phase 4 B7 env-type split. Cloudflare Worker env types now
+  separate signer variables, console variables, signer D1/DO bindings, console
+  D1 bindings, and the composition intersections.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
   - `pnpm -C packages/sdk-server-ts run build`

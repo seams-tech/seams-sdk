@@ -132,6 +132,15 @@ test.describe('package export contracts', () => {
       default: './dist/esm/console/index.js',
       types: './dist/types/sdk-server-ts/src/console/index.d.ts',
     });
+    const cloudflareTypes = readRepoFile(
+      'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
+    );
+    expect(cloudflareTypes).toContain('RouterApiCloudflareSignerWorkerEnv');
+    expect(cloudflareTypes).toContain('RouterApiCloudflareConsoleWorkerEnv');
+    expect(cloudflareTypes).toContain('SeamsD1SignerTenantStorageWorkerEnv');
+    expect(cloudflareTypes).toContain('SeamsD1ConsoleTenantStorageWorkerEnv');
+    expect(cloudflareTypes).not.toContain('interface RouterApiCloudflareWorkerEnv');
+    expect(cloudflareTypes).not.toContain('interface SeamsD1DoTenantStorageWorkerEnv');
     expect(exportsMap['./storage/postgres']).toBeUndefined();
     expect(exportsMap['./wasm/signer']).toEqual({
       import: './dist/esm/wasm/signer.js',

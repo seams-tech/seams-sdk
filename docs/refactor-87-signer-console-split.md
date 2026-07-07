@@ -67,7 +67,7 @@ Concrete blockers, each owned by a phase below:
 | B4 | Resolved July 8, 2026: API-wallet, sponsored EVM, signed-delegate implementation, and shared sponsorship helper modules live under `console/router`; signed-delegate route ownership moved to the console route extension | `console/router/routeExtensions.ts`, `console/router/routerApiSignedDelegate.ts` |
 | B5 | Resolved July 8, 2026: `RouterApiOptions` now carries signer-owned ports and route extensions; console sponsorship services live in console route-extension options, and Router API lifecycle webhooks use a signer-owned emitter port | `router/routerApi.ts`, `console/router/routeExtensions.ts` |
 | B6 | Resolved July 8, 2026: the root barrel no longer re-exports console modules, and console exports are available through the explicit `./console` subpath | `src/index.ts`, `src/console/index.ts`, `package.json` |
-| B7 | Mixed Worker Env types | `router/cloudflare/cloudflare.types.ts` bundles `CONSOLE_DB` + `SIGNER_DB` + `THRESHOLD_STORE` in one Env; `RouterApiCloudflareWorkerEnv` mixes billing/webhook/snapshot vars with relayer/signer vars |
+| B7 | Resolved July 8, 2026: Cloudflare env types are split into signer, console, and composition intersections for Worker variables and D1/DO bindings | `router/cloudflare/cloudflare.types.ts` |
 | B8 | Needless directory coupling | `router/cloudflare/routes/thresholdEcdsa.ts:43` imports a console-free crypto leaf from `sponsorship/evmWorkerSignerWasm`; the express variant already uses `core/ThresholdService/ethSignerWasm` |
 | B9 | Shared constants for console features live in the shared package; the signer auth scope constants are now owned by `router/apiCredentialPorts.ts` | `packages/shared-ts/src/console/` (gasSponsorshipChains, gasSponsorshipSpendCapTargets, organizationIdentity, webhookEventCategories, and console API-key helpers still used by console code) |
 | B10 | Dev/staging composition harnesses boot both worlds | `router/cloudflare/d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`, `d1StagingSession.ts` (uses `ConsoleTeamRbacService`) |
@@ -166,12 +166,12 @@ console package exports `consoleRouteExtensions(...)` /
   - Contract: with no extensions injected, the signer router serves exactly
     the self-hosted route surface it serves today when those options are
     absent. Route-surface parity is asserted by test, not by inspection.
-- [ ] Phase 4: Split entry points and Env types (B6, B7).
+- [x] Phase 4: Split entry points and Env types (B6, B7).
   - [x] Trim `src/index.ts:261-266`; console/sponsorship exports move to the
     console module's own barrel. Until the physical package split, expose
     them via a `./console` subpath export so existing consumers migrate with
     a one-line import change.
-  - Split `cloudflare.types.ts`: a signer Env (`SIGNER_DB`,
+  - [x] Split `cloudflare.types.ts`: a signer Env (`SIGNER_DB`,
     `THRESHOLD_STORE`, relayer/signer vars) owned by signer core; a console
     Env (`CONSOLE_DB`, billing/webhook/snapshot vars) owned by console; the
     combined shape becomes an intersection type defined at the composition

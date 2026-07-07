@@ -830,8 +830,12 @@ export {
 
 export type {
   CfEnv,
-  RouterApiCloudflareWorkerEnv,
-  SeamsD1DoTenantStorageWorkerEnv,
+  RouterApiCloudflareConsoleWorkerEnv,
+  RouterApiCloudflareSignerWorkerEnv,
+  SeamsCloudflareComposedWorkerEnv,
+  SeamsD1ComposedTenantStorageWorkerEnv,
+  SeamsD1ConsoleTenantStorageWorkerEnv,
+  SeamsD1SignerTenantStorageWorkerEnv,
   CfExecutionContext,
   CfScheduledEvent,
   CfEmailMessage,
