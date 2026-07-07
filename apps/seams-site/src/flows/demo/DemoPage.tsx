@@ -1,30 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useSeams } from '@seams/sdk/react';
 
 import { useSetGreeting } from '@/shared/hooks/useSetGreeting';
 import { NearGreetingSection } from './sections/NearGreetingSection';
-import { SigningSessionSection } from './sections/SigningSessionSection';
 import { ThresholdSignerSection } from './sections/ThresholdSignerSection';
 import { createChainDefaultGreeting } from './demoEvmHelpers';
 import { useDemoNearAccountFundingStatus } from './hooks/useDemoNearAccountFundingStatus';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
-import { useDemoSigningSession } from './hooks/useDemoSigningSession';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
 
 export const DemoPage: React.FC = () => {
-  const [clockMs, setClockMs] = useState(() => Date.now());
-
-  // Lightweight clock for TTL countdown display
-  useEffect(() => {
-    const id = window.setInterval(() => setClockMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
   const {
-    loginState: { isLoggedIn, walletId, nearAccountId, nearPublicKey },
+    loginState: {
+      isLoggedIn,
+      walletId,
+      nearAccountId,
+      nearPublicKey,
+      thresholdEcdsaEthereumAddress,
+    },
     seams,
   } = useSeams();
 
@@ -54,16 +50,10 @@ export const DemoPage: React.FC = () => {
     fetchGreeting,
   });
 
-  const signingSession = useDemoSigningSession({
-    clockMs,
-    isLoggedIn,
-    walletId,
-    seams,
-  });
-
   const thresholdSigners = useDemoThresholdSigners({
     isLoggedIn,
     walletId,
+    thresholdEcdsaEthereumAddress,
     seams,
     tempoGreetingInput,
     arcGreetingInput,
@@ -129,21 +119,6 @@ export const DemoPage: React.FC = () => {
         onSignEvmTransaction={thresholdSigners.handleSignEvmThresholdTx}
         evmThresholdSignLoading={thresholdSigners.evmThresholdSignLoading}
         canSignEvm={thresholdSigners.canSignEvm}
-      />
-
-      <SigningSessionSection
-        sessionRemainingUsesInput={signingSession.sessionRemainingUsesInput}
-        onSessionRemainingUsesInputChange={signingSession.setSessionRemainingUsesInput}
-        sessionTtlSecondsInput={signingSession.sessionTtlSecondsInput}
-        onSessionTtlSecondsInputChange={signingSession.setSessionTtlSecondsInput}
-        onCreateSession={signingSession.handleUnlockSession}
-        unlockLoading={signingSession.unlockLoading}
-        sessionStatus={signingSession.sessionStatus}
-        expiresInSec={signingSession.expiresInSec}
-        walletSession={signingSession.walletSession}
-        sessionStatusLoading={signingSession.sessionStatusLoading}
-        sessionStatusError={signingSession.sessionStatusError}
-        onRefreshSessionStatus={signingSession.refreshSessionStatus}
       />
     </div>
   );

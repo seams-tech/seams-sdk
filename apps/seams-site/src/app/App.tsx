@@ -3,6 +3,7 @@ import { SeamsWebProvider } from '@seams/sdk/react/provider';
 import { useTheme } from '@seams/sdk/react';
 
 import { HomePage } from '@/pages/home/page';
+import { Home2Page } from '@/pages/home2/page';
 import { PricingPage } from '@/pages/pricing/page';
 import { CompanyPage } from '@/pages/company/page';
 import { ContactPage } from '@/pages/contact/page';
@@ -99,6 +100,8 @@ export const App: React.FC = () => {
     switch (pathname) {
       case '/':
         return <HomePage />;
+      case '/home2':
+        return <Home2Page />;
       case '/pricing':
         return <PricingPage />;
       case '/company':

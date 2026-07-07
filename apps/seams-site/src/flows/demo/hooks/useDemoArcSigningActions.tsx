@@ -37,6 +37,7 @@ type ArcNativeGasPreflightFailure = Error & {
   code: 'arc_native_gas_insufficient';
   details: {
     thresholdOwnerAddress: EvmAddress;
+    rpcUrl: string;
     balanceWei: bigint;
     requiredWei: bigint;
   };
@@ -44,6 +45,7 @@ type ArcNativeGasPreflightFailure = Error & {
 
 function createArcNativeGasPreflightFailure(args: {
   thresholdOwnerAddress: EvmAddress;
+  rpcUrl: string;
   balanceWei: bigint;
   requiredWei: bigint;
 }): ArcNativeGasPreflightFailure {
@@ -53,6 +55,7 @@ function createArcNativeGasPreflightFailure(args: {
   error.code = 'arc_native_gas_insufficient';
   error.details = {
     thresholdOwnerAddress: args.thresholdOwnerAddress,
+    rpcUrl: args.rpcUrl,
     balanceWei: args.balanceWei,
     requiredWei: args.requiredWei,
   };
@@ -90,6 +93,8 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId, description: null });
     let arcThresholdOwnerAddressForAttempt: EvmAddress | null = null;
+    let arcNativeBalanceWeiForAttempt: bigint | null = null;
+    let requiredNativeWeiForAttempt: bigint | null = null;
     try {
       const requestedGreeting = arcGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
@@ -100,14 +105,17 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       const arcThresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
       arcThresholdOwnerAddressForAttempt = arcThresholdOwnerAddress;
       const requiredNativeWei = request.tx.gasLimit * request.tx.maxFeePerGas + request.tx.value;
+      requiredNativeWeiForAttempt = requiredNativeWei;
       const arcNativeBalanceWei = await readEvmNativeBalance({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
         address: arcThresholdOwnerAddress,
         blockTag: 'pending',
       });
+      arcNativeBalanceWeiForAttempt = arcNativeBalanceWei;
       if (arcNativeBalanceWei < requiredNativeWei) {
         throw createArcNativeGasPreflightFailure({
           thresholdOwnerAddress: arcThresholdOwnerAddress,
+          rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
           balanceWei: arcNativeBalanceWei,
           requiredWei: requiredNativeWei,
         });
@@ -192,6 +200,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         toast.error(resolvedError.message, { id: toastId, description: null });
         console.error('[DemoPage][ArcNativeGasPreflightFailure]', {
           atIso: new Date().toISOString(),
+          rpcUrl: resolvedError.details.rpcUrl,
           thresholdOwnerAddress: resolvedError.details.thresholdOwnerAddress,
           balanceWei: resolvedError.details.balanceWei.toString(),
           requiredWei: resolvedError.details.requiredWei.toString(),
@@ -200,13 +209,28 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       }
       const insufficient = parseInsufficientFundsError(message);
       if (insufficient) {
-        toast.error(
-          `ARC threshold owner${arcThresholdOwnerAddressForAttempt ? ` ${arcThresholdOwnerAddressForAttempt}` : ''} has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
-          { id: toastId, description: null },
-        );
+        const preflightSawEnoughGas =
+          arcNativeBalanceWeiForAttempt !== null &&
+          requiredNativeWeiForAttempt !== null &&
+          arcNativeBalanceWeiForAttempt >= requiredNativeWeiForAttempt;
+        let toastMessage: string;
+        if (preflightSawEnoughGas && arcNativeBalanceWeiForAttempt !== null) {
+          toastMessage = `ARC broadcast reported insufficient funds, but preflight saw ${formatWeiToEth(
+            arcNativeBalanceWeiForAttempt,
+          )} native tokens for ${arcThresholdOwnerAddressForAttempt || 'the threshold owner'}. Refresh the wallet session and retry.`;
+        } else {
+          toastMessage = `ARC threshold owner${arcThresholdOwnerAddressForAttempt ? ` ${arcThresholdOwnerAddressForAttempt}` : ''} has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`;
+        }
+        toast.error(toastMessage, { id: toastId, description: null });
         console.error('[DemoPage][ArcBroadcastInsufficientFunds]', {
           atIso: new Date().toISOString(),
+          rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
           thresholdOwnerAddress: arcThresholdOwnerAddressForAttempt,
+          preflightBalanceWei:
+            arcNativeBalanceWeiForAttempt !== null ? arcNativeBalanceWeiForAttempt.toString() : null,
+          preflightRequiredWei:
+            requiredNativeWeiForAttempt !== null ? requiredNativeWeiForAttempt.toString() : null,
+          preflightSawEnoughGas,
           haveWei: insufficient.haveWei.toString(),
           wantWei: insufficient.wantWei.toString(),
           error: resolvedError,

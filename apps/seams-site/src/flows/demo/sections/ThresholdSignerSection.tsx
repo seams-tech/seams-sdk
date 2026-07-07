@@ -47,7 +47,7 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
         <div className="funding-address-row">
           <span className="funding-address-text">
             {props.thresholdOwnerAddress ||
-              'Address unavailable. Unlock to provision threshold ECDSA, then refresh.'}
+              'Threshold ECDSA address unavailable. Refresh the wallet session before funding or signing.'}
           </span>
           {props.thresholdOwnerAddress ? (
             <CopyButton

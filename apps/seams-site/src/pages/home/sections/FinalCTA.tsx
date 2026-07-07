@@ -13,13 +13,12 @@ export function FinalCTA(): React.JSX.Element {
       aria-labelledby="final-cta-title"
     >
       <div className="final-cta__content">
-        <p className="final-cta__eyebrow">Start your evaluation</p>
+        <p className="final-cta__eyebrow">Get started</p>
         <h2 id="final-cta-title" className="final-cta__title">
-          Ship policy-bound signing with clear custody boundaries
+          Ship embedded wallets with real custody boundaries
         </h2>
         <p className="final-cta__description">
-          Pick a self-serve path for integration or start a sales conversation for architecture,
-          deployment, and rollout planning.
+          Integrate in an afternoon. Talk to us when you&rsquo;re ready for production.
         </p>
       </div>
       <div className="final-cta__actions">

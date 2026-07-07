@@ -38,6 +38,11 @@ function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+function currentBrowserHostname(): string | undefined {
+  if (typeof globalThis.location === 'undefined') return undefined;
+  return toOptionalString(globalThis.location.hostname);
+}
+
 function parseSigningSessionPersistenceMode(
   value: unknown,
 ): NonNullable<SeamsConfigsInput['signingSessionPersistenceMode']> {
@@ -91,7 +96,32 @@ function resolveManagedRegistrationConfig(
   };
 }
 
+function resolveRouterAbConfig(
+  source: ImportMetaEnv,
+  managedRegistration: ManagedRegistrationConfig | undefined,
+): SeamsConfigsInput['routerAb'] | undefined {
+  const signingWorkerId = toOptionalString(source.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
+  if (signingWorkerId) {
+    return {
+      normalSigning: {
+        mode: 'enabled',
+        signingWorkerId,
+      },
+    };
+  }
+
+  if (managedRegistration) {
+    throw new Error(
+      'Missing VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: managed threshold registrations require Router A/B normal signing for threshold-signer warm sessions',
+    );
+  }
+
+  return undefined;
+}
+
 const env = import.meta.env;
+const rpIdBase = toOptionalString(env.VITE_RP_ID_BASE) || currentBrowserHostname();
+const managedRegistration = resolveManagedRegistrationConfig(env);
 
 const docsOrigin = stripTrailingSlash(toTrimmedString(env.VITE_DOCS_ORIGIN)) || DEFAULT_DOCS_ORIGIN;
 const baseUrl = stripTrailingSlash(toTrimmedString(env.BASE_URL || '/')) || '/';
@@ -111,15 +141,7 @@ const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
 );
 const signingSessionSealKeyVersion = toOptionalString(env.VITE_SIGNING_SESSION_SEAL_KEY_VERSION);
 const signingSessionSealShamirPrimeB64u = toOptionalString(env.VITE_SIGNING_SESSION_SHAMIR_P_B64U);
-const routerAbNormalSigningWorkerId = toOptionalString(env.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
-const routerAb: SeamsConfigsInput['routerAb'] | undefined = routerAbNormalSigningWorkerId
-  ? {
-      normalSigning: {
-        mode: 'enabled',
-        signingWorkerId: routerAbNormalSigningWorkerId,
-      },
-    }
-  : undefined;
+const routerAb = resolveRouterAbConfig(env, managedRegistration);
 const chains: NonNullable<SeamsConfigsInput['chains']> = [
   {
     network: nearChainNetwork,
@@ -143,7 +165,7 @@ const chains: NonNullable<SeamsConfigsInput['chains']> = [
 export const FRONTEND_CONFIG = Object.freeze({
   relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
   consoleBaseUrl: toOptionalString(env.VITE_CONSOLE_BASE_URL),
-  managedRegistration: resolveManagedRegistrationConfig(env),
+  managedRegistration,
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
   nearNetwork,
   nearRpcUrl,
@@ -157,7 +179,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   walletOrigin: toOptionalString(env.VITE_WALLET_ORIGIN),
   walletServicePath: toOptionalString(env.VITE_WALLET_SERVICE_PATH),
   sdkBasePath: toOptionalString(env.VITE_SDK_BASE_PATH),
-  rpIdBase: toOptionalString(env.VITE_RP_ID_BASE),
+  rpIdBase,
   docsOrigin,
   baseUrl,
   demoContractId: toTrimmedString(env.VITE_DEMO_CONTRACT_ID) || DEFAULT_DEMO_CONTRACT_ID,

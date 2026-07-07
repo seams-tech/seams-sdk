@@ -23,6 +23,8 @@ export type DemoWalletSessionSnapshot = {
     isLoggedIn: boolean;
     nearAccountId?: string | null;
     authMethod?: string | null;
+    thresholdEcdsaEthereumAddress?: string | null;
+    thresholdEcdsaPublicKeyB64u?: string | null;
   };
   signingSession: DemoSigningSessionStatus | null;
   authMethod?: string | null;
@@ -92,6 +94,8 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
             isLoggedIn: sess.login.isLoggedIn,
             nearAccountId: sess.login.nearAccountId,
             authMethod: sess.login.authMethod || null,
+            thresholdEcdsaEthereumAddress: sess.login.thresholdEcdsaEthereumAddress || null,
+            thresholdEcdsaPublicKeyB64u: sess.login.thresholdEcdsaPublicKeyB64u || null,
           },
           signingSession: sess.signingSession || null,
           authMethod: sess.authMethod || null,

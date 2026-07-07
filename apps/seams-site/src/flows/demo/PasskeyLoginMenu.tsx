@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
+import { demoPasskeyEcdsaSignerOptions } from './demoPasskeyEcdsaSignerOptions';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -36,6 +37,18 @@ function normalizeBaseUrl(input: unknown): string {
   return String(input || '')
     .trim()
     .replace(/\/+$/, '');
+}
+
+function assertDemoPasskeyRegistrationProvisionedEcdsa(result: {
+  success?: boolean;
+  thresholdEcdsaEthereumAddress?: string | null;
+}): void {
+  if (!result.success) return;
+  const thresholdOwnerAddress = String(result.thresholdEcdsaEthereumAddress || '').trim();
+  if (thresholdOwnerAddress) return;
+  throw new Error(
+    'Registration completed without threshold ECDSA signer; this demo requires Tempo and EVM threshold signers.',
+  );
 }
 
 function formatRetryAfter(ms: unknown): string {
@@ -276,8 +289,12 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   const onRegister = async (request: PasskeyAuthMenuRegistrationRequest) => {
     const result = await registerPasskey({
       wallet: request.wallet,
+      signerOptions: demoPasskeyEcdsaSignerOptions(
+        seams.configs.signing.thresholdEcdsa.provisioningDefaults,
+      ),
       onEvent: handleRegistrationEvent,
     });
+    assertDemoPasskeyRegistrationProvisionedEcdsa(result);
 
     if (result.success && result.nearAccountId) {
       const tx = result.transactionId ? ` tx: ${result.transactionId}` : '';
@@ -412,7 +429,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           authMenuControl.defaultModeOverride ??
           (accountExists ? AuthMenuMode.Login : AuthMenuMode.Register)
         }
-        showSDKEvents={true}
         loadingScreenDelayMs={100}
         headings={{
           registration: {

@@ -13,6 +13,7 @@ import { useDemoThresholdAccountState } from './useDemoThresholdAccountState';
 type UseDemoThresholdSignersArgs = {
   isLoggedIn: boolean;
   walletId?: string | null;
+  thresholdEcdsaEthereumAddress?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   frontendConfig?: Pick<
     FrontendConfig,
@@ -31,6 +32,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
   const {
     isLoggedIn,
     walletId,
+    thresholdEcdsaEthereumAddress,
     seams,
     frontendConfig,
     tempoGreetingInput,
@@ -58,6 +60,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
   } = useDemoThresholdAccountState({
     isLoggedIn,
     walletId,
+    thresholdEcdsaEthereumAddress,
     seams,
     frontendConfig,
   });

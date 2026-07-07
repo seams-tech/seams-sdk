@@ -40,20 +40,12 @@ export function HomeHero(): React.JSX.Element {
     <>
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
-          <span className="hero-title-text">Key and Credential Infrastructure for Policy-Bound Apps</span>
+          <span className="hero-title-text">Embedded wallets with policy-enforced signing</span>
         </h1>
         <h2 className="hero-subtitle">
-          Prove users, devices, and agents. Bind approvals to typed intents. Enforce policy before
-          signatures, payments, or API actions execute.
+          Authenticate users, devices, and AI agents. Every signature, payment, and API call is
+          checked against your policy before it executes.
         </h2>
-        <p className="hero-description">
-          Ship embedded wallets first, then extend the same control model to credentials, mandates,
-          delegated agents, and Router A/B deployments.
-        </p>
-        <p className="hero-proof">
-          Non-custodial by design: holder shares, server shares, export, rotation, and delegated
-          lanes stay behind explicit boundaries.
-        </p>
         <div className="hero-ctas">
           <a
             className="cta-button cta-primary cta-3"
@@ -102,6 +94,10 @@ export function HomeHero(): React.JSX.Element {
             </pre>
           </div>
         </div>
+        <p className="hero-proof">
+          Non-custodial by design: keys are split between the user&rsquo;s device and your
+          infrastructure &mdash; neither can sign alone.
+        </p>
       </section>
     </>
   );

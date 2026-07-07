@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import '../app.css';
+import '@fontsource/hanken-grotesk/300.css';
 import '@fontsource/hanken-grotesk/400.css';
 import '@fontsource/hanken-grotesk/400-italic.css';
 import '@fontsource/hanken-grotesk/500.css';

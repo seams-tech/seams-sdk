@@ -6,31 +6,6 @@ import { HomeHero } from './sections/HomeHero';
 import NavbarStatic from '@/components/Navbar/NavbarStatic';
 import { ProductCards } from './sections/ProductCards';
 import { SecurityProofStrip } from './sections/SecurityProofStrip';
-import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
-
-// Defer loading the DemoPasskeyColumn until after first paint/idle
-const DemoPasskeyColumnLazy = React.lazy(() =>
-  import('@/components/DemoPasskeyColumn').then((m) => ({ default: m.DemoPasskeyColumn })),
-);
-
-const SectionPlaceholder: React.FC = () => <div style={{ minHeight: 360 }} />;
-
-const LazyPasskeySection: React.FC = () => {
-  const show = useRevealOnIdle();
-  return (
-    <div className="layout-column-right">
-      <div className="constrained-column">
-        {show ? (
-          <React.Suspense fallback={<SectionPlaceholder />}>
-            <DemoPasskeyColumnLazy />
-          </React.Suspense>
-        ) : (
-          <SectionPlaceholder />
-        )}
-      </div>
-    </div>
-  );
-};
 
 export function HomePage(): React.JSX.Element {
   return (
@@ -41,10 +16,6 @@ export function HomePage(): React.JSX.Element {
           <div className="constrained-column">
             <HomeHero />
           </div>
-        </div>
-
-        <div className="card two">
-          <LazyPasskeySection />
         </div>
 
         <div className="card three">

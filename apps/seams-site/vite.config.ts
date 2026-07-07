@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
   // back on explicitly when you need cross-origin isolation testing.
   const coepMode = (env.VITE_COEP_MODE === 'strict' ? 'strict' : 'off') as 'strict' | 'off';
   // Make VITE_* visible to Node-side dev plugins
+  if (env.VITE_WALLET_ORIGIN) process.env.VITE_WALLET_ORIGIN = env.VITE_WALLET_ORIGIN;
   if (env.VITE_DOCS_ORIGIN) process.env.VITE_DOCS_ORIGIN = env.VITE_DOCS_ORIGIN;
   if (env.VITE_ROR_ALLOWED_ORIGINS)
     process.env.VITE_ROR_ALLOWED_ORIGINS = env.VITE_ROR_ALLOWED_ORIGINS;
@@ -35,10 +36,7 @@ export default defineConfig(({ mode }) => {
       host: 'localhost',
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)
       // Needed to avoid Vite's DNS‑rebinding protection blocking mDNS hosts
-      allowedHosts: [
-        'localhost',
-        'pta-m4.local',
-      ],
+      allowedHosts: ['localhost', 'pta-m4.local'],
       open: false,
       fs: {
         allow: [

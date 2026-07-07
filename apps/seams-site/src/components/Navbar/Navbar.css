@@ -984,7 +984,8 @@ html[data-w3a-theme='dark'] .navbar-static__themed-image-dark {
     0 0 0 1px color-mix(in srgb, var(--navbar-border-hover) 56%, transparent);
 }
 
-html[data-w3a-theme='light'] .navbar-static {
+html[data-w3a-theme='light'] .navbar-static,
+.navbar-static.navbar-static--light {
   --navbar-shadow-color: rgba(15, 23, 42, 0.34);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface) 90%, transparent);
   --navbar-access-trigger-active: color-mix(
@@ -1021,14 +1022,43 @@ html[data-w3a-theme='light'] .navbar-static {
     0 0 0 1px color-mix(in srgb, var(--navbar-border) 54%, transparent);
 }
 
-html[data-w3a-theme='light'] .navbar-static__link:hover {
+html[data-w3a-theme='light'] .navbar-static__link:hover,
+.navbar-static.navbar-static--light .navbar-static__link:hover {
   border-color: transparent;
   background: var(--navbar-access-trigger-active);
 }
 
-html[data-w3a-theme='light'] .navbar-static__link--button.is-active {
+html[data-w3a-theme='light'] .navbar-static__link--button.is-active,
+.navbar-static.navbar-static--light .navbar-static__link--button.is-active {
   border-color: transparent;
   background: var(--navbar-access-trigger-active);
+}
+
+/* Pinned light skin (appearance="light"): resolves the navbar's site-token
+   inputs to a fixed warm-paper palette so it ignores the global theme. Matches
+   the /home2 page palette; the solid pill goes black to match its primary button. */
+.navbar-static.navbar-static--light {
+  --site-canvas: #fdfcfc;
+  --site-surface: #fdfcfc;
+  --site-surface-muted: #f5f3f1;
+  --site-surface-strong: #f5f3f1;
+  --site-text-primary: #0a0a0a;
+  --site-text-secondary: #777169;
+  --site-border: #ebe8e4;
+  --site-border-strong: #d6d1cb;
+  --site-brand: #000000;
+  --site-brand-hover: #262626;
+  --site-text-button: #ffffff;
+  --site-focus: #157f5f;
+}
+
+/* Dropdown tile art: always show the light-theme variants in the pinned skin */
+.navbar-static.navbar-static--light .navbar-static__themed-image-light {
+  opacity: 1;
+}
+
+.navbar-static.navbar-static--light .navbar-static__themed-image-dark {
+  opacity: 0;
 }
 
 .navbar-static__actions {

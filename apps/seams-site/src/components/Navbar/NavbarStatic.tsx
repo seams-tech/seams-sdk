@@ -144,21 +144,21 @@ const documentationDropdownTiles: DocumentationDropdownTile[] = [
     id: 'embedded-wallets',
     title: 'Embedded Wallets',
     description: 'Wallet infrastructure for apps launching policy-bound keys and sessions',
-    to: '/pricing/',
+    to: '/docs/concepts/custody/wallet-iframe',
     imageSrc: menuToolsImage,
   },
   {
     id: 'access-passes',
     title: 'Access Passes with account recovery',
     description: 'Recoverable credentials for teams that need durable account continuity',
-    to: '/pricing/',
+    to: '/docs/concepts/auth-methods/',
     imageSrc: menuAccessPassesImage,
   },
   {
     id: 'biometric-auth',
     title: 'Biometric Authentication',
     description: 'Passkey and VoiceID flows for higher-assurance owner presence',
-    to: '/pricing/',
+    to: '/docs/concepts/auth-methods/passkeys',
     imageSrc: menuBiometricAuthLightImage,
     imageDarkSrc: menuBiometricAuthDarkImage,
   },
@@ -196,7 +196,7 @@ const aboutSections: DropdownSection[] = [
     items: [
       {
         title: 'Support',
-        description: 'Join our developer Slack community',
+        description: 'Get help from the Seams team',
         to: '/contact/',
         visual: 'image',
         imageSrc: menuSupportLightImage,
@@ -217,7 +217,7 @@ const pricingSections: DropdownSection[] = [
         to: '/pricing/#starter',
         visual: 'plan',
         price: 'Included',
-        priceNote: 'Up to 5K MAW',
+        priceNote: 'Up to 5K monthly active wallets',
         details: [
           'Passkey, Email OTP, and embedded wallet SDK',
           'Wallet list + wallet search controls',
@@ -235,7 +235,7 @@ const pricingSections: DropdownSection[] = [
         to: '/pricing/#growth',
         visual: 'plan',
         price: 'Usage-based',
-        priceNote: '5K to 100K MAW',
+        priceNote: '5K–100K monthly active wallets',
         details: [
           'Standard API keys and webhook endpoints',
           'Wallet search and chain visibility controls',
@@ -253,7 +253,7 @@ const pricingSections: DropdownSection[] = [
         to: '/pricing/#scale',
         visual: 'plan',
         price: 'Volume discounts',
-        priceNote: '100K+ MAW',
+        priceNote: '100K+ monthly active wallets',
         details: [
           'Custom policy engine with staged rollouts',
           'Dedicated SLA, onboarding, and architecture reviews',
@@ -266,7 +266,7 @@ const pricingSections: DropdownSection[] = [
 
 const productsDropdownPane: DropdownPane = {
   id: 'products',
-  label: 'Products',
+  label: 'Documentation',
   layout: 'product-tiles',
   tiles: productDropdownTiles,
   cta: {
@@ -280,7 +280,7 @@ const productsDropdownPane: DropdownPane = {
 
 const documentationDropdownPane: DropdownPane = {
   id: 'documentation',
-  label: 'Documentation',
+  label: 'Products',
   layout: 'pricing-tiles',
   tiles: documentationDropdownTiles,
   cta: {
@@ -329,11 +329,11 @@ const dropdownPanes: DropdownPane[] = [
 
 const primaryDropdownTriggers: DropdownTriggerConfig[] = [
   {
-    id: 'products',
+    id: 'documentation',
     label: 'Products',
   },
   {
-    id: 'documentation',
+    id: 'products',
     label: 'Documentation',
   },
 ];
@@ -361,9 +361,9 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
 
 function dropdownOrderIndex(id: DropdownId): number {
   switch (id) {
-    case 'products':
-      return 0;
     case 'documentation':
+      return 0;
+    case 'products':
       return 1;
     case 'pricing':
       return 2;
@@ -432,7 +432,12 @@ async function parseOptionalJson(response: Response): Promise<any> {
   return response.json().catch(() => null);
 }
 
-export function NavbarStatic(): React.JSX.Element {
+export type NavbarStaticProps = {
+  /** 'auto' follows the site theme; 'light' pins the light-page skin (used by /home2). */
+  appearance?: 'auto' | 'light';
+};
+
+export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
@@ -1166,7 +1171,11 @@ export function NavbarStatic(): React.JSX.Element {
   }
 
   return (
-    <nav ref={rootRef} className="navbar-static" aria-label="Primary">
+    <nav
+      ref={rootRef}
+      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}`}
+      aria-label="Primary"
+    >
       <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
         <div className="navbar-static__left">
           <a
@@ -1175,7 +1184,11 @@ export function NavbarStatic(): React.JSX.Element {
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsWordmark className="navbar-static__brand-wordmark" height={28} />
+            <SeamsWordmark
+              className="navbar-static__brand-wordmark"
+              height={28}
+              theme={appearance === 'light' ? 'light' : undefined}
+            />
           </a>
         </div>
 
@@ -1356,7 +1369,7 @@ export function NavbarStatic(): React.JSX.Element {
         <div className={`navbar-static__mobile-submenu${isMobileProductsOpen ? ' is-open' : ''}`}>
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Products</h3>
-            {productDropdownTiles.map((tile) => {
+            {documentationDropdownTiles.map((tile) => {
               const tileProps = getNavLinkProps(tile.to);
               return (
                 <a
@@ -1395,7 +1408,7 @@ export function NavbarStatic(): React.JSX.Element {
         >
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Documentation</h3>
-            {documentationDropdownTiles.map((tile) => {
+            {productDropdownTiles.map((tile) => {
               const tileProps = getNavLinkProps(tile.to);
               return (
                 <a

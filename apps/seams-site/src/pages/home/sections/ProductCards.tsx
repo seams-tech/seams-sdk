@@ -11,19 +11,20 @@ type MarketingCard = {
 const productModules: MarketingCard[] = [
   {
     title: 'Credential-aware auth',
-    description: 'Passkeys, Email OTP, and VoiceID feed the same policy and lane model.',
+    description: 'Passkeys, Email OTP, and VoiceID all feed the same policy and permission model.',
     to: '/docs/concepts/auth-methods/passkeys',
     icon: Fingerprint,
   },
   {
-    title: 'Router A/B signing',
-    description: 'Threshold signing with split derivation roles and admitted signing sessions.',
+    title: 'Threshold signing',
+    description:
+      'Keys are split across services and the user’s device — no single party ever holds a complete key.',
     to: '/docs/concepts/threshold-signing/',
     icon: ShieldCheck,
   },
   {
     title: 'Policy-bound execution',
-    description: 'Typed intents, mandates, budgets, revocation, and audit before execution.',
+    description: 'Approvals, budgets, revocation, and audit checks run before anything executes.',
     to: '/docs/concepts/architecture',
     icon: Wallet,
   },
@@ -73,7 +74,7 @@ export function ProductCards(): React.JSX.Element {
                 href={props.href}
                 onClick={props.onClick}
               >
-                {Icon ? <Icon className="product-cards__icon" size={18} aria-hidden /> : null}
+                {Icon ? <Icon className="product-cards__icon" size={24} aria-hidden /> : null}
                 <h3>{module.title}</h3>
                 <p>{module.description}</p>
               </a>

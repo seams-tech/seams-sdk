@@ -1,4 +1,3 @@
-import { Linkedin, Youtube } from 'lucide-react';
 import React from 'react';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import './Footer.css';
@@ -20,7 +19,7 @@ const footerGroups: FooterGroup[] = [
   {
     heading: 'Products',
     links: [
-      { label: 'Key Infrastructure', to: '/products/' },
+      { label: 'Key Infrastructure', to: '/docs/concepts/architecture' },
       { label: 'Threshold Signing', to: '/docs/concepts/threshold-signing/' },
       { label: 'Auth Methods', to: '/docs/concepts/auth-methods/' },
       { label: 'Developer Docs', to: '/docs/concepts/' },
@@ -29,9 +28,9 @@ const footerGroups: FooterGroup[] = [
   {
     heading: 'Solutions',
     links: [
-      { label: 'Consumer Apps', to: '/solutions/#consumer-apps' },
-      { label: 'Stablecoin Payments', to: '/solutions/#stablecoin-payments' },
-      { label: 'Treasury & Payouts', to: '/solutions/#treasury-and-payouts' },
+      { label: 'Consumer Apps', to: '/docs/concepts/custody/wallet-iframe' },
+      { label: 'Stablecoin Payments', to: '/docs/concepts/sessions/wallet-sessions' },
+      { label: 'Agentic Commerce', to: '/docs/concepts/policy/mandates' },
     ],
   },
   {
@@ -57,9 +56,6 @@ const footerGroups: FooterGroup[] = [
 export function Footer(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const homeProps = linkProps('/');
-  const privacyProps = linkProps('/company/');
-  const termsProps = linkProps('/company/');
-  const cookiesProps = linkProps('/company/');
 
   return (
     <footer className="app-footer" aria-label="Site footer">
@@ -113,43 +109,10 @@ export function Footer(): React.JSX.Element {
             >
               <Github size={16} aria-hidden />
             </a>
-            <a
-              href="https://www.linkedin.com/company/near-protocol"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="LinkedIn"
-            >
-              <Linkedin size={16} aria-hidden />
-            </a>
-            <a
-              href="https://www.youtube.com/@NEARProtocol"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="YouTube"
-            >
-              <Youtube size={16} aria-hidden />
-            </a>
           </div>
 
           <div className="app-footer__legal">
             <p>Copyright © {new Date().getFullYear()} Seams, Inc. All rights reserved.</p>
-            <div className="app-footer__legal-links">
-              <a href={termsProps.href} onClick={termsProps.onClick}>
-                Terms &amp; Conditions
-              </a>
-              <a href={privacyProps.href} onClick={privacyProps.onClick}>
-                Privacy Policy
-              </a>
-              <a href={cookiesProps.href} onClick={cookiesProps.onClick}>
-                Cookies
-              </a>
-            </div>
-          </div>
-
-          <div className="app-footer__badges" aria-label="Compliance certifications">
-            <span>SOC 2</span>
-            <span>GDPR</span>
-            <span>CCPA</span>
           </div>
         </div>
       </div>

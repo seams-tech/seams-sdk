@@ -21,7 +21,7 @@ const securityCards: SecurityCard[] = [
     id: 'custody',
     label: 'Non-custodial custody boundary',
     detail:
-      'Signing authority is split across holder-side material and admitted server-side participation. Export requires a fresh authorized flow.',
+      'Signing authority is split between the user’s device and your infrastructure — neither can sign alone, and export always requires a fresh authorized flow.',
     diagramAlt: 'Wireframe cube over a perspective security grid',
     Diagram: SecurityCustodyDiagram,
   },
@@ -29,15 +29,15 @@ const securityCards: SecurityCard[] = [
     id: 'defense',
     label: 'Policy before execution',
     detail:
-      'Typed intents, mandates, revocation state, budgets, and replay checks run before signatures, payments, or API actions execute.',
+      'Approvals, mandates, revocation state, budgets, and replay checks run before signatures, payments, or API actions execute.',
     diagramAlt: 'Wireframe terrain peaks over a mesh grid',
     Diagram: SecurityDefenseDiagram,
   },
   {
     id: 'scale',
-    label: 'Router A/B separation',
+    label: 'Separation of duties',
     detail:
-      'Router, Deriver A, Deriver B, and SigningWorker roles keep derivation-time custody separate from normal signing admission.',
+      'Key creation and everyday signing run in separately isolated services, so no single compromised service can mint or use keys.',
     diagramAlt: 'System workflow boxes connected across a horizontal graph',
     Diagram: SecurityScaleDiagram,
   },
@@ -45,7 +45,7 @@ const securityCards: SecurityCard[] = [
     id: 'friction',
     label: 'Step-up where it matters',
     detail:
-      'Passkeys, Email OTP, VoiceID, and linked devices can gate sensitive exports, rotations, new recipients, and delegated lanes.',
+      'Passkeys, Email OTP, VoiceID, and linked devices can gate sensitive exports, rotations, new recipients, and delegated permissions.',
     diagramAlt: 'Stacked secure device panels connected by policy rails',
     Diagram: SecurityFrictionDiagram,
   },
