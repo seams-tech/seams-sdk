@@ -54,11 +54,6 @@ const listSourceInputs = (dirAbs: string): string[] => {
 };
 
 const aliasConfig = {
-  '@seams-internal/console-shared': path.resolve(
-    SERVER_ROOT_ABS,
-    '../console-shared-ts/src/index.ts',
-  ),
-  '@seams-internal/console-shared/*': path.resolve(SERVER_ROOT_ABS, '../console-shared-ts/src/*'),
   '@seams-internal/shared-ts/*': path.resolve(SERVER_ROOT_ABS, '../shared-ts/src/*'),
   '@shared/*': path.resolve(SERVER_ROOT_ABS, '../shared-ts/src/*'),
   '@server': path.resolve(SERVER_ROOT_ABS, 'src/index.ts'),

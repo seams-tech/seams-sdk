@@ -30,8 +30,6 @@
     ],
     "useDefineForClassFields": false,
     "paths": {
-      "@seams-internal/console-shared": ["../console-shared-ts/src/index.ts"],
-      "@seams-internal/console-shared/*": ["../console-shared-ts/src/*"],
       "@seams-internal/shared-ts/*": ["../shared-ts/src/*"],
       "@shared/*": ["../shared-ts/src/*"],
       "@server": ["src/index.ts"],
@@ -40,6 +38,6 @@
       "*": ["./node_modules/*", "../node_modules/*", "../../node_modules/*"]
     }
   },
-  "include": ["src/**/*", "../console-shared-ts/src/**/*", "../shared-ts/src/**/*"],
+  "include": ["src/**/*", "../shared-ts/src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

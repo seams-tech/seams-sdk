@@ -2137,6 +2137,19 @@ function removedRegistrationSignerSelectionFilenameViolations() {
     }
     return violations.sort();
 }
+
+function d1LocalDevRouterApiRoutePrefixViolations() {
+    const source = readSource(cloudflareD1LocalDevWorkerPath);
+    const violations = [];
+    if (!source.includes("pathname.startsWith('/near/')")) {
+        violations.push(`${cloudflareD1LocalDevWorkerPath}: does not forward /near/* Router API routes`);
+    }
+    if (source.includes("pathname.startsWith('-internal/shared-ts/near/')")) {
+        violations.push(`${cloudflareD1LocalDevWorkerPath}: forwards malformed shared-ts route prefix instead of /near/*`);
+    }
+    return violations.sort();
+}
+
 function ed25519RegistrationAuthorityBoundaryViolations() {
     const violations = [];
     const thresholdSigningService = readSource(thresholdSigningServicePath);
@@ -2530,6 +2543,10 @@ test('Router API staging Worker owns signer custody and sponsored EVM bindings',
 });
 test('D1 Worker ECDSA pool-fill live sessions stay request-independent', () => {
     const violations = d1WorkerRouterApiHandlerLifetimeViolations();
+    expect(violations, violations.join('\n')).toEqual([]);
+});
+test('local D1 Worker forwards Router API route prefixes', () => {
+    const violations = d1LocalDevRouterApiRoutePrefixViolations();
     expect(violations, violations.join('\n')).toEqual([]);
 });
 test('Ed25519 HSS session ceremony state is DO-backed in Cloudflare D1 workers', () => {

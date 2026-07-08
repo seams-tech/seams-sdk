@@ -31,6 +31,12 @@ const signerRouterFiles = [
   'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
 ];
 
+const signerPackageConfigFiles = [
+  'packages/sdk-server-ts/tsconfig.json',
+  'packages/sdk-server-ts/tsconfig.build.json',
+  'packages/sdk-server-ts/rolldown.config.ts',
+];
+
 const allowedSignerRouterImports = buildAllowedImportSet([]);
 
 const importSpecifierPatterns = [
@@ -98,6 +104,8 @@ function extractImportSpecifiers(source) {
 }
 
 function isConsoleOrSponsorshipImport(specifier) {
+  if (specifier === '@seams-internal/console-shared') return true;
+  if (specifier.startsWith('@seams-internal/console-shared/')) return true;
   if (specifier.startsWith('@shared/console/')) return true;
   return /(?:^|\/)(?:console|sponsorship)(?:\/|$)/.test(specifier);
 }
@@ -150,7 +158,26 @@ function checkSignerRouterImportsStayOnAllowlist() {
   );
 }
 
+function checkSignerPackageConfigHasNoConsoleSharedCoupling() {
+  const offenders = [];
+  for (const file of signerPackageConfigFiles) {
+    const source = readRepoFile(file);
+    if (source.includes('@seams-internal/console-shared')) {
+      offenders.push(`${file} references @seams-internal/console-shared`);
+    }
+    if (source.includes('console-shared-ts')) {
+      offenders.push(`${file} references console-shared-ts`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `signer package config must not include console-shared coupling:\n${offenders.join('\n')}`,
+  );
+}
+
 checkSignerCoreHasNoConsoleOrSponsorshipImports();
 checkSignerRouterImportsStayOnAllowlist();
+checkSignerPackageConfigHasNoConsoleSharedCoupling();
 
 console.log('[check-signer-console-module-boundaries] passed');

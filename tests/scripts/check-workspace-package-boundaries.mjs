@@ -136,6 +136,20 @@ function collectPackageTypePathViolations() {
   return violations;
 }
 
+function collectGeneratedArtifactViolations() {
+  const violations = [];
+  const forbiddenArtifacts = [
+    'packages/sdk-server-ts/dist/types/console-shared-ts',
+    'packages/console-server-ts/dist/types/sdk-server-ts',
+  ];
+  for (const artifactPath of forbiddenArtifacts) {
+    if (fs.existsSync(absolutePath(artifactPath))) {
+      violations.push(`${artifactPath}: generated artifact crosses package split boundary`);
+    }
+  }
+  return violations;
+}
+
 function collectDeployableImportViolations() {
   const violations = [];
   for (const file of sourceFilesInRoots(deployableAppRoots)) {
@@ -177,6 +191,7 @@ function main() {
     ...collectDeletedRootViolations(),
     ...collectWorkspaceManifestViolations(),
     ...collectPackageTypePathViolations(),
+    ...collectGeneratedArtifactViolations(),
     ...collectDeployableImportViolations(),
     ...collectNativeImportViolations(),
   ];
