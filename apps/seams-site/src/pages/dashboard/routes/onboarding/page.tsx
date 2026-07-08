@@ -217,6 +217,11 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   const [orgNameInput, setOrgNameInput] = React.useState<string>('');
   const [orgNameExplicitlySelected, setOrgNameExplicitlySelected] = React.useState<boolean>(false);
   const [projectNameInput, setProjectNameInput] = React.useState<string>('');
+  const [orgNameTouched, setOrgNameTouched] = React.useState<boolean>(false);
+  const [projectNameTouched, setProjectNameTouched] = React.useState<boolean>(false);
+  const [organizationSubmitAttempted, setOrganizationSubmitAttempted] =
+    React.useState<boolean>(false);
+  const [projectSubmitAttempted, setProjectSubmitAttempted] = React.useState<boolean>(false);
   const [visibleStep, setVisibleStep] = React.useState<OnboardingVisibleStep>('organization');
   const [manualOrganizationStepSelection, setManualOrganizationStepSelection] =
     React.useState<boolean>(false);
@@ -312,6 +317,10 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     setProjectResult(null);
     setMutationError('');
     setLastFailedAction(null);
+    setOrgNameTouched(false);
+    setProjectNameTouched(false);
+    setOrganizationSubmitAttempted(false);
+    setProjectSubmitAttempted(false);
   }, [sessionOrgId]);
 
   React.useEffect(() => {
@@ -336,7 +345,29 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   );
   const projectNameValidationMessage = validateProjectName(projectNameInput);
 
+  const onOrganizationNameChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setOrgNameInput(event.target.value);
+      setOrgNameExplicitlySelected(false);
+    },
+    [],
+  );
+
+  const onOrganizationNameBlur = React.useCallback(() => {
+    setOrgNameTouched(true);
+  }, []);
+
+  const onProjectNameChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setProjectNameInput(event.target.value);
+  }, []);
+
+  const onProjectNameBlur = React.useCallback(() => {
+    setProjectNameTouched(true);
+  }, []);
+
   const submitOrganizationStep = React.useCallback(async () => {
+    setOrganizationSubmitAttempted(true);
+    setOrgNameTouched(true);
     if (!session.claims) {
       setMutationError(session.errorMessage || 'Console session is unavailable');
       return;
@@ -377,6 +408,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setProjectResult(null);
       setLastFailedAction(null);
       setOrgNameExplicitlySelected(true);
+      setProjectSubmitAttempted(false);
+      setProjectNameTouched(false);
       setManualOrganizationStepSelection(false);
       setVisibleStep('project');
       setState(next.state);
@@ -399,6 +432,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   ]);
 
   const submitProjectStep = React.useCallback(async () => {
+    setProjectSubmitAttempted(true);
+    setProjectNameTouched(true);
     if (!session.claims) {
       setMutationError(session.errorMessage || 'Console session is unavailable');
       return;
@@ -551,7 +586,15 @@ export function DashboardOnboardingPage(): React.JSX.Element {
 
   const showOrganizationStep = !onboardingComplete && visibleStep === 'organization';
   const showProjectStep = !onboardingComplete && visibleStep === 'project';
-  const projectNameValidationMessageForUi = projectStepLocked ? '' : projectNameValidationMessage;
+  const showOrganizationNameValidation = orgNameTouched || organizationSubmitAttempted;
+  const orgNameValidationMessageForUi = showOrganizationNameValidation
+    ? orgNameValidationMessage
+    : '';
+  const showProjectNameValidation =
+    !projectStepLocked && (projectNameTouched || projectSubmitAttempted);
+  const projectNameValidationMessageForUi = showProjectNameValidation
+    ? projectNameValidationMessage
+    : '';
 
   const stepper: Array<{
     key: DashboardOnboardingStep;
@@ -574,11 +617,10 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     },
   ];
 
-  const organizationSubmitDisabled = submitting || Boolean(orgNameValidationMessage);
+  const organizationSubmitDisabled = submitting;
   const projectSubmitDisabled =
     submitting ||
     projectStepLocked ||
-    Boolean(projectNameValidationMessage) ||
     state?.projectReady === true;
 
   return (
@@ -663,16 +705,14 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                   <input
                     className="dashboard-input"
                     value={orgNameInput}
-                    onChange={(event) => {
-                      setOrgNameInput(event.target.value);
-                      setOrgNameExplicitlySelected(false);
-                    }}
+                    onChange={onOrganizationNameChange}
+                    onBlur={onOrganizationNameBlur}
                     placeholder="Acme Wallets"
-                    aria-invalid={Boolean(orgNameValidationMessage)}
+                    aria-invalid={Boolean(orgNameValidationMessageForUi)}
                   />
-                  {orgNameValidationMessage ? (
+                  {orgNameValidationMessageForUi ? (
                     <p className="dashboard-form-hint dashboard-form-hint--error">
-                      {orgNameValidationMessage}
+                      {orgNameValidationMessageForUi}
                     </p>
                   ) : null}
                 </label>
@@ -731,7 +771,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                     <input
                       className="dashboard-input"
                       value={projectNameInput}
-                      onChange={(event) => setProjectNameInput(event.target.value)}
+                      onChange={onProjectNameChange}
+                      onBlur={onProjectNameBlur}
                       placeholder="Consumer App"
                       aria-invalid={Boolean(projectNameValidationMessageForUi)}
                     />

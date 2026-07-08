@@ -1,5 +1,4 @@
 import React from 'react';
-import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
   getDashboardOpsCockpitSummary,
@@ -75,25 +74,8 @@ function OpsCockpitQueuePanel(props: {
   );
 }
 
-function OpsCockpitStatusPanel(props: {
-  ariaLabel: string;
-  title: string;
-  detail?: string;
-}): React.JSX.Element {
-  const { ariaLabel, title, detail } = props;
-  return (
-    <OpsCockpitQueuePanel ariaLabel={ariaLabel} title={title} badge="!">
-      <p className="dashboard-pagination-note">
-        {String(detail || '').trim() || 'This queue is not configured for the current server.'}
-      </p>
-    </OpsCockpitQueuePanel>
-  );
-}
-
 export function OpsCockpitPage(): React.JSX.Element {
-  const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
-  const pendingApprovalsSectionRef = React.useRef<HTMLElement | null>(null);
 
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -136,8 +118,6 @@ export function OpsCockpitPage(): React.JSX.Element {
         toSectionWarning('Billing failure queue', summary.billing.status),
         toSectionWarning('Webhook dead letters', summary.webhooks.status),
         toSectionWarning('Audit export queue', summary.auditExports.status),
-        toSectionWarning('Enterprise isolation queue', summary.enterpriseIsolation.status),
-        toSectionWarning('Onboarding telemetry', summary.onboardingTelemetry.status),
       ].filter((entry): entry is string => Boolean(entry));
       if (summary.webhooks.endpointCount > summary.webhooks.scannedEndpointCount) {
         warnings.push(
@@ -320,62 +300,10 @@ export function OpsCockpitPage(): React.JSX.Element {
   const failedInvoices = summary?.billing.failedInvoices || [];
   const failedWebhooks = summary?.webhooks.deadLetters || [];
   const queuedAuditExports = summary?.auditExports.queuedExports || [];
-  const activeIsolation = summary?.enterpriseIsolation.activeRequests[0] || null;
-  const onboardingAlerts = summary?.onboardingTelemetry.alerts || [];
-  const auditExportsNotConfigured = summary?.auditExports.status.state === 'not_configured';
-  const enterpriseIsolationNotConfigured =
-    summary?.enterpriseIsolation.status.state === 'not_configured';
+  const showAuditExportQueue = summary?.auditExports.status.state !== 'not_configured';
   const summaryWarnings = data.warnings.filter(
-    (warning) =>
-      !warning.startsWith('Audit export queue is not configured') &&
-      !warning.startsWith('Enterprise isolation queue is not configured'),
+    (warning) => !warning.startsWith('Audit export queue is not configured'),
   );
-
-  const summaryCards = [
-    {
-      title: 'Pending approvals',
-      value: summary?.approvals.pendingCount || 0,
-      description: 'Requests awaiting approval decisions.',
-      actionLabel: 'View pending',
-      action: () =>
-        pendingApprovalsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-    },
-    {
-      title: 'Failed or overdue invoices',
-      value: summary?.billing.failedInvoiceCount || 0,
-      description: 'Uncollectible invoices and overdue open balances.',
-      actionLabel: 'Open invoices',
-      action: () => go('/dashboard/invoices'),
-    },
-    {
-      title: 'Failed webhooks',
-      value: summary?.webhooks.deadLetterCount || 0,
-      description: 'Unresolved dead-letter deliveries across webhook endpoints.',
-      actionLabel: 'Open webhooks',
-      action: () => go('/dashboard/webhooks'),
-    },
-    {
-      title: 'Queued audit exports',
-      value: summary?.auditExports.queuedExportCount || 0,
-      description: 'Evidence exports waiting or processing.',
-      actionLabel: 'Open audit',
-      action: () => go('/dashboard/audit'),
-    },
-    {
-      title: 'Isolation requests',
-      value: summary?.enterpriseIsolation.activeRequestCount || 0,
-      description: 'Org isolation currently in REQUESTED or MIGRATING state.',
-      actionLabel: 'Open migration plan',
-      action: () => go('/dashboard/integrations/self-hosting'),
-    },
-    {
-      title: 'Onboarding SLO alerts',
-      value: summary?.onboardingTelemetry.alertCount || 0,
-      description: 'Active onboarding latency/error-rate SLO breaches.',
-      actionLabel: 'Open onboarding',
-      action: () => go('/dashboard/onboarding'),
-    },
-  ];
 
   return (
     <div className="dashboard-view dashboard-ops-cockpit-view" aria-label="Ops cockpit page">
@@ -383,10 +311,6 @@ export function OpsCockpitPage(): React.JSX.Element {
         className="dashboard-view__section dashboard-ops-cockpit-summary--plain"
         aria-label="Ops cockpit summary"
       >
-        <p>
-          Daily queues for approvals, billing, webhooks, audit exports, isolation, and onboarding
-          alerts.
-        </p>
         {loading ? <p className="dashboard-pagination-note">Refreshing queue snapshot...</p> : null}
         {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
         {summaryWarnings.length > 0 ? (
@@ -398,23 +322,9 @@ export function OpsCockpitPage(): React.JSX.Element {
             ))}
           </div>
         ) : null}
-
-        <div className="dashboard-view-grid dashboard-view-grid--two">
-          {summaryCards.map((card) => (
-            <article key={card.title} className="dashboard-view-card">
-              <h2>{card.title}</h2>
-              <p className="dashboard-empty-state">{card.value}</p>
-              <p className="dashboard-pagination-note">{card.description}</p>
-              <button type="button" className="dashboard-pagination-button" onClick={card.action}>
-                {card.actionLabel}
-              </button>
-            </article>
-          ))}
-        </div>
       </section>
 
       <section
-        ref={pendingApprovalsSectionRef}
         className="dashboard-view__section"
         aria-label="Pending approvals summary"
       >
@@ -538,13 +448,7 @@ export function OpsCockpitPage(): React.JSX.Element {
           )}
         </OpsCockpitQueuePanel>
 
-        {auditExportsNotConfigured ? (
-          <OpsCockpitStatusPanel
-            ariaLabel="Audit export queue status"
-            title="Audit export queue is not configured"
-            detail={summary?.auditExports.status.message}
-          />
-        ) : (
+        {showAuditExportQueue ? (
           <OpsCockpitQueuePanel
             ariaLabel="Audit export queue summary"
             title="Queued audit exports"
@@ -577,75 +481,7 @@ export function OpsCockpitPage(): React.JSX.Element {
               </ul>
             )}
           </OpsCockpitQueuePanel>
-        )}
-
-        {enterpriseIsolationNotConfigured ? (
-          <>
-            <OpsCockpitStatusPanel
-              ariaLabel="Enterprise isolation queue status"
-              title="Enterprise isolation queue is not configured"
-              detail={summary?.enterpriseIsolation.status.message}
-            />
-            <OpsCockpitQueuePanel
-              ariaLabel="Onboarding telemetry summary"
-              title="Onboarding telemetry"
-              badge={`${onboardingAlerts.length}`}
-            >
-              <p className="dashboard-pagination-note">
-                Onboarding telemetry window:{' '}
-                <strong>
-                  {summary?.onboardingTelemetry
-                    ? `${summary.onboardingTelemetry.windowMinutes}m`
-                    : '-'}
-                </strong>
-              </p>
-              {onboardingAlerts.length === 0 ? (
-                <p className="dashboard-pagination-note">No active onboarding SLO alerts.</p>
-              ) : (
-                <ul className="dashboard-view-list">
-                  {onboardingAlerts.map((alert, index) => (
-                    <li key={`${alert.code}:${alert.operation}:${index}`}>
-                      <strong>{alert.severity}</strong> {alert.code} on{' '}
-                      <code>{alert.operation}</code>: {alert.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </OpsCockpitQueuePanel>
-          </>
-        ) : (
-          <OpsCockpitQueuePanel
-            ariaLabel="Isolation and onboarding telemetry summary"
-            title="Isolation + onboarding telemetry"
-            badge={`${(activeIsolation ? 1 : 0) + onboardingAlerts.length}`}
-          >
-            <p className="dashboard-pagination-note">
-              Isolation status:{' '}
-              <strong>{activeIsolation ? activeIsolation.status : 'No pending request'}</strong>
-              {activeIsolation ? ` (${activeIsolation.trigger || 'unknown trigger'})` : ''}
-            </p>
-            <p className="dashboard-pagination-note">
-              Onboarding telemetry window:{' '}
-              <strong>
-                {summary?.onboardingTelemetry
-                  ? `${summary.onboardingTelemetry.windowMinutes}m`
-                  : '-'}
-              </strong>
-            </p>
-            {onboardingAlerts.length === 0 ? (
-              <p className="dashboard-pagination-note">No active onboarding SLO alerts.</p>
-            ) : (
-              <ul className="dashboard-view-list">
-                {onboardingAlerts.map((alert, index) => (
-                  <li key={`${alert.code}:${alert.operation}:${index}`}>
-                    <strong>{alert.severity}</strong> {alert.code} on <code>{alert.operation}</code>
-                    : {alert.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </OpsCockpitQueuePanel>
-        )}
+        ) : null}
       </div>
     </div>
   );

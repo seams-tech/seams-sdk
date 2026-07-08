@@ -45,7 +45,7 @@ declare global {
 }
 
 let googleIdentityScriptLoadPromise: Promise<void> | null = null;
-const GOOGLE_ID_TOKEN_TIMEOUT_MS = 60_000;
+const GOOGLE_ID_TOKEN_TIMEOUT_MS = 20_000;
 const GOOGLE_IDENTITY_SCRIPT_TIMEOUT_MS = 15_000;
 
 type ActiveGoogleIdTokenRequest = {
@@ -99,7 +99,7 @@ export async function fetchGoogleAuthOptions(relayerBaseUrl: string): Promise<Go
 
 function makeGooglePromptTimeoutError(): Error {
   return new Error(
-    'Google sign-in timed out. Select a Google account in the sign-in prompt or retry from a fresh Google session.',
+    'Google sign-in did not open or return an id_token. Check popup/FedCM permissions, disable blockers for this local site, then retry.',
   );
 }
 

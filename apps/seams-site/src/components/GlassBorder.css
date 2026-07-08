@@ -12,7 +12,15 @@
 }
 
 .glass-border-inner {
-  /* border: 1px solid var(--w3a-colors-surface3); */
   border-radius: 2rem;
   background: var(--site-surface, var(--w3a-colors-surface));
+}
+
+.glass-border-root.demo-transaction-shell {
+  padding: 0;
+  overflow: hidden;
+}
+
+.glass-border-root.demo-transaction-shell .glass-border-inner {
+  border-radius: var(--site-radius-xl);
 }

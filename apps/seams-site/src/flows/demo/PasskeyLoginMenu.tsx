@@ -2,12 +2,12 @@ import {
   useSeams,
   AccountSyncEventPhase,
   AuthMenuMode,
-  PasskeyAuthMenu,
+  SeamsAuthMenu,
   RegistrationEventPhase,
   UnlockEventPhase,
   type EmailOtpAuthPolicy,
   type AccountSyncFlowEvent,
-  type PasskeyAuthMenuRegistrationRequest,
+  type SeamsAuthMenuRegistrationRequest,
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
@@ -80,7 +80,7 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
     );
   }
   if ((code === 'not_found' || status === 404) && /Email OTP enrollment not found/i.test(message)) {
-    return 'No Email OTP wallet is enrolled for this Google account yet. Use Register with Google SSO first.';
+    return 'No Email OTP wallet is enrolled for this Google account yet. Use Sign up with Google SSO first.';
   }
   if (code === 'rate_limited' || status === 429) {
     const retryAfter = formatRetryAfter((error as any)?.retryAfterMs);
@@ -102,6 +102,12 @@ function walletFlowErrorMessage(
     if (errorMessage) return errorMessage;
   }
   return event.message || fallback;
+}
+
+function messageFromUnknown(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  const message = String((error as { message?: unknown })?.message || '').trim();
+  return message || fallback;
 }
 
 function googleSsoUnavailable(message: string): GoogleSsoReadiness {
@@ -254,7 +260,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   );
 
   const {
-    accountInputState: { targetWalletId, accountExists },
+    accountInputState: { targetWalletId },
     unlock,
     registerPasskey,
     seams,
@@ -286,7 +292,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     };
   }, [relayerBaseUrl]);
 
-  const onRegister = async (request: PasskeyAuthMenuRegistrationRequest) => {
+  const onRegister = async (request: SeamsAuthMenuRegistrationRequest) => {
     const result = await registerPasskey({
       wallet: request.wallet,
       signerOptions: demoPasskeyEcdsaSignerOptions(
@@ -344,96 +350,103 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     emailOtpAuthPolicy: EmailOtpAuthPolicy;
   }) => {
     toast.loading('Opening Google SSO…', { id: 'google-sso' });
-    const googleClientId = requirePreparedGoogleSsoClientId(googleSsoReadiness);
-    let idToken: string;
     try {
-      idToken = await requestGoogleIdToken(googleClientId);
-    } catch (error: unknown) {
-      const message = formatGoogleSsoEmailOtpError(error);
-      toast.error(message, { id: 'google-sso' });
-      throw new Error(message);
-    }
-    const flow = await seams.auth.beginGoogleEmailOtpWalletAuth({
-      idToken,
-      mode: args.mode === AuthMenuMode.Register ? 'register' : 'login',
-      relayUrl: relayerBaseUrl,
-      sessionKind: 'jwt',
-      emailOtpAuthPolicy: args.emailOtpAuthPolicy,
-      onEvent: handleGoogleEmailOtpEvent,
-    });
-    if (!flow.ok) {
-      toast.error(flow.error.message, { id: 'google-sso' });
-      throw new Error(flow.error.message);
-    }
-    toast.success(
-      flow.value.mode === 'register'
-        ? 'Choose a wallet name to finish registration'
-        : 'Email code sent',
-      { id: 'google-sso' },
-    );
-    const onComplete = ({ walletId, mode }: { walletId: string; mode: 'register' | 'login' }) => {
-      toast.success(mode === 'register' ? 'Email OTP wallet ready' : 'Wallet unlocked', {
-        id: GOOGLE_EMAIL_OTP_TOAST_ID,
+      const googleClientId = requirePreparedGoogleSsoClientId(googleSsoReadiness);
+      const idToken = await requestGoogleIdToken(googleClientId);
+      const flow = await seams.auth.beginGoogleEmailOtpWalletAuth({
+        idToken,
+        mode: args.mode === AuthMenuMode.Register ? 'register' : 'login',
+        relayUrl: relayerBaseUrl,
+        sessionKind: 'jwt',
+        emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+        onEvent: handleGoogleEmailOtpEvent,
       });
-      props.onLoggedIn?.(walletId);
-    };
-    if (flow.value.mode === 'register') {
+      if (!flow.ok) {
+        throw flow.error;
+      }
+      toast.success(
+        flow.value.mode === 'register'
+          ? 'Choose a wallet name to finish registration'
+          : 'Email code sent',
+        { id: 'google-sso' },
+      );
+      const onComplete = ({ walletId, mode }: { walletId: string; mode: 'register' | 'login' }) => {
+        toast.success(mode === 'register' ? 'Email OTP wallet ready' : 'Wallet unlocked', {
+          id: GOOGLE_EMAIL_OTP_TOAST_ID,
+        });
+        props.onLoggedIn?.(walletId);
+      };
+      if (flow.value.mode === 'register') {
+        return {
+          kind: 'registration_flow' as const,
+          flow: flow.value,
+          onComplete,
+        };
+      }
       return {
-        kind: 'registration_flow' as const,
+        kind: 'otp_flow' as const,
         flow: flow.value,
         onComplete,
       };
+    } catch (error: unknown) {
+      const message = formatGoogleSsoEmailOtpError(error);
+      console.warn('[seams-site] Google SSO Email OTP failed:', error);
+      toast.error(message, { id: 'google-sso' });
+      throw new Error(message);
     }
-    return {
-      kind: 'otp_flow' as const,
-      flow: flow.value,
-      onComplete,
-    };
   };
 
   const onSyncAccount = async () => {
-    const result = await seams.recovery.syncAccount({
-      ...(targetWalletId ? { walletId: targetWalletId } : {}),
-      options: {
-        onEvent: handleAccountSyncEvent,
-      } as any,
-    });
+    try {
+      const result = await seams.recovery.syncAccount({
+        ...(targetWalletId ? { walletId: targetWalletId } : {}),
+        options: {
+          onEvent: handleAccountSyncEvent,
+        } as any,
+      });
 
-    if (!result?.success) {
-      throw new Error(result?.error || result?.message || 'Account sync failed');
-    }
+      if (!result?.success) {
+        throw new Error(result?.error || result?.message || 'Account sync failed');
+      }
 
-    const syncedAccountId = String(result.accountId || '').trim();
-    if (!syncedAccountId) {
-      throw new Error('Sync succeeded but accountId is missing');
-    }
+      const syncedAccountId = String(result.accountId || '').trim();
+      if (!syncedAccountId) {
+        throw new Error('Sync succeeded but accountId is missing');
+      }
 
-    if (result.loginState?.isLoggedIn) {
-      toast.success(`Synced and logged in as ${syncedAccountId}`, { id: 'sync' });
-      props.onLoggedIn?.(syncedAccountId);
+      if (result.loginState?.isLoggedIn) {
+        toast.success(`Synced and logged in as ${syncedAccountId}`, { id: 'sync' });
+        props.onLoggedIn?.(syncedAccountId);
+        return result;
+      }
+
+      toast.success(`Synced account ${syncedAccountId}. Logging in...`, { id: 'sync' });
+      await loginWithSession(targetWalletId || syncedAccountId);
       return result;
+    } catch (error: unknown) {
+      const message = messageFromUnknown(error, 'Account sync failed');
+      console.warn('[seams-site] Account sync failed:', error);
+      toast.error(message, { id: 'sync' });
+      throw new Error(message);
     }
-
-    toast.success(`Synced account ${syncedAccountId}. Logging in...`, { id: 'sync' });
-    await loginWithSession(targetWalletId || syncedAccountId);
-    return result;
   };
 
   return (
     <div className="passkey-login-container-root">
-      <PasskeyAuthMenu
-        // Keep the key stable across accountExists changes to avoid
-        // remounting the menu (which causes input focus + content flashes).
-        key={`pam2-${authMenuControl.defaultModeOverride ?? 'auto'}-${authMenuControl.remountKey}`}
-        defaultMode={
-          authMenuControl.defaultModeOverride ??
-          (accountExists ? AuthMenuMode.Login : AuthMenuMode.Register)
-        }
+      <SeamsAuthMenu
+        // Keep the key stable across account state changes to avoid
+        // remounting the menu during login-state refreshes.
+        key={`seams-auth-menu-${authMenuControl.defaultModeOverride ?? 'auto'}-${authMenuControl.remountKey}`}
+        defaultMode={authMenuControl.defaultModeOverride}
         loadingScreenDelayMs={100}
         headings={{
+          login: {
+            title: 'Sign in',
+            subtitle: 'Continue with Passkey or Google SSO',
+          },
           registration: {
-            title: 'Register Account',
-            subtitle: 'Demo: Create a wallet with Passkey',
+            title: 'Create your account',
+            subtitle: 'Continue with Passkey or Google SSO',
           },
         }}
         onLogin={onLogin}

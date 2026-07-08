@@ -1,0 +1,231 @@
+.company-main {
+  background: var(--h2-bg);
+}
+
+.company-hero {
+  padding: 140px 0 88px;
+}
+
+.company-hero__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(280px, 5fr);
+  gap: 28px 64px;
+  align-items: end;
+}
+
+.company-hero .h2-kicker,
+.company-hero__title,
+.company-hero__copy,
+.company-hero__ctas {
+  grid-column: 1;
+}
+
+.company-hero__title {
+  margin: 0;
+  font-size: clamp(72px, 10vw, 136px);
+  font-weight: 400;
+  line-height: 0.9;
+}
+
+.company-hero__copy {
+  margin: 18px 0 0;
+  max-width: 620px;
+  color: var(--h2-graphite);
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.company-hero__ctas {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.company-statement {
+  padding: 72px 0;
+  background: var(--h2-taupe);
+}
+
+.company-statement p {
+  margin: 0;
+  max-width: 890px;
+  color: var(--h2-ink);
+  font-size: clamp(26px, 3.2vw, 42px);
+  font-weight: 300;
+  line-height: 1.18;
+  text-wrap: balance;
+}
+
+.company-focus,
+.company-principles,
+.company-resources {
+  padding: 88px 0;
+}
+
+.company-section-head {
+  margin-bottom: 48px;
+}
+
+.company-focus__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--h2-stone);
+  border-left: 1px solid var(--h2-stone);
+}
+
+.company-focus-card {
+  min-height: 230px;
+  padding: 24px;
+  border-right: 1px solid var(--h2-stone);
+  border-bottom: 1px solid var(--h2-stone);
+  background: var(--h2-bg);
+}
+
+.company-focus-card h2 {
+  margin: 0;
+  color: var(--h2-ink);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.company-focus-card p {
+  margin: 16px 0 0;
+  color: var(--h2-smoke);
+  font-size: 15.5px;
+  line-height: 1.58;
+}
+
+.company-principles {
+  background: var(--h2-taupe);
+}
+
+.company-principles__grid,
+.company-resources__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 48px;
+  align-items: start;
+}
+
+.company-principles__grid h2,
+.company-resources__grid h2 {
+  margin-top: 12px;
+  max-width: 420px;
+  font-size: clamp(30px, 3vw, 42px);
+  font-weight: 400;
+}
+
+.company-principles__list,
+.company-resources__list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--h2-stone);
+}
+
+.company-principle {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 20px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--h2-stone);
+}
+
+.company-principle > span {
+  font-family: var(--h2-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--h2-ash);
+}
+
+.company-principle h3 {
+  margin: 0;
+  color: var(--h2-ink);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.company-principle p {
+  margin: 8px 0 0;
+  color: var(--h2-smoke);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.company-resource {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--h2-stone);
+  color: var(--h2-graphite);
+  transition: color 150ms ease;
+}
+
+.company-resource:hover {
+  color: var(--h2-ink);
+}
+
+.company-resource span {
+  min-width: 0;
+}
+
+.company-resource strong,
+.company-resource small {
+  display: block;
+}
+
+.company-resource strong {
+  color: currentColor;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.company-resource small {
+  margin-top: 6px;
+  color: var(--h2-smoke);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .company-hero {
+    padding: 120px 0 72px;
+  }
+
+  .company-hero__inner,
+  .company-principles__grid,
+  .company-resources__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .company-focus__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .company-focus-card {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .company-hero {
+    padding: 108px 0 64px;
+  }
+
+  .company-statement,
+  .company-focus,
+  .company-principles,
+  .company-resources {
+    padding: 64px 0;
+  }
+
+  .company-principle {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

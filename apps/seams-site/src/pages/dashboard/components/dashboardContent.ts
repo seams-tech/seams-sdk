@@ -26,10 +26,8 @@ type CardDashboardRoute = Exclude<
   | '/platform/billing'
   | '/dashboard/team-members'
   | '/dashboard/audit'
-  | '/dashboard/integrations/self-hosting'
   | '/dashboard/policy-engine'
   | '/dashboard/gas-sponsorship'
-  | '/dashboard/export-keys'
   | '/dashboard/overview'
   | '/dashboard/observability'
 >;

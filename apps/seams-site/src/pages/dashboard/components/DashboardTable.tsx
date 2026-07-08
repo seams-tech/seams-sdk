@@ -327,6 +327,12 @@ export function dashboardTableToneClassName(
 
 export function DashboardTable(props: DashboardTableProps): React.JSX.Element {
   const { ariaLabel, columns, className, pagination, children } = props;
+  const showPagination = Boolean(
+    pagination &&
+      pagination.totalRows > 0 &&
+      pagination.totalPages > 1 &&
+      !pagination.disabled,
+  );
   return (
     <section
       className={clsx('dashboard-data-table', className)}
@@ -335,9 +341,7 @@ export function DashboardTable(props: DashboardTableProps): React.JSX.Element {
       style={buildTableStyle(columns)}
     >
       {children}
-      {pagination && pagination.totalRows > 0 && !pagination.disabled ? (
-        <DashboardTablePagination pagination={pagination} />
-      ) : null}
+      {showPagination && pagination ? <DashboardTablePagination pagination={pagination} /> : null}
     </section>
   );
 }

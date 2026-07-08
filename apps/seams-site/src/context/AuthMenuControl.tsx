@@ -2,7 +2,7 @@ import React from 'react';
 import { AuthMenuMode } from '@seams/sdk/react';
 
 export type AuthMenuControl = {
-  /** Optional override for the PasskeyAuthMenu default mode on mount */
+  /** Optional override for the SeamsAuthMenu default mode on mount */
   defaultModeOverride?: AuthMenuMode;
   /** Changing this key forces a remount of the menu */
   remountKey: number;

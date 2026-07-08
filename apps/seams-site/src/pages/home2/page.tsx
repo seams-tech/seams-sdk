@@ -1,401 +1,78 @@
 import React from 'react';
 import {
-  BarChart3,
+  Bot,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
-  Fingerprint,
-  KeyRound,
-  LifeBuoy,
+  Hash,
+  Home,
   ListChecks,
-  Lock,
-  Mail,
-  Package,
   ScrollText,
-  Share2,
   ShieldCheck,
+  Slack,
   Store,
   Wallet,
 } from 'lucide-react';
-import { Theme, useSeams } from '@seams/sdk/react';
-import Github from '@/components/icons/Github';
-import Twitter from '@/components/icons/Twitter';
+import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
+import { DEMO_THEME_PRESETS } from '@/context/app-themes';
 import NavbarStatic from '@/components/Navbar/NavbarStatic';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
+import { ArrowRightAnim } from '@/components/ArrowRightAnim';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
 import {
-  DEMO_THEME_PRESETS,
-  demoIframeAppearance,
-  demoReactTokens,
-  type DemoThemeId,
-} from '@/context/app-themes';
-import './home2.css';
+  H2Ecosystem,
+  H2Faq,
+  H2Footer,
+  H2Pillars,
+  MpcSplitDiagram,
+} from '@/components/h2/sections';
+import '@/styles/h2.css';
 
-// Defer the live passkey demo until after first paint/idle.
-const DemoPasskeyColumnLazy = React.lazy(() =>
-  import('@/components/DemoPasskeyColumn').then((m) => ({ default: m.DemoPasskeyColumn })),
-);
+/* Umbrella front page: a simple headline, then a paged two-panel scene band
+   showing the products (mock placeholders with the same footprint as the real
+   screenshots/videos that will replace them), a trusted-by strip, and the
+   two-platforms split that routes each ICP to its page. */
 
-/* ---------- hero ---------- */
+/* ---------- hero scene mocks (placeholders for real product imagery) ---------- */
 
-function Home2Hero(): React.JSX.Element {
-  const { linkProps } = useSiteRouter();
-  const startProps = linkProps('/docs/concepts/');
-
+function DashboardWindow(): React.JSX.Element {
   return (
-    <header className="h2-hero" aria-labelledby="h2-hero-title">
-      <div className="h2-shell">
-        <p className="h2-kicker">Seams · Commerce account infrastructure</p>
-        <div className="h2-hero__grid">
-          <div className="h2-hero__main">
-            <h1 id="h2-hero-title" className="h2-display h2-hero__title">
-              Secure commerce accounts with policy-based permissions
-            </h1>
-            <div className="h2-hero__ctas">
-              <a
-                className="h2-btn h2-btn--primary h2-btn--lg"
-                href={startProps.href}
-                onClick={startProps.onClick}
-              >
-                Start building
-              </a>
-            </div>
-            <p className="h2-hero__note">Open SDK &middot; Non-custodial by design</p>
-          </div>
-          <p className="h2-hero__sub">
-            Seams is one SDK for authentication, wallets, credentials, and delegated access
-            &mdash; wherever people and AI agents act on your store.
-          </p>
+    <div className="h2-window" role="img" aria-label="Seams merchant dashboard overview">
+      <div className="h2-window__side">
+        <div className="h2-window__brand">
+          <SeamsWordmark height={15} theme="light" />
+        </div>
+        <div className="h2-window__navitem is-active">
+          <Home aria-hidden /> Home
+        </div>
+        <div className="h2-window__navitem">
+          <Bot aria-hidden /> Agents
+        </div>
+        <div className="h2-window__navitem">
+          <ListChecks aria-hidden /> Policies
+        </div>
+        <div className="h2-window__navitem">
+          <ShieldCheck aria-hidden /> Approvals
+        </div>
+        <div className="h2-window__navitem">
+          <ScrollText aria-hidden /> Audit
         </div>
       </div>
-    </header>
-  );
-}
-
-/* ---------- demo band ---------- */
-
-const demoPageNames = ['Login', 'Transactions', 'Account recovery'];
-
-function Home2DemoBand(): React.JSX.Element {
-  const show = useRevealOnIdle();
-  const { linkProps } = useSiteRouter();
-  const { seams, loginState } = useSeams();
-  const [demoPage, setDemoPage] = React.useState(0);
-  const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('light');
-  const activePreset = DEMO_THEME_PRESETS.find((t) => t.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
-  const docsProps = linkProps('/docs/concepts/auth-methods/');
-
-  // Push the selected theme's tokens to the wallet iframe so embedded SDK
-  // components (tx confirmer, etc.) re-theme to match the React auth card.
-  React.useEffect(() => {
-    try {
-      seams.setAppearance(demoIframeAppearance(activePreset));
-    } catch {}
-  }, [seams, activePreset]);
-
-  // The Transactions / Account recovery screens need an unlocked wallet,
-  // mirroring the carousel's own page gating.
-  const maxPage = loginState?.isLoggedIn ? demoPageNames.length - 1 : 0;
-
-  return (
-    <section className="h2-band h2-rule" aria-labelledby="h2-demo-title">
-      <div className="h2-band__split">
-        <div className="h2-band__left">
-          <p className="h2-kicker h2-band__label">Live demo</p>
-          <h2 id="h2-demo-title" className="h2-display h2-band__title">
-            A merchant account in seconds
-          </h2>
-          <p className="h2-band__copy">
-            Register with a passkey and you have a working account: wallet included, recovery built
-            in, every action signed. Try it right here.
-          </p>
-          <div>
-            <a className="h2-btn h2-btn--outline" href={docsProps.href} onClick={docsProps.onClick}>
-              How auth works
-            </a>
-          </div>
-          <div className="h2-themeswitch" role="group" aria-label="Preview theme">
-            <span className="h2-themeswitch__label">Theme</span>
-            {DEMO_THEME_PRESETS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`h2-themeswitch__btn${demoTheme === t.id ? ' is-active' : ''}`}
-                aria-pressed={demoTheme === t.id}
-                onClick={() => setDemoTheme(t.id)}
-              >
-                <span className="h2-themeswitch__swatch" style={{ background: t.swatch }} />
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="h2-band__right">
-          <div>
-            <p className="h2-demo-label">Interactive &mdash; runs on this page</p>
-            {/* Feed the selected preset to the auth menu via the SDK theme context */}
-            <Theme
-              theme={activePreset.mode}
-              tokens={demoReactTokens(activePreset)}
-              tag="div"
-              className="h2-demo-theme-root"
-              style={{ display: 'contents' }}
-            >
-              {show ? (
-                <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
-                  <DemoPasskeyColumnLazy currentPage={demoPage} onCurrentPageChange={setDemoPage} />
-                </React.Suspense>
-              ) : (
-                <div className="h2-demo__placeholder" />
-              )}
-            </Theme>
-          </div>
-        </div>
-        {/* Pager lives at the split level so it sits on the divider/border junction */}
-        <div className="h2-pager" role="group" aria-label="Demo screens">
-          <button
-            type="button"
-            className="h2-pager__btn"
-            aria-label="Previous demo screen"
-            disabled={demoPage === 0}
-            onClick={() => setDemoPage((p) => Math.max(0, p - 1))}
-          >
-            <ChevronLeft aria-hidden />
-          </button>
-          <span className="h2-pager__dots">
-            {demoPageNames.map((name, i) => (
-              <span
-                key={name}
-                className={`h2-pager__dot${i === demoPage ? ' is-active' : ''}`}
-                title={name}
-              />
-            ))}
+      <div className="h2-window__main">
+        <p className="h2-window__title">Store overview</p>
+        <div className="h2-stats">
+          <span className="h2-stat">
+            <small>Actions today</small>
+            <strong>1,284</strong>
           </span>
-          <button
-            type="button"
-            className="h2-pager__btn"
-            aria-label="Next demo screen"
-            disabled={demoPage >= maxPage}
-            onClick={() => setDemoPage((p) => Math.min(maxPage, p + 1))}
-          >
-            <ChevronRight aria-hidden />
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- ecosystem (commerce-stack lattice + networks) ---------- */
-
-const networks = ['Ethereum', 'Stripe Tempo', 'Circle Arc', 'NEAR', 'Hyperliquid', 'Polygon'];
-
-/* Tool categories, not brand logos — honest until real integrations ship. */
-const stackCategories = [
-  { label: 'Storefronts', icon: Store, x: 10, y: 30 },
-  { label: 'Payments', icon: CreditCard, x: 27, y: 66 },
-  { label: 'Email & messaging', icon: Mail, x: 46, y: 26 },
-  { label: 'Support desk', icon: LifeBuoy, x: 63, y: 64 },
-  { label: 'Fulfillment', icon: Package, x: 78, y: 30 },
-  { label: 'Analytics', icon: BarChart3, x: 90, y: 62 },
-];
-
-function Home2Ecosystem(): React.JSX.Element {
-  const { linkProps } = useSiteRouter();
-  const docsProps = linkProps('/docs/concepts/');
-
-  return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-eco-title">
-      <div className="h2-shell">
-        <div className="h2-eco__head">
-          <div>
-            <p className="h2-kicker" style={{ marginBottom: 12 }}>
-              Ecosystem
-            </p>
-            <h2 id="h2-eco-title" className="h2-display h2-eco__title">
-              Plugs into the tools stores already run
-            </h2>
-            <p className="h2-eco__copy">
-              Storefronts, payments, messaging, and support &mdash; connected through scoped
-              credentials, so every action stays inside policy.
-            </p>
-          </div>
-          <a className="h2-btn h2-btn--outline" href={docsProps.href} onClick={docsProps.onClick}>
-            Read the docs
-          </a>
-        </div>
-        <div className="h2-lattice" role="img" aria-label="Commerce tool categories Seams connects">
-          {stackCategories.map((c) => {
-            const Icon = c.icon;
-            return (
-              <span
-                key={c.label}
-                className="h2-lattice__chip"
-                style={{ left: `${c.x}%`, top: `${c.y}%` }}
-              >
-                <Icon aria-hidden />
-                {c.label}
-              </span>
-            );
-          })}
-        </div>
-        <p className="h2-networks-line">
-          <span className="h2-networks-line__label">Networks</span>
-          {networks.join(' · ')}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function Home2Trusted(): React.JSX.Element {
-  return (
-    <section className="h2-section h2-rule h2-trusted" aria-labelledby="h2-trusted-title">
-      <div className="h2-shell">
-        <h2 id="h2-trusted-title" className="h2-display h2-trusted__title">
-          Built for teams shipping the future of commerce
-        </h2>
-        <p className="h2-trusted__copy">
-          Seams gives merchants and platforms secure accounts, scoped credentials, and wallet access
-          &mdash; with approval rules and an audit trail for every action.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- platform pillars ---------- */
-
-type Pillar = {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ 'aria-hidden'?: boolean }>;
-  copy: React.ReactNode;
-  mock: React.ReactNode;
-};
-
-const pillars: Pillar[] = [
-  {
-    id: 'auth',
-    label: 'Authentication',
-    icon: Fingerprint,
-    copy: (
-      <>
-        <strong>Passkeys, biometric login, and account recovery.</strong> One identity layer for
-        merchants, staff, and the agents working on their behalf.
-      </>
-    ),
-    mock: (
-      <div className="h2-mockcard" role="img" aria-label="Sign-in methods list">
-        <p className="h2-mockcard__title">Sign in to your store</p>
-        <div className="h2-mockrow">
-          <span className="h2-mockrow__main">
-            Passkey
-            <small>face_id · this device</small>
+          <span className="h2-stat">
+            <small>Held for approval</small>
+            <strong>3</strong>
           </span>
-          <span className="h2-chip h2-chip--green">Ready</span>
-        </div>
-        <div className="h2-mockrow">
-          <span className="h2-mockrow__main">
-            Email one-time code
-            <small>otp · 10 min expiry</small>
+          <span className="h2-stat">
+            <small>Agents active</small>
+            <strong>2</strong>
           </span>
-          <span className="h2-chip h2-chip--plain">Fallback</span>
         </div>
-        <div className="h2-mockrow">
-          <span className="h2-mockrow__main">
-            Account recovery
-            <small>email + linked device</small>
-          </span>
-          <span className="h2-chip h2-chip--plain">Configured</span>
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: 'wallets',
-    label: 'Embedded Wallets',
-    icon: Wallet,
-    copy: (
-      <>
-        <strong>Non-custodial embedded wallets and signed customer actions.</strong> Keys are split
-        between the user&rsquo;s device and your infrastructure &mdash; neither can sign alone.
-      </>
-    ),
-    mock: (
-      <div className="h2-split" role="img" aria-label="Key shares combining into a signature">
-        <span className="h2-split__node">
-          share_a
-          <small>User&rsquo;s device</small>
-        </span>
-        <span className="h2-split__op" aria-hidden>
-          +
-        </span>
-        <span className="h2-split__node">
-          share_b
-          <small>Your infrastructure</small>
-        </span>
-        <span className="h2-split__op" aria-hidden>
-          &rarr;
-        </span>
-        <span className="h2-split__node h2-split__node--result">
-          signature
-          <small>Policy checked first</small>
-        </span>
-      </div>
-    ),
-  },
-  {
-    id: 'permissions',
-    label: 'Credentials & permissions',
-    icon: ListChecks,
-    copy: (
-      <>
-        <strong>Limits, approvals, roles, and audit.</strong> Configurable policy decides what each
-        credential can do &mdash; before anything executes.
-      </>
-    ),
-    mock: (
-      <div className="h2-mockcard" role="img" aria-label="Policy rules list">
-        <p className="h2-mockcard__title">Store policy</p>
-        <div className="h2-mockrow">
-          <span className="h2-mockrow__main">
-            Discounts up to 10%
-            <small>role: support</small>
-          </span>
-          <span className="h2-chip h2-chip--green">Allowed</span>
-        </div>
-        <div className="h2-mockrow">
-          <span className="h2-mockrow__main">
-            Refunds over ¥50,000
-            <small>role: any</small>
-          </span>
-          <span className="h2-chip h2-chip--amber">Needs approval</span>
-        </div>
-        <div className="h2-mockrow">
-          <span className="h2-mockrow__main">
-            Price changes
-            <small>role: owner only</small>
-          </span>
-          <span className="h2-chip h2-chip--amber">Step-up auth</span>
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: 'delegated',
-    label: 'Delegated access',
-    icon: Share2,
-    copy: (
-      <>
-        <strong>Credential delegation for staff, and agent identity for attribution.</strong> The
-        Seams Harness gives every agent its own scoped credentials and a full evidence trail.
-      </>
-    ),
-    mock: (
-      <div className="h2-mockcard" role="img" aria-label="Delegated credentials list">
-        <p className="h2-mockcard__title">Delegated credentials</p>
         <div className="h2-mockrow">
           <span className="h2-mockrow__main">
             Support agent (AI)
@@ -405,766 +82,522 @@ const pillars: Pillar[] = [
         </div>
         <div className="h2-mockrow">
           <span className="h2-mockrow__main">
-            Ops staff — Kenji
-            <small>listings + inventory</small>
+            Discount 12% · cart #8841
+            <small>waiting on owner approval</small>
           </span>
-          <span className="h2-chip h2-chip--green">Active</span>
+          <span className="h2-chip h2-chip--amber">Held</span>
         </div>
         <div className="h2-mockrow">
           <span className="h2-mockrow__main">
-            Pricing agent (AI)
-            <small>expired 2 days ago</small>
+            Restock order signed
+            <small>sig 0x8c31…f27</small>
           </span>
-          <span className="h2-chip h2-chip--plain">Revoked</span>
+          <span className="h2-chip h2-chip--plain">Logged</span>
         </div>
-      </div>
-    ),
-  },
-];
-
-function Home2Pillars(): React.JSX.Element {
-  const [active, setActive] = React.useState(0);
-  const pillar = pillars[active];
-
-  return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-pillars-title">
-      <div className="h2-shell">
-        <div className="h2-split-head">
-          <p className="h2-kicker">Platform</p>
-          <h2 id="h2-pillars-title" className="h2-display">
-            One SDK for the whole account stack
-          </h2>
-          <p className="h2-split-head__copy">
-            Authentication, wallets, credentials, and delegated access share one policy model
-            &mdash; so nothing acts on your store outside the rules you set.
-          </p>
+        <div className="h2-mockrow">
+          <span className="h2-mockrow__main">
+            Support inbox triaged
+            <small>14 tickets · 2 escalated to owner</small>
+          </span>
+          <span className="h2-chip h2-chip--plain">Logged</span>
         </div>
-        <div className="h2-pillars">
-          <div className="h2-pillars__list" role="tablist" aria-label="Platform pillars">
-            {pillars.map((p, i) => {
-              const Icon = p.icon;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={i === active}
-                  className={`h2-pillar${i === active ? ' is-active' : ''}`}
-                  onClick={() => setActive(i)}
-                >
-                  <span className="h2-pillar__icon" aria-hidden>
-                    <Icon />
-                  </span>
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="h2-pillars__panel" role="tabpanel" aria-label={pillar.label}>
-            <p className="h2-pillars__panel-copy">{pillar.copy}</p>
-            <div className="h2-pillars__mock">{pillar.mock}</div>
-          </div>
+        <div className="h2-mockrow">
+          <span className="h2-mockrow__main">
+            Price update · autumn catalog
+            <small>runs 06:00 JST · within ±5% band</small>
+          </span>
+          <span className="h2-chip h2-chip--green">Scheduled</span>
         </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- bento band ---------- */
-
-function PreflightMock(): React.JSX.Element {
-  return (
-    <div className="h2-mockcard" role="img" aria-label="Preflight checks before an agent action">
-      <p className="h2-mockcard__title">Preflight checks &mdash; send discount offer</p>
-      <div className="h2-mockrow">
-        <span className="h2-mockrow__main">Credentials valid</span>
-        <span className="h2-chip h2-chip--green">Pass</span>
-      </div>
-      <div className="h2-mockrow">
-        <span className="h2-mockrow__main">Agent identity verified</span>
-        <span className="h2-chip h2-chip--green">Pass</span>
-      </div>
-      <div className="h2-mockrow">
-        <span className="h2-mockrow__main">Discount permission</span>
-        <span className="h2-chip h2-chip--amber">Admin approval</span>
-      </div>
-      <div className="h2-mockbtns" aria-hidden>
-        <span className="h2-mockbtn h2-mockbtn--approve">Approve</span>
-        <span className="h2-mockbtn h2-mockbtn--cancel">Cancel</span>
       </div>
     </div>
   );
 }
 
-function ApprovalGateMock(): React.JSX.Element {
+function IntegrationsWindow(): React.JSX.Element {
   return (
-    <div className="h2-mockcard" role="img" aria-label="Approval gate requiring passkey">
-      <p className="h2-mockcard__title">Approval gate</p>
-      <div className="h2-mockrow">
-        <span className="h2-mockrow__main">
-          Order inventory restock
-          <small>¥180,000 · supplier: Kyoto Craft Co.</small>
-        </span>
-        <span className="h2-chip h2-chip--amber">Held</span>
+    <div
+      className="h2-window"
+      role="img"
+      aria-label="Approval request delivered to a Slack channel"
+    >
+      <div className="h2-window__side h2-window__side--slack">
+        <div className="h2-window__brand">Kanda Goods</div>
+        <div className="h2-window__navitem">
+          <Hash aria-hidden /> general
+        </div>
+        <div className="h2-window__navitem is-active">
+          <Hash aria-hidden /> store-ops
+        </div>
+        <div className="h2-window__navitem">
+          <Hash aria-hidden /> support
+        </div>
+        <div className="h2-window__navitem">
+          <Hash aria-hidden /> restocks
+        </div>
       </div>
-      <div className="h2-mockrow">
-        <span className="h2-mockrow__main">
-          Confirm with passkey
-          <small>owner presence required</small>
-        </span>
-        <span className="h2-chip h2-chip--plain">Waiting</span>
-      </div>
-      <div className="h2-mockrow">
-        <span className="h2-mockrow__main">
-          Decision logged to audit trail
-          <small>evidence retained</small>
-        </span>
-        <span className="h2-chip h2-chip--plain">Auto</span>
+      <div className="h2-window__main">
+        <p className="h2-window__title"># store-ops</p>
+        <div className="h2-chat">
+          <div className="h2-chat__bubble">
+            <small>Seams Harness · APP · 09:14</small>
+            Held for approval: support agent wants to send a 12% discount for cart #8841
+            (¥12,400). Policy: discounts over 10% need an owner.
+          </div>
+          <div className="h2-chat__bubble">
+            <small>Seams Harness · APP · 09:14</small>
+            Approve with your passkey to release the action.
+          </div>
+          <div className="h2-chat__bubble h2-chat__bubble--reply">
+            Approved ✓ signed sig 0x8c31…f27, offer email sent
+          </div>
+          <div className="h2-chat__bubble">
+            <small>Seams Harness · APP · 09:31</small>
+            Daily digest: 1,284 actions inside policy, 3 held, 0 declined. Full audit trail on the
+            dashboard.
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function Home2Bento(): React.JSX.Element {
+/* The real SeamsAuthMenu shell, inert: the SDK's skeleton renders identical
+   markup/CSS with all controls disabled and no wallet logic. The Inner export
+   reads no theme context; the Paper palette is pinned as CSS variables on the
+   wrapper so the card can't inherit the site theme (which may be dark or
+   Rosé Pine). pointer-events off so clicks fall through to the panel link. */
+const paperPreset = DEMO_THEME_PRESETS.find((t) => t.id === 'paper') ?? DEMO_THEME_PRESETS[0];
+const paperShellVars = Object.fromEntries(
+  Object.entries(paperPreset.colors).map(([key, value]) => [`--w3a-colors-${key}`, value]),
+) as React.CSSProperties;
+
+function WalletShellCard(): React.JSX.Element {
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-bento-title">
-      <div className="h2-shell">
-        <div className="h2-split-head">
-          <p className="h2-kicker">Control plane</p>
-          <h2 id="h2-bento-title" className="h2-display">
-            Agents act only inside policy
-          </h2>
-          <p className="h2-split-head__copy">
-            Every action from an agent or staff member runs through the same checks: permissions,
-            limits, thresholds, expiry. Risky actions route to a human.
-          </p>
-        </div>
-        <div className="h2-bento">
-          <div className="h2-bento__card h2-bento__card--lg">
-            <div className="h2-bento__visual">
-              <PreflightMock />
-            </div>
-            <div>
-              <h3 className="h2-bento__title">Checks before execution</h3>
-              <p className="h2-bento__copy">
-                The Seams harness verifies credentials, identity, and permissions before an action
-                runs &mdash; and emits a log either way.
-              </p>
-            </div>
-          </div>
-          <div className="h2-bento__card h2-bento__card--lg">
-            <div className="h2-bento__visual">
-              <ApprovalGateMock />
-            </div>
-            <div>
-              <h3 className="h2-bento__title">Human approval where it matters</h3>
-              <p className="h2-bento__copy">
-                Funds, pricing, and public actions can require passkey or biometric confirmation
-                from the owner before they go through.
-              </p>
-            </div>
-          </div>
-          <div className="h2-bento__card h2-bento__card--sm">
-            <span className="h2-bento__icon h2-bento__icon--blue-red" aria-hidden>
-              <ListChecks />
-            </span>
-            <div>
-              <h3 className="h2-bento__title">Roles &amp; limits</h3>
-              <p className="h2-bento__copy">
-                Scope what support, ops, and agents can each do &mdash; amounts, actions, expiry.
-              </p>
-            </div>
-          </div>
-          <div className="h2-bento__card h2-bento__card--sm">
-            <span className="h2-bento__icon h2-bento__icon--ember-moss" aria-hidden>
-              <ScrollText />
-            </span>
-            <div>
-              <h3 className="h2-bento__title">Audit trail</h3>
-              <p className="h2-bento__copy">
-                Every decision &mdash; allowed, held, or blocked &mdash; lands in an evidence trail
-                you can export.
-              </p>
-            </div>
-          </div>
-          <div className="h2-bento__card h2-bento__card--sm">
-            <span className="h2-bento__icon h2-bento__icon--sage-charcoal" aria-hidden>
-              <KeyRound />
-            </span>
-            <div>
-              <h3 className="h2-bento__title">Recovery built in</h3>
-              <p className="h2-bento__copy">
-                Accounts recover through email and linked devices &mdash; no seed phrases, no
-                lockouts.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <div
+      className="h2-heroscene__shell"
+      aria-hidden
+      data-w3a-theme="light"
+      style={paperShellVars}
+    >
+      {/* Login mode shows the full method stack (passkey, SSO, other options) */}
+      <SeamsAuthMenuSkeletonInner defaultMode={AuthMenuMode.Login} />
+    </div>
   );
 }
 
-/* ---------- use cases ---------- */
+/* ---------- hero: headline + paged scenes ---------- */
 
-const useCases = [
+type HeroScene = {
+  id: string;
+  icon: React.ComponentType<{ 'aria-hidden'?: boolean }>;
+  title: string;
+  sub: string;
+  left: React.ReactNode;
+};
+
+/* Left column pages through views of the agents product; the wallet shell
+   stays fixed in the right column, like the reference hero's assistant card. */
+const heroScenes: HeroScene[] = [
   {
-    title: 'Automate storefront ops',
-    coverClass: 'h2-case__cover--ops',
-    coverLabel: 'Storefront ops',
-    copy: 'Let an agent watch cart abandonment, inventory alerts, and support tickets — then follow up, prepare refunds, and update listings inside the limits you set.',
+    id: 'dashboard',
+    icon: Store,
+    title: 'Ecommerce Agents',
+    sub: 'Agents run your store: limits, approvals, and audit built in',
+    left: <DashboardWindow />,
   },
   {
-    title: 'Delegate to staff safely',
-    coverClass: 'h2-case__cover--staff',
-    coverLabel: 'Staff delegation',
-    copy: 'Give part-time staff and contractors scoped credentials instead of shared logins. Limits and roles apply automatically; access expires on schedule.',
-  },
-  {
-    title: 'Agent checkout with mandates',
-    coverClass: 'h2-case__cover--checkout',
-    coverLabel: 'Agent checkout',
-    copy: 'Buyer-side agents purchase under signed mandates with per-week budgets — merchants see verified identity and a clean audit trail on every order.',
+    id: 'integrations',
+    icon: Slack,
+    title: 'Integrations',
+    sub: 'Approvals land where your team already works',
+    left: <IntegrationsWindow />,
   },
 ];
 
-function Home2Cases(): React.JSX.Element {
-  return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-cases-title">
-      <div className="h2-shell">
-        <div className="h2-split-head">
-          <p className="h2-kicker">Workflows</p>
-          <h2 id="h2-cases-title" className="h2-display">
-            Turn store operations into governed workflows
-          </h2>
-          <p className="h2-split-head__copy">
-            The Seams harness turns commerce events into policy-checked actions: agents watch the
-            store, prepare responses, and act &mdash; inside the limits you set, with human approval
-            where it matters.
-          </p>
-        </div>
-
-        {/* workflow canvas: event -> preflight -> signed action */}
-        <div className="h2-flow">
-          <div
-            className="h2-flow__canvas"
-            role="img"
-            aria-label="A storefront event flowing through preflight checks into a signed action"
-          >
-            <span className="h2-flow__tag">Seams Harness &middot; cart-recovery flow</span>
-            <div className="h2-flow__row">
-              <div className="h2-mockcard h2-flow__node h2-flow__node--first">
-                <p className="h2-mockcard__title">Storefront event</p>
-                <div className="h2-mockrow">
-                  <span className="h2-mockrow__main">
-                    Cart abandoned
-                    <small>3 items &middot; ¥12,400</small>
-                  </span>
-                  <span className="h2-chip h2-chip--plain">New</span>
-                </div>
-              </div>
-              <span className="h2-flow__link" aria-hidden />
-              <div className="h2-mockcard h2-flow__node">
-                <p className="h2-mockcard__title">Preflight checks</p>
-                <div className="h2-mockrow">
-                  <span className="h2-mockrow__main">Credentials valid</span>
-                  <span className="h2-chip h2-chip--green">Pass</span>
-                </div>
-                <div className="h2-mockrow">
-                  <span className="h2-mockrow__main">Agent identity</span>
-                  <span className="h2-chip h2-chip--green">Pass</span>
-                </div>
-                <div className="h2-mockrow">
-                  <span className="h2-mockrow__main">Discount 10%</span>
-                  <span className="h2-chip h2-chip--amber">Owner approval</span>
-                </div>
-              </div>
-              <span className="h2-flow__link" aria-hidden />
-              <div className="h2-mockcard h2-flow__node h2-flow__node--last">
-                <p className="h2-mockcard__title">Action</p>
-                <div className="h2-mockrow">
-                  <span className="h2-mockrow__main">
-                    Offer email sent
-                    <small>sig 0x8c31…f27</small>
-                  </span>
-                  <span className="h2-chip h2-chip--green">Signed</span>
-                </div>
-                <div className="h2-mockrow">
-                  <span className="h2-mockrow__main">Logged to audit trail</span>
-                  <span className="h2-chip h2-chip--plain">Auto</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="h2-cases">
-          {useCases.map((c) => (
-            <div className="h2-case" key={c.title}>
-              <div className={`h2-case__cover ${c.coverClass}`} aria-hidden>
-                <span>{c.coverLabel}</span>
-              </div>
-              <h3 className="h2-case__title">{c.title}</h3>
-              <p className="h2-case__copy">{c.copy}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- security ---------- */
-
-function LineArt({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" aria-hidden>
-      {children}
-    </svg>
-  );
-}
-
-function Home2Security(): React.JSX.Element {
-  return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-security-title">
-      <div className="h2-shell">
-        <div className="h2-security">
-          <div>
-            <p className="h2-kicker" style={{ marginBottom: 22 }}>
-              Security
-            </p>
-            <h2 id="h2-security-title" className="h2-display h2-security__title">
-              Custody and control, engineered in
-            </h2>
-            <div className="h2-security__item">
-              <h3>
-                <Lock aria-hidden />
-                Non-custodial by design
-              </h3>
-              <p>
-                Signing authority is split between the user&rsquo;s device and your infrastructure.
-                Neither can sign alone, and export always requires a fresh authorized flow.
-              </p>
-            </div>
-            <div className="h2-security__item">
-              <h3>
-                <ShieldCheck aria-hidden />
-                Policy before execution
-              </h3>
-              <p>
-                Approvals, budgets, revocation state, and replay checks run before signatures,
-                payments, or API actions execute &mdash; for people and agents alike.
-              </p>
-            </div>
-            <div className="h2-security__item">
-              <h3>
-                <ScrollText aria-hidden />
-                Evidence for every decision
-              </h3>
-              <p>
-                Allowed, held, or blocked &mdash; each decision is attributed to a verified identity
-                and retained in the audit trail.
-              </p>
-            </div>
-          </div>
-          <div className="h2-security__grid">
-            <div className="h2-security__cell">
-              {/* nested isometric cube: dashed hidden edges, faint-filled inner cube */}
-              <LineArt>
-                <path d="M50 12 L80 27 L80 63 L50 78 L20 63 L20 27 Z" />
-                <path
-                  d="M50 12 L50 48 M50 48 L20 63 M50 48 L80 63"
-                  strokeDasharray="2.5 3"
-                  opacity="0.5"
-                />
-                <path
-                  d="M50 36 L63 42.5 L63 58 L50 64.5 L37 58 L37 42.5 Z"
-                  fill="var(--h2-taupe)"
-                />
-                <path d="M37 42.5 L50 49 L63 42.5 M50 49 L50 64.5" />
-                <path d="M20 27 L50 42 L80 27 M50 42 L50 78" />
-              </LineArt>
-              <span>Split-key custody</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* double-outline shield on a dotted axis */}
-              <LineArt>
-                <path d="M50 4 V96" strokeDasharray="2.5 3" opacity="0.4" />
-                <path
-                  d="M50 12 L81 22 V48 C81 66 68 78 50 86 C32 78 19 66 19 48 V22 Z"
-                  fill="var(--h2-bg)"
-                />
-                <path
-                  d="M50 20 L74 28 V48 C74 61 64 71 50 77 C36 71 26 61 26 48 V28 Z"
-                  opacity="0.7"
-                />
-                <path d="M38 48 L47 57 L63 39" />
-              </LineArt>
-              <span>Policy engine</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* technical key: concentric head, construction circle + crosshair */}
-              <LineArt>
-                <path d="M36 8 V68 M6 38 H66" strokeDasharray="2.5 3" opacity="0.4" />
-                <circle cx="36" cy="38" r="22" strokeDasharray="2.5 3" opacity="0.4" />
-                <circle cx="36" cy="38" r="15" fill="var(--h2-bg)" />
-                <circle cx="36" cy="38" r="8" />
-                <path d="M47 49 L82 84 M62 64 L71 55 M71 73 L80 64" />
-              </LineArt>
-              <span>Scoped credentials</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* layered ledger: offset sheets with dashed projection guides */}
-              <LineArt>
-                <path d="M34 10 H78 V74 H34 Z" opacity="0.7" />
-                <path
-                  d="M34 10 L24 24 M78 10 L68 24 M78 74 L68 88 M34 74 L24 88"
-                  strokeDasharray="2.5 3"
-                  opacity="0.5"
-                />
-                <path d="M24 24 H68 V88 H24 Z" fill="var(--h2-bg)" />
-                <path d="M32 40 H60 M32 49 H60 M32 58 H60 M32 67 H50" />
-              </LineArt>
-              <span>Audit log</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- get started band (stacked two-column rows) ---------- */
-
-function Home2Start(): React.JSX.Element {
+function HomeHeroCurrent(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
-  const dashboardProps = linkProps('/dashboard');
-  const docsProps = linkProps('/docs/concepts/');
+  const startProps = linkProps('/docs/concepts/');
   const contactProps = linkProps('/contact/');
+  const agentsProps = linkProps('/ecommerce');
+  const walletProps = linkProps('/wallet');
+  const [page, setPage] = React.useState(0);
+  const scene = heroScenes[page];
 
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-start-title">
-      <div className="h2-shell">
-        <div className="h2-eco__head h2-starthead">
-          <div>
-            <p className="h2-kicker" style={{ marginBottom: 12 }}>
-              Get started
-            </p>
-            <h2 id="h2-start-title" className="h2-display h2-eco__title">
-              Start in the dashboard, or build it into your product
-            </h2>
+    <>
+      <header className="h2-hero-simple" aria-labelledby="h2-home-title">
+        <div className="h2-shell">
+          <h1 id="h2-home-title" className="h2-display h2-hero-simple__title">
+            Commerce accounts for people and AI agents
+          </h1>
+          <p className="h2-hero-simple__sub">
+            Auth, wallets, credentials, and delegated access in one SDK. Policy checks every action
+            before it runs.
+          </p>
+          <div className="h2-hero-simple__ctas">
+            <a
+              className="h2-btn h2-btn--primary h2-btn--lg"
+              href={startProps.href}
+              onClick={startProps.onClick}
+            >
+              Start building
+            </a>
+            <a
+              className="h2-btn h2-btn--outline h2-btn--lg"
+              href={contactProps.href}
+              onClick={contactProps.onClick}
+            >
+              Contact sales
+            </a>
           </div>
-          <a className="h2-btn h2-btn--outline" href={docsProps.href} onClick={docsProps.onClick}>
-            Explore docs
-          </a>
         </div>
-      </div>
+      </header>
 
-      {/* row 1: merchant dashboard */}
-      <div className="h2-startrow h2-rule">
-        <div className="h2-shell h2-startrow__grid">
-          <div className="h2-startrow__text">
-            <h3>Merchant dashboard</h3>
-            <p>
-              Create a store account, set policy, and invite staff and agents &mdash; no code
-              required. Planning a marketplace or fleet rollout? We&rsquo;ll help.
+      <section className="h2-heroscene h2-rule" aria-label="Product tour">
+        <div className="h2-heroscene__split">
+          {/* whole panel navigates; the pager is a sibling so it stays clickable */}
+          <a
+            className="h2-heroscene__stage"
+            href={agentsProps.href}
+            onClick={agentsProps.onClick}
+            aria-label="Explore Ecommerce Agents"
+          >
+            <div className="h2-heroscene__intro h2-fadein" key={`intro-${scene.id}`}>
+              <span className="h2-heroscene__intro-icon" aria-hidden>
+                <scene.icon />
+              </span>
+              <div>
+                <p className="h2-heroscene__intro-title">{scene.title}</p>
+                <p className="h2-heroscene__intro-sub">{scene.sub}</p>
+              </div>
+            </div>
+            <div className="h2-heroscene__frame h2-fadein" key={`frame-${scene.id}`}>
+              {scene.left}
+            </div>
+          </a>
+
+          <a
+            className="h2-heroscene__aside"
+            href={walletProps.href}
+            onClick={walletProps.onClick}
+            aria-label="Explore Embedded Wallet"
+          >
+            <div className="h2-heroscene__intro">
+              <span className="h2-heroscene__intro-icon" aria-hidden>
+                <Wallet />
+              </span>
+              <div>
+                <p className="h2-heroscene__intro-title">Embedded Wallet</p>
+                <p className="h2-heroscene__intro-sub">
+                  Non-custodial wallets, opened with a passkey
+                </p>
+              </div>
+            </div>
+            <div className="h2-heroscene__aside-body">
+              <WalletShellCard />
+            </div>
+          </a>
+
+          {/* Pager sits on the divider/border junction, like the demo hero's */}
+          <div className="h2-pager" role="group" aria-label="Product views">
+            <button
+              type="button"
+              className="h2-pager__btn"
+              aria-label="Previous product view"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              <ChevronLeft aria-hidden />
+            </button>
+            <span className="h2-pager__dots">
+              {heroScenes.map((s, i) => (
+                <span
+                  key={s.id}
+                  className={`h2-pager__dot${i === page ? ' is-active' : ''}`}
+                  title={s.title}
+                />
+              ))}
+            </span>
+            <button
+              type="button"
+              className="h2-pager__btn"
+              aria-label="Next product view"
+              disabled={page >= heroScenes.length - 1}
+              onClick={() => setPage((p) => Math.min(heroScenes.length - 1, p + 1))}
+            >
+              <ChevronRight aria-hidden />
+            </button>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function HomeHeroMedia(): React.JSX.Element {
+  const { linkProps } = useSiteRouter();
+  const startProps = linkProps('/docs/concepts/');
+  const contactProps = linkProps('/contact/');
+  const agentsProps = linkProps('/ecommerce');
+  const walletProps = linkProps('/wallet');
+  const docsProps = linkProps('/docs/concepts/auth-methods/');
+
+  return (
+    <>
+      <header className="h2-hero-media" aria-labelledby="h2-home2-title">
+        <div className="h2-shell h2-hero-media__split">
+          <div className="h2-hero-media__main">
+            <p className="h2-hero-media__product">
+              <img
+                src="/seams-v9/png/gradient-fabric/seams-mark-gradient-fabric-256.png"
+                alt=""
+              />
+              <span>Seams Agents</span>
             </p>
-            <div className="h2-startrow__ctas">
+            <h1 id="h2-home2-title" className="h2-display h2-hero-media__title">
+              Commerce agents that stay inside policy
+            </h1>
+            <div className="h2-hero-media__ctas">
               <a
-                className="h2-btn h2-btn--primary"
-                href={dashboardProps.href}
-                onClick={dashboardProps.onClick}
+                className="h2-btn h2-btn--primary h2-btn--lg"
+                href={startProps.href}
+                onClick={startProps.onClick}
               >
-                Open dashboard
+                Create an agent
               </a>
               <a
-                className="h2-btn h2-btn--outline"
+                className="h2-btn h2-btn--outline h2-btn--lg"
                 href={contactProps.href}
                 onClick={contactProps.onClick}
               >
-                Talk to us
+                Talk to sales
               </a>
             </div>
           </div>
-          <div className="h2-startrow__visual">
-            <div className="h2-mockcard h2-mockcard--wide">
-              <p className="h2-mockcard__title">Store overview</p>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">Store policy</span>
-                <span className="h2-chip h2-chip--green">Active</span>
-              </div>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">2 agents · 3 staff</span>
-                <span className="h2-chip h2-chip--plain">Scoped</span>
-              </div>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">Pending approvals</span>
-                <span className="h2-chip h2-chip--amber">1</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* row 2: accounts & wallets API */}
-      <div className="h2-startrow h2-rule">
-        <div className="h2-shell h2-startrow__grid">
-          <div className="h2-startrow__text">
-            <h3>Accounts &amp; Wallets API</h3>
+          <aside className="h2-hero-media__copy" aria-label="Seams agent account summary">
             <p>
-              Register a passkey and get a working account: non-custodial wallet included, recovery
-              built in, every action signed.
+              Configure, deploy, and monitor AI agents for store operations. Seams gives every
+              agent scoped credentials, spending limits, owner approvals, and an audit trail.
             </p>
-            <div className="h2-startrow__notes">
-              <div>
-                <strong>Passkey register</strong>
-                <span>One call to a working wallet</span>
-              </div>
-              <div>
-                <strong>Recovery</strong>
-                <span>Email + linked devices, no seed phrases</span>
-              </div>
-            </div>
-          </div>
-          <div className="h2-code h2-code--lg" aria-label="Register a wallet with the SDK">
-            <span className="tok-kw">import</span>
-            {' { SeamsClient } '}
-            <span className="tok-kw">from</span> <span className="tok-str">'@seams/sdk'</span>
-            {';\n\n'}
-            <span className="tok-kw">const</span>
-            {' seams = '}
-            <span className="tok-kw">new</span>
-            {' SeamsClient({ apiKey: '}
-            <span className="tok-str">'YOUR_API_KEY'</span>
-            {' });\n\n'}
-            <span className="tok-kw">const</span>
-            {' account = '}
-            <span className="tok-kw">await</span>
-            {' seams.register({\n  method: '}
-            <span className="tok-str">'passkey'</span>
-            {',\n  policy: '}
-            <span className="tok-str">'starter-store'</span>
-            {',\n});'}
-          </div>
+          </aside>
         </div>
-      </div>
+      </header>
 
-      {/* row 3: policy & delegation API */}
-      <div className="h2-startrow h2-rule">
-        <div className="h2-shell h2-startrow__grid">
-          <div className="h2-startrow__text">
-            <h3>Policy &amp; Delegation API</h3>
-            <p>
-              Grant staff and agents scoped credentials with limits and expiry. Risky actions route
-              to the owner for passkey approval.
-            </p>
-            <div className="h2-startrow__notes">
-              <div>
-                <strong>Scoped credentials</strong>
-                <span>Per-action limits and expiry</span>
-              </div>
-              <div>
-                <strong>Approval gates</strong>
-                <span>Owner passkey for risky actions</span>
-              </div>
-            </div>
-          </div>
-          <div className="h2-code h2-code--lg" aria-label="Grant a scoped credential with the SDK">
-            <span className="tok-kw">const</span>
-            {' grant = '}
-            <span className="tok-kw">await</span>
-            {' seams.delegation.grant({\n  to: '}
-            <span className="tok-str">'support-agent'</span>
-            {',\n  scopes: ['}
-            <span className="tok-str">'refunds:issue'</span>
-            {', '}
-            <span className="tok-str">'emails:send'</span>
-            {'],\n  limit: { perAction: '}
-            <span className="tok-str">'¥10,000'</span>
-            {', expires: '}
-            <span className="tok-str">'30d'</span>
-            {' },\n});\n\n'}
-            <span className="tok-cm">{'// risky actions route to the owner\n'}</span>
-            <span className="tok-kw">await</span>
-            {' seams.approvals.require('}
-            <span className="tok-str">'discounts:over-10'</span>
-            {');'}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+      <section className="h2-agent-media h2-rule" aria-label="Seams agent use cases">
+        <div className="h2-shell">
+          <div className="h2-agent-media__rail">
+            <a
+              className="h2-agent-card h2-agent-card--featured"
+              href={agentsProps.href}
+              onClick={agentsProps.onClick}
+            >
+              <img src="/gradients/web/ember-moss.jpg" alt="" />
+              <span className="h2-agent-card__label">
+                <ListChecks aria-hidden />
+                Store operations
+              </span>
+              <span className="h2-agent-card__caption">
+                <strong>Discount request held</strong>
+                Agent proposes 12% off cart #8841. Policy routes it to owner approval.
+              </span>
+            </a>
 
-/* ---------- FAQ ---------- */
+            <a
+              className="h2-agent-card h2-agent-card--portrait"
+              href={walletProps.href}
+              onClick={walletProps.onClick}
+            >
+              <img src="/gradients/web/sage-charcoal.jpg" alt="" />
+              <span className="h2-agent-card__label">
+                <Wallet aria-hidden />
+                Wallet signing
+              </span>
+              <span className="h2-agent-card__caption">
+                <strong>Passkey unlock</strong>
+                The right user and key approve the signature.
+              </span>
+            </a>
 
-const faqs = [
-  {
-    q: 'What is Seams?',
-    a: 'Seams is key and credential infrastructure for ecommerce: one SDK for authentication, non-custodial wallets, a credentials and permissions layer, and delegated access for staff and AI agents.',
-  },
-  {
-    q: 'Is Seams custodial?',
-    a: 'No. Signing keys are split between the user’s device and your infrastructure — neither side can sign alone, and exporting a key always requires a fresh authorized flow from the owner.',
-  },
-  {
-    q: 'What can AI agents do with Seams?',
-    a: 'Agents get their own identity and scoped credentials. They can act on commerce events — follow-ups, refunds, listing updates — but only inside the merchant’s policy. Risky actions route to a human approval gate with passkey or biometric confirmation.',
-  },
-  {
-    q: 'How do merchants stay in control?',
-    a: 'Policy runs before anything executes: roles, amount limits, thresholds, expiry, and revocation. Every decision is attributed and logged, and delegated credentials can be revoked at any time.',
-  },
-  {
-    q: 'How do we get started?',
-    a: 'The SDK is self-serve — install it, register an account with a passkey, and apply a policy template. For marketplaces and merchant fleets, contact us and we’ll plan the rollout together.',
-  },
-  {
-    q: 'How does API authentication work?',
-    a: 'Your backend authenticates with API keys; end users and agents authenticate with passkeys and scoped credentials. Signing always requires the user-side key share, so API keys alone can never move funds or export keys.',
-  },
-  {
-    q: 'Which networks does Seams support?',
-    a: 'Ethereum and EVM networks, NEAR, Stripe Tempo, Circle Arc, Hyperliquid, and Polygon today, with more networks added as merchant demand grows.',
-  },
-  {
-    q: 'How is usage metered?',
-    a: 'Plans are based on monthly active wallets, with overage pricing as you grow — from a free tier for launch through usage-based Growth and Professional plans. See the pricing page for details.',
-  },
-];
+            <a
+              className="h2-agent-card h2-agent-card--slim"
+              href={docsProps.href}
+              onClick={docsProps.onClick}
+            >
+              <img src="/gradients/web/aqua-evergreen.jpg" alt="" />
+              <span className="h2-agent-card__label">
+                <ShieldCheck aria-hidden />
+                Approval
+              </span>
+            </a>
 
-function Home2Faq(): React.JSX.Element {
-  return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-faq-title">
-      <div className="h2-shell">
-        <div className="h2-faq">
-          <h2 id="h2-faq-title" className="h2-display h2-faq__title">
-            Frequently asked questions
-          </h2>
-          <div className="h2-faq__list">
-            {faqs.map((item) => (
-              <details key={item.q}>
-                <summary>{item.q}</summary>
-                <p>{item.a}</p>
-              </details>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- footer ---------- */
-
-const footerGroups = [
-  {
-    heading: 'Platform',
-    links: [
-      { label: 'Authentication', to: '/docs/concepts/auth-methods/' },
-      { label: 'Wallets & Signatures', to: '/docs/concepts/threshold-signing/' },
-      { label: 'Permissions & Policy', to: '/docs/concepts/policy/mandates' },
-      { label: 'Custody Model', to: '/docs/concepts/custody/' },
-    ],
-  },
-  {
-    heading: 'Solutions',
-    links: [
-      { label: 'Merchant Accounts', to: '/docs/concepts/custody/wallet-iframe' },
-      { label: 'Agent Commerce', to: '/docs/concepts/policy/mandates' },
-      { label: 'Stablecoin Payments', to: '/docs/concepts/sessions/wallet-sessions' },
-    ],
-  },
-  {
-    heading: 'Developers',
-    links: [
-      { label: 'Documentation', to: '/docs/concepts/' },
-      { label: 'Architecture', to: '/docs/concepts/architecture' },
-      { label: 'Pricing', to: '/pricing/' },
-    ],
-  },
-  {
-    heading: 'Company',
-    links: [
-      { label: 'About', to: '/company/' },
-      { label: 'Contact', to: '/contact/' },
-    ],
-  },
-];
-
-function Home2Footer(): React.JSX.Element {
-  const { linkProps } = useSiteRouter();
-  const homeProps = linkProps('/home2');
-
-  return (
-    <footer className="h2-footer h2-rule" aria-label="Site footer">
-      <div className="h2-footer__inner">
-        <div className="h2-footer__grid">
-          <div className="h2-footer__brand">
-            <a href={homeProps.href} onClick={homeProps.onClick} aria-label="Seams home">
-              {/* the page is always light; pin the light wordmark */}
-              <SeamsWordmark height={22} theme="light" />
+            <a
+              className="h2-agent-card h2-agent-card--slim"
+              href={docsProps.href}
+              onClick={docsProps.onClick}
+            >
+              <img src="/gradients/web/dusk-blue-mauve.jpg" alt="" />
+              <span className="h2-agent-card__label">
+                <ScrollText aria-hidden />
+                Audit
+              </span>
             </a>
           </div>
-          {footerGroups.map((group) => (
-            <div className="h2-footer__col" key={group.heading}>
-              <h3>{group.heading}</h3>
-              {group.links.map((link) => {
-                const props = linkProps(link.to);
-                return (
-                  <a key={link.label} href={props.href} onClick={props.onClick}>
-                    {link.label}
-                  </a>
-                );
-              })}
-            </div>
+
+          <div className="h2-agent-chat-pill" aria-hidden="true">
+            <img src="/seams-v9/png/gradient-fabric/seams-mark-gradient-fabric-256.png" alt="" />
+            <span>
+              Try a Seams agent
+              <small>Policy checked before execution</small>
+            </span>
+          </div>
+
+          <div className="h2-agent-media__footer" aria-label="Agent platform capabilities">
+            <span>Scoped credentials</span>
+            <span>Owner approvals</span>
+            <span>Action receipts</span>
+            <a href={agentsProps.href} onClick={agentsProps.onClick}>
+              Explore Ecommerce Agents
+              <ArrowRightAnim size={13} />
+            </a>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ---------- trusted-by: fictional merchant wordmarks (placeholders) ---------- */
+
+const merchantLogos = [
+  { name: 'Kanda Goods', variant: 'h2-logo--bold' },
+  { name: 'AOYAMA ATELIER', variant: 'h2-logo--caps' },
+  { name: 'Ginza Table', variant: 'h2-logo--serif' },
+  { name: 'shirokane supply', variant: 'h2-logo--mono' },
+  { name: 'Yūgen Prints', variant: 'h2-logo--light' },
+];
+
+function HomeTrusted(): React.JSX.Element {
+  return (
+    <section className="h2-section h2-rule h2-logos" aria-labelledby="h2-trusted-title">
+      <div className="h2-shell">
+        <div className="h2-logos__row" aria-label="Merchants building on Seams">
+          {merchantLogos.map((logo) => (
+            <span key={logo.name} className={`h2-logo ${logo.variant}`}>
+              {logo.name}
+            </span>
           ))}
         </div>
-        <div className="h2-footer__bottom">
-          <span>Copyright © {new Date().getFullYear()} Seams Technologies KK. Tokyo.</span>
-          <span className="h2-footer__socials">
-            <a
-              href="https://x.com/lowerarchy"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="X"
-            >
-              <Twitter size={16} aria-hidden />
-            </a>
-            <a
-              href="https://github.com/web3-authn/seams"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub"
-            >
-              <Github size={16} aria-hidden />
-            </a>
-          </span>
+        <div className="h2-logos__head">
+          <h2 id="h2-trusted-title" className="h2-display">
+            Trusted by merchants shipping the future of commerce
+          </h2>
+          <p className="h2-logos__copy">
+            Stores and platforms use Seams for secure accounts, scoped credentials, and wallet
+            access, with approval rules and an audit trail for every action.
+          </p>
         </div>
       </div>
-    </footer>
+    </section>
   );
 }
 
-export function Home2Page(): React.JSX.Element {
+/* ---------- two products, one account layer ---------- */
+
+function HomeDuo(): React.JSX.Element {
+  const { linkProps } = useSiteRouter();
+  const walletProps = linkProps('/wallet');
+  const agentsProps = linkProps('/ecommerce');
+
   return (
-    <div className="h2-page">
+    <section className="h2-section h2-section--snug h2-rule" aria-labelledby="h2-duo-title">
+      <div className="h2-shell">
+        <div className="h2-duo__head">
+          <h2 id="h2-duo-title" className="h2-display">
+            Two products, one account layer
+          </h2>
+          <p className="h2-duo__copy">
+            Built on the same keys, credentials, and policy engine: one product for embedding
+            wallets, another for putting agents to work on your store.
+          </p>
+        </div>
+        <div className="h2-duo__grid">
+          <a className="h2-duo__panel" href={walletProps.href} onClick={walletProps.onClick}>
+            <h3 className="h2-duo__title">
+              <Wallet aria-hidden />
+              Embedded Wallet
+            </h3>
+            <p className="h2-duo__panel-copy">
+              Passkey-secured, non-custodial wallets for your users: recovery built in, every
+              action signed, keys split so neither side can sign alone.
+            </p>
+            {/* MPC diagram instead of a second auth card: the hero already
+                shows the real wallet shell */}
+            <div className="h2-duo__visual">
+              <MpcSplitDiagram />
+            </div>
+            <span className="h2-duo__cta">
+              Explore Embedded Wallet
+              <ArrowRightAnim size={13} />
+            </span>
+          </a>
+          <a className="h2-duo__panel" href={agentsProps.href} onClick={agentsProps.onClick}>
+            <h3 className="h2-duo__title">
+              <Bot aria-hidden />
+              Ecommerce Agents
+            </h3>
+            <p className="h2-duo__panel-copy">
+              Give AI agents and staff scoped credentials to run your store: limits, approvals,
+              and an audit trail on every action.
+            </p>
+            <div className="h2-duo__visual">
+              <div className="h2-chat" style={{ maxWidth: 360 }}>
+                <div className="h2-chat__bubble">
+                  <small>Seams Harness · 09:14</small>
+                  Held: 12% discount for cart #8841 needs owner approval.
+                </div>
+                <div className="h2-chat__bubble h2-chat__bubble--reply">
+                  Approved ✓ signed and sent
+                </div>
+              </div>
+            </div>
+            <span className="h2-duo__cta">
+              Explore Ecommerce Agents
+              <ArrowRightAnim size={13} />
+            </span>
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type HomeFrameProps = {
+  hero: React.JSX.Element;
+};
+
+function HomeFrame({ hero }: HomeFrameProps): React.JSX.Element {
+  return (
+    <div className="h2-page h2-page--zoom">
       <NavbarStatic appearance="light" />
       <div className="h2-col">
-        <Home2Hero />
-        <Home2DemoBand />
-        <Home2Ecosystem />
-        <Home2Trusted />
-        <Home2Pillars />
-        <Home2Bento />
-        <Home2Cases />
-        <Home2Security />
-        <Home2Start />
-        <Home2Faq />
-        <Home2Footer />
+        {hero}
+        <HomeTrusted />
+        <HomeDuo />
+        <H2Ecosystem />
+        <H2Pillars />
+        <H2Faq />
+        <H2Footer />
       </div>
     </div>
   );
+}
+
+export function HomePage(): React.JSX.Element {
+  return <HomeFrame hero={<HomeHeroCurrent />} />;
+}
+
+export function Home2Page(): React.JSX.Element {
+  return <HomeFrame hero={<HomeHeroMedia />} />;
 }
 
 export default Home2Page;

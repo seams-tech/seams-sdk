@@ -2,9 +2,7 @@ import { ApiKeyManagementPage } from './routes/api-keys/page';
 import { BillingAccountPage } from './routes/billing/page';
 import { AccountSettingsPage } from './routes/account-settings/page';
 import { AuditLogsPage } from './routes/audit/page';
-import { ExportKeysSettingsPage } from './routes/export-keys/page';
 import { GasSponsorshipPage } from './routes/gas-sponsorship/page';
-import { SelfHostingPage } from './routes/integrations/self-hosting/page';
 import { InvoicesPage } from './routes/invoices/page';
 import { PlatformBillingPage } from './routes/platform-billing/page';
 import { PolicyEnginePage } from './routes/policy-engine/page';
@@ -25,7 +23,6 @@ import {
   LayoutDashboardIcon,
   ScaleIcon,
   ScrollTextIcon,
-  ServerCogIcon,
   UserCogIcon,
   WalletCardsIcon,
   WebhookIcon,
@@ -166,13 +163,6 @@ const sidebarGroups: SidebarGroup[] = [
         icon: WebhookIcon,
         component: WebhooksPage,
       },
-      {
-        key: 'self-hosting',
-        label: 'Self Hosting',
-        path: '/dashboard/integrations/self-hosting',
-        icon: ServerCogIcon,
-        component: SelfHostingPage,
-      },
     ],
   },
   {
@@ -223,13 +213,6 @@ const HIDDEN_DASHBOARD_ROUTES: SidebarItem[] = [
     path: '/dashboard/onboarding',
     icon: LayoutDashboardIcon,
     component: DashboardOnboardingPage,
-  },
-  {
-    key: 'export-keys',
-    label: 'Export keys settings',
-    path: '/dashboard/export-keys',
-    icon: KeyRoundIcon,
-    component: ExportKeysSettingsPage,
   },
 ];
 

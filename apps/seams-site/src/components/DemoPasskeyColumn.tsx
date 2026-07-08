@@ -1,6 +1,6 @@
 import React from 'react';
 import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
-import { preloadPasskeyAuthMenu, useSeams, useTheme } from '@seams/sdk/react';
+import { preloadSeamsAuthMenu, useSeams, useTheme } from '@seams/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
 import { CarouselProvider } from './Carousel/CarouselProvider';
@@ -113,7 +113,7 @@ export function DemoPasskeyColumn({
     [onCurrentPageChange],
   );
   const prefetchPasskeyMenu = React.useCallback(() => {
-    void preloadPasskeyAuthMenu().catch(() => {});
+    void preloadSeamsAuthMenu().catch(() => {});
   }, []);
 
   // After unlock, jump to Demo Tx page (index 1). On lock, go back to login page (index 0).
@@ -142,7 +142,10 @@ export function DemoPasskeyColumn({
         disabled: !loginState?.isLoggedIn,
         element: () => (
           <>
-            <GlassBorder style={{ maxWidth: 480, marginTop: '1rem' }}>
+            <GlassBorder
+              className="demo-transaction-shell"
+              style={{ maxWidth: 480, marginTop: '1rem' }}
+            >
               <React.Suspense fallback={<SuspenseFallback />}>
                 <DemoPage />
               </React.Suspense>
@@ -169,7 +172,9 @@ export function DemoPasskeyColumn({
   return (
     <ProfileMenuControlProvider>
       <DemoToastThemeBridge />
-      <div className="passkey-demo">
+      <div
+        className={`passkey-demo${loginState?.isLoggedIn ? ' passkey-demo--with-profile' : ''}`}
+      >
         {loginState?.isLoggedIn ? <NavbarProfileOverlay /> : null}
         <AuthMenuControlProvider>
           <CarouselProvider

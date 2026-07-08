@@ -4,7 +4,8 @@ Fabric reference: /var/folders/7k/nz1ldp1n0bz4n2wdmy_wvnkw0000gn/T/codex-clipboa
 Added gradients: ocean-coral, gold-blue, ember-indigo. Each uses the reference-derived fabric grain/noise treatment and has white-logo and black-logo versions.
 Raster exports: PNG and JPEG quality 97, 4:4:4 subsampling.
 Sizes: 256, 512, 1024, 2048.
-Variants: dark, light, gradient-fabric, gradient-fabric-black, gradient-ocean-coral, gradient-gold-blue, gradient-ember-indigo, gradient-ocean-coral-black, gradient-gold-blue-black, gradient-ember-indigo-black
+Variants: dark, light, transparent-dark, transparent-white, two-tone-lime-teal, two-tone-wine-rose, two-tone-blue-cyan, two-tone-coral-red, gradient-fabric, gradient-fabric-black, gradient-ocean-coral, gradient-gold-blue, gradient-ember-indigo, gradient-ocean-coral-black, gradient-gold-blue-black, gradient-ember-indigo-black
+Standalone wordmark variants: hanken-dark, hanken-white
 
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-dark.svg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-gradient-ember-indigo-black.svg
@@ -16,8 +17,16 @@ Variants: dark, light, gradient-fabric, gradient-fabric-black, gradient-ocean-co
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-gradient-ocean-coral-black.svg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-gradient-ocean-coral.svg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-light.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-transparent-dark.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-transparent-white.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-two-tone-lime-teal.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-two-tone-wine-rose.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-two-tone-blue-cyan.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-two-tone-coral-red.svg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-mark-transparent-black.svg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-mark-mark-transparent-white.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-wordmark-hanken-dark.svg
+/Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/svg/seams-wordmark-hanken-white.svg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/png/dark/seams-mark-dark-256.png
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/jpeg/dark/seams-mark-dark-256.jpeg
 /Users/pta/Dev/rust/seams-sdk/output/seams-commerce-harness-logo-set-geometric-v9/png/dark/seams-mark-dark-512.png

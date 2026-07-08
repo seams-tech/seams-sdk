@@ -120,140 +120,315 @@ export const APP_THEME_TOKEN_PRESETS: Record<AppThemePreset, ThemeProps['tokens'
 };
 
 // ============================================================================
-// Live-demo theme presets (fed to the PasskeyAuthMenu via the SDK Theme provider)
+// Live-demo theme presets (fed to the SeamsAuthMenu via the SDK Theme provider)
 // ============================================================================
 
-// Warm paper — matches the /home2 page. Ink primary keeps the Register toggle
-// neutral; green is reserved for accents/focus.
+// "Paper" — the ElevenLabs style: eggshell paper, ink buttons, warm
+// taupe/stone neutrals, and their warm red/orange accents for focused details.
 const PAPER_LIGHT_COLORS: Record<string, string> = {
-  primary: '#0a0a0a',
+  primary: '#000000',
   primaryHover: '#262626',
   secondary: '#44403b',
-  secondaryHover: '#0a0a0a',
-  accent: '#157f5f',
+  secondaryHover: '#000000',
+  accent: '#F41A2F',
 
-  textPrimary: '#0a0a0a',
-  textSecondary: '#57534e',
+  textPrimary: '#000000',
+  textSecondary: '#777169',
   textMuted: '#a59f97',
-  textButton: '#ffffff',
+  textButton: '#fdfcfc',
 
-  buttonBackground: '#0a0a0a',
+  buttonBackground: '#000000',
   buttonHoverBackground: '#262626',
+  // soft-filled secondary (Google SSO) button
+  secondaryButtonBackground: '#f5f3f1',
+  secondaryButtonHoverBackground: '#ebe8e4',
+  secondaryButtonBorder: 'transparent',
 
-  colorBackground: '#fdfcfc',
+  // white menu card; the reference's eggshell #fdfcfc read too warm here
+  colorBackground: '#ffffff',
   surface: '#ffffff',
-  surface2: '#f0eeeb',
+  surface2: '#f5f3f1',
   surface3: '#ebe8e4',
-  surface4: '#e2ded9',
+  surface4: '#e1ddd7',
 
   hover: '#f5f3f1',
   active: '#ebe8e4',
-  focus: '#157f5f',
+  focus: '#F41A2F',
 
   success: '#157f5f',
   warning: '#b45309',
-  error: '#b91c1c',
-  info: '#157f5f',
+  error: '#ff4704',
+  info: '#F41A2F',
 
-  borderPrimary: '#e7e3de',
-  borderSecondary: '#efece8',
-  borderHover: '#cbc5bd',
+  borderPrimary: '#ebe8e4',
+  borderSecondary: '#e5e5e5',
+  borderHover: '#d6d1cb',
 
-  highlightPrimary: '#157f5f',
-  highlightRow: 'rgba(21, 127, 95, 0.14)',
-  highlightHalo: '#8fd3bd',
-  highlightReceiver: '#157f5f',
-  highlightMethodName: '#0a0a0a',
-  highlightAmount: '#157f5f',
+  highlightPrimary: '#F41A2F',
+  highlightRow: 'rgba(244, 26, 47, 0.08)',
+  highlightHalo: '#FAABA7',
+  highlightReceiver: '#F41A2F',
+  highlightMethodName: '#000000',
+  highlightAmount: '#ff4704',
 };
 
-// Neutral charcoal dark.
-const CHARCOAL_DARK_COLORS: Record<string, string> = {
-  primary: '#a78bfa',
-  primaryHover: '#c4b5fd',
-  secondary: '#cbd5e1',
-  secondaryHover: '#f1f5f9',
-  accent: '#a78bfa',
+// "Midnight" — the Supabase style (styles.refero.design/632249f1…): midnight
+// code editor, monochrome charcoal layers with hairline borders, Phosphor
+// Green as the single chromatic pulse.
+const MIDNIGHT_DARK_COLORS: Record<string, string> = {
+  primary: '#3ecf8e',
+  primaryHover: '#00c573',
+  secondary: '#27664f',
+  secondaryHover: '#328567',
+  accent: '#3ecf8e',
 
-  textPrimary: '#f4f4f5',
-  textSecondary: '#b4b0bd',
-  textMuted: '#77737f',
-  textButton: '#0a0a0a',
+  textPrimary: '#fafafa',
+  textSecondary: '#b4b4b4',
+  textMuted: '#898989',
+  textButton: '#121212',
 
-  buttonBackground: '#f4f4f5',
-  buttonHoverBackground: '#e4e4e7',
+  buttonBackground: '#3ecf8e',
+  buttonHoverBackground: '#00c573',
+  secondaryButtonBackground: '#242424',
+  secondaryButtonHoverBackground: '#2e2e2e',
+  secondaryButtonBorder: 'transparent',
 
-  colorBackground: '#17171c',
-  surface: '#1e1e26',
-  surface2: '#26262f',
-  surface3: '#2f2f3a',
-  surface4: '#383844',
+  colorBackground: '#121212',
+  surface: '#1c1c1c',
+  surface2: '#242424',
+  surface3: '#2e2e2e',
+  surface4: '#393939',
 
-  hover: '#26262f',
-  active: '#2f2f3a',
-  focus: '#a78bfa',
+  hover: '#242424',
+  active: '#2e2e2e',
+  focus: '#3ecf8e',
 
-  success: '#4ade80',
+  success: '#3ecf8e',
   warning: '#fbbf24',
   error: '#f87171',
-  info: '#a78bfa',
+  info: '#00c573',
 
-  borderPrimary: '#2f2f3a',
-  borderSecondary: '#26262f',
-  borderHover: '#454552',
+  borderPrimary: '#2e2e2e',
+  borderSecondary: '#242424',
+  borderHover: '#4d4d4d',
 
-  highlightPrimary: '#a78bfa',
-  highlightRow: '#2f2f3a',
-  highlightHalo: '#c4b5fd',
-  highlightReceiver: '#a78bfa',
-  highlightMethodName: '#e0def4',
-  highlightAmount: '#fbbf24',
+  highlightPrimary: '#3ecf8e',
+  highlightRow: 'rgba(62, 207, 142, 0.14)',
+  highlightHalo: '#7edfb2',
+  highlightReceiver: '#00c573',
+  highlightMethodName: '#fafafa',
+  highlightAmount: '#3ecf8e',
 };
 
-// Classic Solarized (dark).
-const SOLARIZED_DARK_COLORS: Record<string, string> = {
-  primary: '#2aa198',
-  primaryHover: '#35b1a7',
-  secondary: '#268bd2',
-  secondaryHover: '#3a9bde',
-  accent: '#2aa198',
+// "Greenhouse" — the Ironclad palette (ironcladapp.com, from their own color
+// presets): navy ink on layered creams with the Ironclad green pair
+// (#308970 brand / #00ca88 logo) doing the accent work.
+const GREENHOUSE_LIGHT_COLORS: Record<string, string> = {
+  primary: '#308970',
+  primaryHover: '#27735e',
+  secondary: '#1c212b',
+  secondaryHover: '#308970',
+  accent: '#00ca88',
 
-  textPrimary: '#93a1a1',
-  textSecondary: '#839496',
-  textMuted: '#586e75',
-  textButton: '#002b36',
+  textPrimary: '#1c212b',
+  textSecondary: '#555555',
+  textMuted: '#adb9c4',
+  textButton: '#ffffff',
 
-  buttonBackground: '#2aa198',
-  buttonHoverBackground: '#35b1a7',
+  buttonBackground: '#308970',
+  secondaryButtonBackground: '#f2f1ee',
+  secondaryButtonHoverBackground: '#e9e5df',
+  secondaryButtonBorder: 'transparent',
+  buttonHoverBackground: '#27735e',
 
-  colorBackground: '#002b36',
-  surface: '#073642',
-  surface2: '#0a3f4c',
-  surface3: '#0e4753',
-  surface4: '#14515e',
+  colorBackground: '#ffffff',
+  surface: '#f5f5f3',
+  surface2: '#f2f1ee',
+  surface3: '#e9e5df',
+  surface4: '#dcd6cd',
 
-  hover: '#073642',
-  active: '#0a3f4c',
-  focus: '#2aa198',
+  hover: '#f2f1ee',
+  active: '#e9e5df',
+  focus: '#308970',
 
-  success: '#859900',
-  warning: '#b58900',
-  error: '#dc322f',
-  info: '#268bd2',
+  success: '#308970',
+  warning: '#b45309',
+  error: '#cf2e2e',
+  info: '#3860be',
 
-  borderPrimary: '#0e4753',
-  borderSecondary: '#0a3f4c',
-  borderHover: '#14515e',
+  borderPrimary: '#e3ded6',
+  borderSecondary: '#edeae5',
+  borderHover: '#c9c2b6',
 
-  highlightPrimary: '#2aa198',
-  highlightRow: '#0e4753',
-  highlightHalo: '#2aa198',
-  highlightReceiver: '#268bd2',
-  highlightMethodName: '#93a1a1',
-  highlightAmount: '#b58900',
+  highlightPrimary: '#00ca88',
+  highlightRow: 'rgba(0, 202, 136, 0.12)',
+  highlightHalo: '#7bdcb5',
+  highlightReceiver: '#308970',
+  highlightMethodName: '#1c212b',
+  highlightAmount: '#308970',
 };
 
-export type DemoThemeId = 'light' | 'dark' | 'solarized' | 'rose-pine' | 'rose-pine-dark';
+// "Pastel Dark" — the Pastel Rainbow palette on charcoal (Outlander-dashboard
+// style): plum-charcoal layers, mint carrying the CTAs with dark ink, and the
+// remaining pastels as status/highlight tones (pastels are light, so they
+// read directly on dark surfaces).
+const PASTEL_DARK_COLORS: Record<string, string> = {
+  primary: '#C9E4DE',
+  primaryHover: '#b1d6cd',
+  secondary: '#b5b0bd',
+  secondaryHover: '#f4f1ea',
+  accent: '#DBCDF0',
+
+  textPrimary: '#f4f1ea',
+  textSecondary: '#b5b0bd',
+  textMuted: '#847f8e',
+  textButton: '#1e1d22',
+
+  buttonBackground: '#C9E4DE',
+  buttonHoverBackground: '#b1d6cd',
+  // lavender pastel secondary (Google SSO) button
+  secondaryButtonBackground: '#DBCDF0',
+  secondaryButtonHoverBackground: '#cfbfe9',
+  secondaryButtonBorder: 'transparent',
+  secondaryButtonText: '#1e1d22',
+
+  colorBackground: '#1e1d22',
+  surface: '#26252b',
+  surface2: '#2e2d34',
+  surface3: '#38363f',
+  surface4: '#423f4a',
+
+  hover: '#2e2d34',
+  active: '#38363f',
+  focus: '#C6DEF1',
+
+  success: '#C9E4DE',
+  warning: '#F7D9C4',
+  error: '#F2C6DE',
+  info: '#C6DEF1',
+
+  borderPrimary: '#3a3841',
+  borderSecondary: '#302e37',
+  borderHover: '#4c4956',
+
+  highlightPrimary: '#C6DEF1',
+  highlightRow: 'rgba(198, 222, 241, 0.12)',
+  highlightHalo: '#8fb9de',
+  highlightReceiver: '#C6DEF1',
+  highlightMethodName: '#f4f1ea',
+  highlightAmount: '#F2C6DE',
+};
+
+// "Voltage" — the Drive Capital / Summer Drive style
+// (styles.refero.design/241ebab6…): warm cream poster paper, black ink, cool
+// ash hairlines, Voltage Blue as the only chromatic voice.
+const VOLTAGE_LIGHT_COLORS: Record<string, string> = {
+  primary: '#006eff',
+  primaryHover: '#338bff',
+  secondary: '#000000',
+  secondaryHover: '#1f2937',
+  accent: '#006eff',
+
+  textPrimary: '#000000',
+  textSecondary: '#454b54',
+  textMuted: '#8c94a1',
+  textButton: '#ffffff',
+
+  buttonBackground: '#006eff',
+  buttonHoverBackground: '#338bff',
+  secondaryButtonBackground: '#f1f1f2',
+  secondaryButtonHoverBackground: '#e9e9eb',
+  secondaryButtonBorder: 'transparent',
+
+  // white menu card (was the poster's #fafafa; read too gray)
+  colorBackground: '#ffffff',
+  surface: '#ffffff',
+  surface2: '#f1f1f2',
+  surface3: '#e9e9eb',
+  surface4: '#e0e0e3',
+
+  hover: '#f1f1f2',
+  active: '#e9e9eb',
+  focus: '#006eff',
+
+  success: '#15803d',
+  warning: '#b45309',
+  error: '#dc2626',
+  info: '#006eff',
+
+  borderPrimary: '#e2e8f0',
+  borderSecondary: '#edf1f6',
+  borderHover: '#c3cddb',
+
+  highlightPrimary: '#006eff',
+  highlightRow: 'rgba(0, 110, 255, 0.1)',
+  highlightHalo: '#99c5ff',
+  highlightReceiver: '#006eff',
+  highlightMethodName: '#000000',
+  highlightAmount: '#006eff',
+};
+
+// "Pastel" — the Pastel Rainbow palette (kdesign.co #09): paper cream,
+// mint #C9E4DE, baby blue #C6DEF1, lavender #DBCDF0, and pink #F2C6DE.
+// Pastels can't carry white text, so the primary button is baby blue with plum
+// ink, and the semantic tones are deepened from their pastel.
+const PASTEL_LIGHT_COLORS: Record<string, string> = {
+  // deepened from the baby blue: primary also colors text (active seg label,
+  // links), where #C6DEF1 fails contrast; the button itself stays pastel via
+  // buttonBackground
+  primary: '#6f9fd8',
+  primaryHover: '#5a8cc7',
+  secondary: '#55505e',
+  secondaryHover: '#2f2a38',
+  accent: '#DBCDF0',
+
+  textPrimary: '#2f2a38',
+  textSecondary: '#6f6a7a',
+  textMuted: '#a8a2b3',
+  textButton: '#2f2a38',
+
+  buttonBackground: '#C6DEF1',
+  buttonHoverBackground: '#aed0ec',
+  // lavender secondary (Google SSO) button, the palette's second accent
+  secondaryButtonBackground: '#DBCDF0',
+  secondaryButtonHoverBackground: '#cfbfe9',
+  secondaryButtonBorder: 'transparent',
+
+  // subtle near-white paper cream menu card with white controls and light cream chrome
+  colorBackground: '#fffdf8',
+  surface: '#ffffff',
+  surface2: '#fff8ee',
+  surface3: '#F2C6DE',
+  surface4: '#DBCDF0',
+
+  hover: '#fffaf2',
+  active: '#fff6e8',
+  focus: '#8fb9de',
+
+  success: '#4f9e83',
+  warning: '#e6c891',
+  error: '#d4547a',
+  info: '#6f9fd8',
+
+  borderPrimary: '#f0ead9',
+  borderSecondary: '#f6f0e3',
+  borderHover: '#e5dac0',
+
+  highlightPrimary: '#8fb9de',
+  highlightRow: 'rgba(198, 222, 241, 0.28)',
+  highlightHalo: '#C6DEF1',
+  highlightReceiver: '#6f9fd8',
+  highlightMethodName: '#2f2a38',
+  highlightAmount: '#d4547a',
+};
+
+export type DemoThemeId =
+  | 'paper'
+  | 'midnight'
+  | 'greenhouse'
+  | 'voltage'
+  | 'pastel'
+  | 'pastel-dark';
 
 export interface DemoThemePreset {
   id: DemoThemeId;
@@ -267,28 +442,44 @@ export interface DemoThemePreset {
 }
 
 export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
-  { id: 'light', label: 'Light', mode: 'light', swatch: '#fdfcfc', colors: PAPER_LIGHT_COLORS },
-  { id: 'dark', label: 'Dark', mode: 'dark', swatch: '#17171c', colors: CHARCOAL_DARK_COLORS },
+  { id: 'paper', label: 'Paper', mode: 'light', swatch: '#fdfcfc', colors: PAPER_LIGHT_COLORS },
   {
-    id: 'solarized',
-    label: 'Solarized',
+    id: 'midnight',
+    label: 'Midnight',
     mode: 'dark',
-    swatch: '#002b36',
-    colors: SOLARIZED_DARK_COLORS,
+    swatch: '#121212',
+    colors: MIDNIGHT_DARK_COLORS,
   },
   {
-    id: 'rose-pine',
-    label: 'Rosé Pine',
+    id: 'greenhouse',
+    label: 'Greenhouse',
     mode: 'light',
-    swatch: '#faf4ed',
-    colors: ROSE_PINE_LIGHT_COLORS,
+    swatch: '#308970',
+    colors: GREENHOUSE_LIGHT_COLORS,
   },
   {
-    id: 'rose-pine-dark',
-    label: 'Rosé Pine Dark',
+    id: 'voltage',
+    label: 'Voltage',
+    mode: 'light',
+    // the accent, not the cream card — a near-white dot would be
+    // indistinguishable from Paper's
+    swatch: '#006eff',
+    colors: VOLTAGE_LIGHT_COLORS,
+  },
+  {
+    id: 'pastel',
+    label: 'Pastel',
+    mode: 'light',
+    // lavender reads most distinctly "pastel" next to the other swatches
+    swatch: '#DBCDF0',
+    colors: PASTEL_LIGHT_COLORS,
+  },
+  {
+    id: 'pastel-dark',
+    label: 'Pastel Dark',
     mode: 'dark',
-    swatch: '#191724',
-    colors: ROSE_PINE_DARK_COLORS,
+    swatch: '#1e1d22',
+    colors: PASTEL_DARK_COLORS,
   },
 ];
 

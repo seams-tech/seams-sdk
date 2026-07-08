@@ -21,8 +21,6 @@ export type DashboardRoute =
   | '/platform/billing'
   | '/dashboard/team-members'
   | '/dashboard/audit'
-  | '/dashboard/integrations/self-hosting'
-  | '/dashboard/export-keys'
   | '/dashboard/api-keys'
   | '/dashboard/webhooks';
 

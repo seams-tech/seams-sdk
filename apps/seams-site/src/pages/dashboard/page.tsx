@@ -1028,7 +1028,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   }, [isSidebarCollapsed]);
 
   const sidebarExpanded = focusedOnboardingMode ? true : isSidebarExpanded;
-  const shellClassName = `dashboard-shell${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${isSidebarCollapsed ? ' dashboard-shell--sidebar-collapsed' : ''}${isSidebarCollapsedSettled ? ' dashboard-shell--sidebar-collapsed-settled' : ''}`;
+  const shellClassName = `dashboard-shell dashboard-shell--route-${activeView.key}${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${isSidebarCollapsed ? ' dashboard-shell--sidebar-collapsed' : ''}${isSidebarCollapsedSettled ? ' dashboard-shell--sidebar-collapsed-settled' : ''}`;
   const navigationLockExemptPaths = React.useMemo<ReadonlySet<DashboardRoute>>(
     () =>
       new Set<DashboardRoute>(

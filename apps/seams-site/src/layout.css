@@ -210,7 +210,6 @@ body {
   }
 }
 
-
 .passkey-demo {
   position: relative;
   display: grid;
@@ -218,10 +217,14 @@ body {
   padding-top: 2rem;
 }
 
+.passkey-demo--with-profile {
+  padding-top: 5.25rem;
+}
+
 .passkey-demo__profile-button-slot {
   position: absolute;
   top: 0;
-  right: 1rem;
+  right: 0;
   z-index: 2;
 }
 

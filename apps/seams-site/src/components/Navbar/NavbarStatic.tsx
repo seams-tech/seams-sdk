@@ -1,6 +1,21 @@
 import React from 'react';
-import { BookOpen, ChevronDown, MessageCircle, Menu, X } from 'lucide-react';
-import { MoonIcon, SunIcon, useTheme } from '@seams/sdk/react';
+import {
+  BookOpen,
+  Bot,
+  Building2,
+  ChevronDown,
+  Fingerprint,
+  LifeBuoy,
+  ListChecks,
+  Menu,
+  PenLine,
+  Rocket,
+  Sprout,
+  TrendingUp,
+  Wallet,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import SeamsWordmark from '../icons/SeamsWordmark';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
@@ -11,313 +26,184 @@ import {
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
-import menuAccessPassesImage from '@/assets/navbar/menu-access-passes-wire-light.png';
-import menuBiometricAuthDarkImage from '@/assets/navbar/menu-biometric-auth-wire-dark.png';
-import menuBiometricAuthLightImage from '@/assets/navbar/menu-biometric-auth-wire-light.png';
-import menuCompanyDarkImage from '@/assets/navbar/menu-company-wire-dark.png';
-import menuCompanyLightImage from '@/assets/navbar/menu-company-wire-light.png';
-import menuGuidesImage from '@/assets/navbar/menu-guides-wire-light.png';
-import menuSupportDarkImage from '@/assets/navbar/menu-support-wire-dark.png';
-import menuSupportLightImage from '@/assets/navbar/menu-support-wire-light.png';
-import menuToolsImage from '@/assets/navbar/menu-tools-wire-light.png';
-import menuUseCasesImage from '@/assets/navbar/menu-use-cases-wire-light.png';
-import menuWritingDarkImage from '@/assets/navbar/menu-writing-wire-dark.png';
-import menuWritingLightImage from '@/assets/navbar/menu-writing-wire-light.png';
 import './Navbar.css';
 
 type DropdownId = 'products' | 'documentation' | 'about' | 'pricing';
 
-type DropdownItem = {
+type MenuRow = {
   title: string;
   description: string;
   to: string;
-  imageSrc: string;
-  imageDarkSrc?: string;
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean }>;
+  /** Small right-aligned annotation, e.g. a plan's price basis. */
+  meta?: string;
 };
 
-type DropdownSectionItem =
-  | (DropdownItem & { visual: 'image' })
-  | {
-      title: string;
-      description: string;
-      to: string;
-      visual: 'plan';
-      price: string;
-      priceNote: string;
-      details: string[];
-      imageSrc?: never;
-      imageDarkSrc?: never;
-    };
+/** Which gradient asset backs the pane's highlight card (see Navbar.css). */
+type MenuHighlightTone = 'aqua' | 'bluegreen' | 'ember';
 
-type DropdownSection = {
-  heading: string;
-  items: DropdownSectionItem[];
-};
-
-type DropdownCtaIcon = 'docs' | 'pricing' | 'contact';
-
-type DropdownCtaTile = {
-  icon: DropdownCtaIcon;
+type MenuHighlight = {
   title: string;
   description: string;
+  to: string;
+  tone: MenuHighlightTone;
+};
+
+type MenuFooterLink = {
   label: string;
   to: string;
 };
 
-type ProductDropdownTile = DropdownItem & {
-  id: 'guides' | 'tools' | 'use-cases';
-};
-
-type DocumentationDropdownTile = DropdownItem & {
-  id: 'embedded-wallets' | 'access-passes' | 'biometric-auth';
-};
-
-type ProductDropdownPane = {
-  id: 'products';
+type DropdownPane = {
+  id: DropdownId;
   label: string;
-  layout: 'product-tiles';
-  tiles: ProductDropdownTile[];
-  sections?: never;
-  cta: DropdownCtaTile;
+  kicker: string;
+  rows: MenuRow[];
+  /** Optional gradient promo card on the pane's right side. */
+  highlight?: MenuHighlight;
+  footerLinks: MenuFooterLink[];
 };
-
-type DocumentationDropdownPane = {
-  id: 'documentation';
-  label: string;
-  layout: 'pricing-tiles';
-  tiles: DocumentationDropdownTile[];
-  sections?: never;
-  cta: DropdownCtaTile;
-};
-
-type SectionDropdownPane = {
-  id: 'about' | 'pricing';
-  label: string;
-  layout: 'sections';
-  sections: DropdownSection[];
-  tiles?: never;
-  cta: DropdownCtaTile;
-};
-
-type DropdownPane = ProductDropdownPane | DocumentationDropdownPane | SectionDropdownPane;
 
 type DropdownTriggerConfig = {
   id: DropdownId;
   label: string;
 };
 
-type PaneVisualState = { kind: 'active' } | { kind: 'before' } | { kind: 'after' };
-
 type DropdownFocusTarget = 'first' | 'last';
 const DASHBOARD_AUTH_OPEN_EVENT = 'seams:dashboard-auth-open';
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled navbar state: ${JSON.stringify(value)}`);
-}
-
-const productDropdownTiles: ProductDropdownTile[] = [
-  {
-    id: 'guides',
-    title: 'Guides',
-    description: 'Learn the key, credential, policy, and signing architecture',
-    to: '/docs/concepts/',
-    imageSrc: menuGuidesImage,
+/* The 'documentation' pane id historically maps to the "Products" trigger and
+   vice versa; ids are kept stable so aria wiring and pane ordering don't churn. */
+const documentationDropdownPane: DropdownPane = {
+  id: 'documentation',
+  label: 'Products',
+  kicker: 'Products',
+  rows: [
+    {
+      title: 'Embedded Wallet',
+      description: 'Non-custodial wallets with policy-bound keys and sessions',
+      to: '/wallet',
+      icon: Wallet,
+    },
+    {
+      title: 'Ecommerce Agents',
+      description: 'AI agents with scoped credentials, acting inside policy',
+      to: '/ecommerce',
+      icon: Bot,
+    },
+    {
+      title: 'Biometric Authentication',
+      description: 'Passkey and VoiceID flows for owner presence',
+      to: '/docs/concepts/auth-methods/passkeys',
+      icon: Fingerprint,
+    },
+  ],
+  highlight: {
+    title: 'Live demo',
+    description: 'Create a passkey wallet on the Embedded Wallet page',
+    to: '/wallet',
+    tone: 'aqua',
   },
-  {
-    id: 'tools',
-    title: 'Tools',
-    description: 'SDK resources for auth methods, signing sessions, wallet UI, and policy flows',
-    to: '/docs/concepts/auth-methods/',
-    imageSrc: menuToolsImage,
-  },
-  {
-    id: 'use-cases',
-    title: 'Use cases',
-    description: 'Explore mandates, payments, recovery, rotation, and delegated-agent patterns',
-    to: '/docs/concepts/policy/mandates',
-    imageSrc: menuUseCasesImage,
-  },
-];
-
-const documentationDropdownTiles: DocumentationDropdownTile[] = [
-  {
-    id: 'embedded-wallets',
-    title: 'Embedded Wallets',
-    description: 'Wallet infrastructure for apps launching policy-bound keys and sessions',
-    to: '/docs/concepts/custody/wallet-iframe',
-    imageSrc: menuToolsImage,
-  },
-  {
-    id: 'access-passes',
-    title: 'Access Passes with account recovery',
-    description: 'Recoverable credentials for teams that need durable account continuity',
-    to: '/docs/concepts/auth-methods/',
-    imageSrc: menuAccessPassesImage,
-  },
-  {
-    id: 'biometric-auth',
-    title: 'Biometric Authentication',
-    description: 'Passkey and VoiceID flows for higher-assurance owner presence',
-    to: '/docs/concepts/auth-methods/passkeys',
-    imageSrc: menuBiometricAuthLightImage,
-    imageDarkSrc: menuBiometricAuthDarkImage,
-  },
-];
-
-const aboutSections: DropdownSection[] = [
-  {
-    heading: 'Company',
-    items: [
-      {
-        title: 'Company',
-        description: 'Company details',
-        to: '/company/#careers',
-        visual: 'image',
-        imageSrc: menuCompanyLightImage,
-        imageDarkSrc: menuCompanyDarkImage,
-      },
-    ],
-  },
-  {
-    heading: 'Writing',
-    items: [
-      {
-        title: 'Blog',
-        description: 'Read the latest from our team',
-        to: '/company/#blog',
-        visual: 'image',
-        imageSrc: menuWritingLightImage,
-        imageDarkSrc: menuWritingDarkImage,
-      },
-    ],
-  },
-  {
-    heading: 'Support',
-    items: [
-      {
-        title: 'Support',
-        description: 'Get help from the Seams team',
-        to: '/contact/',
-        visual: 'image',
-        imageSrc: menuSupportLightImage,
-        imageDarkSrc: menuSupportDarkImage,
-      },
-    ],
-  },
-];
-
-const pricingSections: DropdownSection[] = [
-  {
-    heading: 'Starter',
-    items: [
-      {
-        title: 'Starter',
-        description:
-          'Build and launch fast for teams shipping policy-bound keys for the first time.',
-        to: '/pricing/#starter',
-        visual: 'plan',
-        price: 'Included',
-        priceNote: 'Up to 5K monthly active wallets',
-        details: [
-          'Passkey, Email OTP, and embedded wallet SDK',
-          'Wallet list + wallet search controls',
-          'Base policy presets, auth methods, and chain controls',
-        ],
-      },
-    ],
-  },
-  {
-    heading: 'Growth',
-    items: [
-      {
-        title: 'Growth',
-        description: 'Usage-based pricing as key and credential adoption grows past launch volume.',
-        to: '/pricing/#growth',
-        visual: 'plan',
-        price: 'Usage-based',
-        priceNote: '5K–100K monthly active wallets',
-        details: [
-          'Standard API keys and webhook endpoints',
-          'Wallet search and chain visibility controls',
-          'Designed for scaling policy-bound apps',
-        ],
-      },
-    ],
-  },
-  {
-    heading: 'Scale',
-    items: [
-      {
-        title: 'Scale',
-        description: 'Advanced controls and support for stricter operational requirements.',
-        to: '/pricing/#scale',
-        visual: 'plan',
-        price: 'Volume discounts',
-        priceNote: '100K+ monthly active wallets',
-        details: [
-          'Custom policy engine with staged rollouts',
-          'Dedicated SLA, onboarding, and architecture reviews',
-          'Advanced RBAC, audit logs, and export controls',
-        ],
-      },
-    ],
-  },
-];
+  footerLinks: [{ label: 'Plan pricing', to: '/pricing/' }],
+};
 
 const productsDropdownPane: DropdownPane = {
   id: 'products',
   label: 'Documentation',
-  layout: 'product-tiles',
-  tiles: productDropdownTiles,
-  cta: {
-    icon: 'docs',
-    title: 'Developer documentation',
-    description: 'Build key, credential, and policy-bound signing flows.',
-    label: 'Read docs',
-    to: '/docs/concepts/',
+  kicker: 'Documentation',
+  rows: [
+    {
+      title: 'Guides',
+      description: 'Key, credential, policy, and signing architecture',
+      to: '/docs/concepts/',
+      icon: BookOpen,
+    },
+    {
+      title: 'Tools',
+      description: 'SDK references for auth, sessions, wallet UI, and policy',
+      to: '/docs/concepts/auth-methods/',
+      icon: Wrench,
+    },
+    {
+      title: 'Use cases',
+      description: 'Mandates, payments, recovery, and delegated agents',
+      to: '/docs/concepts/policy/mandates',
+      icon: ListChecks,
+    },
+  ],
+  highlight: {
+    title: 'Architecture',
+    description: 'How passkeys, policy, and signing fit together',
+    to: '/docs/concepts/architecture',
+    tone: 'bluegreen',
   },
-};
-
-const documentationDropdownPane: DropdownPane = {
-  id: 'documentation',
-  label: 'Products',
-  layout: 'pricing-tiles',
-  tiles: documentationDropdownTiles,
-  cta: {
-    icon: 'pricing',
-    title: 'Plan pricing',
-    description: 'Compare self-serve and enterprise infrastructure packages.',
-    label: 'Learn more',
-    to: '/pricing/',
-  },
-};
-
-const aboutDropdownPane: DropdownPane = {
-  id: 'about',
-  label: 'About Us',
-  layout: 'sections',
-  sections: aboutSections,
-  cta: {
-    icon: 'contact',
-    title: 'Talk to the Seams team',
-    description: 'Plan an integration or review a security-sensitive flow.',
-    label: 'Contact sales',
-    to: '/contact/',
-  },
+  footerLinks: [{ label: 'Read the docs', to: '/docs/concepts/' }],
 };
 
 const pricingDropdownPane: DropdownPane = {
   id: 'pricing',
   label: 'Pricing',
-  layout: 'sections',
-  sections: pricingSections,
-  cta: {
-    icon: 'contact',
-    title: 'Talk to us',
-    description: 'Plan pricing and deployment options with the Seams team.',
-    label: 'Contact sales',
+  kicker: 'Plans',
+  rows: [
+    {
+      title: 'Starter',
+      description: 'Up to 5K monthly active wallets',
+      to: '/pricing/#starter',
+      icon: Sprout,
+      meta: 'Included',
+    },
+    {
+      title: 'Growth',
+      description: '5K–100K monthly active wallets',
+      to: '/pricing/#growth',
+      icon: TrendingUp,
+      meta: 'Usage-based',
+    },
+    {
+      title: 'Scale',
+      description: '100K+ monthly active wallets, SLA, and advanced controls',
+      to: '/pricing/#scale',
+      icon: Rocket,
+      meta: 'Volume',
+    },
+  ],
+  footerLinks: [
+    { label: 'Compare plans', to: '/pricing/' },
+    { label: 'Contact sales', to: '/contact/' },
+  ],
+};
+
+const aboutDropdownPane: DropdownPane = {
+  id: 'about',
+  label: 'About Us',
+  kicker: 'Company',
+  rows: [
+    {
+      title: 'Company',
+      description: 'Who we are and what we are building',
+      to: '/company/',
+      icon: Building2,
+    },
+    {
+      title: 'Blog',
+      description: 'Writing from the Seams team',
+      to: '/company/#blog',
+      icon: PenLine,
+    },
+    {
+      title: 'Support',
+      description: 'Get help from the team',
+      to: '/contact/',
+      icon: LifeBuoy,
+    },
+  ],
+  highlight: {
+    title: 'Plan a rollout',
+    description: 'Talk through marketplaces and merchant fleets',
     to: '/contact/',
+    tone: 'ember',
   },
+  footerLinks: [{ label: 'Contact sales', to: '/contact/' }],
 };
 
 const dropdownPanes: DropdownPane[] = [
@@ -359,59 +245,6 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
   );
 }
 
-function dropdownOrderIndex(id: DropdownId): number {
-  switch (id) {
-    case 'documentation':
-      return 0;
-    case 'products':
-      return 1;
-    case 'pricing':
-      return 2;
-    case 'about':
-      return 3;
-    default:
-      return assertNever(id);
-  }
-}
-
-function paneVisualStateFor(paneId: DropdownId, activeId: DropdownId | null): PaneVisualState {
-  if (paneId === activeId) return { kind: 'active' };
-  if (!activeId) return { kind: 'after' };
-  return dropdownOrderIndex(paneId) < dropdownOrderIndex(activeId)
-    ? { kind: 'before' }
-    : { kind: 'after' };
-}
-
-function paneVisualStateClassName(state: PaneVisualState): string {
-  switch (state.kind) {
-    case 'active':
-      return 'is-active';
-    case 'before':
-      return 'is-before';
-    case 'after':
-      return 'is-after';
-    default:
-      return assertNever(state);
-  }
-}
-
-function readDocumentTheme(): 'light' | 'dark' {
-  if (typeof document === 'undefined') return 'dark';
-  const attr = document.documentElement.getAttribute('data-w3a-theme');
-  if (attr === 'light' || attr === 'dark') return attr;
-  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-}
-
-function applyDocumentTheme(next: 'light' | 'dark'): void {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return;
-  document.documentElement.classList.toggle('dark', next === 'dark');
-  document.documentElement.setAttribute('data-w3a-theme', next);
-  try {
-    window.localStorage?.setItem?.('seams-site-theme', next);
-  } catch {}
-  window.dispatchEvent(new CustomEvent<'light' | 'dark'>('w3a:appearance', { detail: next }));
-}
-
 interface RelaySessionStateResponse {
   authenticated?: boolean;
   claims?: {
@@ -442,7 +275,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
 
-  const { theme, setTheme } = useTheme();
   const { go, linkProps } = useSiteRouter();
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
@@ -457,11 +289,25 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
     about: null,
   });
   const dropdownPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const dropdownPopupRef = React.useRef<HTMLDivElement | null>(null);
+  const paneRefs = React.useRef<Record<DropdownId, HTMLDivElement | null>>({
+    products: null,
+    documentation: null,
+    pricing: null,
+    about: null,
+  });
+  const prevOpenDropdownRef = React.useRef<DropdownId | null>(null);
   const openTimerRef = React.useRef<number | null>(null);
   const closeTimerRef = React.useRef<number | null>(null);
   const [openDropdown, setOpenDropdown] = React.useState<DropdownId | null>(null);
+  const [paneSize, setPaneSize] = React.useState<{ w: number; h: number } | null>(null);
+  // Horizontal anchor: the popup centers on the trigger that opened it,
+  // clamped so the panel never overhangs the bar.
+  const [popupLeft, setPopupLeft] = React.useState<number | null>(null);
+  // The card morphs between pane sizes only while already open; opening from
+  // closed snaps to size so the panel doesn't grow out of the previous shape.
+  const [paneMorphEnabled, setPaneMorphEnabled] = React.useState<boolean>(false);
   const [hasScrolled, setHasScrolled] = React.useState<boolean>(false);
-  const [localTheme, setLocalTheme] = React.useState<'light' | 'dark'>(() => readDocumentTheme());
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState<boolean>(false);
   const [isMobileProductsOpen, setIsMobileProductsOpen] = React.useState<boolean>(false);
   const [isMobileDocumentationOpen, setIsMobileDocumentationOpen] = React.useState<boolean>(false);
@@ -474,19 +320,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   const [googleConfigChecked, setGoogleConfigChecked] = React.useState<boolean>(false);
   const [googleConfigured, setGoogleConfigured] = React.useState<boolean>(false);
   const [googleSigningIn, setGoogleSigningIn] = React.useState<boolean>(false);
-
-  const resolvedTheme: 'light' | 'dark' =
-    (typeof setTheme === 'function' ? theme : localTheme) === 'dark' ? 'dark' : 'light';
-
-  const onToggleTheme = React.useCallback(() => {
-    const next: 'light' | 'dark' = resolvedTheme === 'dark' ? 'light' : 'dark';
-    if (typeof setTheme === 'function') {
-      setTheme(next);
-      return;
-    }
-    applyDocumentTheme(next);
-    setLocalTheme(next);
-  }, [resolvedTheme, setTheme]);
 
   const refreshRelaySessionState = React.useCallback(async (): Promise<boolean> => {
     if (!relayerBaseUrl) {
@@ -539,6 +372,40 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   React.useEffect(() => {
     void refreshRelaySessionState();
   }, [refreshRelaySessionState]);
+
+  // Measure the active pane (panes are absolutely positioned at max-content,
+  // so offset sizes are their natural dimensions even while hidden) and morph
+  // the card chrome to it — the ElevenLabs-style resize between menus. The
+  // popup's left edge stays pinned to the first nav trigger for every pane,
+  // so switching menus only resizes the panel; it never slides around.
+  React.useLayoutEffect(() => {
+    const previousOpen = prevOpenDropdownRef.current;
+    prevOpenDropdownRef.current = openDropdown;
+    // Keep the last size/anchor while closing so the panel fades out in place.
+    if (!openDropdown) {
+      setPaneMorphEnabled(false);
+      return;
+    }
+    const pane = paneRefs.current[openDropdown];
+    if (!pane) return;
+    const paneW = pane.offsetWidth;
+    const paneH = pane.offsetHeight;
+    const shell = dropdownPopupRef.current?.offsetParent as HTMLElement | null;
+    const firstTrigger = shell?.querySelector<HTMLElement>(
+      '.navbar-static__links .navbar-static__link--button',
+    );
+    if (shell && firstTrigger) {
+      const shellRect = shell.getBoundingClientRect();
+      // an ancestor's css zoom scales rect coordinates but not offset/style
+      // px; normalize rect-derived values back to layout px
+      const zoom = shell.offsetWidth ? shellRect.width / shell.offsetWidth : 1;
+      const anchor = (firstTrigger.getBoundingClientRect().left - shellRect.left) / zoom;
+      // Only yield the anchor if a wide panel would overhang the bar's right edge.
+      setPopupLeft(Math.max(8, Math.min(anchor, shellRect.width / zoom - paneW - 8)));
+    }
+    setPaneMorphEnabled(previousOpen !== null && previousOpen !== openDropdown);
+    setPaneSize({ w: paneW, h: paneH });
+  }, [openDropdown]);
 
   const clearDropdownTimers = React.useCallback(() => {
     if (openTimerRef.current !== null) {
@@ -620,34 +487,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
       window.removeEventListener('scroll', onScroll);
     };
   }, [SCROLL_THRESHOLD_PX]);
-
-  React.useEffect(() => {
-    if (typeof setTheme === 'function') return;
-    if (typeof document === 'undefined' || typeof window === 'undefined') return;
-
-    const read = () => setLocalTheme(readDocumentTheme());
-    read();
-
-    const mo = new MutationObserver(read);
-    mo.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-w3a-theme'],
-    });
-
-    const onAppearance = (e: Event) => {
-      const next = (e as CustomEvent<'light' | 'dark'>)?.detail;
-      if (next === 'light' || next === 'dark') setLocalTheme(next);
-      else read();
-    };
-
-    window.addEventListener('w3a:appearance', onAppearance as EventListener);
-    window.addEventListener('w3a:set-theme', onAppearance as EventListener);
-    return () => {
-      mo.disconnect();
-      window.removeEventListener('w3a:appearance', onAppearance as EventListener);
-      window.removeEventListener('w3a:set-theme', onAppearance as EventListener);
-    };
-  }, [setTheme]);
 
   const getNavLinkProps = React.useCallback(
     (to: string) => {
@@ -895,12 +734,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   );
 
   const dropdownAriaConfig = dropdownPanes.find((config) => config.id === openDropdown) ?? null;
-  const accessCardClassName = [
-    'navbar-static__access-card',
-    openDropdown ? `navbar-static__access-card--${openDropdown}` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
 
   function renderDropdownTrigger(config: DropdownTriggerConfig): React.JSX.Element {
     const isOpen = openDropdown === config.id;
@@ -947,224 +780,92 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
     );
   }
 
-  function renderCtaIcon(icon: DropdownCtaIcon): React.JSX.Element {
-    switch (icon) {
-      case 'docs':
-        return <BookOpen size={22} strokeWidth={1.8} aria-hidden />;
-      case 'pricing':
-        return (
-          <span className="navbar-static__access-cta-symbol" aria-hidden>
-            $
-          </span>
-        );
-      case 'contact':
-        return <MessageCircle size={22} strokeWidth={1.8} aria-hidden />;
-      default:
-        return assertNever(icon);
-    }
-  }
-
-  function renderAccessCtaTile(
-    paneId: DropdownId,
-    cta: DropdownCtaTile,
-    isActive: boolean,
-  ): React.JSX.Element {
-    const ctaProps = getNavLinkProps(cta.to);
-
-    return (
-      <a
-        key={`${paneId}-cta`}
-        className={`navbar-static__access-cta-tile navbar-static__access-cta-tile--${paneId}`}
-        role="menuitem"
-        href={ctaProps.href}
-        onClick={ctaProps.onClick}
-        tabIndex={isActive ? undefined : -1}
-      >
-        <span className="navbar-static__access-cta-copy">
-          <span className="navbar-static__access-cta-icon">{renderCtaIcon(cta.icon)}</span>
-          <span className="navbar-static__access-cta-text">
-            <span className="navbar-static__access-cta-title">{cta.title}</span>
-            <span className="navbar-static__access-cta-description">{cta.description}</span>
-          </span>
-        </span>
-        <span className="navbar-static__access-cta-action" aria-hidden>
-          <span>{cta.label}</span>
-          <ArrowRightAnim size={14} />
-        </span>
-      </a>
-    );
-  }
-
-  function renderNavbarTileImage(item: DropdownItem): React.JSX.Element {
-    if (!item.imageDarkSrc) {
-      return <img src={item.imageSrc} alt="" draggable={false} />;
-    }
-
-    return (
-      <span className="navbar-static__themed-image">
-        <img
-          className="navbar-static__themed-image-light"
-          src={item.imageSrc}
-          alt=""
-          draggable={false}
-        />
-        <img
-          className="navbar-static__themed-image-dark"
-          src={item.imageDarkSrc}
-          alt=""
-          draggable={false}
-        />
-      </span>
-    );
-  }
-
   function renderAccessPane(pane: DropdownPane): React.JSX.Element {
-    const visualState = paneVisualStateFor(pane.id, openDropdown);
-    const isActive = visualState.kind === 'active';
-    const paneClassName = [
-      'navbar-static__access-pane',
-      paneVisualStateClassName(visualState),
-    ].join(' ');
+    const isActive = pane.id === openDropdown;
+    const paneClassName = `navbar-static__access-pane${isActive ? ' is-active' : ''}`;
 
-    const panelContent = (() => {
-      switch (pane.layout) {
-        case 'product-tiles': {
-          const tiles = pane.tiles.map((tile) => {
-            const tileProps = getNavLinkProps(tile.to);
-            return (
-              <a
-                key={tile.id}
-                className={`navbar-static__access-product-tile navbar-static__access-product-tile--${tile.id}`}
-                role="menuitem"
-                href={tileProps.href}
-                onClick={tileProps.onClick}
-                tabIndex={isActive ? undefined : -1}
-              >
-                <span className="navbar-static__access-product-copy">
-                  <span className="navbar-static__access-product-title">{tile.title}</span>
-                  <span className="navbar-static__access-product-description">
-                    {tile.description}
-                  </span>
-                </span>
-                <span className="navbar-static__access-product-visual" aria-hidden>
-                  {renderNavbarTileImage(tile)}
-                </span>
-              </a>
-            );
-          });
-
-          return [...tiles, renderAccessCtaTile(pane.id, pane.cta, isActive)];
-        }
-        case 'pricing-tiles': {
-          const tiles = pane.tiles.map((tile) => {
-            const tileProps = getNavLinkProps(tile.to);
-            return (
-              <a
-                key={tile.id}
-                className={`navbar-static__access-pricing-tile navbar-static__access-pricing-tile--${tile.id}`}
-                role="menuitem"
-                href={tileProps.href}
-                onClick={tileProps.onClick}
-                tabIndex={isActive ? undefined : -1}
-              >
-                <span className="navbar-static__access-pricing-visual" aria-hidden>
-                  {renderNavbarTileImage(tile)}
-                </span>
-                <span className="navbar-static__access-pricing-copy">
-                  <span className="navbar-static__access-pricing-title">{tile.title}</span>
-                  <span className="navbar-static__access-pricing-description">
-                    {tile.description}
-                  </span>
-                </span>
-              </a>
-            );
-          });
-
-          return [...tiles, renderAccessCtaTile(pane.id, pane.cta, isActive)];
-        }
-        case 'sections': {
-          const sections = pane.sections.map((section) => (
-            <section
-              className={`navbar-static__access-section navbar-static__access-section--${pane.id}`}
-              key={section.heading}
-            >
-              {pane.id === 'pricing' ? null : (
-                <p className="navbar-static__access-section-title">{section.heading}</p>
-              )}
-              <div className="navbar-static__access-items">
-                {section.items.map((item) => {
-                  const itemProps = getNavLinkProps(item.to);
-
-                  return (
-                    <a
-                      key={item.title}
-                      className={`navbar-static__access-item${
-                        item.visual === 'plan' ? ' navbar-static__access-item--plan' : ''
-                      }`}
-                      role="menuitem"
-                      href={itemProps.href}
-                      onClick={itemProps.onClick}
-                      tabIndex={isActive ? undefined : -1}
-                    >
-                      {item.visual === 'image' ? (
-                        <span className="navbar-static__access-visual" aria-hidden>
-                          {renderNavbarTileImage(item)}
-                        </span>
-                      ) : (
-                        <>
-                          <span className="navbar-static__access-plan-title">{item.title}</span>
-                          <span className="navbar-static__access-plan">
-                            <span className="navbar-static__access-plan-note">
-                              {item.priceNote}
-                            </span>
-                            <span className="navbar-static__access-plan-price">{item.price}</span>
-                          </span>
-                          <span className="navbar-static__access-plan-copy">
-                            {item.description}
-                          </span>
-                          {item.details.length > 0 ? (
-                            <span className="navbar-static__access-plan-details">
-                              {item.details.map((detail) => (
-                                <span className="navbar-static__access-plan-detail" key={detail}>
-                                  {detail}
-                                </span>
-                              ))}
-                            </span>
-                          ) : null}
-                        </>
-                      )}
-                      {item.visual === 'image' ? (
-                        <span className="navbar-static__access-item-copy">
-                          <span className="navbar-static__access-item-title">{item.title}</span>
-                          <span className="navbar-static__access-item-description">
-                            {item.description}
-                          </span>
-                        </span>
-                      ) : null}
-                    </a>
-                  );
-                })}
-              </div>
-            </section>
-          ));
-
-          return [...sections, renderAccessCtaTile(pane.id, pane.cta, isActive)];
-        }
-        default:
-          return assertNever(pane);
-      }
-    })();
+    const highlightProps = pane.highlight ? getNavLinkProps(pane.highlight.to) : null;
 
     return (
       <div
         key={pane.id}
         id={`navbar-dropdown-${pane.id}`}
+        ref={(el) => {
+          paneRefs.current[pane.id] = el;
+        }}
         className={paneClassName}
         data-dropdown-view={pane.id}
         aria-hidden={!isActive}
       >
-        <div className={`navbar-static__access-panel navbar-static__access-panel--${pane.id}`}>
-          {panelContent}
+        <div className="navbar-static__menu">
+          <div className="navbar-static__menu-body">
+            <div className="navbar-static__menu-col">
+              <p className="navbar-static__menu-kicker">{pane.kicker}</p>
+              {pane.rows.map((row) => {
+                const rowProps = getNavLinkProps(row.to);
+                const Icon = row.icon;
+                return (
+                  <a
+                    key={row.title}
+                    className="navbar-static__menu-row"
+                    role="menuitem"
+                    href={rowProps.href}
+                    onClick={rowProps.onClick}
+                    tabIndex={isActive ? undefined : -1}
+                  >
+                    <span className="navbar-static__menu-row-icon" aria-hidden>
+                      <Icon size={18} strokeWidth={1.7} />
+                    </span>
+                    <span className="navbar-static__menu-row-text">
+                      <span className="navbar-static__menu-row-title">{row.title}</span>
+                      <span className="navbar-static__menu-row-description">
+                        {row.description}
+                      </span>
+                    </span>
+                    {row.meta ? (
+                      <span className="navbar-static__menu-row-meta">{row.meta}</span>
+                    ) : null}
+                  </a>
+                );
+              })}
+            </div>
+            {pane.highlight && highlightProps ? (
+              <div className="navbar-static__menu-side">
+                <a
+                  className={`navbar-static__menu-highlight navbar-static__menu-highlight--${pane.highlight.tone}`}
+                  role="menuitem"
+                  href={highlightProps.href}
+                  onClick={highlightProps.onClick}
+                  tabIndex={isActive ? undefined : -1}
+                >
+                  <span className="navbar-static__menu-highlight-title">
+                    {pane.highlight.title}
+                  </span>
+                  <span className="navbar-static__menu-highlight-description">
+                    {pane.highlight.description}
+                  </span>
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <div className="navbar-static__menu-footer">
+            {pane.footerLinks.map((link) => {
+              const linkNavProps = getNavLinkProps(link.to);
+              return (
+                <a
+                  key={link.label}
+                  className="navbar-static__menu-footer-link"
+                  role="menuitem"
+                  href={linkNavProps.href}
+                  onClick={linkNavProps.onClick}
+                  tabIndex={isActive ? undefined : -1}
+                >
+                  <span>{link.label}</span>
+                  <ArrowRightAnim size={12} />
+                </a>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -1220,21 +921,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
             </a>
             <button
               type="button"
-              className="navbar-static__theme-toggle"
-              onClick={onToggleTheme}
-              aria-label="Toggle dark mode"
-              title="Toggle dark mode"
-            >
-              <span className="navbar-static__context-icon" key={resolvedTheme}>
-                {resolvedTheme === 'dark' ? (
-                  <SunIcon size={18} strokeWidth={2} aria-hidden />
-                ) : (
-                  <MoonIcon size={18} strokeWidth={2} aria-hidden />
-                )}
-              </span>
-            </button>
-            <button
-              type="button"
               className="navbar-static__mobile-toggle"
               aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
               onClick={() => setIsMobileMenuOpen((open) => !open)}
@@ -1250,7 +936,11 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
         </div>
 
         <div
-          className={`navbar-static__access-popup${openDropdown ? ' is-open' : ''}`}
+          ref={dropdownPopupRef}
+          className={`navbar-static__access-popup${openDropdown ? ' is-open' : ''}${
+            paneMorphEnabled ? ' is-morphing' : ''
+          }`}
+          style={popupLeft !== null ? { left: popupLeft } : undefined}
           onMouseEnter={clearDropdownTimers}
           onMouseLeave={() => scheduleCloseDropdown()}
           onFocusCapture={clearDropdownTimers}
@@ -1262,13 +952,18 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
         >
           <div
             ref={dropdownPanelRef}
-            className={accessCardClassName}
+            className="navbar-static__access-card"
             role="menu"
             aria-label={dropdownAriaConfig ? dropdownAriaConfig.label : undefined}
             aria-orientation="vertical"
             onKeyDown={onDropdownPanelKeyDown}
           >
-            <div className="navbar-static__access-grid-shell">
+            <div
+              className={`navbar-static__access-grid-shell${
+                paneMorphEnabled ? ' is-morphing' : ''
+              }`}
+              style={paneSize ? { width: paneSize.w, height: paneSize.h } : undefined}
+            >
               {dropdownPanes.map(renderAccessPane)}
             </div>
           </div>
@@ -1369,17 +1064,17 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
         <div className={`navbar-static__mobile-submenu${isMobileProductsOpen ? ' is-open' : ''}`}>
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Products</h3>
-            {documentationDropdownTiles.map((tile) => {
-              const tileProps = getNavLinkProps(tile.to);
+            {documentationDropdownPane.rows.map((row) => {
+              const rowProps = getNavLinkProps(row.to);
               return (
                 <a
-                  key={tile.id}
+                  key={row.title}
                   className="navbar-static__mobile-subitem"
-                  href={tileProps.href}
-                  onClick={tileProps.onClick}
+                  href={rowProps.href}
+                  onClick={rowProps.onClick}
                 >
-                  <span>{tile.title}</span>
-                  <small>{tile.description}</small>
+                  <span>{row.title}</span>
+                  <small>{row.description}</small>
                 </a>
               );
             })}
@@ -1408,17 +1103,17 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
         >
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Documentation</h3>
-            {productDropdownTiles.map((tile) => {
-              const tileProps = getNavLinkProps(tile.to);
+            {productsDropdownPane.rows.map((row) => {
+              const rowProps = getNavLinkProps(row.to);
               return (
                 <a
-                  key={tile.id}
+                  key={row.title}
                   className="navbar-static__mobile-subitem"
-                  href={tileProps.href}
-                  onClick={tileProps.onClick}
+                  href={rowProps.href}
+                  onClick={rowProps.onClick}
                 >
-                  <span>{tile.title}</span>
-                  <small>{tile.description}</small>
+                  <span>{row.title}</span>
+                  <small>{row.description}</small>
                 </a>
               );
             })}
@@ -1443,25 +1138,23 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
           />
         </button>
         <div className={`navbar-static__mobile-submenu${isMobileAboutOpen ? ' is-open' : ''}`}>
-          {aboutSections.map((section) => (
-            <section key={section.heading} className="navbar-static__mobile-section">
-              <h3 className="navbar-static__mobile-section-title">{section.heading}</h3>
-              {section.items.map((item) => {
-                const itemProps = getNavLinkProps(item.to);
-                return (
-                  <a
-                    key={item.title}
-                    className="navbar-static__mobile-subitem"
-                    href={itemProps.href}
-                    onClick={itemProps.onClick}
-                  >
-                    <span>{item.title}</span>
-                    <small>{item.description}</small>
-                  </a>
-                );
-              })}
-            </section>
-          ))}
+          <section className="navbar-static__mobile-section">
+            <h3 className="navbar-static__mobile-section-title">Company</h3>
+            {aboutDropdownPane.rows.map((row) => {
+              const rowProps = getNavLinkProps(row.to);
+              return (
+                <a
+                  key={row.title}
+                  className="navbar-static__mobile-subitem"
+                  href={rowProps.href}
+                  onClick={rowProps.onClick}
+                >
+                  <span>{row.title}</span>
+                  <small>{row.description}</small>
+                </a>
+              );
+            })}
+          </section>
           <a
             className="navbar-static__mobile-subitem"
             href={aboutRootProps.href}
@@ -1490,25 +1183,23 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
           />
         </button>
         <div className={`navbar-static__mobile-submenu${isMobilePricingOpen ? ' is-open' : ''}`}>
-          {pricingSections.map((section) => (
-            <section key={section.heading} className="navbar-static__mobile-section">
-              <h3 className="navbar-static__mobile-section-title">{section.heading}</h3>
-              {section.items.map((item) => {
-                const itemProps = getNavLinkProps(item.to);
-                return (
-                  <a
-                    key={item.title}
-                    className="navbar-static__mobile-subitem"
-                    href={itemProps.href}
-                    onClick={itemProps.onClick}
-                  >
-                    <span>{item.title}</span>
-                    <small>{item.description}</small>
-                  </a>
-                );
-              })}
-            </section>
-          ))}
+          <section className="navbar-static__mobile-section">
+            <h3 className="navbar-static__mobile-section-title">Plans</h3>
+            {pricingDropdownPane.rows.map((row) => {
+              const rowProps = getNavLinkProps(row.to);
+              return (
+                <a
+                  key={row.title}
+                  className="navbar-static__mobile-subitem"
+                  href={rowProps.href}
+                  onClick={rowProps.onClick}
+                >
+                  <span>{row.title}</span>
+                  <small>{row.description}</small>
+                </a>
+              );
+            })}
+          </section>
           <a
             className="navbar-static__mobile-subitem"
             href={contactSalesProps.href}

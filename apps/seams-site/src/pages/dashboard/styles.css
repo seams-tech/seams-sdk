@@ -46,6 +46,35 @@
   transition: grid-template-columns var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
 }
 
+.dashboard-shell--route-overview {
+  --dashboard-bg: #ffffff;
+  --dashboard-surface: #ffffff;
+  --dashboard-border: #ebe8e4;
+  --dashboard-ink: #0a0a0a;
+  --dashboard-ink-soft: #777169;
+  --dashboard-muted: #f5f3f1;
+  --dashboard-active: #f5f3f1;
+  --dashboard-active-border: #a59f97;
+  --dashboard-active-ink: #0a0a0a;
+  --dashboard-active-ink-soft: #44403b;
+  --dashboard-env-bg: #f5f3f1;
+  --dashboard-env-ink: #44403b;
+}
+
+.dashboard-shell--route-overview .dashboard-topbar,
+.dashboard-shell--route-overview .dashboard-sidebar {
+  background: #ffffff;
+}
+
+.dashboard-shell--route-overview .dashboard-main {
+  padding: 24px;
+}
+
+.dashboard-shell--route-overview .dashboard-main__title {
+  font-size: 1.08rem;
+  font-weight: 500;
+}
+
 .dashboard-shell *,
 .dashboard-shell *::before,
 .dashboard-shell *::after {
@@ -2708,6 +2737,20 @@
   padding: 14px 16px;
 }
 
+.dashboard-shell--route-overview .dashboard-view__section,
+.dashboard-shell--route-overview .dashboard-view-card,
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel {
+  border-color: #ebe8e4;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.dashboard-shell--route-overview .dashboard-view-card,
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel {
+  padding: 18px;
+}
+
 .dashboard-view__section h2,
 .dashboard-view-card h2 {
   margin: 0 0 8px;
@@ -4325,6 +4368,20 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   padding: 0;
 }
 
+.dashboard-shell--route-overview .dashboard-ops-cockpit-summary--plain {
+  padding: 0;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-summary--plain > p:first-child {
+  margin: 0;
+  padding: 24px 0 18px;
+  border-top: 1px solid #ebe8e4;
+  border-bottom: 1px solid #ebe8e4;
+  color: #44403b;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
 .dashboard-ops-cockpit-view {
   display: flex;
   flex-direction: column;
@@ -4367,6 +4424,73 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   overflow: hidden;
 }
 
+.dashboard-shell--route-overview .dashboard-ops-cockpit-view {
+  gap: 16px;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-view .dashboard-view-grid {
+  gap: 0;
+  border: 1px solid #ebe8e4;
+  border-bottom: 0;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-view .dashboard-view-grid > * {
+  border: 0;
+  border-right: 1px solid #ebe8e4;
+  border-bottom: 1px solid #ebe8e4;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-view .dashboard-view-grid > *:nth-child(3n) {
+  border-right: 0;
+}
+
+.dashboard-shell--route-overview .dashboard-empty-state {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 300;
+  color: #0a0a0a;
+}
+
+.dashboard-shell--route-overview .dashboard-pagination-note {
+  color: #777169;
+}
+
+.dashboard-shell--route-overview .dashboard-pagination-button,
+.dashboard-shell--route-overview .dashboard-inline-link {
+  border-radius: 9999px;
+  border-color: #ebe8e4;
+  background: #ffffff;
+  color: #0a0a0a;
+  font-weight: 500;
+}
+
+.dashboard-shell--route-overview .dashboard-pagination-button:hover,
+.dashboard-shell--route-overview .dashboard-inline-link:hover {
+  border-color: #a59f97;
+  background: #f5f3f1;
+}
+
+.dashboard-shell--route-overview .dashboard-inline-link--danger {
+  color: #b91c1c;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-grid {
+  gap: 0;
+  border: 1px solid #ebe8e4;
+  border-bottom: 0;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel {
+  flex-basis: calc(50% - 1px);
+  border: 0;
+  border-right: 1px solid #ebe8e4;
+  border-bottom: 1px solid #ebe8e4;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel:nth-child(2n) {
+  border-right: 0;
+}
+
 .dashboard-ops-cockpit-panel__summary {
   display: flex;
   align-items: center;
@@ -4375,11 +4499,23 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   padding: 14px 16px;
 }
 
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel__summary {
+  padding: 0 0 14px;
+}
+
 .dashboard-ops-cockpit-panel__title {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 650;
   color: var(--dashboard-ink);
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel__title,
+.dashboard-shell--route-overview .dashboard-view__section h2,
+.dashboard-shell--route-overview .dashboard-view-card h2 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #0a0a0a;
 }
 
 .dashboard-ops-cockpit-panel__badge {
@@ -4396,11 +4532,21 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   font-weight: 700;
 }
 
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel__badge {
+  background: #f5f3f1;
+  color: #0a0a0a;
+}
+
 .dashboard-ops-cockpit-panel__body {
   padding: 0 16px 16px;
   border-top: 1px solid var(--dashboard-border);
   display: grid;
   gap: 10px;
+}
+
+.dashboard-shell--route-overview .dashboard-ops-cockpit-panel__body {
+  padding: 14px 0 0;
+  border-top-color: #ebe8e4;
 }
 
 .dashboard-shell--sidebar-collapsed .dashboard-group-toggle {

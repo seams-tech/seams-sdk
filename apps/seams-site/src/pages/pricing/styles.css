@@ -1,30 +1,24 @@
 .pricing-page {
-  --pricing-brand: var(--site-brand, #4f46e5);
-  --pricing-brand-hover: var(--site-brand-hover, #4338ca);
-  --pricing-ink: var(--site-text-primary, #0f172a);
-  --pricing-ink-soft: var(--site-text-secondary, #475569);
-  --pricing-card: var(--site-surface, #ffffff);
-  --pricing-card-soft: var(--site-surface-muted, #f8fafc);
-  --pricing-border: var(--site-border, #d9e0ec);
-  --pricing-shadow: 0 16px 34px
-    color-mix(in srgb, var(--site-shadow-md, rgba(15, 23, 42, 0.3)) 35%, transparent);
+  --pricing-brand: #000000;
+  --pricing-brand-hover: #262626;
+  --pricing-ink: #0a0a0a;
+  --pricing-ink-soft: #44403b;
+  --pricing-muted: #777169;
+  --pricing-ash: #a59f97;
+  --pricing-card: #ffffff;
+  --pricing-card-soft: #f5f3f1;
+  --pricing-border: #ebe8e4;
+  --pricing-shadow: none;
   color: var(--pricing-ink);
-  font-family: var(
-    --site-font-sans,
-    'Hanken Grotesk',
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif
-  );
-  background: transparent;
-  padding: 72px clamp(20px, 4vw, 56px) 96px;
-  margin-top: 4rem;
+  font-family: var(--site-font-sans);
+  background: #ffffff;
+  padding: 116px 0 72px;
+  margin: 0;
+  width: 100%;
+}
+
+body:has(.pricing-page) {
+  background: #ffffff;
 }
 
 .pricing-page *,
@@ -35,53 +29,56 @@
 
 .pricing-wrap {
   margin: 0 auto;
-  max-width: 1120px;
+  max-width: none;
   display: grid;
-  gap: 26px;
+  gap: 0;
 }
 
 .pricing-hero {
-  text-align: center;
-  margin: 1rem auto;
-  max-width: 860px;
+  text-align: left;
+  margin: 0;
+  max-width: none;
   display: grid;
-  gap: 12px;
+  gap: 14px;
+  padding: 48px 40px;
+  border-top: 1px solid var(--pricing-border);
+  border-bottom: 1px solid var(--pricing-border);
 }
 
 .pricing-kicker {
   margin: 0;
-  font-size: 0.78rem;
-  letter-spacing: 0.11em;
+  font-family: var(--h2-mono, var(--site-font-mono));
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  font-weight: 700;
-  color: var(--pricing-brand);
+  font-weight: 500;
+  color: var(--pricing-ash);
 }
 
 .pricing-hero h1 {
   margin: 0;
-  font-size: clamp(2.1rem, 4.3vw, 3.45rem);
-  line-height: 1.04;
-  letter-spacing: -0.025em;
+  max-width: 860px;
+  font-size: clamp(2.15rem, 4vw, 3.2rem);
+  font-weight: 300;
+  line-height: 1.08;
+  letter-spacing: 0;
   color: var(--pricing-ink);
-  font-family: var(
-    --site-font-display,
-    var(--site-font-sans, 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif)
-  );
+  font-family: var(--site-font-display);
 }
 
 .pricing-subtitle {
-  margin: 0 auto;
-  max-width: 740px;
+  margin: 0;
+  max-width: 640px;
   color: var(--pricing-ink-soft);
-  font-size: clamp(1rem, 1.5vw, 1.13rem);
-  line-height: 1.5;
+  font-size: 16.5px;
+  line-height: 1.6;
 }
 
 .pricing-hero-actions {
-  margin-top: 8px;
+  margin-top: 10px;
   display: inline-flex;
-  gap: 10px;
-  justify-content: center;
+  gap: 12px;
+  justify-content: flex-start;
   flex-wrap: wrap;
 }
 
@@ -89,12 +86,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
+  border-radius: 9999px;
   border: 1px solid transparent;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1;
-  padding: 12px 16px;
+  min-height: 40px;
+  padding: 0 18px;
   text-decoration: none;
   transition:
     background-color 140ms ease,
@@ -114,24 +112,24 @@
 
 .pricing-button--solid {
   background: var(--pricing-brand);
-  color: var(--site-text-button, #000000);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--pricing-brand) 35%, transparent);
+  color: #ffffff;
+  box-shadow: none;
 }
 
 .pricing-button--solid:hover {
   background: var(--pricing-brand-hover);
-  color: var(--site-text-button, #000000);
+  color: #ffffff;
 }
 
 .pricing-button--ghost {
-  background: var(--pricing-card-soft);
+  background: var(--pricing-card);
   border-color: var(--pricing-border);
   color: var(--pricing-ink);
 }
 
 .pricing-button--ghost:hover {
-  border-color: var(--site-border-strong, var(--pricing-border));
-  background: var(--pricing-card);
+  border-color: var(--pricing-ash);
+  background: var(--pricing-card-soft);
   color: var(--pricing-ink);
 }
 
@@ -148,19 +146,24 @@
 .pricing-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 0;
+  border-bottom: 1px solid var(--pricing-border);
 }
 
 .pricing-card {
   background: var(--pricing-card);
-  border: 1px solid var(--pricing-border);
-  border-radius: 20px;
+  border: 0;
+  border-radius: 0;
   box-shadow: var(--pricing-shadow);
-  padding: clamp(18px, 2vw, 26px);
+  padding: 40px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   height: 100%;
+}
+
+.pricing-card + .pricing-card {
+  border-left: 1px solid var(--pricing-border);
 }
 
 .pricing-card--self-serve {
@@ -184,17 +187,20 @@
 
 .pricing-card-label {
   margin: 0;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  color: var(--pricing-ink-soft);
+  font-family: var(--h2-mono, var(--site-font-mono));
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  color: var(--pricing-ash);
   text-transform: uppercase;
 }
 
 .pricing-card h2 {
   margin: 4px 0 8px;
-  font-size: clamp(1.35rem, 2vw, 1.82rem);
-  line-height: 1.2;
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  font-weight: 400;
+  line-height: 1.18;
+  color: var(--pricing-ink);
 }
 
 .pricing-card p {
@@ -209,7 +215,7 @@
 
 .pricing-price-pill {
   border: 1px solid var(--pricing-border);
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 10px 12px;
   min-width: 118px;
   text-align: right;
@@ -219,7 +225,8 @@
 .pricing-price-pill strong {
   display: block;
   color: var(--pricing-ink);
-  font-size: 1.52rem;
+  font-size: 1.48rem;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -254,12 +261,12 @@
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--pricing-brand);
+  background: var(--pricing-ink);
 }
 
 .pricing-tier-list {
   border: 1px solid var(--pricing-border);
-  border-radius: 14px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--pricing-card-soft);
 }
@@ -297,15 +304,16 @@
 .pricing-faq,
 .pricing-cta {
   background: var(--pricing-card);
-  border: 1px solid var(--pricing-border);
-  border-radius: 20px;
+  border: 0;
+  border-bottom: 1px solid var(--pricing-border);
+  border-radius: 0;
   box-shadow: var(--pricing-shadow);
 }
 
 .pricing-includes,
 .pricing-faq,
 .pricing-compare {
-  padding: clamp(18px, 2vw, 24px);
+  padding: 40px;
 }
 
 .pricing-includes h3,
@@ -314,6 +322,8 @@
 .pricing-cta h3 {
   margin: 0;
   font-size: clamp(1.18rem, 1.7vw, 1.45rem);
+  font-weight: 400;
+  color: var(--pricing-ink);
 }
 
 .pricing-includes-grid {
@@ -325,7 +335,7 @@
 
 .pricing-include-card {
   border: 1px solid var(--pricing-border);
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--pricing-card-soft);
   padding: 14px;
 }
@@ -380,7 +390,7 @@
 
 .pricing-faq details {
   border: 1px solid var(--pricing-border);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 10px 12px;
   background: var(--pricing-card-soft);
 }
@@ -399,7 +409,7 @@
 }
 
 .pricing-cta {
-  padding: clamp(18px, 2vw, 24px);
+  padding: 40px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -419,6 +429,11 @@
     grid-template-columns: 1fr;
   }
 
+  .pricing-card + .pricing-card {
+    border-left: 0;
+    border-top: 1px solid var(--pricing-border);
+  }
+
   .pricing-price-pill {
     text-align: left;
     min-width: 0;
@@ -427,7 +442,16 @@
 
 @media (max-width: 720px) {
   .pricing-page {
-    padding: 56px 14px 72px;
+    padding: 88px 0 56px;
+  }
+
+  .pricing-hero,
+  .pricing-card,
+  .pricing-includes,
+  .pricing-faq,
+  .pricing-compare,
+  .pricing-cta {
+    padding: 32px 24px;
   }
 
   .pricing-card-header {
