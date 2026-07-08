@@ -18,9 +18,9 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && rolldown -c rolldown.config.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && rm -rf dist/types/sdk-server-ts && rolldown -c rolldown.config.ts",
     "d1:local:ensure-wasm": "node ./scripts/ensure-d1-local-wasm.mjs",
-    "d1:local:dev": "pnpm run d1:local:ensure-wasm && wrangler dev --config \"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\" --persist-to \"${SEAMS_D1_LOCAL_PERSIST_TO:-.wrangler/state/seams-d1}\" --port 9090",
+    "d1:local:dev": "pnpm run d1:local:ensure-wasm && node ./scripts/d1-local-dev.mjs",
     "d1:local:migrate:console": "wrangler d1 migrations apply seams-console --local --persist-to \"${SEAMS_D1_LOCAL_PERSIST_TO:-.wrangler/state/seams-d1}\" --config \"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\"",
     "d1:local:migrate:signer": "wrangler d1 migrations apply seams-signer --local --persist-to \"${SEAMS_D1_LOCAL_PERSIST_TO:-.wrangler/state/seams-d1}\" --config \"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\"",
     "d1:local:prepare": "pnpm run d1:local:migrate:console && pnpm run d1:local:migrate:signer && pnpm run d1:local:smoke:console && pnpm run d1:local:smoke:signer",

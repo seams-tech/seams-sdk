@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
@@ -291,18 +291,36 @@ function prepareD1LocalWranglerRuntimeConfig() {
     );
   writeFileSync(d1LocalWranglerConfigPath, runtimeConfig);
 
-  const sourceDevVarsPath = path.join(repoRoot, 'packages/console-server-ts/.dev.vars');
-  const fallbackDevVarsPath = path.join(repoRoot, 'packages/console-server-ts/dev.vars');
-  const runtimeDevVarsPath = path.join(d1LocalWranglerRuntimeDir, '.dev.vars');
-  if (existsSync(sourceDevVarsPath)) {
-    copyFileSync(sourceDevVarsPath, runtimeDevVarsPath);
-  } else if (existsSync(fallbackDevVarsPath)) {
-    copyFileSync(fallbackDevVarsPath, runtimeDevVarsPath);
-  }
+  writeD1LocalWranglerRuntimeDevVars();
 
   console.log(
     `[intended-services] prepared D1 local wrangler config at ${path.relative(repoRoot, d1LocalWranglerConfigPath)}`,
   );
+}
+
+function localD1SecretSourcePaths() {
+  return [
+    path.join(repoRoot, 'packages/sdk-server-ts/.dev.vars'),
+    path.join(repoRoot, 'packages/console-server-ts/.dev.vars'),
+  ];
+}
+
+function writeD1LocalWranglerRuntimeDevVars() {
+  const runtimeDevVarsPath = path.join(d1LocalWranglerRuntimeDir, '.dev.vars');
+  const sourcePaths = localD1SecretSourcePaths();
+  let source = '';
+  for (const sourcePath of sourcePaths) {
+    if (!existsSync(sourcePath)) continue;
+    source += `${readFileSync(sourcePath, 'utf8').trimEnd()}\n`;
+    console.log(
+      `[intended-services] copied D1 local env file ${path.relative(repoRoot, sourcePath)}`,
+    );
+  }
+  if (source) {
+    writeFileSync(runtimeDevVarsPath, source);
+    return;
+  }
+  rmSync(runtimeDevVarsPath, { force: true });
 }
 
 function spawnManaged(label, args, env) {
