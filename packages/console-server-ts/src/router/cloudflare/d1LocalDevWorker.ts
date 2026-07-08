@@ -700,7 +700,7 @@ function isRouterApiPath(pathname: string): boolean {
     pathname.startsWith('/.well-known/') ||
     pathname.startsWith('/auth/') ||
     pathname.startsWith('/email-recovery/') ||
-    pathname.startsWith('-internal/shared-ts/near/') ||
+    pathname.startsWith('/near/') ||
     pathname.startsWith('/recover-email') ||
     pathname.startsWith('/router-ab/') ||
     pathname.startsWith('/session/') ||

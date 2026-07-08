@@ -1118,7 +1118,7 @@ test('local D1 Worker routes dashboard session exchange and state at root paths'
     env,
     ctx,
   );
-  expect(state.status).toBe(401);
+  expect(state.status).toBe(200);
   await expect(state.json()).resolves.toMatchObject({
     authenticated: false,
     code: 'unauthorized',

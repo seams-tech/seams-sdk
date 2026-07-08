@@ -147,20 +147,43 @@ function hasCookieSessionSignal(ctx: CloudflareRouterApiContext): boolean {
   return false;
 }
 
-async function readAndValidateAppSession(ctx: CloudflareRouterApiContext): Promise<
-  | { ok: true; claims: any; userId: string; appSessionVersion: string }
-  | {
-      ok: false;
-      response: Response;
-      code?: string;
-      message?: string;
-      claims?: any;
-      userId?: string;
-      appSessionVersion?: string;
-      hadBearerSessionSignal?: boolean;
-      hadCookieSessionSignal?: boolean;
-    }
-> {
+type ValidAppSessionValidation = {
+  ok: true;
+  claims: any;
+  userId: string;
+  appSessionVersion: string;
+};
+
+type InvalidAppSessionValidation = {
+  ok: false;
+  response: Response;
+  code: string;
+  message: string;
+  claims?: any;
+  userId?: string;
+  appSessionVersion?: string;
+  hadBearerSessionSignal?: boolean;
+  hadCookieSessionSignal?: boolean;
+};
+
+type AppSessionValidation = ValidAppSessionValidation | InvalidAppSessionValidation;
+
+function sessionStateFailureResponse(validated: InvalidAppSessionValidation): Response {
+  const code = String(validated.code || 'unauthorized').trim() || 'unauthorized';
+  const message = String(validated.message || 'No valid session').trim() || 'No valid session';
+  return json(
+    {
+      authenticated: false,
+      code,
+      message,
+    },
+    { status: code === 'internal' ? 500 : 200 },
+  );
+}
+
+async function readAndValidateAppSession(
+  ctx: CloudflareRouterApiContext,
+): Promise<AppSessionValidation> {
   const session = ctx.opts.session;
   if (!session) {
     return {
@@ -340,7 +363,7 @@ export async function handleSessionState(
         validated,
         source: 'session.state',
       });
-      return validated.response;
+      return sessionStateFailureResponse(validated);
     }
     return json({ authenticated: true, claims: validated.claims }, { status: 200 });
   } catch (e: any) {
