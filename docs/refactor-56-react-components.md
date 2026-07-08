@@ -58,7 +58,7 @@ registration, unlock, ECDSA provisioning, and session readiness logic.
 
 ## Goals
 
-- Make `PasskeyAuthMenu` social auth integration a thin UI adapter.
+- Make `SeamsAuthMenu` social auth integration a thin UI adapter.
 - Add a headless SDK flow for Google SSO plus Email OTP wallet auth.
 - Keep Google Identity browser interaction app-owned or adapter-owned, based on
   explicit API choice.
@@ -75,7 +75,7 @@ registration, unlock, ECDSA provisioning, and session readiness logic.
 
 - Replace Google Identity with a bundled provider SDK.
 - Remove low-level Email OTP APIs in this refactor.
-- Redesign the visual layout of `PasskeyAuthMenu`.
+- Redesign the visual layout of `SeamsAuthMenu`.
 - Change public passkey login/register behavior.
 - Implement a generic OAuth provider framework for all providers.
 - Move app-specific toast styling or copy into core SDK.
@@ -101,7 +101,7 @@ call a higher-level flow.
 
 ### App Owns
 
-- visual placement of `PasskeyAuthMenu`
+- visual placement of `SeamsAuthMenu`
 - toast rendering and copy overrides
 - Google Identity UI adapter when the app chooses to own it
 - final `onLoggedIn(walletId)` callback
@@ -109,7 +109,7 @@ call a higher-level flow.
 
 ### React Package Owns
 
-- `PasskeyAuthMenu` OTP prompt rendering
+- `SeamsAuthMenu` OTP prompt rendering
 - social-login prompt state
 - resend/reroll/submit button state
 - hook wrappers that connect React UI to headless SDK flows
@@ -135,14 +135,14 @@ browser and wallet-iframe implementations.
 
 ### Flow Completion
 
-`PasskeyAuthMenu` must surface successful headless-flow completion to the app.
+`SeamsAuthMenu` must surface successful headless-flow completion to the app.
 The component owns OTP UI state, but the app still owns the final product action,
 for example `onLoggedIn(walletId)` and toast copy.
 
 Add an optional completion callback to the social-login result:
 
 ```ts
-type PasskeyAuthMenuSocialCompletion = (result: {
+type SeamsAuthMenuSocialCompletion = (result: {
   walletId: WalletId;
   mode: GoogleEmailOtpWalletAuthResolvedMode;
   session: WalletSession;
@@ -150,7 +150,7 @@ type PasskeyAuthMenuSocialCompletion = (result: {
 ```
 
 When `socialLogin.google` returns `{ kind: 'otp_flow', flow, onComplete }`,
-`PasskeyAuthMenu` submits the OTP through the flow and calls `onComplete` only
+`SeamsAuthMenu` submits the OTP through the flow and calls `onComplete` only
 after a successful `submit` result. Existing custom `otpPrompt` integrations may
 also provide `onComplete`; the component calls it after the custom prompt submit
 resolves.
@@ -382,27 +382,27 @@ client/src/react/hooks/useGoogleEmailOtpWalletAuth.ts
 This hook should be convenience glue only. Core workflow decisions stay in the
 headless SDK method.
 
-## PasskeyAuthMenu Social Contract
+## SeamsAuthMenu Social Contract
 
 Keep the current `socialLogin.google` capability, but allow it to return a
 headless flow directly:
 
 ```ts
-type PasskeyAuthMenuSocialLoginResult =
+type SeamsAuthMenuSocialLoginResult =
   | {
       kind?: 'otp_prompt';
       username?: string;
-      otpPrompt?: PasskeyAuthMenuOtpPrompt;
-      onComplete?: PasskeyAuthMenuSocialCompletion;
+      otpPrompt?: SeamsAuthMenuOtpPrompt;
+      onComplete?: SeamsAuthMenuSocialCompletion;
     }
   | {
       kind: 'otp_flow';
       flow: GoogleEmailOtpWalletAuthFlow;
-      onComplete?: PasskeyAuthMenuSocialCompletion;
+      onComplete?: SeamsAuthMenuSocialCompletion;
     };
 ```
 
-`PasskeyAuthMenu` maps `GoogleEmailOtpWalletAuthFlow` to `PasskeyAuthMenuOtpPrompt`
+`SeamsAuthMenu` maps `GoogleEmailOtpWalletAuthFlow` to `SeamsAuthMenuOtpPrompt`
 internally:
 
 - `username` from `flow.walletId`
@@ -469,9 +469,9 @@ Core SDK:
 
 React package:
 
-- `client/src/react/components/PasskeyAuthMenu/types.ts`
-- `client/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts`
-- `client/src/react/components/PasskeyAuthMenu/adapters/seams.ts`
+- `client/src/react/components/SeamsAuthMenu/types.ts`
+- `client/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts`
+- `client/src/react/components/SeamsAuthMenu/adapters/seams.ts`
 - `client/src/react/index.ts`
 - `client/src/react/hooks/useGoogleEmailOtpWalletAuth.ts`
 
@@ -483,7 +483,7 @@ Demo:
 
 Tests:
 
-- `tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts`
+- `tests/unit/seamsAuthMenu.googleEmailOtpFlow.unit.test.ts`
 - `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
 - existing Email OTP registration/unlock tests
 - wallet iframe message tests
@@ -635,7 +635,7 @@ Run the cheapest gate after each phase:
 pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit
 pnpm -C tests exec playwright test \
   tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts \
-  tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts \
+  tests/unit/seamsAuthMenu.googleEmailOtpFlow.unit.test.ts \
   tests/unit/refactor56HeadlessAuth.guard.unit.test.ts \
   --reporter=line
 ```
@@ -649,9 +649,9 @@ pnpm -C tests exec playwright test \
   tests/unit/seamsWeb.emailOtp.unit.test.ts \
   tests/unit/seamsWeb.emailOtpIframe.unit.test.ts \
   tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts \
-  tests/unit/passkeyAuthMenu.fouc.unit.test.ts \
+  tests/unit/seamsAuthMenu.fouc.unit.test.ts \
   tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts \
-  tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts \
+  tests/unit/seamsAuthMenu.googleEmailOtpFlow.unit.test.ts \
   --reporter=line
 ```
 
@@ -794,7 +794,7 @@ Validation:
 
 Tasks:
 
-- [x] Extend `PasskeyAuthMenuSocialLoginResult` with `{ kind: 'otp_flow'; flow }`.
+- [x] Extend `SeamsAuthMenuSocialLoginResult` with `{ kind: 'otp_flow'; flow }`.
 - [x] Map `GoogleEmailOtpWalletAuthFlow` to the existing OTP prompt controller.
 - [x] Add `useGoogleEmailOtpWalletAuth(...)`.
 - [x] Export the hook and public types from `client/src/react/index.ts`.
@@ -813,7 +813,7 @@ Tasks:
 
 Acceptance:
 
-- `PasskeyAuthMenu` accepts a headless OTP flow without app-level prompt wiring.
+- `SeamsAuthMenu` accepts a headless OTP flow without app-level prompt wiring.
 - Existing custom `otpPrompt` integrations keep working.
 - React controller owns only UI state: busy, code input, resend, reroll, submit,
   error display, and back navigation.
@@ -823,8 +823,8 @@ Acceptance:
 
 Validation:
 
-- `tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts`
-- `tests/unit/passkeyAuthMenu.fouc.unit.test.ts`
+- `tests/unit/seamsAuthMenu.googleEmailOtpFlow.unit.test.ts`
+- `tests/unit/seamsAuthMenu.fouc.unit.test.ts`
 - React typecheck
 
 ### Phase 5: Simplify Demo
@@ -927,7 +927,7 @@ Validation:
 
 - `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
 - `tests/unit/googleEmailOtpWalletIframeHandles.unit.test.ts`
-- `tests/unit/passkeyAuthMenu.fouc.unit.test.ts`
+- `tests/unit/seamsAuthMenu.fouc.unit.test.ts`
 - `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`
 - `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
 
@@ -1008,10 +1008,10 @@ Required tests:
 - app-origin iframe mode never exposes recovery codes.
 - iframe flow handle cannot be submitted from another wallet, origin, mode, or
   after expiry.
-- `PasskeyAuthMenu` maps flow prompt copy, resend, reroll, and submit correctly.
-- `PasskeyAuthMenu` calls `onComplete` once after successful submit.
-- `PasskeyAuthMenu` replaces active flow state after resend and reroll.
-- `PasskeyAuthMenu` cancels active flow state on back/reset.
+- `SeamsAuthMenu` maps flow prompt copy, resend, reroll, and submit correctly.
+- `SeamsAuthMenu` calls `onComplete` once after successful submit.
+- `SeamsAuthMenu` replaces active flow state after resend and reroll.
+- `SeamsAuthMenu` cancels active flow state on back/reset.
 - existing `otpPrompt` custom integration remains compatible.
 
 ## Review Checklist
@@ -1031,7 +1031,7 @@ Required tests:
 ## Final Target State
 
 - `PasskeyLoginMenu.tsx` is a thin UI adapter.
-- `PasskeyAuthMenu` can consume a headless OTP flow directly.
+- `SeamsAuthMenu` can consume a headless OTP flow directly.
 - Google SSO token acquisition remains pluggable.
 - SDK internals own Email OTP registration/login resolution, challenge routing,
   ECDSA readiness, session refresh, and wallet-session validation.

@@ -30,7 +30,7 @@ Target outcomes:
 - Dashboard sidebar includes `Account settings` in the `Administration` group.
 - Legacy `Account Settings -> /dashboard/team-members + self-edit modal` behavior has been removed.
 - `/dashboard/account-settings` is the one dashboard route exempt from the onboarding redirect; all other non-onboarding routes still redirect until the active org completes onboarding.
-- Backend now has a dedicated `packages/sdk-server-ts/src/console/account` module:
+- Backend now has a dedicated `packages/console-server-ts/src/account` module:
   - `GET/PATCH /console/account/profile`
   - `GET/POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
@@ -166,7 +166,7 @@ Exit criteria:
 
 ### Phase 2: Account Profile Backend + UI
 
-- [x] Create `packages/sdk-server-ts/src/console/account` module (`types.ts`, `requests.ts`, `service.ts`, `d1.ts`, `errors.ts`, `index.ts`).
+- [x] Create `packages/console-server-ts/src/account` module (`types.ts`, `requests.ts`, `service.ts`, `d1.ts`, `errors.ts`, `index.ts`).
 - [x] Implement profile endpoints (`GET/PATCH /console/account/profile`) in Express + Cloudflare console routers.
 - [x] Add profile form UI and optimistic/safe-save states on account settings page.
 - [x] Add validation and permission rules for editable fields.

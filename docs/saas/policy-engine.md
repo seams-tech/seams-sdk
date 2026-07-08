@@ -318,11 +318,11 @@ These are current cleanup targets. They should be removed during the refactor, n
 - `apps/seams-site/src/pages/dashboard/routes/policy-engine/consolePoliciesApi.ts`
   - client contract is still generic and mirrors free-form `rules`
   - should move to typed request and response shapes once the schema is defined
-- `packages/sdk-server-ts/src/console/policies/service.ts`
+- `packages/console-server-ts/src/policies/service.ts`
   - still contains default-policy bootstrap logic that should eventually move into shared policy bootstrap helpers
-- `packages/sdk-server-ts/src/console/policies/d1.ts`
+- `packages/console-server-ts/src/policies/d1.ts`
   - keep D1 persistence thin and route all default bootstrap decisions through shared policy service helpers
-- `packages/sdk-server-ts/src/console/gasSponsorship/service.ts`
+- `packages/console-server-ts/src/gasSponsorship/service.ts`
   - current sponsorship authorization lives behind a separate config boundary
   - treat this as transitional until sponsorship authorization is absorbed into the policy engine
 - EVM-only resolved sponsorship snapshot fields

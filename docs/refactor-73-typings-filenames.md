@@ -127,7 +127,7 @@ Observed naming families before Phase 1:
   - `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`
   - `packages/sdk-web/src/SeamsWeb/signingSurface/types.ts`
   - `packages/sdk-web/src/react/types.ts`
-  - many `packages/sdk-server-ts/src/console/*/types.ts` files
+  - many `packages/console-server-ts/src/*/types.ts` files
 
 ## Implementation Plan
 
@@ -169,27 +169,27 @@ Inventory captured on June 19, 2026:
 
 | File                                                                                            | Classification                              |
 | ----------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `packages/sdk-server-ts/src/console/account/types.ts`                                           | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/apiKeys/types.ts`                                           | `mixed-runtime`                             |
-| `packages/sdk-server-ts/src/console/approvals/types.ts`                                         | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/audit/types.ts`                                             | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/auditExports/types.ts`                                      | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/billing/types.ts`                                           | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/billingPrepaidReservations/types.ts`                        | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/bootstrapTokens/types.ts`                                   | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/enterpriseIsolation/types.ts`                               | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/gasSponsorship/types.ts`                                    | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/keyExports/types.ts`                                        | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/observability/types.ts`                                     | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/onboarding/types.ts`                                        | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/orgProjectEnv/types.ts`                                     | `mixed-runtime`                             |
-| `packages/sdk-server-ts/src/console/policies/types.ts`                                          | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts`                                  | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts`                                    | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/types.ts`                              | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/teamRbac/types.ts`                                          | `mixed-runtime`                             |
-| `packages/sdk-server-ts/src/console/wallets/types.ts`                                           | `external-contract`                         |
-| `packages/sdk-server-ts/src/console/webhooks/types.ts`                                          | `external-contract`                         |
+| `packages/console-server-ts/src/account/types.ts`                                           | `external-contract`                         |
+| `packages/console-server-ts/src/apiKeys/types.ts`                                           | `mixed-runtime`                             |
+| `packages/console-server-ts/src/approvals/types.ts`                                         | `external-contract`                         |
+| `packages/console-server-ts/src/audit/types.ts`                                             | `external-contract`                         |
+| `packages/console-server-ts/src/auditExports/types.ts`                                      | `external-contract`                         |
+| `packages/console-server-ts/src/billing/types.ts`                                           | `external-contract`                         |
+| `packages/console-server-ts/src/billingPrepaidReservations/types.ts`                        | `external-contract`                         |
+| `packages/console-server-ts/src/bootstrapTokens/types.ts`                                   | `external-contract`                         |
+| `packages/console-server-ts/src/enterpriseIsolation/types.ts`                               | `external-contract`                         |
+| `packages/console-server-ts/src/gasSponsorship/types.ts`                                    | `external-contract`                         |
+| `packages/console-server-ts/src/keyExports/types.ts`                                        | `external-contract`                         |
+| `packages/console-server-ts/src/observability/types.ts`                                     | `external-contract`                         |
+| `packages/console-server-ts/src/onboarding/types.ts`                                        | `external-contract`                         |
+| `packages/console-server-ts/src/orgProjectEnv/types.ts`                                     | `mixed-runtime`                             |
+| `packages/console-server-ts/src/policies/types.ts`                                          | `external-contract`                         |
+| `packages/console-server-ts/src/runtimeSnapshots/types.ts`                                  | `external-contract`                         |
+| `packages/console-server-ts/src/sponsoredCalls/types.ts`                                    | `external-contract`                         |
+| `packages/console-server-ts/src/sponsorshipSpendCaps/types.ts`                              | `external-contract`                         |
+| `packages/console-server-ts/src/teamRbac/types.ts`                                          | `mixed-runtime`                             |
+| `packages/console-server-ts/src/wallets/types.ts`                                           | `external-contract`                         |
+| `packages/console-server-ts/src/webhooks/types.ts`                                          | `external-contract`                         |
 | `packages/sdk-server-ts/src/core/types.ts`                                                      | `mixed-runtime`                             |
 | `packages/sdk-server-ts/src/email-recovery/types.ts`                                            | `external-contract`                         |
 | `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`                                              | `public-barrel`                             |
@@ -201,7 +201,7 @@ Inventory captured on June 19, 2026:
 | `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts`                           | `mixed-runtime`                             |
 | `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts` | `mixed-runtime`                             |
 | `packages/sdk-web/src/react/components/AccountMenuButton/types.ts`                              | `mixed-runtime`                             |
-| `packages/sdk-web/src/react/components/PasskeyAuthMenu/types.ts`                                | `mixed-runtime`                             |
+| `packages/sdk-web/src/react/components/SeamsAuthMenu/types.ts`                                | `mixed-runtime`                             |
 | `packages/sdk-web/src/react/types.ts`                                                           | `public-barrel`                             |
 | `tests/setup/types.ts`                                                                          | `external-contract`                         |
 

@@ -66,7 +66,7 @@ It complements `docs/saas/observability-events-3.md`, which covers the observabi
 - [x] Add the missing audit emitters in `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`.
 - [x] Keep Cloudflare parity by adding the same emitters in `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`.
 - [ ] Extend audit response typing and row rendering to support the new action families.
-- [x] Extend observability builders and policy definitions in `packages/sdk-server-ts/src/console/observability`.
+- [x] Extend observability builders and policy definitions in `packages/console-server-ts/src/observability`.
 - [x] Ensure Stripe settlement writes audit rows even when the actor is system-driven.
 - [x] Ensure duplicate Stripe webhook delivery or reconcile retries do not create duplicate success audit rows unless the stored outcome changes.
 - [x] Ensure org-scoped billing events do not disappear behind project/environment filters.
@@ -91,9 +91,9 @@ It complements `docs/saas/observability-events-3.md`, which covers the observabi
 
 - `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
 - `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
-- `packages/sdk-server-ts/src/console/observability/policy.ts`
-- `packages/sdk-server-ts/src/console/observability/types.ts`
-- `packages/sdk-server-ts/src/console/audit/types.ts`
+- `packages/console-server-ts/src/observability/policy.ts`
+- `packages/console-server-ts/src/observability/types.ts`
+- `packages/console-server-ts/src/audit/types.ts`
 - `apps/seams-site/src/pages/dashboard/routes/audit/page.tsx`
 - `apps/seams-site/src/pages/dashboard/routes/audit/consoleAuditApi.ts`
 - `apps/seams-site/src/pages/dashboard/routes/observability/page.tsx`

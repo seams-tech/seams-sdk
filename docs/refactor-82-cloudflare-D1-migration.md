@@ -616,10 +616,10 @@ adapters.
 
 Current and former Postgres coupling is concentrated in:
 
-- Former `packages/sdk-server-ts/src/console/**/postgres.ts` partial console
+- Former `packages/console-server-ts/src/**/postgres.ts` partial console
   adapters. These were deleted during Phase 7 because Refactor 82 keeps Postgres
   as a future full-family backend contract, not a live console-only backend.
-- Former `packages/sdk-server-ts/src/console/shared/postgresTenantContext.ts`
+- Former `packages/console-server-ts/src/shared/postgresTenantContext.ts`
   and `postgresNormalize.ts` shared helpers. These were deleted with the partial
   console Postgres adapters.
 - Former `packages/sdk-server-ts/src/storage/postgres.ts` generic pool/read
@@ -1520,7 +1520,7 @@ Validation evidence:
       local migrations, console smoke returned `table_count: 40`, and signer smoke
       returned `table_count: 21`.
 - [x] `pnpm --dir packages/sdk-server-ts run d1:local:dev` starts the local
-      Worker after `packages/sdk-server-ts/wrangler.d1-local.toml` enables
+      Worker after `packages/console-server-ts/wrangler.d1-local.toml` enables
       `nodejs_compat`, with local `CONSOLE_DB`, `SIGNER_DB`, and `THRESHOLD_STORE`
       bindings.
 - [x] `packages/sdk-server-ts` owns its local D1 CLI dependency through
@@ -1546,7 +1546,7 @@ dashboard" --reporter=line` passed. The smoke applies the D1 console and
       verifies sponsored execution history plus reconciliation read paths without
       Docker Postgres, `POSTGRES_URL`, `CONSOLE_POSTGRES_URL`, or Postgres
       migration scripts.
-- [x] `packages/sdk-server-ts/wrangler.d1-local.toml` now includes a local-only
+- [x] `packages/console-server-ts/wrangler.d1-local.toml` now includes a local-only
       deterministic `SPONSORED_EVM_EXECUTORS_JSON` entry. The key is documented as
       a dev smoke key and must never be funded.
 - [x] Clean-state live local workflow smoke passed after deleting
@@ -1807,8 +1807,8 @@ Phase 6 staging-readiness decisions:
 
 - The staging preflight command is `pnpm --dir packages/sdk-server-ts run
 d1:staging:check`. It checks both
-  `packages/sdk-server-ts/wrangler.d1-staging-console.toml` and
-  `packages/sdk-server-ts/wrangler.d1-staging-router-api.toml`. Copy the matching
+  `packages/console-server-ts/wrangler.d1-staging-console.toml` and
+  `packages/console-server-ts/wrangler.d1-staging-router-api.toml`. Copy the matching
   `.example` files, keep the selected Worker entrypoints
   `src/router/cloudflare/d1ConsoleStagingWorker.ts` and
   `src/router/cloudflare/d1RouterApiStagingWorker.ts`, fill D1 database IDs,
@@ -1947,12 +1947,12 @@ SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT`,
 Validation evidence:
 
 - [x] Added `packages/sdk-server-ts/scripts/d1-staging-readiness-check.mjs`,
-      `packages/sdk-server-ts/wrangler.d1-staging-console.toml.example`,
-      `packages/sdk-server-ts/wrangler.d1-staging-router-api.toml.example`, and
+      `packages/console-server-ts/wrangler.d1-staging-console.toml.example`,
+      `packages/console-server-ts/wrangler.d1-staging-router-api.toml.example`, and
       `pnpm --dir packages/sdk-server-ts run d1:staging:check`.
 - [x] Gitignored the concrete staging Wrangler configs
-      `packages/sdk-server-ts/wrangler.d1-staging-console.toml` and
-      `packages/sdk-server-ts/wrangler.d1-staging-router-api.toml` while keeping
+      `packages/console-server-ts/wrangler.d1-staging-console.toml` and
+      `packages/console-server-ts/wrangler.d1-staging-router-api.toml` while keeping
       the `.example` templates tracked. This lets Phase 6 operators copy and fill
       real Cloudflare resource IDs without accidentally adding environment
       configs to source control. The Refactor 82 guard now checks the ignore
@@ -2977,9 +2977,9 @@ relayer/console-d1-adapters.test.ts --grep
       reservation IDs, environment IDs, source-event IDs, positive requested
       amounts, non-negative accounting fields, positive monotonic timestamps, and
       lifecycle-specific release/settlement consistency in both the runtime D1
-      schema helper, fresh `packages/sdk-server-ts/migrations/d1-console/0001_console_d1_initial.sql`,
+      schema helper, fresh `packages/console-server-ts/migrations/d1-console/0001_console_d1_initial.sql`,
       and upgrade migration
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
       The D1 adapter parser now rejects corrupt reservation and summary rows rather
       than clamping numeric fields. The migration smoke suite directly inserts
       corrupt raw prepaid reservation rows, proves D1 rejects them while accepting a
@@ -2996,9 +2996,9 @@ reservations are trigger-atomic" --reporter=line`, and
       versions, and positive monotonic timestamps. Webhook endpoint category rows
       now enforce non-empty scope plus the supported category enum. These checks
       live in the runtime D1 schema helper, fresh
-      `packages/sdk-server-ts/migrations/d1-console/0015_console_webhooks.sql`,
+      `packages/console-server-ts/migrations/d1-console/0015_console_webhooks.sql`,
       and upgrade migration
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
       The migration smoke suite now inserts corrupt raw webhook endpoint/category
       rows, proves D1 rejects them while accepting valid raw rows, and verifies
       the upgrade migration preserves existing endpoint category rows. Validation
@@ -3009,7 +3009,7 @@ relayer/console-d1-adapters.test.ts --grep "D1 migration smoke|webhook"
 tsconfig.playwright.json --noEmit`, and `git diff --check`.
       Deletion pass: the sponsored-call and webhook endpoint invariant upgrades
       were collapsed into the single
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`
       migration, deleting the interim separate webhook endpoint constraint
       migration and keeping the console migration count at 18 files.
       Progress: sealed signing-root secret share rows now enforce non-empty
@@ -3090,9 +3090,9 @@ relayer/console-d1-adapters.test.ts --grep
       monotonic update and dispatch timestamps, and outbox lifecycle consistency
       for pending, claimed, dispatched, and dead-letter states. These checks live
       in the runtime D1 schema helper, fresh
-      `packages/sdk-server-ts/migrations/d1-console/0001_console_d1_initial.sql`,
+      `packages/console-server-ts/migrations/d1-console/0001_console_d1_initial.sql`,
       and existing combined console constraint migration
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
       The migration smoke suite now inserts corrupt raw runtime snapshot/outbox
       rows and proves D1 rejects missing IDs, invalid JSON, missing claim expiry,
       expired claims, dispatched rows without dispatch timestamps, and dead-letter
@@ -3112,9 +3112,9 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       posting direction and positive amount rules, monthly active wallet identity
       checks, and positive timestamps. These checks live in the runtime billing D1
       schema helper, fresh
-      `packages/sdk-server-ts/migrations/d1-console/0006_console_billing_ledger.sql`,
+      `packages/console-server-ts/migrations/d1-console/0006_console_billing_ledger.sql`,
       and existing combined console constraint migration
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
       The migration smoke suite now inserts corrupt raw billing ledger, posting,
       and monthly-active-wallet rows and proves D1 rejects inverted credit/debit
       signs, zero manual adjustments, invalid months, empty IDs, empty optional
@@ -3163,7 +3163,7 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       Completion decision: the first-staging schema invariant matrix is complete.
       The current migration set has 18 console migrations, 10 signer migrations,
       and the combined hardening migrations
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`
       plus
       `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       Invariants that require multi-row ordering, request authorization, secret
@@ -3197,23 +3197,23 @@ Adapter replacement ledger:
 
 | D1/DO adapter family                                                                                                                                                                                                                                                                                                        | Replaced or deleted runtime path                                                                                                                                                                                                             | Status   |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| Console account D1 adapter: `packages/sdk-server-ts/src/console/account/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/account/postgres.ts`                                                                                                                                                                             | Complete |
-| Console API-key D1 adapter: `packages/sdk-server-ts/src/console/apiKeys/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/apiKeys/postgres.ts`                                                                                                                                                                             | Complete |
-| Console approvals D1 adapter: `packages/sdk-server-ts/src/console/approvals/d1.ts`                                                                                                                                                                                                                                          | Deleted `packages/sdk-server-ts/src/console/approvals/postgres.ts`                                                                                                                                                                           | Complete |
-| Console audit D1 adapter: `packages/sdk-server-ts/src/console/audit/d1.ts`                                                                                                                                                                                                                                                  | Deleted `packages/sdk-server-ts/src/console/audit/postgres.ts`                                                                                                                                                                               | Complete |
-| Console billing D1 adapter: `packages/sdk-server-ts/src/console/billing/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/billing/postgres.ts`                                                                                                                                                                             | Complete |
-| Console prepaid-reservation D1 adapter: `packages/sdk-server-ts/src/console/billingPrepaidReservations/d1.ts`                                                                                                                                                                                                               | Deleted `packages/sdk-server-ts/src/console/billingPrepaidReservations/postgres.ts`                                                                                                                                                          | Complete |
-| Console bootstrap-token D1 adapter: `packages/sdk-server-ts/src/console/bootstrapTokens/d1.ts`                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/bootstrapTokens/postgres.ts`                                                                                                                                                                     | Complete |
-| Console key-export D1 adapter: `packages/sdk-server-ts/src/console/keyExports/d1.ts`                                                                                                                                                                                                                                        | Deleted `packages/sdk-server-ts/src/console/keyExports/postgres.ts`                                                                                                                                                                          | Complete |
-| Console observability D1 adapter: `packages/sdk-server-ts/src/console/observability/d1.ts`                                                                                                                                                                                                                                  | Deleted `packages/sdk-server-ts/src/console/observability/postgres.ts`, `incidentIngest.ts`, `queries.ts`, `retention.ts`, and `schema.ts`                                                                                                   | Complete |
-| Console org/project/env D1 adapter: `packages/sdk-server-ts/src/console/orgProjectEnv/d1.ts`                                                                                                                                                                                                                                | Deleted `packages/sdk-server-ts/src/console/orgProjectEnv/postgres.ts`                                                                                                                                                                       | Complete |
-| Console policy D1 adapter: `packages/sdk-server-ts/src/console/policies/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/policies/postgres.ts`                                                                                                                                                                            | Complete |
-| Console runtime-snapshot D1 adapter: `packages/sdk-server-ts/src/console/runtimeSnapshots/d1.ts`                                                                                                                                                                                                                            | Deleted `packages/sdk-server-ts/src/console/runtimeSnapshots/postgres.ts` and `runtimeSnapshots/retention.ts`                                                                                                                                | Complete |
-| Console sponsored-call D1 adapter: `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`                                                                                                                                                                                                                                | Deleted `packages/sdk-server-ts/src/console/sponsoredCalls/postgres.ts`                                                                                                                                                                      | Complete |
-| Console sponsorship spend-cap D1 adapter: `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/d1.ts`                                                                                                                                                                                                                   | Deleted `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/postgres.ts`                                                                                                                                                                | Complete |
-| Console team-RBAC D1 adapter: `packages/sdk-server-ts/src/console/teamRbac/d1.ts`                                                                                                                                                                                                                                           | Deleted `packages/sdk-server-ts/src/console/teamRbac/postgres.ts`                                                                                                                                                                            | Complete |
-| Console wallet-index D1 adapter: `packages/sdk-server-ts/src/console/wallets/d1.ts`                                                                                                                                                                                                                                         | Deleted `packages/sdk-server-ts/src/console/wallets/postgres.ts`                                                                                                                                                                             | Complete |
-| Console webhook D1 adapter: `packages/sdk-server-ts/src/console/webhooks/d1.ts`                                                                                                                                                                                                                                             | Deleted `packages/sdk-server-ts/src/console/webhooks/postgres.ts`                                                                                                                                                                            | Complete |
+| Console account D1 adapter: `packages/console-server-ts/src/account/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/console-server-ts/src/account/postgres.ts`                                                                                                                                                                             | Complete |
+| Console API-key D1 adapter: `packages/console-server-ts/src/apiKeys/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/console-server-ts/src/apiKeys/postgres.ts`                                                                                                                                                                             | Complete |
+| Console approvals D1 adapter: `packages/console-server-ts/src/approvals/d1.ts`                                                                                                                                                                                                                                          | Deleted `packages/console-server-ts/src/approvals/postgres.ts`                                                                                                                                                                           | Complete |
+| Console audit D1 adapter: `packages/console-server-ts/src/audit/d1.ts`                                                                                                                                                                                                                                                  | Deleted `packages/console-server-ts/src/audit/postgres.ts`                                                                                                                                                                               | Complete |
+| Console billing D1 adapter: `packages/console-server-ts/src/billing/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/console-server-ts/src/billing/postgres.ts`                                                                                                                                                                             | Complete |
+| Console prepaid-reservation D1 adapter: `packages/console-server-ts/src/billingPrepaidReservations/d1.ts`                                                                                                                                                                                                               | Deleted `packages/console-server-ts/src/billingPrepaidReservations/postgres.ts`                                                                                                                                                          | Complete |
+| Console bootstrap-token D1 adapter: `packages/console-server-ts/src/bootstrapTokens/d1.ts`                                                                                                                                                                                                                              | Deleted `packages/console-server-ts/src/bootstrapTokens/postgres.ts`                                                                                                                                                                     | Complete |
+| Console key-export D1 adapter: `packages/console-server-ts/src/keyExports/d1.ts`                                                                                                                                                                                                                                        | Deleted `packages/console-server-ts/src/keyExports/postgres.ts`                                                                                                                                                                          | Complete |
+| Console observability D1 adapter: `packages/console-server-ts/src/observability/d1.ts`                                                                                                                                                                                                                                  | Deleted `packages/console-server-ts/src/observability/postgres.ts`, `incidentIngest.ts`, `queries.ts`, `retention.ts`, and `schema.ts`                                                                                                   | Complete |
+| Console org/project/env D1 adapter: `packages/console-server-ts/src/orgProjectEnv/d1.ts`                                                                                                                                                                                                                                | Deleted `packages/console-server-ts/src/orgProjectEnv/postgres.ts`                                                                                                                                                                       | Complete |
+| Console policy D1 adapter: `packages/console-server-ts/src/policies/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/console-server-ts/src/policies/postgres.ts`                                                                                                                                                                            | Complete |
+| Console runtime-snapshot D1 adapter: `packages/console-server-ts/src/runtimeSnapshots/d1.ts`                                                                                                                                                                                                                            | Deleted `packages/console-server-ts/src/runtimeSnapshots/postgres.ts` and `runtimeSnapshots/retention.ts`                                                                                                                                | Complete |
+| Console sponsored-call D1 adapter: `packages/console-server-ts/src/sponsoredCalls/d1.ts`                                                                                                                                                                                                                                | Deleted `packages/console-server-ts/src/sponsoredCalls/postgres.ts`                                                                                                                                                                      | Complete |
+| Console sponsorship spend-cap D1 adapter: `packages/console-server-ts/src/sponsorshipSpendCaps/d1.ts`                                                                                                                                                                                                                   | Deleted `packages/console-server-ts/src/sponsorshipSpendCaps/postgres.ts`                                                                                                                                                                | Complete |
+| Console team-RBAC D1 adapter: `packages/console-server-ts/src/teamRbac/d1.ts`                                                                                                                                                                                                                                           | Deleted `packages/console-server-ts/src/teamRbac/postgres.ts`                                                                                                                                                                            | Complete |
+| Console wallet-index D1 adapter: `packages/console-server-ts/src/wallets/d1.ts`                                                                                                                                                                                                                                         | Deleted `packages/console-server-ts/src/wallets/postgres.ts`                                                                                                                                                                             | Complete |
+| Console webhook D1 adapter: `packages/console-server-ts/src/webhooks/d1.ts`                                                                                                                                                                                                                                             | Deleted `packages/console-server-ts/src/webhooks/postgres.ts`                                                                                                                                                                            | Complete |
 | Shared D1 SQL helpers: `packages/sdk-server-ts/src/storage/d1Sql.ts`                                                                                                                                                                                                                                                        | Replaces the deleted generic Postgres helper `packages/sdk-server-ts/src/storage/postgres.ts` on the Cloudflare path                                                                                                                         | Complete |
 | D1 wallet, wallet auth-method, and identity stores: `d1WalletStore.ts`, `d1WalletAuthMethodStore.ts`, and `d1IdentityStore.ts`                                                                                                                                                                                              | Replaces the deleted wallet/auth-method/identity blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                | Complete |
 | D1 WebAuthn stores and auth service: `d1WebAuthnStore.ts`, `d1WebAuthnRecords.ts`, and `d1WebAuthnAuthService.ts`                                                                                                                                                                                                           | Replaces the deleted WebAuthn storage blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                           | Complete |
@@ -4116,7 +4116,7 @@ sqlite_seed`, `cargo fmt --manifest-path crates/router-ab-core/Cargo.toml`,
       matches, and `git diff --check` passes.
 - [x] Tightened the account-settings plan around the current D1 account adapter.
       `docs/saas/account-settings.md` now points at
-      `packages/sdk-server-ts/src/console/account`, names the D1 account tables
+      `packages/console-server-ts/src/account`, names the D1 account tables
       `organizations`, `user_profiles`, and `user_backup_emails`, and lists
       `d1.ts` as the backend module instead of the deleted Postgres adapter.
       The Refactor 82 guard rejects the old `server/src/console/account` path,
@@ -4242,7 +4242,7 @@ unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts
       idempotency, monthly statement, and sponsored settlement behavior remain in
       `tests/relayer/console-d1-adapters.test.ts`. Slice diff: 1 deletion.
 - [x] Deleted the partial console-only Postgres adapter family. Removed
-      `packages/sdk-server-ts/src/console/**/postgres.ts`, the Postgres-only
+      `packages/console-server-ts/src/**/postgres.ts`, the Postgres-only
       observability/query/retention helper modules, the runtime-snapshot Postgres
       retention helper, and the shared console Postgres tenant/normalization
       helpers. Console barrels and the Express router barrel now export D1 and
@@ -4524,7 +4524,7 @@ playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 playwright.unit.config.ts unit/seamsWeb.setTheme.unit.test.ts
 unit/seamsWeb.namespacedSigningSurface.unit.test.ts
 unit/useAccountInput.clearPrefill.unit.test.ts
-unit/passkeyAuthMenu.accountAvailability.unit.test.ts --reporter=line`, focused
+unit/seamsAuthMenu.accountAvailability.unit.test.ts --reporter=line`, focused
       `router-api-server.localhost|router-api.localhost` inventory, focused
       Router API mock stale-token inventory, and
       `git diff --check`.
@@ -4557,7 +4557,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `router_api_readyz`, and `router_api_healthz` throughout the generated
       manifests, runbook, evidence verifier, README, and deployment docs. The old
       `wrangler.d1-staging-relay.toml.example` template path was replaced with
-      `packages/sdk-server-ts/wrangler.d1-staging-router-api.toml.example`, the
+      `packages/console-server-ts/wrangler.d1-staging-router-api.toml.example`, the
       guard rejects the old staging CLI/config symbols, and no compatibility
       aliases were added. Validation passed: `node --check
 packages/sdk-server-ts/scripts/d1-staging-readiness-check.mjs`, `pnpm --dir
@@ -4690,7 +4690,7 @@ Exit criteria:
       legacy/compatibility/fallback terminology across Cloudflare runtime,
       staging-required router files, storage, and console D1 paths finds only the
       intentional webhook terminal `no-op` branch in
-      `packages/sdk-server-ts/src/console/webhooks/shared.ts`. Validation passed:
+      `packages/console-server-ts/src/webhooks/shared.ts`. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`; the
       full Phase 6 staging script/session cluster with 110 tests; `pnpm --dir
@@ -6585,8 +6585,8 @@ unit/registrationIntentDigest.unit.test.ts --reporter=line`,
       and insert sponsored-call or ledger records only from the successful
       transition branch.
       Evidence: fixed in `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`,
-      `packages/sdk-server-ts/src/console/billing/d1.ts`,
-      `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`, and
+      `packages/console-server-ts/src/billing/d1.ts`,
+      `packages/console-server-ts/src/sponsoredCalls/d1.ts`, and
       `tests/relayer/console-d1-adapters.test.ts`. Reservation settlement/release
       remains one D1 batch; the reservation transition runs first, later ledger and
       sponsored-call inserts are guarded by SQLite `changes() = 1`, and the route
@@ -6601,12 +6601,12 @@ call idempotency" --reporter=line`.
       Fix: make the idempotency key required in service input, D1 schema, and
       migrations. Remove nullable storage and compatibility fallbacks before
       staging.
-      Evidence: fixed in `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts`,
-      `packages/sdk-server-ts/src/console/sponsoredCalls/service.ts`,
-      `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`,
-      `packages/sdk-server-ts/migrations/d1-console/0001_console_d1_initial.sql`,
+      Evidence: fixed in `packages/console-server-ts/src/sponsoredCalls/types.ts`,
+      `packages/console-server-ts/src/sponsoredCalls/service.ts`,
+      `packages/console-server-ts/src/sponsoredCalls/d1.ts`,
+      `packages/console-server-ts/migrations/d1-console/0001_console_d1_initial.sql`,
       and
-      `packages/sdk-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
+      `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`.
       The service request and record types now require `idempotencyKey`, adapters
       reject missing keys, fresh D1 schema uses `idempotency_key NOT NULL`, and
       the D1 migration rebuilds the table with a non-partial unique index.

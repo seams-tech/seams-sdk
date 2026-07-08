@@ -99,8 +99,8 @@ iframeWallet: {
 ```
 
 The application imports SDK package code normally. It should not serve or
-reverse-proxy `/sdk/*`, `/wallet-service`, or `/export-viewer` from the app
-origin, and it should not add Seams SDK Vite or Next plugins for wallet runtime
+reverse-proxy `/sdk/*` or `/wallet-service` from the app origin, and it should
+not add Seams SDK Vite or Next plugins for wallet runtime
 hosting.
 
 The SDK-created iframe owns the default WebAuthn delegation through its `allow`
@@ -127,7 +127,6 @@ Changing this later turns the project into a passkey migration.
    - temporary ACME / certificate-validation `TXT` records when required.
 3. Support browser-transparent Seams-operated serving of:
    - `/wallet-service`
-   - `/export-viewer`
    - `/sdk/*` assets
    - `/sdk/workers/*` worker and WASM assets
    - wallet document embedding control for allowed app origins
@@ -160,7 +159,6 @@ When the customer is ready to self-host:
 1. Customer deploys the wallet service under the same hostname and path contract.
 2. Customer deploys the same wallet asset/runtime bundle or a supported equivalent from the wallet origin, preserving the hosted wallet asset contract:
    - `/wallet-service`
-   - `/export-viewer`
    - `/sdk/*`
    - `/sdk/workers/*`
 3. Customer preserves:

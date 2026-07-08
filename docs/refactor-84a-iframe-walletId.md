@@ -7,7 +7,7 @@ route assertion coverage.
 
 ## Problem
 
-`PasskeyAuthMenu` can show one generated wallet ID while the browser passkey
+`SeamsAuthMenu` can show one generated wallet ID while the browser passkey
 prompt shows another. The root cause is two independent identity sources:
 
 - React UI state generated and displayed a readable wallet ID.
@@ -22,7 +22,7 @@ ID, every registration step must use that exact wallet ID.
 
 Make user-visible iframe passkey registration wallet-bound before WebAuthn.
 
-The PasskeyAuthMenu should own a single registration draft object. The UI renders
+The SeamsAuthMenu should own a single registration draft object. The UI renders
 from that draft, the iframe activation message carries that draft's wallet, and
 the WebAuthn options are derived from the same wallet-bound registration intent.
 
@@ -49,7 +49,7 @@ Boundary responsibility:
 ## Invariants
 
 - User-visible registration has exactly one wallet ID before WebAuthn starts.
-- `PasskeyAuthMenu` display value equals the wallet sent to iframe activation.
+- `SeamsAuthMenu` display value equals the wallet sent to iframe activation.
 - Iframe activation accepts only a provided wallet ID.
 - Browser WebAuthn creation derives `user.name` and `user.displayName` exactly
   from the draft wallet ID.
@@ -81,7 +81,7 @@ the mismatch being fixed is the visible wallet ID shown before WebAuthn.
   `CreatePasskeyRegistrationActivationSurfaceArgs`.
 - [x] Add the same required provided-wallet field to
   `PMRegistrationActivationPreparePayload`.
-- [x] Pass the generated PasskeyAuthMenu wallet into the activation surface.
+- [x] Pass the generated SeamsAuthMenu wallet into the activation surface.
 - [x] Forward activation payload wallet into host `registerPasskey()`.
 - [x] Add a static type fixture rejecting `server_allocated` in activation
   prepare payloads.
@@ -93,7 +93,7 @@ Validation evidence:
 
 ## Phase 1: Introduce Registration Draft
 
-- [x] Add a `PasskeyRegistrationDraft` type for PasskeyAuthMenu registration.
+- [x] Add a `PasskeyRegistrationDraft` type for SeamsAuthMenu registration.
 - [x] Build the draft once from the generated visible wallet ID.
 - [x] Keep auth method and signer selection in the existing SeamsWeb
   registration boundary.
@@ -112,9 +112,9 @@ Validation evidence:
   path; it should produce a provided-wallet draft only after the user supplies a
   valid wallet/name.
 - [x] Keep direct registration fallback paths using the same draft wallet when
-  `PasskeyAuthMenu` is visible and iframe activation is unavailable.
+  `SeamsAuthMenu` is visible and iframe activation is unavailable.
 - [x] Replace the visible menu `onRegister(options?)` callback with a
-  discriminated `PasskeyAuthMenuRegistrationRequest` so visible registration
+  discriminated `SeamsAuthMenuRegistrationRequest` so visible registration
   cannot submit without the provided wallet shown to the user.
 
 ## Phase 2: Activation Surface Requires Wallet For Visible Flows
@@ -134,7 +134,7 @@ type CreatePasskeyRegistrationActivationSurfaceArgs = {
   `CreatePasskeyRegistrationActivationSurfaceArgs.wallet` is required.
 - [x] Update `packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts` so
   `PMRegistrationActivationPreparePayload.wallet` is required.
-- [x] Update `packages/sdk-web/src/react/components/PasskeyAuthMenu/client.tsx`
+- [x] Update `packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx`
   and controller code to pass the draft wallet directly.
 - [x] Update `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts` activation setup to call
   `initWalletIframe(String(args.wallet.walletId))` and
@@ -201,7 +201,7 @@ type ExpectedPasskeyRegistrationUser = {
 
 ## Phase 5: Behavioral Tests
 
-- [x] Add a PasskeyAuthMenu controller registration test that:
+- [x] Add a SeamsAuthMenu controller registration test that:
   - renders the generated wallet ID,
   - asserts `registrationActivationWallet.walletId` equals the visible wallet
     ID,
@@ -223,7 +223,7 @@ type ExpectedPasskeyRegistrationUser = {
 
 ## Phase 6: Source Guards
 
-- [x] Add a temporary source guard for PasskeyAuthMenu and iframe activation:
+- [x] Add a temporary source guard for SeamsAuthMenu and iframe activation:
   - no `createReadableRegistrationWalletId()` outside the draft builder,
   - no `server_allocated` in activation surface/message code,
   - no optional `wallet` field in activation surface or activation message
@@ -250,7 +250,7 @@ type ExpectedPasskeyRegistrationUser = {
 
 ## Acceptance Criteria
 
-- [x] A wallet ID shown in `PasskeyAuthMenu` is the exact wallet ID shown in the
+- [x] A wallet ID shown in `SeamsAuthMenu` is the exact wallet ID shown in the
   browser passkey prompt.
 - [x] Activation prepare payloads cannot omit wallet ID in visible registration
   flows.
@@ -270,7 +270,7 @@ type ExpectedPasskeyRegistrationUser = {
       leaving `server_allocated` for direct/headless flows.
 - [x] Made iframe activation surfaces require a provided wallet ID at public API,
       postMessage, client router, and host parser boundaries.
-- [x] Bound `PasskeyAuthMenu` registration to one draft wallet and reroll by
+- [x] Bound `SeamsAuthMenu` registration to one draft wallet and reroll by
       replacing the draft.
 - [x] Changed WebAuthn registration display fields to the exact wallet ID and
       rejected mismatched `intendedUserName` before opening the native prompt.
@@ -281,13 +281,13 @@ type ExpectedPasskeyRegistrationUser = {
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/registrationCapabilitySubjects.guard.unit.test.ts unit/walletIframeHost.registrationActivation.unit.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test wallet-iframe/router.registrationActivation.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test lit-components/passkey-registration-btn.test.ts --reporter=line`;
-      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
       `git diff --check`.
 - [x] Fixed the server intent boundary so implicit NEAR registration accepts a
       preselected readable wallet ID from visible iframe flows, reserves it with
       the same replay/collision guard as server allocation, and still rejects
       arbitrary provided wallet IDs.
-- [x] Tightened the visible PasskeyAuthMenu callback boundary:
+- [x] Tightened the visible SeamsAuthMenu callback boundary:
       `onRegister` now receives either `{ kind: 'implicit_wallet', wallet }` or
       `{ kind: 'sponsored_named_near_account', wallet }`, with `wallet`
       required in both branches. Direct/headless SDK calls remain the only place
@@ -297,7 +297,7 @@ type ExpectedPasskeyRegistrationUser = {
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts -g "stores wallet registration intents" --reporter=line`;
       `pnpm -C packages/sdk-web build:sdk`;
       `pnpm -C apps/seams-site -s typecheck`;
-      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line`;
       `git diff --check`.
 ## Implementation Review: July 3, 2026
@@ -317,4 +317,4 @@ type ExpectedPasskeyRegistrationUser = {
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/relayWalletRegistration.boundary.unit.test.ts -g "registration (start rejects mismatched intent digest|prepare rejects invalid passkey rpId)" --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts -g "(rejects passkey registration challenge and origin mismatches|rejects stored registration intent wallet mismatch|rejects stored registration preparation wallet mismatch|starts ECDSA wallet registration ceremonies)" --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`;
-      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration (shows generated wallet input|reroll disposes stale activation surface)" --reporter=line`.
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration (shows generated wallet input|reroll disposes stale activation surface)" --reporter=line`.

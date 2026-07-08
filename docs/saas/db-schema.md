@@ -77,7 +77,7 @@ Reason:
 ### Local development connection anchor
 
 - Current local backend is Wrangler/Miniflare D1 through
-  `packages/sdk-server-ts/wrangler.d1-local.toml`.
+  `packages/console-server-ts/wrangler.d1-local.toml`.
 - Local logical bindings:
   - `CONSOLE_DB`
   - `SIGNER_DB`

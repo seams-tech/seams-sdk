@@ -1888,7 +1888,7 @@ Status: planning. Old Phase 8 remainder.
 
 Do:
 
-- Keep `PasskeyAuthMenu`, Lit transaction confirmation, theme scope, and layout.
+- Keep `SeamsAuthMenu`, Lit transaction confirmation, theme scope, and layout.
 - Replace runtime ports so the shell can use Better Auth or current `SeamsWeb`
   flows.
 - Rename wallet/account UI fields to auth-account/principal fields at the UI

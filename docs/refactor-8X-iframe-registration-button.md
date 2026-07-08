@@ -20,7 +20,7 @@ payload.
 
 Define the wallet iframe registration UX for two supported paths:
 
-1. `PasskeyAuthMenu` can provide a one-click passkey registration flow:
+1. `SeamsAuthMenu` can provide a one-click passkey registration flow:
    - the app renders the registration card and surrounding UI
    - the visible `Create with Passkey` CTA occupies app layout exactly where the
      product wants it
@@ -36,7 +36,7 @@ activation step.
 
 ## Current Behavior
 
-`PasskeyAuthMenu` currently renders an app-domain React button. Clicking it calls
+`SeamsAuthMenu` currently renders an app-domain React button. Clicking it calls
 the app's `onRegister`, which calls `registerPasskey`. In wallet iframe mode the
 registration request enters the wallet iframe, then
 `determineConfirmationConfig` clamps registration and device-link flows to:
@@ -177,7 +177,7 @@ Support two presentation modes.
 
 ### Outline Overlay
 
-This is the default for `PasskeyAuthMenu`.
+This is the default for `SeamsAuthMenu`.
 
 The app styles `.seams-passkey-registration-btn` using normal CSS:
 
@@ -275,7 +275,7 @@ The preferred runtime shape is:
 
 ```text
 App domain
-  PasskeyAuthMenu
+  SeamsAuthMenu
     div.seams-passkey-registration-btn[data-seams-registration-button]
       span[aria-hidden="true"] "Create with Passkey"
 
@@ -309,12 +309,12 @@ folder and document that it is intentionally dependency-light.
 
 This spec covers passkey registration UX in wallet iframe mode:
 
-- activation-button registration from `PasskeyAuthMenu`
+- activation-button registration from `SeamsAuthMenu`
 - code-only registration from ordinary app-domain registration API calls
 
 In scope:
 
-- one-click passkey registration from `PasskeyAuthMenu`
+- one-click passkey registration from `SeamsAuthMenu`
 - improved code-only passkey registration modal in wallet iframe mode
 - button-sized iframe activation surface
 - app-domain CSS for the visible CTA outline
@@ -372,11 +372,11 @@ Out of scope:
 - `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/determineConfirmationConfig.ts`
   - clamps iframe registration/link flows
   - accepts iframe-minted activation proof for registration
-- `packages/sdk-web/src/react/components/PasskeyAuthMenu/client.tsx`
+- `packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx`
   - currently renders the app-domain `Create with Passkey` button
-- `packages/sdk-web/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts`
+- `packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts`
   - owns menu state and registration intent transitions
-- `packages/sdk-web/src/react/components/PasskeyAuthMenu/PasskeyAuthMenu.css`
+- `packages/sdk-web/src/react/components/SeamsAuthMenu/SeamsAuthMenu.css`
   - owns visual CTA styles
 
 ## Relationship To `refactor-8X-lit`
@@ -428,7 +428,7 @@ Directory ownership:
    component events.
 3. `state/` owns the element lifecycle union and builders.
 4. The shared Lit `css/` folder owns iframe-internal button styles only. App-domain
-   outline styles remain in `PasskeyAuthMenu.css`.
+   outline styles remain in `SeamsAuthMenu.css`.
 5. `README.md` documents why this component lives with Lit components while
    keeping the runtime intentionally small.
 
@@ -459,7 +459,7 @@ Requirements:
 
 ## Runtime Lifecycle
 
-1. `PasskeyAuthMenu` enters register mode with a valid account id.
+1. `SeamsAuthMenu` enters register mode with a valid account id.
 2. React renders an app-domain outline element for `Create with Passkey`.
 3. React asks `seams.registration.createPasskeyRegistrationActivationSurface`
    for an activation surface.
@@ -699,7 +699,7 @@ export type CreatePasskeyRegistrationActivationSurfaceArgs = {
 };
 ```
 
-`outline_overlay` is the default used by `PasskeyAuthMenu`. It gives apps normal
+`outline_overlay` is the default used by `SeamsAuthMenu`. It gives apps normal
 CSS control over sizing, border radius, shadows, typography, and responsive
 states while keeping the wallet-origin click target in the iframe.
 
@@ -1026,7 +1026,7 @@ The hit target remains the inner button. The iframe viewport is larger by
 `iframe_button` release scope:
 
 - `outline_overlay` is the default and the required release path for
-  `PasskeyAuthMenu`.
+  `SeamsAuthMenu`.
 - `iframe_button` is an advanced public mode. If it ships in the same release,
   it must have parser tests and at least one browser geometry test proving the
   padded iframe still places the inner hit target over the intended button rect.
@@ -1076,7 +1076,7 @@ Requirements:
 - app outline gets mirrored focus state for visual styling
 - disposing the surface returns the iframe to hidden/inert state
 - if activation surface cannot mount, the app must fall back to normal
-  registration behavior or show an error state controlled by `PasskeyAuthMenu`
+  registration behavior or show an error state controlled by `SeamsAuthMenu`
 - cleanup restores only attributes that the router changed; existing app
   `role`, `tabindex`, `aria-label`, and `aria-describedby` values must be
   preserved and restored exactly
@@ -1156,7 +1156,7 @@ Error handling rules:
 
 ## React Integration Shape
 
-`PasskeyAuthMenu` should keep registration lifecycle decisions in the existing
+`SeamsAuthMenu` should keep registration lifecycle decisions in the existing
 controller. The view layer only renders the outline slot and binds that slot to
 the activation surface.
 
@@ -1174,7 +1174,7 @@ Implementation shape:
   controller's existing waiting/error behavior
 
 Keep callback construction out of the component body where practical. The final
-implementation should follow the existing `PasskeyAuthMenu` controller patterns
+implementation should follow the existing `SeamsAuthMenu` controller patterns
 instead of adding an ad hoc lifecycle state bag in the view.
 
 ## Phased Todo List
@@ -1327,7 +1327,7 @@ instead of adding an ad hoc lifecycle state bag in the view.
 - [x] Ensure WebAuthn is called in the same iframe activation chain as the
       button click.
 
-### Phase 7: PasskeyAuthMenu Integration
+### Phase 7: SeamsAuthMenu Integration
 
 - [x] Add a top-level helper for mounting the registration activation surface.
 - [x] Render an outline slot in register mode when wallet iframe mode is active.
@@ -1344,7 +1344,7 @@ instead of adding an ad hoc lifecycle state bag in the view.
 - [x] Send `PM_REGISTRATION_ACTIVATION_FOCUS` when the outline receives focus.
 - [x] Ensure app-outline Enter/Space focuses the iframe button and does not
       start registration from app-origin key events.
-- [x] Keep app-domain visual styles in `PasskeyAuthMenu.css`.
+- [x] Keep app-domain visual styles in `SeamsAuthMenu.css`.
 - [x] Ensure the outline has stable dimensions before the iframe mounts.
 
 ### Phase 8: Tests
@@ -1429,11 +1429,11 @@ Browser validation matrix:
       after browser tests prove `outline_overlay` is the only activation-surface
       path. Keep the code-only wallet-origin registration modal.
 - [x] Delete old optional `button` payload compatibility.
-- [x] Update README or SDK docs for `PasskeyAuthMenu` one-click registration.
+- [x] Update README or SDK docs for `SeamsAuthMenu` one-click registration.
       Required docs snippet:
 
       ```tsx
-      <PasskeyAuthMenu />
+      <SeamsAuthMenu />
       ```
 
       Explain that in wallet-iframe mode the built-in `Create with Passkey`

@@ -675,7 +675,7 @@ packages/sdk-web/src/react/context/useSDKFlowRuntime.ts
 packages/sdk-web/src/react/context/useLoginStateRefresher.ts
 packages/sdk-web/src/react/context/useWalletIframeLifecycle.ts
 packages/sdk-web/src/react/components/AccountMenuButton
-packages/sdk-web/src/react/components/PasskeyAuthMenu
+packages/sdk-web/src/react/components/SeamsAuthMenu
 ```
 
 Current risk:

@@ -71,7 +71,7 @@ Default recommendation: remove setup-intent and customer-portal endpoints entire
 - [x] Remove in-memory `paymentMethods` store and related logic.
 - [x] Remove setup-intent/customer-portal methods from service if out of scope.
 - [x] Update provider adapter interface to match retained Stripe operations.
-- [x] Verify TypeScript passes for `packages/sdk-server-ts/src/console/billing`.
+- [x] Verify TypeScript passes for `packages/console-server-ts/src/billing`.
 
 ### Phase 2: Router and Parser Cleanup
 
@@ -155,8 +155,8 @@ Exit criteria:
 ### Phase 3: Onboarding and Readiness Logic
 
 - Replace readiness logic in:
-  - `packages/sdk-server-ts/src/console/billing/readiness.ts`
-  - `packages/sdk-server-ts/src/console/onboarding/service.ts`
+  - `packages/console-server-ts/src/billing/readiness.ts`
+  - `packages/console-server-ts/src/onboarding/service.ts`
 - Remove any dependency on `listPaymentMethods`.
 - Keep behavior explicit and deterministic for prepaid model.
 
@@ -179,7 +179,7 @@ Exit criteria:
 ### Phase 5: Exports, Adaptors, and API Surface Hygiene
 
 - Remove stale exports from:
-  - `packages/sdk-server-ts/src/console/billing/index.ts`
+  - `packages/console-server-ts/src/billing/index.ts`
   - `packages/sdk-server-ts/src/router/express-adaptor.ts`
   - `packages/sdk-server-ts/src/router/cloudflare-adaptor.ts`
 - Remove frontend API functions still referencing removed endpoints.

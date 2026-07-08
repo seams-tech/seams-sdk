@@ -99,7 +99,7 @@ Relevant implementation surfaces:
 4. server-side consume and failure routes:
    - `POST /wallet/email-otp/recovery-key/consume`
    - `POST /wallet/email-otp/recovery-key/attempt-failed`
-5. recovery unwrap prompt support in `PasskeyAuthMenu` for entering one recovery
+5. recovery unwrap prompt support in `SeamsAuthMenu` for entering one recovery
    key on a new device or after local storage loss.
 
 ## Product Goal
@@ -744,7 +744,7 @@ Files:
 
 Likely integration points:
 
-1. `client/src/react/components/PasskeyAuthMenu/**`
+1. `client/src/react/components/SeamsAuthMenu/**`
 2. demo registration/login containers that call `seams.auth.enrollEmailOtp`
 3. wallet-iframe registration UI surfaces
 4. wallet-iframe host handlers that receive non-secret modal status metadata

@@ -74,17 +74,17 @@ That gap is now closed for the shared EVM and NEAR sponsorship routes. The remai
 Implemented today:
 
 - sponsored execution history is stored through
-  `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts`,
-  `packages/sdk-server-ts/src/console/sponsoredCalls/service.ts`, and the D1
-  adapter in `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`
+  `packages/console-server-ts/src/sponsoredCalls/types.ts`,
+  `packages/console-server-ts/src/sponsoredCalls/service.ts`, and the D1
+  adapter in `packages/console-server-ts/src/sponsoredCalls/d1.ts`
 - prepaid org balances, blocked/low-balance readiness, and sponsored execution
-  debits are owned by `packages/sdk-server-ts/src/console/billing/service.ts`,
-  `packages/sdk-server-ts/src/console/billing/readiness.ts`, and the D1 adapter
-  in `packages/sdk-server-ts/src/console/billing/d1.ts`
+  debits are owned by `packages/console-server-ts/src/billing/service.ts`,
+  `packages/console-server-ts/src/billing/readiness.ts`, and the D1 adapter
+  in `packages/console-server-ts/src/billing/d1.ts`
 - prepaid sponsorship reservations are owned by
-  `packages/sdk-server-ts/src/console/billingPrepaidReservations/service.ts` and
+  `packages/console-server-ts/src/billingPrepaidReservations/service.ts` and
   the D1 adapter in
-  `packages/sdk-server-ts/src/console/billingPrepaidReservations/d1.ts`
+  `packages/console-server-ts/src/billingPrepaidReservations/d1.ts`
 - atomic settlement now requires prepaid reservation settlement, billing ledger
   debit, and sponsored call linkage to complete through the shared D1/SQLite
   mutation path in `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`
@@ -107,7 +107,7 @@ Implemented today:
   `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`
 - sponsorship reserve failures emit `billing.sponsorship.blocked`
   observability events through the shared sponsorship execution path and
-  `packages/sdk-server-ts/src/console/observability/adapters.ts`
+  `packages/console-server-ts/src/observability/adapters.ts`
 - billing invoice list/detail views keep monthly documents aggregated while
   linking operators back to sponsored execution reconciliation through
   `apps/seams-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx`,

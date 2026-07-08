@@ -36,7 +36,7 @@ Completed so far:
   - normalized assessment handoff
   - terminal success/failure response orchestration
 - EVM and NEAR backend execution now runs through a shared sponsorship adapter contract in:
-  - [packages/sdk-server-ts/src/console/sponsorship/engine.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/engine.ts)
+  - [packages/console-server-ts/src/sponsorship/engine.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/engine.ts)
 - the shared sponsored-call ledger now persists:
   - `policyId`
   - `templateId`
@@ -122,8 +122,8 @@ This plan should extend the existing gas sponsorship policy system exposed in th
 
 Current policy ownership already exists in:
 
-- [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
-- [packages/sdk-server-ts/src/console/policies/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/policies/types.ts)
+- [packages/console-server-ts/src/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/types.ts)
+- [packages/console-server-ts/src/policies/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/policies/types.ts)
 - [apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/seams-sdk/apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
 
 The refactor should therefore be:
@@ -252,7 +252,7 @@ The clean target is one resolved sponsorship snapshot contract with a tagged uni
 
 ### 1. EVM executor config is single-chain
 
-Today [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts) models one `SponsoredEvmCallExecutorConfig`:
+Today [packages/console-server-ts/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evmRelay.ts) models one `SponsoredEvmCallExecutorConfig`:
 
 - one `chainId`
 - one `rpcUrl`
@@ -263,7 +263,7 @@ That is enough for Tempo testnet, but it is not a real multichain sponsorship mo
 
 ### 2. Policy matching is too shallow for a durable MVP
 
-Today [packages/sdk-server-ts/src/console/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evm.ts) matches only:
+Today [packages/console-server-ts/src/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evm.ts) matches only:
 
 - `chainId`
 - `call.to`
@@ -327,7 +327,7 @@ does not scale to multiple chains and duplicates data that can be derived.
 
 Today the codebase has:
 
-- EVM sponsorship centered around [packages/sdk-server-ts/src/console/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evm.ts) and [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
+- EVM sponsorship centered around [packages/console-server-ts/src/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evm.ts) and [packages/console-server-ts/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evmRelay.ts)
 - NEAR sponsored execution behavior centered around [packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts)
 
 Both already share some high-level concerns:
@@ -709,7 +709,7 @@ Primary targets:
 
 - [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 - [packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts)
-- [packages/sdk-server-ts/src/console/sponsoredCalls/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsoredCalls/types.ts)
+- [packages/console-server-ts/src/sponsoredCalls/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsoredCalls/types.ts)
 - shared route metering helpers
 - runtime snapshot payload code
 
@@ -737,7 +737,7 @@ Exit criteria:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
+- [packages/console-server-ts/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evmRelay.ts)
 - [apps/web-server/src/index.ts](/Users/pta/Dev/rust/seams-sdk/apps/web-server/src/index.ts)
 - relay env examples and docs
 
@@ -765,13 +765,13 @@ Exit criteria:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
-- [packages/sdk-server-ts/src/console/policies/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/policies/types.ts)
+- [packages/console-server-ts/src/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/types.ts)
+- [packages/console-server-ts/src/policies/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/policies/types.ts)
 - [apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/seams-sdk/apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
-- [packages/sdk-server-ts/src/console/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evm.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
-- [packages/sdk-server-ts/src/console/runtimeSnapshots](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/runtimeSnapshots)
+- [packages/console-server-ts/src/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evm.ts)
+- [packages/console-server-ts/src/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/types.ts)
+- [packages/console-server-ts/src/gasSponsorship/service.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/service.ts)
+- [packages/console-server-ts/src/runtimeSnapshots](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/runtimeSnapshots)
 
 Todo:
 
@@ -797,8 +797,8 @@ Exit criteria:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/sponsorship/index.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/index.ts)
-- [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
+- [packages/console-server-ts/src/sponsorship/index.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/index.ts)
+- [packages/console-server-ts/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evmRelay.ts)
 - [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 
 Todo:
@@ -826,7 +826,7 @@ Exit criteria:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
+- [packages/console-server-ts/src/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/onboarding.ts)
 - [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 - [apps/seams-site/src/flows/demo](/Users/pta/Dev/rust/seams-sdk/apps/seams-site/src/flows/demo)
 
@@ -872,7 +872,7 @@ Exit criteria:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/sponsoredCalls](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsoredCalls)
+- [packages/console-server-ts/src/sponsoredCalls](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsoredCalls)
 - [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 - existing spend-cap and billing services
 
@@ -945,8 +945,8 @@ Objective:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/spendCaps.ts)
-- [packages/sdk-server-ts/src/console/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/pricing.ts)
+- [packages/console-server-ts/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/spendCaps.ts)
+- [packages/console-server-ts/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/pricing.ts)
 - [apps/web-server/src/index.ts](/Users/pta/Dev/rust/seams-sdk/apps/web-server/src/index.ts)
 - relay env examples and sponsorship docs
 
@@ -973,12 +973,12 @@ Objective:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/console/policies/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/policies/types.ts)
-- [packages/sdk-server-ts/src/console/policies/rules.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/policies/rules.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
-- [packages/sdk-server-ts/src/console/sponsorship/near.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/near.ts)
-- [packages/sdk-server-ts/src/console/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/spendCaps.ts)
-- [packages/sdk-server-ts/src/console/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/pricing.ts)
+- [packages/console-server-ts/src/policies/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/policies/types.ts)
+- [packages/console-server-ts/src/policies/rules.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/policies/rules.ts)
+- [packages/console-server-ts/src/gasSponsorship/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/types.ts)
+- [packages/console-server-ts/src/sponsorship/near.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/near.ts)
+- [packages/console-server-ts/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/spendCaps.ts)
+- [packages/console-server-ts/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/pricing.ts)
 - [apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/seams-sdk/apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
 - NEAR sponsorship relayer coverage and dashboard API wiring coverage
 
@@ -999,14 +999,14 @@ Current implementation choice:
 
 Todo:
 
-- [x] Remove the MVP validation block in [packages/sdk-server-ts/src/console/policies/rules.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/policies/rules.ts) that rejects `near_delegate` spend caps
+- [x] Remove the MVP validation block in [packages/console-server-ts/src/policies/rules.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/policies/rules.ts) that rejects `near_delegate` spend caps
 - [x] Lock the first NEAR billable-unit model to gas-only relayer spend:
   - finalized `tokens_burnt`
   - attached deposit is user-paid and excluded from sponsorship spend
   - no attached-deposit refund accounting is needed because attached deposit is not sponsored
-- [x] Extend the shared pricing contract in [packages/sdk-server-ts/src/console/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/pricing.ts) so NEAR can estimate and finalize spend using the same `SponsorshipSpendPricingService`
+- [x] Extend the shared pricing contract in [packages/console-server-ts/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/pricing.ts) so NEAR can estimate and finalize spend using the same `SponsorshipSpendPricingService`
 - [x] Use CoinGecko `near` USD pricing as the first real NEAR pricing source and keep static pricing as an optional fallback
-- [x] Expand [packages/sdk-server-ts/src/console/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/console/sponsorship/spendCaps.ts) / the NEAR route integration so NEAR reservations no longer fail closed simply because `chainId` is null
+- [x] Expand [packages/console-server-ts/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/spendCaps.ts) / the NEAR route integration so NEAR reservations no longer fail closed simply because `chainId` is null
 - [x] Add an explicit NEAR spend-cap target key that does not depend on EVM `chainId`
 - [x] Update shared sponsored execution details so NEAR records retain auditable pricing metadata for gas-only settlement:
   - gas burnt

@@ -330,7 +330,7 @@ Acceptance:
 
 Tasks:
 
-- [x] Update `PasskeyAuthMenu` so Google SSO register mode renders registration
+- [x] Update `SeamsAuthMenu` so Google SSO register mode renders registration
       progress and recovery-code backup, not the OTP digit prompt.
 - [x] Preserve the shuffle account-name button for new-wallet registration.
 - [x] Render the wallet unlock OTP menu only when the relayer resolves the Google
@@ -953,7 +953,7 @@ Validation:
 
 - `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
 - `tests/unit/googleEmailOtpWalletIframeHandles.unit.test.ts`
-- `tests/unit/passkeyAuthMenu.fouc.unit.test.ts`
+- `tests/unit/seamsAuthMenu.fouc.unit.test.ts`
 - `tests/unit/seamsWeb.emailOtpRecoveryCodeBackup.unit.test.ts`
 - `tests/unit/recoveryCodesModal.behavior.unit.test.ts`
 - `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`

@@ -126,8 +126,8 @@ The histogram buckets matter because the current dashboard wants percentile view
 
 Deliverables:
 
-- updated event taxonomy in `packages/sdk-server-ts/src/console/observability/types.ts`
-- updated adapter surface in `packages/sdk-server-ts/src/console/observability/adapters.ts`
+- updated event taxonomy in `packages/console-server-ts/src/observability/types.ts`
+- updated adapter surface in `packages/console-server-ts/src/observability/adapters.ts`
 - updated docs in `docs/saas/observability-events-3.md`
 
 ### Phase 2. Add request rollup storage
@@ -139,8 +139,8 @@ Deliverables:
 
 Deliverables:
 
-- schema and indexes in `packages/sdk-server-ts/migrations/d1-console/0016_console_observability.sql`
-  and `packages/sdk-server-ts/src/console/observability/d1.ts`
+- schema and indexes in `packages/console-server-ts/migrations/d1-console/0016_console_observability.sql`
+  and `packages/console-server-ts/src/observability/d1.ts`
 - retention and cleanup coverage for rollup rows
 - ingestion tests for aggregation correctness and bounded cardinality
 
@@ -183,7 +183,7 @@ If we later need broader coverage, we should add explicit allowlist entries, not
 
 Deliverables:
 
-- rewritten query paths in `packages/sdk-server-ts/src/console/observability/d1.ts`
+- rewritten query paths in `packages/console-server-ts/src/observability/d1.ts`
 - query tests proving the dashboard still gets meaningful numbers without router event rows
 
 ### Phase 6. Simplify the dashboard read pattern
@@ -226,12 +226,12 @@ Because we are in development, we should clean this up as if the old approach ne
 - `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
 - `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - `packages/sdk-server-ts/src/router/consoleObservabilityHooks.ts`
-- `packages/sdk-server-ts/src/console/observability/adapters.ts`
-- `packages/sdk-server-ts/src/console/observability/types.ts`
-- `packages/sdk-server-ts/src/console/observability/policy.ts`
-- `packages/sdk-server-ts/src/console/observability/requestRollups.ts`
-- `packages/sdk-server-ts/src/console/observability/d1.ts`
-- `packages/sdk-server-ts/src/console/observability/requests.ts`
+- `packages/console-server-ts/src/observability/adapters.ts`
+- `packages/console-server-ts/src/observability/types.ts`
+- `packages/console-server-ts/src/observability/policy.ts`
+- `packages/console-server-ts/src/observability/requestRollups.ts`
+- `packages/console-server-ts/src/observability/d1.ts`
+- `packages/console-server-ts/src/observability/requests.ts`
 - `apps/seams-site/src/pages/dashboard/routes/observability/page.tsx`
 - `apps/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
 - `tests/relayer/console-router.test.ts`
@@ -259,9 +259,9 @@ Because we are in development, we should clean this up as if the old approach ne
 ## Local D1 Rollout Checkpoint
 
 1. [x] The active schema is the D1 migration
-   `packages/sdk-server-ts/migrations/d1-console/0016_console_observability.sql`.
+   `packages/console-server-ts/migrations/d1-console/0016_console_observability.sql`.
 2. [x] The active storage path is
-   `packages/sdk-server-ts/src/console/observability/d1.ts`, with policy in
+   `packages/console-server-ts/src/observability/d1.ts`, with policy in
    `policy.ts`, request rollup helpers in `requestRollups.ts`, and redaction in
    `redaction.ts`.
 3. [x] The local and staging Cloudflare runtimes use D1 console services; deleted
@@ -289,9 +289,9 @@ The incident-log and rollup split is the right steady-state design, but the impl
 - [x] Keep the D1 persistence adapter in `d1.ts`.
 - [x] Keep metadata redaction in `redaction.ts`.
 - [x] Replaced the deleted Postgres observability adapter with
-      `packages/sdk-server-ts/src/console/observability/d1.ts`, backed by
+      `packages/console-server-ts/src/observability/d1.ts`, backed by
       `policy.ts`, `requestRollups.ts`, and `redaction.ts`.
-- [x] Keep `packages/sdk-server-ts/src/console/observability/index.ts` as the stable export surface.
+- [x] Keep `packages/console-server-ts/src/observability/index.ts` as the stable export surface.
 - [x] Preserve existing behavior and test coverage while replacing the old Postgres storage path.
 - [x] Extract shared observability hook helpers used by both Express and Cloudflare routers.
 - [x] Unify request metric recording across Express and Cloudflare through the shared helper path.

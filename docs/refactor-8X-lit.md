@@ -89,6 +89,10 @@ High-risk areas identified in the Lit component review:
 - Existing bundle reports do not budget the Lit JS/CSS entries.
 - React Lit wrappers use `@lit/react` for a small wrapper surface and one wrapper
   maps events that do not match the drawer event contract.
+- Appearance propagation has crossed multiple layers as theme-name setters,
+  config-shaped updates, root document attributes, component attributes, and
+  iframe bootstrap messages. The durable contract should be one normalized
+  appearance state that fans out only at runtime/document boundaries.
 
 ## Design Rules
 
@@ -106,6 +110,9 @@ High-risk areas identified in the Lit component review:
 6. Keep compatibility parsing only at request and persistence boundaries.
 7. Delete obsolete tests, fixtures, and guards that encode the old optional-bag
    behavior after the replacement state is in place.
+8. Treat appearance as a domain state object. Normalize raw config, React props,
+   RPC payloads, and iframe bootstrap data into a single internal
+   `AppearanceState` before touching Lit elements or documents.
 
 ## Rewrite Strategy
 
@@ -246,6 +253,9 @@ lit-components/
       export-key-iframe-host-element.ts
 
   styles/
+    appearance-state.ts
+    appearance-parser.ts
+    apply-appearance.ts
     tx-confirmer.css
     tx-tree.css
     drawer.css
@@ -461,6 +471,80 @@ The old code remains available through git history and temporary local branches.
 | `lit-components/ExportPrivateKey/viewer.ts` | `lit-components/export-key/components/export-key-viewer.ts` |
 | `lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts` | `lit-components/export-key/entrypoints/iframe-export-bootstrap.ts` |
 | `lit-components/css/*` | `lit-components/styles/*` |
+
+## Phase 0A: Single Appearance Propagation Contract
+
+Theme and token propagation should have one SDK state transition, with small
+applicators at each runtime boundary. The SDK still needs separate DOM writes
+because React scopes, wallet-host documents, Lit custom elements, and export-key
+iframes can live in different documents. Those writes should all consume the
+same normalized `AppearanceState`.
+
+Target files:
+
+- `client/src/core/signingEngine/uiConfirm/ui/lit-components/styles/appearance-state.ts`
+- `client/src/core/signingEngine/uiConfirm/ui/lit-components/styles/appearance-parser.ts`
+- `client/src/core/signingEngine/uiConfirm/ui/lit-components/styles/apply-appearance.ts`
+- `client/src/SeamsWeb/SeamsWeb.ts`
+- `client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`
+- `client/src/SeamsWeb/walletIframe/client/router.ts`
+- `client/src/SeamsWeb/walletIframe/host/context.ts`
+- `client/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/*`
+- React provider/context theme files
+- wallet iframe and Lit theme propagation tests
+
+Implementation tasks:
+
+1. [ ] Define a normalized internal state:
+
+```ts
+type AppearanceState = {
+  kind: 'appearance_state_v1';
+  theme: 'light' | 'dark';
+  tokens: ThemeTokenOverridesInput;
+};
+```
+
+2. [ ] Add boundary parsers/builders for:
+   - SDK config `ui.appearance`
+   - React provider theme props
+   - `seams.setAppearance(...)` input
+   - wallet iframe `PM_SET_CONFIG` payloads
+   - export-key iframe bootstrap messages
+3. [ ] Keep `seams.setTheme(theme)` only as a convenience wrapper that builds
+   `AppearanceState` through the same parser/builder as `setAppearance`.
+4. [ ] Use `PM_SET_CONFIG` with `appearance` for wallet iframe updates. Keep the
+   wallet protocol free of a theme-only RPC.
+5. [ ] Give `SeamsWeb`, `SeamsWebIframe`, `BrowserSigningSurface`, and the
+   wallet host one internal `applyAppearance(state)` entrypoint each.
+6. [ ] Store the current appearance state in the signing surface so local key
+   export always reads the latest tokens.
+7. [ ] Make Lit element `theme` attributes and root `data-w3a-theme` attributes
+   derived writes from `AppearanceState`.
+8. [ ] Make export-key iframe initial HTML use the current `AppearanceState`
+   during first paint, then accept only parsed appearance updates from its
+   message protocol.
+9. [ ] Delete theme-only host handlers, message types, and tests once the
+   appearance route is wired.
+10. [ ] Add tests proving:
+   - React provider token changes reach `SeamsWeb` and the signing surface
+   - `seams.setTheme('light')` uses the same propagation path as
+     `seams.setAppearance({ theme: 'light' })`
+   - wallet iframe theme/token updates travel through `PM_SET_CONFIG`
+   - tx confirmer modal, tx confirmer drawer, and export-key drawer all render
+     with the same token overrides
+   - token-only updates do not clear the current theme
+
+Acceptance criteria:
+
+1. [ ] `rg "PM_SET_THEME|router\\.setTheme|signingEngine\\.setTheme"` returns
+   no production source references.
+2. [ ] There is exactly one internal appearance state type used by Lit
+   confirmer, export-key, wallet iframe host, and direct-browser signing UI.
+3. [ ] Theme-name convenience APIs call the appearance state builder and have no
+   separate wallet/DOM propagation logic.
+4. [ ] Visual parity tests cover light and dark token overrides for modal and
+   drawer surfaces.
 
 ## Phase 1: Secure Export-Key Iframe Messaging
 

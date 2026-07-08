@@ -18,9 +18,9 @@ The main distinction is in `rules`:
 
 Code references:
 
-- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
-- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
-- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
+- [packages/console-server-ts/src/policies/types.ts](../../packages/console-server-ts/src/policies/types.ts)
+- [packages/console-server-ts/src/policies/service.ts](../../packages/console-server-ts/src/policies/service.ts)
+- [packages/console-server-ts/src/policies/rules.ts](../../packages/console-server-ts/src/policies/rules.ts)
 
 ## Main Structs And Services
 
@@ -49,8 +49,8 @@ Code references:
 
 Code references:
 
-- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
-- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
+- [packages/console-server-ts/src/policies/types.ts](../../packages/console-server-ts/src/policies/types.ts)
+- [packages/console-server-ts/src/policies/service.ts](../../packages/console-server-ts/src/policies/service.ts)
 
 ### Transaction policy rules
 
@@ -70,8 +70,8 @@ Code references:
 
 Code references:
 
-- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
-- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
+- [packages/console-server-ts/src/policies/types.ts](../../packages/console-server-ts/src/policies/types.ts)
+- [packages/console-server-ts/src/policies/rules.ts](../../packages/console-server-ts/src/policies/rules.ts)
 
 ### Gas sponsorship policy rules
 
@@ -98,10 +98,10 @@ Important naming rule:
 
 Code references:
 
-- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
+- [packages/console-server-ts/src/policies/types.ts](../../packages/console-server-ts/src/policies/types.ts)
+- [packages/console-server-ts/src/gasSponsorship/types.ts](../../packages/console-server-ts/src/gasSponsorship/types.ts)
+- [packages/console-server-ts/src/gasSponsorship/service.ts](../../packages/console-server-ts/src/gasSponsorship/service.ts)
+- [packages/console-server-ts/src/gasSponsorship/onboarding.ts](../../packages/console-server-ts/src/gasSponsorship/onboarding.ts)
 
 ### Runtime snapshot model
 
@@ -119,7 +119,7 @@ Code references:
 
 Code references:
 
-- [packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts](../../packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts)
+- [packages/console-server-ts/src/runtimeSnapshots/types.ts](../../packages/console-server-ts/src/runtimeSnapshots/types.ts)
 - [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
 
 ## Entry Points
@@ -189,7 +189,7 @@ This is the runtime execution path for gas sponsorship.
 
 Code reference:
 
-- [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
+- [packages/console-server-ts/src/sponsorship/evmRelay.ts](../../packages/console-server-ts/src/sponsorship/evmRelay.ts)
 
 ## Flows
 
@@ -204,8 +204,8 @@ Code reference:
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
-- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
+- [packages/console-server-ts/src/policies/service.ts](../../packages/console-server-ts/src/policies/service.ts)
+- [packages/console-server-ts/src/policies/rules.ts](../../packages/console-server-ts/src/policies/rules.ts)
 
 ### 2. Signing policy simulation flow
 
@@ -217,8 +217,8 @@ This flow exists only for transaction policies.
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
-- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
+- [packages/console-server-ts/src/policies/service.ts](../../packages/console-server-ts/src/policies/service.ts)
+- [packages/console-server-ts/src/policies/rules.ts](../../packages/console-server-ts/src/policies/rules.ts)
 
 ### 3. Gas policy authoring and publish flow
 
@@ -230,9 +230,9 @@ Relevant code:
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
-- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
+- [packages/console-server-ts/src/policies/service.ts](../../packages/console-server-ts/src/policies/service.ts)
+- [packages/console-server-ts/src/policies/rules.ts](../../packages/console-server-ts/src/policies/rules.ts)
+- [packages/console-server-ts/src/gasSponsorship/service.ts](../../packages/console-server-ts/src/gasSponsorship/service.ts)
 
 ### 4. Runtime snapshot publish flow
 
@@ -247,8 +247,8 @@ Relevant code:
 Relevant code:
 
 - [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
+- [packages/console-server-ts/src/gasSponsorship/service.ts](../../packages/console-server-ts/src/gasSponsorship/service.ts)
+- [packages/console-server-ts/src/gasSponsorship/onboarding.ts](../../packages/console-server-ts/src/gasSponsorship/onboarding.ts)
 
 ### 5. Sponsored EVM call execution flow
 
@@ -261,8 +261,8 @@ Relevant code:
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/console/sponsorship/evmRelay.ts)
-- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
+- [packages/console-server-ts/src/sponsorship/evmRelay.ts](../../packages/console-server-ts/src/sponsorship/evmRelay.ts)
+- [packages/console-server-ts/src/gasSponsorship/onboarding.ts](../../packages/console-server-ts/src/gasSponsorship/onboarding.ts)
 
 ### 6. Tempo onboarding gas policy flow
 
@@ -275,7 +275,7 @@ This is the main built-in gas policy bootstrap path.
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
+- [packages/console-server-ts/src/gasSponsorship/onboarding.ts](../../packages/console-server-ts/src/gasSponsorship/onboarding.ts)
 
 ## Mental Model
 
