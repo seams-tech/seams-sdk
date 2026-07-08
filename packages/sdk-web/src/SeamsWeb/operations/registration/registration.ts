@@ -103,6 +103,7 @@ import {
 import { computeRegistrationIntentDigest } from '@/utils/intentDigest';
 import { computeAddSignerIntentDigest } from '@/utils/intentDigest';
 import {
+  cancelWalletRegistrationIntent,
   createWalletAddSignerIntent,
   createWalletRegistrationIntent,
   advanceWalletRegistrationHssState,
@@ -377,6 +378,12 @@ type WalletRegistrationPrecomputeReady = {
   thresholdRuntimePolicyScope: ThresholdRuntimePolicyScope;
 };
 type WalletRegistrationIntentResponse = Awaited<ReturnType<typeof createWalletRegistrationIntent>>;
+
+type ActiveWalletRegistrationIntent = {
+  relayerUrl: string;
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+};
 
 type WalletRegistrationPrecomputeScopeField = keyof WalletRegistrationPrecomputeScope;
 
@@ -2082,6 +2089,39 @@ function requireWalletRegistrationPrecomputeHandle(
   return candidate as WalletRegistrationPrecomputeHandleInternal;
 }
 
+function activeWalletRegistrationIntentFromReady(
+  ready: WalletRegistrationPrecomputeReady,
+): ActiveWalletRegistrationIntent {
+  return {
+    relayerUrl: ready.relayerUrl,
+    registrationIntentGrant: ready.intentResponse.registrationIntentGrant,
+    registrationIntentDigestB64u: ready.intentResponse.registrationIntentDigestB64u,
+  };
+}
+
+async function cancelActiveWalletRegistrationIntent(
+  intent: ActiveWalletRegistrationIntent | null,
+): Promise<void> {
+  if (!intent) return;
+  try {
+    await cancelWalletRegistrationIntent(intent);
+  } catch {
+    return;
+  }
+}
+
+async function cancelWalletRegistrationPrecomputeReady(
+  ready: Promise<WalletRegistrationPrecomputeReady>,
+): Promise<void> {
+  try {
+    await cancelActiveWalletRegistrationIntent(
+      activeWalletRegistrationIntentFromReady(await ready),
+    );
+  } catch {
+    return;
+  }
+}
+
 async function startWalletRegistrationPrecomputeReady(input: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
@@ -2213,7 +2253,9 @@ export function startWalletRegistrationPrecompute(args: {
       return recorder.routeDiagnosticsSnapshot();
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
+      void cancelWalletRegistrationPrecomputeReady(ready);
     },
   };
   return handle;
@@ -4078,6 +4120,7 @@ async function registerEcdsaWalletOnly(args: {
   const initialEventAccountId = registrationEventAccountId(
     wallet.kind === 'provided' ? String(wallet.walletId) : 'wallet-registration',
   );
+  let activeIntent: ActiveWalletRegistrationIntent | null = null;
 
   emitRegistrationEvent(onEvent, initialEventAccountId, {
     authMethod: args.authMethod.kind,
@@ -4125,6 +4168,11 @@ async function registerEcdsaWalletOnly(args: {
         }),
       ),
     });
+    activeIntent = {
+      relayerUrl,
+      registrationIntentGrant: intentResponse.registrationIntentGrant,
+      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+    };
 
     const walletId = intentResponse.intent.walletId;
     const eventAccountId = registrationEventAccountId(String(walletId));
@@ -4417,6 +4465,7 @@ async function registerEcdsaWalletOnly(args: {
   } catch (error: unknown) {
     const errorCode = registrationErrorCodeFromUnknown(error);
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', initialEventAccountId);
+    await cancelActiveWalletRegistrationIntent(activeIntent);
     const errorObject = registrationErrorWithCode(errorMessage, errorCode);
     onError?.(errorObject);
     emitRegistrationEvent(onEvent, initialEventAccountId, {
@@ -4498,6 +4547,7 @@ async function registerWalletInternal(
     }),
   );
   let finalizedNearAccountId: AccountId | null = null;
+  let activeIntent: ActiveWalletRegistrationIntent | null = null;
 
   emitRegistrationEvent(onEvent, eventAccountId, {
     authMethod: args.authMethod.kind,
@@ -4558,6 +4608,7 @@ async function registerWalletInternal(
     }
     const { relayerUrl, intentResponse, registrationWarmup, thresholdRuntimePolicyScope } =
       precomputeReady;
+    activeIntent = activeWalletRegistrationIntentFromReady(precomputeReady);
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
     const registrationSessionRpId = requiredRegistrationRpId({
       context,
@@ -5142,6 +5193,7 @@ async function registerWalletInternal(
   } catch (error: unknown) {
     const errorCode = registrationErrorCodeFromUnknown(error);
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', eventAccountId);
+    await cancelActiveWalletRegistrationIntent(activeIntent);
     const rollback = finalizedNearAccountId
       ? await performRegistrationRollback(
           registrationState,

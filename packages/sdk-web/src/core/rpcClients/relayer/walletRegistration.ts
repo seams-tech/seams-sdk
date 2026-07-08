@@ -72,6 +72,7 @@ import {
 const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL = '[Registration] wallet route payload summary';
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH = 2;
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS = 64;
+const WALLET_REGISTRATION_INTENT_CANCEL_PATH = '/wallets/register/intent/cancel';
 const WALLET_REGISTRATION_PREPARE_PATH = '/wallets/register/prepare';
 const WALLET_REGISTRATION_FINALIZE_PATH = '/wallets/register/finalize';
 const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
@@ -299,6 +300,12 @@ export type CreateRegistrationIntentResponse = {
   registrationIntentDigestB64u: string;
   registrationIntentGrant: RegistrationIntentGrant;
   expiresAtMs: number;
+};
+
+export type CancelRegistrationIntentResponse = {
+  ok: true;
+  cancelled: boolean;
+  releasedServerAllocatedWalletId: boolean;
 };
 
 export type FundImplicitNearAccountForTestingResponse =
@@ -1326,6 +1333,23 @@ export async function createWalletRegistrationIntent(args: {
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/intent',
     body: createRegistrationIntentWireRequest(args.request),
+    headers: args.headers,
+  });
+}
+
+export async function cancelWalletRegistrationIntent(args: {
+  relayerUrl: string;
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+  headers?: Record<string, string>;
+}): Promise<CancelRegistrationIntentResponse> {
+  return await postJson<CancelRegistrationIntentResponse>({
+    relayerUrl: args.relayerUrl,
+    path: WALLET_REGISTRATION_INTENT_CANCEL_PATH,
+    body: {
+      registrationIntentGrant: args.registrationIntentGrant,
+      registrationIntentDigestB64u: args.registrationIntentDigestB64u,
+    },
     headers: args.headers,
   });
 }
