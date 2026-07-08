@@ -100,7 +100,9 @@ import {
   createRouterAbNormalSigningPolicy,
   hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial,
   persistEd25519LoginSessionFromReusableWorkerMaterial,
+  reconstructThresholdEd25519SigningMaterialFromWarmSession,
   resolveReusableEd25519WorkerMaterialForLoginSession,
+  restoreThresholdEd25519WorkerMaterialFromCredential,
   type Ed25519ReusableLoginMaterialResolution,
   type ThresholdEd25519LoginMaterialPendingSessionRecord,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
@@ -839,6 +841,9 @@ function resolveLoginWarmupPasskeyCredentialPlan(args: {
   switch (args.routeAuthorization.kind) {
     case 'app_session_jwt':
     case 'app_session_cookie':
+      if (args.warmupPlan.signersToWarm.includes('ed25519') && args.requiresLocalPasskeyUnlock) {
+        return { kind: 'local_unlock_passkey_assertion_after_ecdsa_context' };
+      }
       return { kind: 'app_session_authorized_warmup' };
     case 'none':
       break;
@@ -2082,6 +2087,9 @@ type ThresholdLoginWarmEd25519State = {
   sessionId: string;
   signingGrantId: string;
   jwt: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  runtimePolicyScope: ThresholdRuntimePolicyScope | null;
   ecdsaHssPasskeyPrfFirstB64u: string;
 };
 
@@ -2590,6 +2598,9 @@ async function primeThresholdLoginWarmSigners(args: {
     sessionId: '',
     signingGrantId: '',
     jwt: '',
+    expiresAtMs: 0,
+    remainingUses: 0,
+    runtimePolicyScope: null,
     ecdsaHssPasskeyPrfFirstB64u: '',
   };
   const sharedSigningGrantState: ThresholdLoginWarmSharedSigningGrantState = {
@@ -2715,6 +2726,9 @@ async function primeThresholdLoginWarmSigners(args: {
         warmState.sessionId = connectedSessionId;
         warmState.signingGrantId = connectedSigningGrantId;
         warmState.jwt = connectedJwt;
+        warmState.expiresAtMs = Math.floor(Number(connected.expiresAtMs) || 0);
+        warmState.remainingUses = Math.floor(Number(connected.remainingUses) || 0);
+        warmState.runtimePolicyScope = connected.runtimePolicyScope || null;
         warmState.ecdsaHssPasskeyPrfFirstB64u = connectedEcdsaHssPasskeyPrfFirstB64u;
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
           activeCanonicalEcdsaContext =
@@ -3105,7 +3119,16 @@ async function primeThresholdLoginWarmSigners(args: {
   }
 
   await runThresholdLoginWarmupTasks(tasks);
-  if (credential && warmState.sessionId) {
+  if (signersToWarm.includes('ed25519') && args.ed25519SessionAuthority.kind === 'passkey') {
+    if (!credential || !warmState.sessionId) {
+      logThresholdLoginEd25519UnsealInstallOutcome({
+        outcome: 'skipped_preflight_missing_credential_or_session',
+        nearAccountId: args.nearAccountId,
+        thresholdSessionId: warmState.sessionId,
+        hasCredential: Boolean(credential),
+      });
+      throw new Error('[login] Ed25519 material restore requires a passkey assertion and session');
+    }
     try {
       const installedAuthorization =
         await installThresholdLoginEd25519WarmSessionUnsealAuthorization({
@@ -3128,6 +3151,50 @@ async function primeThresholdLoginWarmSigners(args: {
           thresholdKeyMaterial: args.thresholdKeyMaterial,
           restoreAuthorization: installedAuthorization.restoreAuthorization,
         });
+      } else {
+        const restored = await restoreThresholdEd25519WorkerMaterialFromCredential({
+          context: {
+            signingEngine: args.signingEngine,
+          },
+          credential,
+          nearAccountId: args.nearAccountId,
+          signerSlot: args.signerSlot,
+          thresholdSessionId: warmState.sessionId,
+        });
+        switch (restored.kind) {
+          case 'already_loaded':
+          case 'restored':
+            break;
+          case 'material_pending':
+            await reconstructThresholdEd25519SigningMaterialFromWarmSession({
+              context: args.context,
+              credential,
+              walletId: String(args.walletBinding.walletId),
+              nearAccountId: args.nearAccountId,
+              nearEd25519SigningKeyId: args.walletBinding.nearEd25519SigningKeyId,
+              rpId: args.signingEngine.getRpId(),
+              relayerUrl: args.relayerUrl,
+              relayerKeyId: args.relayerKeyId,
+              signerSlot: args.signerSlot,
+              session: {
+                thresholdSessionId: warmState.sessionId,
+                jwt: warmState.jwt,
+                signingGrantId: warmState.signingGrantId,
+                expiresAtMs: warmState.expiresAtMs,
+                remainingUses: warmState.remainingUses,
+                ...(warmState.runtimePolicyScope
+                  ? { runtimePolicyScope: warmState.runtimePolicyScope }
+                  : {}),
+                participantIds: args.participantIds,
+                routerAbNormalSigning: createRouterAbNormalSigningPolicy(args.context.configs),
+              },
+              materialCreatedAtMs: Date.now(),
+              participantIdsHint: args.participantIds,
+            });
+            break;
+          default:
+            return assertNeverLoginState(restored);
+        }
       }
     } catch (error) {
       logThresholdLoginEd25519UnsealInstallSkipped({
@@ -3137,13 +3204,6 @@ async function primeThresholdLoginWarmSigners(args: {
       });
       throw error;
     }
-  } else {
-    logThresholdLoginEd25519UnsealInstallOutcome({
-      outcome: 'skipped_preflight_missing_credential_or_session',
-      nearAccountId: args.nearAccountId,
-      thresholdSessionId: warmState.sessionId,
-      hasCredential: Boolean(credential),
-    });
   }
   return { ecdsaBootstraps };
 }

@@ -300,7 +300,12 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
   EcdsaLoginSessionSurface &
-  Pick<SigningSessionSurface, 'hydrateSigningSession'> &
+  Pick<
+    SigningSessionSurface,
+    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
+  > &
+  ThresholdEd25519HssClientSurface &
+  ThresholdEd25519HssCeremonySurface &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<UserProfileStoreSurface, 'setLastUser' | 'updateLastLogin'> &
