@@ -336,9 +336,7 @@ test.describe('React Theme integration', () => {
       .toBe('#112233');
   });
 
-  test('SeamsWebProvider syncs theme and proxies seams.setTheme to host', async ({
-    page,
-  }) => {
+  test('SeamsWebProvider syncs theme and proxies seams.setTheme to host', async ({ page }) => {
     const mountId = 'w3a-theme-harness-provider';
     const scopeSelector = `#${mountId} .w3a-theme-provider`;
 
@@ -434,4 +432,94 @@ test.describe('React Theme integration', () => {
     await expect(sdkTheme).toHaveText('dark');
   });
 
+  test('SeamsWebProvider syncs full appearance tokens to SeamsWeb manager', async ({ page }) => {
+    const mountId = 'w3a-theme-harness-provider-appearance';
+
+    await page.evaluate(
+      async ({ paths, mountId }) => {
+        const mount = document.createElement('div');
+        mount.id = mountId;
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const ctxMod: any = await import(paths.context);
+
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
+        const useSeams = ctxMod.useSeams;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://router-api.localhost' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
+        };
+
+        const tokens = {
+          light: {
+            colors: {
+              primary: '#123abc',
+              surface: '#f8f4ec',
+            },
+          },
+          dark: {
+            colors: {
+              primary: '#456def',
+              surface: '#101820',
+            },
+          },
+        };
+
+        const Harness: React.FC = () => {
+          const { seams } = useSeams();
+          React.useEffect(() => {
+            (window as any).__w3aThemeManager = seams;
+          }, [seams]);
+          return React.createElement('div', { id: `${mountId}-child` }, 'ready');
+        };
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config, theme: { theme: 'light', tokens } },
+              React.createElement(Harness, null),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS, mountId },
+    );
+
+    await expect
+      .poll(async () => {
+        return await page.evaluate(() => {
+          const manager = (window as any).__w3aThemeManager;
+          return {
+            theme: manager?.theme,
+            tokens: manager?.signingEngine?.appearanceTokens,
+          };
+        });
+      })
+      .toEqual({
+        theme: 'light',
+        tokens: {
+          light: {
+            colors: {
+              primary: '#123abc',
+              surface: '#f8f4ec',
+            },
+          },
+          dark: {
+            colors: {
+              primary: '#456def',
+              surface: '#101820',
+            },
+          },
+        },
+      });
+  });
 });

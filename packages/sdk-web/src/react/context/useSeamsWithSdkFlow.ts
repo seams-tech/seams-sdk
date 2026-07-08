@@ -32,7 +32,7 @@ export function useSeamsWithSdkFlow(args: {
      * We use a `Proxy` to instrument a few core flow entrypoints (login/register/sync)
      * while preserving the full `SeamsWeb` API surface.
      *
-     * This lets *all* callers (not just PasskeyAuthMenu) use `ctx.seams.*` directly and
+     * This lets *all* callers (not just SeamsAuthMenu) use `ctx.seams.*` directly and
      * still have `sdkFlow` update as events stream in.
      */
     type LoginFn = AuthCapability['unlock'];

@@ -13,6 +13,21 @@ function createAbortError(): Error {
   return new Error('Wallet iframe connect aborted');
 }
 
+const WALLET_IFRAME_READY_TIMEOUT_CODE = 'WALLET_IFRAME_READY_TIMEOUT';
+
+export class WalletIframeReadyTimeoutError extends Error {
+  readonly code = WALLET_IFRAME_READY_TIMEOUT_CODE;
+  readonly elapsedMs: number;
+  readonly timeoutMs: number;
+
+  constructor(args: { elapsedMs: number; timeoutMs: number }) {
+    super(`[IframeTransport] Wallet iframe READY timed out after ${args.elapsedMs}ms`);
+    this.name = 'WalletIframeReadyTimeoutError';
+    this.elapsedMs = args.elapsedMs;
+    this.timeoutMs = args.timeoutMs;
+  }
+}
+
 export class WalletIframeProtocolVersionMismatchError extends Error {
   readonly code = 'WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH';
   readonly expectedProtocolVersion: string;
@@ -46,6 +61,15 @@ function createProtocolVersionMismatchError(args: {
     expectedProtocolVersion: args.expectedProtocolVersion,
     receivedProtocolVersion,
   });
+}
+
+export function isWalletIframeReadyTimeoutError(
+  error: unknown,
+): error is WalletIframeReadyTimeoutError {
+  if (error instanceof WalletIframeReadyTimeoutError) return true;
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  return code === WALLET_IFRAME_READY_TIMEOUT_CODE;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -181,7 +205,12 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
     const elapsed = now() - start;
     if (elapsed >= opts.connectTimeoutMs) {
       console.debug('[IframeTransport] handshake timeout after %d ms', elapsed);
-      rejectOnce(new Error('Wallet iframe READY timeout'));
+      rejectOnce(
+        new WalletIframeReadyTimeoutError({
+          elapsedMs: elapsed,
+          timeoutMs: opts.connectTimeoutMs,
+        }),
+      );
       break;
     }
 

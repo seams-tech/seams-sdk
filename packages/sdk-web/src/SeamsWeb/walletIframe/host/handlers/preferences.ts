@@ -42,19 +42,5 @@ export function createPreferencesWalletIframeHandlers(deps: HandlerDeps): Handle
       const result = pm.preferences.getConfirmationConfig();
       respondOkResult(deps, req.requestId, result);
     },
-
-    PM_SET_THEME: async (req: Req<'PM_SET_THEME'>) => {
-      const pm = deps.getSeamsWeb();
-      const { theme } = req.payload!;
-      try {
-        pm.setTheme(theme);
-      } catch {}
-      try {
-        if (theme === 'light' || theme === 'dark') {
-          document.documentElement.setAttribute('data-w3a-theme', theme);
-        }
-      } catch {}
-      respondOk(deps, req.requestId);
-    },
   };
 }

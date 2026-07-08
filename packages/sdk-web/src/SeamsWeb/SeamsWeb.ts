@@ -58,6 +58,7 @@ import {
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import { isWalletIframeReadyTimeoutError } from '@/SeamsWeb/walletIframe/client/transport/iframe-transport-handshake';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
 import { createBrowserSigningRuntime } from './assembly/createBrowserSigningRuntime';
@@ -983,7 +984,10 @@ export class SeamsWeb {
 
     this.theme = coerceThemeName(this.configs.ui.appearance?.theme) ?? 'dark';
     try {
-      this.signingEngine.setTheme(this.theme);
+      this.signingEngine.setAppearance({
+        theme: this.theme,
+        tokens: this.configs.ui.appearance?.tokens,
+      });
     } catch {}
     const userPreferences = this.signingEngine.getUserPreferences();
 
@@ -1015,69 +1019,7 @@ export class SeamsWeb {
         loginWithEmailOtpEcdsaCapability: async (args) =>
           await this.loginWithEmailOtpEcdsaCapabilityDomain(args),
         beginGoogleEmailOtpWalletAuth: async (args) =>
-          await beginGoogleEmailOtpWalletAuth(
-            {
-              configs: this.configs,
-              exchangeGoogleEmailOtpSession: async (exchangeArgs) =>
-                await this.exchangeGoogleEmailOtpSessionDomain(exchangeArgs),
-              requestEmailOtpChallenge: async (challengeArgs) =>
-                await this.requestEmailOtpChallengeDomain(challengeArgs),
-              prepareEmailOtpRegistrationEnrollmentMaterial: async (prepareArgs) =>
-                await this.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
-                  relayUrl: prepareArgs.relayUrl,
-                  walletId: walletIdFromString(prepareArgs.walletId),
-                  userId: prepareArgs.userId,
-                  appSessionJwt: prepareArgs.appSessionJwt,
-                  ...(prepareArgs.ecdsaMaterial.kind === 'requested'
-                    ? {
-                        kind: 'ecdsa_root_requested' as const,
-                        targets: prepareArgs.ecdsaMaterial.targets,
-                      }
-                    : { kind: 'ecdsa_root_not_requested' as const }),
-                }),
-              registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
-              startWalletRegistrationPrecompute: (registerArgs) => {
-                if (this.walletIframe.shouldUseWalletIframe()) {
-                  return {
-                    kind: 'unavailable' as const,
-                    unavailableReason: 'wallet_iframe_registration_domain' as const,
-                  };
-                }
-                return {
-                  kind: 'started' as const,
-                  handle: startWalletRegistrationPrecompute({
-                    context: this.getContext(),
-                    authMethod: registerArgs.authMethod,
-                    wallet: registerArgs.wallet,
-                    signerSelection: registerArgs.signerSelection,
-                  }),
-                };
-              },
-              registerWalletWithStartedPrecompute: async ({ registration, precompute }) => {
-                if (this.walletIframe.shouldUseWalletIframe()) {
-                  return await this.registerWalletDomain(registration);
-                }
-                return await registerWalletWithStartedPrecompute({
-                  context: this.getContext(),
-                  authMethod: registration.authMethod,
-                  wallet: registration.wallet,
-                  signerSelection: registration.signerSelection,
-                  options: registration.options || {},
-                  authenticatorOptions: cloneAuthenticatorOptions(
-                    this.configs.webauthn.authenticatorOptions,
-                  ),
-                  precompute: precompute.handle,
-                });
-              },
-              loginWithEmailOtpEcdsaCapability: async (loginArgs) =>
-                await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),
-              loginWithEmailOtpEd25519Capability: async (loginArgs) =>
-                await this.loginWithEmailOtpEd25519CapabilityDomain(loginArgs),
-              getWalletSession: async (walletId) =>
-                await getWalletSessionDomain(this.getWalletAuthDeps(), walletId),
-            },
-            args,
-          ),
+          await this.beginGoogleEmailOtpWalletAuthDomain(args),
       },
       registration: {
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
@@ -1177,25 +1119,33 @@ export class SeamsWeb {
     };
   }
 
-  /**
-   * Set SDK theme and propagate to wallet/confirmation UI (best-effort).
-   * Theme propagation rules:
-   * - Always update in-memory theme immediately.
-   * - In wallet host mode, update `document.documentElement[data-w3a-theme]`.
-   * - In app-origin iframe mode, best-effort `router.setTheme(next)`.
-   * This never throws; callers should treat it as a fire-and-forget update.
-   */
   setTheme(next: ThemeName): void {
     const nextTheme = coerceThemeName(next);
     if (!nextTheme) return;
-    if (this.theme === nextTheme) return;
-    this.theme = nextTheme;
+    this.setAppearance({ theme: nextTheme });
+  }
 
+  /**
+   * Update appearance (theme name and/or color token overrides) at runtime.
+   * This is the canonical internal propagation path for local signing UI,
+   * wallet-host documents, and app-origin wallet iframe mode. Appearance is
+   * excluded from the runtime-reset fingerprint, so warm signing-session state
+   * is preserved. Fire-and-forget; never throws.
+   */
+  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void {
+    const nextTheme = coerceThemeName(appearance.theme);
+    const normalizedAppearance = {
+      ...(nextTheme ? { theme: nextTheme } : {}),
+      ...(appearance.tokens ? { tokens: appearance.tokens } : {}),
+    };
+    if (!nextTheme && !appearance.tokens) return;
+    if (nextTheme) {
+      this.theme = nextTheme;
+    }
     try {
-      this.signingEngine.setTheme(nextTheme);
+      this.signingEngine.setAppearance(normalizedAppearance);
     } catch {}
-
-    if (__isWalletIframeHostMode()) {
+    if (nextTheme && __isWalletIframeHostMode()) {
       try {
         document.documentElement.setAttribute('data-w3a-theme', nextTheme);
       } catch {}
@@ -1205,41 +1155,7 @@ export class SeamsWeb {
       void (async () => {
         try {
           const router = await this.walletIframe.requireRouter();
-          await router.setTheme(nextTheme);
-        } catch {}
-      })();
-    }
-  }
-
-  /**
-   * Update appearance (theme name and/or color token overrides) at runtime.
-   * Unlike `setTheme` (name only), this pushes the full token set to the wallet
-   * host so embedded components (tx confirmer, etc.) re-theme to match. Appearance
-   * is excluded from the runtime-reset fingerprint, so warm signing-session state
-   * is preserved. Fire-and-forget; never throws.
-   */
-  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void {
-    const nextTheme = coerceThemeName(appearance.theme);
-    if (nextTheme) {
-      this.theme = nextTheme;
-      try {
-        this.signingEngine.setTheme(nextTheme);
-      } catch {}
-      if (__isWalletIframeHostMode()) {
-        try {
-          document.documentElement.setAttribute('data-w3a-theme', nextTheme);
-        } catch {}
-      }
-    }
-
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      void (async () => {
-        try {
-          const router = await this.walletIframe.requireRouter();
-          await router.setAppearance({
-            ...(nextTheme ? { theme: nextTheme } : {}),
-            ...(appearance.tokens ? { tokens: appearance.tokens } : {}),
-          });
+          await router.setAppearance(normalizedAppearance);
         } catch {}
       })();
     }
@@ -1265,10 +1181,9 @@ export class SeamsWeb {
       tasks.push(this.initWalletIframe(nearAccountBinding?.wallet.walletId));
     } else if (workers && !this.walletIframe.shouldUseWalletIframe()) {
       // Warm local-only resources without touching the iframe.
-      const accountContext =
-        nearAccountBinding
-          ? { kind: 'near_account_bound' as const, account: nearAccountBinding }
-          : { kind: 'none' as const };
+      const accountContext = nearAccountBinding
+        ? { kind: 'near_account_bound' as const, account: nearAccountBinding }
+        : { kind: 'none' as const };
       tasks.push(this.signingEngine.warmCriticalResources(accountContext));
     }
 
@@ -1465,6 +1380,10 @@ export class SeamsWeb {
             inner.onStateChange(setState);
             inner.mount(target);
           } catch (error) {
+            if (isWalletIframeReadyTimeoutError(error)) {
+              setState({ kind: 'cancelled', activationId: '', reason: 'target_unavailable' });
+              return;
+            }
             const message =
               error instanceof Error ? error.message : 'Registration activation failed';
             setState({ kind: 'failed', activationId: '', error: message });
@@ -1970,6 +1889,68 @@ export class SeamsWeb {
       }
       throw e;
     }
+  }
+
+  private async beginGoogleEmailOtpWalletAuthDomain(
+    args: Parameters<AuthCapability['beginGoogleEmailOtpWalletAuth']>[0],
+  ): ReturnType<AuthCapability['beginGoogleEmailOtpWalletAuth']> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter();
+      return await router.beginGoogleEmailOtpWalletAuth(args);
+    }
+    return await beginGoogleEmailOtpWalletAuth(
+      {
+        configs: this.configs,
+        exchangeGoogleEmailOtpSession: async (exchangeArgs) =>
+          await this.exchangeGoogleEmailOtpSessionDomain(exchangeArgs),
+        requestEmailOtpChallenge: async (challengeArgs) =>
+          await this.requestEmailOtpChallengeDomain(challengeArgs),
+        prepareEmailOtpRegistrationEnrollmentMaterial: async (prepareArgs) =>
+          await this.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
+            relayUrl: prepareArgs.relayUrl,
+            walletId: walletIdFromString(prepareArgs.walletId),
+            userId: prepareArgs.userId,
+            appSessionJwt: prepareArgs.appSessionJwt,
+            ...(prepareArgs.ecdsaMaterial.kind === 'requested'
+              ? {
+                  kind: 'ecdsa_root_requested' as const,
+                  targets: prepareArgs.ecdsaMaterial.targets,
+                }
+              : { kind: 'ecdsa_root_not_requested' as const }),
+          }),
+        registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
+        startWalletRegistrationPrecompute: (registerArgs) => {
+          return {
+            kind: 'started' as const,
+            handle: startWalletRegistrationPrecompute({
+              context: this.getContext(),
+              authMethod: registerArgs.authMethod,
+              wallet: registerArgs.wallet,
+              signerSelection: registerArgs.signerSelection,
+            }),
+          };
+        },
+        registerWalletWithStartedPrecompute: async ({ registration, precompute }) =>
+          await registerWalletWithStartedPrecompute({
+            context: this.getContext(),
+            authMethod: registration.authMethod,
+            wallet: registration.wallet,
+            signerSelection: registration.signerSelection,
+            options: registration.options || {},
+            authenticatorOptions: cloneAuthenticatorOptions(
+              this.configs.webauthn.authenticatorOptions,
+            ),
+            precompute: precompute.handle,
+          }),
+        loginWithEmailOtpEcdsaCapability: async (loginArgs) =>
+          await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),
+        loginWithEmailOtpEd25519Capability: async (loginArgs) =>
+          await this.loginWithEmailOtpEd25519CapabilityDomain(loginArgs),
+        getWalletSession: async (walletId) =>
+          await getWalletSessionDomain(this.getWalletAuthDeps(), walletId),
+      },
+      args,
+    );
   }
 
   private async enrollEmailOtpDomain(args: {

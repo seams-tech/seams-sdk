@@ -17,8 +17,8 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
   // Ensure drawer definition is kept/loaded in the child iframe runtime
   static keepDefinitions = [DrawerElement];
   static properties = {
-    theme: { type: String },
-    variant: { type: String },
+    theme: { type: String, reflect: true },
+    variant: { type: String, reflect: true },
     accountId: { type: String, attribute: 'account-id' },
     publicKey: { type: String, attribute: 'public-key' },
     privateKey: { type: String, attribute: 'private-key' },

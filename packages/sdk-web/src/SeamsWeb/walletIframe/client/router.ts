@@ -278,7 +278,9 @@ type WalletIframeLoginStatusSnapshot = {
   walletId: string | null;
 };
 
-function walletIframeLoginStatusFromSession(session: WalletSession): WalletIframeLoginStatusSnapshot {
+function walletIframeLoginStatusFromSession(
+  session: WalletSession,
+): WalletIframeLoginStatusSnapshot {
   const walletId = String(session.login.walletId || '').trim();
   return {
     isLoggedIn: Boolean(session.login.isLoggedIn && walletId),
@@ -347,14 +349,15 @@ const REGISTRATION_ACTIVATION_STATE_ATTRIBUTES = {
   busy: 'data-seams-registration-button-busy',
   disabled: 'data-seams-registration-button-disabled',
 } as const;
-const REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE: RegistrationActivationButtonInteractionState = {
-  kind: 'registration_activation_button_interaction_state_v1',
-  hovered: false,
-  focused: false,
-  pressed: false,
-  busy: true,
-  disabled: true,
-};
+const REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE: RegistrationActivationButtonInteractionState =
+  {
+    kind: 'registration_activation_button_interaction_state_v1',
+    hovered: false,
+    focused: false,
+    pressed: false,
+    busy: true,
+    disabled: true,
+  };
 const REGISTRATION_ACTIVATION_READY_BUTTON_STATE: RegistrationActivationButtonInteractionState = {
   kind: 'registration_activation_button_interaction_state_v1',
   hovered: false,
@@ -1514,6 +1517,7 @@ export class WalletIframeRouter {
             const err = toError(error);
             const code = getErrorCode(err);
             if (code === 'cancelled') {
+              postActivationCancel('user_cancelled');
               setState({ kind: 'cancelled', activationId, reason: 'user_cancelled' });
             } else if (shouldTreatRegistrationActivationErrorAsExpired(err)) {
               postActivationCancel('expired');
@@ -2316,7 +2320,10 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async setConfirmBehavior(behavior: 'requireClick' | 'skipClick', walletId?: string | null): Promise<void> {
+  async setConfirmBehavior(
+    behavior: 'requireClick' | 'skipClick',
+    walletId?: string | null,
+  ): Promise<void> {
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
       payload: { behavior, ...(walletId ? { walletId } : {}) },
@@ -2338,10 +2345,6 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async setTheme(theme: 'dark' | 'light'): Promise<void> {
-    await this.post<void>({ type: 'PM_SET_THEME', payload: { theme } });
-  }
-
   /**
    * Push appearance (theme name and/or color token overrides) to the wallet
    * host at runtime. The host merges this with prior config and re-applies the
@@ -2349,9 +2352,7 @@ export class WalletIframeRouter {
    * re-theme without a re-init. Appearance is excluded from the runtime-reset
    * fingerprint, so this never drops warm signing-session state.
    */
-  async setAppearance(
-    appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>,
-  ): Promise<void> {
+  async setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): Promise<void> {
     await this.post<void>({ type: 'PM_SET_CONFIG', payload: { appearance } });
   }
 

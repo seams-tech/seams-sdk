@@ -125,6 +125,11 @@ w3a-tx-confirm-content {
 .tooltip-width {
   width: min(100%, var(--tooltip-width, 100%));
   max-width: 100%;
+  box-sizing: border-box;
+  padding: 1.25rem 1rem;
+  border: 1px solid var(--w3a-colors-borderSecondary, var(--w3a-colors-borderPrimary));
+  border-radius: 1.5rem;
+  background: var(--w3a-colors-surface2);
 }
 .tooltip-width > w3a-tx-tree {
   width: 100%;

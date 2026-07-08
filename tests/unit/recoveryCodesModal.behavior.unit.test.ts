@@ -292,11 +292,11 @@ test.describe('RecoveryCodesModal behavior', () => {
     expect(modal).not.toContain('deleteRecovery');
   });
 
-  test('PasskeyAuthMenu prompts rotation after recovery consumes a code', () => {
+  test('SeamsAuthMenu prompts rotation after recovery consumes a code', () => {
     const controller = readRepoFile(
-      'packages/sdk-web/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts',
+      'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts',
     );
-    const client = readRepoFile('packages/sdk-web/src/react/components/PasskeyAuthMenu/client.tsx');
+    const client = readRepoFile('packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx');
 
     expect(controller).toContain('postRecoveryRotationPromptFromSubmitResult');
     expect(controller).toContain('activeRecoveryWrappedEnrollmentEscrowCount');

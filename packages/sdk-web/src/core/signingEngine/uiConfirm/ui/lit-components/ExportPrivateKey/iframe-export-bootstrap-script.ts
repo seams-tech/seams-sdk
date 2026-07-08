@@ -70,9 +70,13 @@ type ExportViewerElement = HTMLElement & {
 let PARENT_ORIGIN: string | undefined;
 const EXPORT_TOKEN_RULE_ID = 'w3a-export-token-overrides';
 const EXPORT_HOST_SELECTORS = ['w3a-drawer', 'w3a-export-key-viewer'] as const;
-const EXPORT_DARK_SELECTOR = EXPORT_HOST_SELECTORS.join(',\n');
+const EXPORT_DARK_SELECTOR = EXPORT_HOST_SELECTORS.map(
+  (selector) =>
+    `${selector}[theme="dark"],\n:root[data-w3a-theme="dark"] ${selector}:not([theme="light"])`,
+).join(',\n');
 const EXPORT_LIGHT_SELECTOR = EXPORT_HOST_SELECTORS.map(
-  (selector) => `:root[data-w3a-theme="light"] ${selector}`,
+  (selector) =>
+    `${selector}[theme="light"],\n:root[data-w3a-theme="light"] ${selector}:not([theme="dark"])`,
 ).join(',\n');
 let exportTokenStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
 
@@ -168,6 +172,10 @@ function isCopyPayload(payload: unknown): payload is MessagePayloads['COPY'] {
   return (p.type === 'publicKey' || p.type === 'privateKey') && isString(p.value);
 }
 
+function coerceTheme(value: unknown): 'dark' | 'light' | undefined {
+  return value === 'dark' || value === 'light' ? value : undefined;
+}
+
 // Ensure a drawer element exists in body; use id 'exp'
 function getDrawer(): ExportDrawerElement {
   let el = document.getElementById('exp') as ExportDrawerElement | null;
@@ -216,14 +224,16 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
     }
     case 'SET_EXPORT_DATA': {
       if (!isSetExportDataPayload(payload)) break;
+      const nextTheme = coerceTheme(payload.theme);
+      if (nextTheme) {
+        try {
+          document.documentElement.setAttribute('data-w3a-theme', nextTheme);
+        } catch {}
+      }
       upsertExportTokenOverrides(payload.tokens);
       const viewer = getViewer();
-      if (payload.theme && isString(payload.theme)) {
-        // Reflect theme to viewer and document root so host-scoped tokens update
-        viewer.theme = payload.theme;
-        try {
-          document.documentElement.setAttribute('data-w3a-theme', payload.theme);
-        } catch {}
+      if (nextTheme) {
+        viewer.theme = nextTheme;
       }
       if (payload.variant && isString(payload.variant)) viewer.variant = payload.variant;
       viewer.accountId = payload.accountId;
@@ -232,7 +242,7 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       viewer.guidance = payload.guidance;
 
       const drawer = getDrawer();
-      if (payload.theme && isString(payload.theme)) drawer.theme = payload.theme;
+      if (nextTheme) drawer.theme = nextTheme;
       // Auto-fit to content: let Drawer compute visible height from content above the fold.
       drawer.height = undefined;
       drawer.showCloseButton = true;

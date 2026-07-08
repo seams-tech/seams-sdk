@@ -28,7 +28,8 @@ const W3A_LIT_HOST_SELECTORS = [
 ] as const;
 const W3A_LIT_DARK_SELECTOR = W3A_LIT_HOST_SELECTORS.join(',\n');
 const W3A_LIT_LIGHT_SELECTOR = W3A_LIT_HOST_SELECTORS.map(
-  (selector) => `:root[data-w3a-theme="light"] ${selector}`,
+  (selector) =>
+    `${selector}[theme="light"],\n:root[data-w3a-theme="light"] ${selector}:not([theme="dark"])`,
 ).join(',\n');
 let litThemeOverrideStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
 
@@ -149,6 +150,27 @@ function upsertLitThemeOverrideStyle(args: {
   getLitThemeOverrideStyleManager().setDynamicRule(W3A_LIT_THEME_OVERRIDE_RULE_ID, cssText);
 }
 
+function liveRuntimeAppearance(input: {
+  theme?: 'light' | 'dark';
+  lightColors: Record<string, string>;
+  darkColors: Record<string, string>;
+}): Pick<NonNullable<SeamsConfigsInput['appearance']>, 'theme' | 'tokens'> | null {
+  const hasLightColors = Object.keys(input.lightColors).length > 0;
+  const hasDarkColors = Object.keys(input.darkColors).length > 0;
+  const tokens =
+    hasLightColors || hasDarkColors
+      ? {
+          ...(hasLightColors ? { light: { colors: input.lightColors } } : {}),
+          ...(hasDarkColors ? { dark: { colors: input.darkColors } } : {}),
+        }
+      : undefined;
+  if (!input.theme && !tokens) return null;
+  return {
+    ...(input.theme ? { theme: input.theme } : {}),
+    ...(tokens ? { tokens } : {}),
+  };
+}
+
 export interface HostContext {
   parentOrigin: string | null;
   port: MessagePort | null;
@@ -252,7 +274,8 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
     ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
     routerAb: payload?.routerAb ?? prev.routerAb,
-    routerAbEcdsaHssPresignaturePool: payload?.routerAbEcdsaHssPresignaturePool ?? prev.routerAbEcdsaHssPresignaturePool,
+    routerAbEcdsaHssPresignaturePool:
+      payload?.routerAbEcdsaHssPresignaturePool ?? prev.routerAbEcdsaHssPresignaturePool,
     provisioningDefaults: payload?.provisioningDefaults ?? prev.provisioningDefaults,
     relayer:
       payload?.relayer || prev.relayer
@@ -286,6 +309,21 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
       lightColors: nextLightColors,
     });
   } catch {}
+
+  const appearanceForLiveRuntime = liveRuntimeAppearance({
+    theme: nextTheme,
+    lightColors: nextLightColors,
+    darkColors: nextDarkColors,
+  });
+  if (
+    ctx.seamsWeb &&
+    appearanceForLiveRuntime &&
+    nextRuntimeResetFingerprint === prevRuntimeResetFingerprint
+  ) {
+    try {
+      ctx.seamsWeb.setAppearance(appearanceForLiveRuntime);
+    } catch {}
+  }
 
   // Configure SDK embedded asset base for Lit modal/embedded components
   try {

@@ -6,6 +6,7 @@ import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   SigningSessionStatus,
   SeamsConfigsReadonly,
+  ThemeTokenOverridesInput,
   ThemeName,
 } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -148,9 +149,7 @@ import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
-import {
-  restoreThresholdEd25519WorkerMaterialFromCredential,
-} from '../operations/session/thresholdWarmSessionBootstrap';
+import { restoreThresholdEd25519WorkerMaterialFromCredential } from '../operations/session/thresholdWarmSessionBootstrap';
 
 type RuntimePortsRef = {
   current: RuntimePorts | null;
@@ -170,6 +169,31 @@ async function loadEcdsaRoleLocalReadyRecordFromRuntimePorts(
   return await runtimePortsRef.current.storage.loadEcdsaRoleLocalReadyRecord(input);
 }
 
+function mergeThemeTokenOverrideMode(
+  current: ThemeTokenOverridesInput['light'] | undefined,
+  next: ThemeTokenOverridesInput['light'] | undefined,
+): ThemeTokenOverridesInput['light'] | undefined {
+  if (!next?.colors) return current;
+  return {
+    colors: {
+      ...(current?.colors ?? {}),
+      ...next.colors,
+    },
+  };
+}
+
+function mergeThemeTokenOverrides(
+  current: ThemeTokenOverridesInput | undefined,
+  next: ThemeTokenOverridesInput | undefined,
+): ThemeTokenOverridesInput | undefined {
+  if (!next) return current;
+  return {
+    ...current,
+    light: mergeThemeTokenOverrideMode(current?.light, next.light),
+    dark: mergeThemeTokenOverrideMode(current?.dark, next.dark),
+  };
+}
+
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
  */
@@ -183,6 +207,7 @@ export class BrowserSigningSurface {
   private readonly nonceCoordinator: NonceCoordinator;
   private workerBaseOrigin: string = '';
   private theme: ThemeName = 'dark';
+  private appearanceTokens: ThemeTokenOverridesInput | undefined;
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
@@ -215,6 +240,7 @@ export class BrowserSigningSurface {
     deps: BrowserSigningSurfaceConstructorDeps,
   ) {
     this.seamsWebConfigs = seamsWebConfigs;
+    this.appearanceTokens = seamsWebConfigs.ui.appearance?.tokens;
     this.nearClient = nearClient;
     this.ecdsaBootstrapStore =
       deps.signingEngineStores.walletProfileAndSignerRecords.ecdsaBootstrapStore;
@@ -236,7 +262,7 @@ export class BrowserSigningSurface {
       nearClient: this.nearClient,
       loadEcdsaRoleLocalReadyRecord,
       getTheme: () => this.theme,
-      getAppearanceTokens: () => this.seamsWebConfigs.ui.appearance?.tokens,
+      getAppearanceTokens: () => this.appearanceTokens,
     });
 
     this.touchIdPrompt = assembly.touchIdPrompt;
@@ -405,7 +431,9 @@ export class BrowserSigningSurface {
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }
-    return await this.enginePorts.getManagerConveniencePorts().warmCriticalResources(accountContext);
+    return await this.enginePorts
+      .getManagerConveniencePorts()
+      .warmCriticalResources(accountContext);
   }
 
   getRpId(): string {
@@ -420,9 +448,13 @@ export class BrowserSigningSurface {
     return this.nonceCoordinator;
   }
 
-  setTheme(next: ThemeName): void {
-    if (next !== 'light' && next !== 'dark') return;
-    this.theme = next;
+  setAppearance(appearance: { theme?: ThemeName; tokens?: ThemeTokenOverridesInput }): void {
+    if (appearance.theme === 'light' || appearance.theme === 'dark') {
+      this.theme = appearance.theme;
+    }
+    if (appearance.tokens) {
+      this.appearanceTokens = mergeThemeTokenOverrides(this.appearanceTokens, appearance.tokens);
+    }
   }
 
   getUserPreferences(): UserPreferencesManager {
@@ -627,9 +659,7 @@ export class BrowserSigningSurface {
   }
 
   private commitEmailOtpRegistrationEcdsaSession(
-    input: Parameters<
-      FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaSession']
-    >[0],
+    input: Parameters<FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaSession']>[0],
   ): ReturnType<typeof commitEvmFamilyThresholdEcdsaSessions> {
     return commitEvmFamilyThresholdEcdsaSessions(
       {
@@ -740,7 +770,9 @@ export class BrowserSigningSurface {
   }
 
   persistSigningSessionSealForThresholdSession(
-    input: Parameters<UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']>[0],
+    input: Parameters<
+      UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']
+    >[0],
   ): ReturnType<UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']> {
     return this.touchConfirm.persistSigningSessionSealForThresholdSession(input);
   }

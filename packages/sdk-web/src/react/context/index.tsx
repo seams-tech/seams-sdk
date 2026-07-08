@@ -113,9 +113,14 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
   });
 
   useEffect(() => {
-    if (!theme?.theme) return;
-    seams.setTheme(theme.theme);
-  }, [seams, theme?.theme]);
+    if (theme?.appearance) {
+      seams.setAppearance(theme.appearance);
+      return;
+    }
+    if (theme?.theme) {
+      seams.setAppearance({ theme: theme.theme });
+    }
+  }, [seams, theme?.appearance, theme?.theme]);
 
   const value = useSeamsContextValue({
     seams,

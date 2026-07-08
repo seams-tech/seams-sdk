@@ -26,7 +26,7 @@ import type {
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
-import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
+import type { AppearanceConfigInput, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 
 export type {
@@ -82,7 +82,8 @@ export type {
 export type * from '../publicApi/types';
 
 export interface SeamsWebSigningSurface
-  extends RpIdSurface,
+  extends
+    RpIdSurface,
     NonceCoordinatorSurface,
     WalletIframeWarmupSurface,
     RuntimeStartupSurface,
@@ -108,7 +109,7 @@ export interface SeamsWebSigningSurface
     ThresholdEd25519HssClientSurface,
     ThresholdEd25519HssCeremonySurface {
   readonly seamsWebConfigs: SeamsConfigsReadonly;
-  setTheme(next: ThemeName): void;
+  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void;
   getUserPreferences(): UserPreferencesManager;
 }
 

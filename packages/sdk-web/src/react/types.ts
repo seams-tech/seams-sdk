@@ -12,7 +12,7 @@ import type {
   DevicesCapability,
   PasskeyRegistrationOptions,
 } from '../SeamsWeb';
-import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
+import type { AppearanceConfigInput, ThemeName, WalletAuthMethod } from '../core/types/seams';
 import type {
   CurrentWalletAuthMethod,
   WalletAuthMethodBinding,
@@ -174,7 +174,7 @@ export interface SeamsContextType {
 
   /**
    * SDK progress state for the most recent flow (login/registration).
-   * Used by UI components (e.g., PasskeyAuthMenu) to keep waiting screens visible
+   * Used by UI components (e.g., SeamsAuthMenu) to keep waiting screens visible
    * even when integrators do not return a Promise from their handlers.
    */
   sdkFlow: SDKFlowRuntime;
@@ -187,10 +187,7 @@ export interface SeamsContextType {
   addWalletSigner: RegistrationCapability['addWalletSigner'];
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: RegistrationCapability['registerPasskey'];
-  unlock: (
-    walletId: string,
-    options?: LoginHooksOptions,
-  ) => Promise<LoginAndCreateSessionResult>;
+  unlock: (walletId: string, options?: LoginHooksOptions) => Promise<LoginAndCreateSessionResult>;
   lock: () => void;
 
   // Execute actions
@@ -286,6 +283,7 @@ export interface SeamsContextProviderProps {
   theme?: {
     theme: ThemeName;
     setTheme?: (theme: ThemeName) => void;
+    appearance?: Pick<AppearanceConfigInput, 'theme' | 'tokens'>;
   };
   /**
    * When true, the provider will opportunistically pre-warm iframe + workers

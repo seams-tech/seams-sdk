@@ -194,6 +194,9 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
       if (data.type === 'PM_GET_WALLET_SESSION') {
         respond(activeSessionFor(data.payload?.walletId || data.payload?.nearAccountId || null));
       }
+      if (data.type === 'PM_GET_RECENT_UNLOCKS') {
+        respond({ walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null });
+      }
       if (data.type === 'PM_REQUEST_EMAIL_OTP_CHALLENGE') {
         respond({ challengeId: 'challenge-1', otpChannel: 'email_otp' });
       }
@@ -206,6 +209,28 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
             userId: 'google:subject-1',
             walletId: 'alice.testnet',
             email: 'alice@example.com',
+          },
+        });
+      }
+      if (data.type === 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH') {
+        respond({
+          ok: true,
+          value: {
+            kind: 'google_email_otp_wallet_auth_flow_v1',
+            state: 'registration_ready',
+            flowHandleId: 'google-email-otp-registration-handle-1',
+            flowId: 'google-email-otp-registration:alice.testnet:attempt-1',
+            requestedMode: data.payload?.mode || 'register',
+            mode: 'register',
+            walletId: 'alice.testnet',
+            emailHint: 'alice@example.com',
+            prompt: {
+              title: 'Create your Email OTP wallet',
+              description: 'Google verified alice@example.com.',
+              submitLabel: 'Create wallet',
+              helperText: 'Choose this wallet name or generate another one.',
+            },
+            expiresAtMs: Date.now() + 60_000,
           },
         });
       }
@@ -373,6 +398,16 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           sessionKind: 'cookie',
           onEvent: captureEvent(registrationEvents),
         });
+        const googleRegistrationStart = await pm.auth.beginGoogleEmailOtpWalletAuth({
+          idToken: 'google-id-token-2',
+          mode: 'register',
+          sessionKind: 'cookie',
+          ecdsaTargets: { kind: 'configured' },
+          onEvent: captureEvent(registrationEvents),
+        });
+        const googleRegistrationFlow = googleRegistrationStart.ok
+          ? googleRegistrationStart.value
+          : null;
         const enrollment = await pm.registration.enrollEmailOtp({
           walletId,
           challengeId: enrollmentChallenge.challengeId,
@@ -494,9 +529,8 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           },
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
-        const { IndexedDBManager, seamsWalletDB } = await import(
-          '/_test-sdk/esm/core/indexedDB/index.js'
-        );
+        const { IndexedDBManager, seamsWalletDB } =
+          await import('/_test-sdk/esm/core/indexedDB/index.js');
         const forbiddenKeys = new Set([
           'S',
           'secretS',
@@ -544,6 +578,10 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           challenge,
           enrollmentChallenge,
           exchangedWalletId: sessionExchange.session.walletId,
+          googleRegistrationStartOk: googleRegistrationStart.ok,
+          googleRegistrationStartMode: googleRegistrationFlow?.mode || null,
+          googleRegistrationStartState: googleRegistrationFlow?.state || null,
+          googleRegistrationStartWalletId: googleRegistrationFlow?.walletId || null,
           enrollmentKeyVersion: enrollment.enrollmentSealKeyVersion,
           enrollAndLoginKeyVersion: enrollAndLogin.enrollment.enrollmentSealKeyVersion,
           appOriginSecretRejection,
@@ -601,6 +639,10 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
       challenge: { challengeId: 'challenge-1', otpChannel: 'email_otp' },
       enrollmentChallenge: { challengeId: 'enrollment-challenge-1', otpChannel: 'email_otp' },
       exchangedWalletId: 'alice.testnet',
+      googleRegistrationStartOk: true,
+      googleRegistrationStartMode: 'register',
+      googleRegistrationStartState: 'registration_ready',
+      googleRegistrationStartWalletId: 'alice.testnet',
       enrollmentKeyVersion: 'email-otp-kv-1',
       enrollAndLoginKeyVersion: 'email-otp-kv-1',
       appOriginSecretRejection:
@@ -700,6 +742,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
     expect(messageTypes).toContain('PM_REQUEST_EMAIL_OTP_CHALLENGE');
     expect(messageTypes).toContain('PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE');
     expect(messageTypes).toContain('PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION');
+    expect(messageTypes).toContain('PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH');
     expect(messageTypes).toContain('PM_ENROLL_EMAIL_OTP');
     expect(messageTypes).toContain('PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY');
     expect(messageTypes).toContain('PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY');
@@ -707,9 +750,18 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
     const emailOtpMessages = messages.filter((message: { type: string }) =>
       message.type.includes('EMAIL_OTP'),
     );
-    expect(emailOtpMessages).toHaveLength(8);
+    expect(emailOtpMessages).toHaveLength(9);
     for (const message of emailOtpMessages) {
       if (message.type === 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION') continue;
+      if (message.type === 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH') {
+        expect(message.payload).toMatchObject({
+          idToken: 'google-id-token-2',
+          mode: 'register',
+          sessionKind: 'cookie',
+          ecdsaTargets: { kind: 'configured' },
+        });
+        continue;
+      }
       if (
         message.type === 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY' ||
         message.type === 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY' ||
@@ -732,6 +784,11 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
       accountMode: 'register',
       sessionKind: 'cookie',
     });
+    const beginGoogleMessage = emailOtpMessages.find(
+      (message: { type: string }) => message.type === 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
+    );
+    expect(beginGoogleMessage?.payload).not.toHaveProperty('onEvent');
+    expect(beginGoogleMessage?.payload).not.toHaveProperty('walletId');
     expect(
       emailOtpMessages.some((message: { payload: Record<string, unknown> }) =>
         Object.prototype.hasOwnProperty.call(message.payload, 'clientSecret32'),
@@ -768,11 +825,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
         (message: { payload: { walletSession: { walletId: string } } }) =>
           message.payload.walletSession.walletId,
       ),
-    ).toEqual([
-      'frost-vermillion-k7p9m2',
-      'frost-vermillion-k7p9m2',
-      'frost-vermillion-k7p9m2',
-    ]);
+    ).toEqual(['frost-vermillion-k7p9m2', 'frost-vermillion-k7p9m2', 'frost-vermillion-k7p9m2']);
     expect(
       signMessages.map(
         (message: { payload: { request: { chain: string; kind: string } } }) =>

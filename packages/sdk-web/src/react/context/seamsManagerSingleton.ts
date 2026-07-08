@@ -79,8 +79,10 @@ function stableStringify(value: unknown): string {
 }
 
 function computeConfigKey(config: SeamsConfigsReadonly): string {
-  // Theme is dynamic and controlled via `seams.setTheme`; avoid new instances for theme changes.
-  return stableStringify(config);
+  // Appearance is dynamic and controlled via seams.setAppearance.
+  const { ui, ...configWithoutUi } = config;
+  const { appearance: _appearance, ...uiWithoutAppearance } = ui;
+  return stableStringify({ ...configWithoutUi, ui: uiWithoutAppearance });
 }
 
 export function getOrCreateSeamsManager(
@@ -104,7 +106,7 @@ export function getOrCreateSeamsManager(
   // (iframes/workers/listeners) by re-instantiating on re-renders.
   if (state.configKey && state.configKey !== nextKey && isDevRuntime()) {
     console.warn(
-      '[SeamsContextProvider] Ignoring config changes after initialization. Ensure you pass a stable config object; theme changes should go through `seams.setTheme` or the provider theme prop.',
+      '[SeamsContextProvider] Ignoring config changes after initialization. Ensure you pass a stable config object; appearance changes should go through `seams.setAppearance` or the provider theme prop.',
       { previousKey: state.configKey, nextKey },
     );
   }

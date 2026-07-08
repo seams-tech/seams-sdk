@@ -8,7 +8,10 @@ import type { ExportViewerVariant, ExportViewerTheme } from './viewer';
 import { isObject, isString } from '@shared/utils/validation';
 import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
-import type { ExportGuidance, ExportPrivateKeyDisplayEntry } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type {
+  ExportGuidance,
+  ExportPrivateKeyDisplayEntry,
+} from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { ThemeTokenOverridesInput } from '@/core/types/seams';
 
 type MessageType =
@@ -167,6 +170,7 @@ export class IframeExportHost extends LitElementWithProps {
   private generateIframeHtml(): string {
     const base = resolveEmbeddedBase();
     const isAbsoluteBase = /^https?:/i.test(base);
+    const initialTheme = this.theme === 'light' ? 'light' : 'dark';
     if (!isAbsoluteBase) {
       try {
         console.warn(
@@ -179,7 +183,7 @@ export class IframeExportHost extends LitElementWithProps {
     const viewerBundle = EXPORT_VIEWER_BUNDLE;
     const bootstrap = IFRAME_EXPORT_BOOTSTRAP_MODULE;
     return `<!DOCTYPE html>
-      <html>
+      <html data-w3a-theme="${initialTheme}">
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -195,7 +199,7 @@ export class IframeExportHost extends LitElementWithProps {
           <script type="module" crossorigin="anonymous" src="${base}${bootstrap}"></script>
         </head>
         <body>
-          <w3a-drawer id="exp" theme="dark"></w3a-drawer>
+          <w3a-drawer id="exp" theme="${initialTheme}"></w3a-drawer>
         </body>
       </html>`;
   }

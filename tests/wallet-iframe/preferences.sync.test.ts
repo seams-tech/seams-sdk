@@ -83,8 +83,8 @@ const PREFERENCES_PUSH_STUB = `
           return;
         }
 
-        if (type === 'PM_SET_THEME') {
-          const theme = message?.payload?.theme;
+        if (type === 'PM_SET_CONFIG') {
+          const theme = message?.payload?.appearance?.theme;
           if (theme === 'dark' || theme === 'light') {
             window.__lastSetTheme = theme;
           }
@@ -241,7 +241,7 @@ test.describe('Wallet iframe preferences sync', () => {
     expect(indexedDbNoise).toBeUndefined();
   });
 
-  test('seams.setTheme forwards updates to the wallet host', async ({ page }) => {
+  test('seams.setTheme forwards appearance updates to the wallet host', async ({ page }) => {
     const seamsPath = SDK_ESM_PATHS.seamsWeb;
     const result = await page.evaluate(
       async ({ walletOrigin, seamsPath }) => {

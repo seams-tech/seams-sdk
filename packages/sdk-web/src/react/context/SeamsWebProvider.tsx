@@ -33,7 +33,7 @@ export interface SeamsWebProviderProps {
    * - Wallet iframe overlay: `var(--w3a-wallet-overlay-z, 2147483646)`
    * - Linked Devices modal + QR scanner: `overlayZ - 2` / `overlayZ - 1`
    *   (always below the wallet overlay so tx confirmer wins)
-   * - ProfileSettingsMenu/PasskeyAuthMenu: small local z-indexes only (1–3),
+   * - ProfileSettingsMenu/SeamsAuthMenu: small local z-indexes only (1–3),
    *   no fullscreen overlay z-index.
    */
   walletOverlayZIndex?: number;
@@ -88,7 +88,8 @@ const APP_LIT_HOST_SELECTORS = [
 ] as const;
 const APP_LIT_DARK_SELECTOR = APP_LIT_HOST_SELECTORS.join(',\n');
 const APP_LIT_LIGHT_SELECTOR = APP_LIT_HOST_SELECTORS.map(
-  (selector) => `:root[data-w3a-theme="light"] ${selector}`,
+  (selector) =>
+    `${selector}[theme="light"],\n:root[data-w3a-theme="light"] ${selector}:not([theme="dark"])`,
 ).join(',\n');
 let appLitThemeOverrideStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
 
@@ -232,6 +233,14 @@ export const SeamsWebProvider: React.FC<SeamsWebProviderProps> = ({
   }, [config, mergedThemeColorOverrides.dark.colors, mergedThemeColorOverrides.light.colors]);
 
   const rootTheme = controlledTheme || config.appearance?.theme;
+  const providerAppearance = React.useMemo(() => {
+    const tokens = providerConfig.appearance?.tokens;
+    return {
+      ...(rootTheme === 'light' || rootTheme === 'dark' ? { theme: rootTheme } : {}),
+      ...(tokens ? { tokens } : {}),
+    };
+  }, [providerConfig.appearance?.tokens, rootTheme]);
+
   React.useEffect(() => {
     if (rootTheme === 'light' || rootTheme === 'dark') {
       try {
@@ -259,7 +268,11 @@ export const SeamsWebProvider: React.FC<SeamsWebProviderProps> = ({
     <SeamsContextProvider
       config={providerConfig}
       eager={eager}
-      theme={controlledTheme ? { theme: controlledTheme, setTheme } : undefined}
+      theme={
+        rootTheme === 'light' || rootTheme === 'dark'
+          ? { theme: rootTheme, setTheme, appearance: providerAppearance }
+          : undefined
+      }
     >
       <Theme {...themeProps}>{children}</Theme>
     </SeamsContextProvider>

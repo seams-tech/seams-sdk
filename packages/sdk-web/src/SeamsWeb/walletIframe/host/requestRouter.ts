@@ -74,8 +74,7 @@ export type PreferencesWalletRequestType =
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SET_CONFIRM_BEHAVIOR'
   | 'PM_SET_CONFIRMATION_CONFIG'
-  | 'PM_GET_CONFIRMATION_CONFIG'
-  | 'PM_SET_THEME';
+  | 'PM_GET_CONFIRMATION_CONFIG';
 
 export type WalletHostRoute =
   | {
@@ -210,7 +209,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_SET_CONFIRM_BEHAVIOR':
     case 'PM_SET_CONFIRMATION_CONFIG':
     case 'PM_GET_CONFIRMATION_CONFIG':
-    case 'PM_SET_THEME':
       return { kind: 'preferences', type: request.type, request };
   }
   return assertNever(request);

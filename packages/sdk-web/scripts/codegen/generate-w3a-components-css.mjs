@@ -203,7 +203,7 @@ function emitAliasBlock(vars) {
 
 // Also emit theme-specific alias blocks scoped to component hosts, so tokens pierce Shadow DOM via host inheritance
 const themedLightHostSelectors = hostSelectorsArr
-  .map((s) => `:root[data-w3a-theme="light"] ${s}`)
+  .map((s) => `${s}[theme="light"],\n:root[data-w3a-theme="light"] ${s}:not([theme="dark"])`)
   .join(',\n');
 const hostThemeTokens = `${themedLightHostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}`;
 

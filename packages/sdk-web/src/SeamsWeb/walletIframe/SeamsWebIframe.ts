@@ -47,6 +47,7 @@ import type {
   SignDelegateActionResult,
   SignTransactionResult,
   ThemeName,
+  AppearanceConfigInput,
   SeamsConfigsReadonly,
   SeamsConfigsInput,
 } from '@/core/types/seams';
@@ -466,8 +467,7 @@ export class SeamsWebIframe {
       deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
     };
     this.keys = {
-      resolveExactKeyExportLane: async (input) =>
-        await this.resolveExactKeyExportLaneDomain(input),
+      resolveExactKeyExportLane: async (input) => await this.resolveExactKeyExportLaneDomain(input),
       exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
@@ -580,7 +580,9 @@ export class SeamsWebIframe {
     });
     if (accountProvisioning.kind === 'sponsored_named_account') {
       if (resolvedWallet.kind !== 'provided') {
-        throw new Error('[SeamsWebIframe] sponsored NEAR registration requires a provided walletId');
+        throw new Error(
+          '[SeamsWebIframe] sponsored NEAR registration requires a provided walletId',
+        );
       }
       return await this.near.registerNearWallet({
         wallet: resolvedWallet,
@@ -1056,10 +1058,20 @@ export class SeamsWebIframe {
   setTheme(next: ThemeName): void {
     const nextTheme = coerceThemeName(next);
     if (!nextTheme) return;
-    if (this.theme === nextTheme) return;
-    this.theme = nextTheme;
+    this.setAppearance({ theme: nextTheme });
+  }
+  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void {
+    const nextTheme = coerceThemeName(appearance.theme);
+    const normalizedAppearance = {
+      ...(nextTheme ? { theme: nextTheme } : {}),
+      ...(appearance.tokens ? { tokens: appearance.tokens } : {}),
+    };
+    if (!nextTheme && !appearance.tokens) return;
+    if (nextTheme) {
+      this.theme = nextTheme;
+    }
     void this.router
-      .setTheme(nextTheme)
+      .setAppearance(normalizedAppearance)
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }

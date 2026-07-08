@@ -13,7 +13,8 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     const result = await page.evaluate(
       async ({ walletOrigin, routerPath }) => {
         const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
         const router = new WalletIframeRouter({
           walletOrigin,
           servicePath: '/wallet-service',
@@ -35,7 +36,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
         ];
         const hiddenTypes = [
           'PM_GET_WALLET_SESSION',
-          'PM_SET_THEME',
+          'PM_SET_CONFIG',
           'PM_GET_CONFIRMATION_CONFIG',
           'PM_SET_CONFIRM_BEHAVIOR',
           'PM_SET_CONFIRMATION_CONFIG',
@@ -67,7 +68,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     expect(byType['PM_SIGN_TEMPO']).toBe('fullscreen');
     // Hidden intents
     expect(byType['PM_GET_WALLET_SESSION']).toBe('hidden');
-    expect(byType['PM_SET_THEME']).toBe('hidden');
+    expect(byType['PM_SET_CONFIG']).toBe('hidden');
     expect(byType['PM_GET_CONFIRMATION_CONFIG']).toBe('hidden');
     expect(byType['PM_SET_CONFIRM_BEHAVIOR']).toBe('hidden');
     expect(byType['PM_SET_CONFIRMATION_CONFIG']).toBe('hidden');

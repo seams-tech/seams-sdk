@@ -384,4 +384,80 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
       mountedWalletId: 'frost-orchid-k7p9m2',
     });
   });
+
+  test('activation surface treats wallet iframe READY timeout as unavailable fallback', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
+        const { SeamsWeb } = mod as any;
+        const transport =
+          await import('/_test-sdk/esm/SeamsWeb/walletIframe/client/transport/iframe-transport-handshake.js');
+        const { performHandshake } = transport as any;
+        let tick = 0;
+        const readyTimeoutError = await performHandshake({
+          iframe: {} as HTMLIFrameElement,
+          connectTimeoutMs: 1,
+          walletOrigin,
+          walletServiceUrl: new URL('/wallet-service', walletOrigin),
+          connectType: 'CONNECT',
+          readyType: 'READY',
+          expectedProtocolVersion: 'test',
+          getTargetOrigin: () => walletOrigin,
+          scheduler: {
+            now: () => {
+              tick += 1;
+              return tick === 1 ? 0 : 2;
+            },
+            sleep: async () => {},
+          },
+        }).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        if (!readyTimeoutError) throw new Error('Expected wallet iframe READY timeout');
+        const pm = new SeamsWeb({
+          relayer: { url: 'https://relay.example' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+        const walletId = 'frost-orchid-k7p9m2';
+        const states: unknown[] = [];
+        (pm as any).initWalletIframe = async () => {};
+        (pm as any).walletIframe = {
+          shouldUseWalletIframe: () => true,
+          requireRouter: async () => {
+            throw readyTimeoutError;
+          },
+        };
+        const surface = pm.registration.createPasskeyRegistrationActivationSurface({
+          wallet: { kind: 'provided', walletId },
+          presentation: {
+            kind: 'outline_overlay',
+            label: 'Create with Passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+          },
+        });
+        surface.onStateChange((state: unknown) => {
+          states.push(state);
+        });
+        const target = document.createElement('div');
+        document.body.appendChild(target);
+        surface.mount(target);
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        return { states, finalState: surface.state() };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(result).toEqual({
+      states: [{ kind: 'cancelled', activationId: '', reason: 'target_unavailable' }],
+      finalState: { kind: 'cancelled', activationId: '', reason: 'target_unavailable' },
+    });
+  });
 });

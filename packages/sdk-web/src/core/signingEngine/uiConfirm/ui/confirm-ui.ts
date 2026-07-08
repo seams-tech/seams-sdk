@@ -99,8 +99,8 @@ export async function prewarmTxConfirmerUi(): Promise<void> {
   await ensureTxConfirmerElementDefined();
 }
 
-function resolveTheme(_ctx: UiConfirmContext, requested?: ThemeName): ThemeName {
-  return coerceThemeName(requested) || 'dark';
+function resolveTheme(ctx: UiConfirmContext, requested?: ThemeName): ThemeName {
+  return coerceThemeName(requested) || coerceThemeName(ctx.getTheme?.()) || 'dark';
 }
 
 function postWalletUiMessage(type: 'WALLET_UI_OPENED' | 'WALLET_UI_CLOSED'): void {

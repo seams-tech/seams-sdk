@@ -223,14 +223,22 @@ w3a-export-key-viewer {
   --w3a-colors-highlightAmount: oklch(0.74 0.166 255);
 }
 
-:root[data-w3a-theme="light"] w3a-tx-tree,
-:root[data-w3a-theme="light"] w3a-drawer,
-:root[data-w3a-theme="light"] w3a-modal-tx-confirmer,
-:root[data-w3a-theme="light"] w3a-drawer-tx-confirmer,
-:root[data-w3a-theme="light"] w3a-tx-confirm-content,
-:root[data-w3a-theme="light"] w3a-halo-border,
-:root[data-w3a-theme="light"] w3a-passkey-halo-loading,
-:root[data-w3a-theme="light"] w3a-export-key-viewer {
+w3a-tx-tree[theme="light"],
+:root[data-w3a-theme="light"] w3a-tx-tree:not([theme="dark"]),
+w3a-drawer[theme="light"],
+:root[data-w3a-theme="light"] w3a-drawer:not([theme="dark"]),
+w3a-modal-tx-confirmer[theme="light"],
+:root[data-w3a-theme="light"] w3a-modal-tx-confirmer:not([theme="dark"]),
+w3a-drawer-tx-confirmer[theme="light"],
+:root[data-w3a-theme="light"] w3a-drawer-tx-confirmer:not([theme="dark"]),
+w3a-tx-confirm-content[theme="light"],
+:root[data-w3a-theme="light"] w3a-tx-confirm-content:not([theme="dark"]),
+w3a-halo-border[theme="light"],
+:root[data-w3a-theme="light"] w3a-halo-border:not([theme="dark"]),
+w3a-passkey-halo-loading[theme="light"],
+:root[data-w3a-theme="light"] w3a-passkey-halo-loading:not([theme="dark"]),
+w3a-export-key-viewer[theme="light"],
+:root[data-w3a-theme="light"] w3a-export-key-viewer:not([theme="dark"]) {
   --w3a-colors-textPrimary: oklch(0.35 0.018 240);
   --w3a-colors-textSecondary: oklch(0.53 0.02 240);
   --w3a-colors-textMuted: oklch(0.75 0.016 240);
