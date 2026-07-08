@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import url from 'node:url';
 
-test.describe('SSR sanity: PasskeyAuthMenuSkeleton', () => {
+test.describe('SSR sanity: SeamsAuthMenuSkeleton', () => {
   test('imports public subpath and renders without window', async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const packageJsonPath = path.resolve(here, '../../packages/sdk-web/package.json');
@@ -13,9 +13,9 @@ test.describe('SSR sanity: PasskeyAuthMenuSkeleton', () => {
     const { renderToString } = packageRequire('react-dom/server');
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     const exportTarget =
-      packageJson.exports?.['./react/passkey-auth-menu']?.import ||
-      packageJson.exports?.['./react/passkey-auth-menu']?.default;
-    expect(exportTarget).toBe('./dist/esm/react/components/PasskeyAuthMenu/public.js');
+      packageJson.exports?.['./react/seams-auth-menu']?.import ||
+      packageJson.exports?.['./react/seams-auth-menu']?.default;
+    expect(exportTarget).toBe('./dist/esm/react/components/SeamsAuthMenu/public.js');
 
     const distMarkerCandidates = [path.resolve(path.dirname(packageJsonPath), exportTarget)];
     test.skip(
@@ -26,10 +26,10 @@ test.describe('SSR sanity: PasskeyAuthMenuSkeleton', () => {
     expect(typeof (globalThis as any).window).toBe('undefined');
 
     const mod: any = await import(url.pathToFileURL(distMarkerCandidates[0]).href);
-    expect(mod).toHaveProperty('PasskeyAuthMenuSkeleton');
-    expect(typeof mod.PasskeyAuthMenuSkeleton).toBe('function');
+    expect(mod).toHaveProperty('SeamsAuthMenuSkeleton');
+    expect(typeof mod.SeamsAuthMenuSkeleton).toBe('function');
 
-    const html = renderToString(React.createElement(mod.PasskeyAuthMenuSkeleton));
+    const html = renderToString(React.createElement(mod.SeamsAuthMenuSkeleton));
     expect(html).toContain('w3a-signup-menu-root');
 
     expect(typeof (globalThis as any).window).toBe('undefined');

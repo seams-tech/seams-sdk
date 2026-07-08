@@ -4,7 +4,7 @@ import { buildWalletServiceHtml, registerWalletServiceRoute, captureOverlay } fr
 
 const IMPORT_PATHS = {
   provider: '/_test-sdk/esm/react/context/SeamsWebProvider.js',
-  passkeyAuthMenu: '/_test-sdk/esm/react/components/PasskeyAuthMenu/public.js',
+  seamsAuthMenu: '/_test-sdk/esm/react/components/SeamsAuthMenu/public.js',
 } as const;
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
@@ -84,7 +84,7 @@ const qrFlowResponseScript = String.raw`
             return;
           }
 
-          if (data.type === 'PM_SET_THEME' || data.type === 'PM_PREFETCH_BLOCKHEIGHT') {
+          if (data.type === 'PM_SET_CONFIG' || data.type === 'PM_PREFETCH_BLOCKHEIGHT') {
             respondOk(requestId, undefined);
             return;
           }
@@ -92,7 +92,7 @@ const qrFlowResponseScript = String.raw`
       };
 `;
 
-test.describe('PasskeyAuthMenu QR button overlay regression', () => {
+test.describe('SeamsAuthMenu QR button overlay regression', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     await registerWalletServiceRoute(
@@ -127,9 +127,9 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
         const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
 
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const AuthMenuMode = menuMod.AuthMenuMode;
 
         const config = {
@@ -150,7 +150,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
             ReactRuntime.createElement(
               Provider,
               { config },
-              ReactRuntime.createElement(PasskeyAuthMenu, { defaultMode: AuthMenuMode.Login }),
+              ReactRuntime.createElement(SeamsAuthMenu, { defaultMode: AuthMenuMode.Login }),
             ),
           );
         });

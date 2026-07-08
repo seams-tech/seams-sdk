@@ -1,15 +1,14 @@
 import React from 'react';
 import { ArrowLeftIcon, FingerprintIcon, MailIcon } from './ui/icons';
-import { SegmentedControl } from './ui/SegmentedControl';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { ArrowRightAnim } from '../ArrowRightAnim';
-import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';
+import { AuthMenuMode, AuthMenuModeMap, type SeamsAuthMenuProps } from './types';
 import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
-import { usePasskeyAuthMenuRuntime } from './adapters/seams';
-import { usePasskeyAuthMenuController } from './controller/usePasskeyAuthMenuController';
+import { useSeamsAuthMenuRuntime } from './adapters/seams';
+import { useSeamsAuthMenuController } from './controller/useSeamsAuthMenuController';
 import { useSDKEvents } from './controller/useSDKEvents';
 import type { SeamsWeb } from '@/SeamsWeb';
 import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
@@ -100,7 +99,26 @@ function nextRegistrationActivationSurfaceRevision(current: number): number {
   return current + 1;
 }
 
-export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
+function getAuthIntentSwitchCopy(mode: AuthMenuMode): {
+  prompt: string;
+  action: string;
+  nextMode: AuthMenuMode;
+} {
+  if (mode === AuthMenuMode.Register) {
+    return {
+      prompt: 'Already have an account?',
+      action: 'Sign in',
+      nextMode: AuthMenuMode.Login,
+    };
+  }
+  return {
+    prompt: "Don't have an account?",
+    action: 'Sign up',
+    nextMode: AuthMenuMode.Register,
+  };
+}
+
+export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
   onLogin,
   onRegister,
   onSyncAccount,
@@ -109,6 +127,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   header,
   defaultMode,
   registrationAccountInput,
+  showRegistrationInput,
   style,
   className,
   socialLogin,
@@ -116,7 +135,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   headings,
   showSDKEvents = false,
 }) => {
-  const runtime = usePasskeyAuthMenuRuntime();
+  const runtime = useSeamsAuthMenuRuntime();
   const { withSdkEventsHandler } = useSDKEvents({ sdkFlow: runtime.sdkFlow });
   const [registrationActivationSurfaceState, setRegistrationActivationSurfaceState] =
     React.useState<RegistrationActivationSurfaceState>({ kind: 'idle' });
@@ -136,7 +155,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     [onSyncAccount, withSdkEventsHandler],
   );
 
-  const controller = usePasskeyAuthMenuController(
+  const controller = useSeamsAuthMenuController(
     {
       onLogin: onLoginWithSDKEvents,
       onRegister: onRegisterWithSDKEvents,
@@ -144,6 +163,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       emailOtpAuthPolicy,
       defaultMode,
       registrationAccountInput,
+      showRegistrationInput,
       headings,
       linkDeviceOptions,
       socialLogin,
@@ -158,7 +178,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   const registrationActivationTargetRef = React.useRef<HTMLDivElement | null>(null);
   const lastAutoOtpSubmitRef = React.useRef('');
 
-  const segActiveBg = 'var(--w3a-passkey-auth-menu2-seg-active-bg)';
   const rootStyle = React.useMemo<CSSVarStyle>(
     () => ({
       ...style,
@@ -265,10 +284,16 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     runtime.seamsWeb,
   ]);
 
+  const authIntentSwitchCopy = getAuthIntentSwitchCopy(controller.mode);
+  const onAuthIntentSwitchClick = React.useCallback(() => {
+    controller.onIntentChange(authIntentSwitchCopy.nextMode);
+  }, [controller, authIntentSwitchCopy.nextMode]);
+
   return (
     <div
       className={`w3a-signup-menu-root${className ? ` ${className}` : ''}`}
       data-mode={controller.mode}
+      data-mode-label={AuthMenuModeMap[controller.mode]}
       data-waiting={controller.waiting}
       data-scan-device={controller.showScanDevice}
       data-otp-prompt={controller.otpPrompt ? 'true' : 'false'}
@@ -587,16 +612,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               />
             ) : null}
 
-            <SegmentedControl
-              items={[
-                { value: AuthMenuMode.Register, label: 'Register', className: 'register' },
-                { value: AuthMenuMode.Login, label: 'Login', className: 'login' },
-              ]}
-              value={controller.mode}
-              onValueChange={(v) => controller.onSegmentChange(v as AuthMenuMode)}
-              activeBg={segActiveBg}
-            />
-
             {(controller.mode === AuthMenuMode.Login ||
               controller.mode === AuthMenuMode.Register) && (
               <div className="w3a-auth-methods">
@@ -643,9 +658,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                           aria-label="Create passkey account"
                           aria-busy={registrationActivationSurfacePreparing ? 'true' : undefined}
                           className={`w3a-auth-method-btn w3a-auth-method-btn-primary seams-passkey-registration-btn${
-                            registrationActivationSurfacePreparing
-                              ? ' is-activation-mounting'
-                              : ''
+                            registrationActivationSurfacePreparing ? ' is-activation-mounting' : ''
                           }`}
                         >
                           <span>
@@ -726,6 +739,15 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                 </div>
               </div>
             )}
+            {(controller.mode === AuthMenuMode.Login ||
+              controller.mode === AuthMenuMode.Register) && (
+              <div className="w3a-auth-intent-switch">
+                <span>{authIntentSwitchCopy.prompt}</span>
+                <button type="button" onClick={onAuthIntentSwitchClick}>
+                  {authIntentSwitchCopy.action}
+                </button>
+              </div>
+            )}
           </>
         )}
       </ContentSwitcher>
@@ -733,4 +755,4 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   );
 };
 
-export default PasskeyAuthMenuClient;
+export default SeamsAuthMenuClient;

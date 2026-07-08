@@ -11,7 +11,7 @@
 @import './components/AccountMenuButton/UserAccountButton.css';
 @import './components/AccountMenuButton/Web3AuthProfileButton.css';
 
-@import './components/PasskeyAuthMenu/PasskeyAuthMenu.css';
+@import './components/SeamsAuthMenu/SeamsAuthMenu.css';
 
 /* Import QR Code Scanner styles */
 @import './components/QRCodeScanner.css';

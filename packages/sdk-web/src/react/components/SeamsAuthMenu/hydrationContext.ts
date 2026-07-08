@@ -6,8 +6,8 @@ import React from 'react';
  *
  * Default: false (normal behavior).
  */
-export const PasskeyAuthMenuHydrationContext = React.createContext<boolean>(false);
+export const SeamsAuthMenuHydrationContext = React.createContext<boolean>(false);
 
-export function usePasskeyAuthMenuForceInitialRegister(): boolean {
-  return React.useContext(PasskeyAuthMenuHydrationContext);
+export function useSeamsAuthMenuForceInitialRegister(): boolean {
+  return React.useContext(SeamsAuthMenuHydrationContext);
 }

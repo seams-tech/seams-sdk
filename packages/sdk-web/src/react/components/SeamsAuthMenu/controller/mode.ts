@@ -7,12 +7,9 @@ export interface AuthMenuTitle {
   subtitle: string;
 }
 
-export function resolveDefaultMode(
-  accountExists: boolean,
-  requested?: AuthMenuMode | null,
-): AuthMenuMode {
+export function resolveDefaultMode(requested?: AuthMenuMode | null): AuthMenuMode {
   if (requested === AuthMenuMode.Register || requested === AuthMenuMode.Login) return requested;
-  return accountExists ? AuthMenuMode.Login : AuthMenuMode.Register;
+  return AuthMenuMode.Login;
 }
 
 export function getModeTitle(
@@ -20,10 +17,10 @@ export function getModeTitle(
   headings?: AuthMenuHeadings | null,
 ): AuthMenuTitle {
   const defaults: Record<AuthMenuMode, AuthMenuTitle> = {
-    [AuthMenuMode.Login]: { title: 'Login', subtitle: 'Login with Passkey' },
+    [AuthMenuMode.Login]: { title: 'Sign in', subtitle: 'Continue with Passkey or Google SSO' },
     [AuthMenuMode.Register]: {
-      title: 'Register Account',
-      subtitle: 'Create a wallet with Passkey',
+      title: 'Create your account',
+      subtitle: 'Continue with Passkey or Google SSO',
     },
   } as const;
 
@@ -37,13 +34,12 @@ export function getModeTitle(
 
 export interface UseAuthMenuModeArgs {
   defaultMode?: AuthMenuMode;
-  accountExists: boolean;
   currentValue: string;
   setCurrentValue: (v: string) => void;
   headings?: AuthMenuHeadings | null;
   /**
-   * When true, forces the initial client render to start in Register mode, even if
-   * `accountExists` suggests Login. This is used to align hydration with the shell skeleton.
+   * When true, forces the initial client render to start in Register mode.
+   * This is used to align hydration with the shell skeleton.
    */
   forceInitialRegister?: boolean;
 }
@@ -52,7 +48,7 @@ export interface UseAuthMenuModeResult {
   mode: AuthMenuMode;
   setMode: React.Dispatch<React.SetStateAction<AuthMenuMode>>;
   title: AuthMenuTitle;
-  onSegmentChange: (next: AuthMenuMode) => void;
+  onIntentChange: (next: AuthMenuMode) => void;
   onInputChange: (val: string) => void;
   resetToDefault: () => void;
 }
@@ -60,27 +56,26 @@ export interface UseAuthMenuModeResult {
 /**
  * `useAuthMenuMode`
  *
- * Minimal mode/title controller for PasskeyAuthMenu.
+ * Minimal mode/title controller for SeamsAuthMenu.
  * - No IndexedDB/wallet-prefill logic yet (intentionally).
  * - Pure state transitions to keep the baseline bundle small and predictable.
  */
 export function useAuthMenuMode({
   defaultMode,
-  accountExists,
   currentValue,
   setCurrentValue,
   headings,
   forceInitialRegister = false,
 }: UseAuthMenuModeArgs): UseAuthMenuModeResult {
-  const preferredDefaultMode = resolveDefaultMode(accountExists, defaultMode);
+  const preferredDefaultMode = resolveDefaultMode(defaultMode);
   const [mode, setMode] = React.useState<AuthMenuMode>(() => {
     if (forceInitialRegister) return AuthMenuMode.Register;
     return preferredDefaultMode;
   });
   const title = React.useMemo(() => getModeTitle(mode, headings), [mode, headings]);
 
-  const onSegmentChange = (nextMode: AuthMenuMode) => {
-    setMode(resolveDefaultMode(accountExists, nextMode));
+  const onIntentChange = (nextMode: AuthMenuMode) => {
+    setMode(resolveDefaultMode(nextMode));
   };
 
   const onInputChange = (val: string) => {
@@ -88,12 +83,12 @@ export function useAuthMenuMode({
   };
 
   const resetToDefault = () => {
-    const nextMode = resolveDefaultMode(accountExists, defaultMode);
+    const nextMode = resolveDefaultMode(defaultMode);
     setMode(nextMode);
     setCurrentValue('');
   };
 
-  return { mode, setMode, title, onSegmentChange, onInputChange, resetToDefault };
+  return { mode, setMode, title, onIntentChange, onInputChange, resetToDefault };
 }
 
 export default useAuthMenuMode;

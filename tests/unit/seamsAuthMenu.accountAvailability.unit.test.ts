@@ -3,11 +3,11 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   useAccountInput: '/_test-sdk/esm/react/hooks/useAccountInput.js',
-  accountExistsBadge: '/_test-sdk/esm/react/components/PasskeyAuthMenu/ui/AccountExistsBadge.js',
-  authMenuTypes: '/_test-sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
+  accountExistsBadge: '/_test-sdk/esm/react/components/SeamsAuthMenu/ui/AccountExistsBadge.js',
+  authMenuTypes: '/_test-sdk/esm/react/components/SeamsAuthMenu/authMenuTypes.js',
 } as const;
 
-test.describe('Passkey auth account availability', () => {
+test.describe('SeamsAuthMenu account availability', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });

@@ -9,7 +9,7 @@ const repoRoot = path.resolve(scriptDir, '../..');
 const registrationButtonRoot =
   'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/passkey-registration-btn';
 const forbiddenImport =
-  /(?:IframeTxConfirmer|TxTree|tx-confirmer|tx-confirm|export-key|export-private-key|ExportKey|viewer-modal|viewer-drawer|Drawer|Modal|\/react\b|@\/react\b|PasskeyAuthMenu)/;
+  /(?:IframeTxConfirmer|TxTree|tx-confirmer|tx-confirm|export-key|export-private-key|ExportKey|viewer-modal|viewer-drawer|Drawer|Modal|\/react\b|@\/react\b|SeamsAuthMenu)/;
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);

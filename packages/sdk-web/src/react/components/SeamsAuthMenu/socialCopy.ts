@@ -1,9 +1,8 @@
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
-import { AuthMenuMode } from './authMenuTypes';
+import type { AuthMenuMode } from './authMenuTypes';
 
 export function getGoogleSsoButtonLabel(mode: AuthMenuMode): string {
-  if (mode === AuthMenuMode.Register) return 'Register with Google SSO';
-  if (mode === AuthMenuMode.Login) return 'Sign in with Google SSO';
+  void mode;
   return 'Continue with Google SSO';
 }
 

@@ -2,7 +2,7 @@ import { useSeams } from '@/react/context';
 import type { SeamsWeb } from '@/SeamsWeb';
 import { type SDKFlowRuntime, type StoredAccountOption } from '@/react/types';
 
-export interface PasskeyAuthMenuRuntime {
+export interface SeamsAuthMenuRuntime {
   seamsWeb: SeamsWeb;
   accountExists: boolean;
   passkeyCredentialExists: boolean;
@@ -17,7 +17,7 @@ export interface PasskeyAuthMenuRuntime {
   stopDevice2LinkingFlow?: () => Promise<void>;
 }
 
-export function usePasskeyAuthMenuRuntime(): PasskeyAuthMenuRuntime {
+export function useSeamsAuthMenuRuntime(): SeamsAuthMenuRuntime {
   const ctx = useSeams();
   const accountExists = !!ctx.accountInputState?.accountExists;
   const passkeyCredentialExists = !!ctx.accountInputState?.passkeyCredentialExists;
@@ -37,4 +37,4 @@ export function usePasskeyAuthMenuRuntime(): PasskeyAuthMenuRuntime {
   };
 }
 
-export default usePasskeyAuthMenuRuntime;
+export default useSeamsAuthMenuRuntime;

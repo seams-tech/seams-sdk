@@ -231,7 +231,7 @@ pnpm build:sdk
   - `wallet-iframe/router.behavior.sticky.test.ts` sticky lifecycle + cancelAll
   - `wallet-iframe/router.behavior.concurrent.test.ts` aggregate overlay visibility under concurrent requests
   - `wallet-iframe/router.computeOverlayIntent.test.ts` intent mapping
-  - `wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts` QR start regression (no wallet iframe reveal on click)
+  - `wallet-iframe/seamsAuthMenu.qrButton.overlay.test.ts` QR start regression (no wallet iframe reveal on click)
 
 - Lit Components
   - `lit-components/confirm-ui.host-and-inline.test.ts` modal/drawer confirm/cancel

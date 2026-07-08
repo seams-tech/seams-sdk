@@ -2,7 +2,7 @@ import React from 'react';
 import type { SDKFlowRuntime } from '@/react/types';
 
 /*
- * Feeds SDK events to the PasskeyAuthMenu so that we can display SDK events
+ * Feeds SDK events to the SeamsAuthMenu so that we can display SDK events
  * for registration, recovery, login, and related flows.
  */
 

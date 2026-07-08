@@ -8,8 +8,8 @@ Featuring:
 
 - **Core SDK**: Framework-agnostic JavaScript/TypeScript library
 - **React Components**: Drop-in components and hooks for React applications
-- **Hosted wallet runtime**: static wallet-service, export-viewer, worker, and
-  WASM artifacts for the wallet origin
+- **Hosted wallet runtime**: static wallet-service, worker, WASM, and export
+  viewer support assets for the wallet origin
 
 ## Installation
 
@@ -95,13 +95,13 @@ Identity token acquisition and the SDK owns wallet registration, unlock,
 challenge routing, signing-session readiness, and wallet-iframe routing.
 
 ```tsx
-import { PasskeyAuthMenu } from '@seams/sdk/react';
+import { SeamsAuthMenu } from '@seams/sdk/react';
 
 function AuthMenu() {
   const seams = useSeams();
 
   return (
-    <PasskeyAuthMenu
+    <SeamsAuthMenu
       socialLogin={{
         google: async ({ mode, emailOtpAuthPolicy }) => {
           const idToken = await getGoogleIdTokenFromYourApp();
@@ -126,7 +126,7 @@ function AuthMenu() {
 }
 ```
 
-When the wallet runs in iframe mode, `PasskeyAuthMenu` renders the passkey
+When the wallet runs in iframe mode, `SeamsAuthMenu` renders the passkey
 registration CTA through the wallet iframe activation surface. The visible
 wrapper keeps the app's normal styling, while the wallet-origin iframe owns the
 actual click that opens WebAuthn. Direct SDK calls such as
@@ -179,9 +179,10 @@ const config = {
 };
 ```
 
-The Seams-operated wallet origin serves `/wallet-service`, `/export-viewer`,
-`/sdk/*`, and `/sdk/workers/*` from `@seams/sdk/dist/public`. App origins should
-not route those paths.
+The Seams-operated wallet origin serves `/wallet-service`, `/sdk/*`, and
+`/sdk/workers/*` from `@seams/sdk/dist/public`. Private-key export uses a
+wallet-origin inline viewer document that loads its support files from `/sdk/*`.
+App origins should not route those paths.
 
 The SDK-created wallet iframe carries the default WebAuthn delegation through
 its `allow` attribute. App-platform `Permissions-Policy` should only be added

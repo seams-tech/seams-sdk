@@ -6,7 +6,8 @@
 
 .w3a-signup-menu-root {
   /* CSS sentinel (used by tests/diagnostics to confirm stylesheet is applied) */
-  --w3a-pam2-css-ready: 1;
+  --w3a-seams-auth-menu-css-ready: 1;
+  --w3a-seams-auth-menu-padding-top: calc(var(--w3a-spacing-lg) + 4px);
   position: relative;
   /* relative position to anchor back button */
   width: min(100dvw, 420px);
@@ -17,9 +18,13 @@
   background: var(--w3a-colors-colorBackground);
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: 3rem;
-  box-shadow: var(--w3a-shadows-lg);
+  box-shadow: var(
+    --w3a-seams-auth-menu-shadow,
+    0 1px 3px -2px rgba(15, 23, 42, 0.1),
+    0 8px 18px -16px rgba(15, 23, 42, 0.22)
+  );
   padding: var(--w3a-spacing-lg);
-  padding-top: calc(var(--w3a-spacing-lg) + 4px);
+  padding-top: var(--w3a-seams-auth-menu-padding-top);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -340,8 +345,18 @@
   opacity: 0.85;
 }
 
+/* secondary accent (social/SSO) button: themes tint it via the
+   secondaryButton* tokens; defaults preserve the plain surface look */
 .w3a-auth-method-btn-secondary {
-  background: var(--w3a-colors-surface);
+  background: var(--w3a-colors-secondaryButtonBackground, var(--w3a-colors-surface));
+  border-color: var(--w3a-colors-secondaryButtonBorder, var(--w3a-colors-borderPrimary));
+  color: var(--w3a-colors-secondaryButtonText, #000000);
+}
+
+.w3a-auth-method-btn-secondary:hover:not(:disabled),
+.w3a-auth-method-btn-secondary:focus-visible {
+  background: var(--w3a-colors-secondaryButtonHoverBackground, var(--w3a-colors-surface2));
+  color: var(--w3a-colors-secondaryButtonText, #000000);
 }
 
 .w3a-auth-method-arrow {
@@ -659,14 +674,15 @@
 
 .w3a-input-pill {
   position: relative;
+  box-sizing: border-box;
   display: flex;
   flex: 1;
   align-items: center;
   padding: 0rem 1rem;
   height: 54px;
   gap: 8px;
-  border: none;
-  background: var(--w3a-colors-surface);
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 36%);
+  background: var(--w3a-colors-surface2);
   border-radius: 2rem 2rem 2rem 2rem;
   box-shadow: none;
   overflow: visible;
@@ -904,97 +920,11 @@
   line-height: 1.2;
 }
 
-/* Segmented control */
-.w3a-seg {
-  position: relative;
-  min-height: 54px;
-  overflow: hidden;
-  padding: 5px;
-  border: none;
-  background: var(--w3a-colors-surface2);
-  border-radius: var(--w3a-border-radius-xl);
-}
-
-.w3a-seg-active {
-  position: absolute;
-  top: 5px;
-  bottom: 5px;
-  left: 0;
-  border-radius: var(--w3a-border-radius-xl);
-  transition:
-    transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    width 220ms ease,
-    opacity 150ms ease;
-  will-change: transform, width;
-  pointer-events: none;
-}
-
-.w3a-seg-grid {
-  display: flex;
-  gap: 4px;
-  height: 100%;
-  position: relative;
-  z-index: 1;
-}
-
-.w3a-seg-btn {
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 44px;
-  border-radius: 1rem;
-  background: transparent;
-  /* Make inactive tabs more legible and clearly tappable */
-  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 45%);
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  /* Immediate taps on mobile; opt-out of double-tap zoom heuristics */
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  transition:
-    color 200ms ease,
-    transform 120ms ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  white-space: normal;
-  padding: 0 14px;
-  font-size: clamp(13px, 3.6vw, 15px);
-}
-
-.w3a-seg-btn:hover {
-  transform: scale(1.02);
-}
-
-.w3a-seg-btn:active {
-  transform: scale(0.98);
-}
-
-.w3a-seg-btn.is-active {
-  color: var(--w3a-colors-textPrimary);
-}
-
-.w3a-seg-btn.is-active.register {
-  color: var(--w3a-passkey-auth-menu2-seg-register-active-text, var(--w3a-colors-textPrimary));
-}
-
-.w3a-seg-btn.is-active.register:hover,
-.w3a-seg-btn.is-active.register:focus-visible {
-  color: var(
-    --w3a-passkey-auth-menu2-seg-register-active-text-hover,
-    var(--w3a-colors-primaryHover)
-  );
-}
-
-.w3a-seg-btn:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--w3a-colors-focus), transparent 60%);
-}
-
 @media (max-width: 420px) {
   .w3a-signup-menu-root {
+    --w3a-seams-auth-menu-padding-top: calc(1rem + 4px);
     padding: 1rem;
-    padding-top: calc(1rem + 4px);
+    padding-top: var(--w3a-seams-auth-menu-padding-top);
     border-radius: 2rem;
     max-width: calc(100dvw - 0.25rem);
   }
@@ -1016,26 +946,6 @@
 
   .w3a-input-pill {
     height: 48px;
-  }
-
-  .w3a-seg {
-    min-height: 48px;
-    padding: 4px;
-  }
-
-  .w3a-seg-grid {
-    gap: 3px;
-  }
-
-  .w3a-seg-active {
-    top: 4px;
-    bottom: 4px;
-  }
-
-  .w3a-seg-btn {
-    min-height: 42px;
-    padding: 0 12px;
-    font-size: clamp(12px, 3.4vw, 14px);
   }
 
   .w3a-back-button {
@@ -1176,21 +1086,6 @@
   font-weight: 700;
 }
 
-.w3a-seg-help {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 25%);
-  margin: 0;
-  margin-left: 0.75rem;
-}
-
-.w3a-seg-help-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-}
-
 /* Tooltip for account existence status */
 .w3a-input-wrap .w3a-tooltip {
   position: absolute;
@@ -1284,6 +1179,41 @@
   gap: 8px;
 }
 
+.w3a-auth-intent-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 1rem 0 0;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 10%);
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.w3a-auth-intent-switch button,
+.w3a-auth-intent-switch-action {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  font: inherit;
+  font-weight: 700;
+}
+
+.w3a-auth-intent-switch button {
+  cursor: pointer;
+}
+
+.w3a-auth-intent-switch button:hover,
+.w3a-auth-intent-switch button:focus-visible {
+  color: var(--w3a-colors-primaryHover);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
 .w3a-link-device-btn {
   display: flex;
   align-items: center;
@@ -1295,7 +1225,7 @@
   height: 48px;
   width: 100%;
   max-width: 100%;
-  background: var(--w3a-colors-surface) !important;
+  background: var(--w3a-colors-surface2) !important;
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: 2rem;
   cursor: pointer;
@@ -1317,7 +1247,7 @@
 /* Hover/focus elevated state (theme-reactive via CSS vars) */
 .w3a-link-device-btn:hover:not(:disabled),
 .w3a-link-device-btn:focus-visible {
-  background: var(--w3a-colors-surface2) !important;
+  background: var(--w3a-colors-surface3) !important;
 }
 
 .w3a-link-device-btn-primary {

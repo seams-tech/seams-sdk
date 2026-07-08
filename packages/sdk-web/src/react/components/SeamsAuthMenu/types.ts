@@ -17,7 +17,7 @@ import {
 export { AuthMenuMode, AuthMenuModeMap };
 export type { AuthMenuModeLabel, AuthMenuHeadings };
 
-export type PasskeyAuthMenuOtpPrompt = {
+export type SeamsAuthMenuOtpPrompt = {
   title?: string;
   description?: string;
   emailHint?: string;
@@ -36,7 +36,7 @@ export type PasskeyAuthMenuOtpPrompt = {
   onSubmit: (
     otpCode: string,
     context?: { recoveryKey?: string },
-  ) => void | Promise<unknown> | PasskeyAuthMenuOtpSubmitResult;
+  ) => void | Promise<unknown> | SeamsAuthMenuOtpSubmitResult;
   onRerollAccount?: () =>
     | Promise<
         | {
@@ -72,12 +72,12 @@ export type PasskeyAuthMenuOtpPrompt = {
   resendDebounceMs?: number;
 };
 
-export type PasskeyAuthMenuOtpSubmitResult = {
+export type SeamsAuthMenuOtpSubmitResult = {
   walletId?: string;
   activeRecoveryWrappedEnrollmentEscrowCount?: number;
 };
 
-export type PasskeyAuthMenuRegistrationPrompt = {
+export type SeamsAuthMenuRegistrationPrompt = {
   username?: string;
   walletId?: string;
   accountId?: string;
@@ -116,65 +116,70 @@ export type PasskeyAuthMenuRegistrationPrompt = {
   onCancel?: () => void | Promise<void>;
 };
 
-export type PasskeyAuthMenuSocialCompletion = (result: {
+export type SeamsAuthMenuSocialCompletion = (result: {
   walletId: WalletId;
   mode: GoogleEmailOtpWalletAuthResolvedMode;
   session: WalletSession;
 }) => void | Promise<void>;
 
-export type PasskeyAuthMenuSocialLoginResult =
+export type SeamsAuthMenuSocialLoginResult =
   | {
       kind?: 'otp_prompt';
       username?: string;
-      otpPrompt?: PasskeyAuthMenuOtpPrompt;
-      onComplete?: PasskeyAuthMenuSocialCompletion;
+      otpPrompt?: SeamsAuthMenuOtpPrompt;
+      onComplete?: SeamsAuthMenuSocialCompletion;
     }
   | {
       kind: 'otp_flow';
       flow: GoogleEmailOtpWalletAuthFlow;
-      onComplete?: PasskeyAuthMenuSocialCompletion;
+      onComplete?: SeamsAuthMenuSocialCompletion;
     }
   | {
       kind: 'registration_flow';
       flow: GoogleEmailOtpWalletAuthRegistrationFlow;
-      onComplete?: PasskeyAuthMenuSocialCompletion;
+      onComplete?: SeamsAuthMenuSocialCompletion;
     };
 
-export type PasskeyAuthMenuSocialLoginHandler = (args: {
+export type SeamsAuthMenuSocialLoginHandler = (args: {
   mode: AuthMenuMode;
   emailOtpAuthPolicy: EmailOtpAuthPolicy;
-}) => void | PasskeyAuthMenuSocialLoginResult | Promise<void | PasskeyAuthMenuSocialLoginResult>;
+}) => void | SeamsAuthMenuSocialLoginResult | Promise<void | SeamsAuthMenuSocialLoginResult>;
 
-export type PasskeyAuthMenuRegistrationAccountInput =
+export type SeamsAuthMenuRegistrationAccountInput =
   | 'implicit_wallet'
   | 'sponsored_named_near_account';
 
-export type PasskeyAuthMenuProvidedRegistrationWallet = Extract<
+export type SeamsAuthMenuProvidedRegistrationWallet = Extract<
   RegisterWalletInput,
   { kind: 'provided' }
 >;
 
-export type PasskeyAuthMenuRegistrationRequest =
+export type SeamsAuthMenuRegistrationRequest =
   | {
       kind: 'implicit_wallet';
-      wallet: PasskeyAuthMenuProvidedRegistrationWallet;
+      wallet: SeamsAuthMenuProvidedRegistrationWallet;
     }
   | {
       kind: 'sponsored_named_near_account';
-      wallet: PasskeyAuthMenuProvidedRegistrationWallet;
+      wallet: SeamsAuthMenuProvidedRegistrationWallet;
     };
 
-export interface PasskeyAuthMenuProps {
+export interface SeamsAuthMenuProps {
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onLogin?: () => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
-  onRegister?: (request: PasskeyAuthMenuRegistrationRequest) => void | Promise<unknown>;
+  onRegister?: (request: SeamsAuthMenuRegistrationRequest) => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onSyncAccount?: () => void | Promise<unknown>;
   /** App-selected Email OTP signing-session policy exposed through the auth menu. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   /** Registration wallet/account input policy. Defaults to implicit wallet registration. */
-  registrationAccountInput?: PasskeyAuthMenuRegistrationAccountInput;
+  registrationAccountInput?: SeamsAuthMenuRegistrationAccountInput;
+  /**
+   * Show the generated walletId field during implicit wallet registration.
+   * Defaults to false. Sponsored named-account registration still shows its required input.
+   */
+  showRegistrationInput?: boolean;
   /** Display SDK progress event messages under the waiting screen. */
   showSDKEvents?: boolean;
   /**
@@ -204,8 +209,8 @@ export interface PasskeyAuthMenuProps {
    * If omitted or all undefined, the social buttons are hidden.
    */
   socialLogin?: {
-    google?: PasskeyAuthMenuSocialLoginHandler;
-    x?: PasskeyAuthMenuSocialLoginHandler;
-    apple?: PasskeyAuthMenuSocialLoginHandler;
+    google?: SeamsAuthMenuSocialLoginHandler;
+    x?: SeamsAuthMenuSocialLoginHandler;
+    apple?: SeamsAuthMenuSocialLoginHandler;
   };
 }

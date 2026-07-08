@@ -9,15 +9,15 @@ import {
   formatEmailOtpRecoveryKey,
   normalizeEmailOtpRecoveryKey,
 } from '@shared/utils/emailOtpRecoveryKey';
-import type { PasskeyAuthMenuRuntime } from '../adapters/seams';
+import type { SeamsAuthMenuRuntime } from '../adapters/seams';
 import {
   AuthMenuMode,
-  type PasskeyAuthMenuOtpPrompt,
-  type PasskeyAuthMenuProps,
-  type PasskeyAuthMenuRegistrationAccountInput,
-  type PasskeyAuthMenuRegistrationPrompt,
-  type PasskeyAuthMenuRegistrationRequest,
-  type PasskeyAuthMenuSocialCompletion,
+  type SeamsAuthMenuOtpPrompt,
+  type SeamsAuthMenuProps,
+  type SeamsAuthMenuRegistrationAccountInput,
+  type SeamsAuthMenuRegistrationPrompt,
+  type SeamsAuthMenuRegistrationRequest,
+  type SeamsAuthMenuSocialCompletion,
 } from '../types';
 import type {
   GoogleEmailOtpWalletAuthFlow,
@@ -26,7 +26,7 @@ import type {
 } from '@/SeamsWeb';
 import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
-import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
+import { useSeamsAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
 import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
@@ -65,11 +65,11 @@ function providedRegistrationWalletFromValue(walletId: string): ProvidedRegistra
   };
 }
 
-function createPasskeyAuthMenuRegistrationRequest(input: {
-  registrationAccountInput: PasskeyAuthMenuRegistrationAccountInput;
+function createSeamsAuthMenuRegistrationRequest(input: {
+  registrationAccountInput: SeamsAuthMenuRegistrationAccountInput;
   passkeyRegistrationDraft: PasskeyRegistrationDraft;
   currentValue: string;
-}): PasskeyAuthMenuRegistrationRequest {
+}): SeamsAuthMenuRegistrationRequest {
   switch (input.registrationAccountInput) {
     case 'implicit_wallet':
       return {
@@ -86,14 +86,14 @@ function createPasskeyAuthMenuRegistrationRequest(input: {
   throw new Error(`Unknown passkey registration account input: ${exhaustive}`);
 }
 
-export interface PasskeyAuthMenuLinkDeviceController {
+export interface SeamsAuthMenuLinkDeviceController {
   isOpen: boolean;
   onClose: () => void;
   onEvent: (event: LinkDeviceFlowEvent) => void;
   onError: (error: Error) => void;
 }
 
-export interface PasskeyAuthMenuOtpPromptController {
+export interface SeamsAuthMenuOtpPromptController {
   title: string;
   description: string;
   emailHint?: string;
@@ -124,7 +124,7 @@ export interface PasskeyAuthMenuOtpPromptController {
   onBack: () => void;
 }
 
-export interface PasskeyAuthMenuRegistrationPromptController {
+export interface SeamsAuthMenuRegistrationPromptController {
   title: string;
   description: string;
   emailHint?: string;
@@ -140,7 +140,7 @@ export interface PasskeyAuthMenuRegistrationPromptController {
   onBack: () => void;
 }
 
-export interface PasskeyAuthMenuPostRecoveryRotationPromptController {
+export interface SeamsAuthMenuPostRecoveryRotationPromptController {
   walletId: string;
   activeRecoveryCodeCount: number;
   expectedRecoveryCodeCount: number;
@@ -150,15 +150,15 @@ export interface PasskeyAuthMenuPostRecoveryRotationPromptController {
   onDismiss: () => void;
 }
 
-export interface PasskeyAuthMenuController {
+export interface SeamsAuthMenuController {
   mode: AuthMenuMode;
   title: { title: string; subtitle: string };
   waiting: boolean;
   waitingReason: 'passkey' | 'social' | 'restore' | null;
   showScanDevice: boolean;
-  otpPrompt: PasskeyAuthMenuOtpPromptController | null;
-  registrationPrompt: PasskeyAuthMenuRegistrationPromptController | null;
-  postRecoveryRotationPrompt: PasskeyAuthMenuPostRecoveryRotationPromptController | null;
+  otpPrompt: SeamsAuthMenuOtpPromptController | null;
+  registrationPrompt: SeamsAuthMenuRegistrationPromptController | null;
+  postRecoveryRotationPrompt: SeamsAuthMenuPostRecoveryRotationPromptController | null;
   methodError?: string;
   currentValue: string;
   showAccountInput: boolean;
@@ -176,7 +176,7 @@ export interface PasskeyAuthMenuController {
   canShowContinue: boolean;
   canSubmit: boolean;
   canRecoverAccountWithEmail: boolean;
-  onSegmentChange: (next: AuthMenuMode) => void;
+  onIntentChange: (next: AuthMenuMode) => void;
   onInputChange: (val: string) => void;
   onProceed: () => void;
   onRecoverAccountWithEmail: () => void;
@@ -185,7 +185,7 @@ export interface PasskeyAuthMenuController {
   onSocialLogin: (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => void;
   onRegistrationActivationSurfaceStateChange: (state: RegistrationActivationSurfaceState) => void;
   closeLinkDeviceView: (reason: 'user' | 'flow') => void;
-  linkDevice: PasskeyAuthMenuLinkDeviceController;
+  linkDevice: SeamsAuthMenuLinkDeviceController;
 }
 
 type ActiveOtpPromptState = {
@@ -204,10 +204,10 @@ type ActiveOtpPromptState = {
     scanLabel?: string;
     onScan?: () => string | void | Promise<string | void>;
   };
-  onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
-  onRerollAccount?: PasskeyAuthMenuOtpPrompt['onRerollAccount'];
-  onResend?: PasskeyAuthMenuOtpPrompt['onResend'];
-  onCancel?: PasskeyAuthMenuOtpPrompt['onCancel'];
+  onSubmit: SeamsAuthMenuOtpPrompt['onSubmit'];
+  onRerollAccount?: SeamsAuthMenuOtpPrompt['onRerollAccount'];
+  onResend?: SeamsAuthMenuOtpPrompt['onResend'];
+  onCancel?: SeamsAuthMenuOtpPrompt['onCancel'];
   resendDebounceMs: number;
   refreshLoginStateAfterSubmit: boolean;
 };
@@ -220,9 +220,9 @@ type ActiveRegistrationPromptState = {
   accountId: string;
   submitLabel: string;
   helperText: string;
-  onSubmit: PasskeyAuthMenuRegistrationPrompt['onSubmit'];
-  onRerollAccount: NonNullable<PasskeyAuthMenuRegistrationPrompt['onRerollAccount']>;
-  onCancel?: PasskeyAuthMenuRegistrationPrompt['onCancel'];
+  onSubmit: SeamsAuthMenuRegistrationPrompt['onSubmit'];
+  onRerollAccount: NonNullable<SeamsAuthMenuRegistrationPrompt['onRerollAccount']>;
+  onCancel?: SeamsAuthMenuRegistrationPrompt['onCancel'];
 };
 
 type ActivePostRecoveryRotationPromptState = {
@@ -233,7 +233,7 @@ type ActivePostRecoveryRotationPromptState = {
 };
 
 function resolveOtpPrompt(
-  prompt: PasskeyAuthMenuOtpPrompt,
+  prompt: SeamsAuthMenuOtpPrompt,
   username?: string,
   options?: { refreshLoginStateAfterSubmit?: boolean },
 ): ActiveOtpPromptState {
@@ -282,7 +282,7 @@ function resolveOtpPrompt(
 }
 
 function resolveRegistrationPrompt(
-  prompt: PasskeyAuthMenuRegistrationPrompt,
+  prompt: SeamsAuthMenuRegistrationPrompt,
 ): ActiveRegistrationPromptState {
   const accountId = String(prompt.accountId || prompt.username || '').trim();
   if (!accountId) {
@@ -316,13 +316,13 @@ function resolveRegistrationPrompt(
 
 function otpPromptFromGoogleEmailOtpFlow(input: {
   flow: GoogleEmailOtpWalletAuthFlow;
-  onComplete?: PasskeyAuthMenuSocialCompletion;
-}): { username: string; otpPrompt: PasskeyAuthMenuOtpPrompt } {
+  onComplete?: SeamsAuthMenuSocialCompletion;
+}): { username: string; otpPrompt: SeamsAuthMenuOtpPrompt } {
   if (input.flow.mode !== 'login') {
     throw new Error('Google Email OTP registration must use a registration prompt.');
   }
   let activeFlow: GoogleEmailOtpWalletAuthLoginFlow = input.flow;
-  const promptForFlow = (): PasskeyAuthMenuOtpPrompt => ({
+  const promptForFlow = (): SeamsAuthMenuOtpPrompt => ({
     title: activeFlow.prompt.title,
     description: activeFlow.prompt.description,
     emailHint: activeFlow.emailHint,
@@ -355,10 +355,10 @@ function otpPromptFromGoogleEmailOtpFlow(input: {
 
 function registrationPromptFromGoogleEmailOtpFlow(input: {
   flow: GoogleEmailOtpWalletAuthRegistrationFlow;
-  onComplete?: PasskeyAuthMenuSocialCompletion;
-}): { username: string; registrationPrompt: PasskeyAuthMenuRegistrationPrompt } {
+  onComplete?: SeamsAuthMenuSocialCompletion;
+}): { username: string; registrationPrompt: SeamsAuthMenuRegistrationPrompt } {
   let activeFlow = input.flow;
-  const promptForFlow = (): PasskeyAuthMenuRegistrationPrompt => ({
+  const promptForFlow = (): SeamsAuthMenuRegistrationPrompt => ({
     title: activeFlow.prompt.title,
     description: activeFlow.prompt.description,
     emailHint: activeFlow.emailHint,
@@ -449,6 +449,26 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function getInlineErrorCandidate(error: unknown, fallback: string): string {
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  return getErrorMessage(error, fallback);
+}
+
+function isWalletRequestRuntimeError(error: unknown): boolean {
+  const message = getInlineErrorCandidate(error, '').toLowerCase();
+  return (
+    message.includes('wallet request timeout for pm_') ||
+    message.includes('wallet iframe ready timeout') ||
+    message.includes('wallet iframe ready timed out') ||
+    message.includes('wallet iframe is configured but unavailable')
+  );
+}
+
+function warnSeamsAuthMenuAsyncError(context: string, error: unknown, fallback: string): void {
+  const message = getInlineErrorCandidate(error, fallback);
+  console.warn(`[SeamsAuthMenu] ${context}: ${message}`, error);
+}
+
 function getRegistrationCancellationErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error;
   return getErrorMessage(error, '');
@@ -523,45 +543,45 @@ function hasLocalPasskeyAccountOption(input: {
   return false;
 }
 
-export function usePasskeyAuthMenuController(
+export function useSeamsAuthMenuController(
   props: Pick<
-    PasskeyAuthMenuProps,
+    SeamsAuthMenuProps,
     | 'onLogin'
     | 'onRegister'
     | 'onSyncAccount'
     | 'emailOtpAuthPolicy'
     | 'defaultMode'
     | 'registrationAccountInput'
+    | 'showRegistrationInput'
     | 'headings'
     | 'linkDeviceOptions'
     | 'socialLogin'
   >,
-  runtime: PasskeyAuthMenuRuntime,
-): PasskeyAuthMenuController {
+  runtime: SeamsAuthMenuRuntime,
+): SeamsAuthMenuController {
   const secure = typeof window !== 'undefined' ? window.isSecureContext : true;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy = props.emailOtpAuthPolicy || 'session';
-  const registrationAccountInput: PasskeyAuthMenuRegistrationAccountInput =
+  const registrationAccountInput: SeamsAuthMenuRegistrationAccountInput =
     props.registrationAccountInput || 'implicit_wallet';
   const registrationUsesGeneratedWalletInput = registrationAccountInput === 'implicit_wallet';
   const registrationRequiresAccountInput =
     registrationAccountInput === 'sponsored_named_near_account';
+  const showGeneratedRegistrationInput = props.showRegistrationInput === true;
   const loginTargetExists = runtime.passkeyCredentialExists;
   const registrationTargetExists = registrationRequiresAccountInput && runtime.accountExists;
-  const defaultModeTargetExists = loginTargetExists || registrationTargetExists;
   const currentValue = runtime.inputUsername;
   const setCurrentValue = runtime.setInputUsername;
-  const forceInitialRegister = usePasskeyAuthMenuForceInitialRegister();
+  const forceInitialRegister = useSeamsAuthMenuForceInitialRegister();
 
   const {
     mode,
     setMode,
     title,
-    onSegmentChange: onSegmentChangeBase,
+    onIntentChange: onIntentChangeBase,
     onInputChange: onInputChangeBase,
     resetToDefault,
   } = useAuthMenuMode({
     defaultMode: props.defaultMode,
-    accountExists: defaultModeTargetExists,
     currentValue,
     setCurrentValue,
     headings: props.headings,
@@ -624,7 +644,7 @@ export function usePasskeyAuthMenuController(
     prefilledValueRef.current = '';
   }, []);
 
-  const onSegmentChange = React.useCallback(
+  const onIntentChange = React.useCallback(
     (next: AuthMenuMode) => {
       lastUserSelectedModeRef.current = next;
       if (next === AuthMenuMode.Register) {
@@ -637,9 +657,9 @@ export function usePasskeyAuthMenuController(
         clearPrefillMarkers();
       }
       setMethodError('');
-      onSegmentChangeBase(next);
+      onIntentChangeBase(next);
     },
-    [mode, currentValue, setCurrentValue, onSegmentChangeBase, clearPrefillMarkers],
+    [mode, currentValue, setCurrentValue, onIntentChangeBase, clearPrefillMarkers],
   );
 
   const onInputChange = React.useCallback(
@@ -680,7 +700,7 @@ export function usePasskeyAuthMenuController(
   const showAccountInput =
     mode === AuthMenuMode.Login ||
     registrationRequiresAccountInput ||
-    registrationUsesGeneratedWalletInput;
+    (registrationUsesGeneratedWalletInput && showGeneratedRegistrationInput);
   const accountInputReadOnly =
     mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput;
   const registrationActivationWallet =
@@ -859,7 +879,7 @@ export function usePasskeyAuthMenuController(
           closeLinkDeviceView('flow');
           setMode(AuthMenuMode.Login);
         } else {
-          const registrationRequest = createPasskeyAuthMenuRegistrationRequest({
+          const registrationRequest = createSeamsAuthMenuRegistrationRequest({
             registrationAccountInput,
             passkeyRegistrationDraft,
             currentValue,
@@ -876,7 +896,12 @@ export function usePasskeyAuthMenuController(
           closeLinkDeviceView('flow');
           setMode(mode);
           if (shouldRestoreSyncedPasskey) {
-            setMethodError(getErrorMessage(error, 'Could not restore from synced passkey.'));
+            warnSeamsAuthMenuAsyncError(
+              'synced passkey restore failed',
+              error,
+              'Could not restore from synced passkey.',
+            );
+            setMethodError('');
           }
           return;
         }
@@ -946,7 +971,7 @@ export function usePasskeyAuthMenuController(
           }
           const mappedFlowResult: {
             username?: string;
-            otpPrompt?: PasskeyAuthMenuOtpPrompt;
+            otpPrompt?: SeamsAuthMenuOtpPrompt;
           } | null = isHeadlessOtpFlow
             ? otpPromptFromGoogleEmailOtpFlow({
                 flow: flowResult.flow,
@@ -980,7 +1005,12 @@ export function usePasskeyAuthMenuController(
             await runtime.refreshLoginState(username).catch(() => {});
           }
         } catch (error: unknown) {
-          setMethodError(getErrorMessage(error, 'Google SSO failed. Please retry.'));
+          warnSeamsAuthMenuAsyncError(
+            'Google SSO failed',
+            error,
+            'Google SSO failed. Please retry.',
+          );
+          setMethodError('');
         } finally {
           setWaiting(false);
           setWaitingReason(null);
@@ -1263,7 +1293,7 @@ export function usePasskeyAuthMenuController(
     })();
   }, [otpCode, otpPromptState, otpRecoveryKey, otpSubmitting, runtime]);
 
-  const otpPrompt: PasskeyAuthMenuOtpPromptController | null = React.useMemo(() => {
+  const otpPrompt: SeamsAuthMenuOtpPromptController | null = React.useMemo(() => {
     if (!otpPromptState) return null;
     const resendSeconds =
       otpResendUntilMs > otpResendNowMs
@@ -1349,39 +1379,38 @@ export function usePasskeyAuthMenuController(
     onOtpPromptBack,
   ]);
 
-  const registrationPrompt: PasskeyAuthMenuRegistrationPromptController | null =
-    React.useMemo(() => {
-      if (!registrationPromptState) return null;
-      return {
-        title: registrationPromptState.title,
-        description: registrationPromptState.description,
-        ...(registrationPromptState.emailHint
-          ? { emailHint: registrationPromptState.emailHint }
-          : {}),
-        accountId: registrationPromptState.accountId,
-        submitLabel: registrationPromptState.submitLabel,
-        helperText: registrationPromptState.helperText,
-        submitting: registrationSubmitting,
-        ...(registrationError ? { error: registrationError } : {}),
-        rerollAccountLabel: registrationRerollBusy
-          ? 'Generating another name...'
-          : 'Generate another name',
-        rerollAccountDisabled: registrationSubmitting || registrationRerollBusy,
-        onRerollAccount: onRegistrationRerollAccount,
-        onSubmit: onRegistrationSubmit,
-        onBack: onRegistrationPromptBack,
-      };
-    }, [
-      registrationPromptState,
-      registrationSubmitting,
-      registrationError,
-      registrationRerollBusy,
-      onRegistrationRerollAccount,
-      onRegistrationSubmit,
-      onRegistrationPromptBack,
-    ]);
+  const registrationPrompt: SeamsAuthMenuRegistrationPromptController | null = React.useMemo(() => {
+    if (!registrationPromptState) return null;
+    return {
+      title: registrationPromptState.title,
+      description: registrationPromptState.description,
+      ...(registrationPromptState.emailHint
+        ? { emailHint: registrationPromptState.emailHint }
+        : {}),
+      accountId: registrationPromptState.accountId,
+      submitLabel: registrationPromptState.submitLabel,
+      helperText: registrationPromptState.helperText,
+      submitting: registrationSubmitting,
+      ...(registrationError ? { error: registrationError } : {}),
+      rerollAccountLabel: registrationRerollBusy
+        ? 'Generating another name...'
+        : 'Generate another name',
+      rerollAccountDisabled: registrationSubmitting || registrationRerollBusy,
+      onRerollAccount: onRegistrationRerollAccount,
+      onSubmit: onRegistrationSubmit,
+      onBack: onRegistrationPromptBack,
+    };
+  }, [
+    registrationPromptState,
+    registrationSubmitting,
+    registrationError,
+    registrationRerollBusy,
+    onRegistrationRerollAccount,
+    onRegistrationSubmit,
+    onRegistrationPromptBack,
+  ]);
 
-  const postRecoveryRotationPrompt: PasskeyAuthMenuPostRecoveryRotationPromptController | null =
+  const postRecoveryRotationPrompt: SeamsAuthMenuPostRecoveryRotationPromptController | null =
     React.useMemo(() => {
       if (!postRecoveryRotationPromptState) return null;
       return {
@@ -1401,7 +1430,7 @@ export function usePasskeyAuthMenuController(
       onPostRecoveryRotationDismiss,
     ]);
 
-  const linkDevice: PasskeyAuthMenuLinkDeviceController = React.useMemo(
+  const linkDevice: SeamsAuthMenuLinkDeviceController = React.useMemo(
     () => ({
       isOpen: showScanDevice,
       onClose: () => closeLinkDeviceView('flow'),
@@ -1436,7 +1465,13 @@ export function usePasskeyAuthMenuController(
               setMethodError('');
               return;
             }
-            setMethodError(result.error || 'Wallet registration failed.');
+            const error = result.error || 'Wallet registration failed.';
+            if (isWalletRequestRuntimeError(error)) {
+              warnSeamsAuthMenuAsyncError('wallet registration failed', error, error);
+              setMethodError('');
+              return;
+            }
+            setMethodError(error);
             return;
           }
           const walletId = String(result.walletId || '').trim();
@@ -1476,7 +1511,13 @@ export function usePasskeyAuthMenuController(
             setMethodError('');
             return;
           }
-          setMethodError(state.error || 'Wallet registration failed.');
+          const error = state.error || 'Wallet registration failed.';
+          if (isWalletRequestRuntimeError(error)) {
+            warnSeamsAuthMenuAsyncError('wallet registration failed', error, error);
+            setMethodError('');
+            return;
+          }
+          setMethodError(error);
           return;
         default:
           return assertNeverRegistrationActivationSurfaceState(state);
@@ -1517,7 +1558,7 @@ export function usePasskeyAuthMenuController(
     canShowContinue,
     canSubmit,
     canRecoverAccountWithEmail,
-    onSegmentChange,
+    onIntentChange,
     onInputChange,
     onProceed,
     onRecoverAccountWithEmail,
@@ -1530,4 +1571,4 @@ export function usePasskeyAuthMenuController(
   };
 }
 
-export default usePasskeyAuthMenuController;
+export default useSeamsAuthMenuController;

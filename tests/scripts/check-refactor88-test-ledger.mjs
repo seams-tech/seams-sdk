@@ -51,8 +51,8 @@ const retainedBoundaryAuditRows = [
     'tests/unit/nearClient.sendTransaction.retryInvalidNonce.unit.test.ts',
     'tests/unit/nearThresholdKeyMaterial.persistence.unit.test.ts',
     'tests/unit/overlayController.test.ts',
-    'tests/unit/passkeyAuthMenu.accountAvailability.unit.test.ts',
-    'tests/unit/passkeyAuthMenu.fouc.unit.test.ts',
+    'tests/unit/seamsAuthMenu.accountAvailability.unit.test.ts',
+    'tests/unit/seamsAuthMenu.fouc.unit.test.ts',
     'tests/unit/passkeyClientDB.deviceSelection.test.ts',
     'tests/unit/passkeyClientDB.repositories.unit.test.ts',
     'tests/unit/passkeyConfirm.exportFlow.unit.test.ts',
@@ -86,7 +86,7 @@ const retainedBoundaryAuditRows = [
     'tests/wallet-iframe/csp.strict.violation-free.test.ts',
     'tests/wallet-iframe/export.flow.integration.test.ts',
     'tests/wallet-iframe/handshake.test.ts',
-    'tests/wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts',
+    'tests/wallet-iframe/seamsAuthMenu.qrButton.overlay.test.ts',
     'tests/wallet-iframe/preferences.sync.test.ts',
     'tests/wallet-iframe/router.behavior.concurrent.test.ts',
     'tests/wallet-iframe/router.behavior.sticky.test.ts',
@@ -268,13 +268,13 @@ const retainedBoundaryAuditEvidenceTokens = {
         'anchored positioning and sticky prevents hide',
         'forceHide clears sticky overlay lock and makes iframe inert',
     ],
-    'tests/unit/passkeyAuthMenu.accountAvailability.unit.test.ts': [
+    'tests/unit/seamsAuthMenu.accountAvailability.unit.test.ts': [
         'Passkey auth account availability',
         'local saved credentials do not mark an unregistered account as existing',
         'register badge stays neutral for a locally saved account until it exists on-chain',
     ],
-    'tests/unit/passkeyAuthMenu.fouc.unit.test.ts': [
-        'PasskeyAuthMenu styles bootstrap',
+    'tests/unit/seamsAuthMenu.fouc.unit.test.ts': [
+        'SeamsAuthMenu styles bootstrap',
         'login mode shows passkey, Google SSO Email OTP, and email recovery methods',
         'account dropdown renders auth labels instead of implicit NEAR account IDs',
         'Google SSO can hand off to the Email OTP unlock prompt',
@@ -311,7 +311,7 @@ const retainedBoundaryAuditEvidenceTokens = {
         'RecoveryCodesModal behavior',
         'loads retained recovery codes from local wallet storage',
         'wallet iframe recovery-code command never sends recovery keys to the host',
-        'PasskeyAuthMenu prompts rotation after recovery consumes a code',
+        'SeamsAuthMenu prompts rotation after recovery consumes a code',
     ],
     'tests/unit/routerAbEd25519.walletSessionState.unit.test.ts': [
         'Router A/B Ed25519 Wallet Session state',
@@ -466,8 +466,8 @@ const retainedBoundaryAuditEvidenceTokens = {
         'rejects when READY never arrives within the timeout budget',
         'Wallet iframe READY timeout',
     ],
-    'tests/wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts': [
-        'PasskeyAuthMenu QR button overlay regression',
+    'tests/wallet-iframe/seamsAuthMenu.qrButton.overlay.test.ts': [
+        'SeamsAuthMenu QR button overlay regression',
         'disabled Device2 linking keeps wallet iframe overlay hidden',
         'PM_START_DEVICE2_LINKING_FLOW',
     ],
@@ -475,7 +475,7 @@ const retainedBoundaryAuditEvidenceTokens = {
         'PREFERENCES_CHANGED',
         'app-origin mirrors wallet-host confirmation config via PREFERENCES_CHANGED',
         'PM_SET_CONFIRMATION_CONFIG',
-        'PM_SET_THEME',
+        'PM_SET_CONFIG',
     ],
     'tests/wallet-iframe/router.behavior.concurrent.test.ts': [
         'concurrent requests aggregate overlay visibility',

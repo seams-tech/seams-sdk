@@ -27,8 +27,13 @@ function isExperimentalExportKey(key: string): boolean {
   return key === './experimental' || key.startsWith('./experimental/');
 }
 
-function isPasskeyAuthMenuCompatExportKey(key: string): boolean {
-  return key.includes('passkey-auth-menu-compat') || key.includes('passkeyAuthMenuCompat');
+function isLegacyAuthMenuExportKey(key: string): boolean {
+  return (
+    key.includes('passkey-auth-menu') ||
+    key.includes('passkeyAuthMenu') ||
+    key.includes('seams-auth-menu-compat') ||
+    key.includes('seamsAuthMenuCompat')
+  );
 }
 
 const browserSurfacePatterns = [
@@ -82,22 +87,22 @@ test.describe('package export contracts', () => {
     expect(exportKeys.filter(isExperimentalExportKey)).toEqual([]);
   });
 
-  test('maps PasskeyAuthMenu public subpath to the SSR-safe entry', () => {
+  test('maps SeamsAuthMenu public subpath to the SSR-safe entry', () => {
     const packageJson = readJson('packages/sdk-web/package.json');
     const exportsMap = packageJson.exports;
     const exportKeys = Object.keys(exportsMap ?? {});
 
-    expect(exportsMap['./react/passkey-auth-menu']).toEqual({
-      import: './dist/esm/react/components/PasskeyAuthMenu/public.js',
-      default: './dist/esm/react/components/PasskeyAuthMenu/public.js',
-      types: './dist/types/sdk-web/src/react/components/PasskeyAuthMenu/public.d.ts',
+    expect(exportsMap['./react/seams-auth-menu']).toEqual({
+      import: './dist/esm/react/components/SeamsAuthMenu/public.js',
+      default: './dist/esm/react/components/SeamsAuthMenu/public.js',
+      types: './dist/types/sdk-web/src/react/components/SeamsAuthMenu/public.d.ts',
     });
-    expect(fs.existsSync(resolveSdkWebPath(exportsMap['./react/passkey-auth-menu'].types))).toBe(
+    expect(fs.existsSync(resolveSdkWebPath(exportsMap['./react/seams-auth-menu'].types))).toBe(
       true,
     );
-    expect(exportKeys.filter(isPasskeyAuthMenuCompatExportKey)).toEqual([]);
+    expect(exportKeys.filter(isLegacyAuthMenuExportKey)).toEqual([]);
     expect(readRepoFile('packages/sdk-web/src/react/index.ts')).toContain(
-      "export { PasskeyAuthMenu, PasskeyAuthMenuSkeleton } from './components/PasskeyAuthMenu/public';",
+      "export { SeamsAuthMenu, SeamsAuthMenuSkeleton } from './components/SeamsAuthMenu/public';",
     );
   });
 

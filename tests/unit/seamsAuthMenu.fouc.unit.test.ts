@@ -11,14 +11,14 @@ const IMPORT_PATHS = {
   contextIndex: '/_test-sdk/esm/react/context/index.js',
   seamsManagerSingleton: '/_test-sdk/esm/react/context/seamsManagerSingleton.js',
   reactIndex: '/_test-sdk/esm/react/index.js',
-  passkeyAuthMenu: '/_test-sdk/esm/react/components/PasskeyAuthMenu/public.js',
-  passkeyAuthMenuClient: '/_test-sdk/esm/react/components/PasskeyAuthMenu/client.js',
-  passkeyAuthMenuController:
-    '/_test-sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
+  seamsAuthMenu: '/_test-sdk/esm/react/components/SeamsAuthMenu/public.js',
+  seamsAuthMenuClient: '/_test-sdk/esm/react/components/SeamsAuthMenu/client.js',
+  seamsAuthMenuController:
+    '/_test-sdk/esm/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.js',
   seamsContextValue: '/_test-sdk/esm/react/context/useSeamsContextValue.js',
   loginStateRefresher: '/_test-sdk/esm/react/context/useLoginStateRefresher.js',
-  passkeyInput: '/_test-sdk/esm/react/components/PasskeyAuthMenu/ui/PasskeyInput.js',
-  authMenuTypes: '/_test-sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
+  passkeyInput: '/_test-sdk/esm/react/components/SeamsAuthMenu/ui/PasskeyInput.js',
+  authMenuTypes: '/_test-sdk/esm/react/components/SeamsAuthMenu/authMenuTypes.js',
   reactStyles: '/_test-sdk/esm/react/styles/styles.css',
 } as const;
 
@@ -34,7 +34,7 @@ function sourceRangeBetween(source: string, startNeedle: string, endNeedle: stri
   return source.slice(start, end);
 }
 
-test.describe('PasskeyAuthMenu styles bootstrap', () => {
+test.describe('SeamsAuthMenu styles bootstrap', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
@@ -55,17 +55,17 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-test-mount';
+        mount.id = 'seams-auth-menu-test-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
 
         const config = {
           nearNetwork: 'testnet',
@@ -77,51 +77,52 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const root = ReactDOMClient.createRoot(mount);
         ReactDOM.flushSync(() => {
           root.render(
-            React.createElement(Provider, { config }, React.createElement(PasskeyAuthMenu, null)),
+            React.createElement(Provider, { config }, React.createElement(SeamsAuthMenu, null)),
           );
         });
 
         // Save refs so the test can unmount/remount and assert no fallback flash after the first load.
-        (window as any).__w3a_pam2_root__ = root;
-        (window as any).__w3a_pam2_config__ = config;
+        (window as any).__w3a_seams_auth_menu_root__ = root;
+        (window as any).__w3a_seams_auth_menu_config__ = config;
       },
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-test-mount');
+    const mount = page.locator('#seams-auth-menu-test-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await expect(mount.locator('.w3a-seg')).toHaveCount(1);
-    await expect(mount.locator('.w3a-passkey-row button')).toHaveCount(1);
+    await expect(mount.locator('.w3a-auth-intent-switch')).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Sign up' })).toBeVisible();
 
     const root = mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)');
+
     const sentinel = await root.evaluate((el) =>
-      window.getComputedStyle(el).getPropertyValue('--w3a-pam2-css-ready').trim(),
+      window.getComputedStyle(el).getPropertyValue('--w3a-seams-auth-menu-css-ready').trim(),
     );
     expect(sentinel).toBe('1');
 
-    await expect(mount.getByRole('button', { name: 'Register with Google SSO' })).toBeDisabled();
+    await expect(mount.getByRole('button', { name: 'Continue with Google SSO' })).toBeDisabled();
 
     const radius = await root.evaluate((el) => window.getComputedStyle(el).borderTopLeftRadius);
     expect(radius).not.toBe('0px');
 
     const remount = await page.evaluate(
       async ({ paths }) => {
-        const mount = document.getElementById('pam2-test-mount');
-        if (!mount) throw new Error('missing #pam2-test-mount');
+        const mount = document.getElementById('seams-auth-menu-test-mount');
+        if (!mount) throw new Error('missing #seams-auth-menu-test-mount');
 
-        const existingRoot = (window as any).__w3a_pam2_root__;
+        const existingRoot = (window as any).__w3a_seams_auth_menu_root__;
         if (existingRoot?.unmount) existingRoot.unmount();
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
 
-        const config = (window as any).__w3a_pam2_config__ || {
+        const config = (window as any).__w3a_seams_auth_menu_config__ || {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayer: { url: 'https://router-api.localhost' },
@@ -131,10 +132,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const root = ReactDOMClient.createRoot(mount);
         ReactDOM.flushSync(() => {
           root.render(
-            React.createElement(Provider, { config }, React.createElement(PasskeyAuthMenu, null)),
+            React.createElement(Provider, { config }, React.createElement(SeamsAuthMenu, null)),
           );
         });
-        (window as any).__w3a_pam2_root__ = root;
+        (window as any).__w3a_seams_auth_menu_root__ = root;
 
         const hadSkeletonAtFirstFrame = await new Promise<boolean>((resolve) => {
           requestAnimationFrame(() => {
@@ -172,18 +173,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-login-methods-mount';
+        mount.id = 'seams-auth-menu-login-methods-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -199,7 +200,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: () => ({ username: 'alice' }),
@@ -212,19 +213,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-login-methods-mount');
+    const mount = page.locator('#seams-auth-menu-login-methods-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Login' }).click();
     await expect(mount.getByRole('button', { name: 'Continue with Passkey' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Continue with Email OTP' })).toHaveCount(0);
-    await expect(mount.getByRole('button', { name: 'Sign in with Google SSO' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Continue with Google SSO' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
     await expect(mount.locator('.w3a-social-helper')).toHaveCount(0);
 
-    await mount.getByRole('button', { name: 'Register' }).click();
+    await mount.getByRole('button', { name: 'Sign up' }).click();
     await expect(mount.getByRole('button', { name: 'Create passkey account' })).toBeVisible();
-    await expect(mount.getByRole('button', { name: 'Register with Google SSO' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Continue with Google SSO' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
     await expect(
@@ -252,18 +252,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-synced-passkey-restore-mount';
+        mount.id = 'seams-auth-menu-synced-passkey-restore-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -281,7 +281,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 onSyncAccount: async () => {
                   throw new Error('onSyncAccount should not be exposed as a button');
@@ -299,15 +299,14 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-synced-passkey-restore-mount');
+    const mount = page.locator('#seams-auth-menu-synced-passkey-restore-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await expect(mount.locator('.w3a-seg-btn.sync')).toHaveCount(0);
     await expect(mount.getByRole('button', { name: /^Sync$/ })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
 
-    await mount.getByRole('button', { name: 'Register' }).click();
+    await mount.getByRole('button', { name: 'Sign up' }).click();
     await expect(mount.getByRole('button', { name: 'Create passkey account' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
@@ -328,15 +327,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-auto-synced-passkey-restore-mount';
+        mount.id = 'seams-auth-menu-auto-synced-passkey-restore-mount';
         document.body.appendChild(mount);
 
         (window as any).__autoSyncedPasskeyRestore = {
@@ -379,7 +378,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             [inputUsername],
           );
 
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Login,
               onLogin: async () => {
@@ -417,7 +416,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-auto-synced-passkey-restore-mount');
+    const mount = page.locator('#seams-auth-menu-auto-synced-passkey-restore-mount');
     await mount.getByRole('button', { name: 'Continue with Passkey' }).click();
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__autoSyncedPasskeyRestore))
@@ -425,6 +424,112 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         loginCalls: 0,
         syncCalls: 1,
       });
+  });
+
+  test('synced passkey restore timeout warns without rendering inline method error', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-sync-timeout-no-inline-error-mount';
+        document.body.appendChild(mount);
+
+        (window as any).__seamsAuthMenuSyncTimeoutWarnings = [];
+        const originalWarn = console.warn.bind(console);
+        console.warn = (...args: unknown[]) => {
+          (window as any).__seamsAuthMenuSyncTimeoutWarnings.push(args.map(String).join(' '));
+          originalWarn(...args);
+        };
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('alice');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({ lastUsedAccount: null }),
+                },
+              },
+              accountExists: true,
+              passkeyCredentialExists: false,
+              inputUsername,
+              targetWalletId: 'alice',
+              targetAccountId: 'alice.testnet',
+              accountOptions: [
+                {
+                  walletId: 'alice',
+                  displayName: 'alice',
+                  authMethod: 'email_otp',
+                },
+              ],
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: true,
+            }),
+            [inputUsername],
+          );
+
+          const controller = useSeamsAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Login,
+              onSyncAccount: async () => {
+                throw new Error('Wallet request timeout for PM_SYNC_ACCOUNT_FLOW after 60010ms');
+              },
+            },
+            runtime,
+          );
+
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                disabled: !controller.canSubmit,
+                onClick: controller.onProceed,
+              },
+              'Continue with Passkey',
+            ),
+            React.createElement('div', { id: 'sync-method-error' }, controller.methodError || ''),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-sync-timeout-no-inline-error-mount');
+    await mount.getByRole('button', { name: 'Continue with Passkey' }).click();
+    await expect.poll(async () => await mount.locator('#sync-method-error').textContent()).toBe('');
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__seamsAuthMenuSyncTimeoutWarnings),
+      )
+      .toContainEqual(
+        expect.stringContaining('Wallet request timeout for PM_SYNC_ACCOUNT_FLOW after 60010ms'),
+      );
   });
 
   test('account dropdown renders auth labels instead of implicit NEAR account IDs', async ({
@@ -444,7 +549,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-account-groups-mount';
+        mount.id = 'seams-auth-menu-account-groups-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
@@ -498,7 +603,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-account-groups-mount');
+    const mount = page.locator('#seams-auth-menu-account-groups-mount');
     await mount.getByRole('button', { name: 'Saved accounts' }).click();
 
     const passkeyGroup = mount.locator('.w3a-account-menu-group').filter({ hasText: 'PASSKEY' });
@@ -530,18 +635,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-otp-prompt-mount';
+        mount.id = 'seams-auth-menu-google-otp-prompt-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -558,7 +663,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: () => ({
@@ -581,9 +686,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-otp-prompt-mount');
+    const mount = page.locator('#seams-auth-menu-google-otp-prompt-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
     await expect(mount.getByText('Check your email to unlock your wallet')).toBeVisible();
     await expect(mount.locator('.w3a-otp-email')).toHaveCount(0);
     await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
@@ -591,6 +696,87 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__otpSubmitted))
       .toBe('123456');
+  });
+
+  test('Google SSO timeout warns without rendering inline method error', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-google-timeout-no-inline-error-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.seamsAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://router-api.localhost' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
+        };
+
+        (window as any).__seamsAuthMenuGoogleTimeoutWarnings = [];
+        const originalWarn = console.warn.bind(console);
+        console.warn = (...args: unknown[]) => {
+          (window as any).__seamsAuthMenuGoogleTimeoutWarnings.push(args.map(String).join(' '));
+          originalWarn(...args);
+        };
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(SeamsAuthMenu, {
+                defaultMode: AuthMenuMode.Login,
+                socialLogin: {
+                  google: async () => {
+                    throw new Error(
+                      'Wallet request timeout for PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH after 30000ms',
+                    );
+                  },
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-google-timeout-no-inline-error-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await expect(mount.locator('.w3a-method-error')).toHaveCount(0);
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__seamsAuthMenuGoogleTimeoutWarnings),
+      )
+      .toContainEqual(
+        expect.stringContaining(
+          'Wallet request timeout for PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH after 30000ms',
+        ),
+      );
   });
 
   test('Google SSO registration Email OTP prompt can generate another wallet name', async ({
@@ -610,18 +796,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-otp-reroll-mount';
+        mount.id = 'seams-auth-menu-google-otp-reroll-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -638,7 +824,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Register,
                 socialLogin: {
                   google: () => ({
@@ -676,9 +862,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-otp-reroll-mount');
+    const mount = page.locator('#seams-auth-menu-google-otp-reroll-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Register with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
     await expect(mount.getByText('frost-beacon.testnet')).toBeVisible();
     await mount.getByRole('button', { name: 'Generate another name' }).click();
     await expect(mount.getByText('ember-river.testnet')).toBeVisible();
@@ -704,18 +890,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-otp-recovery-key-mount';
+        mount.id = 'seams-auth-menu-google-otp-recovery-key-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -732,7 +918,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: () => ({
@@ -763,9 +949,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-otp-recovery-key-mount');
+    const mount = page.locator('#seams-auth-menu-google-otp-recovery-key-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
     await expect(mount.getByText('Recover this device')).toBeVisible();
 
     const recoveryKeyInput = mount.getByLabel('Recovery key');
@@ -802,18 +988,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-otp-resend-mount';
+        mount.id = 'seams-auth-menu-google-otp-resend-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -831,7 +1017,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: () => ({
@@ -862,9 +1048,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-otp-resend-mount');
+    const mount = page.locator('#seams-auth-menu-google-otp-resend-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
     await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
 
     const input = mount.getByLabel('Email code');
@@ -900,18 +1086,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-otp-resend-rate-limit-mount';
+        mount.id = 'seams-auth-menu-google-otp-resend-rate-limit-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -927,7 +1113,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: () => ({
@@ -957,9 +1143,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-otp-resend-rate-limit-mount');
+    const mount = page.locator('#seams-auth-menu-google-otp-resend-rate-limit-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
     await mount.getByRole('button', { name: 'Resend Code' }).click();
     await expect(mount.getByRole('alert')).toHaveText('Too many requests. Try again in 13s.');
   });
@@ -968,17 +1154,17 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-otp-refresh-mount';
+        mount.id = 'seams-auth-menu-google-otp-refresh-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         (window as any).__otpRefreshCalls = [];
@@ -1011,7 +1197,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             [inputUsername],
           );
 
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Login,
               socialLogin: {
@@ -1074,7 +1260,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-otp-refresh-mount');
+    const mount = page.locator('#seams-auth-menu-google-otp-refresh-mount');
     await mount.getByRole('button', { name: 'Start Google' }).click();
     await expect(mount.locator('#otp-ready')).toHaveText('Check your email to unlock your wallet');
     await expect
@@ -1096,17 +1282,17 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-headless-otp-refresh-mount';
+        mount.id = 'seams-auth-menu-google-headless-otp-refresh-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         (window as any).__headlessRefreshCalls = [];
@@ -1140,7 +1326,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             [inputUsername],
           );
 
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Login,
               socialLogin: {
@@ -1238,7 +1424,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-headless-otp-refresh-mount');
+    const mount = page.locator('#seams-auth-menu-google-headless-otp-refresh-mount');
     await mount.getByRole('button', { name: 'Start Google' }).click();
     await expect(mount.locator('#headless-otp-ready')).toHaveText(
       'Check your email to unlock your wallet',
@@ -1264,17 +1450,17 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-headless-registration-mount';
+        mount.id = 'seams-auth-menu-google-headless-registration-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function registrationFlow(walletId: string) {
@@ -1329,7 +1515,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Register,
               socialLogin: {
@@ -1392,7 +1578,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-headless-registration-mount');
+    const mount = page.locator('#seams-auth-menu-google-headless-registration-mount');
     await mount.getByRole('button', { name: 'Start registration' }).click();
     await expect(mount.locator('#registration-title')).toHaveText('Create your Email OTP wallet');
     await expect(mount.getByRole('button', { name: 'Create wallet' })).toBeVisible();
@@ -1408,17 +1594,17 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-headless-existing-wallet-mount';
+        mount.id = 'seams-auth-menu-google-headless-existing-wallet-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
@@ -1441,7 +1627,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Register,
               socialLogin: {
@@ -1524,7 +1710,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-headless-existing-wallet-mount');
+    const mount = page.locator('#seams-auth-menu-google-headless-existing-wallet-mount');
     await mount.getByRole('button', { name: 'Start existing wallet' }).click();
     await expect(mount.locator('#existing-title')).toHaveText(
       'Check your email to unlock your wallet',
@@ -1535,9 +1721,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
   });
 
   test('Google SSO registration does not keep passkey activation surface mounted while social auth waits', () => {
-    const source = readRepoSource(
-      'packages/sdk-web/src/react/components/PasskeyAuthMenu/client.tsx',
-    );
+    const source = readRepoSource('packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx');
     const activationGate = sourceRangeBetween(
       source,
       'const iframeRegistrationButtonEnabled =',
@@ -1562,18 +1746,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-mode-mount';
+        mount.id = 'seams-auth-menu-google-mode-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode, AuthMenuModeMap } = typesMod;
 
         const config = {
@@ -1583,18 +1767,18 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
         };
 
-        (window as any).__pamGoogleModes = [];
+        (window as any).__seamsAuthMenuGoogleModes = [];
         const root = ReactDOMClient.createRoot(mount);
         ReactDOM.flushSync(() => {
           root.render(
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: (args: { mode: number }) => {
-                    (window as any).__pamGoogleModes.push(AuthMenuModeMap[args.mode]);
+                    (window as any).__seamsAuthMenuGoogleModes.push(AuthMenuModeMap[args.mode]);
                   },
                 },
               }),
@@ -1605,37 +1789,39 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-mode-mount');
+    const mount = page.locator('#seams-auth-menu-google-mode-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
-    await mount.getByRole('button', { name: 'Register' }).click();
-    await mount.getByRole('button', { name: 'Register with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign up' }).click();
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
 
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamGoogleModes))
+      .poll(async () => await page.evaluate(() => (window as any).__seamsAuthMenuGoogleModes))
       .toEqual(['login', 'register']);
   });
 
-  test('Passkey implicit registration shows generated wallet input', async ({ page }) => {
+  test('Passkey implicit registration keeps generated wallet internal by default', async ({
+    page,
+  }) => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-passkey-register-controller-mount';
+        mount.id = 'seams-auth-menu-passkey-register-controller-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
-        (window as any).__pamPasskeyRegisterCalls = 0;
-        (window as any).__pamPasskeyRegisterWallets = [];
-        (window as any).__pamPasskeyRegisterKinds = [];
+        (window as any).__seamsAuthMenuPasskeyRegisterCalls = 0;
+        (window as any).__seamsAuthMenuPasskeyRegisterWallets = [];
+        (window as any).__seamsAuthMenuPasskeyRegisterKinds = [];
         function Harness() {
           const [inputUsername, setInputUsername] = React.useState('');
           const runtime = React.useMemo(
@@ -1655,13 +1841,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Register,
               onRegister: (request: any) => {
-                (window as any).__pamPasskeyRegisterCalls += 1;
-                (window as any).__pamPasskeyRegisterKinds.push(String(request?.kind || ''));
-                (window as any).__pamPasskeyRegisterWallets.push(
+                (window as any).__seamsAuthMenuPasskeyRegisterCalls += 1;
+                (window as any).__seamsAuthMenuPasskeyRegisterKinds.push(
+                  String(request?.kind || ''),
+                );
+                (window as any).__seamsAuthMenuPasskeyRegisterWallets.push(
                   String(request?.wallet?.walletId || ''),
                 );
               },
@@ -1721,8 +1909,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-passkey-register-controller-mount');
-    await expect(mount.locator('#implicit-show-input')).toHaveText('true');
+    const mount = page.locator('#seams-auth-menu-passkey-register-controller-mount');
+    await expect(mount.locator('#implicit-show-input')).toHaveText('false');
     await expect(mount.locator('#implicit-readonly')).toHaveText('true');
     await expect(mount.locator('#implicit-wallet-id')).toHaveText(/^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
     await expect(mount.locator('#implicit-activation-wallet-id')).toHaveText(
@@ -1740,14 +1928,103 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(button).toBeEnabled();
     await button.click();
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterCalls))
+      .poll(
+        async () => await page.evaluate(() => (window as any).__seamsAuthMenuPasskeyRegisterCalls),
+      )
       .toBe(1);
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterWallets))
+      .poll(
+        async () =>
+          await page.evaluate(() => (window as any).__seamsAuthMenuPasskeyRegisterWallets),
+      )
       .toEqual([generatedWalletId]);
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterKinds))
+      .poll(
+        async () => await page.evaluate(() => (window as any).__seamsAuthMenuPasskeyRegisterKinds),
+      )
       .toEqual(['implicit_wallet']);
+  });
+
+  test('Passkey implicit registration can show generated wallet input when requested', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-passkey-register-visible-input-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              passkeyCredentialExists: false,
+              inputUsername,
+              targetWalletId: '',
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+            }),
+            [inputUsername],
+          );
+          const controller = useSeamsAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Register,
+              showRegistrationInput: true,
+            },
+            runtime,
+          );
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'div',
+              { id: 'visible-implicit-show-input' },
+              String(controller.showAccountInput),
+            ),
+            React.createElement(
+              'div',
+              { id: 'visible-implicit-readonly' },
+              String(controller.accountInputReadOnly),
+            ),
+            React.createElement(
+              'div',
+              { id: 'visible-implicit-wallet-id' },
+              String(controller.currentValue || ''),
+            ),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-passkey-register-visible-input-mount');
+    await expect(mount.locator('#visible-implicit-show-input')).toHaveText('true');
+    await expect(mount.locator('#visible-implicit-readonly')).toHaveText('true');
+    await expect(mount.locator('#visible-implicit-wallet-id')).toHaveText(
+      /^[a-z]+-[a-z]+-[a-z0-9]{6}$/,
+    );
   });
 
   test('Passkey implicit registration reroll disposes stale activation surface', async ({
@@ -1756,7 +2033,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-passkey-register-activation-reroll-mount';
+        mount.id = 'seams-auth-menu-passkey-register-activation-reroll-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
@@ -1765,12 +2042,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const providerMod: any = await import(paths.provider);
         const contextMod: any = await import(paths.contextIndex);
         const singletonMod: any = await import(paths.seamsManagerSingleton);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
         const useSeams = contextMod.useSeams;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         type LifecycleEvent = {
@@ -1778,12 +2055,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           walletId: string;
         };
         const lifecycle: LifecycleEvent[] = [];
-        (window as any).__pamActivationSurfaceLifecycle = lifecycle;
-        (window as any).__pamActivationSurfacePatchInstalled = false;
+        (window as any).__seamsAuthMenuActivationSurfaceLifecycle = lifecycle;
+        (window as any).__seamsAuthMenuActivationSurfacePatchInstalled = false;
 
         function installActivationSurfacePatch(seams: any): void {
-          if ((window as any).__pamActivationSurfacePatchInstalled) return;
-          (window as any).__pamActivationSurfacePatchInstalled = true;
+          if ((window as any).__seamsAuthMenuActivationSurfacePatchInstalled) return;
+          (window as any).__seamsAuthMenuActivationSurfacePatchInstalled = true;
           seams.initWalletIframe = async (walletId?: string) => {
             lifecycle.push({ event: 'init', walletId: String(walletId || '') });
           };
@@ -1828,8 +2105,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           useSeams();
           const rawSeams = singletonMod.getOrCreateSeamsManager(config, {});
           installActivationSurfacePatch(rawSeams);
-          return React.createElement(PasskeyAuthMenu, {
+          return React.createElement(SeamsAuthMenu, {
             defaultMode: AuthMenuMode.Register,
+            showRegistrationInput: true,
           });
         }
 
@@ -1841,7 +2119,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-passkey-register-activation-reroll-mount');
+    const mount = page.locator('#seams-auth-menu-passkey-register-activation-reroll-mount');
     const activationButton = mount.locator('.seams-passkey-registration-btn');
     await activationButton.waitFor({ state: 'attached' });
     await expect
@@ -1849,7 +2127,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         async () =>
           await page.evaluate(
             () =>
-              ((window as any).__pamActivationSurfaceLifecycle || []).filter(
+              ((window as any).__seamsAuthMenuActivationSurfaceLifecycle || []).filter(
                 (entry: { event: string }) => entry.event === 'mount',
               ).length,
           ),
@@ -1865,7 +2143,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .poll(
         async () =>
           await page.evaluate(() => {
-            const lifecycle = ((window as any).__pamActivationSurfaceLifecycle || []) as Array<{
+            const lifecycle = ((window as any).__seamsAuthMenuActivationSurfaceLifecycle ||
+              []) as Array<{
               event: string;
               walletId: string;
             }>;
@@ -1882,7 +2161,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         unsubscribeCount: 1,
       });
     const lifecycleResult = await page.evaluate(() => {
-      const lifecycle = ((window as any).__pamActivationSurfaceLifecycle || []) as Array<{
+      const lifecycle = ((window as any).__seamsAuthMenuActivationSurfaceLifecycle || []) as Array<{
         event: string;
         walletId: string;
       }>;
@@ -1910,7 +2189,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-passkey-register-activation-cancelled-mount';
+        mount.id = 'seams-auth-menu-passkey-register-activation-cancelled-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
@@ -1919,22 +2198,22 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const providerMod: any = await import(paths.provider);
         const contextMod: any = await import(paths.contextIndex);
         const singletonMod: any = await import(paths.seamsManagerSingleton);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
         const useSeams = contextMod.useSeams;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
         const activationId = 'cancelled-before-click';
 
-        (window as any).__pamActivationCancelledRegisterCalls = 0;
-        (window as any).__pamActivationCancelledEvents = [];
-        (window as any).__pamActivationCancelledPatchInstalled = false;
+        (window as any).__seamsAuthMenuActivationCancelledRegisterCalls = 0;
+        (window as any).__seamsAuthMenuActivationCancelledEvents = [];
+        (window as any).__seamsAuthMenuActivationCancelledPatchInstalled = false;
 
         function installActivationSurfacePatch(seams: any): void {
-          if ((window as any).__pamActivationCancelledPatchInstalled) return;
-          (window as any).__pamActivationCancelledPatchInstalled = true;
+          if ((window as any).__seamsAuthMenuActivationCancelledPatchInstalled) return;
+          (window as any).__seamsAuthMenuActivationCancelledPatchInstalled = true;
           seams.initWalletIframe = async () => undefined;
           seams.isWalletIframeReady = () => true;
           seams.onWalletIframeReady = () => () => undefined;
@@ -1946,7 +2225,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             return {
               kind: 'wallet_iframe_registration_activation_surface_v1',
               mount: () => {
-                (window as any).__pamActivationCancelledEvents.push('mount');
+                (window as any).__seamsAuthMenuActivationCancelledEvents.push('mount');
                 stateListener?.({
                   kind: 'cancelled',
                   activationId,
@@ -1954,14 +2233,14 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                 });
               },
               dispose: () => {
-                (window as any).__pamActivationCancelledEvents.push('dispose');
+                (window as any).__seamsAuthMenuActivationCancelledEvents.push('dispose');
               },
               state: () => ({ kind: 'cancelled', activationId, reason: 'target_unavailable' }),
               onStateChange: (listener: (state: unknown) => void) => {
                 stateListener = listener;
-                (window as any).__pamActivationCancelledEvents.push('subscribe');
+                (window as any).__seamsAuthMenuActivationCancelledEvents.push('subscribe');
                 return () => {
-                  (window as any).__pamActivationCancelledEvents.push('unsubscribe');
+                  (window as any).__seamsAuthMenuActivationCancelledEvents.push('unsubscribe');
                 };
               },
             };
@@ -1979,10 +2258,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           useSeams();
           const rawSeams = singletonMod.getOrCreateSeamsManager(config, {});
           installActivationSurfacePatch(rawSeams);
-          return React.createElement(PasskeyAuthMenu, {
+          return React.createElement(SeamsAuthMenu, {
             defaultMode: AuthMenuMode.Register,
             onRegister: () => {
-              (window as any).__pamActivationCancelledRegisterCalls += 1;
+              (window as any).__seamsAuthMenuActivationCancelledRegisterCalls += 1;
             },
           });
         }
@@ -1995,7 +2274,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-passkey-register-activation-cancelled-mount');
+    const mount = page.locator('#seams-auth-menu-passkey-register-activation-cancelled-mount');
     const button = mount.getByRole('button', { name: 'Create with Passkey' });
     await expect(button).toBeVisible();
     await expect.poll(async () => await button.evaluate((node) => node.tagName)).toBe('BUTTON');
@@ -2003,7 +2282,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect
       .poll(
         async () =>
-          await page.evaluate(() => (window as any).__pamActivationCancelledRegisterCalls),
+          await page.evaluate(
+            () => (window as any).__seamsAuthMenuActivationCancelledRegisterCalls,
+          ),
       )
       .toBe(1);
   });
@@ -2014,7 +2295,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-passkey-register-activation-expiry-mount';
+        mount.id = 'seams-auth-menu-passkey-register-activation-expiry-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
@@ -2023,12 +2304,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const providerMod: any = await import(paths.provider);
         const contextMod: any = await import(paths.contextIndex);
         const singletonMod: any = await import(paths.seamsManagerSingleton);
-        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const menuMod: any = await import(paths.seamsAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
         const useSeams = contextMod.useSeams;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
         const activationId = 'expired-before-click';
 
@@ -2037,12 +2318,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           walletId: string;
         };
         const lifecycle: LifecycleEvent[] = [];
-        (window as any).__pamActivationExpiryLifecycle = lifecycle;
-        (window as any).__pamActivationExpiryPatchInstalled = false;
+        (window as any).__seamsAuthMenuActivationExpiryLifecycle = lifecycle;
+        (window as any).__seamsAuthMenuActivationExpiryPatchInstalled = false;
 
         function installActivationSurfacePatch(seams: any): void {
-          if ((window as any).__pamActivationExpiryPatchInstalled) return;
-          (window as any).__pamActivationExpiryPatchInstalled = true;
+          if ((window as any).__seamsAuthMenuActivationExpiryPatchInstalled) return;
+          (window as any).__seamsAuthMenuActivationExpiryPatchInstalled = true;
           let mountCount = 0;
           seams.initWalletIframe = async () => undefined;
           seams.isWalletIframeReady = () => true;
@@ -2098,7 +2379,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           useSeams();
           const rawSeams = singletonMod.getOrCreateSeamsManager(config, {});
           installActivationSurfacePatch(rawSeams);
-          return React.createElement(PasskeyAuthMenu, {
+          return React.createElement(SeamsAuthMenu, {
             defaultMode: AuthMenuMode.Register,
           });
         }
@@ -2111,14 +2392,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-passkey-register-activation-expiry-mount');
+    const mount = page.locator('#seams-auth-menu-passkey-register-activation-expiry-mount');
     const activationButton = mount.locator('.seams-passkey-registration-btn');
     await activationButton.waitFor({ state: 'attached' });
     await expect
       .poll(
         async () =>
           await page.evaluate(() => {
-            const lifecycle = ((window as any).__pamActivationExpiryLifecycle || []) as Array<{
+            const lifecycle = ((window as any).__seamsAuthMenuActivationExpiryLifecycle ||
+              []) as Array<{
               event: string;
             }>;
             return {
@@ -2142,20 +2424,20 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-sponsored-passkey-register-controller-mount';
+        mount.id = 'seams-auth-menu-sponsored-passkey-register-controller-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
-        (window as any).__pamSponsoredPasskeyRegisterCalls = 0;
+        (window as any).__seamsAuthMenuSponsoredPasskeyRegisterCalls = 0;
         function Harness() {
           const [inputUsername, setInputUsername] = React.useState('');
           const runtime = React.useMemo(
@@ -2175,12 +2457,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             {
               defaultMode: AuthMenuMode.Register,
               registrationAccountInput: 'sponsored_named_near_account',
               onRegister: () => {
-                (window as any).__pamSponsoredPasskeyRegisterCalls += 1;
+                (window as any).__seamsAuthMenuSponsoredPasskeyRegisterCalls += 1;
               },
             },
             runtime,
@@ -2220,7 +2502,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-sponsored-passkey-register-controller-mount');
+    const mount = page.locator('#seams-auth-menu-sponsored-passkey-register-controller-mount');
     await expect(mount.locator('#sponsored-show-input')).toHaveText('true');
     await expect(mount.locator('#sponsored-can-submit')).toHaveText('false');
     const button = mount.getByRole('button', { name: 'Create with Passkey' });
@@ -2231,7 +2513,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     );
     await expect
       .poll(
-        async () => await page.evaluate(() => (window as any).__pamSponsoredPasskeyRegisterCalls),
+        async () =>
+          await page.evaluate(() => (window as any).__seamsAuthMenuSponsoredPasskeyRegisterCalls),
       )
       .toBe(0);
   });
@@ -2242,24 +2525,24 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-registration-activation-waiting-mount';
+        mount.id = 'seams-auth-menu-registration-activation-waiting-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
           const [inputUsername, setInputUsername] = React.useState('alice');
           const refreshLoginState = React.useCallback(async () => {
-            (window as any).__pamActivationRefreshCalls =
-              ((window as any).__pamActivationRefreshCalls || 0) + 1;
+            (window as any).__seamsAuthMenuActivationRefreshCalls =
+              ((window as any).__seamsAuthMenuActivationRefreshCalls || 0) + 1;
             await new Promise(() => {});
           }, []);
           const runtime = React.useMemo(
@@ -2280,7 +2563,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername, refreshLoginState],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             { defaultMode: AuthMenuMode.Register },
             runtime,
           );
@@ -2331,7 +2614,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-registration-activation-waiting-mount');
+    const mount = page.locator('#seams-auth-menu-registration-activation-waiting-mount');
     await expect(mount.locator('#activation-waiting-state')).toHaveText('not-waiting');
     await expect(mount.locator('#activation-mode-state')).toHaveText('0');
     await mount.getByRole('button', { name: 'Start activation' }).click();
@@ -2340,7 +2623,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#activation-waiting-state')).toHaveText('waiting:passkey');
     await expect(mount.locator('#activation-mode-state')).toHaveText('0');
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamActivationRefreshCalls || 0))
+      .poll(
+        async () =>
+          await page.evaluate(() => (window as any).__seamsAuthMenuActivationRefreshCalls || 0),
+      )
       .toBe(1);
   });
 
@@ -2348,17 +2634,17 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-registration-cancellation-silent-mount';
+        mount.id = 'seams-auth-menu-registration-cancellation-silent-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
         const registrationCancelledMessage =
           "Registration was cancelled. Please try again when you're ready to set up your passkey.";
@@ -2384,7 +2670,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             { defaultMode: AuthMenuMode.Register },
             runtime,
           );
@@ -2479,7 +2765,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-registration-cancellation-silent-mount');
+    const mount = page.locator('#seams-auth-menu-registration-cancellation-silent-mount');
     await mount.getByRole('button', { name: 'Cancel activation' }).click();
     await expect(mount.getByRole('alert')).toHaveCount(0);
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
@@ -2501,23 +2787,23 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#registration-cancellation-waiting')).toHaveText('not-waiting');
   });
 
-  test('Register segment replaces the full account input with generated wallet creation input', async ({
+  test('Sign-up intent clears login input and uses generated wallet internally', async ({
     page,
   }) => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-register-segment-clear-mount';
+        mount.id = 'seams-auth-menu-register-segment-clear-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController =
-          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
@@ -2547,7 +2833,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             }),
             [inputUsername],
           );
-          const controller = usePasskeyAuthMenuController(
+          const controller = useSeamsAuthMenuController(
             { defaultMode: AuthMenuMode.Login },
             runtime,
           );
@@ -2559,14 +2845,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               id: 'register-clear-state',
               'data-mode': String(controller.mode),
               'data-input': controller.currentValue,
+              'data-show-input': String(controller.showAccountInput),
             }),
             React.createElement(
               'button',
               {
                 type: 'button',
-                onClick: () => controller.onSegmentChange(AuthMenuMode.Register),
+                onClick: () => controller.onIntentChange(AuthMenuMode.Register),
               },
-              'Register tab',
+              'Sign up intent',
             ),
           );
         }
@@ -2579,11 +2866,13 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-register-segment-clear-mount');
+    const mount = page.locator('#seams-auth-menu-register-segment-clear-mount');
     const state = mount.locator('#register-clear-state');
     await expect(state).toHaveAttribute('data-input', 'gorp79');
-    await mount.getByRole('button', { name: 'Register tab' }).click();
+    await expect(state).toHaveAttribute('data-show-input', 'true');
+    await mount.getByRole('button', { name: 'Sign up intent' }).click();
     await expect(state).toHaveAttribute('data-input', /^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
+    await expect(state).toHaveAttribute('data-show-input', 'false');
     await expect(state).toHaveAttribute('data-mode', '0');
   });
 
@@ -2593,7 +2882,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-unlock-input-refresh-mount';
+        mount.id = 'seams-auth-menu-unlock-input-refresh-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
@@ -2605,8 +2894,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const useSeamsContextValue = contextMod.useSeamsContextValue;
         const useLoginStateRefresher = refresherMod.useLoginStateRefresher;
 
-        (window as any).__pamUnlockInputWrites = [];
-        (window as any).__pamUnlockRefreshAccountCalls = 0;
+        (window as any).__seamsAuthMenuUnlockInputWrites = [];
+        (window as any).__seamsAuthMenuUnlockRefreshAccountCalls = 0;
 
         const readySessionFor = (walletId: string) => ({
           authMethod: 'passkey',
@@ -2654,7 +2943,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           });
 
           const setInputUsername = React.useCallback((username: string) => {
-            (window as any).__pamUnlockInputWrites.push(username);
+            (window as any).__seamsAuthMenuUnlockInputWrites.push(username);
             setInputUsernameState(username);
           }, []);
 
@@ -2756,12 +3045,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             },
             setInputUsername,
             refreshAccountData: async () => {
-              (window as any).__pamUnlockRefreshAccountCalls += 1;
+              (window as any).__seamsAuthMenuUnlockRefreshAccountCalls += 1;
             },
           });
 
           React.useEffect(() => {
-            (window as any).__pamUnlockSnapshot = {
+            (window as any).__seamsAuthMenuUnlockSnapshot = {
               inputUsername,
               nearAccountId: loginState.nearAccountId,
               isLoggedIn: loginState.isLoggedIn,
@@ -2786,21 +3075,31 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-unlock-input-refresh-mount');
+    const mount = page.locator('#seams-auth-menu-unlock-input-refresh-mount');
     await mount.getByRole('button', { name: 'Unlock gorp80' }).click();
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamUnlockSnapshot))
+      .poll(async () => await page.evaluate(() => (window as any).__seamsAuthMenuUnlockSnapshot))
       .toMatchObject({
         inputUsername: 'gorp80',
         nearAccountId: 'gorp80.w3a-relayer.testnet',
         isLoggedIn: true,
       });
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamUnlockRefreshAccountCalls))
+      .poll(
+        async () =>
+          await page.evaluate(() => (window as any).__seamsAuthMenuUnlockRefreshAccountCalls),
+      )
       .toBeGreaterThan(0);
   });
 
-  test('Google SSO errors render inline without unhandled promise rejection', async ({ page }) => {
+  test('Google SSO errors warn without inline alert or unhandled promise rejection', async ({
+    page,
+  }) => {
+    const warnings: string[] = [];
+    page.on('console', (message) => {
+      if (message.type() === 'warning') warnings.push(message.text());
+    });
+
     await page.evaluate(
       async ({ paths }) => {
         await new Promise<void>((resolve, reject) => {
@@ -2815,22 +3114,22 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         });
 
         const mount = document.createElement('div');
-        mount.id = 'pam2-google-error-mount';
+        mount.id = 'seams-auth-menu-google-error-mount';
         document.body.appendChild(mount);
-        (window as any).__pamUnhandledRejectionCount = 0;
+        (window as any).__seamsAuthMenuUnhandledRejectionCount = 0;
         window.addEventListener('unhandledrejection', () => {
-          (window as any).__pamUnhandledRejectionCount += 1;
+          (window as any).__seamsAuthMenuUnhandledRejectionCount += 1;
         });
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.seamsAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const SeamsAuthMenu = menuMod.SeamsAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -2846,7 +3145,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement(
               Provider,
               { config },
-              React.createElement(PasskeyAuthMenu, {
+              React.createElement(SeamsAuthMenu, {
                 defaultMode: AuthMenuMode.Login,
                 socialLogin: {
                   google: async () => {
@@ -2861,12 +3160,22 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-google-error-mount');
+    const mount = page.locator('#seams-auth-menu-google-error-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
-    await expect(mount.getByRole('alert')).toHaveText('Email OTP rate limit exceeded');
+    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await expect(mount.getByRole('alert')).toHaveCount(0);
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamUnhandledRejectionCount))
+      .poll(() =>
+        warnings.some((warning) =>
+          warning.includes('[SeamsAuthMenu] Google SSO failed: Email OTP rate limit exceeded'),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(() => (window as any).__seamsAuthMenuUnhandledRejectionCount),
+      )
       .toBe(0);
   });
 
@@ -2874,7 +3183,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
-        mount.id = 'pam2-auth-surface-mount';
+        mount.id = 'seams-auth-menu-auth-surface-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');

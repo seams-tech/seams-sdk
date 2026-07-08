@@ -1,20 +1,17 @@
 import React from 'react';
-import { PasskeyAuthMenuSkeletonInner } from './skeleton';
-import { PasskeyAuthMenuThemeScope } from './themeScope';
-import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';
+import { SeamsAuthMenuSkeletonInner } from './skeleton';
+import { SeamsAuthMenuThemeScope } from './themeScope';
+import { AuthMenuMode, type SeamsAuthMenuProps } from './types';
 import { useTheme } from '../theme';
-import { preloadPasskeyAuthMenu } from './preload';
-import { PasskeyAuthMenuHydrationContext } from './hydrationContext';
+import { preloadSeamsAuthMenu } from './preload';
+import { SeamsAuthMenuHydrationContext } from './hydrationContext';
 
 const useIsomorphicLayoutEffect =
   typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 
-type PasskeyAuthMenuClientComponent = React.ComponentType<PasskeyAuthMenuProps>;
+type SeamsAuthMenuClientComponent = React.ComponentType<SeamsAuthMenuProps>;
 
-const clientLazyCache = new Map<
-  number,
-  React.LazyExoticComponent<PasskeyAuthMenuClientComponent>
->();
+const clientLazyCache = new Map<number, React.LazyExoticComponent<SeamsAuthMenuClientComponent>>();
 
 let didClientMountOnce = false;
 
@@ -22,7 +19,7 @@ let didAutoPreloadClientChunk = false;
 function autoPreloadClientChunk() {
   if (didAutoPreloadClientChunk) return;
   didAutoPreloadClientChunk = true;
-  void preloadPasskeyAuthMenu();
+  void preloadSeamsAuthMenu();
 }
 
 // If this module is imported in a browser bundle, start fetching the client chunk immediately.
@@ -31,15 +28,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   autoPreloadClientChunk();
 }
 
-function getClientLazy(
-  retryKey: number,
-): React.LazyExoticComponent<PasskeyAuthMenuClientComponent> {
+function getClientLazy(retryKey: number): React.LazyExoticComponent<SeamsAuthMenuClientComponent> {
   const existing = clientLazyCache.get(retryKey);
   if (existing) return existing;
 
   const next = React.lazy(() =>
-    import('./client').then((m) => ({ default: m.PasskeyAuthMenuClient })),
-  ) as unknown as React.LazyExoticComponent<PasskeyAuthMenuClientComponent>;
+    import('./client').then((m) => ({ default: m.SeamsAuthMenuClient })),
+  ) as unknown as React.LazyExoticComponent<SeamsAuthMenuClientComponent>;
 
   clientLazyCache.set(retryKey, next);
   return next;
@@ -82,19 +77,18 @@ class LazyErrorBoundary extends React.Component<
 }
 
 /**
- * `PasskeyAuthMenu` — SSR-safe shell.
+ * `SeamsAuthMenu` — SSR-safe shell.
  *
  * - Server: renders a skeleton only.
  * - Client: lazy-loads the full implementation after mount.
  */
-export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
+export const SeamsAuthMenu: React.FC<SeamsAuthMenuProps> = (props) => {
   const [isClient, setIsClient] = React.useState(() => {
     if (typeof window === 'undefined') return false;
     return didClientMountOnce;
   });
   const forceInitialRegisterRef = React.useRef(
-    !didClientMountOnce &&
-      (props.defaultMode == null || props.defaultMode === AuthMenuMode.Register),
+    !didClientMountOnce && props.defaultMode === AuthMenuMode.Register,
   );
   const [retryKey, setRetryKey] = React.useState(0);
   const ClientLazy = React.useMemo(() => getClientLazy(retryKey), [retryKey]);
@@ -111,20 +105,21 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
   }, []);
 
   const skeleton = (
-    <PasskeyAuthMenuSkeletonInner
+    <SeamsAuthMenuSkeletonInner
       className={props.className}
       style={props.style}
       defaultMode={props.defaultMode}
       headings={props.headings}
       emailOtpAuthPolicy={props.emailOtpAuthPolicy}
       registrationAccountInput={props.registrationAccountInput}
+      showRegistrationInput={props.showRegistrationInput}
     />
   );
 
   return (
-    <PasskeyAuthMenuThemeScope theme={theme} tokens={tokens}>
+    <SeamsAuthMenuThemeScope theme={theme} tokens={tokens}>
       {isClient ? (
-        <PasskeyAuthMenuHydrationContext.Provider value={forceInitialRegisterRef.current}>
+        <SeamsAuthMenuHydrationContext.Provider value={forceInitialRegisterRef.current}>
           <LazyErrorBoundary
             onRetry={() => setRetryKey((k) => k + 1)}
             onError={() => invalidateClientLazy(retryKey)}
@@ -144,12 +139,12 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
               <ClientLazy {...props} />
             </React.Suspense>
           </LazyErrorBoundary>
-        </PasskeyAuthMenuHydrationContext.Provider>
+        </SeamsAuthMenuHydrationContext.Provider>
       ) : (
         skeleton
       )}
-    </PasskeyAuthMenuThemeScope>
+    </SeamsAuthMenuThemeScope>
   );
 };
 
-export default PasskeyAuthMenu;
+export default SeamsAuthMenu;

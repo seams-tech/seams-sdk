@@ -100,10 +100,10 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
   const publicTypes = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
   const messages = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
   const controller = readRepoSource(
-    'packages/sdk-web/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts',
+    'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts',
   );
-  const passkeyAuthMenuTypes = readRepoSource(
-    'packages/sdk-web/src/react/components/PasskeyAuthMenu/types.ts',
+  const seamsAuthMenuTypes = readRepoSource(
+    'packages/sdk-web/src/react/components/SeamsAuthMenu/types.ts',
   );
   const hostNear = readRepoSource(
     'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts',
@@ -147,37 +147,37 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
     "wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>",
     'activation prepare payload',
   );
-  assertContains(controller, 'type PasskeyRegistrationDraft', 'PasskeyAuthMenu controller');
-  assertContains(controller, 'createReadableWalletId()', 'PasskeyAuthMenu controller');
+  assertContains(controller, 'type PasskeyRegistrationDraft', 'SeamsAuthMenu controller');
+  assertContains(controller, 'createReadableWalletId()', 'SeamsAuthMenu controller');
   assertContains(
     controller,
-    'createPasskeyAuthMenuRegistrationRequest',
-    'PasskeyAuthMenu controller',
+    'createSeamsAuthMenuRegistrationRequest',
+    'SeamsAuthMenu controller',
   );
   assertContains(
     controller,
     'props.onRegister?.(registrationRequest)',
-    'PasskeyAuthMenu controller',
+    'SeamsAuthMenu controller',
   );
   assertContains(
-    passkeyAuthMenuTypes,
-    'export type PasskeyAuthMenuRegistrationRequest =',
-    'PasskeyAuthMenu types',
+    seamsAuthMenuTypes,
+    'export type SeamsAuthMenuRegistrationRequest =',
+    'SeamsAuthMenu types',
   );
-  assertContains(passkeyAuthMenuTypes, "kind: 'implicit_wallet'", 'PasskeyAuthMenu types');
+  assertContains(seamsAuthMenuTypes, "kind: 'implicit_wallet'", 'SeamsAuthMenu types');
   assertContains(
-    passkeyAuthMenuTypes,
+    seamsAuthMenuTypes,
     "kind: 'sponsored_named_near_account'",
-    'PasskeyAuthMenu types',
+    'SeamsAuthMenu types',
   );
-  assertNotContains(passkeyAuthMenuTypes, 'onRegister?: (options?:', 'PasskeyAuthMenu types');
+  assertNotContains(seamsAuthMenuTypes, 'onRegister?: (options?:', 'SeamsAuthMenu types');
   assertNotContains(
     controller,
     'props.onRegister?.(registrationOptions)',
-    'PasskeyAuthMenu controller',
+    'SeamsAuthMenu controller',
   );
-  assertNotContains(controller, 'createServerAllocatedWalletId', 'PasskeyAuthMenu controller');
-  assertNotContains(controller, 'createReadableRegistrationWalletId', 'PasskeyAuthMenu controller');
+  assertNotContains(controller, 'createServerAllocatedWalletId', 'SeamsAuthMenu controller');
+  assertNotContains(controller, 'createReadableRegistrationWalletId', 'SeamsAuthMenu controller');
   assertContains(hostNear, 'parseRegistrationActivationProvidedWallet', 'wallet iframe NEAR host');
   assertNotContains(hostNear, '...(payload.wallet', 'wallet iframe NEAR host');
   assertContains(touchIdPrompt, 'requireExpectedPasskeyRegistrationUser', 'Touch ID prompt');

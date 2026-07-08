@@ -1,12 +1,12 @@
 import React from 'react';
-import type { PasskeyAuthMenuSocialLoginHandler } from '../types';
+import type { SeamsAuthMenuSocialLoginHandler } from '../types';
 import { ChromeIcon, AppleIcon, AtSignIcon } from './icons';
 import { ArrowRightAnim } from '../../ArrowRightAnim';
 
 export type SocialLoginHandlers = {
-  google?: PasskeyAuthMenuSocialLoginHandler;
-  x?: PasskeyAuthMenuSocialLoginHandler;
-  apple?: PasskeyAuthMenuSocialLoginHandler;
+  google?: SeamsAuthMenuSocialLoginHandler;
+  x?: SeamsAuthMenuSocialLoginHandler;
+  apple?: SeamsAuthMenuSocialLoginHandler;
 };
 
 export interface SocialProvidersProps {

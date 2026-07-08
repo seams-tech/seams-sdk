@@ -101,11 +101,11 @@ export type {
 } from './hooks/useGoogleEmailOtpWalletAuth';
 export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
-export { usePostfixPosition } from './components/PasskeyAuthMenu/ui/usePostfixPosition';
+export { usePostfixPosition } from './components/SeamsAuthMenu/ui/usePostfixPosition';
 export type {
   UsePostfixPositionOptions,
   UsePostfixPositionReturn,
-} from './components/PasskeyAuthMenu/ui/usePostfixPosition';
+} from './components/SeamsAuthMenu/ui/usePostfixPosition';
 export { TxExecutionStatus } from '../core/types/actions';
 
 ////////////////////////////
@@ -118,22 +118,22 @@ export type { QRCodeScannerProps } from './components/QRCodeScanner';
 export { ShowQRCode } from './components/ShowQRCode';
 export type { ShowQRCodeProps } from './components/ShowQRCode';
 // Sign Up / Sign In menu
-export { PasskeyAuthMenu, PasskeyAuthMenuSkeleton } from './components/PasskeyAuthMenu/public';
+export { SeamsAuthMenu, SeamsAuthMenuSkeleton } from './components/SeamsAuthMenu/public';
 export type {
-  PasskeyAuthMenuProps,
-  PasskeyAuthMenuRegistrationRequest,
-} from './components/PasskeyAuthMenu/public';
-export { AuthMenuMode, AuthMenuModeMap } from './components/PasskeyAuthMenu/authMenuTypes';
+  SeamsAuthMenuProps,
+  SeamsAuthMenuRegistrationRequest,
+} from './components/SeamsAuthMenu/public';
+export { AuthMenuMode, AuthMenuModeMap } from './components/SeamsAuthMenu/authMenuTypes';
 export type {
   AuthMenuModeLabel,
   AuthMenuHeadings,
-} from './components/PasskeyAuthMenu/authMenuTypes';
+} from './components/SeamsAuthMenu/authMenuTypes';
 // SSR-safe shell + explicit client entrypoints
 export {
-  PasskeyAuthMenuClient,
-  PasskeyAuthMenuSkeletonInner,
-  preloadPasskeyAuthMenu,
-} from './components/PasskeyAuthMenu';
+  SeamsAuthMenuClient,
+  SeamsAuthMenuSkeletonInner,
+  preloadSeamsAuthMenu,
+} from './components/SeamsAuthMenu';
 // Small SVG utility icon used in examples
 export { default as TouchIcon } from './components/AccountMenuButton/icons/TouchIcon';
 export { default as QRCodeIcon } from './components/QRCodeIcon';
