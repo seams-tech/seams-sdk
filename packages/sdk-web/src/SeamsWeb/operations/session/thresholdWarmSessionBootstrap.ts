@@ -3,7 +3,7 @@ import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
-import { isObject } from '@shared/utils/validation';
+import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   AccountId,
@@ -2129,9 +2129,9 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   timestamp?: number;
 }): Promise<void> {
   const nearAccountId = String(args.nearAccountId || '').trim();
-  const publicKey = String(args.publicKey || '').trim();
+  const publicKey = ensureEd25519Prefix(String(args.publicKey || '').trim());
   const signerId = String(args.signerId || '').trim();
-  const relayerKeyId = String(args.relayerKeyId || '').trim();
+  const relayerKeyId = publicKey;
   const keyVersion = String(args.keyVersion || '').trim();
   if (!nearAccountId) {
     throw new Error('Threshold Ed25519 key persistence requires nearAccountId');
@@ -2145,7 +2145,7 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   if (!signerId) {
     throw new Error('Threshold Ed25519 key persistence requires signerId');
   }
-  if (!relayerKeyId || !keyVersion) {
+  if (!relayerKeyId.startsWith('ed25519:') || !keyVersion) {
     throw new Error('Threshold Ed25519 key persistence requires complete relayer metadata');
   }
 

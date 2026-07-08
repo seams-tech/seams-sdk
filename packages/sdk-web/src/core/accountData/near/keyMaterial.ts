@@ -2,8 +2,9 @@ import type { AccountId } from '../../types/accountIds';
 import {
   buildThresholdEd25519Participants2pV1,
   parseThresholdEd25519ParticipantsV1,
+  type ThresholdEd25519ParticipantV1,
 } from '@shared/threshold/participants';
-import { toTrimmedString } from '@shared/utils/validation';
+import { ensureEd25519Prefix, toTrimmedString } from '@shared/utils/validation';
 import type { ThresholdEd25519KeyMaterial } from './nearAccountData.types';
 import type {
   KeyMaterialAlgorithm,
@@ -94,6 +95,61 @@ function applyOptionalNearThresholdFields(
   }
 }
 
+function normalizeThresholdEd25519PublicKey(value: unknown): string {
+  const publicKey = ensureEd25519Prefix(toTrimmedString(value || ''));
+  return publicKey.startsWith('ed25519:') ? publicKey : '';
+}
+
+function canonicalThresholdEd25519RelayerKeyId(input: {
+  publicKey: unknown;
+  relayerKeyId: unknown;
+}): string {
+  const publicKey = normalizeThresholdEd25519PublicKey(input.publicKey);
+  if (publicKey) {
+    return publicKey;
+  }
+  const relayerKeyId = ensureEd25519Prefix(toTrimmedString(input.relayerKeyId || ''));
+  return relayerKeyId.startsWith('ed25519:') ? relayerKeyId : '';
+}
+
+function canonicalThresholdEd25519RelayerParticipant(
+  participant: ThresholdEd25519ParticipantV1,
+  relayerKeyId: string,
+): ThresholdEd25519ParticipantV1 {
+  if (participant.role !== 'relayer') {
+    return participant;
+  }
+  const canonical: ThresholdEd25519ParticipantV1 = {
+    id: participant.id,
+    role: 'relayer',
+    relayerKeyId,
+  };
+  if (participant.relayerUrl) {
+    canonical.relayerUrl = participant.relayerUrl;
+  }
+  if (participant.shareDerivation) {
+    canonical.shareDerivation = participant.shareDerivation;
+  }
+  return canonical;
+}
+
+function buildCanonicalThresholdEd25519Participants(input: {
+  participants: unknown;
+  relayerKeyId: string;
+}): ThresholdEd25519KeyMaterial['participants'] {
+  const parsed = parseThresholdEd25519ParticipantsV1(input.participants);
+  const hasRelayer = parsed?.some((participant) => participant.role === 'relayer') === true;
+  if (!parsed || !hasRelayer) {
+    return buildThresholdEd25519Participants2pV1({
+      relayerKeyId: input.relayerKeyId,
+      clientShareDerivation: 'prf_first_v1',
+    });
+  }
+  return parsed.map((participant) =>
+    canonicalThresholdEd25519RelayerParticipant(participant, input.relayerKeyId),
+  );
+}
+
 function mapThresholdNearKey(
   nearAccountId: AccountId,
   signerSlot: number,
@@ -101,22 +157,24 @@ function mapThresholdNearKey(
 ): ThresholdEd25519KeyMaterial | null {
   if (!rec) return null;
   const payload = (rec.payload || {}) as Record<string, unknown>;
-  const relayerKeyId = toTrimmedString(payload.relayerKeyId || '');
+  const publicKey = normalizeThresholdEd25519PublicKey(rec.publicKey);
+  const relayerKeyId = canonicalThresholdEd25519RelayerKeyId({
+    publicKey,
+    relayerKeyId: payload.relayerKeyId,
+  });
   const keyVersion = toTrimmedString(payload.keyVersion || '');
-  if (!relayerKeyId || !keyVersion) {
+  if (!publicKey || !relayerKeyId || !keyVersion) {
     return null;
   }
-  const participants =
-    parseThresholdEd25519ParticipantsV1(payload.participants) ||
-    buildThresholdEd25519Participants2pV1({
-      relayerKeyId,
-      clientShareDerivation: 'prf_first_v1',
-    });
+  const participants = buildCanonicalThresholdEd25519Participants({
+    participants: payload.participants,
+    relayerKeyId,
+  });
   return {
     nearAccountId,
     signerSlot,
     kind: 'threshold_ed25519_v1',
-    publicKey: rec.publicKey,
+    publicKey,
     relayerKeyId,
     keyVersion,
     participants,
@@ -207,14 +265,22 @@ export async function storeNearThresholdKeyMaterial(
   deps: NearKeyMaterialDeps,
   input: StoreNearThresholdKeyMaterialInput,
 ): Promise<void> {
-  const relayerKeyId = toTrimmedString(input.relayerKeyId || '');
+  const publicKey = normalizeThresholdEd25519PublicKey(input.publicKey);
+  if (!publicKey) {
+    throw new Error('IndexedDBManager: Missing Ed25519 publicKey for threshold key write');
+  }
+  const relayerKeyId = canonicalThresholdEd25519RelayerKeyId({
+    publicKey,
+    relayerKeyId: input.relayerKeyId,
+  });
   const keyVersion = toTrimmedString(input.keyVersion || '');
-  const participants =
-    parseThresholdEd25519ParticipantsV1(input.participants) ||
-    buildThresholdEd25519Participants2pV1({
-      relayerKeyId,
-      clientShareDerivation: 'prf_first_v1',
-    });
+  if (!relayerKeyId || !keyVersion) {
+    throw new Error('IndexedDBManager: Missing threshold Ed25519 relayer metadata for key write');
+  }
+  const participants = buildCanonicalThresholdEd25519Participants({
+    participants: input.participants,
+    relayerKeyId,
+  });
 
   const payload = {
     relayerKeyId,
@@ -233,7 +299,7 @@ export async function storeNearThresholdKeyMaterial(
       nearAccountId: input.nearAccountId,
       signerSlot: input.signerSlot,
       keyKind: 'threshold_share_v1',
-      publicKey: input.publicKey,
+      publicKey,
       signerId: input.signerId,
       payload,
       profileId,
@@ -247,7 +313,7 @@ export async function storeNearThresholdKeyMaterial(
     nearAccountId: input.nearAccountId,
     signerSlot: input.signerSlot,
     keyKind: 'threshold_share_v1',
-    publicKey: input.publicKey,
+    publicKey,
     signerId: input.signerId,
     payload,
   };

@@ -59,6 +59,9 @@ test.describe('NEAR threshold key material persistence', () => {
             signerKind: 'threshold-ed25519',
             signerAuthMethod: 'passkey',
             signerSource: 'passkey_registration',
+            metadata: {
+              nearEd25519SigningKeyId: nearAccountId,
+            },
           },
           activationPolicy: { mode: 'fail_if_occupied', signerSlot: 1 },
           preferredSlot: 1,
@@ -125,7 +128,7 @@ test.describe('NEAR threshold key material persistence', () => {
 
     expect(result.rawWrapKeySalt).toBe('');
     expect(result.rawPayload).toMatchObject({
-      relayerKeyId: 'rk-1',
+      relayerKeyId: 'ed25519:threshold-operational',
       keyVersion: 'threshold-ed25519-hss-v1',
     });
     expect(Array.isArray(result.rawPayload.participants)).toBe(true);
@@ -137,7 +140,7 @@ test.describe('NEAR threshold key material persistence', () => {
       signerSlot: 1,
       kind: 'threshold_ed25519_v1',
       publicKey: 'ed25519:threshold-operational',
-      relayerKeyId: 'rk-1',
+      relayerKeyId: 'ed25519:threshold-operational',
       keyVersion: 'threshold-ed25519-hss-v1',
     });
     expect(result.materialHasRecoveryPublicKey).toBe(false);
@@ -192,6 +195,9 @@ test.describe('NEAR threshold key material persistence', () => {
             signerKind: 'threshold-ed25519',
             signerAuthMethod: 'passkey',
             signerSource: 'passkey_registration',
+            metadata: {
+              nearEd25519SigningKeyId: nearAccountId,
+            },
           },
           activationPolicy: { mode: 'fail_if_occupied', signerSlot: 1 },
           preferredSlot: 1,
@@ -238,14 +244,18 @@ test.describe('NEAR threshold key material persistence', () => {
       signerSlot: 1,
       kind: 'threshold_ed25519_v1',
       publicKey: 'ed25519:threshold-operational',
-      relayerKeyId: 'rk-1',
+      relayerKeyId: 'ed25519:threshold-operational',
       keyVersion: 'threshold-ed25519-hss-v1',
     });
     expect(Array.isArray(result?.participants)).toBe(true);
     expect(result?.participants).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 1, role: 'client' }),
-        expect.objectContaining({ id: 2, role: 'relayer', relayerKeyId: 'rk-1' }),
+        expect.objectContaining({
+          id: 2,
+          role: 'relayer',
+          relayerKeyId: 'ed25519:threshold-operational',
+        }),
       ]),
     );
   });
