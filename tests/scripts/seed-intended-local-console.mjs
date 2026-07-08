@@ -17,8 +17,7 @@ dotenv.config({ path: envFilePath, override: true });
 
 const envFile = readEnvFile(envFilePath);
 const seedConfig = resolveSeedConfig(envFile);
-const d1LocalPersistPath =
-  process.env.SEAMS_D1_LOCAL_PERSIST_TO || '.wrangler/state/seams-d1';
+const d1LocalPersistPath = process.env.SEAMS_D1_LOCAL_PERSIST_TO || '.wrangler/state/seams-d1';
 const d1LocalWranglerConfig =
   process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG || 'wrangler.d1-local.toml';
 
@@ -127,7 +126,7 @@ function runWranglerSeed(config) {
     'pnpm',
     [
       '-C',
-      'packages/sdk-server-ts',
+      'packages/console-server-ts',
       'exec',
       'wrangler',
       'd1',

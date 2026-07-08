@@ -867,7 +867,7 @@ const LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID: &str = "local-ecdsa-hss-signing-gr
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID: &str = "local-ecdsa-hss-session";
 const LOCAL_SMOKE_ECDSA_HSS_WALLET_ID: &str = "wallet-ecdsa-hss-local";
 const LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID: &str =
-    "wallet-key:evm-family:wallet-ecdsa-hss-local:signing-root-local:root-v1:evm%3Aeip155%3Alocal";
+    "wallet-key:evm-family:wallet-ecdsa-hss-local:signing-root-local:root-v1";
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_ID: &str = "signing-root-local";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_VERSION: &str = "root-v1";
