@@ -1,6 +1,6 @@
 import React from 'react';
 import type { TransactionSettingsSectionProps } from './types';
-import { SegmentedControl } from '../PasskeyAuthMenu/ui/SegmentedControl';
+import { SegmentedControl } from './SegmentedControl';
 
 export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProps> = ({
   currentConfirmConfig,

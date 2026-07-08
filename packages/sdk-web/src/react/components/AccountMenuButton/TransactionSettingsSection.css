@@ -42,3 +42,66 @@
   font-size: 12px;
   margin-bottom: 6px;
 }
+
+.w3a-account-seg {
+  position: relative;
+  min-height: 54px;
+  overflow: hidden;
+  padding: 5px;
+  border: none;
+  background: var(--w3a-colors-surface2);
+  border-radius: var(--w3a-border-radius-xl);
+}
+
+.w3a-account-seg-active {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 5px;
+  width: calc((100% - 10px) / var(--w3a-account-seg-count));
+  border-radius: inherit;
+  background: var(--w3a-account-seg-active-bg);
+  transform: translateX(calc(var(--w3a-account-seg-active-index) * 100%));
+  transition:
+    transform 220ms ease,
+    opacity 150ms ease;
+  pointer-events: none;
+}
+
+.w3a-account-seg-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--w3a-account-seg-count), minmax(0, 1fr));
+  gap: 4px;
+  height: 100%;
+}
+
+.w3a-account-seg-btn {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 1rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 45%);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: clamp(13px, 3.6vw, 15px);
+  font-weight: 600;
+  text-align: center;
+  touch-action: manipulation;
+  transition: color 160ms ease;
+  white-space: normal;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.w3a-account-seg-btn.is-active {
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-account-seg-btn:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--w3a-colors-focus), transparent 60%);
+  outline: none;
+}

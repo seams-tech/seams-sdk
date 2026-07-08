@@ -49,6 +49,10 @@ export interface DesignTokens {
     // Button backgrounds (primary action buttons)
     buttonBackground: string;
     buttonHoverBackground: string;
+    secondaryButtonBackground: string;
+    secondaryButtonHoverBackground: string;
+    secondaryButtonBorder: string;
+    secondaryButtonText: string;
 
     // Surface layers
     colorBackground: string;
@@ -177,6 +181,10 @@ export const LIGHT_TOKENS: DesignTokens = {
     // Button background
     buttonBackground: LIGHT_THEME.buttonBackground,
     buttonHoverBackground: LIGHT_THEME.buttonHoverBackground,
+    secondaryButtonBackground: LIGHT_THEME.surface,
+    secondaryButtonHoverBackground: LIGHT_THEME.surface2,
+    secondaryButtonBorder: LIGHT_THEME.borderPrimary,
+    secondaryButtonText: LIGHT_THEME.textPrimary,
 
     // Core colors
     colorBackground: LIGHT_THEME.colorBackground,
@@ -294,6 +302,10 @@ export const DARK_TOKENS: DesignTokens = {
     // Button background
     buttonBackground: DARK_THEME.buttonBackground,
     buttonHoverBackground: DARK_THEME.buttonHoverBackground,
+    secondaryButtonBackground: DARK_THEME.surface,
+    secondaryButtonHoverBackground: DARK_THEME.surface2,
+    secondaryButtonBorder: DARK_THEME.borderPrimary,
+    secondaryButtonText: '#000000',
 
     colorBackground: DARK_THEME.colorBackground,
     surface: DARK_THEME.surface,
