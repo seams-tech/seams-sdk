@@ -7,7 +7,6 @@ self-hostable signing infrastructure.
 
 ```bash
 pnpm install
-pnpm build:sdk-full
 ```
 
 Run the local site, wallet origin, docs, Router API server, and Router A/B workers
@@ -20,6 +19,7 @@ pnpm router
 
 - Run the commands above in separate terminals.
 - `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- If SDK wallet assets are missing or stale, refresh them explicitly with `pnpm build:sdk`. After Rust/WASM changes, run `pnpm build:sdk-full`.
 - `pnpm router` starts Deriver A, Deriver B, SigningWorker, and the Router API server. It starts the API server through `pnpm router:server` when `127.0.0.1:9090` is not already ready.
 - Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Router API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.

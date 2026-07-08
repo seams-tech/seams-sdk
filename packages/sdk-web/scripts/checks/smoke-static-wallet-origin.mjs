@@ -14,16 +14,10 @@ const APP_ORIGIN_404_PATHS = [
   '/sdk/wallet-iframe-host-runtime.js',
   '/sdk/workers/near-signer.worker.js',
   '/wallet-service',
-  '/export-viewer',
 ];
 
-const WALLET_ORIGIN_200_PATHS = [
+const REQUIRED_WALLET_ORIGIN_200_PATHS = [
   { path: '/wallet-service', contentType: 'text/html; charset=utf-8' },
-  { path: '/export-viewer', contentType: 'text/html; charset=utf-8' },
-  { path: '/sdk/workers/near-signer.worker.js', contentType: 'text/javascript; charset=utf-8' },
-  { path: '/sdk/workers/wasm_signer_worker_bg.wasm', contentType: 'application/wasm' },
-  { path: '/sdk/workers/eth_signer_bg.wasm', contentType: 'application/wasm' },
-  { path: '/sdk/workers/tempo_signer_bg.wasm', contentType: 'application/wasm' },
   { path: '/wallet-assets.manifest.json', contentType: 'application/json; charset=utf-8' },
   { path: '/headers.manifest.json', contentType: 'application/json; charset=utf-8' },
 ];
@@ -32,9 +26,7 @@ function isAppWalletAssetPath(pathname) {
   return (
     pathname.startsWith('/sdk/') ||
     pathname === '/wallet-service' ||
-    pathname.startsWith('/wallet-service/') ||
-    pathname === '/export-viewer' ||
-    pathname.startsWith('/export-viewer/')
+    pathname.startsWith('/wallet-service/')
   );
 }
 
@@ -52,8 +44,24 @@ function assetMapByRoute(assets) {
 
 function normalizeWalletRoute(pathname) {
   if (pathname === '/wallet-service/') return '/wallet-service';
-  if (pathname === '/export-viewer/') return '/export-viewer';
   return pathname;
+}
+
+function isSmokeWorkerAsset(asset) {
+  return (
+    asset.route.startsWith('/sdk/workers/') &&
+    (asset.route.endsWith('.worker.js') || asset.route.endsWith('.wasm'))
+  );
+}
+
+function walletOrigin200Paths(assets) {
+  return [
+    ...REQUIRED_WALLET_ORIGIN_200_PATHS,
+    ...assets
+      .filter(isSmokeWorkerAsset)
+      .map((asset) => ({ path: asset.route, contentType: asset.contentType }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+  ];
 }
 
 async function respondWithFile(response, asset) {
@@ -152,14 +160,14 @@ async function assertAppOrigin(appBaseUrl) {
   }
 }
 
-async function assertWalletOrigin(walletBaseUrl) {
-  for (const route of WALLET_ORIGIN_200_PATHS) {
+async function assertWalletOrigin(walletBaseUrl, walletOrigin200Paths) {
+  for (const route of walletOrigin200Paths) {
     await assertContentType(`${walletBaseUrl}${route.path}`, route.contentType);
   }
 }
 
-function assertRequiredSmokeRoutesExist(assetsByRoute) {
-  for (const route of WALLET_ORIGIN_200_PATHS) {
+function assertRequiredSmokeRoutesExist(assetsByRoute, walletOrigin200Paths) {
+  for (const route of walletOrigin200Paths) {
     const normalizedRoute = normalizeWalletRoute(route.path);
     assert(assetsByRoute.has(normalizedRoute), `Missing static wallet smoke route ${normalizedRoute}`);
   }
@@ -167,8 +175,10 @@ function assertRequiredSmokeRoutesExist(assetsByRoute) {
 
 async function smokeStaticWalletOrigin() {
   const assetsManifest = await readAssetsManifest();
-  const assetsByRoute = assetMapByRoute(assetsManifest.assets || []);
-  assertRequiredSmokeRoutesExist(assetsByRoute);
+  const assets = assetsManifest.assets || [];
+  const assetsByRoute = assetMapByRoute(assets);
+  const walletPaths = walletOrigin200Paths(assets);
+  assertRequiredSmokeRoutesExist(assetsByRoute, walletPaths);
 
   const appServer = createAppServer();
   const walletServer = createWalletServer(assetsByRoute);
@@ -179,7 +189,7 @@ async function smokeStaticWalletOrigin() {
 
   try {
     await assertAppOrigin(appBaseUrl);
-    await assertWalletOrigin(walletBaseUrl);
+    await assertWalletOrigin(walletBaseUrl, walletPaths);
   } finally {
     await close(appServer);
     await close(walletServer);

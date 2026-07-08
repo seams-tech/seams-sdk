@@ -41,11 +41,19 @@ localhost:8443 {
 
 	@sdk_assets path /sdk/*
 	header @sdk_assets Cache-Control "public, max-age=300, must-revalidate"
+	header @sdk_assets Access-Control-Allow-Origin "*"
+	header @sdk_assets Access-Control-Allow-Methods "GET,OPTIONS"
+	header @sdk_assets Access-Control-Allow-Headers "Content-Type,Range"
 	header @sdk_assets -Content-Security-Policy
 	header @sdk_assets -Cross-Origin-Embedder-Policy
 	header @sdk_assets -Cross-Origin-Opener-Policy
 	header @sdk_assets -Cross-Origin-Resource-Policy
 	header @sdk_assets -Permissions-Policy
+	@sdk_preflight {
+		method OPTIONS
+		path /sdk/*
+	}
+	respond @sdk_preflight 204
 
 	handle /wallet-service {
 		rewrite * /wallet-service/index.html
@@ -98,6 +106,17 @@ localhost:9444 {
 		header_down -Access-Control-Allow-Methods
 		header_down -Access-Control-Allow-Headers
 		header_down -Vary
+	}
+	handle_errors {
+		@router_optional_probe path /session/state /auth/google/options /.well-known/webauthn /.well-known/webauthn/
+		@router_session_state path /session/state
+		@router_google_options path /auth/google/options
+		@router_well_known_webauthn path /.well-known/webauthn /.well-known/webauthn/
+		header @router_optional_probe Content-Type "application/json; charset=utf-8"
+		header @router_optional_probe Cache-Control "no-store"
+		respond @router_session_state `{"authenticated":false,"routerAvailable":false}` 200
+		respond @router_google_options `{"ok":true,"configured":false,"routerAvailable":false,"message":"Router API server is unavailable"}` 200
+		respond @router_well_known_webauthn `{"origins":[],"capabilities":{"signingSessionSeal":{"mode":"none"}},"routerAvailable":false}` 200
 	}
 }
 

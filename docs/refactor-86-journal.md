@@ -55,7 +55,7 @@ Validation:
 - `pnpm --dir packages/sdk-web check:hosted-wallet-docs`
 - `pnpm --dir packages/sdk-web build:check:fresh`
 - `pnpm --dir tests exec playwright test tests/unit/configs.iframeWalletDisable.test.ts tests/unit/walletIframeHost.configGuards.test.ts tests/unit/seamsWeb.setTheme.unit.test.ts tests/unit/seamsWeb.namespacedSigningSurface.unit.test.ts tests/unit/theme.react.unit.test.ts --reporter=line`
-- `pnpm --dir tests exec playwright test tests/unit/passkeyAuthMenu.fouc.unit.test.ts --reporter=line`
+- `pnpm --dir tests exec playwright test tests/unit/seamsAuthMenu.fouc.unit.test.ts --reporter=line`
 - `pnpm --dir tests exec playwright test tests/wallet-iframe/handshake.test.ts --reporter=line`
 - `pnpm --dir tests exec playwright test tests/unit/seamsWeb.initWalletIframe.concurrent.unit.test.ts --reporter=line`
 - `pnpm --dir tests exec playwright test -c playwright.unit.config.ts tests/unit/packageExports.contract.unit.test.ts --reporter=line`

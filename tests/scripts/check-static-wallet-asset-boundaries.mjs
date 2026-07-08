@@ -33,6 +33,10 @@ function assertContains(source, label, marker) {
 function assertViteHelperBoundaries() {
   const source = readRepoSource(VITE_HELPER_PATH);
   assertNoMarkers(source, VITE_HELPER_PATH, ['export function seamsWasmMime']);
+  assertNoMarkers(source, VITE_HELPER_PATH, [
+    'buildExportViewerHtml',
+    'export-viewer/index.html',
+  ]);
 
   const walletService = sourceRangeBetween(
     source,

@@ -12,9 +12,8 @@ const ASSETS_MANIFEST_PATH = path.join(PUBLIC_ROOT, 'wallet-assets.manifest.json
 const HEADERS_MANIFEST_PATH = path.join(PUBLIC_ROOT, 'headers.manifest.json');
 const WALLET_STATIC_ASSETS_ROOT = path.join(SDK_ROOT, 'src/static/wallet-assets');
 
-const REQUIRED_ROUTES = [
+const REQUIRED_BASE_ROUTES = [
   '/wallet-service',
-  '/export-viewer',
   '/headers.manifest.json',
   '/wallet-assets.manifest.json',
   '/sdk/wallet-shims.js',
@@ -25,46 +24,6 @@ const REQUIRED_ROUTES = [
   '/sdk/wallet-iframe-host-full.js',
   '/sdk/export-private-key-viewer.js',
   '/sdk/iframe-export-bootstrap.js',
-  '/sdk/workers/near-signer.worker.js',
-  '/sdk/workers/hss-client.worker.js',
-  '/sdk/workers/passkey-confirm.worker.js',
-  '/sdk/workers/email-otp.worker.js',
-  '/sdk/workers/eth-signer.worker.js',
-  '/sdk/workers/tempo-signer.worker.js',
-  '/sdk/workers/wasm_signer_worker_bg.wasm',
-  '/sdk/workers/hss_client_signer_bg.wasm',
-  '/sdk/workers/eth_signer.wasm',
-  '/sdk/workers/eth_signer_bg.wasm',
-  '/sdk/workers/tempo_signer.wasm',
-  '/sdk/workers/tempo_signer_bg.wasm',
-  '/sdk/workers/email_otp_runtime_bg.wasm',
-];
-
-const WORKER_WASM_COMPANIONS = [
-  {
-    worker: '/sdk/workers/near-signer.worker.js',
-    companions: ['/sdk/workers/wasm_signer_worker_bg.wasm', '/sdk/workers/near_signer.wasm'],
-  },
-  {
-    worker: '/sdk/workers/hss-client.worker.js',
-    companions: ['/sdk/workers/hss_client_signer_bg.wasm'],
-  },
-  {
-    worker: '/sdk/workers/email-otp.worker.js',
-    companions: ['/sdk/workers/email_otp_runtime.js', '/sdk/workers/email_otp_runtime_bg.wasm'],
-  },
-  {
-    worker: '/sdk/workers/shamir3pass.worker.js',
-    companions: ['/sdk/workers/shamir3pass_runtime.js', '/sdk/workers/shamir3pass_runtime_bg.wasm'],
-  },
-  {
-    worker: '/sdk/workers/eth-signer.worker.js',
-    companions: ['/sdk/workers/eth_signer.wasm', '/sdk/workers/eth_signer_bg.wasm'],
-  },
-  {
-    worker: '/sdk/workers/tempo-signer.worker.js',
-    companions: ['/sdk/workers/tempo_signer.wasm', '/sdk/workers/tempo_signer_bg.wasm'],
-  },
 ];
 
 const EXPECTED_CONTENT_TYPES = [
@@ -82,7 +41,6 @@ const REQUIRED_HEADER_ROUTE_CLASSES = [
   '/sdk/workers/*.js',
   '/sdk/workers/*.wasm',
   '/wallet-service',
-  '/export-viewer',
   '/*.manifest.json',
 ];
 
@@ -123,7 +81,6 @@ const SOURCE_MAPPING_URL_PATTERN = /(?:\/\/|\/\*)# sourceMappingURL=([^\s*]+)/g;
 
 function routeToFilePath(route) {
   if (route === '/wallet-service') return path.join(PUBLIC_ROOT, 'wallet-service/index.html');
-  if (route === '/export-viewer') return path.join(PUBLIC_ROOT, 'export-viewer/index.html');
   return path.join(PUBLIC_ROOT, route.slice(1));
 }
 
@@ -150,6 +107,21 @@ function isJavaScriptAsset(asset) {
 
 function isWalletWorkerRoute(route) {
   return route.startsWith('/sdk/workers/');
+}
+
+function isCorsReadableWalletAsset(asset) {
+  return (
+    asset.route.startsWith('/sdk/') &&
+    (asset.routeClass === 'javascript' || asset.routeClass === 'css' || asset.routeClass === 'wasm')
+  );
+}
+
+function isWalletWorkerEntryRoute(route) {
+  return route.startsWith('/sdk/workers/') && route.endsWith('.worker.js');
+}
+
+function isWalletWorkerWasmRoute(route) {
+  return route.startsWith('/sdk/workers/') && route.endsWith('.wasm');
 }
 
 function isIgnoredReference(specifier) {
@@ -245,9 +217,19 @@ async function assertManifestFilesExist(assets) {
 }
 
 function assertRequiredRoutes(routes) {
-  for (const route of REQUIRED_ROUTES) {
+  for (const route of REQUIRED_BASE_ROUTES) {
     assert(routes.has(route), `Missing required wallet static route: ${route}`);
   }
+}
+
+function assertNoHostedExportViewerRoute(assetsManifest, headersManifest, routes) {
+  assert(!routes.has('/export-viewer'), 'Hosted /export-viewer route must not be emitted');
+  assert(
+    !Object.prototype.hasOwnProperty.call(assetsManifest, 'exportViewerPath'),
+    'wallet-assets.manifest.json must not expose exportViewerPath',
+  );
+  const routeClasses = new Set(headersManifest.routeClasses?.map((entry) => entry.routePattern) || []);
+  assert(!routeClasses.has('/export-viewer'), 'headers.manifest.json must not expose /export-viewer');
 }
 
 async function assertCanonicalWalletStaticAssets() {
@@ -280,6 +262,16 @@ function assertRequiredHeaders(assets) {
       contentTypeHeader.value === asset.contentType,
       `Content-Type header does not match contentType for ${asset.route}`,
     );
+    if (isCorsReadableWalletAsset(asset)) {
+      const corsHeader = asset.requiredHeaders?.find((header) => {
+        return header.name === 'Access-Control-Allow-Origin';
+      });
+      assert(corsHeader, `Missing Access-Control-Allow-Origin header metadata for ${asset.route}`);
+      assert(
+        corsHeader.value === '*',
+        `Access-Control-Allow-Origin header for ${asset.route} must be *`,
+      );
+    }
   }
 }
 
@@ -350,13 +342,28 @@ async function assertWorkerAuthorityReferencesScoped(assets, routes) {
   );
 }
 
-function assertWorkerCompanions(routes) {
-  for (const pair of WORKER_WASM_COMPANIONS) {
-    assert(routes.has(pair.worker), `Missing worker route: ${pair.worker}`);
-    for (const companion of pair.companions) {
-      assert(routes.has(companion), `Missing companion for ${pair.worker}: ${companion}`);
-    }
+async function assertWorkerWasmReachability(assets, routes) {
+  const graph = await buildAssetReferenceGraph(assets, routes);
+  const workerRoutes = assets
+    .map((asset) => asset.route)
+    .filter(isWalletWorkerEntryRoute)
+    .sort();
+  const wasmRoutes = new Set(assets.map((asset) => asset.route).filter(isWalletWorkerWasmRoute));
+  const wasmFreeWorkers = [];
+
+  assert(workerRoutes.length > 0, 'wallet-assets.manifest.json must include wallet worker routes');
+  assert(wasmRoutes.size > 0, 'wallet-assets.manifest.json must include worker WASM routes');
+
+  for (const workerRoute of workerRoutes) {
+    const reachable = reachableRoutesFromEntries(graph, [workerRoute]);
+    const reachableWasm = [...reachable].filter((route) => wasmRoutes.has(route));
+    if (reachableWasm.length === 0) wasmFreeWorkers.push(workerRoute);
   }
+
+  assert(
+    wasmFreeWorkers.length === 0,
+    `Worker routes do not reach WASM companions from generated references: ${wasmFreeWorkers.join(', ')}`,
+  );
 }
 
 function assertHeaderManifest(headersManifest) {
@@ -399,7 +406,7 @@ function assertForbiddenDefaultHeaderCoverage(headersManifest) {
       assert(forbidden.has(header), `${routePattern} must forbid default ${header}`);
     }
   }
-  for (const routePattern of ['/wallet-service', '/export-viewer']) {
+  for (const routePattern of ['/wallet-service']) {
     const routeClass = classes.get(routePattern);
     const forbidden = new Set(routeClass?.forbiddenDefaultHeaders || []);
     for (const header of FORBIDDEN_DOCUMENT_DEFAULT_HEADERS) {
@@ -465,10 +472,11 @@ async function assertStaticWalletAssets() {
   assertRequiredHeaders(assets);
   const routes = assetByRoute(assets);
   assertRequiredRoutes(routes);
+  assertNoHostedExportViewerRoute(assetsManifest, headersManifest, routes);
   await assertCanonicalWalletStaticAssets();
   await assertAssetReferencesResolve(assets, routes);
   await assertWorkerAuthorityReferencesScoped(assets, routes);
-  assertWorkerCompanions(routes);
+  await assertWorkerWasmReachability(assets, routes);
   console.log(`Static wallet asset manifest OK (${assets.length} assets)`);
 }
 

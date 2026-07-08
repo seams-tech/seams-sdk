@@ -11,15 +11,13 @@ This app runs a dedicated wallet/service origin for local development. The app V
 
 ## Usage
 
-- In one terminal, build the SDK so `packages/sdk-web/dist/public` exists:
-  - One-off build: `pnpm build:sdk`
-- In another terminal, start this dev server:
+- Start this dev server:
 
 ```
 pnpm -C apps/seams-site dev
 ```
 
-- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it builds the SDK and starts Caddy for you; run `pnpm router` separately so the Router API origin `https://localhost:9444` is available.
+- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it starts Caddy for you; run `pnpm router` separately so the Router API origin `https://localhost:9444` is available. If wallet assets are missing or stale, refresh them explicitly with `pnpm build:sdk`; after Rust/WASM changes, run `pnpm build:sdk-full`.
 
 Open:
 

@@ -10,28 +10,6 @@ const REPO_ROOT = path.resolve(TEST_DIR, '../..');
 const PUBLIC_ROOT = path.join(REPO_ROOT, 'packages/sdk-web/dist/public');
 const ASSETS_MANIFEST_PATH = path.join(PUBLIC_ROOT, 'wallet-assets.manifest.json');
 
-const WORKER_ROUTES = [
-  '/sdk/workers/near-signer.worker.js',
-  '/sdk/workers/hss-client.worker.js',
-  '/sdk/workers/passkey-confirm.worker.js',
-  '/sdk/workers/email-otp.worker.js',
-  '/sdk/workers/shamir3pass.worker.js',
-  '/sdk/workers/eth-signer.worker.js',
-  '/sdk/workers/tempo-signer.worker.js',
-] as const;
-
-const WORKER_WASM_ROUTES = [
-  '/sdk/workers/wasm_signer_worker_bg.wasm',
-  '/sdk/workers/near_signer.wasm',
-  '/sdk/workers/hss_client_signer_bg.wasm',
-  '/sdk/workers/email_otp_runtime_bg.wasm',
-  '/sdk/workers/shamir3pass_runtime_bg.wasm',
-  '/sdk/workers/eth_signer.wasm',
-  '/sdk/workers/eth_signer_bg.wasm',
-  '/sdk/workers/tempo_signer.wasm',
-  '/sdk/workers/tempo_signer_bg.wasm',
-] as const;
-
 type StaticAsset = {
   route: string;
   sourceFile: string;
@@ -59,8 +37,21 @@ function assetMapByRoute(assets: readonly StaticAsset[]): Map<string, StaticAsse
 
 function normalizeRoute(pathname: string): string {
   if (pathname === '/wallet-service/') return '/wallet-service';
-  if (pathname === '/export-viewer/') return '/export-viewer';
   return pathname;
+}
+
+function workerRoutesFromAssets(assets: readonly StaticAsset[]): string[] {
+  return assets
+    .map((asset) => asset.route)
+    .filter((route) => route.startsWith('/sdk/workers/') && route.endsWith('.worker.js'))
+    .sort();
+}
+
+function workerWasmRoutesFromAssets(assets: readonly StaticAsset[]): string[] {
+  return assets
+    .map((asset) => asset.route)
+    .filter((route) => route.startsWith('/sdk/workers/') && route.endsWith('.wasm'))
+    .sort();
 }
 
 async function readAssetsManifest(): Promise<{ assets: StaticAsset[] }> {
@@ -119,21 +110,31 @@ function close(server: http.Server): Promise<void> {
   });
 }
 
-async function createWalletServerFixture(): Promise<{ server: http.Server; baseUrl: string }> {
+async function createWalletServerFixture(): Promise<{
+  server: http.Server;
+  baseUrl: string;
+  assets: StaticAsset[];
+}> {
   const manifest = await readAssetsManifest();
   const server = createStaticWalletServer(assetMapByRoute(manifest.assets));
   const address = await listen(server);
   return {
     server,
     baseUrl: `http://${address.address}:${address.port}`,
+    assets: manifest.assets,
   };
 }
 
 test('static wallet-service loads workers and worker WASM from dist/public', async ({ page }) => {
-  const { server, baseUrl } = await createWalletServerFixture();
+  const { server, baseUrl, assets } = await createWalletServerFixture();
   try {
     const response = await page.goto(`${baseUrl}/wallet-service`, { waitUntil: 'domcontentloaded' });
     expect(response?.ok()).toBe(true);
+
+    const workerRoutes = workerRoutesFromAssets(assets);
+    const wasmRoutes = workerWasmRoutesFromAssets(assets);
+    expect(workerRoutes.length).toBeGreaterThan(0);
+    expect(wasmRoutes.length).toBeGreaterThan(0);
 
     const results = await page.evaluate(
       async ({ workerRoutes, wasmRoutes }) => {
@@ -201,7 +202,7 @@ test('static wallet-service loads workers and worker WASM from dist/public', asy
         }
         return { workerResults, wasmResults };
       },
-      { workerRoutes: WORKER_ROUTES, wasmRoutes: WORKER_WASM_ROUTES },
+      { workerRoutes, wasmRoutes },
     );
 
     expect(results.workerResults.filter((result) => !result.ok)).toEqual([]);

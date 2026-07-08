@@ -5,7 +5,7 @@
   "scripts": {
     "vite": "vite --host localhost --port 3600",
     "caddy": "bash run_caddy.sh",
-    "dev": "pnpm -C ../.. build:sdk-full && concurrently --kill-others --names site,caddy \"pnpm run vite\" \"pnpm run caddy\"",
+    "dev": "concurrently --kill-others --names site,caddy \"pnpm run vite\" \"pnpm run caddy\"",
     "build": "pnpm -C ../.. build:sdk-full && vite build",
     "typecheck": "pnpm -C ../../packages/sdk-web exec tsc -p tsconfig.client-types.json && tsc --noEmit",
     "preview": "vite preview --host localhost --port 3600"

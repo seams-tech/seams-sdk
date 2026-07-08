@@ -13,7 +13,6 @@ const DIST_PUBLIC = path.join(DIST_ROOT, 'public');
 const PUBLIC_SDK = path.join(DIST_PUBLIC, 'sdk');
 const PUBLIC_WORKERS = path.join(PUBLIC_SDK, 'workers');
 const WALLET_SERVICE_HTML = path.join(DIST_PUBLIC, 'wallet-service/index.html');
-const EXPORT_VIEWER_HTML = path.join(DIST_PUBLIC, 'export-viewer/index.html');
 const HEADERS_MANIFEST = path.join(DIST_PUBLIC, 'headers.manifest.json');
 const ASSETS_MANIFEST = path.join(DIST_PUBLIC, 'wallet-assets.manifest.json');
 const DIST_WALLET_MESSAGES = path.join(
@@ -24,6 +23,7 @@ const DIST_WALLET_MESSAGES = path.join(
 const PACKAGE_JSON = JSON.parse(await fs.readFile(path.join(SDK_ROOT, 'package.json'), 'utf-8'));
 
 const HEADER_NAMES = {
+  accessControlAllowOrigin: 'Access-Control-Allow-Origin',
   cacheControl: 'Cache-Control',
   contentSecurityPolicy: 'Content-Security-Policy',
   contentType: 'Content-Type',
@@ -75,7 +75,6 @@ function isNotGeneratedAssetsManifest(sourceFile) {
 
 function routeForSourceFile(sourceFile) {
   if (sourceFile === 'wallet-service/index.html') return '/wallet-service';
-  if (sourceFile === 'export-viewer/index.html') return '/export-viewer';
   return `/${sourceFile}`;
 }
 
@@ -91,7 +90,6 @@ function routeClassForSourceFile(sourceFile) {
 
 function ownerForSourceFile(sourceFile) {
   if (sourceFile === 'wallet-service/index.html') return 'wallet_service_document';
-  if (sourceFile === 'export-viewer/index.html') return 'export_viewer_document';
   if (sourceFile.startsWith('sdk/workers/')) return 'wallet_worker_runtime';
   if (sourceFile.startsWith('sdk/')) return 'wallet_sdk_asset';
   if (sourceFile.endsWith('.manifest.json')) return 'wallet_asset_manifest';
@@ -105,6 +103,14 @@ function requiredHeadersForRouteClass(routeClass) {
     { name: HEADER_NAMES.contentType, value: headers.contentType },
     { name: HEADER_NAMES.cacheControl, value: headers.cachePolicy },
   ];
+  if (routeClass === 'javascript' || routeClass === 'css' || routeClass === 'wasm') {
+    required.push({
+      name: HEADER_NAMES.accessControlAllowOrigin,
+      value: '*',
+      purpose: 'cross_origin_wallet_asset_hints',
+      stage: 'hosted_wallet_default',
+    });
+  }
   if (routeClass === 'htmlDocument') {
     required.push({
       name: HEADER_NAMES.contentSecurityPolicy,
@@ -174,11 +180,9 @@ async function readWalletProtocolVersion() {
 }
 
 async function writeHtmlDocuments() {
-  const { buildWalletServiceHtml, buildExportViewerHtml } = await readPluginUtils();
+  const { buildWalletServiceHtml } = await readPluginUtils();
   await fs.mkdir(path.dirname(WALLET_SERVICE_HTML), { recursive: true });
-  await fs.mkdir(path.dirname(EXPORT_VIEWER_HTML), { recursive: true });
   await fs.writeFile(WALLET_SERVICE_HTML, buildWalletServiceHtml('/sdk', undefined, 'runtime'));
-  await fs.writeFile(EXPORT_VIEWER_HTML, buildExportViewerHtml('/sdk'));
 }
 
 async function collectFiles(directory) {
@@ -254,18 +258,6 @@ function buildHeadersManifest() {
         ],
       },
       {
-        routePattern: '/export-viewer',
-        routeClass: 'htmlDocument',
-        owner: 'export_viewer_document',
-        requiredHeaders: requiredHeadersForRouteClass('htmlDocument'),
-        forbiddenDefaultHeaders: [
-          'Cross-Origin-Embedder-Policy',
-          'Cross-Origin-Opener-Policy',
-          'Cross-Origin-Resource-Policy',
-          'Permissions-Policy',
-        ],
-      },
-      {
         routePattern: '/*.manifest.json',
         routeClass: 'json',
         owner: 'wallet_asset_manifest',
@@ -283,7 +275,6 @@ function buildAssetsManifest(assets, walletProtocolVersion) {
     assetRoot: 'dist/public',
     sdkBasePath: '/sdk',
     walletServicePath: '/wallet-service',
-    exportViewerPath: '/export-viewer',
     headersManifest: 'headers.manifest.json',
     versionSkewContract: {
       kind: 'wallet_iframe_protocol_handshake',

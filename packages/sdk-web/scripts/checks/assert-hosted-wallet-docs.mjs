@@ -83,8 +83,12 @@ const PLUGIN_README_REQUIRED_PATTERNS = [
   },
   {
     pattern:
-      /App origins should return 404 for `\/sdk\/\*`, `\/wallet-service`, and\s+`\/export-viewer`\./,
+      /App origins should return 404 for `\/sdk\/\*` and `\/wallet-service`\./,
     message: 'plugin README must state that app origins do not serve wallet routes',
+  },
+  {
+    pattern: /no hosted `\/export-viewer` page is part of the runtime contract\./,
+    message: 'plugin README must document the srcdoc-only export viewer contract',
   },
   {
     pattern: /Seams wallet hosting publishes that tree from the wallet origin/,

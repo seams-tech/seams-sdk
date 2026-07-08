@@ -83,16 +83,16 @@ These invariants must hold before removing the plugin from app usage:
 - App-origin warmup may preconnect or prefetch hosted wallet URLs. Warmup
   failures must be non-blocking and must not affect registration, unlock,
   export, or signing.
-- The app origin must be allowed to return 404 for every `/sdk/*`,
-  `/wallet-service`, and `/export-viewer` request while wallet flows still work.
+- The app origin must be allowed to return 404 for every `/sdk/*` and
+  `/wallet-service` request while wallet flows still work.
 - The wallet iframe must support passkey registration and login with the
   configured app RP ID and allowed origins. The SDK-created iframe `allow`
   attribute is the default WebAuthn delegation mechanism. An app-level
   `Permissions-Policy` header is required only if real-browser smokes prove a
   supported browser needs it.
-- Export/private-key viewing must have one supported runtime path: hosted
-  `/export-viewer` or a wallet-origin-owned inline document. Delete the unused
-  path.
+- Export/private-key viewing has one supported runtime path: a
+  wallet-origin-owned inline document. The hosted `/export-viewer` page is
+  deleted.
 - Hosted wallet assets must be same-origin relative inside the wallet iframe.
   Worker JS and WASM must load by relative URLs from the hosted asset tree.
 - Browser wallet capabilities must run through hosted iframe mode. Direct
@@ -128,7 +128,7 @@ The Vite plugin currently also:
 - adds COOP, optional COEP/CORP, Permissions-Policy, and wallet
   Content-Security-Policy;
 - serves `/.well-known/webauthn` in dev;
-- emits `_headers`, `/wallet-service/index.html`, and `/export-viewer/index.html`.
+- emits `_headers` and `/wallet-service/index.html`.
 
 That makes the plugin both a static file server and a security/header
 integration. This is too much for app-level Vite config.
@@ -207,7 +207,7 @@ flows fail.
 | Missing `walletOrigin` silently selects direct browser worker mode. | Make hosted iframe mode the browser wallet capability contract. Throw a clear config/use-boundary error when browser wallet capability code runs without `walletOrigin`. Keep any direct mode as explicit internal/test-only code. | Phase 1, Phase 5, Phase 7 |
 | Local Caddy proxies wallet origin to app Vite, masking app-origin `/sdk/*` use. | Serve `packages/sdk-web/dist/public` directly from `https://localhost:8443` during repo-local smoke. The app Vite server should never satisfy wallet asset requests. | Phase 3 |
 | Build constants copy or reference `apps/seams-site/src/public/sdk`. | Delete those constants/scripts when unused. If a test still needs them temporarily, quarantine them under test-only naming and block production/app examples from using them. | Phase 2, Phase 7 |
-| Export viewer has both hosted-page and `srcdoc` paths. | Pick one runtime path and delete the other. The shorter fix is to keep the current `srcdoc` only if it is wallet-origin-owned and passes app-origin `/sdk/* = 404`; otherwise move export to hosted `/export-viewer`. | Phase 1, Phase 3 |
+| Export viewer has both hosted-page and `srcdoc` paths. | Keep the current wallet-origin `srcdoc` runtime and delete the hosted `/export-viewer` route. Prove export works while app-origin `/sdk/*` returns 404. | Phase 1, Phase 3 |
 | Lit component CSS falls back to app-origin `/sdk/*`. | Ensure wallet-hosted flows set an absolute SDK base before Lit/export components load. Add a smoke where app-origin `/sdk/*` returns 404 and confirmation/export styling still loads. | Phase 1, Phase 7 |
 | Header tests still assert plugin-era CSP/COOP/COEP/CORP behavior. | Replace them with hosted wallet `headers.manifest.json` tests and browser smokes. Keep strict-isolation tests only under an explicit optional profile. | Phase 7 |
 | `@seams/sdk/plugins/vite` and `@seams/sdk/plugins/next` keep teaching app-owned runtime hosting. | Remove app-facing examples. Keep only package-internal/static-build helpers that emit hosted wallet artifacts, or delete plugin exports after consumers stop importing them. | Phase 5, Phase 6, Phase 7 |
@@ -223,9 +223,9 @@ Remaining decisions:
       iframe `allow` and no app-origin `Permissions-Policy`. If a supported
       browser fails, document the smallest required app platform header:
       `Permissions-Policy: publickey-credentials-get=(self "https://wallet.seams.sh"), publickey-credentials-create=(self "https://wallet.seams.sh")`.
-- [x] Export viewer shape decision: start with the current wallet-origin
-      `srcdoc` path. Keep it only if it passes app-origin `/sdk/* = 404`;
-      otherwise move export to hosted `/export-viewer` and delete `srcdoc`.
+- [x] Export viewer shape decision: use the current wallet-origin `srcdoc`
+      path. It passes app-origin `/sdk/* = 404`, so the hosted `/export-viewer`
+      page is deleted.
 - [x] Direct mode policy decision: hosted iframe mode is required for browser
       wallet capabilities. Missing `walletOrigin` must fail clearly at
       config/use boundary. Any remaining direct browser worker mode is
@@ -253,8 +253,7 @@ Remaining decisions:
       planning artifact and must not be lost.
 - [x] Make the first implementation slice the harsh local smoke:
       - app origin has no Seams SDK Vite plugin;
-      - app origin returns 404 for `/sdk/*`, `/wallet-service`, and
-        `/export-viewer`;
+      - app origin returns 404 for `/sdk/*` and `/wallet-service`;
       - wallet origin serves `packages/sdk-web/dist/public` directly;
       - registration, unlock, NEAR signing, ECDSA signing, and export pass
         through the hosted wallet origin.
@@ -263,9 +262,8 @@ Remaining decisions:
       - missing `walletOrigin` throws a clear error;
       - tests that intentionally use direct mode must opt into an
         internal/test-only path.
-- [x] Keep the export viewer as wallet-origin `srcdoc` for the first pass and
-      prove it works under app-origin `/sdk/* = 404`. If it fails, switch to
-      hosted `/export-viewer` in the same phase and delete the `srcdoc` path.
+- [x] Keep the export viewer as wallet-origin `srcdoc` and prove it works under
+      app-origin `/sdk/* = 404`. Delete the hosted `/export-viewer` path.
 - [ ] Run WebAuthn iframe `allow` smokes before documenting any app-origin
       `Permissions-Policy` requirement.
 
@@ -296,8 +294,6 @@ Seams wallet host deployment artifact:
     chunks-and-css-loaded-by-sdk-entries
   wallet-service/
     index.html
-  export-viewer/
-    index.html
   wallet-assets.manifest.json
   headers.manifest.json
 ```
@@ -312,7 +308,6 @@ Seams hosted wallet-origin responsibility:
 ```txt
 GET https://wallet.seams.sh/sdk/*          -> dist/public/sdk/*
 GET https://wallet.seams.sh/wallet-service -> dist/public/wallet-service/index.html
-GET https://wallet.seams.sh/export-viewer  -> dist/public/export-viewer/index.html
 ```
 
 App developer responsibility (0E target shape; during stabilization the same
@@ -335,8 +330,8 @@ createSeamsConfig({
 });
 ```
 
-App developers do not serve `/sdk/*`, `/wallet-service`, `/export-viewer`, or
-wallet worker/WASM files. Local app development uses the same hosted wallet
+App developers do not serve `/sdk/*`, `/wallet-service`, or wallet worker/WASM
+files. Local app development uses the same hosted wallet
 origin.
 
 `hostedWalletIframe(...)` is SDK runtime configuration, independent of Vite,
@@ -370,8 +365,8 @@ Goal: define the exact static asset contract before changing build output.
 
 Tasks:
 
-- [x] Inventory every runtime URL under `/sdk/*`, `/sdk/workers/*`,
-      `/wallet-service`, and `/export-viewer`.
+- [x] Inventory every runtime URL under `/sdk/*`, `/sdk/workers/*`, and
+      `/wallet-service`, plus the deleted hosted `/export-viewer` route.
 - [x] Record which files are loaded by wallet iframe HTML, confirm/export UI,
       workers, WASM bindgen loaders, and preconnect/prewarm code.
 - [x] Inventory every caller of `warmCriticalResources`, worker construction,
@@ -400,16 +395,16 @@ Tasks:
       record the implications against Refactor 85's local-material
       assumptions.
 - [x] Document required response headers per route group:
-      `/wallet-service`, `/export-viewer`, `/sdk/*.js`, `/sdk/*.css`,
+      `/wallet-service`, `/sdk/*.js`, `/sdk/*.css`,
       `/sdk/workers/*.worker.js`, and `/sdk/workers/*.wasm`.
 - [x] Distinguish route classes in the header contract. For `/sdk/*` asset
       routes the default required headers are only:
       - correct `Content-Type`, especially `application/wasm`;
       - cache policy.
-      The `/wallet-service` and `/export-viewer` document class additionally
-      requires default embedding control (`frame-ancestors` or equivalent)
-      driven by the embedding-authorization model. That is a security
-      default, not optional hardening.
+      The `/wallet-service` document class additionally requires default
+      embedding control (`frame-ancestors` or equivalent) driven by the
+      embedding-authorization model. That is a security default, not optional
+      hardening.
 - [x] Verify the SDK-created wallet iframe sets the required WebAuthn
       delegation attributes for hosted wallet-origin use.
 - [x] Treat iframe `allow` as the primary WebAuthn delegation mechanism:
@@ -428,13 +423,13 @@ Tasks:
       the smallest required app platform header and keep it outside SDK Vite
       plugin behavior and wallet static asset hosting.
 - [x] Decide the export/private-key viewer shape and delete the unused path:
-      hosted `/export-viewer` or wallet-origin-owned inline viewer.
+      wallet-origin-owned inline viewer.
 - [x] Confirm Lit component CSS base resolution never falls back to app-origin
       `/sdk/*` during iframe-hosted confirmation/export flows.
 - [x] Remove full `Content-Security-Policy` from the default
       `headers.manifest.json` for `/sdk/*` asset routes. Keep default
       embedding control (`frame-ancestors` or equivalent) on the
-      wallet-service and export-viewer document class.
+      wallet-service document class.
 - [x] Mark broader wallet HTML Content-Security-Policy (beyond embedding
       control) as optional production hardening, outside the default header
       profile.
@@ -481,8 +476,8 @@ Tasks:
       hidden fallback for wallet workers.
 - [x] Emit `dist/public/wallet-service/index.html` using the existing wallet
       HTML builder.
-- [x] Emit `dist/public/export-viewer/index.html` using the existing export
-      viewer HTML builder.
+- [x] Keep private-key export on the wallet-origin `srcdoc` path and do not emit
+      `dist/public/export-viewer/index.html`.
 - [x] Emit `dist/public/wallet-assets.manifest.json`.
 - [x] Emit `dist/public/headers.manifest.json`.
 - [x] Add a build check that fails when any worker JS lacks its paired WASM file.
@@ -531,8 +526,8 @@ Tasks:
       settings.
 - [x] Verify the demo app SDK initialization uses the hosted wallet origin and
       does not depend on local app-hosted `/sdk/*`.
-- [x] Force app-origin `/sdk/*`, `/wallet-service`, and `/export-viewer` to
-      return 404 during smoke tests.
+- [x] Force app-origin `/sdk/*` and `/wallet-service` to return 404 during
+      smoke tests.
 - [x] Ensure `pnpm site` still serves:
       - `https://localhost/`;
       - `https://localhost:8443/wallet-service`;
@@ -732,8 +727,8 @@ Tasks:
       `@seams/sdk/plugins/vite` for wallet runtime hosting.
 - [x] Add a source guard that rejects app framework examples importing
       `@seams/sdk/plugins/next` for wallet runtime hosting.
-- [x] Add a source guard that rejects app examples serving `/sdk/*`,
-      `/wallet-service`, or `/export-viewer` from app-owned infrastructure.
+- [x] Add a source guard that rejects app examples serving `/sdk/*` or
+      `/wallet-service` from app-owned infrastructure.
 - [x] Add a source guard that rejects app examples instructing developers to run
       a local wallet static server.
 - [x] Add a source guard that rejects duplicate wallet shim/CSS source strings.
@@ -758,8 +753,8 @@ Tasks:
       non-allowed origin and expects the embedding control to block it.
 - [ ] Add a negative-control browser smoke that removes iframe `allow` and
       expects cross-origin WebAuthn to fail.
-- [x] Add a browser smoke that denies app-origin `/sdk/*`, `/wallet-service`,
-      and `/export-viewer`, then completes registration, unlock, NEAR signing,
+- [x] Add a browser smoke that denies app-origin `/sdk/*` and
+      `/wallet-service`, then completes registration, unlock, NEAR signing,
       ECDSA signing, and export through the hosted wallet origin.
 - [x] Add a targeted test proving iframe-mode app-origin warmup does not
       construct workers or load WASM.
@@ -821,8 +816,6 @@ Manual checks:
 - confirm `https://localhost/sdk/wallet-iframe-host-runtime.js` returns 404
   during hosted-origin smoke;
 - confirm `https://localhost/wallet-service` returns 404 during hosted-origin
-  smoke;
-- confirm `https://localhost/export-viewer` returns 404 during hosted-origin
   smoke;
 - fetch `https://localhost:8443/sdk/workers/near-signer.worker.js`;
 - fetch `https://localhost:8443/sdk/workers/wasm_signer_worker_bg.wasm` and

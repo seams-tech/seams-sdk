@@ -5,7 +5,6 @@ import { buildPermissionsPolicy, buildWalletCsp } from './headers';
 import {
   addPreconnectLink,
   buildWalletServiceHtml,
-  buildExportViewerHtml,
   applyCoepCorpIfNeeded,
   echoCorsFromRequest,
   logRorConfig,
@@ -411,14 +410,6 @@ export function seamsBuildHeaders(
           );
         }
 
-        // Emit minimal export viewer HTML for production
-        const evDir = path.join(outDir, 'export-viewer');
-        const evHtml = path.join(evDir, 'index.html');
-        if (!fs.existsSync(evHtml)) {
-          fs.mkdirSync(evDir, { recursive: true });
-          fs.writeFileSync(evHtml, buildExportViewerHtml(sdkBasePath), 'utf-8');
-          console.log('[seams] emitted /export-viewer/index.html (minimal export viewer)');
-        }
       } catch (e) {
         console.warn('[seams] failed to emit _headers:', e);
       }

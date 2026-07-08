@@ -6,7 +6,7 @@ The normal browser integration is:
 
 1. Import SDK and React package code normally.
 2. Configure the hosted wallet iframe with `iframeWallet.walletOrigin`.
-3. Let the Seams-operated wallet origin serve `/wallet-service`, `/export-viewer`, `/sdk/*`, and `/sdk/workers/*`.
+3. Let the Seams-operated wallet origin serve `/wallet-service`, `/sdk/*`, and `/sdk/workers/*`.
 4. Keep the app Vite or Next config focused on app concerns.
 
 For Vite apps, that means a normal app config such as:
@@ -45,7 +45,6 @@ The SDK package build emits the wallet-origin artifact at
 - `sdk/*`
 - `sdk/workers/*`
 - `wallet-service/index.html`
-- `export-viewer/index.html`
 - `wallet-assets.manifest.json`
 - `headers.manifest.json`
 
@@ -54,11 +53,12 @@ Seams wallet hosting publishes that tree from the wallet origin:
 ```txt
 GET https://wallet.seams.sh/sdk/*          -> dist/public/sdk/*
 GET https://wallet.seams.sh/wallet-service -> dist/public/wallet-service/index.html
-GET https://wallet.seams.sh/export-viewer  -> dist/public/export-viewer/index.html
 ```
 
-App origins should return 404 for `/sdk/*`, `/wallet-service`, and
-`/export-viewer`. Wallet workers and WASM execute from the wallet origin.
+App origins should return 404 for `/sdk/*` and `/wallet-service`. Wallet workers,
+WASM, and export-viewer bundles execute from the wallet origin. The private-key
+export viewer is a wallet-origin `srcdoc` iframe that loads its JS and CSS from
+`/sdk/*`; no hosted `/export-viewer` page is part of the runtime contract.
 
 ## Headers And Embedding
 
@@ -90,7 +90,7 @@ Do not add app examples that use:
 - `@seams/sdk/plugins/next` for normal wallet runtime hosting;
 - `seamsWallet()`, `seamsServeSdk()`, `seamsWalletService()`, or
   other SDK static-serving helpers on an app origin;
-- app-owned `/sdk/*`, `/wallet-service`, or `/export-viewer` routes.
+- app-owned `/sdk/*` or `/wallet-service` routes.
 
 When a helper remains necessary, keep its usage scoped to Seams-owned wallet
 origin development or hosted wallet artifact generation.

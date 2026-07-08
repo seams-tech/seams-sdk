@@ -87,30 +87,6 @@ export function buildWalletServiceHtml(
 </html>`;
 }
 
-// Export viewer HTML is also fully externalized (no inline) to keep CSP strict.
-export function buildExportViewerHtml(sdkBasePath: string): string {
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <link rel="stylesheet" href="${sdkBasePath}/wallet-service.css">
-    <link rel="stylesheet" href="${sdkBasePath}/w3a-components.css">
-    <link rel="stylesheet" href="${sdkBasePath}/drawer.css">
-    <link rel="stylesheet" href="${sdkBasePath}/tx-tree.css">
-    <link rel="stylesheet" href="${sdkBasePath}/tx-confirmer.css">
-    <script src="${sdkBasePath}/wallet-shims.js"></script>
-    <link rel="modulepreload" href="${sdkBasePath}/export-private-key-viewer.js" crossorigin>
-    <link rel="modulepreload" href="${sdkBasePath}/iframe-export-bootstrap.js" crossorigin>
-  </head>
-  <body>
-    <w3a-drawer id="exp" theme="dark"></w3a-drawer>
-    <script type="module" src="${sdkBasePath}/export-private-key-viewer.js" crossorigin></script>
-    <script type="module" src="${sdkBasePath}/iframe-export-bootstrap.js" crossorigin></script>
-  </body>
-</html>`;
-}
-
 export function resolveCoepMode(explicit?: 'strict' | 'off'): 'strict' | 'off' {
   if (explicit === 'strict' || explicit === 'off') return explicit;
   const raw = String((globalThis as any)?.process?.env?.VITE_COEP_MODE || '')

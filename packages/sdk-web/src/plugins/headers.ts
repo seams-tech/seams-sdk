@@ -29,8 +29,8 @@ export function buildPermissionsPolicy(walletOrigin?: string): string {
  *    WebAssembly compilation.
  *  - Seams SDK does not require JS 'unsafe-eval' in production.
  *
- * Typical usage: apply strict CSP only to wallet HTML routes
- * (/wallet-service, /export-viewer); do not attach CSP to host app routes.
+   * Typical usage: apply strict CSP only to the wallet HTML route
+   * (/wallet-service); do not attach CSP to host app routes.
  */
 export function buildWalletCsp(
   opts: {
