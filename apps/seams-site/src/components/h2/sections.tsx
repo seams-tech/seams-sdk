@@ -587,7 +587,7 @@ function ApprovalGateMock(): React.JSX.Element {
 
 export function H2Bento(): React.JSX.Element {
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-bento-title">
+    <section className="h2-section h2-section--bento h2-rule" aria-labelledby="h2-bento-title">
       <div className="h2-shell">
         <div className="h2-split-head">
           <p className="h2-kicker">Control plane</p>

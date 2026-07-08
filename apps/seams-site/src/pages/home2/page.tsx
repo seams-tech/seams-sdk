@@ -334,13 +334,120 @@ function HomeHeroCurrent(): React.JSX.Element {
   );
 }
 
+type AgentMediaItemId = 'operations' | 'wallet' | 'approval' | 'audit';
+
+type AgentMediaItem = {
+  id: AgentMediaItemId;
+  icon: React.ComponentType<{ 'aria-hidden'?: boolean }>;
+  image: string;
+  label: string;
+  title: string;
+  copy: string;
+};
+
+const defaultAgentMediaItemId: AgentMediaItemId = 'operations';
+
+const agentMediaItems: readonly AgentMediaItem[] = [
+  {
+    id: 'operations',
+    icon: ListChecks,
+    image: '/gradients/web/ember-moss.jpg',
+    label: 'Store operations',
+    title: 'Discount request held',
+    copy: 'Agent proposes 12% off cart #8841. Policy routes it to owner approval.',
+  },
+  {
+    id: 'wallet',
+    icon: Wallet,
+    image: '/gradients/web/sage-charcoal.jpg',
+    label: 'Wallet signing',
+    title: 'Passkey unlock',
+    copy: 'The right user and key approve the signature before any wallet action runs.',
+  },
+  {
+    id: 'approval',
+    icon: ShieldCheck,
+    image: '/gradients/web/aqua-evergreen.jpg',
+    label: 'Approval',
+    title: 'Policy gate',
+    copy: 'High-risk actions pause for owner review while routine work keeps moving.',
+  },
+  {
+    id: 'audit',
+    icon: ScrollText,
+    image: '/gradients/web/dusk-blue-mauve.jpg',
+    label: 'Audit',
+    title: 'Action receipt',
+    copy: 'Every agent action records who delegated it, what ran, and which policy approved it.',
+  },
+];
+
+function parseAgentMediaItemId(value: string | undefined): AgentMediaItemId | null {
+  switch (value) {
+    case 'operations':
+    case 'wallet':
+    case 'approval':
+    case 'audit':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function readAgentMediaItemId(target: EventTarget | null): AgentMediaItemId | null {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  const button = target.closest<HTMLButtonElement>('[data-agent-media-id]');
+  return parseAgentMediaItemId(button?.dataset.agentMediaId);
+}
+
+function renderAgentMediaCard(
+  item: AgentMediaItem,
+  activeMediaItemId: AgentMediaItemId,
+): React.JSX.Element {
+  const Icon = item.icon;
+  const isActive = item.id === activeMediaItemId;
+
+  return (
+    <button
+      key={item.id}
+      type="button"
+      className={`h2-agent-card ${isActive ? 'is-active' : 'is-collapsed'}`}
+      data-agent-media-id={item.id}
+      aria-label={`Show ${item.label}`}
+      aria-pressed={isActive}
+    >
+      <img src={item.image} alt="" />
+      <span className="h2-agent-card__label">
+        <Icon aria-hidden />
+        {item.label}
+      </span>
+      <span className="h2-agent-card__caption">
+        <strong>{item.title}</strong>
+        {item.copy}
+      </span>
+    </button>
+  );
+}
+
 function HomeHeroMedia(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const startProps = linkProps('/docs/concepts/');
   const contactProps = linkProps('/contact/');
   const agentsProps = linkProps('/ecommerce');
-  const walletProps = linkProps('/wallet');
-  const docsProps = linkProps('/docs/concepts/auth-methods/');
+  const [activeMediaItemId, setActiveMediaItemId] =
+    React.useState<AgentMediaItemId>(defaultAgentMediaItemId);
+  const handleMediaRailClick = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const itemId = readAgentMediaItemId(event.target);
+
+    if (itemId === null) {
+      return;
+    }
+
+    setActiveMediaItemId(itemId);
+  }, []);
 
   return (
     <>
@@ -385,62 +492,11 @@ function HomeHeroMedia(): React.JSX.Element {
 
       <section className="h2-agent-media h2-rule" aria-label="Seams agent use cases">
         <div className="h2-shell">
-          <div className="h2-agent-media__rail">
-            <a
-              className="h2-agent-card h2-agent-card--featured"
-              href={agentsProps.href}
-              onClick={agentsProps.onClick}
-            >
-              <img src="/gradients/web/ember-moss.jpg" alt="" />
-              <span className="h2-agent-card__label">
-                <ListChecks aria-hidden />
-                Store operations
-              </span>
-              <span className="h2-agent-card__caption">
-                <strong>Discount request held</strong>
-                Agent proposes 12% off cart #8841. Policy routes it to owner approval.
-              </span>
-            </a>
-
-            <a
-              className="h2-agent-card h2-agent-card--portrait"
-              href={walletProps.href}
-              onClick={walletProps.onClick}
-            >
-              <img src="/gradients/web/sage-charcoal.jpg" alt="" />
-              <span className="h2-agent-card__label">
-                <Wallet aria-hidden />
-                Wallet signing
-              </span>
-              <span className="h2-agent-card__caption">
-                <strong>Passkey unlock</strong>
-                The right user and key approve the signature.
-              </span>
-            </a>
-
-            <a
-              className="h2-agent-card h2-agent-card--slim"
-              href={docsProps.href}
-              onClick={docsProps.onClick}
-            >
-              <img src="/gradients/web/aqua-evergreen.jpg" alt="" />
-              <span className="h2-agent-card__label">
-                <ShieldCheck aria-hidden />
-                Approval
-              </span>
-            </a>
-
-            <a
-              className="h2-agent-card h2-agent-card--slim"
-              href={docsProps.href}
-              onClick={docsProps.onClick}
-            >
-              <img src="/gradients/web/dusk-blue-mauve.jpg" alt="" />
-              <span className="h2-agent-card__label">
-                <ScrollText aria-hidden />
-                Audit
-              </span>
-            </a>
+          <div
+            className={`h2-agent-media__rail is-active-${activeMediaItemId}`}
+            onClick={handleMediaRailClick}
+          >
+            {agentMediaItems.map((item) => renderAgentMediaCard(item, activeMediaItemId))}
           </div>
 
           <div className="h2-agent-chat-pill" aria-hidden="true">

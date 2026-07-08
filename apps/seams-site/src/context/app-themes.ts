@@ -189,9 +189,10 @@ const MIDNIGHT_DARK_COLORS: Record<string, string> = {
 
   buttonBackground: '#3ecf8e',
   buttonHoverBackground: '#00c573',
-  secondaryButtonBackground: '#242424',
-  secondaryButtonHoverBackground: '#2e2e2e',
+  secondaryButtonBackground: '#8ee7bd',
+  secondaryButtonHoverBackground: '#a6f4cf',
   secondaryButtonBorder: 'transparent',
+  secondaryButtonText: '#121212',
 
   colorBackground: '#121212',
   surface: '#1c1c1c',
@@ -319,55 +320,6 @@ const PASTEL_DARK_COLORS: Record<string, string> = {
   highlightAmount: '#F2C6DE',
 };
 
-// "Voltage" — the Drive Capital / Summer Drive style
-// (styles.refero.design/241ebab6…): warm cream poster paper, black ink, cool
-// ash hairlines, Voltage Blue as the only chromatic voice.
-const VOLTAGE_LIGHT_COLORS: Record<string, string> = {
-  primary: '#006eff',
-  primaryHover: '#338bff',
-  secondary: '#000000',
-  secondaryHover: '#1f2937',
-  accent: '#006eff',
-
-  textPrimary: '#000000',
-  textSecondary: '#454b54',
-  textMuted: '#8c94a1',
-  textButton: '#ffffff',
-
-  buttonBackground: '#006eff',
-  buttonHoverBackground: '#338bff',
-  secondaryButtonBackground: '#f1f1f2',
-  secondaryButtonHoverBackground: '#e9e9eb',
-  secondaryButtonBorder: 'transparent',
-
-  // white menu card (was the poster's #fafafa; read too gray)
-  colorBackground: '#ffffff',
-  surface: '#ffffff',
-  surface2: '#f1f1f2',
-  surface3: '#e9e9eb',
-  surface4: '#e0e0e3',
-
-  hover: '#f1f1f2',
-  active: '#e9e9eb',
-  focus: '#006eff',
-
-  success: '#15803d',
-  warning: '#b45309',
-  error: '#dc2626',
-  info: '#006eff',
-
-  borderPrimary: '#e2e8f0',
-  borderSecondary: '#edf1f6',
-  borderHover: '#c3cddb',
-
-  highlightPrimary: '#006eff',
-  highlightRow: 'rgba(0, 110, 255, 0.1)',
-  highlightHalo: '#99c5ff',
-  highlightReceiver: '#006eff',
-  highlightMethodName: '#000000',
-  highlightAmount: '#006eff',
-};
-
 // "Pastel" — the Pastel Rainbow palette (kdesign.co #09): paper cream,
 // mint #C9E4DE, baby blue #C6DEF1, lavender #DBCDF0, and pink #F2C6DE.
 // Pastels can't carry white text, so the primary button is baby blue with plum
@@ -426,7 +378,6 @@ export type DemoThemeId =
   | 'paper'
   | 'midnight'
   | 'greenhouse'
-  | 'voltage'
   | 'pastel'
   | 'pastel-dark';
 
@@ -456,15 +407,6 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     mode: 'light',
     swatch: '#308970',
     colors: GREENHOUSE_LIGHT_COLORS,
-  },
-  {
-    id: 'voltage',
-    label: 'Voltage',
-    mode: 'light',
-    // the accent, not the cream card — a near-white dot would be
-    // indistinguishable from Paper's
-    swatch: '#006eff',
-    colors: VOLTAGE_LIGHT_COLORS,
   },
   {
     id: 'pastel',

@@ -184,7 +184,6 @@ h3 {
   font-family: var(--site-font-display);
 }
 
-body:has(.contact-page) .navbar-static,
 body:has(.pricing-page) .navbar-static {
   top: 0;
   padding: 0;
@@ -192,8 +191,6 @@ body:has(.pricing-page) .navbar-static {
   justify-content: stretch;
 }
 
-body:has(.contact-page) .navbar-static__shell,
-body:has(.contact-page) .navbar-static__shell.is-scrolled,
 body:has(.pricing-page) .navbar-static__shell,
 body:has(.pricing-page) .navbar-static__shell.is-scrolled {
   width: 100%;
@@ -208,7 +205,6 @@ body:has(.pricing-page) .navbar-static__shell.is-scrolled {
   box-shadow: none;
 }
 
-body:has(.contact-page) .navbar-static__pill,
 body:has(.pricing-page) .navbar-static__pill {
   border-radius: 9999px;
 }
