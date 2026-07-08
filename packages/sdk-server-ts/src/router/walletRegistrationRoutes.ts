@@ -8,9 +8,11 @@ import type {
   FundImplicitNearAccountResult,
   ThresholdEd25519AuthorityScope,
   ThresholdEd25519BootstrapSession,
-  WalletKeyFactsInventoryAuth
+  WalletKeyFactsInventoryAuth,
 } from '../core/types';
 import type {
+  CancelRegistrationIntentRequest,
+  CancelRegistrationIntentResponse,
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
   CreateAddAuthMethodIntentResponse,
@@ -39,15 +41,13 @@ import type {
   WalletRegistrationPrepareGateContext,
   WalletRegistrationPrepareResponse,
   WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse
+  WalletRegistrationStartResponse,
 } from '../core/registrationContracts';
 import {
   parseWalletAuthAuthority,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import {
-  registrationPreparationIdFromString
-} from '../core/registrationContracts';
+import { registrationPreparationIdFromString } from '../core/registrationContracts';
 import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
 import {
   thresholdEcdsaChainTargetFromValue,
@@ -754,6 +754,27 @@ function parseCreateRegistrationIntentRequest(
       wallet: wallet.value,
       authMethod,
       signerSelection: signerSelection.value.selection,
+    },
+  };
+}
+
+function parseCancelRegistrationIntentRequest(
+  body: Record<string, unknown>,
+): ParseResult<CancelRegistrationIntentRequest> {
+  const registrationIntentGrant = String(body.registrationIntentGrant || '').trim();
+  const registrationIntentDigestB64u = String(body.registrationIntentDigestB64u || '').trim();
+  if (!registrationIntentGrant || !registrationIntentDigestB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration intent grant and digest are required',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      registrationIntentGrant: registrationIntentGrantFromString(registrationIntentGrant),
+      registrationIntentDigestB64u,
     },
   };
 }
@@ -1636,9 +1657,7 @@ function parseWalletRegistrationHssRespondRequest(
     if (!ecdsa) {
       return { ok: false, code: 'invalid_body', message: 'ecdsa response is invalid' };
     }
-    const clientBootstraps = Array.isArray(ecdsa.clientBootstraps)
-      ? ecdsa.clientBootstraps
-      : null;
+    const clientBootstraps = Array.isArray(ecdsa.clientBootstraps) ? ecdsa.clientBootstraps : null;
     if (!clientBootstraps || clientBootstraps.length === 0) {
       return {
         ok: false,
@@ -1646,8 +1665,9 @@ function parseWalletRegistrationHssRespondRequest(
         message: 'ecdsa.clientBootstraps is required',
       };
     }
-    const parsedEntries: NonNullable<WalletRegistrationHssRespondRequest['ecdsa']>['clientBootstraps'] =
-      [];
+    const parsedEntries: NonNullable<
+      WalletRegistrationHssRespondRequest['ecdsa']
+    >['clientBootstraps'] = [];
     const seenTargets = new Set<string>();
     for (const entry of clientBootstraps) {
       const entryRecord = isPlainObject(entry) ? entry : null;
@@ -2305,6 +2325,20 @@ export async function handleRouterApiWalletRegistrationIntent(
         }
       : {}),
     expectedOrigin: origin,
+  });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+export async function handleRouterApiWalletRegistrationIntentCancel(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<CancelRegistrationIntentResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const request = parseCancelRegistrationIntentRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.walletRegistration.cancelRegistrationIntent({
+    request: request.value,
   });
   return routeJson(result.ok ? 200 : 400, result);
 }

@@ -11,12 +11,8 @@ import {
   type StoredWalletRegistrationHssPreparation,
   type StoredWalletRegistrationCeremony,
 } from '@server/core/RegistrationCeremonyStore';
-import {
-  type CloudflareDurableObjectNamespaceLike
-} from '@server/core/types';
-import {
-  registrationPreparationIdFromString
-} from '@server/core/registrationContracts';
+import { type CloudflareDurableObjectNamespaceLike } from '@server/core/types';
+import { registrationPreparationIdFromString } from '@server/core/registrationContracts';
 import {
   nearEd25519SigningKeyIdFromWalletId,
   registrationEd25519AuthorityScope,
@@ -375,6 +371,15 @@ test('registration ceremony store scopes server-allocated wallet reservations by
       expiresAtMs,
     }),
   ).resolves.toBe(true);
+  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(true);
+  await expect(
+    store.reserveServerAllocatedWalletId({
+      walletId,
+      expiresAtMs,
+    }),
+  ).resolves.toBe(true);
+  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(true);
+  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(false);
 });
 
 test('Cloudflare Durable Object registration ceremony store consumes grants and ceremonies once', async () => {
@@ -684,7 +689,9 @@ test('registration ceremony store consumes an intent only when the preparation s
       preparedContext: mismatchedPreparation.preparedContext,
       ed25519Scope: {
         ...mismatchedPreparation.ed25519Scope,
-        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(walletIdFromString('different-wallet')),
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(
+          walletIdFromString('different-wallet'),
+        ),
       },
     }),
   ).resolves.toMatchObject({

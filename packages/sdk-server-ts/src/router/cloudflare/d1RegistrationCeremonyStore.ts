@@ -67,15 +67,33 @@ type RegistrationIntentDoPutInput =
   | StoredWalletAddAuthMethodCeremony;
 
 type Ed25519HssAdvanceClaimBeginResult =
-  | { readonly status: 'started'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }> }
-  | { readonly status: 'in_flight'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }> }
-  | { readonly status: 'fulfilled'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }> }
+  | {
+      readonly status: 'started';
+      readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+    }
+  | {
+      readonly status: 'in_flight';
+      readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
+    }
+  | {
+      readonly status: 'fulfilled';
+      readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }>;
+    }
   | { readonly status: 'invalid_existing'; readonly record: null };
 
 type Ed25519HssAdvanceClaimCompleteResult =
-  | { readonly status: 'fulfilled'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }> }
-  | { readonly status: 'failed'; readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }> }
-  | { readonly status: 'not_current'; readonly record: D1DurableEd25519HssAdvanceClaimRecord | null };
+  | {
+      readonly status: 'fulfilled';
+      readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }>;
+    }
+  | {
+      readonly status: 'failed';
+      readonly record: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>;
+    }
+  | {
+      readonly status: 'not_current';
+      readonly record: D1DurableEd25519HssAdvanceClaimRecord | null;
+    };
 
 type RawEd25519HssAdvanceClaimTransitionResult = {
   readonly status?: unknown;
@@ -109,6 +127,17 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       expiresAtMs,
     });
     return response.ok;
+  }
+
+  async releaseServerAllocatedWalletId(input: {
+    readonly walletId: ServerAllocatedWalletId;
+  }): Promise<boolean> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return false;
+    return await this.del(
+      'server-allocated-wallet-reservation',
+      serverAllocatedWalletReservationKey(input),
+    );
   }
 
   async putIntent(intent: StoredRegistrationIntent): Promise<void> {
@@ -612,9 +641,7 @@ export function missingRegistrationCeremonyDoStore(): {
   };
 }
 
-function parseEd25519HssAdvanceClaimBeginResult(
-  raw: RawEd25519HssAdvanceClaimTransitionResult,
-):
+function parseEd25519HssAdvanceClaimBeginResult(raw: RawEd25519HssAdvanceClaimTransitionResult):
   | Ed25519HssAdvanceClaimBeginResult
   | {
       readonly status: 'stale_in_flight';

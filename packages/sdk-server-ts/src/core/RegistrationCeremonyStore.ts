@@ -6,7 +6,7 @@ import type {
   ThresholdEd25519HssPersistedRespondedServerSession,
   ThresholdEd25519HssPersistedServerInputs,
   ThresholdEd25519HssRegistrationPreparedServerState,
-  ThresholdEd25519HssRegistrationRespondedServerState
+  ThresholdEd25519HssRegistrationRespondedServerState,
 } from './types';
 import type {
   AddAuthMethodIntentGrant,
@@ -21,7 +21,7 @@ import type {
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationStartResponse,
-  WalletId
+  WalletId,
 } from './registrationContracts';
 import type {
   ServerAllocatedWalletId,
@@ -414,8 +414,7 @@ export function storedWalletRegistrationPreparedContextsMatch(
     (left.runtimePolicy.scope.orgId !== right.runtimePolicy.scope.orgId ||
       left.runtimePolicy.scope.projectId !== right.runtimePolicy.scope.projectId ||
       left.runtimePolicy.scope.envId !== right.runtimePolicy.scope.envId ||
-      left.runtimePolicy.scope.signingRootVersion !==
-        right.runtimePolicy.scope.signingRootVersion)
+      left.runtimePolicy.scope.signingRootVersion !== right.runtimePolicy.scope.signingRootVersion)
   ) {
     return false;
   }
@@ -428,8 +427,7 @@ export function storedWalletRegistrationPreparedContextsMatch(
     if (leftTargets.length !== rightTargets.length) return false;
     return leftTargets.every(
       (target, index) =>
-        thresholdEcdsaChainTargetKey(target) ===
-        thresholdEcdsaChainTargetKey(rightTargets[index]),
+        thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(rightTargets[index]),
     );
   }
   return true;
@@ -851,6 +849,7 @@ export interface RegistrationCeremonyStore {
     walletId: ServerAllocatedWalletId;
     expiresAtMs: number;
   }): Promise<boolean>;
+  releaseServerAllocatedWalletId(input: { walletId: ServerAllocatedWalletId }): Promise<boolean>;
   putIntent(intent: StoredRegistrationIntent): Promise<void>;
   getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null>;
   takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null>;
@@ -922,6 +921,15 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     if (this.serverAllocatedWalletReservations.has(reservationId)) return false;
     this.serverAllocatedWalletReservations.set(reservationId, expiresAtMs);
     return true;
+  }
+
+  async releaseServerAllocatedWalletId(input: {
+    walletId: ServerAllocatedWalletId;
+  }): Promise<boolean> {
+    this.pruneExpired();
+    const reservationId = serverAllocatedWalletReservationKey(input);
+    if (!reservationId) return false;
+    return this.serverAllocatedWalletReservations.delete(reservationId);
   }
 
   async putIntent(intent: StoredRegistrationIntent): Promise<void> {
@@ -1323,9 +1331,7 @@ function parseFinalizeReplayResponse(
     )
       ? value.ed25519.registrationWorkerMaterialReport
       : null;
-    const registrationWorkerMaterialReportKind = trimString(
-      registrationWorkerMaterialReport?.kind,
-    );
+    const registrationWorkerMaterialReportKind = trimString(registrationWorkerMaterialReport?.kind);
     const registrationWorkerMaterialContextBindingB64u = trimString(
       registrationWorkerMaterialReport?.contextBindingB64u,
     );
@@ -2366,6 +2372,7 @@ type DoResp<T> = DoOk<T> | DoErr;
 type DoRequest =
   | { op: 'get'; key: string }
   | { op: 'set'; key: string; value: unknown; ttlMs?: number }
+  | { op: 'del'; key: string }
   | { op: 'getdel'; key: string }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
@@ -2502,6 +2509,21 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
       expiresAtMs,
     });
     return response.ok;
+  }
+
+  async releaseServerAllocatedWalletId(input: {
+    walletId: ServerAllocatedWalletId;
+  }): Promise<boolean> {
+    const walletId = trimString(input.walletId);
+    if (!walletId) return false;
+    const response = await callDo<boolean>(this.stub, {
+      op: 'del',
+      key: this.key(
+        'server-allocated-wallet-reservation',
+        serverAllocatedWalletReservationKey(input),
+      ),
+    });
+    return response.ok && response.value === true;
   }
 
   async putIntent(intent: StoredRegistrationIntent): Promise<void> {

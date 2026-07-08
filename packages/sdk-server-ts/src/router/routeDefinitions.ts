@@ -1478,6 +1478,19 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_intent_cancel',
+      'POST',
+      '/wallets/register/intent/cancel',
+      'Cancel an unconsumed wallet registration intent',
+      {
+        plane: 'public',
+        proof: 'intent_grant',
+        rationale:
+          'Intent cancellation is authorized by an unconsumed registration intent grant and digest.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_start',
       'POST',
       '/wallets/register/start',

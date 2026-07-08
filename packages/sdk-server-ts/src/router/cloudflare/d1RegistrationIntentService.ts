@@ -18,16 +18,16 @@ import {
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type {
-  ThresholdRuntimePolicyScope
-} from '../../core/types';
+import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentRequest,
   CreateAddSignerIntentResponse,
+  CancelRegistrationIntentRequest,
+  CancelRegistrationIntentResponse,
   CreateRegistrationIntentRequest,
-  CreateRegistrationIntentResponse
+  CreateRegistrationIntentResponse,
 } from '../../core/registrationContracts';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
 import {
@@ -51,6 +51,9 @@ type CreateRegistrationIntentInput = {
   readonly signingRootId?: string;
   readonly signingRootVersion?: string;
   readonly expectedOrigin?: string;
+};
+type CancelRegistrationIntentInput = {
+  readonly request: CancelRegistrationIntentRequest;
 };
 type CreateAddSignerIntentInput = {
   readonly request: CreateAddSignerIntentRequest;
@@ -162,6 +165,50 @@ export class CloudflareD1RegistrationIntentService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to create registration intent',
+      };
+    }
+  }
+
+  async cancelRegistrationIntent(
+    input: CancelRegistrationIntentInput,
+  ): Promise<CancelRegistrationIntentResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const grant = parseRegistrationIntentGrant(input.request?.registrationIntentGrant);
+      const digestB64u = toOptionalTrimmedString(input.request?.registrationIntentDigestB64u);
+      if (!grant || !digestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration intent grant and digest are required',
+        };
+      }
+      const intent = await store.getIntent(grant);
+      if (!intent) {
+        return { ok: true, cancelled: false, releasedServerAllocatedWalletId: false };
+      }
+      if (intent.digestB64u !== digestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'registration intent grant expired',
+        };
+      }
+      const cancelled = await store.takeIntent(grant);
+      if (!cancelled || cancelled.digestB64u !== digestB64u) {
+        return { ok: true, cancelled: false, releasedServerAllocatedWalletId: false };
+      }
+      const walletId = parseServerAllocatedWalletId(cancelled.intent.walletId);
+      const releasedServerAllocatedWalletId = walletId.ok
+        ? await store.releaseServerAllocatedWalletId({ walletId: walletId.value })
+        : false;
+      return { ok: true, cancelled: true, releasedServerAllocatedWalletId };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to cancel registration intent',
       };
     }
   }
@@ -383,5 +430,17 @@ export class CloudflareD1RegistrationIntentService {
         };
       }
     }
+  }
+}
+
+function parseRegistrationIntentGrant(
+  candidate: unknown,
+): ReturnType<typeof registrationIntentGrantFromString> | null {
+  const value = toOptionalTrimmedString(candidate);
+  if (!value) return null;
+  try {
+    return registrationIntentGrantFromString(value);
+  } catch {
+    return null;
   }
 }

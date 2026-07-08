@@ -28,9 +28,11 @@ import type {
   ThresholdEd25519AuthorityScope,
   ThresholdEd25519BootstrapSession,
   ThresholdRuntimePolicyScope,
-  WebAuthnAuthenticationCredential
+  WebAuthnAuthenticationCredential,
 } from '../core/types';
 import type {
+  CancelRegistrationIntentRequest,
+  CancelRegistrationIntentResponse,
   CreateAddAuthMethodIntentRequest,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentRequest,
@@ -58,7 +60,7 @@ import type {
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
   WalletRevokeAuthMethodRequest,
-  WalletRevokeAuthMethodResponse
+  WalletRevokeAuthMethodResponse,
 } from '../core/registrationContracts';
 
 type CloudflareEmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory' | 'dev_d1_outbox';
@@ -382,6 +384,12 @@ export type RouterApiMethodTypes = {
       readonly expectedOrigin?: string;
     };
     readonly result: CreateRegistrationIntentResponse;
+  };
+  cancelRegistrationIntent: {
+    readonly input: {
+      readonly request: CancelRegistrationIntentRequest;
+    };
+    readonly result: CancelRegistrationIntentResponse;
   };
   consumeEmailOtpGrant: {
     readonly input: {
@@ -1027,7 +1035,9 @@ export interface ThresholdRouterApiAuthService {
 export interface RouterApiEmailOtpChallengeService {
   createEmailOtpChallenge(
     input: RouterApiMethodTypes['createEmailOtpChallenge']['input'],
-  ): Promise<CloudflareEmailOtpDeliveryResult<RouterApiMethodTypes['createEmailOtpChallenge']['result']>>;
+  ): Promise<
+    CloudflareEmailOtpDeliveryResult<RouterApiMethodTypes['createEmailOtpChallenge']['result']>
+  >;
   createEmailOtpDeviceRecoveryChallenge(
     input: RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['input'],
   ): Promise<
@@ -1053,6 +1063,9 @@ export interface RouterApiWalletRegistrationService {
     signingRootVersion?: string;
     expectedOrigin?: string;
   }): Promise<CreateRegistrationIntentResponse>;
+  cancelRegistrationIntent(input: {
+    request: CancelRegistrationIntentRequest;
+  }): Promise<CancelRegistrationIntentResponse>;
   prepareWalletRegistration(
     input: WalletRegistrationPrepareRequest,
   ): Promise<WalletRegistrationPrepareResponse>;
@@ -1279,7 +1292,9 @@ export interface RouterApiThresholdRuntimeService extends ThresholdRouterApiAuth
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;
   verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
     input: RouterApiMethodTypes['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']['input'],
-  ): Promise<RouterApiMethodTypes['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']['result']>;
+  ): Promise<
+    RouterApiMethodTypes['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']['result']
+  >;
 }
 
 export interface RouterApiNearFundingService {

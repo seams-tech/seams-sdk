@@ -80,6 +80,24 @@ export type CreateRegistrationIntentResponse =
       retryAfterMs?: number;
     };
 
+export type CancelRegistrationIntentRequest = {
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+};
+
+export type CancelRegistrationIntentResponse =
+  | {
+      ok: true;
+      cancelled: boolean;
+      releasedServerAllocatedWalletId: boolean;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      retryAfterMs?: number;
+    };
+
 export type CreateAddSignerIntentRequest = {
   walletId: WalletId;
   signerSelection: AddSignerSelection;

@@ -17,9 +17,7 @@ import type {
 } from '../../core/types';
 import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
 import type { RouterApiServiceBag } from '../authServicePort';
-import type {
-  RouterApiEmailRecoveryAuthService,
-} from '../routerApi';
+import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
 import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
@@ -275,8 +273,9 @@ class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuth
     const options = assembly.options;
     this.operations = new EmailRecoveryAuthOperations({
       ensureSignerAndRelayerAccount: ensureD1EmailRecoverySignerRuntimeReady,
-      getThresholdSigningService:
-        assembly.thresholdSigning.getThresholdSigningService.bind(assembly.thresholdSigning),
+      getThresholdSigningService: assembly.thresholdSigning.getThresholdSigningService.bind(
+        assembly.thresholdSigning,
+      ),
       getDefaultRuntimePolicyScope: () => ({
         orgId: options.orgId,
         projectId: options.projectId,
@@ -406,14 +405,20 @@ function createCloudflareD1RouterApiAuthAssembly(
   const options = normalizeD1RouterApiAuthOptions(input);
   const prepare: ScopedD1Prepare = scopePrepareForOptions.bind(undefined, options);
   const lazyStores = createLazyStoreState(options);
-  const getRegistrationCeremonyIntentStore =
-    getRegistrationCeremonyIntentStoreForState.bind(undefined, lazyStores);
+  const getRegistrationCeremonyIntentStore = getRegistrationCeremonyIntentStoreForState.bind(
+    undefined,
+    lazyStores,
+  );
   const getWalletAuthMethodStore = getWalletAuthMethodStoreForState.bind(undefined, lazyStores);
   const getWalletStore = getWalletStoreForState.bind(undefined, lazyStores);
-  const getWebAuthnCredentialBindingStore =
-    getWebAuthnCredentialBindingStoreForState.bind(undefined, lazyStores);
-  const createSponsoredNamedNearAccount =
-    createSponsoredNamedNearAccountForOptions.bind(undefined, options);
+  const getWebAuthnCredentialBindingStore = getWebAuthnCredentialBindingStoreForState.bind(
+    undefined,
+    lazyStores,
+  );
+  const createSponsoredNamedNearAccount = createSponsoredNamedNearAccountForOptions.bind(
+    undefined,
+    options,
+  );
 
   const identityStore = new D1IdentityStore({
     database: options.database,
@@ -426,11 +431,12 @@ function createCloudflareD1RouterApiAuthAssembly(
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
   const sessionStore = new CloudflareD1SessionStore({ prepare });
   const sessionService = new CloudflareD1SessionService({ sessionStore });
-  const googleEmailOtpRegistrationAttempts =
-    new CloudflareD1GoogleEmailOtpRegistrationAttemptStore({
+  const googleEmailOtpRegistrationAttempts = new CloudflareD1GoogleEmailOtpRegistrationAttemptStore(
+    {
       prepare,
       orgId: options.orgId,
-    });
+    },
+  );
   const nearPublicKeys = new CloudflareD1NearPublicKeyStore({ prepare });
   const webAuthnStore = new CloudflareD1WebAuthnStore({
     database: options.database,
@@ -461,9 +467,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     projectId: options.projectId,
     envId: options.envId,
   });
-  const emailOtpServerSeal = new CloudflareD1EmailOtpServerSealRuntime(
-    options.emailOtpServerSeal,
-  );
+  const emailOtpServerSeal = new CloudflareD1EmailOtpServerSealRuntime(options.emailOtpServerSeal);
   const googleEmailOtpSessions = new CloudflareD1GoogleEmailOtpSessionResolver({
     emailOtpEnrollments,
     emailOtpRateLimits,
@@ -590,20 +594,28 @@ function createD1WalletRegistrationRouteService(
   assembly: D1WalletRegistrationRouteServiceAssembly,
 ): RouterApiServiceBag['walletRegistration'] {
   return {
-    createRegistrationIntent:
-      assembly.registrationIntents.createRegistrationIntent.bind(assembly.registrationIntents),
-    prepareWalletRegistration:
-      assembly.walletRegistrations.prepareWalletRegistration.bind(assembly.walletRegistrations),
-    startWalletRegistration:
-      assembly.walletRegistrations.startWalletRegistration.bind(assembly.walletRegistrations),
-    respondWalletRegistrationHss:
-      assembly.walletRegistrations.respondWalletRegistrationHss.bind(assembly.walletRegistrations),
+    createRegistrationIntent: assembly.registrationIntents.createRegistrationIntent.bind(
+      assembly.registrationIntents,
+    ),
+    cancelRegistrationIntent: assembly.registrationIntents.cancelRegistrationIntent.bind(
+      assembly.registrationIntents,
+    ),
+    prepareWalletRegistration: assembly.walletRegistrations.prepareWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
+    startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
+    respondWalletRegistrationHss: assembly.walletRegistrations.respondWalletRegistrationHss.bind(
+      assembly.walletRegistrations,
+    ),
     advanceWalletRegistrationHssState:
       assembly.walletRegistrations.advanceWalletRegistrationHssState.bind(
         assembly.walletRegistrations,
       ),
-    finalizeWalletRegistration:
-      assembly.walletRegistrations.finalizeWalletRegistration.bind(assembly.walletRegistrations),
+    finalizeWalletRegistration: assembly.walletRegistrations.finalizeWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
   };
 }
 
@@ -611,22 +623,30 @@ function createD1WalletAuthMethodRouteService(
   assembly: D1WalletAuthMethodRouteServiceAssembly,
 ): RouterApiServiceBag['walletAuthMethods'] {
   return {
-    createAddAuthMethodIntent:
-      assembly.registrationIntents.createAddAuthMethodIntent.bind(assembly.registrationIntents),
-    createAddSignerIntent:
-      assembly.registrationIntents.createAddSignerIntent.bind(assembly.registrationIntents),
-    finalizeWalletAddAuthMethod:
-      assembly.walletAuthMethods.finalizeWalletAddAuthMethod.bind(assembly.walletAuthMethods),
-    finalizeWalletAddSigner:
-      assembly.walletAddSigners.finalizeWalletAddSigner.bind(assembly.walletAddSigners),
-    respondWalletAddSignerHss:
-      assembly.walletAddSigners.respondWalletAddSignerHss.bind(assembly.walletAddSigners),
-    revokeWalletAuthMethod:
-      assembly.walletAuthMethods.revokeWalletAuthMethod.bind(assembly.walletAuthMethods),
-    startWalletAddAuthMethod:
-      assembly.walletAuthMethods.startWalletAddAuthMethod.bind(assembly.walletAuthMethods),
-    startWalletAddSigner:
-      assembly.walletAddSigners.startWalletAddSigner.bind(assembly.walletAddSigners),
+    createAddAuthMethodIntent: assembly.registrationIntents.createAddAuthMethodIntent.bind(
+      assembly.registrationIntents,
+    ),
+    createAddSignerIntent: assembly.registrationIntents.createAddSignerIntent.bind(
+      assembly.registrationIntents,
+    ),
+    finalizeWalletAddAuthMethod: assembly.walletAuthMethods.finalizeWalletAddAuthMethod.bind(
+      assembly.walletAuthMethods,
+    ),
+    finalizeWalletAddSigner: assembly.walletAddSigners.finalizeWalletAddSigner.bind(
+      assembly.walletAddSigners,
+    ),
+    respondWalletAddSignerHss: assembly.walletAddSigners.respondWalletAddSignerHss.bind(
+      assembly.walletAddSigners,
+    ),
+    revokeWalletAuthMethod: assembly.walletAuthMethods.revokeWalletAuthMethod.bind(
+      assembly.walletAuthMethods,
+    ),
+    startWalletAddAuthMethod: assembly.walletAuthMethods.startWalletAddAuthMethod.bind(
+      assembly.walletAuthMethods,
+    ),
+    startWalletAddSigner: assembly.walletAddSigners.startWalletAddSigner.bind(
+      assembly.walletAddSigners,
+    ),
   };
 }
 
@@ -638,18 +658,19 @@ function createD1WalletUnlockRouteService(
       assembly.emailOtpRecoveryService.createEmailOtpUnlockChallenge.bind(
         assembly.emailOtpRecoveryService,
       ),
-    createWebAuthnLoginOptions:
-      assembly.webAuthnAuthService.createWebAuthnLoginOptions.bind(assembly.webAuthnAuthService),
+    createWebAuthnLoginOptions: assembly.webAuthnAuthService.createWebAuthnLoginOptions.bind(
+      assembly.webAuthnAuthService,
+    ),
     markEmailOtpStrongAuthSatisfied:
       assembly.emailOtpRecoveryService.markEmailOtpStrongAuthSatisfied.bind(
         assembly.emailOtpRecoveryService,
       ),
-    verifyEmailOtpUnlockProof:
-      assembly.emailOtpRecoveryService.verifyEmailOtpUnlockProof.bind(
-        assembly.emailOtpRecoveryService,
-      ),
-    verifyWebAuthnLogin:
-      assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(assembly.webAuthnAuthService),
+    verifyEmailOtpUnlockProof: assembly.emailOtpRecoveryService.verifyEmailOtpUnlockProof.bind(
+      assembly.emailOtpRecoveryService,
+    ),
+    verifyWebAuthnLogin: assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(
+      assembly.webAuthnAuthService,
+    ),
   };
 }
 
@@ -657,24 +678,22 @@ function createD1EmailOtpRouteService(
   assembly: D1EmailOtpRouteServiceAssembly,
 ): RouterApiServiceBag['emailOtp'] {
   return {
-    applyEmailOtpServerSeal:
-      assembly.emailOtpServerSeal.applyEmailOtpServerSeal.bind(assembly.emailOtpServerSeal),
+    applyEmailOtpServerSeal: assembly.emailOtpServerSeal.applyEmailOtpServerSeal.bind(
+      assembly.emailOtpServerSeal,
+    ),
     cleanupGoogleEmailOtpDevRegistrationState:
       assembly.googleEmailOtpSessions.cleanupDevRegistrationState.bind(
         assembly.googleEmailOtpSessions,
       ),
-    consumeEmailOtpGrant:
-      assembly.emailOtpRecoveryService.consumeEmailOtpGrant.bind(
-        assembly.emailOtpRecoveryService,
-      ),
-    consumeEmailOtpRecoveryKey:
-      assembly.emailOtpRecoveryService.consumeEmailOtpRecoveryKey.bind(
-        assembly.emailOtpRecoveryService,
-      ),
-    createEmailOtpChallenge:
-      assembly.emailOtpChallengeService.createEmailOtpChallenge.bind(
-        assembly.emailOtpChallengeService,
-      ),
+    consumeEmailOtpGrant: assembly.emailOtpRecoveryService.consumeEmailOtpGrant.bind(
+      assembly.emailOtpRecoveryService,
+    ),
+    consumeEmailOtpRecoveryKey: assembly.emailOtpRecoveryService.consumeEmailOtpRecoveryKey.bind(
+      assembly.emailOtpRecoveryService,
+    ),
+    createEmailOtpChallenge: assembly.emailOtpChallengeService.createEmailOtpChallenge.bind(
+      assembly.emailOtpChallengeService,
+    ),
     createEmailOtpDeviceRecoveryChallenge:
       assembly.emailOtpChallengeService.createEmailOtpDeviceRecoveryChallenge.bind(
         assembly.emailOtpChallengeService,
@@ -699,42 +718,37 @@ function createD1EmailOtpRouteService(
       assembly.emailOtpRecoveryService.readActiveEmailOtpEnrollment.bind(
         assembly.emailOtpRecoveryService,
       ),
-    readEmailOtpEnrollment:
-      assembly.emailOtpRecoveryService.readEmailOtpEnrollment.bind(
-        assembly.emailOtpRecoveryService,
-      ),
-    readEmailOtpOutboxEntry:
-      assembly.emailOtpChallengeService.readEmailOtpOutboxEntry.bind(
-        assembly.emailOtpChallengeService,
-      ),
+    readEmailOtpEnrollment: assembly.emailOtpRecoveryService.readEmailOtpEnrollment.bind(
+      assembly.emailOtpRecoveryService,
+    ),
+    readEmailOtpOutboxEntry: assembly.emailOtpChallengeService.readEmailOtpOutboxEntry.bind(
+      assembly.emailOtpChallengeService,
+    ),
     recordEmailOtpRecoveryKeyAttemptFailure:
       assembly.emailOtpRecoveryService.recordEmailOtpRecoveryKeyAttemptFailure.bind(
         assembly.emailOtpRecoveryService,
       ),
-    removeEmailOtpServerSeal:
-      assembly.emailOtpServerSeal.removeEmailOtpServerSeal.bind(assembly.emailOtpServerSeal),
-    rotateEmailOtpRecoveryKeys:
-      assembly.emailOtpRecoveryService.rotateEmailOtpRecoveryKeys.bind(
-        assembly.emailOtpRecoveryService,
-      ),
+    removeEmailOtpServerSeal: assembly.emailOtpServerSeal.removeEmailOtpServerSeal.bind(
+      assembly.emailOtpServerSeal,
+    ),
+    rotateEmailOtpRecoveryKeys: assembly.emailOtpRecoveryService.rotateEmailOtpRecoveryKeys.bind(
+      assembly.emailOtpRecoveryService,
+    ),
     validateGoogleEmailOtpRegistrationCandidateWallet:
       assembly.googleEmailOtpSessions.validateRegistrationCandidateWallet.bind(
         assembly.googleEmailOtpSessions,
       ),
-    verifyEmailOtpChallenge:
-      assembly.emailOtpChallengeService.verifyEmailOtpChallenge.bind(
-        assembly.emailOtpChallengeService,
-      ),
+    verifyEmailOtpChallenge: assembly.emailOtpChallengeService.verifyEmailOtpChallenge.bind(
+      assembly.emailOtpChallengeService,
+    ),
     verifyEmailOtpDeviceRecoveryChallenge:
       assembly.emailOtpRecoveryService.verifyEmailOtpDeviceRecoveryChallenge.bind(
         assembly.emailOtpRecoveryService,
       ),
-    verifyEmailOtpEnrollment:
-      assembly.emailOtpChallengeService.verifyEmailOtpEnrollment.bind(
-        assembly.emailOtpChallengeService,
-      ),
-    verifyGoogleLogin:
-      assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
+    verifyEmailOtpEnrollment: assembly.emailOtpChallengeService.verifyEmailOtpEnrollment.bind(
+      assembly.emailOtpChallengeService,
+    ),
+    verifyGoogleLogin: assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
   };
 }
 
@@ -742,8 +756,9 @@ function createD1WebAuthnRouteService(
   assembly: D1WebAuthnRouteServiceAssembly,
 ): RouterApiServiceBag['webAuthn'] {
   return {
-    createWebAuthnLoginOptions:
-      assembly.webAuthnAuthService.createWebAuthnLoginOptions.bind(assembly.webAuthnAuthService),
+    createWebAuthnLoginOptions: assembly.webAuthnAuthService.createWebAuthnLoginOptions.bind(
+      assembly.webAuthnAuthService,
+    ),
     createWebAuthnSyncAccountOptions:
       assembly.webAuthnAuthService.createWebAuthnSyncAccountOptions.bind(
         assembly.webAuthnAuthService,
@@ -756,10 +771,12 @@ function createD1WebAuthnRouteService(
       assembly.webAuthnAuthService.verifyWebAuthnAuthenticationLite.bind(
         assembly.webAuthnAuthService,
       ),
-    verifyWebAuthnLogin:
-      assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(assembly.webAuthnAuthService),
-    verifyWebAuthnSyncAccount:
-      assembly.webAuthnAuthService.verifyWebAuthnSyncAccount.bind(assembly.webAuthnAuthService),
+    verifyWebAuthnLogin: assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(
+      assembly.webAuthnAuthService,
+    ),
+    verifyWebAuthnSyncAccount: assembly.webAuthnAuthService.verifyWebAuthnSyncAccount.bind(
+      assembly.webAuthnAuthService,
+    ),
   };
 }
 
@@ -771,19 +788,22 @@ function createD1IdentityRouteService(
       assembly.googleEmailOtpSessions.consumeRegistrationAttemptRateLimit.bind(
         assembly.googleEmailOtpSessions,
       ),
-    getGoogleOidcPublicConfig:
-      assembly.oidcVerification.getGoogleOidcPublicConfig.bind(assembly.oidcVerification),
+    getGoogleOidcPublicConfig: assembly.oidcVerification.getGoogleOidcPublicConfig.bind(
+      assembly.oidcVerification,
+    ),
     linkIdentity: assembly.identityService.linkIdentity.bind(assembly.identityService),
     listIdentities: assembly.identityService.listIdentities.bind(assembly.identityService),
-    resolveGoogleEmailOtpSession:
-      assembly.googleEmailOtpSessions.resolve.bind(assembly.googleEmailOtpSessions),
-    resolveOidcWalletId:
-      assembly.identityService.resolveOidcWalletId.bind(assembly.identityService),
+    resolveGoogleEmailOtpSession: assembly.googleEmailOtpSessions.resolve.bind(
+      assembly.googleEmailOtpSessions,
+    ),
+    resolveOidcWalletId: assembly.identityService.resolveOidcWalletId.bind(
+      assembly.identityService,
+    ),
     unlinkIdentity: assembly.identityService.unlinkIdentity.bind(assembly.identityService),
-    verifyGoogleLogin:
-      assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
-    verifyOidcJwtExchange:
-      assembly.oidcVerification.verifyOidcJwtExchange.bind(assembly.oidcVerification),
+    verifyGoogleLogin: assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
+    verifyOidcJwtExchange: assembly.oidcVerification.verifyOidcJwtExchange.bind(
+      assembly.oidcVerification,
+    ),
   };
 }
 
@@ -791,12 +811,15 @@ function createD1SessionVersionRouteService(
   assembly: D1SessionVersionRouteServiceAssembly,
 ): RouterApiServiceBag['sessionVersions'] {
   return {
-    getOrCreateAppSessionVersion:
-      assembly.sessionService.getOrCreateAppSessionVersion.bind(assembly.sessionService),
-    rotateAppSessionVersion:
-      assembly.sessionService.rotateAppSessionVersion.bind(assembly.sessionService),
-    validateAppSessionVersion:
-      assembly.sessionService.validateAppSessionVersion.bind(assembly.sessionService),
+    getOrCreateAppSessionVersion: assembly.sessionService.getOrCreateAppSessionVersion.bind(
+      assembly.sessionService,
+    ),
+    rotateAppSessionVersion: assembly.sessionService.rotateAppSessionVersion.bind(
+      assembly.sessionService,
+    ),
+    validateAppSessionVersion: assembly.sessionService.validateAppSessionVersion.bind(
+      assembly.sessionService,
+    ),
   };
 }
 
@@ -804,12 +827,15 @@ function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
 ): RouterApiServiceBag['thresholdRuntime'] {
   return {
-    ecdsaHssRoleLocalBootstrap:
-      assembly.thresholdSigning.ecdsaHssRoleLocalBootstrap.bind(assembly.thresholdSigning),
-    ecdsaHssRoleLocalExportShare:
-      assembly.thresholdSigning.ecdsaHssRoleLocalExportShare.bind(assembly.thresholdSigning),
-    getThresholdSigningService:
-      assembly.thresholdSigning.getThresholdSigningService.bind(assembly.thresholdSigning),
+    ecdsaHssRoleLocalBootstrap: assembly.thresholdSigning.ecdsaHssRoleLocalBootstrap.bind(
+      assembly.thresholdSigning,
+    ),
+    ecdsaHssRoleLocalExportShare: assembly.thresholdSigning.ecdsaHssRoleLocalExportShare.bind(
+      assembly.thresholdSigning,
+    ),
+    getThresholdSigningService: assembly.thresholdSigning.getThresholdSigningService.bind(
+      assembly.thresholdSigning,
+    ),
     listThresholdEcdsaKeyIdentityTargetsForUser:
       assembly.thresholdSigning.listThresholdEcdsaKeyIdentityTargetsForUser.bind(
         assembly.thresholdSigning,
@@ -828,8 +854,9 @@ function createD1NearFundingRouteService(
 ): RouterApiServiceBag['nearFunding'] {
   return {
     fundImplicitNearAccount: fundImplicitNearAccountForOptions.bind(undefined, assembly.options),
-    listNearPublicKeysForUser:
-      assembly.nearPublicKeys.listForRelayUser.bind(assembly.nearPublicKeys),
+    listNearPublicKeysForUser: assembly.nearPublicKeys.listForRelayUser.bind(
+      assembly.nearPublicKeys,
+    ),
   };
 }
 
@@ -838,10 +865,12 @@ function createD1RecoveryRouteService(
 ): RouterApiServiceBag['recovery'] {
   return {
     getRecoverySession: assembly.sessionService.getRecoverySession.bind(assembly.sessionService),
-    recordRecoveryExecution:
-      assembly.sessionService.recordRecoveryExecution.bind(assembly.sessionService),
-    updateRecoverySessionStatus:
-      assembly.sessionService.updateRecoverySessionStatus.bind(assembly.sessionService),
+    recordRecoveryExecution: assembly.sessionService.recordRecoveryExecution.bind(
+      assembly.sessionService,
+    ),
+    updateRecoverySessionStatus: assembly.sessionService.updateRecoverySessionStatus.bind(
+      assembly.sessionService,
+    ),
   };
 }
 
@@ -855,8 +884,9 @@ function createD1RouterAccountRouteService(
   assembly: D1RouterAccountRouteServiceAssembly,
 ): RouterApiServiceBag['router'] {
   return {
-    getConfiguredRelayerAccount:
-      assembly.thresholdSigning.getConfiguredRelayerAccount.bind(assembly.thresholdSigning),
+    getConfiguredRelayerAccount: assembly.thresholdSigning.getConfiguredRelayerAccount.bind(
+      assembly.thresholdSigning,
+    ),
     getRelayerAccount: assembly.thresholdSigning.getRelayerAccount.bind(assembly.thresholdSigning),
   };
 }

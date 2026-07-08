@@ -9,6 +9,7 @@ import type {
   EcdsaHssServerBootstrapResponse,
 } from '../../packages/sdk-server-ts/src/core/types';
 import type {
+  CreateRegistrationIntentRequest,
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
 } from '../../packages/sdk-server-ts/src/core/registrationContracts';
@@ -636,6 +637,100 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
       orgId: scope.orgId,
       intent: addAuthMethod.intent,
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service cancels unconsumed registration intent wallet reservations', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-cancel-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const providedWalletId = walletIdFromString('frost-vermillion-k7p9m2');
+    const request = {
+      wallet: { kind: 'provided', walletId: providedWalletId },
+      authMethod: { kind: 'passkey', rpId },
+      signerSelection: {
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'near_ed25519',
+            accountProvisioning: implicitNearAccountProvisioning(),
+            signerSlot: 1,
+            participantIds: [1, 2, 3],
+            derivationVersion: 1,
+          },
+        ],
+      },
+    } satisfies CreateRegistrationIntentRequest;
+    const createInput = {
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request,
+    };
+
+    const registration = await service.walletRegistration.createRegistrationIntent(createInput);
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+    expect(parseServerAllocatedWalletId(registration.intent.walletId).ok).toBe(true);
+
+    await expect(
+      service.walletRegistration.createRegistrationIntent(createInput),
+    ).resolves.toMatchObject({
+      ok: false,
+      message: 'walletId is already reserved',
+    });
+
+    await expect(
+      service.walletRegistration.cancelRegistrationIntent({
+        request: {
+          registrationIntentGrant: registration.registrationIntentGrant,
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      cancelled: true,
+      releasedServerAllocatedWalletId: true,
+    });
+
+    const recreated = await service.walletRegistration.createRegistrationIntent(createInput);
+    expect(recreated.ok).toBe(true);
+    if (!recreated.ok) throw new Error(recreated.message);
+    expect(recreated.intent.walletId).toBe(providedWalletId);
+
+    const prefix = 'intent-cancel-test:wallet-registration:';
+    expect(
+      countRecordingDurableObjectRequests({
+        requests: durableObjects.stub.requests,
+        op: 'del',
+        key: `${prefix}server-allocated-wallet-reservation:${providedWalletId}`,
+      }),
+    ).toBe(1);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -1492,9 +1587,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
       clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
     });
     expect(started.registrationDiagnostics?.entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'registerStartTotalMs' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ name: 'registerStartTotalMs' })]),
     );
     expect(started.ecdsa).toMatchObject({
       kind: 'evm_family_ecdsa_keygen',
@@ -1957,9 +2050,7 @@ test('Cloudflare D1 Router API auth service finalizes Ed25519-only registration 
       },
     });
 
-    const addStageRequestMessageB64u = base64UrlEncode(
-      utf8Bytes('ed25519-only-add-stage-request'),
-    );
+    const addStageRequestMessageB64u = base64UrlEncode(utf8Bytes('ed25519-only-add-stage-request'));
     const addStageRequestDigestB64u = base64UrlEncode(
       await sha256(base64UrlDecode(addStageRequestMessageB64u)),
     );
@@ -1982,12 +2073,8 @@ test('Cloudflare D1 Router API auth service finalizes Ed25519-only registration 
         projectionMode: 'registration_output_only',
         finalizedReport: {
           contextBindingB64u: hssContextBindingB64u,
-          clientOutputMessageB64u: base64UrlEncode(
-            utf8Bytes('durable-finalized-client-output'),
-          ),
-          serverOutputMessageB64u: base64UrlEncode(
-            utf8Bytes('durable-finalized-server-output'),
-          ),
+          clientOutputMessageB64u: base64UrlEncode(utf8Bytes('durable-finalized-client-output')),
+          serverOutputMessageB64u: base64UrlEncode(utf8Bytes('durable-finalized-server-output')),
         },
         createdAtMs: Date.now(),
         expiresAtMs: Date.now() + 60_000,
@@ -2015,12 +2102,8 @@ test('Cloudflare D1 Router API auth service finalizes Ed25519-only registration 
         projectionMode: 'registration_seed_and_output',
         finalizedReport: {
           contextBindingB64u: hssContextBindingB64u,
-          clientOutputMessageB64u: base64UrlEncode(
-            utf8Bytes('durable-finalized-client-output'),
-          ),
-          serverOutputMessageB64u: base64UrlEncode(
-            utf8Bytes('durable-finalized-server-output'),
-          ),
+          clientOutputMessageB64u: base64UrlEncode(utf8Bytes('durable-finalized-client-output')),
+          serverOutputMessageB64u: base64UrlEncode(utf8Bytes('durable-finalized-server-output')),
           seedOutputMessageB64u: base64UrlEncode(utf8Bytes('durable-finalized-seed-output')),
         },
         createdAtMs: Date.now(),

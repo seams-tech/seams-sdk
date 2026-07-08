@@ -49,6 +49,7 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'session_exchange',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
+  'wallet_registration_intent_cancel',
   'wallet_registration_prepare',
   'wallet_registration_start',
   'wallet_registration_hss_respond',
@@ -110,6 +111,16 @@ test.describe('route definition scaffolding', () => {
       scopes: ['accounts.create'],
     });
     expect(walletRegistrationIntent?.metering).toEqual({ kind: 'none' });
+
+    const walletRegistrationIntentCancel = routes.find(
+      (route) => route.id === 'wallet_registration_intent_cancel',
+    );
+    expect(walletRegistrationIntentCancel).toBeTruthy();
+    expect(walletRegistrationIntentCancel?.auth).toMatchObject({
+      plane: 'public',
+      proof: 'intent_grant',
+    });
+    expect(walletRegistrationIntentCancel?.metering).toEqual({ kind: 'none' });
 
     const walletAddAuthMethodIntent = routes.find(
       (route) => route.id === 'wallet_add_auth_method_intent',
