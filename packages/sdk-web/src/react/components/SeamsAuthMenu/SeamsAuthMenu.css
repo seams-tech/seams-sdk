@@ -1247,7 +1247,11 @@
 /* Hover/focus elevated state (theme-reactive via CSS vars) */
 .w3a-link-device-btn:hover:not(:disabled),
 .w3a-link-device-btn:focus-visible {
-  background: var(--w3a-colors-surface3) !important;
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-surface2),
+    var(--w3a-colors-borderPrimary) 65%
+  ) !important;
 }
 
 .w3a-link-device-btn-primary {
