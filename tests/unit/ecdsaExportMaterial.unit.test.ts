@@ -43,6 +43,10 @@ import {
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
+import {
+  buildEcdsaHssExportAuthorizationDigestInput,
+  resolveEcdsaHssExportWalletSessionClaims,
+} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
@@ -88,6 +92,8 @@ function thresholdEcdsaSessionJwtFixture(args: {
   thresholdSessionId: string;
   signingGrantId: string;
   keyHandle: string;
+  thresholdExpiresAtMs?: number;
+  participantIds?: readonly number[];
 }): string {
   return unsignedJwt({
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
@@ -96,8 +102,12 @@ function thresholdEcdsaSessionJwtFixture(args: {
     keyHandle: args.keyHandle,
     keyScope: 'evm-family',
     chainTarget: EVM_TARGET,
+    relayerKeyId: 'relayer-key',
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
+    thresholdExpiresAtMs: args.thresholdExpiresAtMs ?? 1_900_000_000_000,
+    participantIds: args.participantIds ?? [1, 2],
     exp: Math.floor(Date.now() / 1000) + 3600,
   });
 }
@@ -165,6 +175,12 @@ type EmailOtpExportRecordFixtureInput = {
   thresholdSessionId?: EmailOtpEcdsaSessionRecord['thresholdSessionId'];
   signingGrantId?: EmailOtpEcdsaSessionRecord['signingGrantId'];
   thresholdEcdsaPublicKeyB64u?: EmailOtpEcdsaSessionRecord['thresholdEcdsaPublicKeyB64u'];
+};
+type PasskeyExportRecordFixtureInput = {
+  expiresAtMs?: PasskeyEcdsaSessionRecord['expiresAtMs'];
+  walletSessionJwt?: PasskeyEcdsaSessionRecord['walletSessionJwt'];
+  thresholdExpiresAtMs?: number;
+  participantIds?: readonly number[];
 };
 
 function makeReadyRecordForExport(record: {
@@ -284,10 +300,21 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
   });
 }
 
-function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
+function makePasskeyRecord(input: PasskeyExportRecordFixtureInput = {}): PasskeyEcdsaSessionRecord {
   const thresholdSessionId = 'threshold-session-1';
   const signingGrantId = 'signing-grant-1';
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-export');
+  const expiresAtMs = input.expiresAtMs ?? 1_900_000_000_000;
+  const walletSessionJwt =
+    'walletSessionJwt' in input
+      ? input.walletSessionJwt
+      : thresholdEcdsaSessionJwtFixture({
+          thresholdSessionId,
+          signingGrantId,
+          keyHandle,
+          thresholdExpiresAtMs: input.thresholdExpiresAtMs ?? expiresAtMs,
+          participantIds: input.participantIds ?? [1, 2],
+        });
   const record = {
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
@@ -302,12 +329,8 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     thresholdSessionKind: 'jwt' as const,
     thresholdSessionId,
     signingGrantId,
-    walletSessionJwt: thresholdEcdsaSessionJwtFixture({
-      thresholdSessionId,
-      signingGrantId,
-      keyHandle,
-    }),
-    expiresAtMs: 1_900_000_000_000,
+    walletSessionJwt,
+    expiresAtMs,
     remainingUses: 1,
     thresholdEcdsaPublicKeyB64u: PUBLIC_KEY_B64U,
     verifiedPublicFacts: makeVerifiedPublicFacts(keyHandle),
@@ -420,6 +443,57 @@ test.describe('ECDSA export material', () => {
     expect(material.committedLane.walletSessionAuthority.signingGrantId).toBe(
       record.signingGrantId,
     );
+  });
+
+  test('passkey HSS export authorization uses Wallet Session JWT policy claims', async () => {
+    const jwtThresholdExpiresAtMs = 1_900_000_600_000;
+    const record = makePasskeyRecord({
+      expiresAtMs: 1_900_000_100_000,
+      thresholdExpiresAtMs: jwtThresholdExpiresAtMs,
+      participantIds: [1, 2],
+    });
+    const material = await resolveEcdsaExportMaterialForLane(
+      depsForRecord(record),
+      await exactExportLane(record),
+    );
+
+    expect(material.kind).toBe('ready_threshold_ecdsa_export_material');
+    if (material.kind !== 'ready_threshold_ecdsa_export_material') {
+      throw new Error(`expected ready threshold export material, got ${material.kind}`);
+    }
+    const sessionClaims = resolveEcdsaHssExportWalletSessionClaims({
+      walletSessionJwt: record.walletSessionJwt,
+      signerSession: material.signerSession,
+      walletId: String(record.walletId),
+      evmFamilySigningKeySlotId: String(record.evmFamilySigningKeySlotId),
+      keyHandle: String(record.keyHandle),
+      relayerKeyId: String(record.relayerKeyId),
+    });
+    const digestInput = buildEcdsaHssExportAuthorizationDigestInput({
+      keyHandle: String(record.keyHandle),
+      walletId: String(record.walletId),
+      evmFamilySigningKeySlotId: String(record.evmFamilySigningKeySlotId),
+      ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId),
+      relayerKeyId: String(record.relayerKeyId),
+      signingRootId: String(record.signingRootId),
+      signingRootVersion: String(record.signingRootVersion),
+      contextBinding32B64u: CONTEXT_BINDING_32_B64U,
+      publicIdentity: {
+        hssClientSharePublicKey33B64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+        relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_B64U,
+        groupPublicKey33B64u: PUBLIC_KEY_B64U,
+        ethereumAddress: OWNER_ADDRESS,
+      },
+      exportRequestNonce32B64u: base64UrlEncode(new Uint8Array(32).fill(9)),
+      confirmationDigest32B64u: base64UrlEncode(new Uint8Array(32).fill(10)),
+      issuedAtUnixMs: 1_800_000_000_000,
+      expiresAtUnixMs: 1_800_000_060_000,
+      sessionClaims,
+    });
+
+    expect(digestInput.thresholdExpiresAtMs).toBe(jwtThresholdExpiresAtMs);
+    expect(digestInput.thresholdExpiresAtMs).not.toBe(record.expiresAtMs);
+    expect(digestInput.participantIds).toEqual([1, 2]);
   });
 
   test('ready Email OTP export material carries committed lane authority', async () => {
