@@ -1,5 +1,5 @@
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
-import type { ThemeName, WalletAuthCurve } from '@/core/types/seams';
+import type { ThemeMode, WalletAuthCurve } from '@/core/types/seams';
 import {
   toWalletId,
   walletSessionRefFromSession,
@@ -64,7 +64,7 @@ type EcdsaExportArtifact = {
 export type EcdsaExportFlowDeps = {
   sessionStore: EcdsaExportSessionStoreDeps;
   touchConfirm: Parameters<typeof showThresholdEcdsaExportViewer>[0]['touchConfirm'];
-  theme?: ThemeName;
+  theme?: ThemeMode;
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: (args: {

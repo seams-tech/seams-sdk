@@ -9,7 +9,7 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
-import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
+import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type {
   EmailOtpSigningSessionAuthLane,
 } from '../stepUpConfirmation/otpPrompt/authLane';
@@ -235,7 +235,7 @@ export type PrivateKeyExportRecoveryDeps = {
   requestExportPrivateKeysWithUi?: (
     payload: ExportPrivateKeysWithUiWorkerPayload,
   ) => Promise<ExportPrivateKeysWithUiWorkerResult>;
-  getTheme: () => ThemeName;
+  getTheme: () => ThemeMode;
 };
 
 export type RegistrationAccountLifecycleDeps = {

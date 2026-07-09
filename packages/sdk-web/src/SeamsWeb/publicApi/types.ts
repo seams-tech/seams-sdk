@@ -42,7 +42,7 @@ import type {
   SigningSessionStatus,
   SignTransactionResult,
   SeamsRegistrationNearAccountProvisioning,
-  ThemeName,
+  ThemeMode,
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
 import type {

@@ -6,8 +6,8 @@ import {
 } from '../nonce/NonceCoordinator';
 import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type {
-  ThemeName,
-  ThemeTokenOverridesInput,
+  AppearanceConfig,
+  ThemeMode,
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
@@ -42,8 +42,8 @@ export function createManagerAssembly(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'];
-  getTheme: () => ThemeName;
-  getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
+  getTheme: () => ThemeMode;
+  getAppearance: () => AppearanceConfig;
 }): ManagerAssembly {
   const touchIdPrompt = new TouchIdPrompt(
     args.seamsWebConfigs.wallet.iframe?.rpIdOverride,
@@ -96,7 +96,7 @@ export function createManagerAssembly(args: {
       tempoExplorerUrl,
       evmExplorerUrl,
       getTheme: args.getTheme,
-      getAppearanceTokens: args.getAppearanceTokens,
+      getAppearance: args.getAppearance,
       loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     },
   );

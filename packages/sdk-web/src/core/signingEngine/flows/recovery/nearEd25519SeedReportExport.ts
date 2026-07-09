@@ -1,6 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import { errorMessage, isUserCancellationError } from '@shared/utils/errors';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -14,7 +14,7 @@ import { showNearEd25519ExportViewer } from './keyExportConfirmation';
 
 export type NearEd25519SeedReportExportDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
-  theme?: ThemeName;
+  theme?: ThemeMode;
   getSignerWorkerContext: () => WorkerOperationContext;
 };
 

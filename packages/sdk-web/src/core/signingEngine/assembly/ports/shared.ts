@@ -2,7 +2,7 @@ import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
-import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
+import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeMode } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
@@ -133,7 +133,7 @@ export type CreateSigningEnginePortsArgs = {
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
   workerWarmupPolicy: WorkerResourceWarmupDeps['workerWarmupPolicy'];
-  getTheme: () => ThemeName;
+  getTheme: () => ThemeMode;
   signTempo: SigningEngineConveniencePorts['signTempo'];
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
   persistThresholdEcdsaBootstrapForWalletTarget: WalletSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];

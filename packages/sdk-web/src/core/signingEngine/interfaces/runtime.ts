@@ -6,7 +6,7 @@ import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../session/userPreferences';
-import type { ThemeName, SeamsChainConfig } from '../../types/seams';
+import type { ThemeMode, SeamsChainConfig } from '../../types/seams';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
@@ -30,7 +30,7 @@ export interface NearSigningRuntimeDeps {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   chains?: readonly SeamsChainConfig[];
-  getTheme?: () => ThemeName;
+  getTheme?: () => ThemeMode;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;

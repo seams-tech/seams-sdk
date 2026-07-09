@@ -10,7 +10,7 @@ import type {
 } from './workerTypes';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
-import type { ThemeName, SeamsChainConfig } from '@/core/types/seams';
+import type { ThemeMode, SeamsChainConfig } from '@/core/types/seams';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
@@ -21,7 +21,7 @@ import { createNearKeyOps } from './nearKeyOps/createNearKeyOps';
 
 export interface SignerWorkerManagerContext extends NearSigningRuntimeDeps {
   userPreferencesManager: UserPreferencesManager;
-  getTheme?: () => ThemeName;
+  getTheme?: () => ThemeMode;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
@@ -41,7 +41,7 @@ export type SignerWorkerManagerDeps = {
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
-  getTheme?: () => ThemeName;
+  getTheme?: () => ThemeMode;
 };
 
 /**
@@ -62,7 +62,7 @@ export class SignerWorkerManager {
   private nearExplorerUrl?: string;
   private tempoExplorerUrl?: string;
   private evmExplorerUrl?: string;
-  private getTheme?: () => ThemeName;
+  private getTheme?: () => ThemeMode;
   private workerTransport: WorkerTransport;
   readonly nearKeyOps: NearSigningKeyOps;
 

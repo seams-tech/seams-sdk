@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
@@ -19,7 +19,7 @@ export type RecoveryPublicDeps = {
   nearSingleKeyHss: Omit<ExportKeypairWithUIDeps['nearSingleKeyHss'], 'theme'>;
   ecdsa: Omit<ExportKeypairWithUIDeps['ecdsa'], 'theme'>;
   touchConfirm: Parameters<typeof exportThresholdEd25519SeedFromHssReportValue>[0]['touchConfirm'];
-  getTheme: () => ThemeName;
+  getTheme: () => ThemeMode;
   getSignerWorkerContext: () => WorkerOperationContext;
   privateKeyExportRecovery: PrivateKeyExportRecoveryDeps;
 };

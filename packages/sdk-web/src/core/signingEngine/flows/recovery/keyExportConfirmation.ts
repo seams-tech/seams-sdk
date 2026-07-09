@@ -1,6 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
-import type { ThemeName, WalletAuthIntent } from '@/core/types/seams';
+import type { ThemeMode, WalletAuthIntent } from '@/core/types/seams';
 import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthPolicyError';
 import {
   thresholdEcdsaChainTargetKey,
@@ -28,7 +28,7 @@ import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 
 export type KeyExportConfirmationDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
-  theme?: ThemeName;
+  theme?: ThemeMode;
 };
 
 export type EmailOtpWalletSessionExportChallengeArgs = Extract<
