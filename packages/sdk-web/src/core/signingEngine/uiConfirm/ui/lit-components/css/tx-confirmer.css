@@ -126,7 +126,6 @@ w3a-tx-confirm-content {
   width: min(100%, var(--tooltip-width, 100%));
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid var(--w3a-colors-borderSecondary, var(--w3a-colors-borderPrimary));
   border-radius: 1.5rem;
   background: var(--w3a-colors-txDetailsBackground, var(--w3a-colors-surface2));
 }
@@ -447,9 +446,11 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   gap: 0.5rem;
   margin-top: 0.25rem;
   padding: 0.75rem;
-  border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: 1.125rem;
-  background: color-mix(in srgb, var(--w3a-colors-surface), var(--w3a-colors-colorBackground) 44%);
+  background: var(
+    --w3a-colors-txDetailsBackground,
+    color-mix(in srgb, var(--w3a-colors-surface), var(--w3a-colors-colorBackground) 44%)
+  );
 }
 
 .passkey-registration-confirm__row {
@@ -1119,6 +1120,13 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   margin: 0.5rem auto;
   text-align: center;
   white-space: nowrap;
+}
+.drawer-tx-confirmer-root .confirmation-body--funding {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.35rem clamp(0.75rem, 4vw, 1.25rem);
+  flex-wrap: wrap;
+  white-space: normal;
 }
 .confirmation-body--status {
   display: flex;

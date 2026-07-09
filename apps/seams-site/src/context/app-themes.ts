@@ -33,6 +33,7 @@ export const ROSE_PINE_DARK_COLORS: Record<string, string> = {
   colorBackground: '#191724',
   surface: '#1f1d2e',
   surface2: '#26233a',
+  txDetailsBackground: '#26233a',
   surface3: '#312f44',
   surface4: '#403d52',
 
@@ -84,6 +85,7 @@ export const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
   colorBackground: '#faf4ed',
   surface: '#fffaf3',
   surface2: '#f2e9de',
+  txDetailsBackground: '#fffaf3',
   surface3: '#eee6dc',
   surface4: '#e5dcd2',
 
@@ -159,7 +161,7 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
   surface2: '#f5f3f1',
   surface3: '#ebe8e4',
   surface4: '#e1ddd7',
-  txDetailsBackground: '#f5f3f1',
+  txDetailsBackground: '#f8f8f7',
 
   hover: '#f5f3f1',
   active: '#ebe8e4',

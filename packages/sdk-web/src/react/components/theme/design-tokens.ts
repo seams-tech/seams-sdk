@@ -58,6 +58,7 @@ export interface DesignTokens {
     colorBackground: string;
     surface: string;
     surface2: string;
+    txDetailsBackground: string;
     surface3: string;
     surface4: string;
 
@@ -190,6 +191,7 @@ export const LIGHT_TOKENS: DesignTokens = {
     colorBackground: LIGHT_THEME.colorBackground,
     surface: LIGHT_THEME.surface,
     surface2: LIGHT_THEME.surface2,
+    txDetailsBackground: LIGHT_THEME.txDetailsBackground,
     surface3: LIGHT_THEME.surface3,
     surface4: LIGHT_THEME.surface4,
 
@@ -310,6 +312,7 @@ export const DARK_TOKENS: DesignTokens = {
     colorBackground: DARK_THEME.colorBackground,
     surface: DARK_THEME.surface,
     surface2: DARK_THEME.surface2,
+    txDetailsBackground: DARK_THEME.txDetailsBackground,
     surface3: DARK_THEME.surface3,
     surface4: DARK_THEME.surface4,
 

@@ -17,6 +17,7 @@ type ThemeAliases = {
   colorBackground: string;
   surface: string;
   surface2: string;
+  txDetailsBackground: string;
   surface3: string;
   surface4: string;
   primary: string;

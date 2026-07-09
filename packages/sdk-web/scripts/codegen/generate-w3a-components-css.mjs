@@ -171,6 +171,7 @@ function emitAliasBlock(vars) {
     `  --w3a-colors-colorBackground: ${vars.colorBackground};`,
     `  --w3a-colors-surface: ${vars.surface};`,
     `  --w3a-colors-surface2: ${vars.surface2};`,
+    `  --w3a-colors-txDetailsBackground: ${vars.txDetailsBackground};`,
     `  --w3a-colors-surface3: ${vars.surface3};`,
     `  --w3a-colors-surface4: ${vars.surface4};`,
     `  --w3a-colors-primary: ${vars.primary};`,

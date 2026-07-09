@@ -549,6 +549,9 @@
   box-sizing: border-box;
   position: relative;
   width: 100%;
+  max-width: 40rem;
+  margin-inline: auto;
+  padding: 3px 4px;
   cursor: text;
 }
 
@@ -586,7 +589,7 @@
 .w3a-otp-slots {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: clamp(7px, 2vw, 12px);
+  gap: clamp(6px, 1.5vw, 10px);
   width: 100%;
   pointer-events: none;
 }

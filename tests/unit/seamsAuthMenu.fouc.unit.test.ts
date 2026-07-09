@@ -1515,6 +1515,129 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       .toEqual(['alice.testnet']);
   });
 
+  test('cancelled Google SSO registration ignores delayed OTP prompt result', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-google-otp-cancel-race-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        (window as any).__resolveDelayedGoogleOtp = null;
+        (window as any).__googleOtpCalls = 0;
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({ lastUsedAccount: null }),
+                },
+              },
+              accountExists: false,
+              inputUsername,
+              targetAccountId: inputUsername,
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+
+          const controller = useSeamsAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Register,
+              socialLogin: {
+                google: async () => {
+                  (window as any).__googleOtpCalls += 1;
+                  return await new Promise((resolve) => {
+                    (window as any).__resolveDelayedGoogleOtp = () =>
+                      resolve({
+                        username: 'cobalt-ember-zvzkaj',
+                        otpPrompt: {
+                          title: 'Check your email to unlock your wallet',
+                          description: 'Enter the 6-digit code we sent to alice@example.com.',
+                          emailHint: 'alice@example.com',
+                          onSubmit: async () => undefined,
+                        },
+                      });
+                  });
+                },
+              },
+            },
+            runtime,
+          );
+
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Register),
+              },
+              'Start Google',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: controller.onResetToStart,
+              },
+              'Cancel',
+            ),
+            React.createElement(
+              'div',
+              { id: 'status' },
+              controller.waiting ? `waiting:${String(controller.waitingReason)}` : 'idle',
+            ),
+            controller.otpPrompt
+              ? React.createElement('div', { id: 'otp-ready' }, controller.otpPrompt.title)
+              : null,
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-google-otp-cancel-race-mount');
+    await mount.getByRole('button', { name: 'Start Google' }).click();
+    await expect(mount.locator('#status')).toHaveText('waiting:social');
+    await mount.getByRole('button', { name: 'Cancel' }).click();
+    await expect(mount.locator('#status')).toHaveText('idle');
+
+    await page.evaluate(() => (window as any).__resolveDelayedGoogleOtp());
+    await page.waitForTimeout(100);
+
+    await expect(mount.locator('#status')).toHaveText('idle');
+    await expect(mount.locator('#otp-ready')).toHaveCount(0);
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__googleOtpCalls))
+      .toBe(1);
+  });
+
   test('Google SSO headless Email OTP flow does not duplicate wallet refresh', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {

@@ -38,6 +38,7 @@ export function createThemeTokens(palette) {
     colorBackground: GREY_COLORS.grey800,
     surface: GREY_COLORS.slate700,
     surface2: GREY_COLORS.slate750,
+    txDetailsBackground: GREY_COLORS.slate750,
     surface3: GREY_COLORS.slate800,
     surface4: GREY_COLORS.slate825,
 
@@ -95,6 +96,7 @@ export function createThemeTokens(palette) {
     colorBackground: GREY_COLORS.grey50,
     surface: GREY_COLORS.slate100,
     surface2: GREY_COLORS.slate150,
+    txDetailsBackground: '#f8f8f7',
     surface3: GREY_COLORS.slate200,
     surface4: GREY_COLORS.slate250,
 

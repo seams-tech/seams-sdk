@@ -49,6 +49,20 @@ type PasskeyRegistrationDraft = {
   wallet: ProvidedRegistrationWalletInput;
 };
 
+type AsyncRequestGenerationRef = React.MutableRefObject<number>;
+
+function advanceAsyncRequestGeneration(ref: AsyncRequestGenerationRef): number {
+  ref.current += 1;
+  return ref.current;
+}
+
+function isCurrentAsyncRequestGeneration(
+  ref: AsyncRequestGenerationRef,
+  generation: number,
+): boolean {
+  return ref.current === generation;
+}
+
 function createPasskeyRegistrationDraft(): PasskeyRegistrationDraft {
   return {
     kind: 'passkey_registration_draft',
@@ -681,6 +695,7 @@ export function useSeamsAuthMenuController(
   const prefilledValueRef = React.useRef<string>('');
   const prevModeRef = React.useRef<AuthMenuMode | null>(null);
   const lastUserSelectedModeRef = React.useRef<AuthMenuMode | null>(null);
+  const socialAuthRequestGenerationRef = React.useRef(0);
 
   const [waiting, setWaiting] = React.useState(false);
   const [waitingReason, setWaitingReason] = React.useState<'passkey' | 'social' | 'restore' | null>(
@@ -921,6 +936,7 @@ export function useSeamsAuthMenuController(
   );
 
   const onResetToStart = React.useCallback(() => {
+    advanceAsyncRequestGeneration(socialAuthRequestGenerationRef);
     const cancel = otpPromptState?.onCancel;
     if (cancel) void Promise.resolve(cancel()).catch(() => {});
     const registrationCancel = registrationPromptState?.onCancel;
@@ -1090,6 +1106,9 @@ export function useSeamsAuthMenuController(
       setMethodError('');
       setPostRecoveryRotationPromptState(null);
       setPostRecoveryRotationError('');
+      const socialAuthRequestGeneration = advanceAsyncRequestGeneration(
+        socialAuthRequestGenerationRef,
+      );
       void (async () => {
         try {
           const result = await handler(
@@ -1099,6 +1118,14 @@ export function useSeamsAuthMenuController(
               walletId: socialLoginWalletId,
             }),
           );
+          if (
+            !isCurrentAsyncRequestGeneration(
+              socialAuthRequestGenerationRef,
+              socialAuthRequestGeneration,
+            )
+          ) {
+            return;
+          }
           const flowResult = result && typeof result === 'object' ? result : null;
           const isHeadlessOtpFlow =
             flowResult && 'kind' in flowResult && flowResult.kind === 'otp_flow';
@@ -1154,8 +1181,24 @@ export function useSeamsAuthMenuController(
             );
           } else if (username) {
             await runtime.refreshLoginState(username).catch(() => {});
+            if (
+              !isCurrentAsyncRequestGeneration(
+                socialAuthRequestGenerationRef,
+                socialAuthRequestGeneration,
+              )
+            ) {
+              return;
+            }
           }
         } catch (error: unknown) {
+          if (
+            !isCurrentAsyncRequestGeneration(
+              socialAuthRequestGenerationRef,
+              socialAuthRequestGeneration,
+            )
+          ) {
+            return;
+          }
           warnSeamsAuthMenuAsyncError(
             'Google SSO failed',
             error,
@@ -1163,8 +1206,15 @@ export function useSeamsAuthMenuController(
           );
           setMethodError('');
         } finally {
-          setWaiting(false);
-          setWaitingReason(null);
+          if (
+            isCurrentAsyncRequestGeneration(
+              socialAuthRequestGenerationRef,
+              socialAuthRequestGeneration,
+            )
+          ) {
+            setWaiting(false);
+            setWaitingReason(null);
+          }
         }
       })();
     },
@@ -1204,6 +1254,7 @@ export function useSeamsAuthMenuController(
   );
 
   const onOtpPromptBack = React.useCallback(() => {
+    advanceAsyncRequestGeneration(socialAuthRequestGenerationRef);
     const cancel = otpPromptState?.onCancel;
     if (cancel) void Promise.resolve(cancel()).catch(() => {});
     setOtpPromptState(null);
@@ -1245,6 +1296,7 @@ export function useSeamsAuthMenuController(
   }, [postRecoveryRotationBusy, postRecoveryRotationPromptState, runtime]);
 
   const onRegistrationPromptBack = React.useCallback(() => {
+    advanceAsyncRequestGeneration(socialAuthRequestGenerationRef);
     const cancel = registrationPromptState?.onCancel;
     if (cancel) void Promise.resolve(cancel()).catch(() => {});
     setRegistrationPromptState(null);

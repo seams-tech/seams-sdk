@@ -253,6 +253,7 @@ export class LitElementWithProps extends LitElement {
       colorBackground: '--w3a-colors-colorBackground',
       surface: '--w3a-colors-surface',
       surface2: '--w3a-colors-surface2',
+      txDetailsBackground: '--w3a-colors-txDetailsBackground',
       surface3: '--w3a-colors-surface3',
       borderPrimary: '--w3a-colors-borderPrimary',
       borderSecondary: '--w3a-colors-borderSecondary',
@@ -421,6 +422,7 @@ export interface ComponentStyles extends CSSProperties {
   colorBackground?: string;
   surface?: string;
   surface2?: string;
+  txDetailsBackground?: string;
   surface3?: string;
   borderPrimary?: string;
   textPrimary?: string;
