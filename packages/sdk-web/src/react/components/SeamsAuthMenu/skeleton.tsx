@@ -13,7 +13,11 @@ import {
   type AuthMenuHeadings,
   type SeamsAuthMenuRegistrationAccountInput,
 } from './types';
-import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
+import {
+  getGoogleSsoButtonLabel,
+  getGoogleSsoHelperText,
+  getPasskeyButtonLabel,
+} from './socialCopy';
 
 export interface SeamsAuthMenuSkeletonProps {
   className?: string;
@@ -120,7 +124,7 @@ export const SeamsAuthMenuSkeletonInner = React.forwardRef<
                             disabled
                           >
                             <FingerprintIcon size={22} style={{ display: 'block' }} />
-                            <span>Continue with Passkey</span>
+                            <span>{getPasskeyButtonLabel(AuthMenuMode.Login)}</span>
                             <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                           </button>
                           <SocialProviders
@@ -145,7 +149,7 @@ export const SeamsAuthMenuSkeletonInner = React.forwardRef<
                             className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                             disabled
                           >
-                            <span>Create with Passkey</span>
+                            <span>{getPasskeyButtonLabel(AuthMenuMode.Register)}</span>
                             <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                           </button>
                           <SocialProviders

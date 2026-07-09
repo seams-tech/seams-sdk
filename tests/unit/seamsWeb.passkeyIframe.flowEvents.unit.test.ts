@@ -356,7 +356,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           wallet: { kind: 'provided', walletId },
           presentation: {
             kind: 'outline_overlay',
-            label: 'Create with Passkey',
+            label: 'Sign up with Passkey',
             busyLabel: 'Creating passkey...',
             accessibleLabel: 'Create passkey account',
           },
@@ -438,7 +438,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           wallet: { kind: 'provided', walletId },
           presentation: {
             kind: 'outline_overlay',
-            label: 'Create with Passkey',
+            label: 'Sign up with Passkey',
             busyLabel: 'Creating passkey...',
             accessibleLabel: 'Create passkey account',
           },

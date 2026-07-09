@@ -1,5 +1,13 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import {
+  decodeJwtPayloadRecord,
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  toWalletSessionThresholdExpiresAtMs,
+  type WalletSessionThresholdExpiresAtMs,
+} from '@shared/utils/sessionTokens';
 import {
   buildPasskeyWalletAuthAuthority,
   type EmailOtpWalletAuthAuthority,
@@ -11,7 +19,11 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import { laneCandidateAuthMethod } from '../../session/identity/laneIdentity';
-import { SigningSessionIds } from '../../session/operationState/types';
+import {
+  SigningSessionIds,
+  type SigningGrantId,
+  type ThresholdEcdsaSessionId,
+} from '../../session/operationState/types';
 import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
@@ -48,13 +60,28 @@ import {
   resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
 } from '../../session/identity/exactSigningLaneIdentity';
+import {
+  buildEcdsaWalletSessionTransportAuth,
+  toParticipantId,
+  toEvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyHandle,
+  type EvmFamilySigningKeySlotId,
+  type ParticipantId,
+  type VerifiedWalletSessionJwt,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  parseEcdsaRelayerKeyId,
+  type EcdsaRelayerKeyId,
+} from '../../session/keyMaterialBrands';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 import {
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -515,9 +542,15 @@ type EmailOtpSelectionAuthority = {
 
 export type EcdsaCommittedLaneWalletSessionAuthority = {
   kind: 'wallet_session_authority';
-  walletSessionJwt: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
+  walletSessionJwt: VerifiedWalletSessionJwt;
+  walletId: WalletId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  relayerKeyId: EcdsaRelayerKeyId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  signingGrantId: SigningGrantId;
+  thresholdExpiresAtMs: WalletSessionThresholdExpiresAtMs;
+  participantIds: readonly ParticipantId[];
 };
 
 export type PasskeyEcdsaCommittedLaneAuthority =
@@ -716,22 +749,96 @@ function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
   );
 }
 
+function requireEcdsaWalletSessionPayload(
+  walletSessionJwt: VerifiedWalletSessionJwt,
+): Record<string, unknown> {
+  const payload = decodeJwtPayloadRecord(walletSessionJwt);
+  if (payload?.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND) {
+    throw new Error('[SigningEngine][ecdsa] committed lane Wallet Session JWT kind is invalid');
+  }
+  return payload;
+}
+
+function requireEcdsaWalletSessionParticipantIds(value: unknown): readonly ParticipantId[] {
+  const normalized = normalizeThresholdEd25519ParticipantIds(value);
+  if (!normalized || normalized.length < 2) {
+    throw new Error(
+      '[SigningEngine][ecdsa] committed lane Wallet Session JWT participantIds are invalid',
+    );
+  }
+  return normalized.map(toParticipantId);
+}
+
+function assertEcdsaWalletSessionClaimMatches(args: {
+  field: string;
+  expected: unknown;
+  actual: unknown;
+}): void {
+  if (String(args.expected) === String(args.actual)) return;
+  throw new Error(
+    `[SigningEngine][ecdsa] committed lane Wallet Session JWT ${args.field} mismatch`,
+  );
+}
+
 function buildEcdsaCommittedLaneWalletSessionAuthority(args: {
   walletSessionJwt: string;
+  walletId: unknown;
+  evmFamilySigningKeySlotId: unknown;
+  keyHandle: unknown;
   thresholdSessionId: string;
   signingGrantId: string;
 }): EcdsaCommittedLaneWalletSessionAuthority {
-  const walletSessionJwt = String(args.walletSessionJwt || '').trim();
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const signingGrantId = String(args.signingGrantId || '').trim();
-  if (!walletSessionJwt || !thresholdSessionId || !signingGrantId) {
-    throw new Error('[SigningEngine][ecdsa] committed lane requires wallet-session authority');
+  const walletSessionAuth = buildEcdsaWalletSessionTransportAuth({
+    kind: 'wallet_session_jwt',
+    walletSessionJwt: args.walletSessionJwt,
+  });
+  const identity = buildEcdsaSessionIdentity({
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+  });
+  const payload = requireEcdsaWalletSessionPayload(walletSessionAuth.walletSessionJwt);
+  const walletId = toWalletId(payload.walletId);
+  const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
+    payload.evmFamilySigningKeySlotId,
+  );
+  const keyHandle = toEvmFamilyEcdsaKeyHandle(payload.keyHandle);
+  const relayerKeyId = parseEcdsaRelayerKeyId(payload.relayerKeyId);
+  const claimsIdentity = buildEcdsaSessionIdentity({
+    thresholdSessionId: payload.thresholdSessionId,
+    signingGrantId: payload.signingGrantId,
+  });
+  assertEcdsaWalletSessionClaimMatches({
+    field: 'walletId',
+    expected: args.walletId,
+    actual: walletId,
+  });
+  assertEcdsaWalletSessionClaimMatches({
+    field: 'evmFamilySigningKeySlotId',
+    expected: args.evmFamilySigningKeySlotId,
+    actual: evmFamilySigningKeySlotId,
+  });
+  assertEcdsaWalletSessionClaimMatches({
+    field: 'keyHandle',
+    expected: args.keyHandle,
+    actual: keyHandle,
+  });
+  if (
+    claimsIdentity.thresholdSessionId !== identity.thresholdSessionId ||
+    claimsIdentity.signingGrantId !== identity.signingGrantId
+  ) {
+    throw new Error('[SigningEngine][ecdsa] committed lane Wallet Session JWT identity mismatch');
   }
   return {
     kind: 'wallet_session_authority',
-    walletSessionJwt,
-    thresholdSessionId,
-    signingGrantId,
+    walletSessionJwt: walletSessionAuth.walletSessionJwt,
+    walletId,
+    evmFamilySigningKeySlotId,
+    keyHandle,
+    relayerKeyId,
+    thresholdSessionId: identity.thresholdSessionId,
+    signingGrantId: identity.signingGrantId,
+    thresholdExpiresAtMs: toWalletSessionThresholdExpiresAtMs(payload.thresholdExpiresAtMs),
+    participantIds: requireEcdsaWalletSessionParticipantIds(payload.participantIds),
   };
 }
 
@@ -742,6 +849,9 @@ function buildPasskeyEcdsaWalletSessionAuthorityFromRecord(args: {
   if (walletSessionAuth.kind === 'ready') {
     return buildEcdsaCommittedLaneWalletSessionAuthority({
       walletSessionJwt: walletSessionAuth.walletSessionJwt,
+      walletId: args.record.walletId,
+      evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
+      keyHandle: args.record.keyHandle,
       thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
       signingGrantId: walletSessionAuth.identity.signingGrantId,
     });
@@ -1139,9 +1249,13 @@ function requireEmailOtpCommittedLaneForReady(args: {
 
 function buildEmailOtpEcdsaWalletSessionAuthority(args: {
   authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
 }): EmailOtpEcdsaCommittedLane['walletSessionAuthority'] {
   return buildEcdsaCommittedLaneWalletSessionAuthority({
     walletSessionJwt: args.authLane.jwt,
+    walletId: args.lane.key.walletId,
+    evmFamilySigningKeySlotId: args.lane.key.evmFamilySigningKeySlotId,
+    keyHandle: args.lane.keyHandle,
     thresholdSessionId: args.authLane.thresholdSessionId,
     signingGrantId: String(args.authLane.authorizingSigningGrantId),
   });
@@ -1169,7 +1283,10 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     lane: args.lane,
     authority,
     authLane,
-    walletSessionAuthority: buildEmailOtpEcdsaWalletSessionAuthority({ authLane }),
+    walletSessionAuthority: buildEmailOtpEcdsaWalletSessionAuthority({
+      authLane,
+      lane: args.lane,
+    }),
     material: args.material,
   };
   switch (args.authority.kind) {

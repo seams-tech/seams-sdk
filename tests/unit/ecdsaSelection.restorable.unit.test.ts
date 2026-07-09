@@ -89,12 +89,22 @@ const emailOtpAuth = {
 function makeWalletSessionJwt(args: {
   thresholdSessionId: string;
   signingGrantId: string;
+  walletId: string;
+  evmFamilySigningKeySlotId: string;
+  keyHandle: string;
+  relayerKeyId: string;
 }): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    walletId: args.walletId,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+    keyHandle: args.keyHandle,
+    relayerKeyId: args.relayerKeyId,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
+    thresholdExpiresAtMs: 1_900_000_000_000,
+    participantIds: [1, 2],
     exp: 1_900_000_000,
   })}.signature`;
 }
@@ -284,6 +294,10 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
         jwt: makeWalletSessionJwt({
           thresholdSessionId: lane.thresholdSessionId,
           signingGrantId: lane.signingGrantId,
+          walletId: lane.signer.walletId,
+          evmFamilySigningKeySlotId: lane.signer.key.evmFamilySigningKeySlotId,
+          keyHandle: lane.signer.keyHandle,
+          relayerKeyId: 'rk-restorable',
         }),
         thresholdSessionId: lane.thresholdSessionId,
         authorizingSigningGrantId: toAuthorizingSigningGrantId(lane.signingGrantId),
@@ -380,6 +394,10 @@ function recordForChainTarget(
     walletSessionJwt: makeWalletSessionJwt({
       thresholdSessionId: input.thresholdSessionId,
       signingGrantId: input.signingGrantId,
+      walletId: input.walletId,
+      evmFamilySigningKeySlotId: input.key.evmFamilySigningKeySlotId,
+      keyHandle: input.keyHandle,
+      relayerKeyId: 'rk-restorable',
     }),
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,
@@ -834,7 +852,14 @@ test.describe('ECDSA restorable lane selection', () => {
     };
     const durableAuthLane = {
       kind: 'signing_session' as const,
-      jwt: 'jwt:durable-email-otp-ecdsa',
+      jwt: makeWalletSessionJwt({
+        thresholdSessionId: input.thresholdSessionId,
+        signingGrantId: input.signingGrantId,
+        walletId: input.walletId,
+        evmFamilySigningKeySlotId: input.key.evmFamilySigningKeySlotId,
+        keyHandle: input.keyHandle,
+        relayerKeyId: 'rk-restorable',
+      }),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
       authorizingSigningGrantId: toAuthorizingSigningGrantId(input.signingGrantId),
       curve: 'ecdsa' as const,

@@ -16,6 +16,9 @@ export type WalletSessionJwtKind =
   | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
   | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
 export type SessionJwtKind = AppSessionJwtKind | WalletSessionJwtKind;
+export type WalletSessionThresholdExpiresAtMs = number & {
+  readonly __brand: 'WalletSessionThresholdExpiresAtMs';
+};
 
 export type AppSessionJwtAuth = {
   kind: 'app_session';
@@ -47,6 +50,16 @@ export function decodeJwtPayloadRecord(jwtRaw: string): Record<string, unknown> 
   } catch {
     return null;
   }
+}
+
+export function toWalletSessionThresholdExpiresAtMs(
+  value: unknown,
+): WalletSessionThresholdExpiresAtMs {
+  const normalized = Math.floor(Number(value));
+  if (!Number.isSafeInteger(normalized) || normalized <= 0) {
+    throw new Error('Wallet Session JWT thresholdExpiresAtMs is invalid');
+  }
+  return normalized as WalletSessionThresholdExpiresAtMs;
 }
 
 export function getSessionJwtKind(jwtRaw: string): string | null {

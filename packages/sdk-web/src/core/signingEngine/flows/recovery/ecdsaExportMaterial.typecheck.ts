@@ -17,6 +17,7 @@ import type {
   ReadyEcdsaExportLane,
   ReadyThresholdEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
+import type { RecordBackedEcdsaCommittedLane } from '../signEvmFamily/ecdsaSelection';
 
 declare const signerSession: ReadyEcdsaSignerSession;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
@@ -25,12 +26,18 @@ declare const keyRef: unknown;
 declare const evmFamilyKeyFingerprint: EvmFamilyKeyFingerprint;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
+declare const broadCommittedLane: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
 declare const readyCommittedLane: ReadyEcdsaExportLane<EmailOtpWalletAuthAuthority>;
 declare const readyPasskeyCommittedLane: ReadyEcdsaExportLane<PasskeyWalletAuthAuthority>;
 
 // @ts-expect-error post-finalize ECDSA export lanes require wallet-bound authority, not pure factor identity.
 type InvalidFactorBackedEcdsaExportLane = EcdsaExportLane<AuthFactorIdentity>;
 void ({} as InvalidFactorBackedEcdsaExportLane);
+
+// @ts-expect-error Email OTP ECDSA export lanes require runtime-policy-scoped records.
+const broadEmailOtpCommittedLaneAsExportLane: EcdsaExportLane<EmailOtpWalletAuthAuthority> =
+  broadCommittedLane;
+void broadEmailOtpCommittedLaneAsExportLane;
 
 const exportMaterial: ReadyThresholdEcdsaExportMaterial = {
   kind: 'ready_threshold_ecdsa_export_material',

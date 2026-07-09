@@ -45,7 +45,6 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import {
   buildEcdsaHssExportAuthorizationDigestInput,
-  resolveEcdsaHssExportWalletSessionClaims,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
@@ -461,20 +460,13 @@ test.describe('ECDSA export material', () => {
     if (material.kind !== 'ready_threshold_ecdsa_export_material') {
       throw new Error(`expected ready threshold export material, got ${material.kind}`);
     }
-    const sessionClaims = resolveEcdsaHssExportWalletSessionClaims({
-      walletSessionJwt: record.walletSessionJwt,
-      signerSession: material.signerSession,
-      walletId: String(record.walletId),
-      evmFamilySigningKeySlotId: String(record.evmFamilySigningKeySlotId),
-      keyHandle: String(record.keyHandle),
-      relayerKeyId: String(record.relayerKeyId),
-    });
+    const walletSessionAuthority = material.committedLane.walletSessionAuthority;
+    expect(walletSessionAuthority.kind).toBe('wallet_session_authority');
+    if (walletSessionAuthority.kind !== 'wallet_session_authority') {
+      throw new Error('expected Wallet Session JWT authority');
+    }
     const digestInput = buildEcdsaHssExportAuthorizationDigestInput({
-      keyHandle: String(record.keyHandle),
-      walletId: String(record.walletId),
-      evmFamilySigningKeySlotId: String(record.evmFamilySigningKeySlotId),
       ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId),
-      relayerKeyId: String(record.relayerKeyId),
       signingRootId: String(record.signingRootId),
       signingRootVersion: String(record.signingRootVersion),
       contextBinding32B64u: CONTEXT_BINDING_32_B64U,
@@ -488,7 +480,7 @@ test.describe('ECDSA export material', () => {
       confirmationDigest32B64u: base64UrlEncode(new Uint8Array(32).fill(10)),
       issuedAtUnixMs: 1_800_000_000_000,
       expiresAtUnixMs: 1_800_000_060_000,
-      sessionClaims,
+      walletSessionAuthority,
     });
 
     expect(digestInput.thresholdExpiresAtMs).toBe(jwtThresholdExpiresAtMs);

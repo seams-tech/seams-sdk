@@ -5,6 +5,7 @@ import type {
 import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
+  EmailOtpEcdsaLoginEd25519ReconstructionArgs,
   EmailOtpEcdsaTransactionStepUpInput,
   LoginEmailOtpEcdsaCapabilityForSigningArgs,
   LoginEmailOtpEcdsaCapabilityArgs,
@@ -14,6 +15,7 @@ declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const committedLane: EmailOtpEcdsaCommittedLane;
 declare const routePlan: EmailOtpRoutePlan;
+declare const ed25519ReconstructionArgs: EmailOtpEcdsaLoginEd25519ReconstructionArgs;
 
 const transactionStepUpWithCommittedLane: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
@@ -116,6 +118,20 @@ const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSign
   remainingUses: 3,
 };
 void signingCapabilityWithoutCommittedLane;
+
+const ed25519ReconstructionWithoutBudget = {
+  ...ed25519ReconstructionArgs,
+  // @ts-expect-error ECDSA login Ed25519 reconstruction requires a concrete budget.
+  remainingUses: undefined,
+} satisfies EmailOtpEcdsaLoginEd25519ReconstructionArgs;
+void ed25519ReconstructionWithoutBudget;
+
+const ed25519ReconstructionWithoutEcdsaSession = {
+  ...ed25519ReconstructionArgs,
+  // @ts-expect-error ECDSA login Ed25519 reconstruction requires the companion ECDSA session id.
+  ecdsaThresholdSessionId: undefined,
+} satisfies EmailOtpEcdsaLoginEd25519ReconstructionArgs;
+void ed25519ReconstructionWithoutEcdsaSession;
 
 const validCapabilityLoginWithDerivedProvider: LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession,

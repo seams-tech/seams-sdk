@@ -114,7 +114,7 @@ export type ExportEcdsaKeyWithFreshEmailOtpLaneArgs = {
   publicFacts: VerifiedEcdsaPublicFacts;
   providerUserId?: string;
   emailHashHex: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
 export class EmailOtpExportRecoveryRuntime {

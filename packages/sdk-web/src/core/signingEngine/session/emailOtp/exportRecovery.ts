@@ -17,7 +17,10 @@ import type { EmailOtpEd25519SessionReconstructionPlan } from './provisioning';
 import type { EmailOtpEcdsaBootstrapAuthorization } from './routePlan';
 import { throwEmailOtpSigningSessionAuthStateError } from './routePlan';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { EcdsaExportLane } from '../../flows/recovery/ecdsaExportMaterial';
+import type {
+  EcdsaExportLane,
+  EmailOtpEcdsaExportSessionRecord,
+} from '../../flows/recovery/ecdsaExportMaterial';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -89,7 +92,7 @@ type EmailOtpEcdsaExportBaseInput = {
 
 export type EmailOtpEcdsaAuthorizedExportStepUpInput = EmailOtpEcdsaExportBaseInput & {
   source: 'authorized_signing_session';
-  record: ThresholdEcdsaSessionRecord;
+  record: EmailOtpEcdsaExportSessionRecord;
   shamirPrimeB64u: string;
   keyHandle: string;
   roleLocalMaterial: EcdsaRoleLocalExportMaterial;
@@ -224,12 +227,9 @@ async function resolveEmailOtpEcdsaFreshLoginExportStepUpInput(
     publicFacts: VerifiedEcdsaPublicFacts;
     providerUserId?: string;
     emailHashHex: string;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
   },
 ): Promise<EmailOtpEcdsaFreshLoginExportStepUpInput> {
-  if (!args.runtimePolicyScope) {
-    throw new Error('Email OTP ECDSA fresh export requires runtimePolicyScope');
-  }
   const relayUrl = ports.requireRelayUrl();
   const appSessionJwt = await ports.resolveAppSessionJwt({
     walletSession: args.walletSession,
@@ -548,14 +548,14 @@ export async function exportEcdsaKeyWithAuthorization(
         evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
         walletSessionJwt: walletSessionAuthority.walletSessionJwt,
         ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-        relayerKeyId: record.relayerKeyId,
+        relayerKeyId: walletSessionAuthority.relayerKeyId,
         readyRecord: exportInput.roleLocalMaterial.readyRecord,
-        thresholdSessionId: record.thresholdSessionId,
-        signingGrantId: record.signingGrantId,
-        thresholdExpiresAtMs: record.expiresAtMs,
-        participantIds: record.participantIds,
+        thresholdSessionId: walletSessionAuthority.thresholdSessionId,
+        signingGrantId: walletSessionAuthority.signingGrantId,
+        thresholdExpiresAtMs: walletSessionAuthority.thresholdExpiresAtMs,
+        participantIds: walletSessionAuthority.participantIds.map(Number),
         keyHandle: exportInput.keyHandle,
-        ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+        runtimePolicyScope: record.runtimePolicyScope,
       },
     },
   });
@@ -571,7 +571,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     publicFacts: VerifiedEcdsaPublicFacts;
     providerUserId?: string;
     emailHashHex: string;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
     loginWithEcdsaCapabilityInternal: (args: {
       walletSession: WalletSessionRef;
       subjectId?: never;
@@ -589,7 +589,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
       emailHashHex: string;
       providerIdentity: EmailOtpEcdsaProviderIdentity;
       authSubjectId?: never;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
       ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
       ed25519ReconstructionMode: 'await' | 'skip';
       ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;

@@ -100,7 +100,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     );
     expect(sentinel).toBe('1');
 
-    await expect(mount.getByRole('button', { name: 'Continue with Google SSO' })).toBeDisabled();
+    await expect(mount.getByRole('button', { name: 'Sign in with Google' })).toBeDisabled();
 
     const radius = await root.evaluate((el) => window.getComputedStyle(el).borderTopLeftRadius);
     expect(radius).not.toBe('0px');
@@ -215,16 +215,16 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-login-methods-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await expect(mount.getByRole('button', { name: 'Continue with Passkey' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Sign in with Passkey' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Continue with Email OTP' })).toHaveCount(0);
-    await expect(mount.getByRole('button', { name: 'Continue with Google SSO' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
     await expect(mount.locator('.w3a-social-helper')).toHaveCount(0);
 
     await mount.getByRole('button', { name: 'Sign up' }).click();
     await expect(mount.getByRole('button', { name: 'Create passkey account' })).toBeVisible();
-    await expect(mount.getByRole('button', { name: 'Continue with Google SSO' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Sign up with Google' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
     await expect(
@@ -404,7 +404,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
               disabled: !controller.canSubmit,
               onClick: controller.onProceed,
             },
-            'Continue with Passkey',
+            'Sign in with Passkey',
           );
         }
 
@@ -417,7 +417,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     );
 
     const mount = page.locator('#seams-auth-menu-auto-synced-passkey-restore-mount');
-    await mount.getByRole('button', { name: 'Continue with Passkey' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Passkey' }).click();
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__autoSyncedPasskeyRestore))
       .toMatchObject({
@@ -506,7 +506,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                 disabled: !controller.canSubmit,
                 onClick: controller.onProceed,
               },
-              'Continue with Passkey',
+              'Sign in with Passkey',
             ),
             React.createElement('div', { id: 'sync-method-error' }, controller.methodError || ''),
           );
@@ -521,7 +521,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     );
 
     const mount = page.locator('#seams-auth-menu-sync-timeout-no-inline-error-mount');
-    await mount.getByRole('button', { name: 'Continue with Passkey' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Passkey' }).click();
     await expect.poll(async () => await mount.locator('#sync-method-error').textContent()).toBe('');
     await expect
       .poll(
@@ -688,7 +688,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-otp-prompt-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await expect(mount.getByText('Check your email to unlock your wallet')).toBeVisible();
     await expect(mount.locator('.w3a-otp-email')).toHaveCount(0);
     await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
@@ -766,7 +766,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-timeout-no-inline-error-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await expect(mount.locator('.w3a-method-error')).toHaveCount(0);
     await expect
       .poll(
@@ -864,7 +864,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-otp-reroll-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign up with Google' }).click();
     await expect(mount.getByText('frost-beacon.testnet')).toBeVisible();
     await mount.getByRole('button', { name: 'Generate another name' }).click();
     await expect(mount.getByText('ember-river.testnet')).toBeVisible();
@@ -951,7 +951,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-otp-recovery-key-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await expect(mount.getByText('Recover this device')).toBeVisible();
 
     const recoveryKeyInput = mount.getByLabel('Recovery key');
@@ -1050,7 +1050,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-otp-resend-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
 
     const input = mount.getByLabel('Email code');
@@ -1145,7 +1145,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-otp-resend-rate-limit-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await mount.getByRole('button', { name: 'Resend Code' }).click();
     await expect(mount.getByRole('alert')).toHaveText('Too many requests. Try again in 13s.');
   });
@@ -1791,9 +1791,9 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-mode-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await mount.getByRole('button', { name: 'Sign up' }).click();
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign up with Google' }).click();
 
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__seamsAuthMenuGoogleModes))
@@ -1896,7 +1896,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                 disabled: !controller.canSubmit,
                 onClick: controller.onProceed,
               },
-              'Create with Passkey',
+              'Sign up with Passkey',
             ),
           );
         }
@@ -1924,7 +1924,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#implicit-activation-wallet-id')).toHaveText(
       generatedWalletId || '',
     );
-    const button = mount.getByRole('button', { name: 'Create with Passkey' });
+    const button = mount.getByRole('button', { name: 'Sign up with Passkey' });
     await expect(button).toBeEnabled();
     await button.click();
     await expect
@@ -2275,7 +2275,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     );
 
     const mount = page.locator('#seams-auth-menu-passkey-register-activation-cancelled-mount');
-    const button = mount.getByRole('button', { name: 'Create with Passkey' });
+    const button = mount.getByRole('button', { name: 'Sign up with Passkey' });
     await expect(button).toBeVisible();
     await expect.poll(async () => await button.evaluate((node) => node.tagName)).toBe('BUTTON');
     await button.click();
@@ -2489,7 +2489,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                 type: 'button',
                 onClick: controller.onProceed,
               },
-              'Create with Passkey',
+              'Sign up with Passkey',
             ),
           );
         }
@@ -2505,7 +2505,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     const mount = page.locator('#seams-auth-menu-sponsored-passkey-register-controller-mount');
     await expect(mount.locator('#sponsored-show-input')).toHaveText('true');
     await expect(mount.locator('#sponsored-can-submit')).toHaveText('false');
-    const button = mount.getByRole('button', { name: 'Create with Passkey' });
+    const button = mount.getByRole('button', { name: 'Sign up with Passkey' });
     await expect(button).toBeEnabled();
     await button.click();
     await expect(mount.getByRole('alert')).toHaveText(
@@ -3162,7 +3162,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
 
     const mount = page.locator('#seams-auth-menu-google-error-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
-    await mount.getByRole('button', { name: 'Continue with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
     await expect(mount.getByRole('alert')).toHaveCount(0);
     await expect
       .poll(() =>

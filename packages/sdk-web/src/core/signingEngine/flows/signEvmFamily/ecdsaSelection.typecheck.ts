@@ -2,6 +2,7 @@ import type {
   BudgetBlockedEvmFamilyEcdsaSigningSelection,
   EmailOtpEcdsaCommittedLane,
   EcdsaCommittedLane,
+  EcdsaCommittedLaneWalletSessionAuthority,
   EcdsaSelectionDiagnostics,
   ReadyPasskeyEcdsaCommittedLane,
   RecordBackedEcdsaCommittedLane,
@@ -17,6 +18,17 @@ import type {
   EmailOtpSigningSessionAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import type {
+  EvmFamilyEcdsaKeyHandle,
+  EvmFamilySigningKeySlotId,
+  ParticipantId,
+  SigningGrantId,
+  ThresholdEcdsaSessionId,
+  WalletId,
+  VerifiedWalletSessionJwt,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { EcdsaRelayerKeyId } from '../../session/keyMaterialBrands';
+import type { WalletSessionThresholdExpiresAtMs } from '@shared/utils/sessionTokens';
 import type {
   EmailOtpFactorIdentity,
   EmailOtpWalletAuthAuthority,
@@ -34,8 +46,37 @@ declare const emailOtpFactor: EmailOtpFactorIdentity;
 declare const passkeyAuthority: PasskeyWalletAuthAuthority;
 declare const reauthLane: ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'];
 declare const readyPasskeyCommittedLane: ReadyPasskeyEcdsaCommittedLane;
+declare const walletSessionJwt: VerifiedWalletSessionJwt;
+declare const walletId: WalletId;
+declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+declare const keyHandle: EvmFamilyEcdsaKeyHandle;
+declare const relayerKeyId: EcdsaRelayerKeyId;
+declare const thresholdSessionId: ThresholdEcdsaSessionId;
+declare const signingGrantId: SigningGrantId;
+declare const thresholdExpiresAtMs: WalletSessionThresholdExpiresAtMs;
+declare const participantIds: readonly ParticipantId[];
 void (readyPasskeyCommittedLane.authority satisfies typeof passkeyAuthority);
 void (ecdsaCommittedLaneAuthMethod(readyPasskeyCommittedLane) satisfies 'passkey');
+
+const walletSessionAuthority = {
+  kind: 'wallet_session_authority',
+  walletSessionJwt,
+  walletId,
+  evmFamilySigningKeySlotId,
+  keyHandle,
+  relayerKeyId,
+  thresholdSessionId,
+  signingGrantId,
+  thresholdExpiresAtMs,
+  participantIds,
+} satisfies EcdsaCommittedLaneWalletSessionAuthority;
+
+const invalidWalletSessionAuthorityWithRecordExpiry = {
+  ...walletSessionAuthority,
+  // @ts-expect-error committed ECDSA wallet-session authority requires JWT-derived branded expiry.
+  thresholdExpiresAtMs: 1_900_000_000_000,
+} satisfies EcdsaCommittedLaneWalletSessionAuthority;
+void invalidWalletSessionAuthorityWithRecordExpiry;
 
 const missingHotEmailOtpMaterial: ReauthRequiredEvmFamilyEcdsaSigningSelection['material'] = {
   kind: 'public_identity_unavailable',
@@ -54,12 +95,7 @@ const committedEmailOtpLane: EmailOtpEcdsaCommittedLane = {
   lane: reauthLane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
   record: emailOtpRecord,
   durableRestore: 'record_restore_metadata',
@@ -77,12 +113,7 @@ const resolverBackedCommittedEmailOtpLane: EmailOtpEcdsaCommittedLane = {
   lane: reauthLane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
   durableRestore: 'resolver_restore_metadata',
 };
@@ -94,12 +125,7 @@ const resolverBackedLaneWithRecord: EmailOtpEcdsaCommittedLane = {
   lane: reauthLane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
   durableRestore: 'resolver_restore_metadata',
   record: emailOtpRecord,
@@ -112,12 +138,7 @@ const resolverBackedLaneWithPureFactor: EmailOtpEcdsaCommittedLane = {
   // @ts-expect-error resolver-backed Email OTP ECDSA lanes require wallet-bound authority.
   authority: emailOtpFactor,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
   durableRestore: 'resolver_restore_metadata',
 };
@@ -129,12 +150,7 @@ const resolverBackedLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
   authority: emailOtpAuthority,
   // @ts-expect-error resolver-backed Email OTP ECDSA lanes require ECDSA signing-session auth.
   authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
   durableRestore: 'resolver_restore_metadata',
 };
@@ -202,12 +218,7 @@ const committedEmailOtpLaneWithPureFactor: EmailOtpEcdsaCommittedLane = {
   // @ts-expect-error post-finalize ECDSA committed lanes require wallet-bound authority, not pure factor identity.
   authority: emailOtpFactor,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotMaterialSelection.material,
   record: emailOtpRecord,
   durableRestore: 'record_restore_metadata',
@@ -220,12 +231,7 @@ const committedEmailOtpLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
   authority: emailOtpAuthority,
   // @ts-expect-error committed Email OTP ECDSA lanes require ECDSA signing-session auth.
   authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotMaterialSelection.material,
   record: emailOtpRecord,
   durableRestore: 'record_restore_metadata',
@@ -237,12 +243,7 @@ const committedEmailOtpLaneWithCandidateCopy: EmailOtpEcdsaCommittedLane = {
   lane: missingHotMaterialSelection.lane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotMaterialSelection.material,
   record: emailOtpRecord,
   durableRestore: 'record_restore_metadata',
@@ -256,12 +257,7 @@ const committedEmailOtpLaneWithWalletIdCopy: EmailOtpEcdsaCommittedLane = {
   lane: missingHotMaterialSelection.lane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotMaterialSelection.material,
   record: emailOtpRecord,
   durableRestore: 'record_restore_metadata',
@@ -276,12 +272,7 @@ const committedEmailOtpLaneFromDurableExactAuthOnly: EmailOtpEcdsaCommittedLane 
   lane: missingHotMaterialSelection.lane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
-  walletSessionAuthority: {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: 'wallet-session-jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-  },
+  walletSessionAuthority,
   material: missingHotMaterialSelection.material,
   // @ts-expect-error durable exact auth-lane-only state cannot form a committed Email OTP lane.
   durableRestore: 'durable_exact_auth_lane_only',

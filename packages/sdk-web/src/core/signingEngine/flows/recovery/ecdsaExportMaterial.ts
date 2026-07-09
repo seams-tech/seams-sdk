@@ -30,6 +30,7 @@ import {
   getThresholdEcdsaSessionRecordByKey,
   thresholdEcdsaEmailOtpAuthContext,
   thresholdEcdsaLaneCandidateFromSessionRecord,
+  type EmailOtpEcdsaSessionRecord,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
@@ -63,6 +64,7 @@ import {
   commitReadyPasskeyEcdsaLaneFromRecord,
   EmailOtpEcdsaCommittedLaneStateError,
   resolvedEvmFamilyEcdsaSigningLaneFromCandidate,
+  type RecordBacked,
   type RecordBackedEcdsaCommittedLane,
 } from '../signEvmFamily/ecdsaSelection';
 
@@ -97,6 +99,15 @@ export type EcdsaExportSessionStoreDeps = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 
+export type EmailOtpEcdsaExportSessionRecord = EmailOtpEcdsaSessionRecord & {
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+};
+
+type RecordBackedEmailOtpEcdsaExportLane = RecordBacked<
+  RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority>,
+  EmailOtpEcdsaExportSessionRecord
+>;
+
 type ReadyThresholdEcdsaExportMaterialBase = {
   kind: 'ready_threshold_ecdsa_export_material';
   signerSession: ReadyEcdsaSignerSession;
@@ -126,10 +137,12 @@ export type ReadyThresholdEcdsaExportMaterial =
 export type ReadyEcdsaExportMaterial = ReadyThresholdEcdsaExportMaterial;
 
 export type EcdsaExportLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
-  RecordBackedEcdsaCommittedLane<A>;
+  A extends EmailOtpWalletAuthAuthority
+    ? RecordBackedEmailOtpEcdsaExportLane
+    : RecordBackedEcdsaCommittedLane<A>;
 
 export type ReadyEcdsaExportLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
-  RecordBackedEcdsaCommittedLane<A> & { material: ReadyEcdsaMaterial };
+  EcdsaExportLane<A> & { material: ReadyEcdsaMaterial };
 
 function isReadyPasskeyEcdsaExportLane(
   lane: ReadyEcdsaExportLane,
@@ -247,26 +260,49 @@ function buildEmailOtpEcdsaExportMaterialState(args: {
   });
 }
 
+function isEmailOtpEcdsaExportSessionRecord(
+  record: ThresholdEcdsaSessionRecord,
+): record is EmailOtpEcdsaExportSessionRecord {
+  return record.source === 'email_otp' && Boolean(record.runtimePolicyScope);
+}
+
+function requireEmailOtpEcdsaExportSessionRecord(
+  record: ThresholdEcdsaSessionRecord,
+): EmailOtpEcdsaExportSessionRecord {
+  if (isEmailOtpEcdsaExportSessionRecord(record)) return record;
+  throw new Error('[SigningEngine][ecdsa-export] Email OTP export requires runtimePolicyScope');
+}
+
 function commitRecordBackedEmailOtpEcdsaExportLane(args: {
   record: ThresholdEcdsaSessionRecord;
   material: EcdsaMaterialState;
 }): EcdsaExportLane<EmailOtpWalletAuthAuthority> {
-  const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
+  const record = requireEmailOtpEcdsaExportSessionRecord(args.record);
+  const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
   const lane = resolvedEvmFamilyEcdsaSigningLaneFromCandidate(candidate);
   const committedLane = commitEmailOtpEcdsaLaneFromRecordForMaterial({
     lane,
-    record: args.record,
+    record,
     material: args.material,
   });
   if (committedLane.source !== 'record_backed') {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP export requires record-backed lane');
   }
-  return committedLane;
+  return {
+    source: 'record_backed',
+    lane: committedLane.lane,
+    authority: committedLane.authority,
+    authLane: committedLane.authLane,
+    walletSessionAuthority: committedLane.walletSessionAuthority,
+    material: committedLane.material,
+    record,
+    durableRestore: 'record_restore_metadata',
+  };
 }
 
 function commitRecordBackedReadyEmailOtpEcdsaExportLane(args: {
   lane: ReturnType<typeof resolvedEvmFamilyEcdsaSigningLaneFromCandidate>;
-  record: ThresholdEcdsaSessionRecord;
+  record: EmailOtpEcdsaExportSessionRecord;
   material: ReturnType<typeof requireReadyEcdsaMaterial>;
 }): ReadyEcdsaExportLane<EmailOtpWalletAuthAuthority> {
   const committedLane = commitReadyEmailOtpEcdsaLaneFromRecord(args);
@@ -275,7 +311,16 @@ function commitRecordBackedReadyEmailOtpEcdsaExportLane(args: {
       '[SigningEngine][ecdsa-export] ready Email OTP export requires record-backed lane',
     );
   }
-  return committedLane;
+  return {
+    source: 'record_backed',
+    lane: committedLane.lane,
+    authority: committedLane.authority,
+    authLane: committedLane.authLane,
+    walletSessionAuthority: committedLane.walletSessionAuthority,
+    material: committedLane.material,
+    record: args.record,
+    durableRestore: 'record_restore_metadata',
+  };
 }
 
 function isMissingEmailOtpRouteAuthority(error: unknown): boolean {
@@ -323,21 +368,22 @@ function commitReadyRecordBackedEcdsaExportLane(args: {
       source: args.readyMaterial.record.source,
     });
   }
+  const record = requireEmailOtpEcdsaExportSessionRecord(args.readyMaterial.record);
   const materialState = buildEmailOtpEcdsaExportMaterialState({
-    record: args.readyMaterial.record,
-    chainTarget: args.readyMaterial.record.chainTarget,
+    record,
+    chainTarget: record.chainTarget,
   });
   const readySigningMaterial = requireReadyEcdsaMaterial(
     materialState,
     'ready Email OTP ECDSA export committed lane',
   );
   const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({
-    record: args.readyMaterial.record,
+    record,
   });
   try {
     return commitRecordBackedReadyEmailOtpEcdsaExportLane({
       lane: resolvedEvmFamilyEcdsaSigningLaneFromCandidate(candidate),
-      record: args.readyMaterial.record,
+      record,
       material: readySigningMaterial,
     });
   } catch (error) {

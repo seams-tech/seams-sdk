@@ -282,6 +282,15 @@
 }
 
 .w3a-auth-method-badge {
+  --w3a-auth-method-badge-background: var(
+    --w3a-colors-lastUsedBadgeBackground,
+    var(--w3a-colors-success)
+  );
+  --w3a-auth-method-badge-text: var(--w3a-colors-lastUsedBadgeText, var(--w3a-colors-textButton));
+  --w3a-auth-method-badge-border: var(
+    --w3a-colors-lastUsedBadgeBorder,
+    var(--w3a-colors-colorBackground)
+  );
   position: absolute;
   inset-block-start: -0.42rem;
   inset-inline-end: 0.9rem;
@@ -289,16 +298,18 @@
   align-items: center;
   justify-content: center;
   padding: 0.18rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-success), white 35%);
+  border: 1px solid var(--w3a-auth-method-badge-border);
   border-radius: 999px;
-  background: var(--w3a-colors-success);
-  color: var(--w3a-colors-textButton, #ffffff);
+  background: var(--w3a-auth-method-badge-background);
+  color: var(--w3a-auth-method-badge-text);
   font-size: 0.62rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
-  box-shadow: 0 6px 14px -10px var(--w3a-colors-success);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--w3a-colors-textPrimary), transparent 72%),
+    0 6px 14px -10px var(--w3a-auth-method-badge-background);
   pointer-events: none;
 }
 

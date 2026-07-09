@@ -7,6 +7,7 @@ import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authL
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
 import type { EcdsaRoleLocalExportMaterial } from '../persistence/ecdsaRoleLocalRecords';
+import type { EmailOtpEcdsaExportSessionRecord } from '../../flows/recovery/ecdsaExportMaterial';
 import type {
   EmailOtpEcdsaAuthorizedExportStepUpInput,
   EmailOtpEcdsaFreshLoginExportStepUpInput,
@@ -16,6 +17,7 @@ declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const routePlan: EmailOtpRoutePlan;
 declare const record: ThresholdEcdsaSessionRecord;
+declare const exportRecord: EmailOtpEcdsaExportSessionRecord;
 declare const roleLocalMaterial: EcdsaRoleLocalExportMaterial;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -28,12 +30,28 @@ const authorizedExport: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   otpCode: '123456',
   relayUrl: 'https://relay.example',
   routePlan,
-  record,
+  record: exportRecord,
   shamirPrimeB64u: 'prime',
   keyHandle: 'ehss-key-handle-1',
   roleLocalMaterial,
 };
 void authorizedExport;
+
+const authorizedExportWithLooseRecord: EmailOtpEcdsaAuthorizedExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'authorized_signing_session',
+  walletSession,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  // @ts-expect-error authorized ECDSA export requires a runtime-policy-scoped record.
+  record,
+  shamirPrimeB64u: 'prime',
+  keyHandle: 'ehss-key-handle-1',
+  roleLocalMaterial,
+};
+void authorizedExportWithLooseRecord;
 
 const authorizedExportWithRpId: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   mode: 'export_step_up',
@@ -43,7 +61,7 @@ const authorizedExportWithRpId: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   otpCode: '123456',
   relayUrl: 'https://relay.example',
   routePlan,
-  record,
+  record: exportRecord,
   // @ts-expect-error authorized ECDSA export is wallet-key/session scoped, not RP-scoped.
   rpId: 'localhost',
   shamirPrimeB64u: 'prime',
@@ -61,7 +79,7 @@ const authorizedExportWithoutRoleLocalMaterial: EmailOtpEcdsaAuthorizedExportSte
   otpCode: '123456',
   relayUrl: 'https://relay.example',
   routePlan,
-  record,
+  record: exportRecord,
   shamirPrimeB64u: 'prime',
   keyHandle: 'ehss-key-handle-1',
 };

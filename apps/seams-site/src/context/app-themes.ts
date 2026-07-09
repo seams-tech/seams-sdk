@@ -182,53 +182,56 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
   highlightAmount: '#6f9fd8',
 };
 
-// "Midnight" — the Supabase style (styles.refero.design/632249f1…): midnight
-// code editor, monochrome charcoal layers with hairline borders, Phosphor
-// Green as the single chromatic pulse.
+// "Midnight" — deep navy surfaces with a soft mint accent.
 const MIDNIGHT_DARK_COLORS: Record<string, string> = {
-  primary: '#3ecf8e',
-  primaryHover: '#00c573',
-  secondary: '#27664f',
-  secondaryHover: '#328567',
-  accent: '#3ecf8e',
+  primary: '#b4e8c0',
+  primaryHover: '#9fdcaf',
+  secondary: '#7fb890',
+  secondaryHover: '#b4e8c0',
+  accent: '#b4e8c0',
 
-  textPrimary: '#fafafa',
-  textSecondary: '#b4b4b4',
-  textMuted: '#898989',
-  textButton: '#121212',
+  textPrimary: '#f3faf6',
+  textSecondary: '#c4d2ce',
+  textMuted: '#7d898a',
+  textButton: '#141820',
 
-  buttonBackground: '#3ecf8e',
-  buttonHoverBackground: '#00c573',
-  secondaryButtonBackground: '#3ecf8e',
-  secondaryButtonHoverBackground: '#00c573',
-  secondaryButtonBorder: 'transparent',
-  secondaryButtonText: '#121212',
+  buttonBackground: '#b4e8c0',
+  buttonHoverBackground: '#9fdcaf',
+  secondaryButtonBackground: '#23352f',
+  secondaryButtonHoverBackground: '#2c453d',
+  secondaryButtonBorder: '#3d564e',
+  secondaryButtonText: '#b4e8c0',
 
-  colorBackground: '#121212',
-  surface: '#1c1c1c',
-  surface2: '#242424',
-  surface3: '#2e2e2e',
-  surface4: '#393939',
+  colorBackground: '#141820',
+  surface: '#181e28',
+  surface2: '#202735',
+  surface3: '#293241',
+  surface4: '#34404f',
+  txDetailsBackground: '#202735',
 
-  hover: '#242424',
-  active: '#2e2e2e',
-  focus: '#3ecf8e',
+  hover: '#202735',
+  active: '#293241',
+  focus: '#b4e8c0',
 
-  success: '#3ecf8e',
-  warning: '#fbbf24',
-  error: '#f87171',
-  info: '#00c573',
+  success: '#b4e8c0',
+  warning: '#f0d994',
+  error: '#ff8f8f',
+  info: '#9fdcaf',
 
-  borderPrimary: '#2e2e2e',
-  borderSecondary: '#242424',
-  borderHover: '#4d4d4d',
+  borderPrimary: '#2c3440',
+  borderSecondary: '#242c38',
+  borderHover: '#465361',
 
-  highlightPrimary: '#3ecf8e',
-  highlightRow: 'rgba(62, 207, 142, 0.14)',
-  highlightHalo: '#7edfb2',
-  highlightReceiver: '#00c573',
-  highlightMethodName: '#fafafa',
-  highlightAmount: '#3ecf8e',
+  gradientPrimary: 'linear-gradient(120deg, #141820 0%, #b4e8c0 100%)',
+  gradientSecondary: 'linear-gradient(120deg, #141820 0%, #23352f 100%)',
+  gradientTertiary: 'linear-gradient(120deg, #141820 0%, #202735 100%)',
+
+  highlightPrimary: '#b4e8c0',
+  highlightRow: 'rgba(180, 232, 192, 0.14)',
+  highlightHalo: '#d1f4da',
+  highlightReceiver: '#b4e8c0',
+  highlightMethodName: '#f3faf6',
+  highlightAmount: '#b4e8c0',
 };
 
 // "Greenhouse" — the Ironclad palette (ironcladapp.com, from their own color
@@ -371,6 +374,8 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
   focus: '#8fb9de',
 
   success: '#4f9e83',
+  lastUsedBadgeBackground: '#F2C6DE',
+  lastUsedBadgeText: '#2f2a38',
   warning: '#e6c891',
   error: '#d4547a',
   info: '#6f9fd8',
@@ -449,7 +454,7 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     id: 'midnight',
     label: 'Midnight',
     mode: 'dark',
-    swatch: '#121212',
+    swatch: '#141820',
     colors: MIDNIGHT_DARK_COLORS,
   },
 ];

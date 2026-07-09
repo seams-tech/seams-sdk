@@ -9,7 +9,11 @@ import { LastUsedBadge } from './ui/LastUsedBadge';
 import { AuthMenuMode, AuthMenuModeMap, type SeamsAuthMenuProps } from './types';
 import type { LastUsedLoginMethod } from './controller/lastUsedLoginMethod';
 import type { SocialLoginHandlers } from './ui/SocialProviders';
-import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
+import {
+  getGoogleSsoButtonLabel,
+  getGoogleSsoHelperText,
+  getPasskeyButtonLabel,
+} from './socialCopy';
 import { useSeamsAuthMenuRuntime } from './adapters/seams';
 import { useSeamsAuthMenuController } from './controller/useSeamsAuthMenuController';
 import { useSDKEvents } from './controller/useSDKEvents';
@@ -43,7 +47,7 @@ function mountPasskeyRegistrationActivationSurface(
     wallet: args.wallet,
     presentation: {
       kind: 'outline_overlay',
-      label: 'Create with Passkey',
+      label: getPasskeyButtonLabel(AuthMenuMode.Register),
       busyLabel: 'Creating passkey...',
       accessibleLabel: 'Create passkey account',
     },
@@ -659,7 +663,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                       >
                         <LastUsedBadge active={passkeyLastUsed} />
                         <FingerprintIcon size={22} style={{ display: 'block' }} />
-                        <span>Continue with Passkey</span>
+                        <span>{getPasskeyButtonLabel(AuthMenuMode.Login)}</span>
                         <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                       </button>
                       <SocialProviders
@@ -699,7 +703,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                           <span>
                             {registrationActivationSurfacePreparing
                               ? 'Preparing passkey...'
-                              : 'Create with Passkey'}
+                              : getPasskeyButtonLabel(AuthMenuMode.Register)}
                           </span>
                           <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                         </div>
@@ -710,7 +714,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                           className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                           disabled={controller.waiting}
                         >
-                          <span>Create with Passkey</span>
+                          <span>{getPasskeyButtonLabel(AuthMenuMode.Register)}</span>
                           <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                         </button>
                       )}

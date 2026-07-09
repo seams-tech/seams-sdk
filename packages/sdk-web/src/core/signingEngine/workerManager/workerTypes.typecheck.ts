@@ -460,8 +460,16 @@ const emailOtpEcdsaExportPayload: EmailOtpEcdsaExportPayload = {
   thresholdExpiresAtMs: 1_900_000_000_000,
   participantIds: [1, 2],
   keyHandle: 'key-handle',
+  runtimePolicyScope,
 };
 void emailOtpEcdsaExportPayload;
+
+const emailOtpEcdsaExportPayloadWithoutRuntimePolicyScope = {
+  ...emailOtpEcdsaExportPayload,
+  // @ts-expect-error Email OTP ECDSA export requires runtimePolicyScope.
+  runtimePolicyScope: undefined,
+} satisfies EmailOtpEcdsaExportPayload;
+void emailOtpEcdsaExportPayloadWithoutRuntimePolicyScope;
 
 const emailOtpEcdsaExportPayloadWithSigningRoot = {
   ...emailOtpEcdsaExportPayload,

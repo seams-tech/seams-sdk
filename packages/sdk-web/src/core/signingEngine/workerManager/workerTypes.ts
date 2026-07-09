@@ -723,7 +723,7 @@ export interface EmailOtpWorkerOperationMap {
       thresholdExpiresAtMs: number;
       participantIds: number[];
       keyHandle: string;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
     };
     result: {
       publicKeyHex: string;

@@ -3,7 +3,9 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  buildEcdsaWalletSessionTransportAuth,
   buildEvmFamilyEcdsaKeyIdentity,
+  toParticipantId,
   toEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -19,7 +21,10 @@ import {
 import type { EmailOtpEcdsaCommittedLane } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  toWalletSessionThresholdExpiresAtMs,
+} from '@shared/utils/sessionTokens';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   toAuthorizingSigningGrantId,
@@ -34,9 +39,9 @@ import {
   exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { parseEcdsaRelayerKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { ReauthAnchorIdentity } from '@/core/signingEngine/session/operationState/transactionState';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
-import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 
 const sourceChainTarget = {
@@ -73,6 +78,46 @@ function unsignedJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.`;
 }
 
+function ethereumAddress20B64u(address: string): string {
+  return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
+}
+
+function routerAbEcdsaHssNormalSigningState(args: {
+  walletId: string;
+  ecdsaThresholdKeyId: string;
+  thresholdSessionId: string;
+}) {
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      wallet_key_id: testEvmFamilySigningKeySlotId(args.walletId),
+      wallet_id: args.walletId,
+      ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
+      signing_root_id: signingRootId,
+      signing_root_version: signingRootVersion,
+      context: {
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      },
+      public_identity: {
+        context_binding_b64u: 'CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg',
+        client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        ethereum_address20_b64u: ethereumAddress20B64u(`0x${'aa'.repeat(20)}`),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-email-otp-fixture',
+        key_epoch: 'worker-epoch-email-otp-fixture',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: args.thresholdSessionId,
+    },
+  };
+}
+
 function thresholdEcdsaSessionJwt(args: {
   thresholdSessionId: string;
   signingGrantId: string;
@@ -84,9 +129,13 @@ function thresholdEcdsaSessionJwt(args: {
     sub: args.walletId,
     walletId: args.walletId,
     keyHandle: args.keyHandle,
+    evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(args.walletId),
+    relayerKeyId: 'relayer-ecdsa',
     chainTarget: sourceChainTarget,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
+    thresholdExpiresAtMs: 1_900_000_000_000,
+    participantIds: [1, 2],
     runtimePolicyScope: {
       orgId: 'org-local',
       projectId: 'proj_local',
@@ -156,28 +205,6 @@ function emptyEmailOtpEcdsaSigningBootstrapResult(): EmailOtpEcdsaSigningBootstr
   };
 }
 
-function candidateForResolvedEcdsaLane(
-  lane: ResolvedEvmFamilyEcdsaSigningLane,
-): EcdsaLaneCandidate {
-  return {
-    kind: 'lane_candidate',
-    auth: lane.auth,
-    curve: 'ecdsa',
-    chain: lane.chain,
-    walletId: lane.identity.signer.walletId,
-    key: lane.key,
-    keyHandle: lane.keyHandle,
-    chainTarget: lane.chainTarget,
-    signingGrantId: String(lane.signingGrantId),
-    thresholdSessionId: String(lane.thresholdSessionId),
-    state: 'exhausted',
-    remainingUses: 0,
-    expiresAtMs: null,
-    updatedAtMs: null,
-    source: 'durable_sealed_record',
-  };
-}
-
 function committedLaneForAuth(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
@@ -188,17 +215,26 @@ function committedLaneForAuth(args: {
     providerUserId: emailOtpAuth.providerSubjectId,
     emailHashHex: emailOtpEmailHashHex,
   });
+  const walletSessionJwt = buildEcdsaWalletSessionTransportAuth({
+    kind: 'wallet_session_jwt',
+    walletSessionJwt: args.authLane.jwt,
+  }).walletSessionJwt;
   return {
     source: 'record_backed',
     lane: args.lane,
-    candidate: candidateForResolvedEcdsaLane(args.lane),
     authority,
     authLane: args.authLane,
     walletSessionAuthority: {
       kind: 'wallet_session_authority',
-      walletSessionJwt: args.authLane.jwt,
-      thresholdSessionId: args.authLane.thresholdSessionId,
-      signingGrantId: String(args.authLane.authorizingSigningGrantId),
+      walletSessionJwt,
+      walletId: args.lane.key.walletId,
+      evmFamilySigningKeySlotId: args.lane.key.evmFamilySigningKeySlotId,
+      keyHandle: args.lane.keyHandle,
+      relayerKeyId: parseEcdsaRelayerKeyId('relayer-ecdsa'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.authLane.thresholdSessionId),
+      signingGrantId: SigningSessionIds.signingGrant(String(args.authLane.authorizingSigningGrantId)),
+      thresholdExpiresAtMs: toWalletSessionThresholdExpiresAtMs(1_900_000_000_000),
+      participantIds: [toParticipantId(1), toParticipantId(2)],
     },
     material: {
       kind: 'public_identity_unavailable',
@@ -455,6 +491,8 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       chainTarget: sourceChainTarget,
       source: 'email_otp',
       evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(walletId),
+      signingRootId,
+      signingRootVersion,
       providerSubjectId: emailOtpAuth.providerSubjectId,
       emailHashHex: emailOtpEmailHashHex,
       walletSessionJwt: thresholdEcdsaSessionJwt({
@@ -469,6 +507,11 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       ethereumAddress: `0x${'aa'.repeat(20)}`,
       relayerKeyId: 'relayer-ecdsa',
       participantIds: [1, 2],
+      routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigningState({
+        walletId,
+        ecdsaThresholdKeyId: 'ehss-email-otp',
+        thresholdSessionId,
+      }),
     },
     issuedAtMs: Date.now() - 1_000,
     expiresAtMs: Date.now() + 60_000,

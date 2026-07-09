@@ -367,7 +367,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
-              label: 'Create with Passkey',
+              label: 'Sign up with Passkey',
               busyLabel: 'Creating passkey...',
               accessibleLabel: 'Create passkey account',
             },
@@ -489,7 +489,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
-              label: 'Create with Passkey',
+              label: 'Sign up with Passkey',
               busyLabel: 'Creating passkey...',
               accessibleLabel: 'Create passkey account',
             },
@@ -594,7 +594,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
-              label: 'Create with Passkey',
+              label: 'Sign up with Passkey',
               busyLabel: 'Creating passkey...',
               accessibleLabel: 'Create passkey account',
             },
@@ -682,7 +682,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
-              label: 'Create with Passkey',
+              label: 'Sign up with Passkey',
               busyLabel: 'Creating passkey...',
               accessibleLabel: 'Create passkey account',
             },
@@ -798,7 +798,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
-              label: 'Create with Passkey',
+              label: 'Sign up with Passkey',
               busyLabel: 'Creating passkey...',
               accessibleLabel: 'Create passkey account',
             },
@@ -979,7 +979,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
-              label: 'Create with Passkey',
+              label: 'Sign up with Passkey',
               busyLabel: 'Creating passkey...',
               accessibleLabel: 'Create passkey account',
             },
