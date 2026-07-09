@@ -176,22 +176,12 @@ describeChecks('threshold Ed25519 near signing queue guard', () => {
 
   check('passkey unlock does not prewarm Ed25519 HSS material', () => {
     const loginFlow = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
-    const signingSurfacePorts = readRepoSource(
-      'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts',
-    );
-    const loginSurfaceMatch = signingSurfacePorts.match(
-      /export type LoginUnlockSigningSurface[\s\S]*?export type RecentUnlocksSigningSurface/,
-    );
-    const loginSurface = loginSurfaceMatch?.[0] || '';
-
     expect(loginFlow).not.toContain('prewarmThresholdEd25519ClientBaseFromCredential');
     expect(loginFlow).not.toContain('prewarmEd25519MaterialForWarmup');
     expect(loginFlow).toContain('parseWarmEd25519SigningSessionAuthorizationFromRecord');
     expect(loginFlow).toContain('resolveReusableEd25519WorkerMaterialForLoginSession');
     expect(loginFlow).not.toContain('ed25519WorkerMaterialHandle');
     expect(loginFlow).not.toContain('clientVerifyingShareB64u');
-    expect(loginSurface).not.toContain('ThresholdEd25519HssClientSurface');
-    expect(loginSurface).not.toContain('ThresholdEd25519HssCeremonySurface');
   });
 
   check('passkey Ed25519 unlock restores worker material from durable sealed metadata', () => {

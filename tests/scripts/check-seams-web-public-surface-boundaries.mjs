@@ -475,7 +475,7 @@ function collectBroadDependencyViolations() {
   const signingSurfacePorts = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts');
   const aggregateMatch =
     signingSurfaceTypes.match(/export interface SeamsWebSigningSurface[\s\S]*?^}/m)?.[0] ?? '';
-  if (!aggregateMatch.includes('extends RpIdSurface')) {
+  if (!/extends[\s\S]*?\bRpIdSurface\b/.test(aggregateMatch)) {
     violations.push('SeamsWebSigningSurface no longer extends RpIdSurface');
   }
   if (aggregateMatch.includes('storeWalletEcdsaSignerRecords(')) {

@@ -38,7 +38,6 @@ const retainedBoundaryAuditRows = [
     'tests/unit/chainFamily.naming.unit.test.ts',
     'tests/unit/confirmationReadinessRegistry.unit.test.ts',
     'tests/unit/credentialsHelpers.redaction.test.ts',
-    'tests/unit/demoThresholdHooks.actions.unit.test.ts',
     'tests/unit/emailOtpDeviceEnrollmentEscrowStore.unit.test.ts',
     'tests/unit/emailOtpRecoveryCodeBackups.unit.test.ts',
     'tests/unit/evmClient.waitForReceipt.unit.test.ts',
@@ -195,12 +194,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'credentialExtensions',
         'redactCredentialExtensionOutputs redacts entire clientExtensionResults',
     ],
-    'tests/unit/demoThresholdHooks.actions.unit.test.ts': [
-        'demo threshold action hooks',
-        'ThresholdSignerSection displays the threshold owner address',
-        'useDemoTempoFeeTokenActions signs and broadcasts setUserToken flow',
-        'useDemoArcSigningActions signs and finalizes arc transaction via SDK lifecycle',
-    ],
     'tests/unit/emailOtpDeviceEnrollmentEscrowStore.unit.test.ts': [
         'Email OTP device enrollment escrow store',
         'persists device-local enc_s(S) records without plaintext S or signing-session fields',
@@ -269,7 +262,7 @@ const retainedBoundaryAuditEvidenceTokens = {
         'forceHide clears sticky overlay lock and makes iframe inert',
     ],
     'tests/unit/seamsAuthMenu.accountAvailability.unit.test.ts': [
-        'Passkey auth account availability',
+        'SeamsAuthMenu account availability',
         'local saved credentials do not mark an unregistered account as existing',
         'register badge stays neutral for a locally saved account until it exists on-chain',
     ],
@@ -447,7 +440,7 @@ const retainedBoundaryAuditEvidenceTokens = {
     'tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts': [
         'forwards managed registration config in PM_SET_CONFIG',
         'fails fast when sealed refresh is enabled without shamirPrimeB64u',
-        'forwards appearance theme/tokens in PM_SET_CONFIG for Lit confirmer theming',
+        'forwards resolved appearance in PM_SET_CONFIG for Lit confirmer theming',
         'PM_SET_CONFIG',
     ],
     'tests/wallet-iframe/csp.strict.violation-free.test.ts': [
@@ -520,8 +513,8 @@ const retainedBoundaryAuditEvidenceTokens = {
     ],
     'tests/wallet-iframe/static-wallet-assets.browser.test.ts': [
         'static wallet-service loads workers and worker WASM from dist/public',
-        'WORKER_ROUTES',
-        'WORKER_WASM_ROUTES',
+        'workerRoutesFromAssets',
+        'workerWasmRoutesFromAssets',
         'WebAssembly.compile',
     ],
 };

@@ -161,7 +161,7 @@ test('D1 staging reconciliation rejects failed remote D1 query commands', async 
       mode: 'remote',
       commandRunner: failedEmptyResultRunner,
     }),
-  ).toThrow(/Command failed: pnpm --dir packages\/sdk-server-ts exec wrangler d1 execute/);
+  ).toThrow(/Command failed: pnpm --dir packages\/console-server-ts exec wrangler d1 execute/);
 });
 
 test('D1 staging reconciliation rejects empty remote JSON output', async () => {

@@ -708,14 +708,15 @@ function checkEmailOtpUnlockSuccessBuildsTypedActivationPlan() {
       'timings: EmailOtpThresholdEcdsaLoginTimings;',
       'createEmailOtpThresholdEcdsaLoginTimings()',
       'mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings',
-      'tryActivateEmailOtpEd25519UnlockFromSealedMaterial({',
+      'const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;',
+      'const sessionMaterial = await ports.reconstructEd25519Session(',
     ],
     'Email OTP ECDSA login',
   );
   assertSourceOrder(
     ecdsaLogin,
-    'tryActivateEmailOtpEd25519UnlockFromSealedMaterial({',
-    ': await ports.reconstructEd25519Session(ed25519ReconstructionArgs);',
+    'const ed25519ReconstructionArgs: ReconstructEmailOtpEd25519SessionArgs = {',
+    'const sessionMaterial = await ports.reconstructEd25519Session(',
     'Email OTP ECDSA login',
   );
   assertSourceHasAll(

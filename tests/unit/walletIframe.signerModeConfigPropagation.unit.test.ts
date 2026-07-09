@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
+import { injectImportMap } from '../setup/bootstrap';
 import { buildWalletServiceHtml, registerWalletServiceRoute } from '../wallet-iframe/harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
@@ -72,6 +73,9 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
           signingSession: null,
         });
       }
+      if (data.type === 'PM_GET_RECENT_UNLOCKS') {
+        respond([]);
+      }
       if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
         respond({ behavior: 'requireClick', uiMode: 'modal' });
       }
@@ -81,7 +85,9 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
 
 test.describe('Wallet iframe config propagation', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page);
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    await page.goto('about:blank');
+    await injectImportMap(page);
     await registerWalletServiceRoute(
       page,
       buildWalletServiceHtml({ extraScript: WALLET_STUB_CAPTURE_SCRIPT }),
@@ -323,7 +329,7 @@ test.describe('Wallet iframe config propagation', () => {
     expect(result.error).toContain('signingSessionSeal.shamirPrimeB64u');
   });
 
-  test('forwards appearance theme/tokens in PM_SET_CONFIG for Lit confirmer theming', async ({
+  test('forwards resolved appearance in PM_SET_CONFIG for Lit confirmer theming', async ({
     page,
   }) => {
     await page.evaluate(
@@ -334,18 +340,12 @@ test.describe('Wallet iframe config propagation', () => {
         const pm = new SeamsWeb({
           relayer: { url: 'http://localhost:3000' },
           appearance: {
-            theme: 'light',
-            tokens: {
-              light: {
-                colors: {
-                  primary: '#abcdef',
-                  surface: '#f5f7fb',
-                },
-              },
-              dark: {
-                colors: {
-                  primary: '#112233',
-                },
+            theme: {
+              id: 'customer-defined-theme',
+              mode: 'light',
+              colors: {
+                primary: '#abcdef',
+                surface: '#f5f7fb',
               },
             },
           },
@@ -371,20 +371,15 @@ test.describe('Wallet iframe config propagation', () => {
       return (window as any).__capturedAppearance ?? null;
     });
     expect(capturedAppearance).toEqual({
-      theme: 'light',
-      tokens: {
-        light: {
-          colors: {
-            primary: '#abcdef',
-            surface: '#f5f7fb',
-          },
-        },
-        dark: {
-          colors: {
-            primary: '#112233',
-          },
+      theme: {
+        id: 'customer-defined-theme',
+        mode: 'light',
+        colors: {
+          primary: '#abcdef',
+          surface: '#f5f7fb',
         },
       },
+      palette: 'default',
     });
   });
 });

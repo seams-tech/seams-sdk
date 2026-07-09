@@ -111,7 +111,7 @@ test.describe('React Theme integration', () => {
     expect(nextBg).not.toBe(initialBg);
   });
 
-  test('SeamsWebProvider applies config appearance token overrides', async ({ page }) => {
+  test('SeamsWebProvider applies config appearance color overrides', async ({ page }) => {
     const mountId = 'w3a-theme-harness-config-appearance';
     const scopeSelector = `#${mountId} .w3a-theme-provider`;
 
@@ -139,12 +139,11 @@ test.describe('React Theme integration', () => {
               relayer: { url: 'https://router-api.localhost' },
               iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
               appearance: {
-                theme: 'dark',
-                tokens: {
-                  dark: {
-                    colors: {
-                      primary: '#112233',
-                    },
+                theme: {
+                  id: 'customer-defined-theme',
+                  mode: 'dark',
+                  colors: {
+                    primary: '#112233',
                   },
                 },
               },
@@ -176,7 +175,7 @@ test.describe('React Theme integration', () => {
     expect(primary).toBe('#112233');
   });
 
-  test('provider theme.tokens override config appearance tokens', async ({ page }) => {
+  test('provider theme tokens override config appearance colors', async ({ page }) => {
     const mountId = 'w3a-theme-harness-token-precedence';
     const scopeSelector = `#${mountId} .w3a-theme-provider`;
 
@@ -204,12 +203,11 @@ test.describe('React Theme integration', () => {
               relayer: { url: 'https://router-api.localhost' },
               iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
               appearance: {
-                theme: 'dark',
-                tokens: {
-                  dark: {
-                    colors: {
-                      primary: '#112233',
-                    },
+                theme: {
+                  id: 'customer-defined-theme',
+                  mode: 'dark',
+                  colors: {
+                    primary: '#112233',
                   },
                 },
               },
@@ -277,17 +275,11 @@ test.describe('React Theme integration', () => {
           relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
           appearance: {
-            theme: 'light',
-            tokens: {
-              light: {
-                colors: {
-                  primary: '#111111',
-                },
-              },
-              dark: {
-                colors: {
-                  primary: '#222222',
-                },
+            theme: {
+              id: 'customer-defined-theme',
+              mode: 'light',
+              colors: {
+                primary: '#111111',
               },
             },
           },
@@ -432,7 +424,7 @@ test.describe('React Theme integration', () => {
     await expect(sdkTheme).toHaveText('dark');
   });
 
-  test('SeamsWebProvider syncs full appearance tokens to SeamsWeb manager', async ({ page }) => {
+  test('SeamsWebProvider syncs full appearance colors to SeamsWeb manager', async ({ page }) => {
     const mountId = 'w3a-theme-harness-provider-appearance';
 
     await page.evaluate(
@@ -500,25 +492,22 @@ test.describe('React Theme integration', () => {
           const manager = (window as any).__w3aThemeManager;
           return {
             theme: manager?.theme,
-            tokens: manager?.signingEngine?.appearanceTokens,
+            appearance: manager?.signingEngine?.appearance,
           };
         });
       })
       .toEqual({
         theme: 'light',
-        tokens: {
-          light: {
+        appearance: {
+          theme: {
+            id: 'default',
+            mode: 'light',
             colors: {
               primary: '#123abc',
               surface: '#f8f4ec',
             },
           },
-          dark: {
-            colors: {
-              primary: '#456def',
-              surface: '#101820',
-            },
-          },
+          palette: 'default',
         },
       });
   });
