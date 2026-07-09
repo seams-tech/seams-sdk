@@ -29,9 +29,9 @@
   display: flex;
   flex-direction: column;
   transition:
-    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    min-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: height, min-height;
+    min-height 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: min-height, padding;
 }
 
 /* Back button */
@@ -118,12 +118,12 @@
 .w3a-signup-menu-root[data-scan-device='true'] .w3a-content-area,
 .w3a-signup-menu-root[data-otp-prompt='true'] .w3a-content-area {
   flex: 1 1 auto;
-  transition: height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Specific height adjustments for different states */
 .w3a-signup-menu-root[data-waiting='true'] {
-  min-height: 200px;
+  min-height: 255px;
 }
 
 .w3a-signup-menu-root[data-scan-device='true'] {
@@ -161,7 +161,7 @@
   flex-direction: column;
   overflow: hidden;
   /* ensure smooth height animations without spillover */
-  transition: height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: height 300ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: height;
 }
 
@@ -176,7 +176,7 @@
   flex: 0 1 auto;
   display: flex;
   flex-direction: column;
-  transition: height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Intrinsic sizer wrapper inside content area used for height measurement */
@@ -191,7 +191,6 @@
   display: flex;
   flex-direction: column;
   gap: 0px;
-  min-height: 250px;
   width: 100%;
 }
 
@@ -1013,7 +1012,7 @@
   gap: 16px;
   background: transparent;
   text-align: center;
-  min-height: 200px;
+  min-height: 180px;
   /* Quick fade with configurable delay for smoother handoff */
   animation: content-enter 200ms ease-out;
   animation-delay: var(--w3a-waiting-delay, 0ms);

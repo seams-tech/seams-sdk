@@ -120,8 +120,12 @@ export type { ShowQRCodeProps } from './components/ShowQRCode';
 // Sign Up / Sign In menu
 export { SeamsAuthMenu, SeamsAuthMenuSkeleton } from './components/SeamsAuthMenu/public';
 export type {
+  SeamsAuthMenuPasskeyLoginRequest,
   SeamsAuthMenuProps,
   SeamsAuthMenuRegistrationRequest,
+  SeamsAuthMenuSocialLoginArgs,
+  SeamsAuthMenuSocialLoginHandler,
+  SeamsAuthMenuSyncAccountRequest,
 } from './components/SeamsAuthMenu/public';
 export { AuthMenuMode, AuthMenuModeMap } from './components/SeamsAuthMenu/authMenuTypes';
 export type {

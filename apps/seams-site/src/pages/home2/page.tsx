@@ -1,14 +1,19 @@
 import React from 'react';
 import {
+  ArrowRight,
   Bot,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Fingerprint,
   Hash,
   Home,
   ListChecks,
   ScrollText,
   ShieldCheck,
   Slack,
+  Send,
+  ShoppingCart,
   Store,
   Wallet,
 } from 'lucide-react';
@@ -185,6 +190,159 @@ function WalletShellCard(): React.JSX.Element {
   );
 }
 
+type DemoWalletTransaction = {
+  merchant: string;
+  amount: string;
+  token: string;
+  network: string;
+  method: string;
+  recipient: string;
+  policy: string;
+  fee: string;
+  signer: string;
+  digest: string;
+};
+
+type HeroWalletPreview =
+  | {
+      kind: 'signIn';
+      sub: string;
+      transaction?: never;
+    }
+  | {
+      kind: 'transactionConfirm';
+      sub: string;
+      transaction: DemoWalletTransaction;
+    };
+
+const demoWalletTransaction: DemoWalletTransaction = {
+  merchant: 'Kanda Goods',
+  amount: '¥12,400',
+  token: 'USDC',
+  network: 'Tempo testnet',
+  method: 'sendDiscountCredit',
+  recipient: 'cart #8841',
+  policy: 'Owner approval required over 10%',
+  fee: '< ¥0.01',
+  signer: 'wallet_8c31...f27',
+  digest: '0x91f3...8ad2',
+};
+
+const signInWalletPreview: HeroWalletPreview = {
+  kind: 'signIn',
+  sub: 'Non-custodial wallets, opened with a passkey',
+};
+
+const transactionWalletPreview: HeroWalletPreview = {
+  kind: 'transactionConfirm',
+  sub: 'Review a demo transaction before signing',
+  transaction: demoWalletTransaction,
+};
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled hero wallet preview: ${String(value)}`);
+}
+
+function WalletTransactionPreview(props: {
+  transaction: DemoWalletTransaction;
+}): React.JSX.Element {
+  const transaction = props.transaction;
+
+  return (
+    <div
+      className="h2-wallet-confirm h2-fadein"
+      role="img"
+      aria-label={`${transaction.merchant} transaction confirmation preview`}
+    >
+      <div className="h2-wallet-confirm__top">
+        <span className="h2-wallet-confirm__icon" aria-hidden>
+          <Fingerprint />
+        </span>
+        <div>
+          <p className="h2-wallet-confirm__eyebrow">Wallet confirmation</p>
+          <h3 className="h2-wallet-confirm__title">Confirm transaction</h3>
+        </div>
+      </div>
+
+      <div className="h2-wallet-confirm__summary">
+        <span className="h2-wallet-confirm__merchant">
+          <ShoppingCart aria-hidden />
+          {transaction.merchant}
+        </span>
+        <span className="h2-wallet-confirm__amount">
+          {transaction.amount}
+          <small>{transaction.token}</small>
+        </span>
+      </div>
+
+      <div className="h2-wallet-confirm__details" aria-label="Demo transaction details">
+        <span className="h2-wallet-confirm__row">
+          <small>Network</small>
+          <strong>{transaction.network}</strong>
+        </span>
+        <span className="h2-wallet-confirm__row">
+          <small>Method</small>
+          <strong>{transaction.method}</strong>
+        </span>
+        <span className="h2-wallet-confirm__row">
+          <small>Recipient</small>
+          <strong>{transaction.recipient}</strong>
+        </span>
+        <span className="h2-wallet-confirm__row">
+          <small>Estimated fee</small>
+          <strong>{transaction.fee}</strong>
+        </span>
+      </div>
+
+      <div className="h2-wallet-confirm__policy">
+        <ShieldCheck aria-hidden />
+        <span>{transaction.policy}</span>
+      </div>
+
+      <div className="h2-wallet-confirm__signer">
+        <span>
+          <small>Signer</small>
+          <strong>{transaction.signer}</strong>
+        </span>
+        <span>
+          <small>Intent digest</small>
+          <strong>{transaction.digest}</strong>
+        </span>
+      </div>
+
+      <div className="h2-wallet-confirm__actions" aria-hidden>
+        <span className="h2-wallet-confirm__action h2-wallet-confirm__action--secondary">
+          Cancel
+        </span>
+        <span className="h2-wallet-confirm__action h2-wallet-confirm__action--primary">
+          <CheckCircle2 />
+          Confirm
+        </span>
+      </div>
+
+      <div className="h2-wallet-confirm__drawer" aria-hidden>
+        <span className="h2-wallet-confirm__drawer-grip" />
+        <span>
+          <Send />
+          Ready for passkey signature
+        </span>
+        <ArrowRight />
+      </div>
+    </div>
+  );
+}
+
+function renderHeroWalletPreview(preview: HeroWalletPreview): React.JSX.Element {
+  switch (preview.kind) {
+    case 'signIn':
+      return <WalletShellCard />;
+    case 'transactionConfirm':
+      return <WalletTransactionPreview transaction={preview.transaction} />;
+    default:
+      return assertNever(preview);
+  }
+}
+
 /* ---------- hero: headline + paged scenes ---------- */
 
 type HeroScene = {
@@ -193,6 +351,7 @@ type HeroScene = {
   title: string;
   sub: string;
   left: React.ReactNode;
+  wallet: HeroWalletPreview;
 };
 
 /* Left column pages through views of the agents product; the wallet shell
@@ -204,6 +363,7 @@ const heroScenes: HeroScene[] = [
     title: 'Ecommerce Agents',
     sub: 'Agents run your store: limits, approvals, and audit built in',
     left: <DashboardWindow />,
+    wallet: signInWalletPreview,
   },
   {
     id: 'integrations',
@@ -211,6 +371,7 @@ const heroScenes: HeroScene[] = [
     title: 'Integrations',
     sub: 'Approvals land where your team already works',
     left: <IntegrationsWindow />,
+    wallet: transactionWalletPreview,
   },
 ];
 
@@ -288,13 +449,11 @@ function HomeHeroCurrent(): React.JSX.Element {
               </span>
               <div>
                 <p className="h2-heroscene__intro-title">Embedded Wallet</p>
-                <p className="h2-heroscene__intro-sub">
-                  Non-custodial wallets, opened with a passkey
-                </p>
+                <p className="h2-heroscene__intro-sub">{scene.wallet.sub}</p>
               </div>
             </div>
-            <div className="h2-heroscene__aside-body">
-              <WalletShellCard />
+            <div className="h2-heroscene__aside-body" key={`wallet-${scene.wallet.kind}`}>
+              {renderHeroWalletPreview(scene.wallet)}
             </div>
           </a>
 

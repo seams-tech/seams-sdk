@@ -124,6 +124,43 @@ export async function signSecp256k1RecoverableWasm(args: {
   return new Uint8Array(ab);
 }
 
+export async function verifySecp256k1RecoverableSignatureAgainstPublicKey33Wasm(args: {
+  digest32: Uint8Array;
+  signature65: Uint8Array;
+  publicKey33: Uint8Array;
+  workerCtx: WorkerOperationContext;
+}): Promise<Uint8Array> {
+  if (!(args.digest32 instanceof Uint8Array) || args.digest32.length !== 32) {
+    throw new Error('digest32 must be 32 bytes');
+  }
+  if (!(args.signature65 instanceof Uint8Array) || args.signature65.length !== 65) {
+    throw new Error('signature65 must be 65 bytes');
+  }
+  if (!(args.publicKey33 instanceof Uint8Array) || args.publicKey33.length !== 33) {
+    throw new Error('publicKey33 must be 33 bytes');
+  }
+  const digest32 = args.digest32.slice().buffer;
+  const signature65 = args.signature65.slice().buffer;
+  const publicKey33 = args.publicKey33.slice().buffer;
+  const ab = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: ETH_SIGNER_WORKER_KIND,
+    request: {
+      type: 'verifySecp256k1RecoverableSignatureAgainstPublicKey33',
+      payload: { digest32, signature65, publicKey33 },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
+      transfer: [digest32, signature65, publicKey33],
+    },
+  });
+  const recoveredPublicKey33 = new Uint8Array(ab);
+  if (recoveredPublicKey33.length !== 33) {
+    throw new Error(
+      `verifySecp256k1RecoverableSignatureAgainstPublicKey33 expected 33-byte output (got ${recoveredPublicKey33.length})`,
+    );
+  }
+  return recoveredPublicKey33;
+}
+
 export async function secp256k1PrivateKey32ToPublicKey33Wasm(args: {
   privateKey32: Uint8Array;
   workerCtx: WorkerOperationContext;

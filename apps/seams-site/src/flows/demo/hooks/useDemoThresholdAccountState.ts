@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
-import { FRONTEND_CONFIG, type FrontendConfig } from '@/config';
+import { FRONTEND_CONFIG } from '@/config';
 import { isEvmAddress, readTempoTokenBalanceRaw, readTempoUserFeeToken } from '../demoEvmHelpers';
 import type { EvmAddress } from './demoThresholdTypes';
 
@@ -11,7 +11,6 @@ type UseDemoThresholdAccountStateArgs = {
   walletId?: string | null;
   thresholdEcdsaEthereumAddress?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
-  frontendConfig?: Pick<FrontendConfig, 'chains' | 'relayerUrl'>;
 };
 
 type ThresholdOwnerAddressReadResult =
@@ -71,7 +70,12 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
     }
     setThresholdOwnerAddress(result.address);
     return result.address;
-  }, [isLoggedIn, loginStateThresholdOwnerAddress, readWalletSessionThresholdOwnerAddress, walletId]);
+  }, [
+    isLoggedIn,
+    loginStateThresholdOwnerAddress,
+    readWalletSessionThresholdOwnerAddress,
+    walletId,
+  ]);
 
   const resolveThresholdOwnerAddressForEvmFamily = useCallback(async (): Promise<EvmAddress> => {
     let resolvedThresholdOwnerAddress = isEvmAddress(String(thresholdOwnerAddress || '').trim())

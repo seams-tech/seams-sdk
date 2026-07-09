@@ -37,7 +37,8 @@ export const DemoPage: React.FC = () => {
     nearPublicKey,
   });
   const canStartNearTransaction =
-    nearAccountFunding.status.kind === 'ready' || nearAccountFunding.status.kind === 'needs_funding';
+    nearAccountFunding.status.kind === 'ready' ||
+    nearAccountFunding.status.kind === 'needs_funding';
 
   const nearActions = useDemoNearActions({
     isLoggedIn,
@@ -94,13 +95,9 @@ export const DemoPage: React.FC = () => {
         onCopyThresholdOwnerAddress={() => {
           toast.success('Address copied');
         }}
-        onSetTempoFeeToken={thresholdSigners.handleSetTempoFeeTokenAlphaUsd}
-        tempoFeeTokenConfigLoading={thresholdSigners.tempoFeeTokenConfigLoading}
-        tempoFeeTokenConfigTarget={thresholdSigners.tempoFeeTokenConfigTarget}
-        tempoFeeTokenIsAlpha={thresholdSigners.tempoFeeTokenIsAlpha}
-        onTempoDripToken={thresholdSigners.handleTempoDripToken}
-        tempoDripLoading={thresholdSigners.tempoDripLoading}
-        tempoSponsorshipUnavailableReason={thresholdSigners.tempoSponsorshipUnavailableReason}
+        onPrepareTempoFeeToken={thresholdSigners.handlePrepareTempoFeeToken}
+        tempoFeeTokenPrepareLoading={thresholdSigners.tempoFeeTokenPrepareLoading}
+        tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
         tempoGreeting={thresholdSigners.tempoGreeting}
         tempoGreetingLoading={thresholdSigners.tempoGreetingLoading}
         onRefreshTempoGreeting={thresholdSigners.refreshTempoGreeting}

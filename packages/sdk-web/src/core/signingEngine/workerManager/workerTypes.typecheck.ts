@@ -11,6 +11,7 @@ import type {
   EmailOtpWorkerOperationRequestEnvelope,
   EmailOtpWorkerOperationMap,
   EmailOtpWarmSessionOperationRequest,
+  EthSignerLocalSecp256k1OperationRequest,
   EthSignerThresholdEcdsaPresignOperationRequest,
   EthSignerTransactionOperationRequest,
   HssEcdsaRoleLocalMaterialOperationRequest,
@@ -271,6 +272,22 @@ const presignStep: PresignStepPayload = {
   incomingMessages: [incomingMessage],
 };
 void presignStep;
+
+const ethRecoverableSignatureVerifyRequest: EthSignerLocalSecp256k1OperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'> =
+  {
+    type: 'verifySecp256k1RecoverableSignatureAgainstPublicKey33',
+    payload: {
+      digest32: incomingMessage,
+      signature65: incomingMessage,
+      publicKey33: incomingMessage,
+    },
+  };
+void ethRecoverableSignatureVerifyRequest;
+
+// @ts-expect-error Recoverable signature verification is not an ETH transaction encoding operation.
+type InvalidRecoverableSignatureVerifyAsEthTransaction = EthSignerTransactionOperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'>;
+declare const invalidRecoverableSignatureVerifyAsEthTransaction: InvalidRecoverableSignatureVerifyAsEthTransaction;
+void invalidRecoverableSignatureVerifyAsEthTransaction;
 
 const ethEcdsaPresignInitRequest: EthSignerThresholdEcdsaPresignOperationRequest<'thresholdEcdsaPresignSessionInit'> =
   {

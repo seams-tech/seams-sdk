@@ -1,6 +1,13 @@
 import { SeamsAuthMenu } from './shell';
 import { SeamsAuthMenuSkeleton } from './skeleton';
-import type { SeamsAuthMenuProps, SeamsAuthMenuRegistrationRequest } from './types';
+import type {
+  SeamsAuthMenuPasskeyLoginRequest,
+  SeamsAuthMenuProps,
+  SeamsAuthMenuRegistrationRequest,
+  SeamsAuthMenuSocialLoginArgs,
+  SeamsAuthMenuSocialLoginHandler,
+  SeamsAuthMenuSyncAccountRequest,
+} from './types';
 import {
   AuthMenuMode,
   AuthMenuModeMap,
@@ -15,7 +22,14 @@ import {
  * public module without browser-only client dependencies.
  */
 export { SeamsAuthMenu, SeamsAuthMenuSkeleton };
-export type { SeamsAuthMenuProps, SeamsAuthMenuRegistrationRequest };
+export type {
+  SeamsAuthMenuPasskeyLoginRequest,
+  SeamsAuthMenuProps,
+  SeamsAuthMenuRegistrationRequest,
+  SeamsAuthMenuSocialLoginArgs,
+  SeamsAuthMenuSocialLoginHandler,
+  SeamsAuthMenuSyncAccountRequest,
+};
 
 export { AuthMenuMode, AuthMenuModeMap };
 export type { AuthMenuModeLabel, AuthMenuHeadings };

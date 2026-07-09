@@ -122,6 +122,16 @@ export type SeamsAuthMenuSocialCompletion = (result: {
   session: WalletSession;
 }) => void | Promise<void>;
 
+export type SeamsAuthMenuPasskeyLoginRequest = {
+  kind: 'passkey_login';
+  walletId: string;
+};
+
+export type SeamsAuthMenuSyncAccountRequest = {
+  kind: 'sync_passkey_account';
+  walletId: string;
+};
+
 export type SeamsAuthMenuSocialLoginResult =
   | {
       kind?: 'otp_prompt';
@@ -140,10 +150,21 @@ export type SeamsAuthMenuSocialLoginResult =
       onComplete?: SeamsAuthMenuSocialCompletion;
     };
 
-export type SeamsAuthMenuSocialLoginHandler = (args: {
-  mode: AuthMenuMode;
-  emailOtpAuthPolicy: EmailOtpAuthPolicy;
-}) => void | SeamsAuthMenuSocialLoginResult | Promise<void | SeamsAuthMenuSocialLoginResult>;
+export type SeamsAuthMenuSocialLoginArgs =
+  | {
+      mode: AuthMenuMode.Login;
+      emailOtpAuthPolicy: EmailOtpAuthPolicy;
+      walletId?: string;
+    }
+  | {
+      mode: AuthMenuMode.Register;
+      emailOtpAuthPolicy: EmailOtpAuthPolicy;
+      walletId?: never;
+    };
+
+export type SeamsAuthMenuSocialLoginHandler = (
+  args: SeamsAuthMenuSocialLoginArgs,
+) => void | SeamsAuthMenuSocialLoginResult | Promise<void | SeamsAuthMenuSocialLoginResult>;
 
 export type SeamsAuthMenuRegistrationAccountInput =
   | 'implicit_wallet'
@@ -166,11 +187,11 @@ export type SeamsAuthMenuRegistrationRequest =
 
 export interface SeamsAuthMenuProps {
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
-  onLogin?: () => void | Promise<unknown>;
+  onLogin?: (request: SeamsAuthMenuPasskeyLoginRequest) => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onRegister?: (request: SeamsAuthMenuRegistrationRequest) => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
-  onSyncAccount?: () => void | Promise<unknown>;
+  onSyncAccount?: (request: SeamsAuthMenuSyncAccountRequest) => void | Promise<unknown>;
   /** App-selected Email OTP signing-session policy exposed through the auth menu. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   /** Registration wallet/account input policy. Defaults to implicit wallet registration. */

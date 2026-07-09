@@ -74,6 +74,7 @@ export interface StoredAccountOption {
   displayName: string;
   nearAccountId?: string | null;
   signerSlot?: number;
+  lastLogin?: number;
   authMethod?: WalletAuthMethod | null;
 }
 

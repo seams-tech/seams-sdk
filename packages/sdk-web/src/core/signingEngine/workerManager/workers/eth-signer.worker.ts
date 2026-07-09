@@ -11,6 +11,7 @@ import init, {
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_compute_signature_share,
   validate_secp256k1_public_key_33,
+  verify_secp256k1_recoverable_signature_against_public_key_33,
 } from '../../../../../../../wasm/eth_signer/pkg/eth_signer.js';
 import * as ethSignerWasmModule from '../../../../../../../wasm/eth_signer/pkg/eth_signer.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -28,6 +29,11 @@ type EthSignerWorkerRequest =
       id: string;
       type: 'signSecp256k1Recoverable';
       payload: { digest32: unknown; privateKey32: unknown };
+    }
+  | {
+      id: string;
+      type: 'verifySecp256k1RecoverableSignatureAgainstPublicKey33';
+      payload: { digest32: unknown; signature65: unknown; publicKey33: unknown };
     }
   | {
       id: string;
@@ -185,6 +191,8 @@ function ethSignerOperationLabel(type: string): string {
       return 'signed EIP-1559 transaction';
     case 'signSecp256k1Recoverable':
       return 'recoverable secp256k1 signature';
+    case 'verifySecp256k1RecoverableSignatureAgainstPublicKey33':
+      return 'recoverable secp256k1 signature verification';
     case 'secp256k1PrivateKey32ToPublicKey33':
       return 'secp256k1 public key';
     case 'deriveSecp256k1KeypairFromPrfSecond':
@@ -426,6 +434,29 @@ self.addEventListener('message', async (event: MessageEvent) => {
         } finally {
           zeroizeBytes(digest32);
           zeroizeBytes(privateKey32);
+        }
+      }
+      case 'verifySecp256k1RecoverableSignatureAgainstPublicKey33': {
+        const digest32 = toU8(msg.payload.digest32);
+        const signature65 = toU8(msg.payload.signature65);
+        const publicKey33 = toU8(msg.payload.publicKey33);
+        try {
+          const out = verify_secp256k1_recoverable_signature_against_public_key_33(
+            digest32,
+            signature65,
+            publicKey33,
+          ) as Uint8Array;
+          if (out.length !== 33) {
+            throw new Error(
+              `verify_secp256k1_recoverable_signature_against_public_key_33 must return 33 bytes (got ${out.length})`,
+            );
+          }
+          const ab = out.slice().buffer;
+          postOperationSucceeded(msg, ab, [ab]);
+          return;
+        } finally {
+          zeroizeBytes(digest32);
+          zeroizeBytes(signature65);
         }
       }
       case 'secp256k1PrivateKey32ToPublicKey33': {

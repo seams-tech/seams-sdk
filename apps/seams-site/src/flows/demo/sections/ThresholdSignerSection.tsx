@@ -7,13 +7,9 @@ import Refresh from '@/components/icons/Refresh';
 type ThresholdSignerSectionProps = {
   thresholdOwnerAddress: string | null;
   onCopyThresholdOwnerAddress: () => void;
-  onSetTempoFeeToken: () => void | Promise<void>;
-  tempoFeeTokenConfigLoading: boolean;
-  tempoFeeTokenConfigTarget: 'alpha' | null;
-  tempoFeeTokenIsAlpha: boolean;
-  onTempoDripToken: () => void | Promise<void>;
-  tempoDripLoading: boolean;
-  tempoSponsorshipUnavailableReason: string | null;
+  onPrepareTempoFeeToken: () => void | Promise<void>;
+  tempoFeeTokenPrepareLoading: boolean;
+  tempoPreparationUnavailableReason: string | null;
   tempoGreeting: string | null;
   tempoGreetingLoading: boolean;
   onRefreshTempoGreeting: () => void | Promise<unknown>;
@@ -41,8 +37,8 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
       <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
       <div className="action-text funding-instructions">
         <span>
-          Fund this threshold owner address with Arc native gas. Tempo setUserToken is
-          configured via the buttons below.
+          Fund this threshold owner address with Arc native gas for Arc signing. Prepare AlphaUSD
+          fee tokens before signing Tempo transactions.
         </span>
         <div className="funding-address-row">
           <span className="funding-address-text">
@@ -64,48 +60,36 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
             gap: 10,
             marginTop: 10,
           }}
         >
           <LoadingButton
-            onClick={props.onSetTempoFeeToken}
-            loading={props.tempoFeeTokenConfigLoading && props.tempoFeeTokenConfigTarget === 'alpha'}
-            loadingText="Configuring..."
-            variant="secondary"
-            size="medium"
-            style={{ width: '100%' }}
-            disabled={props.tempoFeeTokenConfigLoading || props.tempoFeeTokenIsAlpha}
-          >
-            Set Tempo Fee Token
-          </LoadingButton>
-          <LoadingButton
-            onClick={props.onTempoDripToken}
-            loading={props.tempoDripLoading}
-            loadingText="Dripping..."
+            onClick={props.onPrepareTempoFeeToken}
+            loading={props.tempoFeeTokenPrepareLoading}
+            loadingText="Preparing..."
             variant="secondary"
             size="medium"
             style={{ width: '100%' }}
             disabled={
-              props.tempoDripLoading ||
-              props.tempoFeeTokenConfigLoading ||
-              Boolean(props.tempoSponsorshipUnavailableReason)
+              props.tempoFeeTokenPrepareLoading || Boolean(props.tempoPreparationUnavailableReason)
             }
           >
-            Drip Fee Tokens
+            Prepare Tempo Fee Token
           </LoadingButton>
         </div>
-        {props.tempoSponsorshipUnavailableReason ? (
+        {props.tempoPreparationUnavailableReason ? (
           <div className="demo-capability-note" style={{ marginTop: 10 }}>
-            {props.tempoSponsorshipUnavailableReason}
+            {props.tempoPreparationUnavailableReason}
           </div>
         ) : null}
       </div>
 
       <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
         <div className="evm-greeting-stack" style={{ display: 'grid', gap: 8 }}>
-          <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>Tempo Greeting</div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>
+            Tempo Greeting
+          </div>
           <div className="on-chain-greeting-box">
             <button
               onClick={props.onRefreshTempoGreeting}
@@ -142,11 +126,13 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
           style={{ width: '100%' }}
           disabled={!props.canSignTempo || props.tempoThresholdSignLoading}
         >
-          Sign Tempo Transaction
+          Sign Tempo EIP-2718 Transaction
         </LoadingButton>
 
         <div className="evm-greeting-stack" style={{ display: 'grid', gap: 8 }}>
-          <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>Arc Greeting</div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>
+            Arc Greeting
+          </div>
           <div className="on-chain-greeting-box">
             <button
               onClick={props.onRefreshArcGreeting}

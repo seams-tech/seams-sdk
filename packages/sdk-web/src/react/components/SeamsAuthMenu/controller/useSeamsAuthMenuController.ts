@@ -17,6 +17,7 @@ import {
   type SeamsAuthMenuRegistrationAccountInput,
   type SeamsAuthMenuRegistrationPrompt,
   type SeamsAuthMenuRegistrationRequest,
+  type SeamsAuthMenuSocialLoginArgs,
   type SeamsAuthMenuSocialCompletion,
 } from '../types';
 import type {
@@ -522,6 +523,19 @@ function isLocalPasskeyAccountOption(option: StoredAccountOption): boolean {
   return option.authMethod !== 'email_otp';
 }
 
+type LoginAuthMethod = 'passkey' | 'email_otp';
+
+function storedAccountOptionAuthMethod(option: StoredAccountOption): LoginAuthMethod {
+  return option.authMethod === 'email_otp' ? 'email_otp' : 'passkey';
+}
+
+function storedAccountOptionMatchesAuthMethod(
+  option: StoredAccountOption,
+  authMethod: LoginAuthMethod,
+): boolean {
+  return storedAccountOptionAuthMethod(option) === authMethod;
+}
+
 function storedAccountOptionMatchesValue(option: StoredAccountOption, value: string): boolean {
   const normalizedValue = normalizeStoredAccountId(value);
   if (!normalizedValue) return false;
@@ -530,6 +544,70 @@ function storedAccountOptionMatchesValue(option: StoredAccountOption, value: str
     if (normalizeStoredAccountId(candidate) === normalizedValue) return true;
   }
   return false;
+}
+
+function storedAccountOptionRecency(option: StoredAccountOption): number {
+  const lastLogin = Number(option.lastLogin);
+  return Number.isFinite(lastLogin) ? lastLogin : 0;
+}
+
+function compareStoredAccountOptionsByRecency(
+  left: StoredAccountOption,
+  right: StoredAccountOption,
+): number {
+  const recencyDelta = storedAccountOptionRecency(right) - storedAccountOptionRecency(left);
+  if (recencyDelta !== 0) return recencyDelta;
+  return String(left.displayName || left.walletId).localeCompare(
+    String(right.displayName || right.walletId),
+  );
+}
+
+function selectLoginAccountForAuthMethod(input: {
+  accountOptions?: StoredAccountOption[];
+  currentValue: string;
+  authMethod: LoginAuthMethod;
+}): StoredAccountOption | null {
+  const candidates = (input.accountOptions ?? []).filter((option) =>
+    storedAccountOptionMatchesAuthMethod(option, input.authMethod),
+  );
+  if (candidates.length === 0) return null;
+  const currentMatch = candidates.find((option) =>
+    storedAccountOptionMatchesValue(option, input.currentValue),
+  );
+  if (currentMatch) return currentMatch;
+  return candidates.slice().sort(compareStoredAccountOptionsByRecency)[0] ?? null;
+}
+
+function resolveLoginWalletId(input: {
+  selectedAccount: StoredAccountOption | null;
+  targetWalletId: string;
+  currentValue: string;
+}): string {
+  return String(
+    input.selectedAccount?.walletId || input.targetWalletId || input.currentValue || '',
+  ).trim();
+}
+
+function createSocialLoginArgs(input: {
+  mode: AuthMenuMode;
+  emailOtpAuthPolicy: EmailOtpAuthPolicy;
+  walletId: string;
+}): SeamsAuthMenuSocialLoginArgs {
+  switch (input.mode) {
+    case AuthMenuMode.Login:
+      return {
+        mode: AuthMenuMode.Login,
+        emailOtpAuthPolicy: input.emailOtpAuthPolicy,
+        ...(input.walletId ? { walletId: input.walletId } : {}),
+      };
+    case AuthMenuMode.Register:
+      return {
+        mode: AuthMenuMode.Register,
+        emailOtpAuthPolicy: input.emailOtpAuthPolicy,
+      };
+  }
+  const exhaustive: never = input.mode;
+  throw new Error(`Unknown auth menu mode: ${exhaustive}`);
 }
 
 function hasLocalPasskeyAccountOption(input: {
@@ -688,16 +766,45 @@ export function useSeamsAuthMenuController(
     mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput
       ? passkeyRegistrationDraftWalletIdValue
       : currentValue;
+  const passkeyLoginAccount = React.useMemo(
+    () =>
+      selectLoginAccountForAuthMethod({
+        accountOptions: runtime.accountOptions,
+        currentValue,
+        authMethod: 'passkey',
+      }),
+    [runtime.accountOptions, currentValue],
+  );
+  const emailOtpLoginAccount = React.useMemo(
+    () =>
+      selectLoginAccountForAuthMethod({
+        accountOptions: runtime.accountOptions,
+        currentValue,
+        authMethod: 'email_otp',
+      }),
+    [runtime.accountOptions, currentValue],
+  );
+  const passkeyLoginWalletId = resolveLoginWalletId({
+    selectedAccount: passkeyLoginAccount,
+    targetWalletId: runtime.targetWalletId,
+    currentValue,
+  });
+  const emailOtpLoginWalletId = resolveLoginWalletId({
+    selectedAccount: emailOtpLoginAccount,
+    targetWalletId: '',
+    currentValue: '',
+  });
   const shouldRestoreSyncedPasskeyOnLogin =
     mode === AuthMenuMode.Login &&
     typeof props.onSyncAccount === 'function' &&
+    !passkeyLoginAccount &&
     !loginTargetExists &&
     !hasLocalPasskeyAccountOption({
       accountOptions: runtime.accountOptions,
       targetWalletId: runtime.targetWalletId,
       inputValue: currentValue,
     });
-  const { canShowContinue, canSubmit } = getProceedEligibility({
+  const baseProceedEligibility = getProceedEligibility({
     mode,
     currentValue: displayedCurrentValue,
     targetExists,
@@ -705,6 +812,10 @@ export function useSeamsAuthMenuController(
     registrationRequiresAccountInput,
     canRestoreSyncedPasskey: shouldRestoreSyncedPasskeyOnLogin,
   });
+  const canSubmitMethodSelectedLogin =
+    mode === AuthMenuMode.Login && passkeyLoginAccount != null && !!passkeyLoginWalletId;
+  const canShowContinue = baseProceedEligibility.canShowContinue || canSubmitMethodSelectedLogin;
+  const canSubmit = baseProceedEligibility.canSubmit || canSubmitMethodSelectedLogin;
   const showAccountInput =
     mode === AuthMenuMode.Login ||
     registrationRequiresAccountInput ||
@@ -731,6 +842,7 @@ export function useSeamsAuthMenuController(
         walletId,
         displayName,
         ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
+        ...(typeof option.lastLogin === 'number' ? { lastLogin: option.lastLogin } : {}),
         ...(option.authMethod ? { authMethod: option.authMethod } : {}),
       });
     }
@@ -872,6 +984,14 @@ export function useSeamsAuthMenuController(
     }
 
     const shouldRestoreSyncedPasskey = shouldRestoreSyncedPasskeyOnLogin;
+    const loginWalletId = passkeyLoginWalletId;
+    if (mode === AuthMenuMode.Login && !loginWalletId) {
+      setMethodError('Choose a passkey account to sign in.');
+      return;
+    }
+    if (mode === AuthMenuMode.Login && passkeyLoginAccount?.walletId) {
+      setCurrentValue(passkeyLoginAccount.walletId);
+    }
     setWaiting(true);
     setWaitingReason(shouldRestoreSyncedPasskey ? 'restore' : 'passkey');
     setPostRecoveryRotationPromptState(null);
@@ -881,9 +1001,15 @@ export function useSeamsAuthMenuController(
       try {
         if (mode === AuthMenuMode.Login) {
           if (shouldRestoreSyncedPasskey) {
-            await props.onSyncAccount?.();
+            await props.onSyncAccount?.({
+              kind: 'sync_passkey_account',
+              walletId: loginWalletId,
+            });
           } else {
-            await props.onLogin?.();
+            await props.onLogin?.({
+              kind: 'passkey_login',
+              walletId: loginWalletId,
+            });
           }
           setWaiting(false);
           setWaitingReason(null);
@@ -928,6 +1054,8 @@ export function useSeamsAuthMenuController(
     currentValue,
     passkeyRegistrationDraft,
     passkeyRegistrationDraftWalletIdValue,
+    passkeyLoginAccount,
+    passkeyLoginWalletId,
     registrationAccountInput,
     registrationUsesGeneratedWalletInput,
     registrationRequiresAccountInput,
@@ -935,6 +1063,7 @@ export function useSeamsAuthMenuController(
     props.onRegister,
     props.onSyncAccount,
     shouldRestoreSyncedPasskeyOnLogin,
+    setCurrentValue,
     setMode,
     closeLinkDeviceView,
     onResetToStart,
@@ -950,6 +1079,11 @@ export function useSeamsAuthMenuController(
       const handler = props.socialLogin?.[provider];
       if (typeof handler !== 'function') return;
       const socialMode = modeOverride ?? mode;
+      const socialLoginWalletId =
+        socialMode === AuthMenuMode.Login ? emailOtpLoginWalletId : '';
+      if (socialLoginWalletId) {
+        setCurrentValue(socialLoginWalletId);
+      }
       setWaiting(true);
       setWaitingReason('social');
       setOtpError('');
@@ -958,7 +1092,13 @@ export function useSeamsAuthMenuController(
       setPostRecoveryRotationError('');
       void (async () => {
         try {
-          const result = await handler({ mode: socialMode, emailOtpAuthPolicy });
+          const result = await handler(
+            createSocialLoginArgs({
+              mode: socialMode,
+              emailOtpAuthPolicy,
+              walletId: socialLoginWalletId,
+            }),
+          );
           const flowResult = result && typeof result === 'object' ? result : null;
           const isHeadlessOtpFlow =
             flowResult && 'kind' in flowResult && flowResult.kind === 'otp_flow';
@@ -1028,7 +1168,15 @@ export function useSeamsAuthMenuController(
         }
       })();
     },
-    [waiting, props.socialLogin, mode, emailOtpAuthPolicy, runtime, setCurrentValue],
+    [
+      waiting,
+      props.socialLogin,
+      mode,
+      emailOtpAuthPolicy,
+      emailOtpLoginWalletId,
+      runtime,
+      setCurrentValue,
+    ],
   );
 
   const canRecoverAccountWithEmail = typeof props.socialLogin?.google === 'function';

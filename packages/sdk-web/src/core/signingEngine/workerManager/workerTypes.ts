@@ -119,6 +119,10 @@ export interface EthSignerWorkerOperationMap {
     payload: { digest32: ArrayBuffer; privateKey32: ArrayBuffer };
     result: ArrayBuffer;
   };
+  verifySecp256k1RecoverableSignatureAgainstPublicKey33: {
+    payload: { digest32: ArrayBuffer; signature65: ArrayBuffer; publicKey33: ArrayBuffer };
+    result: ArrayBuffer;
+  };
   secp256k1PrivateKey32ToPublicKey33: {
     payload: { privateKey32: ArrayBuffer };
     result: ArrayBuffer;
@@ -783,6 +787,7 @@ export type EthSignerTransactionOperationType =
   | 'encodeEip1559SignedTxFromSignature65';
 export type EthSignerLocalSecp256k1OperationType =
   | 'signSecp256k1Recoverable'
+  | 'verifySecp256k1RecoverableSignatureAgainstPublicKey33'
   | 'secp256k1PrivateKey32ToPublicKey33'
   | 'deriveSecp256k1KeypairFromPrfSecond'
   | 'validateSecp256k1PublicKey33'

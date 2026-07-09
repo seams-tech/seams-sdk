@@ -425,6 +425,7 @@ function recentUnlockAccountFromUser(user: ClientUserData): RecentUnlockAccount 
     nearAccountId: user.nearAccountId,
     displayName,
     signerSlot: user.signerSlot,
+    ...(typeof user.lastLogin === 'number' ? { lastLogin: user.lastLogin } : {}),
     authMethod: user.authMethod || null,
   };
 }

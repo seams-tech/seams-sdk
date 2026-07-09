@@ -19,13 +19,13 @@ import faucetAbi from '@/assets/abis/Faucet.json';
 
 export { TEMPO_ALPHA_USD_FEE_TOKEN, TEMPO_FEE_MANAGER_CONTRACT, TEMPO_FEE_MANAGER_ABI };
 
-export const TEMPO_GREETING_CONTRACT = '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483' as `0x${string}`;
-export const ARC_TESTNET_GREETING_CONTRACT = '0xeB7aB5A6F761072C96147A54B8a15F012e836691' as `0x${string}`;
+export const TEMPO_GREETING_CONTRACT =
+  '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483' as `0x${string}`;
+export const ARC_TESTNET_GREETING_CONTRACT =
+  '0xeB7aB5A6F761072C96147A54B8a15F012e836691' as `0x${string}`;
 export const SET_GREETING_SELECTOR = '0xa4136862';
 export const TEMPO_GREETING_SELECTOR = '0xef690cc0';
 export const ARC_GREET_SELECTOR = '0xcfae3217';
-export const TEMPO_DRIP_TO_SELECTOR = '0x867ae9d4';
-export const TEMPO_HAS_DRIPPED_SELECTOR = '0xf540d0c5';
 export const EVM_RPC_REQUEST_TIMEOUT_MS = 15_000;
 export const EIP1559_FEE_CAP_REFRESH_INTERVAL_MS = 20_000;
 export const EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS = 180_000;
@@ -40,9 +40,6 @@ export const DEFAULT_DEMO_EIP1559_FEE_CAPS: Eip1559FeeCaps = {
 };
 // `setUserToken` can trigger fee-token routing paths that exceed 350k gas.
 export const TEMPO_SET_USER_TOKEN_GAS_LIMIT = 1_000_000n;
-// Recipient-aware faucet drips on Tempo currently estimate around 825k gas.
-// Keep modest headroom so the relay path does not revert from gas exhaustion.
-export const TEMPO_DRIP_GAS_LIMIT = 1_000_000n;
 
 export type Eip1559FeeCaps = {
   maxPriorityFeePerGas: bigint;
@@ -77,66 +74,37 @@ export function encodeSetGreetingInput(greeting: string): `0x${string}` {
   return `0x${SET_GREETING_SELECTOR.slice(2)}${offsetHex}${lengthHex}${dataHex}` as `0x${string}`;
 }
 
-export function encodeTempoDripToInput(
-  recipient: `0x${string}`,
-  tokenAddresses: readonly `0x${string}`[],
-): `0x${string}` {
-  if (!isEvmAddress(recipient)) {
-    throw new Error(`Invalid drip recipient address: ${recipient}`);
+function normalizeTempoFaucetTxHashes(value: unknown): readonly `0x${string}`[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Tempo faucet RPC returned an invalid result');
   }
-  if (tokenAddresses.length === 0) {
-    throw new Error('dripTo(address,address[]) requires at least one token address');
-  }
-  const encodedAddresses = tokenAddresses
-    .map((address) => {
-      if (!isEvmAddress(address)) {
-        throw new Error(`Invalid drip token address: ${address}`);
-      }
-      return address.slice(2).toLowerCase().padStart(64, '0');
-    })
-    .join('');
-  const recipientHex = recipient.slice(2).toLowerCase().padStart(64, '0');
-  const offsetHex = (64).toString(16).padStart(64, '0');
-  const lengthHex = tokenAddresses.length.toString(16).padStart(64, '0');
-  return `0x${TEMPO_DRIP_TO_SELECTOR.slice(2)}${recipientHex}${offsetHex}${lengthHex}${encodedAddresses}` as `0x${string}`;
+  return value.map((entry) => {
+    const normalized = String(entry || '').trim();
+    if (!/^0x[0-9a-fA-F]{64}$/.test(normalized)) {
+      throw new Error('Tempo faucet RPC returned an invalid transaction hash');
+    }
+    return normalized as `0x${string}`;
+  });
 }
 
-function encodeTempoHasDrippedInput(account: `0x${string}`): `0x${string}` {
-  if (!isEvmAddress(account)) {
-    throw new Error(`Invalid faucet account address: ${account}`);
-  }
-  const accountHex = account.slice(2).toLowerCase().padStart(64, '0');
-  return `0x${TEMPO_HAS_DRIPPED_SELECTOR.slice(2)}${accountHex}` as `0x${string}`;
-}
-
-function decodeAbiBoolResult(rawHex: string): boolean {
-  const normalized = String(rawHex || '').trim();
-  if (!/^0x[0-9a-fA-F]+$/.test(normalized)) {
-    throw new Error('Invalid eth_call bool response');
-  }
-  return BigInt(normalized) !== 0n;
-}
-
-export async function readTempoFaucetHasDripped(params: {
+export async function fundTempoTestnetAddress(params: {
   rpcUrl: string;
-  contract: `0x${string}`;
-  account: `0x${string}`;
+  address: `0x${string}`;
   timeoutMs?: number;
-}): Promise<boolean> {
-  if (!isEvmAddress(params.contract)) {
-    throw new Error(`Invalid faucet contract address: ${params.contract}`);
+}): Promise<readonly `0x${string}`[]> {
+  if (!isEvmAddress(params.address)) {
+    throw new Error(`Invalid Tempo faucet recipient address: ${params.address}`);
   }
   const client = createDemoEvmClient({
     rpcUrl: params.rpcUrl,
     ...(params.timeoutMs != null ? { requestTimeoutMs: params.timeoutMs } : {}),
   });
-  const data = encodeTempoHasDrippedInput(params.account);
-  const result = await client.request<string>({
-    method: 'eth_call',
-    params: [{ to: params.contract, data }, 'latest'],
+  const result = await client.request<unknown>({
+    method: 'tempo_fundAddress',
+    params: [params.address.toLowerCase()],
     ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
   });
-  return decodeAbiBoolResult(result);
+  return normalizeTempoFaucetTxHashes(result);
 }
 
 export function decodeStringResultData(rawHex: string): string {
@@ -171,10 +139,7 @@ export function decodeStringResultData(rawHex: string): string {
   return hexToUtf8(resultHex.slice(dataStart, dataEnd));
 }
 
-function createDemoEvmClient(args: {
-  rpcUrl: string;
-  requestTimeoutMs?: number;
-}): EvmClient {
+function createDemoEvmClient(args: { rpcUrl: string; requestTimeoutMs?: number }): EvmClient {
   return createEvmClient({
     rpcUrl: args.rpcUrl,
     requestTimeoutMs: args.requestTimeoutMs ?? EVM_RPC_REQUEST_TIMEOUT_MS,
@@ -230,10 +195,13 @@ async function sleepWithAbortSignal(ms: number, signal?: AbortSignal): Promise<v
       aborted.code = 'aborted';
       reject(aborted);
     };
-    timeoutId = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, Math.max(1, Math.floor(Number(ms) || 0)));
+    timeoutId = setTimeout(
+      () => {
+        cleanup();
+        resolve();
+      },
+      Math.max(1, Math.floor(Number(ms) || 0)),
+    );
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
@@ -288,6 +256,10 @@ export async function waitForExpectedGreeting(args: {
 
 export function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(String(value || '').trim());
+}
+
+export function isTempoAlphaUsdFeeToken(feeToken: string | null | undefined): boolean {
+  return String(feeToken || '').toLowerCase() === TEMPO_ALPHA_USD_FEE_TOKEN.toLowerCase();
 }
 
 export async function readEvmNativeBalance(args: {
@@ -416,7 +388,9 @@ export async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeC
     const baseCandidate = parsedBaseFee ?? parsedGasPrice;
     const priorityCandidate =
       parsedPriority ??
-      (parsedGasPrice && parsedGasPrice > 0n ? parsedGasPrice / 10n : DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS);
+      (parsedGasPrice && parsedGasPrice > 0n
+        ? parsedGasPrice / 10n
+        : DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS);
     const maxPriorityFeePerGas =
       priorityCandidate > DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS
         ? priorityCandidate
@@ -448,46 +422,22 @@ export async function resolveClickTimeEip1559FeeCaps(args: {
   return await resolveEip1559FeeCaps(args.rpcUrl).catch(() => args.fallbackFeeCaps);
 }
 
-export function buildTempoEip1559GreetingRequest(greeting: string, feeCaps: Eip1559FeeCaps) {
+export function buildTempoTransactionGreetingRequest(greeting: string, feeCaps: Eip1559FeeCaps) {
   const data = encodeSetGreetingInput(greeting);
-  return {
-    chain: 'evm' as const,
-    kind: 'eip1559' as const,
-    senderSignatureAlgorithm: 'secp256k1' as const,
-    tx: {
-      chainId: 42431,
-      maxPriorityFeePerGas: feeCaps.maxPriorityFeePerGas,
-      maxFeePerGas: feeCaps.maxFeePerGas,
-      gasLimit: 200_000n,
-      to: TEMPO_GREETING_CONTRACT,
-      value: 0n,
-      data,
-      abi: faucetAbi,
-      accessList: [],
-    },
-  };
-}
-
-export function buildTempoDripRequest(args: {
-  feeCaps: Eip1559FeeCaps;
-  recipient: `0x${string}`;
-  tokenAddresses: readonly `0x${string}`[];
-}) {
-  const input = encodeTempoDripToInput(args.recipient, args.tokenAddresses);
   return {
     chain: 'tempo' as const,
     kind: 'tempoTransaction' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
       chainId: 42431,
-      maxPriorityFeePerGas: args.feeCaps.maxPriorityFeePerGas,
-      maxFeePerGas: args.feeCaps.maxFeePerGas,
-      gasLimit: TEMPO_DRIP_GAS_LIMIT,
+      maxPriorityFeePerGas: feeCaps.maxPriorityFeePerGas,
+      maxFeePerGas: feeCaps.maxFeePerGas,
+      gasLimit: 200_000n,
       calls: [
         {
           to: TEMPO_GREETING_CONTRACT,
           value: 0n,
-          input,
+          input: data,
           abi: faucetAbi,
         },
       ],
@@ -495,6 +445,8 @@ export function buildTempoDripRequest(args: {
       nonceKey: 0n,
       validBefore: null,
       validAfter: null,
+      // The demo prepares account-level fee-token selection via setUserToken.
+      feeToken: null,
       feePayerSignature: { kind: 'none' as const },
       aaAuthorizationList: [],
     },

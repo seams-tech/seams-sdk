@@ -50,6 +50,7 @@ export async function createWalletIframeRouter(args: {
     rpIdOverride: args.configs.wallet.iframe?.rpIdOverride,
     authenticatorOptions: cloneAuthenticatorOptions(args.configs.webauthn.authenticatorOptions),
     appearance: args.getAppearance(),
+    getAppearance: args.getAppearance,
     sdkBasePath: args.configs.wallet.iframe?.sdkBasePath,
     createOverlayState: createWalletIframeOverlayState,
   });

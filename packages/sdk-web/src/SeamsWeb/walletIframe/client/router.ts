@@ -244,6 +244,8 @@ export interface WalletIframeRouterOptions {
   sdkBasePath?: string;
   // Optional appearance defaults forwarded to wallet host.
   appearance?: AppearanceConfigInput;
+  // Runtime appearance source used when init sends PM_SET_CONFIG.
+  getAppearance?: () => AppearanceConfigInput | undefined;
   // Optional: pre-register UI components in wallet host
   uiRegistry?: Record<string, unknown>;
   // Optional browser assembly hook for owning wallet iframe overlay state construction.
@@ -972,6 +974,7 @@ export class WalletIframeRouter {
     this.opts = {
       connectTimeoutMs: 8000,
       requestTimeoutMs: 20000,
+      getAppearance: () => options.appearance,
       ...options,
       // Normalize path-like options so empty strings (common when CI env vars are unset)
       // don't accidentally become the wallet origin root. If sdkBasePath becomes "", then:
@@ -1072,6 +1075,10 @@ export class WalletIframeRouter {
     globalThis.addEventListener?.('message', this.windowMsgHandlerBound);
   }
 
+  private getCurrentAppearance(): AppearanceConfigInput | undefined {
+    return this.opts.getAppearance() ?? this.opts.appearance;
+  }
+
   /**
    * Subscribe to service-ready event. Returns an unsubscribe function.
    * If already ready, the listener is invoked on next microtask.
@@ -1140,7 +1147,7 @@ export class WalletIframeRouter {
             ? { rpIdOverride: this.opts.rpIdOverride }
             : undefined,
           authenticatorOptions: this.opts.authenticatorOptions,
-          appearance: this.opts.appearance,
+          appearance: this.getCurrentAppearance(),
           uiRegistry: this.opts.uiRegistry,
           // for embedded Lit components
           assetsBaseUrl: (() => {

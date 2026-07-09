@@ -361,16 +361,16 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
   secondaryButtonHoverBackground: '#cfbfe9',
   secondaryButtonBorder: 'transparent',
 
-  // subtle near-white paper cream menu card with deeper cream controls and chrome
+  // subtle near-white cream menu card with lightly warmer controls and chrome
   colorBackground: '#fffefd',
-  surface: '#fffaf5',
-  surface2: '#fff7ee',
+  surface: '#fffdf9',
+  surface2: '#fffaf3',
   surface3: '#F2C6DE',
   surface4: '#DBCDF0',
-  txDetailsBackground: '#fff7ee',
+  txDetailsBackground: '#fffaf3',
 
-  hover: '#fff8f1',
-  active: '#fff3e8',
+  hover: '#fffbf6',
+  active: '#fff8ee',
   focus: '#8fb9de',
 
   success: '#4f9e83',
@@ -380,9 +380,9 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
   error: '#d4547a',
   info: '#6f9fd8',
 
-  borderPrimary: '#f0ead9',
-  borderSecondary: '#f6f0e3',
-  borderHover: '#e5dac0',
+  borderPrimary: '#f4eedf',
+  borderSecondary: '#faf4e9',
+  borderHover: '#eadfcb',
 
   highlightPrimary: '#8fb9de',
   highlightRow: 'rgba(198, 222, 241, 0.28)',

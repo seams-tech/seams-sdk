@@ -596,6 +596,7 @@ export interface RecentUnlockAccount {
   nearAccountId: AccountId;
   displayName: string;
   signerSlot: number;
+  lastLogin?: number;
   authMethod?: WalletAuthMethod | null;
 }
 

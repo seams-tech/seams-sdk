@@ -5,9 +5,11 @@ import {
   SeamsAuthMenu,
   RegistrationEventPhase,
   UnlockEventPhase,
-  type EmailOtpAuthPolicy,
   type AccountSyncFlowEvent,
+  type SeamsAuthMenuPasskeyLoginRequest,
   type SeamsAuthMenuRegistrationRequest,
+  type SeamsAuthMenuSocialLoginArgs,
+  type SeamsAuthMenuSyncAccountRequest,
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
@@ -316,7 +318,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   );
 
   const {
-    accountInputState: { targetWalletId },
     unlock,
     registerPasskey,
     seams,
@@ -433,14 +434,11 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     return result;
   };
 
-  const onLogin = async () => {
-    return await loginWithSession(targetWalletId);
+  const onLogin = async (request: SeamsAuthMenuPasskeyLoginRequest) => {
+    return await loginWithSession(request.walletId);
   };
 
-  const onGoogleSsoEmailOtp = async (args: {
-    mode: AuthMenuMode;
-    emailOtpAuthPolicy: EmailOtpAuthPolicy;
-  }) => {
+  const onGoogleSsoEmailOtp = async (args: SeamsAuthMenuSocialLoginArgs) => {
     toast.loading('Opening Google SSO…', { id: 'google-sso' });
     try {
       const googleClientId = requirePreparedGoogleSsoClientId(googleSsoReadiness);
@@ -488,10 +486,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
   };
 
-  const onSyncAccount = async () => {
+  const onSyncAccount = async (request: SeamsAuthMenuSyncAccountRequest) => {
     try {
       const result = await seams.recovery.syncAccount({
-        ...(targetWalletId ? { walletId: targetWalletId } : {}),
+        walletId: request.walletId,
         options: {
           onEvent: handleAccountSyncEvent,
         } as any,
@@ -513,7 +511,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       }
 
       toast.success(`Synced account ${syncedAccountId}. Logging in...`, { id: 'sync' });
-      await loginWithSession(targetWalletId || syncedAccountId);
+      await loginWithSession(request.walletId || syncedAccountId);
       return result;
     } catch (error: unknown) {
       const message = messageFromUnknown(error, 'Account sync failed');

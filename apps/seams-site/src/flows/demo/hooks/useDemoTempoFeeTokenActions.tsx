@@ -11,7 +11,6 @@ import {
   buildEvmExplorerTxUrl,
   buildTempoSetUserTokenRequest,
   compactHex,
-  formatWeiToEth,
   isUserCancellationError,
   parseInsufficientFundsError,
   readEvmNativeBalance,
@@ -20,7 +19,7 @@ import {
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
-import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
+import type { EvmAddress } from './demoThresholdTypes';
 import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoTempoFeeTokenActionsArgs = {
@@ -52,18 +51,15 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
   } = args;
 
   const [tempoFeeTokenConfigLoading, setTempoFeeTokenConfigLoading] = useState(false);
-  const [tempoFeeTokenConfigTarget, setTempoFeeTokenConfigTarget] =
-    useState<TempoFeeTokenConfigTarget>(null);
 
   const configureTempoFeeToken = useCallback(
-    async (config: { token: EvmAddress; label: string; target: 'alpha' }) => {
-      if (!isLoggedIn || !walletId) return;
+    async (config: { token: EvmAddress; label: string }) => {
+      if (!isLoggedIn || !walletId) return false;
       const toastId = 'tempo-set-fee-token';
       try {
         toast.dismiss(toastId);
       } catch {}
       setTempoFeeTokenConfigLoading(true);
-      setTempoFeeTokenConfigTarget(config.target);
       toast.loading(`Configuring Tempo fee token to ${config.label}…`, {
         id: toastId,
         description: null,
@@ -178,6 +174,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             </span>
           ),
         });
+        return true;
       } catch (error: unknown) {
         const resolvedError: unknown = error;
         const message =
@@ -200,19 +197,19 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             thresholdOwnerNativeBalanceRaw,
             txHash: executedTxHash,
           });
-          return;
+          return false;
         }
         if (isUserCancellationError(resolvedError)) {
           toast.error('Tempo fee token update cancelled by user.', {
             id: toastId,
             description: null,
           });
-          return;
+          return false;
         }
         const insufficient = parseInsufficientFundsError(message);
         if (insufficient) {
           toast.error(
-            `Tempo threshold owner has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+            `Tempo fee-token setup has insufficient fee funds (raw have ${insufficient.haveWei.toString()}, need ${insufficient.wantWei.toString()}). Run Prepare Tempo Fee Token, then retry.`,
             { id: toastId, description: null },
           );
         } else {
@@ -229,9 +226,9 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           selectedFeeTokenBalanceRaw,
           thresholdOwnerNativeBalanceRaw,
         });
+        return false;
       } finally {
         setTempoFeeTokenConfigLoading(false);
-        setTempoFeeTokenConfigTarget(null);
       }
     },
     [
@@ -250,14 +247,12 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
       await configureTempoFeeToken({
         token: TEMPO_ALPHA_USD_FEE_TOKEN,
         label: 'AlphaUSD',
-        target: 'alpha',
       }),
     [configureTempoFeeToken],
   );
 
   return {
     tempoFeeTokenConfigLoading,
-    tempoFeeTokenConfigTarget,
     handleSetTempoFeeTokenAlphaUsd,
   };
 }

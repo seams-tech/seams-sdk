@@ -81,6 +81,7 @@ function normalizeStoredAccountOptions(input: {
     nearAccountId?: string | null;
     displayName?: string | null;
     signerSlot?: number;
+    lastLogin?: number | null;
     authMethod?: StoredAccountOption['authMethod'];
   }> | null;
 }): StoredAccountOption[] {
@@ -89,6 +90,7 @@ function normalizeStoredAccountOptions(input: {
     nearAccountId?: string | null;
     displayName?: string | null;
     signerSlot?: number;
+    lastLogin?: number | null;
     authMethod?: StoredAccountOption['authMethod'];
   }> =
     input.accounts && input.accounts.length > 0 ? input.accounts : [];
@@ -105,6 +107,7 @@ function normalizeStoredAccountOptions(input: {
       displayName,
       ...(nearAccountId ? { nearAccountId } : {}),
       ...(typeof account.signerSlot === 'number' ? { signerSlot: account.signerSlot } : {}),
+      ...(typeof account.lastLogin === 'number' ? { lastLogin: account.lastLogin } : {}),
       ...(account.authMethod ? { authMethod: account.authMethod } : {}),
     });
   }

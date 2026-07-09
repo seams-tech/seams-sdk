@@ -382,4 +382,68 @@ test.describe('Wallet iframe config propagation', () => {
       palette: 'default',
     });
   });
+
+  test('uses current runtime appearance when wallet iframe initializes after theme changes', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
+        const { SeamsWeb } = mod as any;
+
+        const pm = new SeamsWeb({
+          relayer: { url: 'http://localhost:3000' },
+          appearance: {
+            theme: {
+              id: 'initial-theme',
+              mode: 'dark',
+              colors: {
+                primary: '#111111',
+              },
+            },
+          },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        pm.setAppearance({
+          theme: {
+            id: 'runtime-theme',
+            mode: 'light',
+            colors: {
+              primary: '#abcdef',
+              surface: '#f5f7fb',
+            },
+          },
+        });
+
+        await pm.initWalletIframe();
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    const walletFrame = page.frames().find((frame) => {
+      const url = frame.url();
+      return url.startsWith(WALLET_ORIGIN) && url.includes('/wallet-service');
+    });
+    expect(walletFrame, 'wallet iframe should be mounted').toBeTruthy();
+
+    const capturedAppearance = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedAppearance ?? null;
+    });
+    expect(capturedAppearance).toEqual({
+      theme: {
+        id: 'runtime-theme',
+        mode: 'light',
+        colors: {
+          primary: '#abcdef',
+          surface: '#f5f7fb',
+        },
+      },
+      palette: 'default',
+    });
+  });
 });

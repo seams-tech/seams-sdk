@@ -82,6 +82,7 @@ export function H2DemoHero({
   const [demoPage, setDemoPage] = React.useState(0);
   const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('paper');
   const activePreset = DEMO_THEME_PRESETS.find((t) => t.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
+  const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
   const startProps = linkProps('/docs/concepts/');
   const authProps = linkProps('/docs/concepts/auth-methods/');
 
@@ -91,7 +92,7 @@ export function H2DemoHero({
     try {
       seams.setAppearance(demoIframeAppearance(activePreset));
     } catch {}
-  }, [seams, activePreset]);
+  }, [seams, activePreset, loginState?.isLoggedIn, activeWalletId]);
 
   // The Transactions / Account recovery screens need an unlocked wallet,
   // mirroring the carousel's own page gating.

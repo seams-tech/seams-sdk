@@ -426,6 +426,243 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       });
   });
 
+  test('passkey login uses the most recent passkey account when the selected account is Email OTP', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-method-passkey-selection-mount';
+        document.body.appendChild(mount);
+
+        (window as any).__methodPasskeySelection = {
+          inputUsername: 'otp-wallet',
+          loginRequests: [] as unknown[],
+          syncRequests: [] as unknown[],
+        };
+
+        function Harness() {
+          const [inputUsername, setInputUsernameBase] = React.useState('otp-wallet');
+          const setInputUsername = (value: string) => {
+            (window as any).__methodPasskeySelection.inputUsername = value;
+            setInputUsernameBase(value);
+          };
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({ lastUsedAccount: null }),
+                },
+              },
+              accountExists: true,
+              passkeyCredentialExists: false,
+              inputUsername,
+              targetWalletId: 'otp-wallet',
+              targetAccountId: 'otp-wallet.testnet',
+              accountOptions: [
+                {
+                  walletId: 'older-passkey',
+                  displayName: 'older-passkey',
+                  authMethod: 'passkey',
+                  lastLogin: 10,
+                },
+                {
+                  walletId: 'newer-passkey',
+                  displayName: 'newer-passkey',
+                  authMethod: 'passkey',
+                  lastLogin: 20,
+                },
+                {
+                  walletId: 'otp-wallet',
+                  displayName: 'otp@example.com',
+                  authMethod: 'email_otp',
+                  lastLogin: 30,
+                },
+              ],
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: true,
+            }),
+            [inputUsername],
+          );
+
+          const controller = useSeamsAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Login,
+              onLogin: async (request: unknown) => {
+                (window as any).__methodPasskeySelection.loginRequests.push(request);
+              },
+              onSyncAccount: async (request: unknown) => {
+                (window as any).__methodPasskeySelection.syncRequests.push(request);
+              },
+            },
+            runtime,
+          );
+
+          return React.createElement(
+            'button',
+            {
+              type: 'button',
+              disabled: !controller.canSubmit,
+              onClick: controller.onProceed,
+            },
+            'Sign in with Passkey',
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-method-passkey-selection-mount');
+    await mount.getByRole('button', { name: 'Sign in with Passkey' }).click();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__methodPasskeySelection))
+      .toMatchObject({
+        inputUsername: 'newer-passkey',
+        loginRequests: [{ kind: 'passkey_login', walletId: 'newer-passkey' }],
+        syncRequests: [],
+      });
+  });
+
+  test('Google login uses the most recent Email OTP account when the selected account is passkey', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
+        const { AuthMenuMode, AuthMenuModeMap } = typesMod;
+
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-method-email-otp-selection-mount';
+        document.body.appendChild(mount);
+
+        (window as any).__methodEmailOtpSelection = {
+          inputUsername: 'passkey-wallet',
+          socialRequests: [] as unknown[],
+        };
+
+        function Harness() {
+          const [inputUsername, setInputUsernameBase] = React.useState('passkey-wallet');
+          const setInputUsername = (value: string) => {
+            (window as any).__methodEmailOtpSelection.inputUsername = value;
+            setInputUsernameBase(value);
+          };
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({ lastUsedAccount: null }),
+                },
+              },
+              accountExists: true,
+              passkeyCredentialExists: true,
+              inputUsername,
+              targetWalletId: 'passkey-wallet',
+              targetAccountId: 'passkey-wallet.testnet',
+              accountOptions: [
+                {
+                  walletId: 'passkey-wallet',
+                  displayName: 'passkey-wallet',
+                  authMethod: 'passkey',
+                  lastLogin: 40,
+                },
+                {
+                  walletId: 'older-otp-wallet',
+                  displayName: 'old@example.com',
+                  authMethod: 'email_otp',
+                  lastLogin: 20,
+                },
+                {
+                  walletId: 'newer-otp-wallet',
+                  displayName: 'new@example.com',
+                  authMethod: 'email_otp',
+                  lastLogin: 60,
+                },
+              ],
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: true,
+            }),
+            [inputUsername],
+          );
+
+          const controller = useSeamsAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Login,
+              socialLogin: {
+                google: async (request: { mode: number; walletId?: string }) => {
+                  (window as any).__methodEmailOtpSelection.socialRequests.push({
+                    mode: AuthMenuModeMap[request.mode],
+                    walletId: request.walletId,
+                  });
+                },
+              },
+            },
+            runtime,
+          );
+
+          return React.createElement(
+            'button',
+            {
+              type: 'button',
+              onClick: () => controller.onSocialLogin('google', AuthMenuMode.Login),
+            },
+            'Sign in with Google',
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-method-email-otp-selection-mount');
+    await mount.getByRole('button', { name: 'Sign in with Google' }).click();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__methodEmailOtpSelection))
+      .toMatchObject({
+        inputUsername: 'newer-otp-wallet',
+        socialRequests: [{ mode: 'login', walletId: 'newer-otp-wallet' }],
+      });
+  });
+
   test('synced passkey restore timeout warns without rendering inline method error', async ({
     page,
   }) => {

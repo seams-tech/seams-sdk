@@ -17,6 +17,7 @@ import {
   addSecp256k1PublicKeys33Wasm,
   type ThresholdEcdsaPresignProgressWasm,
   validateSecp256k1PublicKey33Wasm,
+  verifySecp256k1RecoverableSignatureAgainstPublicKey33Wasm,
 } from '../../chains/evm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
@@ -54,6 +55,14 @@ export type RouterAbEcdsaHssClientPresignatureRefillInput = {
   routerAbEcdsaHssPoolFill: RouterAbEcdsaHssPresignaturePoolFill;
   workerCtx: WorkerOperationContext;
 };
+
+function recoverableSignatureErrorMessage(error: unknown): string {
+  return String(
+    error && typeof error === 'object' && 'message' in error
+      ? (error as { message?: unknown }).message
+      : error || 'signature recovery failed',
+  );
+}
 
 export type RouterAbEcdsaHssClientPresignatureRefillScheduleResult = {
   scheduled: boolean;
@@ -1045,6 +1054,20 @@ export async function signRouterAbEcdsaHssDigestWithPoolHit(args: {
         ok: false,
         code: 'internal',
         message: `Router A/B ECDSA-HSS returned invalid signature length (expected 65, got ${signature65.length})`,
+      };
+    }
+    try {
+      await verifySecp256k1RecoverableSignatureAgainstPublicKey33Wasm({
+        digest32: args.signingDigest32,
+        signature65,
+        publicKey33: groupPublicKey33,
+        workerCtx: args.workerCtx,
+      });
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: `Router A/B ECDSA-HSS returned a signature that does not recover to the threshold group public key: ${recoverableSignatureErrorMessage(error)}`,
       };
     }
     return {

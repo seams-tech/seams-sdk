@@ -1,29 +1,40 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useSeams } from '@seams/sdk/react';
 
 import type { FrontendConfig } from '@/config';
-import { TEMPO_ALPHA_USD_FEE_TOKEN } from '../demoEvmHelpers';
+import { isTempoAlphaUsdFeeToken } from '../demoEvmHelpers';
 import { useDemoArcSigningActions } from './useDemoArcSigningActions';
 import { useDemoEip1559FeeCaps } from './useDemoEip1559FeeCaps';
 import { useDemoEvmGreetings } from './useDemoEvmGreetings';
 import { useDemoTempoFeeTokenActions } from './useDemoTempoFeeTokenActions';
 import { useDemoTempoSigningActions } from './useDemoTempoSigningActions';
 import { useDemoThresholdAccountState } from './useDemoThresholdAccountState';
+import type { EvmAddress } from './demoThresholdTypes';
+
+async function readFreshTempoUserFeeToken(input: {
+  readonly resolveThresholdOwnerAddressForEvmFamily: () => Promise<EvmAddress>;
+  readonly refreshTempoUserFeeToken: (opts: {
+    silent: true;
+    userAddress: EvmAddress;
+  }) => Promise<EvmAddress | null>;
+}): Promise<EvmAddress | null> {
+  try {
+    const thresholdOwnerAddress = await input.resolveThresholdOwnerAddressForEvmFamily();
+    return await input.refreshTempoUserFeeToken({
+      silent: true,
+      userAddress: thresholdOwnerAddress,
+    });
+  } catch {
+    return null;
+  }
+}
 
 type UseDemoThresholdSignersArgs = {
   isLoggedIn: boolean;
   walletId?: string | null;
   thresholdEcdsaEthereumAddress?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
-  frontendConfig?: Pick<
-    FrontendConfig,
-    | 'chains'
-    | 'managedRegistration'
-    | 'relayerUrl'
-    | 'tempoExplorerUrl'
-    | 'tempoFeeToken'
-    | 'tempoRpcUrl'
-  >;
+  frontendConfig?: Pick<FrontendConfig, 'chains' | 'tempoExplorerUrl' | 'tempoRpcUrl'>;
   tempoGreetingInput: string;
   arcGreetingInput: string;
 };
@@ -52,7 +63,6 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
   } = useDemoEvmGreetings({ isLoggedIn });
   const {
     thresholdOwnerAddress,
-    tempoUserFeeToken,
     refreshThresholdOwnerAddress,
     resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeToken,
@@ -62,34 +72,28 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     walletId,
     thresholdEcdsaEthereumAddress,
     seams,
-    frontendConfig,
   });
 
-  const canSignTempo =
-    Boolean(tempoGreetingInput.trim()) && isLoggedIn && Boolean(walletId);
+  const canSignTempo = Boolean(tempoGreetingInput.trim()) && isLoggedIn && Boolean(walletId);
   const canSignEvm = Boolean(arcGreetingInput.trim()) && isLoggedIn && Boolean(walletId);
-  const tempoFeeTokenIsAlpha =
-    String(tempoUserFeeToken || '').toLowerCase() === TEMPO_ALPHA_USD_FEE_TOKEN.toLowerCase();
+  const [tempoFeeTokenPrepareLoading, setTempoFeeTokenPrepareLoading] = useState(false);
 
-  const {
-    tempoFeeTokenConfigLoading,
-    tempoFeeTokenConfigTarget,
-    handleSetTempoFeeTokenAlphaUsd,
-  } = useDemoTempoFeeTokenActions({
-    isLoggedIn,
-    walletId,
-    seams,
-    tempoEip1559FeeCaps,
-    resolveThresholdOwnerAddressForEvmFamily,
-    refreshTempoUserFeeToken,
-    refreshTempoUserFeeTokenBalance,
-  });
+  const { tempoFeeTokenConfigLoading, handleSetTempoFeeTokenAlphaUsd } =
+    useDemoTempoFeeTokenActions({
+      isLoggedIn,
+      walletId,
+      seams,
+      tempoEip1559FeeCaps,
+      resolveThresholdOwnerAddressForEvmFamily,
+      refreshTempoUserFeeToken,
+      refreshTempoUserFeeTokenBalance,
+    });
 
   const {
     tempoThresholdSignLoading,
-    tempoDripLoading,
-    tempoSponsorshipUnavailableReason,
-    handleTempoDripToken,
+    tempoFeeTokenFundingLoading,
+    tempoPreparationUnavailableReason,
+    handleFundTempoFeeTokens,
     handleSignTempoThresholdTx,
   } = useDemoTempoSigningActions({
     isLoggedIn,
@@ -99,8 +103,8 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     canSignTempo,
     tempoGreetingInput,
     tempoEip1559FeeCaps,
-    tempoUserFeeToken,
     resolveThresholdOwnerAddressForEvmFamily,
+    refreshTempoUserFeeToken,
     refreshTempoUserFeeTokenBalance,
     fetchTempoGreeting,
     refreshThresholdOwnerAddress,
@@ -125,12 +129,35 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     return await fetchArcGreeting();
   }, [fetchArcGreeting]);
 
+  const handlePrepareTempoFeeToken = useCallback(async () => {
+    if (tempoFeeTokenPrepareLoading) return;
+    setTempoFeeTokenPrepareLoading(true);
+    try {
+      const feeTokensReady = await handleFundTempoFeeTokens();
+      if (!feeTokensReady) return;
+
+      const refreshedFeeToken = await readFreshTempoUserFeeToken({
+        refreshTempoUserFeeToken,
+        resolveThresholdOwnerAddressForEvmFamily,
+      });
+      if (isTempoAlphaUsdFeeToken(refreshedFeeToken)) return;
+      await handleSetTempoFeeTokenAlphaUsd();
+    } finally {
+      setTempoFeeTokenPrepareLoading(false);
+    }
+  }, [
+    handleSetTempoFeeTokenAlphaUsd,
+    handleFundTempoFeeTokens,
+    refreshTempoUserFeeToken,
+    resolveThresholdOwnerAddressForEvmFamily,
+    tempoFeeTokenPrepareLoading,
+  ]);
+
   return {
     tempoThresholdSignLoading,
-    tempoDripLoading,
-    tempoSponsorshipUnavailableReason,
-    tempoFeeTokenConfigLoading,
-    tempoFeeTokenConfigTarget,
+    tempoPreparationUnavailableReason,
+    tempoFeeTokenPrepareLoading:
+      tempoFeeTokenPrepareLoading || tempoFeeTokenFundingLoading || tempoFeeTokenConfigLoading,
     evmThresholdSignLoading,
     tempoGreeting,
     arcGreeting,
@@ -139,9 +166,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     tempoGreetingError,
     arcGreetingError,
     thresholdOwnerAddress,
-    tempoFeeTokenIsAlpha,
-    handleSetTempoFeeTokenAlphaUsd,
-    handleTempoDripToken,
+    handlePrepareTempoFeeToken,
     handleSignTempoThresholdTx,
     handleSignEvmThresholdTx,
     refreshTempoGreeting,
