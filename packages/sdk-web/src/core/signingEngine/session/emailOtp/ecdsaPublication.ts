@@ -8,7 +8,6 @@ import {
 import {
   emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProviderUserId,
-  emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
   type ThresholdEcdsaEmailOtpAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
@@ -113,10 +112,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
   for (const target of args.additionalChainTargets || []) {
     pushTarget(target);
   }
-  if (
-    emailOtpAuthContextReason(args.emailOtpAuthContext) === 'login' &&
-    !hasExplicitAdditionalTargets
-  ) {
+  if (!hasExplicitAdditionalTargets) {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);
     }
