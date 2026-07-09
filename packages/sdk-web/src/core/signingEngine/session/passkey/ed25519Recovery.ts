@@ -42,6 +42,11 @@ import {
   isRouterAbEd25519WorkerMaterialRuntimeValidated,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
 } from '../routerAbSigningWalletSession';
+import {
+  exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
+} from '../identity/exactSigningLaneIdentity';
+import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 
 type PasskeyEd25519ReconnectRuntimeHandle =
   | {
@@ -346,7 +351,9 @@ function retainPasskeyEd25519ReconnectWorkerMaterialFacts(args: {
     ...(targetRecord.walletSessionJwt ? { walletSessionJwt: targetRecord.walletSessionJwt } : {}),
     expiresAtMs: targetRecord.expiresAtMs,
     remainingUses: targetRecord.remainingUses,
-    updatedAtMs: Date.now(),
+    // Preserve the exact session generation so material retention cannot steal
+    // the broad current slot from a concurrently newer record.
+    updatedAtMs: targetRecord.updatedAtMs,
     source: targetRecord.source,
   };
   const updated =
@@ -464,6 +471,30 @@ function publishPasskeyEd25519SealedRecordForAccount(args: {
   return record;
 }
 
+function exactPasskeyEd25519ReconnectLaneIdentity(args: {
+  nearAccountId: AccountId;
+  record: ThresholdEd25519SessionRecord;
+  signerSlot: number;
+  sessionId: string;
+  signingGrantId: string;
+}) {
+  return exactEd25519SigningLaneIdentity({
+    signer: nearEd25519SignerBindingFromBoundaryFields({
+      walletId: args.record.walletId,
+      nearAccountId: args.nearAccountId,
+      nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
+      signerSlot: args.signerSlot,
+    }),
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(args.record.rpId),
+      credentialIdB64u: String(args.record.passkeyCredentialIdB64u || '').trim(),
+    },
+    signingGrantId: args.signingGrantId,
+    thresholdSessionId: args.sessionId,
+  });
+}
+
 export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
   nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord;
@@ -496,9 +527,13 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
   }
   const provisioned = await args.provisionThresholdEd25519Session({
     kind: 'exact_ed25519_provisioning',
-    walletId: String(args.record.walletId),
-    nearAccountId: args.nearAccountId,
-    nearEd25519SigningKeyId: String(args.record.nearEd25519SigningKeyId),
+    laneIdentity: exactPasskeyEd25519ReconnectLaneIdentity({
+      nearAccountId: args.nearAccountId,
+      record: args.record,
+      signerSlot,
+      sessionId,
+      signingGrantId,
+    }),
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source: 'login',
@@ -520,9 +555,6 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     routerAbNormalSigning: args.record.routerAbNormalSigning,
     participantIds: args.record.participantIds,
     sessionKind: 'jwt',
-    signerSlot,
-    sessionId,
-    signingGrantId,
     remainingUses: reconnectRemainingUses,
   });
   if (!provisioned.ok) {

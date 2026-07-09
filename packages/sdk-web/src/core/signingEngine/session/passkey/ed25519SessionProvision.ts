@@ -1,4 +1,4 @@
-import { toAccountId } from '@/core/types/accountIds';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import { cacheCredentialBoundarySetupExportPrfFirst, generateSessionId } from './prfCache';
@@ -11,9 +11,19 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
+import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 type Ed25519MintAuthorization = NonNullable<ConnectEd25519SessionInput['auth']>;
+
+type ResolvedEd25519ProvisionProtocol = {
+  walletId: string;
+  nearAccountId: AccountId | string;
+  nearEd25519SigningKeyId: string;
+  signerSlot: number;
+  sessionId: string;
+  signingGrantId?: string;
+};
 
 export type ProvisionThresholdEd25519SessionDeps = {
   credentialStore: ConnectEd25519SessionInput['credentialStore'];
@@ -67,11 +77,55 @@ function passkeyCredentialIdB64uFromMintAuthorization(auth: Ed25519MintAuthoriza
   throw new Error('[threshold-ed25519] unsupported mint authorization');
 }
 
+function resolveEd25519ProvisionProtocol(
+  args: ProvisionWarmEd25519CapabilityArgs,
+): ResolvedEd25519ProvisionProtocol {
+  switch (args.kind) {
+    case 'fresh_ed25519_provisioning':
+      return {
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+        signerSlot: args.signerSlot,
+        sessionId: generateSessionId('threshold-ed25519'),
+      };
+    case 'exact_ed25519_provisioning': {
+      const projection = nearProtocolProjectionFromExactLane(
+        args.laneIdentity,
+        'exact Ed25519 capability provisioning',
+      );
+      return {
+        walletId: String(projection.walletId),
+        nearAccountId: projection.nearAccountId,
+        nearEd25519SigningKeyId: String(projection.nearEd25519SigningKeyId),
+        signerSlot: projection.signerSlot,
+        sessionId: String(args.laneIdentity.thresholdSessionId),
+        signingGrantId: String(args.laneIdentity.signingGrantId),
+      };
+    }
+  }
+  args satisfies never;
+  throw new Error('[threshold-ed25519] unsupported Ed25519 provisioning kind');
+}
+
+function exactEd25519ProvisionReturnedDifferentIdentity(args: {
+  requested: ResolvedEd25519ProvisionProtocol;
+  returnedSessionId: string;
+  returnedSigningGrantId: string;
+}): boolean {
+  return (
+    args.requested.signingGrantId !== undefined &&
+    (args.returnedSessionId !== args.requested.sessionId ||
+      args.returnedSigningGrantId !== args.requested.signingGrantId)
+  );
+}
+
 export async function provisionThresholdEd25519Session(
   deps: ProvisionThresholdEd25519SessionDeps,
   args: ProvisionWarmEd25519CapabilityArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const protocol = resolveEd25519ProvisionProtocol(args);
+  const nearAccountId = toAccountId(protocol.nearAccountId);
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   const sessionKind = 'jwt';
@@ -82,17 +136,13 @@ export async function provisionThresholdEd25519Session(
     throw new Error('Missing participantIds for threshold Ed25519 session provision');
   }
   const workerCtx = deps.getSignerWorkerContext();
-  const sessionId =
-    args.kind === 'exact_ed25519_provisioning'
-      ? String(args.sessionId || '').trim()
-      : generateSessionId('threshold-ed25519');
   const connected = await connectEd25519Session({
     credentialStore: deps.credentialStore,
     touchIdPrompt: deps.touchIdPrompt,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
-    walletId: args.walletId,
-    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    walletId: protocol.walletId,
+    nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
     authority: args.authority,
     ...(args.auth ? { auth: args.auth } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -101,9 +151,9 @@ export async function provisionThresholdEd25519Session(
     nearAccountId,
     participantIds,
     sessionKind,
-    sessionId,
+    sessionId: protocol.sessionId,
     ...(args.kind === 'exact_ed25519_provisioning'
-      ? { signingGrantId: args.signingGrantId }
+      ? { signingGrantId: protocol.signingGrantId }
       : {}),
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
@@ -117,7 +167,7 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
-  const resolvedSessionId = String(connected.sessionId || sessionId).trim();
+  const resolvedSessionId = String(connected.sessionId || protocol.sessionId).trim();
   const signingGrantId = String(connected.signingGrantId || '').trim();
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
@@ -136,14 +186,27 @@ export async function provisionThresholdEd25519Session(
       message: 'Threshold Ed25519 session mint returned incomplete lifecycle metadata',
     };
   }
+  if (
+    exactEd25519ProvisionReturnedDifferentIdentity({
+      requested: protocol,
+      returnedSessionId: resolvedSessionId,
+      returnedSigningGrantId: signingGrantId,
+    })
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_result',
+      message: 'Threshold Ed25519 exact provisioning returned a different lifecycle identity',
+    };
+  }
 
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
   if (args.source === 'email_otp') {
     persist({
       kind: 'jwt_email_otp',
-      walletId: args.walletId,
+      walletId: protocol.walletId,
       nearAccountId,
-      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
       rpId: deps.touchIdPrompt.getRpId(),
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
@@ -153,7 +216,7 @@ export async function provisionThresholdEd25519Session(
       routerAbNormalSigning: args.routerAbNormalSigning,
       participantIds,
       sessionKind: 'jwt',
-      signerSlot: args.signerSlot,
+      signerSlot: protocol.signerSlot,
       sessionId: resolvedSessionId,
       signingGrantId,
       expiresAtMs,
@@ -169,9 +232,9 @@ export async function provisionThresholdEd25519Session(
     }
     persist({
       kind: 'jwt_passkey',
-      walletId: args.walletId,
+      walletId: protocol.walletId,
       nearAccountId,
-      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
       rpId: deps.touchIdPrompt.getRpId(),
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
@@ -181,7 +244,7 @@ export async function provisionThresholdEd25519Session(
       routerAbNormalSigning: args.routerAbNormalSigning,
       participantIds,
       sessionKind: 'jwt',
-      signerSlot: args.signerSlot,
+      signerSlot: protocol.signerSlot,
       sessionId: resolvedSessionId,
       signingGrantId,
       expiresAtMs,
@@ -194,7 +257,7 @@ export async function provisionThresholdEd25519Session(
 
   if (prfFirstB64u) {
     const transport = sealTransportForProvisionedEd25519Session({
-      walletId: args.walletId,
+      walletId: protocol.walletId,
       relayerUrl,
       signingGrantId,
       walletSessionJwt: jwt,

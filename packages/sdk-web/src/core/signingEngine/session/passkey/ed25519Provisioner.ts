@@ -1,4 +1,4 @@
-import { toAccountId } from '@/core/types/accountIds';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
   emitWarmSessionTransition,
   summarizeWarmSessionTransition,
@@ -10,6 +10,7 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
+import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
 import { toWalletId, type WalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type WarmSessionEd25519ProvisionerDeps = {
@@ -34,12 +35,37 @@ function assertPersistedEd25519WarmSessionRecord(args: {
   );
 }
 
+function walletIdFromEd25519ProvisionArgs(args: ProvisionWarmEd25519CapabilityArgs): WalletId {
+  if (args.kind === 'exact_ed25519_provisioning') {
+    return toWalletId(
+      nearProtocolProjectionFromExactLane(
+        args.laneIdentity,
+        'exact Ed25519 capability provisioning',
+      ).walletId,
+    );
+  }
+  return toWalletId(args.walletId);
+}
+
+function nearAccountIdFromEd25519ProvisionArgs(
+  args: ProvisionWarmEd25519CapabilityArgs,
+): AccountId {
+  const nearAccountId =
+    args.kind === 'exact_ed25519_provisioning'
+      ? nearProtocolProjectionFromExactLane(
+          args.laneIdentity,
+          'exact Ed25519 capability provisioning',
+        ).nearAccountId
+      : args.nearAccountId;
+  return toAccountId(nearAccountId);
+}
+
 export async function provisionWarmEd25519Capability(
   deps: WarmSessionEd25519ProvisionerDeps,
   args: ProvisionWarmEd25519CapabilityArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
-  const walletId = toWalletId(args.walletId);
+  const nearAccountId = nearAccountIdFromEd25519ProvisionArgs(args);
+  const walletId = walletIdFromEd25519ProvisionArgs(args);
   if (!walletId) {
     throw new Error('[WarmSessionStore] walletId is required to provision Ed25519 capability');
   }

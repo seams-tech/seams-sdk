@@ -1,7 +1,7 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { buildPasskeyEd25519SessionPolicy, type ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
@@ -28,6 +28,7 @@ import type {
 } from '../../session/emailOtp/exportRecoveryRuntime';
 import { walletSessionRefFromSession } from '../../interfaces/ecdsaChainTarget';
 import type { ExactNearEd25519ExportLane } from './exportLaneSelection';
+import { exactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import {
   type EmailOtpNearAccountExportAuthorizationDeps,
   isExportViewerSessionOpen,
@@ -49,7 +50,7 @@ import type { RecoveryNearKeyMaterialStorePort } from './recoveryStorePorts';
 export type NearEd25519SingleKeyExportDeps = {
   keyMaterialStore: RecoveryNearKeyMaterialStorePort;
   touchConfirm: Parameters<typeof showNearEd25519ExportViewer>[0]['touchConfirm'];
-  theme?: ThemeName;
+  theme?: ThemeMode;
   emailOtpSessions: {
     requestExportChallenge: EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge'];
     exportEd25519SeedWithAuthorization: (
@@ -72,6 +73,19 @@ type NearEd25519SingleKeyExportArgs = {
   flowId: string;
   onEvent?: KeyExportEventCallback;
 };
+
+function exactEd25519ExportProvisionLaneIdentity(args: {
+  exportLane: ExactNearEd25519ExportLane;
+  thresholdSessionId: string;
+  signingGrantId: string;
+}) {
+  return exactEd25519SigningLaneIdentity({
+    signer: args.exportLane.laneIdentity.signer,
+    auth: args.exportLane.laneIdentity.auth,
+    signingGrantId: args.signingGrantId,
+    thresholdSessionId: args.thresholdSessionId,
+  });
+}
 
 type ExportedKeySchemes = Array<'ed25519' | 'secp256k1'>;
 
@@ -302,6 +316,7 @@ function emitNearEd25519MaterialSucceeded(args: {
 async function prepareFreshPasskeyEd25519ExportAuthority(
   deps: NearEd25519SingleKeyExportDeps,
   args: {
+    exportLane: ExactNearEd25519ExportLane;
     record: ThresholdEd25519SessionRecord;
     nearAccountId: AccountId;
     expectedPublicKey: string;
@@ -354,9 +369,11 @@ async function prepareFreshPasskeyEd25519ExportAuthority(
   });
   const provisioned = await deps.provisionThresholdEd25519Session({
     kind: 'exact_ed25519_provisioning',
-    walletId: String(args.record.walletId),
-    nearAccountId: args.nearAccountId,
-    nearEd25519SigningKeyId: String(args.record.nearEd25519SigningKeyId),
+    laneIdentity: exactEd25519ExportProvisionLaneIdentity({
+      exportLane: args.exportLane,
+      thresholdSessionId: planned.policy.thresholdSessionId,
+      signingGrantId: planned.policy.signingGrantId,
+    }),
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source,
@@ -375,9 +392,6 @@ async function prepareFreshPasskeyEd25519ExportAuthority(
     routerAbNormalSigning: args.record.routerAbNormalSigning,
     participantIds: args.record.participantIds,
     sessionKind: 'jwt',
-    signerSlot,
-    sessionId: planned.policy.thresholdSessionId,
-    signingGrantId: planned.policy.signingGrantId,
     remainingUses: planned.policy.remainingUses,
   });
   if (!provisioned.ok) {
@@ -680,6 +694,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     const exportAuthority = await prepareFreshPasskeyEd25519ExportAuthority(
       deps,
       {
+        exportLane: args.exportLane,
         record: sessionRecord,
         nearAccountId,
         expectedPublicKey,

@@ -144,8 +144,15 @@ import {
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRuntimePolicyScope,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
   type EvmFamilyEcdsaKeyIdentity,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
+  type ExactEd25519SigningLaneIdentity,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   buildConfiguredTargetKeyCompletion,
   collectConfiguredTargetThresholdEcdsaWarmKeys,
@@ -809,6 +816,93 @@ function requireRequestedLoginEd25519SessionAuthority(
     throw new Error('[login] threshold Ed25519 warm-up authority is missing');
   }
   return authority;
+}
+
+function loginEd25519ExactProvisionAuthBinding(
+  authority: Exclude<LoginWarmupEd25519SessionAuthority, { kind: 'not_requested' }>,
+): SigningLaneAuthBinding {
+  switch (authority.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        rpId: toRpId(authority.authority.authority.verifier.rpId),
+        credentialIdB64u: String(
+          authority.authority.authority.factor.credentialIdB64u || '',
+        ).trim(),
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp',
+        providerSubjectId: String(
+          authority.authority.authority.factor.providerUserId || '',
+        ).trim(),
+      };
+  }
+  authority satisfies never;
+  throw new Error('[login] unsupported Ed25519 exact provision authority');
+}
+
+function loginEd25519ExactProvisionLaneIdentity(args: {
+  walletBinding: ResolvedLoginWalletBinding;
+  signerSlot: number;
+  sessionId: string;
+  signingGrantId: string;
+  authority: Exclude<LoginWarmupEd25519SessionAuthority, { kind: 'not_requested' }>;
+}): ExactEd25519SigningLaneIdentity {
+  return exactEd25519SigningLaneIdentity({
+    signer: nearEd25519SignerBindingFromBoundaryFields({
+      walletId: args.walletBinding.walletId,
+      nearAccountId: args.walletBinding.nearAccountId,
+      nearEd25519SigningKeyId: args.walletBinding.nearEd25519SigningKeyId,
+      signerSlot: args.signerSlot,
+    }),
+    auth: loginEd25519ExactProvisionAuthBinding(args.authority),
+    signingGrantId: args.signingGrantId,
+    thresholdSessionId: args.sessionId,
+  });
+}
+
+function resolveLoginWarmEd25519ProvisioningIdentity(args: {
+  mintPlan: LoginWarmupEd25519MintPlan;
+  ecdsaMint: ThresholdEcdsaAuthorizedEd25519Mint | null;
+  walletBinding: ResolvedLoginWalletBinding;
+  signerSlot: number;
+  authority: Exclude<LoginWarmupEd25519SessionAuthority, { kind: 'not_requested' }>;
+}) {
+  switch (args.mintPlan.kind) {
+    case 'not_requested':
+      throw new Error('[login] threshold Ed25519 mint plan is missing');
+    case 'session_policy_webauthn':
+      return {
+        kind: 'exact_ed25519_provisioning' as const,
+        laneIdentity: loginEd25519ExactProvisionLaneIdentity({
+          walletBinding: args.walletBinding,
+          signerSlot: args.signerSlot,
+          sessionId: args.mintPlan.sessionId,
+          signingGrantId: args.mintPlan.signingGrantId,
+          authority: args.authority,
+        }),
+      };
+    case 'fresh':
+      return { kind: 'fresh_ed25519_provisioning' as const };
+    case 'ecdsa_authorized':
+      if (!args.ecdsaMint) {
+        throw new Error(
+          '[login] threshold Ed25519 warm-up requires the ECDSA bootstrap session minted during unlock',
+        );
+      }
+      return {
+        kind: 'exact_ed25519_provisioning' as const,
+        laneIdentity: loginEd25519ExactProvisionLaneIdentity({
+          walletBinding: args.walletBinding,
+          signerSlot: args.signerSlot,
+          sessionId: args.mintPlan.sessionId,
+          signingGrantId: args.ecdsaMint.signingGrantId,
+          authority: args.authority,
+        }),
+      };
+  }
+  return assertNeverLoginState(args.mintPlan);
 }
 
 function requirePasskeyLoginEd25519SessionAuthority(
@@ -2629,42 +2723,18 @@ async function primeThresholdLoginWarmSigners(args: {
             localPrfFirstB64u: String(ecdsaMint?.passkeyPrfFirstB64u || ''),
           });
         })();
-        const ed25519ProvisioningIdentity = (() => {
-          switch (args.ed25519MintPlan.kind) {
-            case 'not_requested':
-              throw new Error('[login] threshold Ed25519 mint plan is missing');
-            case 'session_policy_webauthn':
-              return {
-                kind: 'exact_ed25519_provisioning' as const,
-                sessionId: args.ed25519MintPlan.sessionId,
-                signingGrantId: args.ed25519MintPlan.signingGrantId,
-              };
-            case 'fresh':
-              return { kind: 'fresh_ed25519_provisioning' as const };
-            case 'ecdsa_authorized':
-              if (!ecdsaMint) {
-                throw new Error(
-                  '[login] threshold Ed25519 warm-up requires the ECDSA bootstrap session minted during unlock',
-                );
-              }
-              return {
-                kind: 'exact_ed25519_provisioning' as const,
-                sessionId: args.ed25519MintPlan.sessionId,
-                signingGrantId: ecdsaMint.signingGrantId,
-              };
-            default:
-              return assertNeverLoginState(args.ed25519MintPlan);
-          }
-        })();
         const ed25519SessionAuthority = requireRequestedLoginEd25519SessionAuthority(
           args.ed25519SessionAuthority,
         );
+        const ed25519ProvisioningIdentity = resolveLoginWarmEd25519ProvisioningIdentity({
+          mintPlan: args.ed25519MintPlan,
+          ecdsaMint,
+          walletBinding: args.walletBinding,
+          signerSlot: args.signerSlot,
+          authority: ed25519SessionAuthority,
+        });
         const routerAbNormalSigning = createRouterAbNormalSigningPolicy(args.context.configs);
-        const commonEd25519ConnectArgs = {
-          ...ed25519ProvisioningIdentity,
-          walletId: String(args.walletBinding.walletId),
-          nearAccountId: args.walletBinding.nearAccountId,
-          nearEd25519SigningKeyId: args.walletBinding.nearEd25519SigningKeyId,
+        const sharedEd25519ConnectArgs = {
           relayerUrl: args.relayerUrl,
           relayerKeyId: args.relayerKeyId,
           ...(auth ? { auth } : {}),
@@ -2675,10 +2745,23 @@ async function primeThresholdLoginWarmSigners(args: {
           ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
           participantIds: args.participantIds,
           sessionKind: 'jwt' as const,
-          signerSlot: args.signerSlot,
           ttlMs: args.ttlMs,
           remainingUses: unlockRemainingUses,
         };
+        const commonEd25519ConnectArgs =
+          ed25519ProvisioningIdentity.kind === 'fresh_ed25519_provisioning'
+            ? {
+                ...ed25519ProvisioningIdentity,
+                walletId: String(args.walletBinding.walletId),
+                nearAccountId: args.walletBinding.nearAccountId,
+                nearEd25519SigningKeyId: args.walletBinding.nearEd25519SigningKeyId,
+                signerSlot: args.signerSlot,
+                ...sharedEd25519ConnectArgs,
+              }
+            : {
+                ...ed25519ProvisioningIdentity,
+                ...sharedEd25519ConnectArgs,
+              };
         const connected =
           ed25519SessionAuthority.kind === 'email_otp'
             ? await args.signingEngine.connectEd25519Session({

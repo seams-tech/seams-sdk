@@ -30,6 +30,7 @@ const ROUTER_AB_NORMAL_SIGNING = {
   kind: 'router_ab_ed25519_normal_signing_v1',
   signingWorkerId: 'local-signing-worker',
 } as const;
+let nextTestUpdatedAtMs = 1_900_000_000_000;
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',
   rawId: 'credential-id',
@@ -51,6 +52,11 @@ const TEST_WEBAUTHN_CREDENTIAL = {
   },
 };
 
+function nextEd25519RecoveryTestUpdatedAtMs(): number {
+  nextTestUpdatedAtMs += 1;
+  return nextTestUpdatedAtMs;
+}
+
 function writeEd25519Record(args: {
   thresholdSessionId: string;
   signingGrantId: string;
@@ -58,6 +64,7 @@ function writeEd25519Record(args: {
   withWorkerMaterial?: boolean;
   withStorageRefOnlyWorkerMaterial?: boolean;
   signingWorkerId?: string;
+  updatedAtMs?: number;
 }) {
   const workerMaterialFields = args.withWorkerMaterial
     ? {
@@ -102,6 +109,7 @@ function writeEd25519Record(args: {
     walletSessionJwt: `jwt:${args.thresholdSessionId}`,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 1,
+    updatedAtMs: args.updatedAtMs ?? nextEd25519RecoveryTestUpdatedAtMs(),
     source: 'login',
   });
   if (!record) throw new Error('expected Ed25519 test record');
@@ -168,6 +176,7 @@ function makePasskeyEd25519SealedRecord(args: {
 
 test.describe('passkey Ed25519 reconnect recovery', () => {
   test.beforeEach(() => {
+    nextTestUpdatedAtMs = 1_900_000_000_000;
     clearAllStoredThresholdEd25519SessionRecords();
   });
 
@@ -370,8 +379,8 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
       signingGrantId: plannedSigningGrantId,
       provisionThresholdEd25519Session: async (request) => {
         expect(request.kind).toBe('exact_ed25519_provisioning');
-        expect(request.sessionId).toBe(plannedSessionId);
-        expect(request.signingGrantId).toBe(plannedSigningGrantId);
+        expect(String(request.laneIdentity.thresholdSessionId)).toBe(plannedSessionId);
+        expect(String(request.laneIdentity.signingGrantId)).toBe(plannedSigningGrantId);
         writeEd25519Record({
           thresholdSessionId: plannedSessionId,
           signingGrantId: plannedSigningGrantId,

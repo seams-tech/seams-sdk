@@ -20,12 +20,14 @@ import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   type EmailOtpAuthUse,
 } from './identity/laneIdentity';
+import type { ExactEd25519SigningLaneIdentity } from './identity/exactSigningLaneIdentity';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const bootstrap: ThresholdEcdsaSessionBootstrapResult;
 declare const routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 declare const rpId: WebAuthnRpId;
+declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
 const passkeyWalletAuthAuthority = buildPasskeyWalletAuthAuthority({
   walletId,
   rpId,
@@ -115,16 +117,11 @@ void invalidListThresholdEcdsaSessionRecordsForWalletTargetArgs;
 
 const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',
-  walletId,
-  nearAccountId: 'alice.testnet',
-  nearEd25519SigningKeyId: 'ed25519ks_alice',
+  laneIdentity: exactEd25519LaneIdentity,
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],
   sessionKind: 'jwt',
-  signerSlot: 1,
-  sessionId: 'threshold-ed25519-session-1',
-  signingGrantId: 'wallet-session-1',
   source: 'email_otp',
   authority: { kind: 'wallet_auth_authority', authority: emailOtpAuthContext.authority },
   emailOtpAuthContext,
@@ -203,16 +200,11 @@ void invalidEmailOtpEd25519PolicyParamsWithRpId;
 // @ts-expect-error Email OTP Ed25519 session minting must use Email OTP wallet authority.
 const invalidEmailOtpEd25519SessionPasskeyAuthorityArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',
-  walletId,
-  nearAccountId: 'alice.testnet',
-  nearEd25519SigningKeyId: 'ed25519ks_alice',
+  laneIdentity: exactEd25519LaneIdentity,
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],
   sessionKind: 'jwt',
-  signerSlot: 1,
-  sessionId: 'threshold-ed25519-session-1',
-  signingGrantId: 'wallet-session-1',
   source: 'email_otp',
   authority: { kind: 'wallet_auth_authority', authority: passkeyWalletAuthAuthority },
   emailOtpAuthContext,

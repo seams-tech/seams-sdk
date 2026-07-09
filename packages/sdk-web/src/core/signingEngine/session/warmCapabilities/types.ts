@@ -526,9 +526,6 @@ export function assertWarmSessionEnvelopeInvariant(
   return envelope;
 }
 type ProvisionWarmEd25519CapabilityBaseArgs = {
-  walletId: string;
-  nearAccountId: AccountId | string;
-  nearEd25519SigningKeyId: string;
   relayerKeyId: string;
   auth?: Ed25519WalletSessionMintAuthorization;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -539,7 +536,6 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
   };
   participantIds: readonly number[];
   sessionKind: 'jwt';
-  signerSlot: number;
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -565,14 +561,24 @@ type ProvisionWarmEd25519CapabilityCommonArgs =
 
 export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'fresh_ed25519_provisioning';
+  walletId: string;
+  nearAccountId: AccountId | string;
+  nearEd25519SigningKeyId: string;
+  signerSlot: number;
+  laneIdentity?: never;
   sessionId?: never;
   signingGrantId?: never;
 };
 
 export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'exact_ed25519_provisioning';
-  sessionId: string;
-  signingGrantId: string;
+  laneIdentity: ExactEd25519SigningLaneIdentity;
+  walletId?: never;
+  nearAccountId?: never;
+  nearEd25519SigningKeyId?: never;
+  signerSlot?: never;
+  sessionId?: never;
+  signingGrantId?: never;
 };
 
 export type ProvisionWarmEd25519CapabilityArgs =
