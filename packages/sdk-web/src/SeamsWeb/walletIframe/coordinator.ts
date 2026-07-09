@@ -1,6 +1,6 @@
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThemeName, SeamsConfigsReadonly } from '@/core/types/seams';
+import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WalletIframeRouter } from '@/SeamsWeb/walletIframe/client/router';
 import type { WalletIframeTransportDiagnostics } from '@/SeamsWeb/walletIframe/client/transport/IframeTransport';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
@@ -12,7 +12,7 @@ export interface WalletIframeCoordinatorDeps {
   configs: SeamsConfigsReadonly;
   signingEngine: WalletIframeWarmupSurface;
   userPreferences: UserPreferencesManager;
-  getTheme: () => ThemeName;
+  getAppearance: () => AppearanceConfig;
   refreshWalletSession: (walletId?: string) => Promise<void>;
 }
 
@@ -24,7 +24,7 @@ export class WalletIframeCoordinator {
   private readonly configs: SeamsConfigsReadonly;
   private readonly signingEngine: WalletIframeWarmupSurface;
   private readonly userPreferences: UserPreferencesManager;
-  private readonly getTheme: () => ThemeName;
+  private readonly getAppearance: () => AppearanceConfig;
   private readonly refreshWalletSession: (walletId?: string) => Promise<void>;
 
   private iframeRouter: WalletIframeRouter | null = null;
@@ -35,7 +35,7 @@ export class WalletIframeCoordinator {
     this.configs = deps.configs;
     this.signingEngine = deps.signingEngine;
     this.userPreferences = deps.userPreferences;
-    this.getTheme = deps.getTheme;
+    this.getAppearance = deps.getAppearance;
     this.refreshWalletSession = deps.refreshWalletSession;
   }
 
@@ -103,7 +103,7 @@ export class WalletIframeCoordinator {
           this.iframeRouter = await createWalletIframeRouter({
             configs: this.configs,
             walletOrigin,
-            getTheme: this.getTheme,
+            getAppearance: this.getAppearance,
           });
 
           this.ensureWalletIframePreferencesMirror(this.iframeRouter);

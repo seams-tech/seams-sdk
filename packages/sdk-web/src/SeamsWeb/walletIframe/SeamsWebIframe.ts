@@ -46,7 +46,8 @@ import type {
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SignTransactionResult,
-  ThemeName,
+  AppearanceConfig,
+  ThemeMode,
   AppearanceConfigInput,
   SeamsConfigsReadonly,
   SeamsConfigsInput,
@@ -72,11 +73,11 @@ import {
 } from '@/core/types/signer-worker';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { toError } from '@shared/utils/errors';
-import { coerceThemeName } from '@shared/utils/theme';
 import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
+import { resolveAppearanceTheme, resolveThemePalette } from '@/core/config/configHelpers';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { configureIndexedDB } from '@/core/indexedDB';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -114,9 +115,28 @@ import {
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 
+function resolveRuntimeAppearance(
+  current: AppearanceConfig,
+  input: AppearanceConfigInput,
+): AppearanceConfig {
+  const rawInput = input as Record<string, unknown>;
+  return {
+    theme: resolveAppearanceTheme({
+      value: rawInput.theme,
+      fallback: current.theme,
+      legacyTokens: rawInput.tokens,
+    }),
+    palette: resolveThemePalette({
+      value: rawInput.palette,
+      fallback: current.palette,
+    }),
+  };
+}
+
 export class SeamsWebIframe {
   readonly configs: SeamsConfigsReadonly;
-  theme: ThemeName;
+  private appearance: AppearanceConfig;
+  theme: ThemeMode;
   private router: WalletIframeRouter;
   private lastConfirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
   private prefsUnsubscribe: (() => void) | null = null;
@@ -195,7 +215,8 @@ export class SeamsWebIframe {
       }
     }
 
-    this.theme = 'dark';
+    this.appearance = this.configs.ui.appearance;
+    this.theme = this.appearance.theme.mode;
     this.lastConfirmationConfig = { ...DEFAULT_CONFIRMATION_CONFIG } as ConfirmationConfig;
     const signingSessionPersistenceMode = this.configs.signing.sessionPersistenceMode;
     const signingSessionSeal =
@@ -226,6 +247,7 @@ export class SeamsWebIframe {
       // relayer: configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
+      appearance: this.appearance,
     });
     this.auth = {
       unlock: async (walletId, options) => await this.unlockDomain(walletId, options),
@@ -1055,21 +1077,19 @@ export class SeamsWebIframe {
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
-  setTheme(next: ThemeName): void {
-    const nextTheme = coerceThemeName(next);
-    if (!nextTheme) return;
-    this.setAppearance({ theme: nextTheme });
+  setTheme(next: ThemeMode): void {
+    if (next !== 'light' && next !== 'dark') return;
+    this.setAppearance({
+      theme: {
+        ...this.appearance.theme,
+        mode: next,
+      },
+    });
   }
-  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void {
-    const nextTheme = coerceThemeName(appearance.theme);
-    const normalizedAppearance = {
-      ...(nextTheme ? { theme: nextTheme } : {}),
-      ...(appearance.tokens ? { tokens: appearance.tokens } : {}),
-    };
-    if (!nextTheme && !appearance.tokens) return;
-    if (nextTheme) {
-      this.theme = nextTheme;
-    }
+  setAppearance(appearance: AppearanceConfigInput): void {
+    const normalizedAppearance = resolveRuntimeAppearance(this.appearance, appearance);
+    this.appearance = normalizedAppearance;
+    this.theme = normalizedAppearance.theme.mode;
     void this.router
       .setAppearance(normalizedAppearance)
       .then(() => this.refreshConfirmationConfig())

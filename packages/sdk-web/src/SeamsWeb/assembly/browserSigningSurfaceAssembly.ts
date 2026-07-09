@@ -44,7 +44,7 @@ import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/Sig
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/warmup';
-import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
+import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 
@@ -81,7 +81,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey;
   getWorkerBaseOrigin: () => string;
   workerWarmupPolicy: WorkerResourceWarmupPolicy;
-  getTheme: () => ThemeName;
+  getTheme: () => ThemeMode;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   restorePasskeyEd25519SigningMaterial: Parameters<
     typeof createSigningEnginePorts

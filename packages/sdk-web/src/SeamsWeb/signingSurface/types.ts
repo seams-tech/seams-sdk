@@ -26,7 +26,7 @@ import type {
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
-import type { AppearanceConfigInput, SeamsConfigsReadonly } from '@/core/types/seams';
+import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 
 export type {
@@ -106,10 +106,10 @@ export interface SeamsWebSigningSurface
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
     KeyExportSigningSurface,
-    ThresholdEd25519HssClientSurface,
-    ThresholdEd25519HssCeremonySurface {
+  ThresholdEd25519HssClientSurface,
+  ThresholdEd25519HssCeremonySurface {
   readonly seamsWebConfigs: SeamsConfigsReadonly;
-  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void;
+  setAppearance(appearance: AppearanceConfig): void;
   getUserPreferences(): UserPreferencesManager;
 }
 

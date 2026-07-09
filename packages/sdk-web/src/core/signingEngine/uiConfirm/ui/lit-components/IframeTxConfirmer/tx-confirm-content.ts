@@ -9,7 +9,8 @@ import TxTree from '../TxTree';
 import { buildDisplayTreeFromModel, buildDisplayTreeFromTxPayloads } from '../TxTree/tx-tree-utils';
 import { ensureExternalStyles } from '../css/css-loader';
 import { W3A_TX_TREE_ID } from '../../registry';
-import type { ThemeName } from '../../confirm-ui-types';
+import type { ThemeMode } from '../../confirm-ui-types';
+import type { AppearanceConfig } from '@/core/types/seams';
 import type {
   TxDisplayModel,
   TxDisplayOperation,
@@ -32,6 +33,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
     intentDigest: { type: String, attribute: 'intent-digest' },
     securityContext: { type: Object },
     theme: { type: String },
+    appearance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
     title: { type: String },
@@ -54,7 +56,8 @@ export class TxConfirmContentElement extends LitElementWithProps {
   declare model?: TxDisplayModel;
   declare intentDigest?: string;
   declare securityContext?: Partial<UserConfirmSecurityContext>;
-  declare theme: ThemeName;
+  declare theme: ThemeMode;
+  declare appearance?: AppearanceConfig;
   declare loading: boolean;
   declare errorMessage?: string;
   declare title: string;
@@ -103,6 +106,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
     this.txSigningRequests = [];
     this.model = undefined;
     this.theme = 'dark';
+    this.appearance = undefined;
     this.loading = false;
     this.title = 'Review Transaction';
     this.confirmText = 'Confirm';
@@ -128,6 +132,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.applyAppearanceTokenVars();
     // Reflect tooltip width var for nested components
     this._applyTooltipWidthVar();
     this._scheduleConfirmArm();
@@ -194,6 +199,9 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   updated(changed: PropertyValues) {
     super.updated(changed);
+    if (changed.has('theme') || changed.has('appearance')) {
+      this.applyAppearanceTokenVars();
+    }
     if (changed.has('tooltipWidth')) {
       this._applyTooltipWidthVar();
     }
@@ -314,6 +322,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
                 light-dom
                 .node=${this._treeNode}
                 .theme=${treeTheme}
+                .appearance=${this.appearance}
                 .nearExplorerUrl=${nearExplorerBase}
                 .tempoExplorerUrl=${this.tempoExplorerUrl}
                 .evmExplorerUrl=${this.evmExplorerUrl}
@@ -362,6 +371,10 @@ export class TxConfirmContentElement extends LitElementWithProps {
       cancelAnimationFrame(this._confirmArmRaf2);
       this._confirmArmRaf2 = null;
     }
+  }
+
+  private applyAppearanceTokenVars(): void {
+    this.setAppearanceCssVars(this.appearance);
   }
 }
 

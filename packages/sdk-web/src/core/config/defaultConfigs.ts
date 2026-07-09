@@ -174,12 +174,12 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
   },
   ui: {
     appearance: {
-      theme: 'dark',
-      palette: 'default',
-      tokens: {
-        light: { colors: {} },
-        dark: { colors: {} },
+      theme: {
+        id: 'default',
+        mode: 'dark',
+        colors: {},
       },
+      palette: 'default',
     },
   },
 };

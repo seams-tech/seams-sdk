@@ -1,6 +1,7 @@
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { UserConfirmSecurityContext, TransactionInputWasm } from '@/core/types';
+import type { AppearanceConfig, ThemeMode } from '@/core/types/seams';
 import {
   isActionArgsWasm,
   toActionArgsWasm,
@@ -19,9 +20,7 @@ import type {
   ConfirmUIPromptDiagnostics,
   ConfirmUIUpdate,
   ConfirmationUIMode,
-  ThemeName,
 } from './confirm-ui-types';
-import { coerceThemeName } from '@shared/utils/theme';
 import {
   CONFIRM_UI_ELEMENT_SELECTORS,
   W3A_CONFIRM_PORTAL_ID,
@@ -64,7 +63,8 @@ interface HostTxConfirmerElement extends HTMLElement {
   model?: TxDisplayModel;
   intentDigest?: string;
   securityContext?: Partial<UserConfirmSecurityContext>;
-  theme?: ThemeName;
+  theme?: ThemeMode;
+  appearance?: AppearanceConfig;
   loading?: boolean;
   deferClose?: boolean;
   errorMessage?: string;
@@ -99,8 +99,37 @@ export async function prewarmTxConfirmerUi(): Promise<void> {
   await ensureTxConfirmerElementDefined();
 }
 
-function resolveTheme(ctx: UiConfirmContext, requested?: ThemeName): ThemeName {
-  return coerceThemeName(requested) || coerceThemeName(ctx.getTheme?.()) || 'dark';
+const DEFAULT_CONFIRM_APPEARANCE: AppearanceConfig = {
+  theme: {
+    id: 'default',
+    mode: 'dark',
+    colors: {},
+  },
+  palette: 'default',
+};
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === 'light' || value === 'dark';
+}
+
+function withAppearanceMode(appearance: AppearanceConfig, mode?: ThemeMode): AppearanceConfig {
+  if (!isThemeMode(mode) || mode === appearance.theme.mode) return appearance;
+  return {
+    ...appearance,
+    theme: {
+      ...appearance.theme,
+      mode,
+    },
+  };
+}
+
+function resolveAppearance(args: {
+  ctx: UiConfirmContext;
+  requestedAppearance?: AppearanceConfig;
+  requestedMode?: ThemeMode;
+}): AppearanceConfig {
+  const base = args.requestedAppearance ?? args.ctx.getAppearance?.() ?? DEFAULT_CONFIRM_APPEARANCE;
+  return withAppearanceMode(base, args.requestedMode);
 }
 
 function postWalletUiMessage(type: 'WALLET_UI_OPENED' | 'WALLET_UI_CLOSED'): void {
@@ -292,7 +321,18 @@ function applyHostElementProps(
     element.intentDigest = update.intentDigest;
   }
   if (update.securityContext != null) element.securityContext = update.securityContext;
-  if (update.theme != null) element.theme = update.theme;
+  if (Object.prototype.hasOwnProperty.call(update, 'appearance')) {
+    element.appearance = update.appearance;
+    if (update.appearance) element.theme = update.appearance.theme.mode;
+  }
+  if (update.theme != null) {
+    element.appearance = resolveAppearance({
+      ctx,
+      requestedAppearance: element.appearance,
+      requestedMode: update.theme,
+    });
+    element.theme = element.appearance.theme.mode;
+  }
   if (update.loading != null) element.loading = !!update.loading;
   if (update.confirmText != null) element.confirmText = update.confirmText;
   if (update.cancelText != null) element.cancelText = update.cancelText;
@@ -359,6 +399,7 @@ export async function mountConfirmUI({
   securityContext,
   loading,
   theme,
+  appearance,
   uiMode,
   nearAccountIdOverride,
   signingAuthMode,
@@ -370,7 +411,8 @@ export async function mountConfirmUI({
   model?: TxDisplayModel;
   securityContext?: Partial<UserConfirmSecurityContext>;
   loading?: boolean;
-  theme?: ThemeName;
+  theme?: ThemeMode;
+  appearance?: AppearanceConfig;
   uiMode: ConfirmationUIMode;
   nearAccountIdOverride?: string;
   signingAuthMode?: SigningAuthMode;
@@ -387,6 +429,7 @@ export async function mountConfirmUI({
     securityContext,
     loading,
     theme,
+    appearance,
     variant,
     nearAccountIdOverride,
     signingAuthMode,
@@ -403,6 +446,7 @@ export async function awaitConfirmUIDecision({
   securityContext,
   loading,
   theme,
+  appearance,
   uiMode,
   nearAccountIdOverride,
   onMounted,
@@ -415,7 +459,8 @@ export async function awaitConfirmUIDecision({
   model?: TxDisplayModel;
   securityContext?: Partial<UserConfirmSecurityContext>;
   loading?: boolean;
-  theme: ThemeName;
+  theme: ThemeMode;
+  appearance?: AppearanceConfig;
   uiMode: ConfirmationUIMode;
   nearAccountIdOverride: string;
   onMounted?: (handle: ConfirmUIHandle) => void;
@@ -444,6 +489,7 @@ export async function awaitConfirmUIDecision({
       securityContext,
       loading,
       theme,
+      appearance,
       variant: resolvedVariant,
       nearAccountIdOverride,
       signingAuthMode,
@@ -564,6 +610,7 @@ function mountHostElement({
   securityContext,
   loading,
   theme,
+  appearance,
   variant,
   nearAccountIdOverride,
   signingAuthMode,
@@ -575,7 +622,8 @@ function mountHostElement({
   model?: TxDisplayModel;
   securityContext?: Partial<UserConfirmSecurityContext>;
   loading?: boolean;
-  theme?: ThemeName;
+  theme?: ThemeMode;
+  appearance?: AppearanceConfig;
   variant?: 'modal' | 'drawer';
   nearAccountIdOverride?: string;
   signingAuthMode?: SigningAuthMode;
@@ -616,7 +664,12 @@ function mountHostElement({
   }
 
   if (securityContext) element.securityContext = securityContext;
-  element.theme = resolveTheme(ctx, theme);
+  element.appearance = resolveAppearance({
+    ctx,
+    requestedAppearance: appearance,
+    requestedMode: theme,
+  });
+  element.theme = element.appearance.theme.mode;
   if (loading != null) element.loading = !!loading;
   element.removeAttribute('data-error-message');
   element.deferClose = true;

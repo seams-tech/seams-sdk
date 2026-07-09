@@ -9,7 +9,8 @@ import { ensureExternalStyles } from '../css/css-loader';
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import type { PasskeyRegistrationConfirmDisplay, UserConfirmSecurityContext } from '@/core/types';
 import type { TransactionInputWasm } from '@/core/types';
-import type { ThemeName } from '../../confirm-ui-types';
+import type { ThemeMode } from '../../confirm-ui-types';
+import type { AppearanceConfig } from '@/core/types/seams';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import type {
@@ -57,6 +58,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     model: { attribute: false },
     securityContext: { type: Object },
     theme: { type: String, reflect: true },
+    appearance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
     body: { type: String },
@@ -82,9 +84,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   declare txSigningRequests?: TransactionInputWasm[];
   declare model?: TxDisplayModel;
   declare securityContext?: Partial<UserConfirmSecurityContext>;
-  // Theme tokens now come from external CSS (tx-confirmer.css)
-  // style injection has been removed to satisfy strict CSP.
-  declare theme: ThemeName;
+  declare theme: ThemeMode;
+  declare appearance?: AppearanceConfig;
   declare loading: boolean;
   declare errorMessage?: string;
   declare body: string;
@@ -442,6 +443,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     this.txSigningRequests = undefined;
     this.model = undefined;
     this.theme = 'dark';
+    this.appearance = undefined;
     this.loading = false;
     this.body = '';
     this.title = '';
@@ -466,6 +468,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.applyAppearanceTokenVars();
     // Ensure root token theme is applied immediately on mount
     try {
       const docEl = this.ownerDocument?.documentElement as HTMLElement | undefined;
@@ -528,6 +531,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
   updated(changed: PropertyValues) {
     super.updated(changed);
+    if (changed.has('theme') || changed.has('appearance')) {
+      this.applyAppearanceTokenVars();
+    }
     if (
       this._isEmailOtpMode() &&
       this.otpSubmitAnimating &&
@@ -634,6 +640,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
         <w3a-drawer
           .open=${this._open}
           theme=${this.theme}
+          .appearance=${this.appearance}
           .loading=${this.loading}
           .errorMessage=${this.errorMessage || ''}
           .height=${'auto'}
@@ -647,6 +654,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               <div class="hero passkey-registration-confirm__hero">
                 <w3a-passkey-halo-loading
                   .theme=${this.theme}
+                  .appearance=${this.appearance}
                   .animated=${!this.errorMessage}
                   .ringGap=${4}
                   .ringWidth=${4}
@@ -684,6 +692,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
       <w3a-drawer
         .open=${this._open}
         theme=${this.theme}
+        .appearance=${this.appearance}
         .loading=${this.loading}
         .errorMessage=${this.errorMessage || ''}
         .height=${'auto'}
@@ -771,6 +780,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               .intentDigest=${this.intentDigest}
               .securityContext=${this.securityContext}
               .theme=${this.theme}
+              .appearance=${this.appearance}
               .nearExplorerUrl=${this.nearExplorerUrl}
               .tempoExplorerUrl=${this.tempoExplorerUrl}
               .evmExplorerUrl=${this.evmExplorerUrl}
@@ -787,6 +797,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
         </div>
       </w3a-drawer>
     `;
+  }
+
+  private applyAppearanceTokenVars(): void {
+    this.setAppearanceCssVars(this.appearance);
   }
 }
 

@@ -1,9 +1,12 @@
 import type { UserConfirmSecurityContext } from '@/core/types';
+import type { AppearanceConfig, ThemeMode } from '@/core/types/seams';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import type {
   EmailOtpConfirmPrompt,
   SigningAuthMode,
 } from '@/core/signingEngine/stepUpConfirmation/types';
+
+export type { ThemeMode } from '@/core/types/seams';
 
 export interface ConfirmUIElement {
   /** When true, host controls element removal (two-phase close). */
@@ -14,8 +17,6 @@ export interface ConfirmUIElement {
 
 export type ConfirmationUIMode = 'none' | 'modal' | 'drawer';
 
-// Theme name used across confirm UI
-export type ThemeName = 'dark' | 'light';
 // Public handle returned by mount/await helpers
 
 export type ConfirmUIUpdate = {
@@ -23,7 +24,8 @@ export type ConfirmUIUpdate = {
   model?: TxDisplayModel;
   intentDigest?: string;
   securityContext?: Partial<UserConfirmSecurityContext>;
-  theme?: ThemeName;
+  theme?: ThemeMode;
+  appearance?: AppearanceConfig;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;

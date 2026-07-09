@@ -2,6 +2,7 @@ import React from 'react';
 import type { SeamsAuthMenuSocialLoginHandler } from '../types';
 import { ChromeIcon, AppleIcon, AtSignIcon } from './icons';
 import { ArrowRightAnim } from '../../ArrowRightAnim';
+import { LastUsedBadge } from './LastUsedBadge';
 
 export type SocialLoginHandlers = {
   google?: SeamsAuthMenuSocialLoginHandler;
@@ -14,6 +15,7 @@ export interface SocialProvidersProps {
   providers?: Array<keyof SocialLoginHandlers>;
   disabled?: boolean;
   onProviderClick?: (provider: keyof SocialLoginHandlers) => void;
+  lastUsedProvider?: keyof SocialLoginHandlers;
   providerCopy?: Partial<
     Record<keyof SocialLoginHandlers, { buttonLabel?: string; helperText?: string }>
   >;
@@ -33,6 +35,7 @@ export const SocialProviders: React.FC<SocialProvidersProps> = ({
   providers,
   disabled = false,
   onProviderClick,
+  lastUsedProvider,
   providerCopy,
 }) => {
   const helperIdBase = React.useId();
@@ -55,6 +58,7 @@ export const SocialProviders: React.FC<SocialProvidersProps> = ({
           (provider === 'google' ? 'Continue with Google' : `Continue with ${label}`);
         const helperText = copy?.helperText?.trim();
         const helperId = helperText ? `${helperIdBase}-${provider}` : undefined;
+        const isLastUsed = provider === lastUsedProvider;
         return (
           <div key={provider} className="w3a-social-provider">
             <button
@@ -67,6 +71,7 @@ export const SocialProviders: React.FC<SocialProvidersProps> = ({
               disabled={disabled || !hasHandler}
               aria-describedby={helperId}
             >
+              <LastUsedBadge active={isLastUsed} />
               <Icon size={18} style={{ display: 'block' }} />
               <span>{buttonLabel}</span>
               <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />

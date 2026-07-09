@@ -13,9 +13,8 @@ import {
   resolveBoolean,
   resolveChains,
   resolveIntegerInRange,
-  resolveTheme,
+  resolveAppearanceTheme,
   resolveThemePalette,
-  toColorTokenRecord,
   type IntRange,
 } from './configHelpers';
 import { normalizeWalletHostVariant } from '../browser/walletIframe/hostVariant';
@@ -297,18 +296,16 @@ export function buildConfigsFromDefaults(args: {
     path: 'routerAbEcdsaHssPresignaturePool.lowWatermark',
   });
 
-  const appearanceTheme = resolveTheme({
-    value: overrides.appearance?.theme,
+  const rawAppearance = overrides.appearance as Record<string, unknown> | undefined;
+  const appearanceTheme = resolveAppearanceTheme({
+    value: rawAppearance?.theme,
     fallback: defaults.ui.appearance.theme,
+    legacyTokens: rawAppearance?.tokens,
   });
   const appearancePalette = resolveThemePalette({
     value: overrides.appearance?.palette,
     fallback: defaults.ui.appearance.palette,
   });
-  const defaultLightColors = toColorTokenRecord(defaults.ui.appearance.tokens.light.colors);
-  const defaultDarkColors = toColorTokenRecord(defaults.ui.appearance.tokens.dark.colors);
-  const overrideLightColors = toColorTokenRecord(overrides.appearance?.tokens?.light?.colors);
-  const overrideDarkColors = toColorTokenRecord(overrides.appearance?.tokens?.dark?.colors);
 
   const walletOriginRaw = overrides.iframeWallet?.walletOrigin;
   const walletOrigin = toTrimmedString(walletOriginRaw);
@@ -453,20 +450,6 @@ export function buildConfigsFromDefaults(args: {
       appearance: {
         theme: appearanceTheme,
         palette: appearancePalette,
-        tokens: {
-          light: {
-            colors: {
-              ...defaultLightColors,
-              ...overrideLightColors,
-            },
-          },
-          dark: {
-            colors: {
-              ...defaultDarkColors,
-              ...overrideDarkColors,
-            },
-          },
-        },
       },
     },
   };

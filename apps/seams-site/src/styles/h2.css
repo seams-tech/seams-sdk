@@ -52,6 +52,11 @@
   zoom: var(--h2-page-zoom);
 }
 
+.h2-page--wallet {
+  --h2-wallet-demo-shell-min-height: 580px;
+  --h2-wallet-auth-menu-block-size: 500px;
+}
+
 /* Keep overscroll/rubber-band areas white while this page is mounted */
 body:has(.h2-page) {
   background: #ffffff;
@@ -1543,6 +1548,49 @@ body:has(.h2-page) {
 .h2-hero__demo .h2-themeswitch {
   justify-content: center;
   margin-top: 22px;
+}
+
+.h2-page--wallet .passkey-demo {
+  width: min(480px, 100%);
+  min-height: var(--h2-wallet-demo-shell-min-height);
+}
+
+.h2-page--wallet .passkey-login-container-root {
+  width: 100%;
+  min-height: var(--h2-wallet-auth-menu-block-size);
+  padding-block: 0;
+  align-items: center;
+}
+
+.h2-page--wallet .passkey-login-menu-placeholder,
+.h2-page--wallet .w3a-signup-menu-root,
+.h2-page--wallet .w3a-signup-menu-root[data-waiting='true'],
+.h2-page--wallet .w3a-signup-menu-root[data-scan-device='true'],
+.h2-page--wallet .w3a-signup-menu-root[data-otp-prompt='true'] {
+  min-height: 0;
+  max-height: var(--h2-wallet-auth-menu-block-size);
+}
+
+.h2-page--wallet .w3a-signup-menu-root {
+  height: var(--h2-wallet-auth-menu-block-size);
+}
+
+.h2-page--wallet .passkey-login-menu-placeholder {
+  height: var(--h2-wallet-auth-menu-block-size);
+}
+
+.h2-page--wallet .carousel-demo-root,
+.h2-page--wallet .carousel-root {
+  width: 100%;
+}
+
+.h2-page--wallet .carousel-stage {
+  min-height: var(--h2-wallet-demo-shell-min-height);
+  align-items: center;
+}
+
+.h2-page--wallet .carousel-page {
+  width: 100%;
 }
 
 /* demo theme switcher (light / dark / solarized) */

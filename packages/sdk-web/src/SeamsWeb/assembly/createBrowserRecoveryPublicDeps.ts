@@ -1,4 +1,4 @@
-import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
+import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
@@ -29,7 +29,7 @@ export function createBrowserRecoveryPublicDeps(args: {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   getWalletSessionActivationDeps: () => WalletSessionActivationDeps;
-  getTheme: () => ThemeName;
+  getTheme: () => ThemeMode;
 }): RecoveryPublicDeps {
   return createRecoveryPublicDeps({
     seamsWebConfigs: args.seamsWebConfigs,

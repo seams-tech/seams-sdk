@@ -242,8 +242,8 @@ export interface WalletIframeRouterOptions {
   // SDK asset base path for embedded bundles when mounting same‑origin via srcdoc
   // Must serve dist/esm under this base path. Defaults to '/sdk'.
   sdkBasePath?: string;
-  // Optional appearance defaults forwarded to wallet host (theme + color token overrides).
-  appearance?: Pick<AppearanceConfigInput, 'theme' | 'tokens'>;
+  // Optional appearance defaults forwarded to wallet host.
+  appearance?: AppearanceConfigInput;
   // Optional: pre-register UI components in wallet host
   uiRegistry?: Record<string, unknown>;
   // Optional browser assembly hook for owning wallet iframe overlay state construction.
@@ -2352,7 +2352,7 @@ export class WalletIframeRouter {
    * re-theme without a re-init. Appearance is excluded from the runtime-reset
    * fingerprint, so this never drops warm signing-session state.
    */
-  async setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): Promise<void> {
+  async setAppearance(appearance: AppearanceConfigInput): Promise<void> {
     await this.post<void>({ type: 'PM_SET_CONFIG', payload: { appearance } });
   }
 

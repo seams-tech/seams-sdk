@@ -2,7 +2,7 @@ import type { ThemeProps, SeamsConfigsInput } from '@seams/sdk/react';
 
 export type AppThemePreset = 'rose-pine-dark' | 'rose-pine-light';
 
-type AppearanceTokens = NonNullable<NonNullable<SeamsConfigsInput['appearance']>['tokens']>;
+type SdkAppearance = NonNullable<SeamsConfigsInput['appearance']>;
 
 /* Contained drop shadows — the SDK default shadows.lg overflows the demo cell
    and clips; these keep the card lift within bounds. */
@@ -11,7 +11,7 @@ const CONTAINED_SHADOW_LIGHT =
 const CONTAINED_SHADOW_DARK =
   '0 2px 6px -2px rgba(0, 0, 0, 0.5), 0 14px 30px -16px rgba(0, 0, 0, 0.7)';
 
-const ROSE_PINE_DARK_COLORS: Record<string, string> = {
+export const ROSE_PINE_DARK_COLORS: Record<string, string> = {
   primary: '#c4a7e7',
   primaryHover: '#9ccfd8',
   secondary: '#31748f',
@@ -25,6 +25,10 @@ const ROSE_PINE_DARK_COLORS: Record<string, string> = {
 
   buttonBackground: '#c4a7e7',
   buttonHoverBackground: '#9ccfd8',
+  secondaryButtonBackground: '#ebbcba',
+  secondaryButtonHoverBackground: '#f6c177',
+  secondaryButtonBorder: 'transparent',
+  secondaryButtonText: '#191724',
 
   colorBackground: '#191724',
   surface: '#1f1d2e',
@@ -58,7 +62,7 @@ const ROSE_PINE_DARK_COLORS: Record<string, string> = {
   highlightAmount: '#f6c177',
 };
 
-const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
+export const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
   primary: '#907aa9',
   primaryHover: '#56949f',
   secondary: '#286983',
@@ -72,6 +76,10 @@ const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
 
   buttonBackground: '#907aa9',
   buttonHoverBackground: '#56949f',
+  secondaryButtonBackground: '#ebbcba',
+  secondaryButtonHoverBackground: '#e6a7a4',
+  secondaryButtonBorder: 'transparent',
+  secondaryButtonText: '#575279',
 
   colorBackground: '#faf4ed',
   surface: '#fffaf3',
@@ -106,11 +114,11 @@ const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
   highlightAmount: '#ea9d34',
 };
 
-export const ROSE_PINE_DARK_TOKENS: AppearanceTokens = {
+export const ROSE_PINE_DARK_TOKENS: ThemeProps['tokens'] = {
   dark: { colors: ROSE_PINE_DARK_COLORS },
 };
 
-export const ROSE_PINE_LIGHT_TOKENS: AppearanceTokens = {
+export const ROSE_PINE_LIGHT_TOKENS: ThemeProps['tokens'] = {
   light: { colors: ROSE_PINE_LIGHT_COLORS },
 };
 
@@ -124,13 +132,13 @@ export const APP_THEME_TOKEN_PRESETS: Record<AppThemePreset, ThemeProps['tokens'
 // ============================================================================
 
 // "Paper" — the ElevenLabs style: eggshell paper, ink buttons, warm
-// taupe/stone neutrals, and their warm red/orange accents for focused details.
+// taupe/stone neutrals, and soft blue accents for focused details.
 const PAPER_LIGHT_COLORS: Record<string, string> = {
-  primary: '#000000',
-  primaryHover: '#262626',
+  primary: '#6f9fd8',
+  primaryHover: '#5a8cc7',
   secondary: '#44403b',
   secondaryHover: '#000000',
-  accent: '#F41A2F',
+  accent: '#6f9fd8',
 
   textPrimary: '#000000',
   textSecondary: '#777169',
@@ -139,10 +147,11 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
 
   buttonBackground: '#000000',
   buttonHoverBackground: '#262626',
-  // soft-filled secondary (Google SSO) button
-  secondaryButtonBackground: '#f5f3f1',
-  secondaryButtonHoverBackground: '#ebe8e4',
+  // black secondary accent (Google SSO) button
+  secondaryButtonBackground: '#000000',
+  secondaryButtonHoverBackground: '#262626',
   secondaryButtonBorder: 'transparent',
+  secondaryButtonText: '#fdfcfc',
 
   // white menu card; the reference's eggshell #fdfcfc read too warm here
   colorBackground: '#ffffff',
@@ -150,26 +159,27 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
   surface2: '#f5f3f1',
   surface3: '#ebe8e4',
   surface4: '#e1ddd7',
+  txDetailsBackground: '#f5f3f1',
 
   hover: '#f5f3f1',
   active: '#ebe8e4',
-  focus: '#F41A2F',
+  focus: '#6f9fd8',
 
   success: '#157f5f',
   warning: '#b45309',
   error: '#ff4704',
-  info: '#F41A2F',
+  info: '#6f9fd8',
 
   borderPrimary: '#ebe8e4',
   borderSecondary: '#e5e5e5',
   borderHover: '#d6d1cb',
 
-  highlightPrimary: '#F41A2F',
-  highlightRow: 'rgba(244, 26, 47, 0.08)',
-  highlightHalo: '#FAABA7',
-  highlightReceiver: '#F41A2F',
-  highlightMethodName: '#000000',
-  highlightAmount: '#ff4704',
+  highlightPrimary: '#6f9fd8',
+  highlightRow: 'rgba(111, 159, 216, 0.12)',
+  highlightHalo: '#c7dcf4',
+  highlightReceiver: '#6f9fd8',
+  highlightMethodName: '#6f9fd8',
+  highlightAmount: '#6f9fd8',
 };
 
 // "Midnight" — the Supabase style (styles.refero.design/632249f1…): midnight
@@ -189,8 +199,8 @@ const MIDNIGHT_DARK_COLORS: Record<string, string> = {
 
   buttonBackground: '#3ecf8e',
   buttonHoverBackground: '#00c573',
-  secondaryButtonBackground: '#8ee7bd',
-  secondaryButtonHoverBackground: '#a6f4cf',
+  secondaryButtonBackground: '#3ecf8e',
+  secondaryButtonHoverBackground: '#00c573',
   secondaryButtonBorder: 'transparent',
   secondaryButtonText: '#121212',
 
@@ -237,9 +247,10 @@ const GREENHOUSE_LIGHT_COLORS: Record<string, string> = {
   textButton: '#ffffff',
 
   buttonBackground: '#308970',
-  secondaryButtonBackground: '#f2f1ee',
-  secondaryButtonHoverBackground: '#e9e5df',
+  secondaryButtonBackground: '#308970',
+  secondaryButtonHoverBackground: '#27735e',
   secondaryButtonBorder: 'transparent',
+  secondaryButtonText: '#ffffff',
   buttonHoverBackground: '#27735e',
 
   colorBackground: '#ffffff',
@@ -298,6 +309,7 @@ const PASTEL_DARK_COLORS: Record<string, string> = {
   surface2: '#2e2d34',
   surface3: '#38363f',
   surface4: '#423f4a',
+  txDetailsBackground: '#2e2d34',
 
   hover: '#2e2d34',
   active: '#38363f',
@@ -346,15 +358,16 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
   secondaryButtonHoverBackground: '#cfbfe9',
   secondaryButtonBorder: 'transparent',
 
-  // subtle near-white paper cream menu card with white controls and light cream chrome
-  colorBackground: '#fffdf8',
-  surface: '#ffffff',
-  surface2: '#fff8ee',
+  // subtle near-white paper cream menu card with deeper cream controls and chrome
+  colorBackground: '#fffefd',
+  surface: '#fffaf5',
+  surface2: '#fff7ee',
   surface3: '#F2C6DE',
   surface4: '#DBCDF0',
+  txDetailsBackground: '#fff7ee',
 
-  hover: '#fffaf2',
-  active: '#fff6e8',
+  hover: '#fff8f1',
+  active: '#fff3e8',
   focus: '#8fb9de',
 
   success: '#4f9e83',
@@ -377,6 +390,8 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
 export type DemoThemeId =
   | 'paper'
   | 'midnight'
+  | 'rose-pine-dark'
+  | 'rose-pine-light'
   | 'greenhouse'
   | 'pastel'
   | 'pastel-dark';
@@ -395,11 +410,18 @@ export interface DemoThemePreset {
 export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
   { id: 'paper', label: 'Paper', mode: 'light', swatch: '#fdfcfc', colors: PAPER_LIGHT_COLORS },
   {
-    id: 'midnight',
-    label: 'Midnight',
+    id: 'rose-pine-dark',
+    label: 'Rose Pine Dark',
     mode: 'dark',
-    swatch: '#121212',
-    colors: MIDNIGHT_DARK_COLORS,
+    swatch: '#c4a7e7',
+    colors: ROSE_PINE_DARK_COLORS,
+  },
+  {
+    id: 'rose-pine-light',
+    label: 'Rose Pine Light',
+    mode: 'light',
+    swatch: '#faf4ed',
+    colors: ROSE_PINE_LIGHT_COLORS,
   },
   {
     id: 'greenhouse',
@@ -423,6 +445,13 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     swatch: '#1e1d22',
     colors: PASTEL_DARK_COLORS,
   },
+  {
+    id: 'midnight',
+    label: 'Midnight',
+    mode: 'dark',
+    swatch: '#121212',
+    colors: MIDNIGHT_DARK_COLORS,
+  },
 ];
 
 /** Build the React `<Theme tokens={...}>` value for a preset (includes a contained shadow). */
@@ -434,13 +463,13 @@ export function demoReactTokens(preset: DemoThemePreset): ThemeProps['tokens'] {
 }
 
 /** Build the wallet-iframe appearance (colors only) for a preset — fed to seams.setAppearance. */
-export function demoIframeAppearance(preset: DemoThemePreset): AppearanceTokensAppearance {
-  return preset.mode === 'dark'
-    ? { theme: 'dark', tokens: { dark: { colors: preset.colors } } }
-    : { theme: 'light', tokens: { light: { colors: preset.colors } } };
+export function demoIframeAppearance(preset: DemoThemePreset): SdkAppearance {
+  return {
+    theme: {
+      id: preset.id,
+      mode: preset.mode,
+      colors: preset.colors,
+    },
+    palette: 'default',
+  };
 }
-
-type AppearanceTokensAppearance = {
-  theme: 'light' | 'dark';
-  tokens: AppearanceTokens;
-};

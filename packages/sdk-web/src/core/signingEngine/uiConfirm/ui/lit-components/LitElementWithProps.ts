@@ -22,6 +22,8 @@
 
 import { LitElement } from 'lit';
 import { isObject } from '@shared/utils/validation';
+import type { AppearanceConfig } from '@/core/types/seams';
+import { appearanceTokenCssVars } from './appearance-token-vars';
 
 export type CSSProperties = Record<string, string | Record<string, string> | undefined>;
 
@@ -52,6 +54,7 @@ export class LitElementWithProps extends LitElement {
   // Per-instance CSS custom properties sheet to avoid inline style mutations.
   private _varsSheet: CSSStyleSheet | null = null;
   private _varsMap: Record<string, string> = {};
+  private _appearanceVarNames = new Set<string>();
   // Fallback sheet attached to the Document (constructable stylesheet) + a per-instance class
   private _varsDocSheet: CSSStyleSheet | null = null;
   private _varsClassName: string | null = null;
@@ -383,6 +386,19 @@ export class LitElementWithProps extends LitElement {
 
       // 3) Final fallback: no inline writes under strict CSP; rely on defaults
     } catch {}
+  }
+
+  /** Replace appearance-derived CSS vars so removed theme tokens cannot survive theme switches. */
+  protected setAppearanceCssVars(appearance?: AppearanceConfig): void {
+    const vars = appearanceTokenCssVars(appearance);
+    const nextVarNames = new Set(Object.keys(vars));
+    for (const varName of this._appearanceVarNames) {
+      if (!nextVarNames.has(varName)) {
+        delete this._varsMap[varName];
+      }
+    }
+    this._appearanceVarNames = nextVarNames;
+    this.setCssVars(vars);
   }
 }
 

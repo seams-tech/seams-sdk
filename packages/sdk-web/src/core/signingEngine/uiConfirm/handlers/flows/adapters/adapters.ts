@@ -30,7 +30,7 @@ import {
   getSigningAuthMode,
   getSubjectLabel,
 } from './request';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
@@ -442,7 +442,7 @@ type BaseRenderConfirmUIArgs = {
   transactionSummary: TransactionSummary;
   securityContext?: Partial<UserConfirmSecurityContext>;
   loading?: boolean;
-  theme: ThemeName;
+  theme: ThemeMode;
   onMounted?: (handle: ConfirmUIHandle) => void;
 };
 
@@ -649,7 +649,7 @@ export function createConfirmSession({
   request: KnownUserConfirmRequest;
   confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
-  theme: ThemeName;
+  theme: ThemeMode;
 }): {
   setNonceLeases: (leases?: readonly NonceLease[]) => void;
   updateUI: (props: ConfirmUIUpdate) => void;

@@ -23,7 +23,7 @@ import {
 } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import { toError } from '@shared/utils/errors';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { UserConfirmResponsePort } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 
@@ -71,7 +71,7 @@ export async function handleRegistrationFlow(
   opts: {
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
-    theme: ThemeName;
+    theme: ThemeMode;
   },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;

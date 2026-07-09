@@ -2,6 +2,9 @@ import React from 'react';
 import type { TransactionSettingsSectionProps } from './types';
 import { SegmentedControl } from './SegmentedControl';
 
+const TRANSACTION_SETTINGS_ACTIVE_BACKGROUND =
+  'var(--w3a-colors-buttonBackground, var(--w3a-colors-primary))';
+
 export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProps> = ({
   currentConfirmConfig,
   onSetUiMode,
@@ -59,7 +62,7 @@ export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProp
                   ]}
                   value={currentConfirmConfig?.uiMode ?? 'modal'}
                   onValueChange={(v) => onSetUiMode?.(v as 'none' | 'modal' | 'drawer')}
-                  activeBg={'var(--w3a-colors-primary)'}
+                  activeBg={TRANSACTION_SETTINGS_ACTIVE_BACKGROUND}
                   height={40}
                   buttonFontSize={12}
                   containerStyle={{ background: 'var(--w3a-colors-surface2)', width: '100%' }}
@@ -105,7 +108,7 @@ export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProp
                     }
                     if (wantsSkipClick !== isSkipClick) onToggleSkipClick?.();
                   }}
-                  activeBg={'var(--w3a-colors-primary)'}
+                  activeBg={TRANSACTION_SETTINGS_ACTIVE_BACKGROUND}
                   height={40}
                   buttonFontSize={12}
                   containerStyle={{ background: 'var(--w3a-colors-surface2)', width: '100%' }}

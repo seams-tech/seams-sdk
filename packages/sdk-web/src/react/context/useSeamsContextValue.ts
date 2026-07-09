@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import type { AccountInputState, LoginState, RegistrationResult, SeamsContextType } from '../types';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import type { DevicesCapability } from '@/SeamsWeb';
 import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
@@ -42,7 +42,7 @@ export function useSeamsContextValue(args: {
   accountInputState: AccountInputState;
   setInputUsername: SeamsContextType['setInputUsername'];
   refreshAccountData: SeamsContextType['refreshAccountData'];
-  hostSetTheme?: (theme: ThemeName) => void;
+  hostSetTheme?: (theme: ThemeMode) => void;
 }): SeamsContextType {
   const {
     seams,

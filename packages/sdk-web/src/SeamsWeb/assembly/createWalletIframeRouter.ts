@@ -1,5 +1,5 @@
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
-import type { ThemeName, SeamsConfigsReadonly } from '@/core/types/seams';
+import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WalletIframeRouter } from '@/SeamsWeb/walletIframe/client/router';
 import { signingSessionSealInputFromReadonly } from '@/SeamsWeb/walletIframe/shared/signingSessionSealConfig';
 import { createWalletIframeOverlayState } from './createWalletIframeOverlayState';
@@ -22,7 +22,7 @@ function warnIfSameOriginWallet(walletOrigin: string): void {
 export async function createWalletIframeRouter(args: {
   configs: SeamsConfigsReadonly;
   walletOrigin: string;
-  getTheme: () => ThemeName;
+  getAppearance: () => AppearanceConfig;
 }): Promise<WalletIframeRouter> {
   warnIfSameOriginWallet(args.walletOrigin);
 
@@ -49,10 +49,7 @@ export async function createWalletIframeRouter(args: {
     provisioningDefaults: args.configs.signing.thresholdEcdsa.provisioningDefaults,
     rpIdOverride: args.configs.wallet.iframe?.rpIdOverride,
     authenticatorOptions: cloneAuthenticatorOptions(args.configs.webauthn.authenticatorOptions),
-    appearance: {
-      theme: args.getTheme(),
-      tokens: args.configs.ui.appearance?.tokens,
-    },
+    appearance: args.getAppearance(),
     sdkBasePath: args.configs.wallet.iframe?.sdkBasePath,
     createOverlayState: createWalletIframeOverlayState,
   });

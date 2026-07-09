@@ -1,6 +1,6 @@
 import type { ToggleColorProps } from './Toggle';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { ThemeName } from '@/core/signingEngine/uiConfirm/ui/confirm-ui-types';
+import type { ThemeMode } from '@/core/signingEngine/uiConfirm/ui/confirm-ui-types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 
 export interface ProfileDimensions {
@@ -83,7 +83,7 @@ export interface UserAccountButtonProps {
   onClick: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
-  theme?: ThemeName;
+  theme?: ThemeMode;
   // Optional ARIA linkage
   menuId?: string;
   triggerId?: string;
@@ -95,7 +95,7 @@ export interface ProfileDropdownProps {
   onLock: () => void;
   onClose: () => void;
   toggleColors?: ToggleColorProps;
-  theme?: ThemeName;
+  theme?: ThemeMode;
   currentConfirmConfig?: ConfirmationConfig | null;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
   onToggleShowDetails?: () => void;
@@ -138,7 +138,7 @@ export interface TransactionSettingsSectionProps {
   className?: string;
   style?: React.CSSProperties;
   isOpen?: boolean;
-  theme?: ThemeName;
+  theme?: ThemeMode;
 }
 
 export interface ProfileStateRefs {

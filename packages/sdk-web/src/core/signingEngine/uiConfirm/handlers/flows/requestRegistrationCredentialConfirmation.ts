@@ -24,7 +24,7 @@ import {
   parseTransactionSummary,
   type UserConfirmResponsePort,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
-import { coerceThemeName } from '@shared/utils/theme';
+import { coerceThemeMode } from '@shared/utils/theme';
 import { isBoolean, isObject, isString } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 
@@ -103,7 +103,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
 
   const resolvedConfirmationConfig = determineConfirmationConfig(ctx, request);
   const transactionSummary = buildRegistrationTransactionSummary(request);
-  const theme = coerceThemeName(ctx.getTheme?.()) ?? 'dark';
+  const theme = coerceThemeMode(ctx.getTheme?.()) ?? 'dark';
   const decision = await runRegistrationFlowOnMainThread({
     ctx,
     request,

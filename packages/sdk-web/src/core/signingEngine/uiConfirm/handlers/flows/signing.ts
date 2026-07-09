@@ -1,7 +1,7 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
 import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
-import type { ThemeName } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import type {
   NearExecutionReadiness,
   NonceLease,
@@ -369,7 +369,7 @@ export async function handleTransactionSigningFlow(
   opts: {
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
-    theme: ThemeName;
+    theme: ThemeMode;
   },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;
@@ -802,7 +802,7 @@ export async function handleIntentDigestSigningFlow(
   opts: {
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
-    theme: ThemeName;
+    theme: ThemeMode;
   },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;

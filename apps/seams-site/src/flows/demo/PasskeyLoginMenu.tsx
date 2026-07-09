@@ -26,6 +26,7 @@ import {
 
 type PasskeyLoginMenuProps = {
   onLoggedIn?: (nearAccountId?: string) => void;
+  defaultModeWhenNoDetectedAccount?: AuthMenuMode;
 };
 
 type GoogleSsoReadiness =
@@ -33,10 +34,65 @@ type GoogleSsoReadiness =
   | { kind: 'ready'; clientId: string }
   | { kind: 'unavailable'; message: string };
 
+type ExistingAccountDetection =
+  | { kind: 'checking' }
+  | { kind: 'detected_existing_account' }
+  | { kind: 'no_existing_account_detected' };
+
 function normalizeBaseUrl(input: unknown): string {
   return String(input || '')
     .trim()
     .replace(/\/+$/, '');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasNonEmptyArray(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function recentUnlocksContainExistingAccount(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    hasNonEmptyArray(value.walletIds) ||
+    hasNonEmptyArray(value.accountIds) ||
+    hasNonEmptyArray(value.accounts) ||
+    isRecord(value.lastUsedAccount)
+  );
+}
+
+function resolveDetectedAccountDefaultMode(input: {
+  controlOverride?: AuthMenuMode;
+  defaultModeWhenNoDetectedAccount?: AuthMenuMode;
+  detection: ExistingAccountDetection;
+}): AuthMenuMode | undefined {
+  if (input.controlOverride !== undefined) return input.controlOverride;
+  if (input.defaultModeWhenNoDetectedAccount === undefined) return undefined;
+
+  switch (input.detection.kind) {
+    case 'checking':
+    case 'detected_existing_account':
+      return undefined;
+    case 'no_existing_account_detected':
+      return input.defaultModeWhenNoDetectedAccount;
+  }
+
+  const exhaustive: never = input.detection;
+  throw new Error(`Unknown existing-account detection state: ${JSON.stringify(exhaustive)}`);
+}
+
+function shouldDelayAuthMenuForAccountDetection(input: {
+  controlOverride?: AuthMenuMode;
+  defaultModeWhenNoDetectedAccount?: AuthMenuMode;
+  detection: ExistingAccountDetection;
+}): boolean {
+  return (
+    input.controlOverride === undefined &&
+    input.defaultModeWhenNoDetectedAccount !== undefined &&
+    input.detection.kind === 'checking'
+  );
 }
 
 function assertDemoPasskeyRegistrationProvisionedEcdsa(result: {
@@ -272,6 +328,13 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   const [googleSsoReadiness, setGoogleSsoReadiness] = React.useState<GoogleSsoReadiness>({
     kind: 'checking',
   });
+  const [existingAccountDetection, setExistingAccountDetection] =
+    React.useState<ExistingAccountDetection>({
+      kind:
+        props.defaultModeWhenNoDetectedAccount === undefined
+          ? 'detected_existing_account'
+          : 'checking',
+    });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -291,6 +354,35 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       cancelled = true;
     };
   }, [relayerBaseUrl]);
+
+  React.useEffect(() => {
+    if (props.defaultModeWhenNoDetectedAccount === undefined) {
+      setExistingAccountDetection({ kind: 'detected_existing_account' });
+      return;
+    }
+
+    let cancelled = false;
+    setExistingAccountDetection({ kind: 'checking' });
+    seams.auth
+      .getRecentUnlocks()
+      .then((recentUnlocks: unknown) => {
+        if (cancelled) return;
+        setExistingAccountDetection(
+          recentUnlocksContainExistingAccount(recentUnlocks)
+            ? { kind: 'detected_existing_account' }
+            : { kind: 'no_existing_account_detected' },
+        );
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.warn('[seams-site] Existing demo account detection failed:', error);
+        setExistingAccountDetection({ kind: 'no_existing_account_detected' });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [props.defaultModeWhenNoDetectedAccount, seams]);
 
   const onRegister = async (request: SeamsAuthMenuRegistrationRequest) => {
     const result = await registerPasskey({
@@ -431,13 +523,32 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
   };
 
+  const resolvedDefaultMode = resolveDetectedAccountDefaultMode({
+    controlOverride: authMenuControl.defaultModeOverride,
+    defaultModeWhenNoDetectedAccount: props.defaultModeWhenNoDetectedAccount,
+    detection: existingAccountDetection,
+  });
+  const delayAuthMenu = shouldDelayAuthMenuForAccountDetection({
+    controlOverride: authMenuControl.defaultModeOverride,
+    defaultModeWhenNoDetectedAccount: props.defaultModeWhenNoDetectedAccount,
+    detection: existingAccountDetection,
+  });
+
+  if (delayAuthMenu) {
+    return (
+      <div className="passkey-login-container-root">
+        <div className="passkey-login-menu-placeholder" aria-hidden="true" />
+      </div>
+    );
+  }
+
   return (
     <div className="passkey-login-container-root">
       <SeamsAuthMenu
         // Keep the key stable across account state changes to avoid
         // remounting the menu during login-state refreshes.
-        key={`seams-auth-menu-${authMenuControl.defaultModeOverride ?? 'auto'}-${authMenuControl.remountKey}`}
-        defaultMode={authMenuControl.defaultModeOverride}
+        key={`seams-auth-menu-${resolvedDefaultMode ?? 'auto'}-${authMenuControl.remountKey}`}
+        defaultMode={resolvedDefaultMode}
         loadingScreenDelayMs={100}
         headings={{
           login: {

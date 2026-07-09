@@ -3,12 +3,14 @@ import { LitElementWithProps } from '../LitElementWithProps';
 import type { HaloTheme } from '../HaloBorder';
 import '../HaloBorder';
 import { ensureExternalStyles } from '../css/css-loader';
+import type { AppearanceConfig } from '@/core/types/seams';
 
 export class PasskeyHaloLoadingElement extends LitElementWithProps {
   static properties = {
     // Pass-through HaloBorder props
     animated: { type: Boolean },
     theme: { type: String },
+    appearance: { attribute: false },
     ringGap: { type: Number, attribute: 'ring-gap' },
     ringWidth: { type: Number, attribute: 'ring-width' },
     ringBorderRadius: { type: String, attribute: 'ring-border-radius' },
@@ -28,6 +30,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
 
   declare animated?: boolean;
   declare theme?: HaloTheme;
+  declare appearance?: AppearanceConfig;
   declare ringGap?: number;
   declare ringWidth?: number;
   declare ringBorderRadius?: string;
@@ -95,8 +98,17 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
     return !!(statefulLink._w3aLoaded || link.sheet);
   }
 
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.applyCssVars();
+  }
+
   protected updated(): void {
-    // Bridge prop overrides into CSS variables to avoid inline styles
+    this.applyCssVars();
+  }
+
+  private applyCssVars(): void {
+    this.setAppearanceCssVars(this.appearance);
     const vars: Record<string, string> = {};
     if (this.iconContainerBackgroundColor) {
       vars['--w3a-modal__passkey-halo-loading-icon-container__background-color'] =
@@ -128,6 +140,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
       <div class="w3a-passkey-loading-root ${theme}">
         <w3a-halo-border
           .theme=${theme}
+          .appearance=${this.appearance}
           .animated=${animated}
           .ringGap=${ringGap}
           .ringWidth=${ringWidth}

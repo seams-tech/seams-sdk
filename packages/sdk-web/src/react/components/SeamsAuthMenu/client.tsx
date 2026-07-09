@@ -5,7 +5,10 @@ import { ContentSwitcher } from './ui/ContentSwitcher';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { ArrowRightAnim } from '../ArrowRightAnim';
+import { LastUsedBadge } from './ui/LastUsedBadge';
 import { AuthMenuMode, AuthMenuModeMap, type SeamsAuthMenuProps } from './types';
+import type { LastUsedLoginMethod } from './controller/lastUsedLoginMethod';
+import type { SocialLoginHandlers } from './ui/SocialProviders';
 import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 import { useSeamsAuthMenuRuntime } from './adapters/seams';
 import { useSeamsAuthMenuController } from './controller/useSeamsAuthMenuController';
@@ -95,6 +98,34 @@ function registrationActivationSurfaceStateForView(
   return shouldRefreshRegistrationActivationSurface(state) ? { kind: 'idle' } : state;
 }
 
+function assertNeverLastUsedLoginMethod(value: never): never {
+  throw new Error(`Unknown last-used login method: ${JSON.stringify(value)}`);
+}
+
+function isPasskeyLastUsed(method: LastUsedLoginMethod): boolean {
+  switch (method.kind) {
+    case 'none':
+    case 'email_otp':
+      return false;
+    case 'passkey':
+      return true;
+  }
+  return assertNeverLastUsedLoginMethod(method);
+}
+
+function lastUsedSocialProviderForMethod(
+  method: LastUsedLoginMethod,
+): keyof SocialLoginHandlers | undefined {
+  switch (method.kind) {
+    case 'none':
+    case 'passkey':
+      return undefined;
+    case 'email_otp':
+      return 'google';
+  }
+  return assertNeverLastUsedLoginMethod(method);
+}
+
 function nextRegistrationActivationSurfaceRevision(current: number): number {
   return current + 1;
 }
@@ -170,6 +201,8 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
     },
     runtime,
   );
+  const passkeyLastUsed = isPasskeyLastUsed(controller.lastUsedLoginMethod);
+  const lastUsedSocialProvider = lastUsedSocialProviderForMethod(controller.lastUsedLoginMethod);
 
   const prefetchQRCode = React.useCallback(() => {
     void preloadShowQRCode().catch(() => {});
@@ -624,6 +657,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                         className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                         disabled={!controller.canSubmit || controller.waiting}
                       >
+                        <LastUsedBadge active={passkeyLastUsed} />
                         <FingerprintIcon size={22} style={{ display: 'block' }} />
                         <span>Continue with Passkey</span>
                         <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
@@ -632,6 +666,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                         socialLogin={socialLogin}
                         providers={['google']}
                         disabled={controller.waiting}
+                        lastUsedProvider={lastUsedSocialProvider}
                         onProviderClick={() =>
                           controller.onSocialLogin('google', AuthMenuMode.Login)
                         }
@@ -666,6 +701,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                               ? 'Preparing passkey...'
                               : 'Create with Passkey'}
                           </span>
+                          <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                         </div>
                       ) : (
                         <button
@@ -674,7 +710,8 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                           className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                           disabled={controller.waiting}
                         >
-                          Create with Passkey
+                          <span>Create with Passkey</span>
+                          <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                         </button>
                       )}
                       <SocialProviders

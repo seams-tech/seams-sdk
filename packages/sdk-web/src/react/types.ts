@@ -12,7 +12,7 @@ import type {
   DevicesCapability,
   PasskeyRegistrationOptions,
 } from '../SeamsWeb';
-import type { AppearanceConfigInput, ThemeName, WalletAuthMethod } from '../core/types/seams';
+import type { AppearanceConfigInput, ThemeMode, WalletAuthMethod } from '../core/types/seams';
 import type {
   CurrentWalletAuthMethod,
   WalletAuthMethodBinding,
@@ -277,13 +277,13 @@ export interface SeamsContextType {
 export interface SeamsContextProviderProps {
   children: ReactNode;
   // Config overrides; provider resolves defaults and validates required fields.
-  // Includes optional `appearance` defaults (`theme`, `palette`, `tokens`).
+  // Includes optional `appearance` defaults (`theme`, `palette`).
   config: SeamsConfigsInput;
   // Controlled theme from host app (optional).
   theme?: {
-    theme: ThemeName;
-    setTheme?: (theme: ThemeName) => void;
-    appearance?: Pick<AppearanceConfigInput, 'theme' | 'tokens'>;
+    theme: ThemeMode;
+    setTheme?: (theme: ThemeMode) => void;
+    appearance?: AppearanceConfigInput;
   };
   /**
    * When true, the provider will opportunistically pre-warm iframe + workers

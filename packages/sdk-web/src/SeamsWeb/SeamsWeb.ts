@@ -18,7 +18,8 @@ import type {
   LoginAndCreateSessionResult,
   WalletSession,
   RegistrationResult,
-  ThemeName,
+  ThemeMode,
+  AppearanceConfig,
   AppearanceConfigInput,
   EmailOtpAuthPolicy,
   SeamsConfigsReadonly,
@@ -48,7 +49,6 @@ import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode'
 import { isUserCancellationError, toError } from '@shared/utils/errors';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
-import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
   walletAuthAuthoritiesMatch,
@@ -57,6 +57,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
+import { resolveAppearanceTheme, resolveThemePalette } from '@/core/config/configHelpers';
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 import { isWalletIframeReadyTimeoutError } from '@/SeamsWeb/walletIframe/client/transport/iframe-transport-handshake';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
@@ -885,7 +886,7 @@ function normalizeResolveExactKeyExportLaneResult(
 
 function normalizeExportKeypairWithUIInput(
   input: ExportKeypairWithUIBoundaryInput,
-  theme: ThemeName,
+  theme: ThemeMode,
 ): ExportKeypairWithUIBoundaryInput {
   const resolvedOptions = {
     ...input.options,
@@ -936,6 +937,24 @@ function normalizeExportKeypairWithUIInput(
   throw new Error('[SeamsWeb] unsupported key export kind');
 }
 
+function resolveRuntimeAppearance(
+  current: AppearanceConfig,
+  input: AppearanceConfigInput,
+): AppearanceConfig {
+  const rawInput = input as Record<string, unknown>;
+  return {
+    theme: resolveAppearanceTheme({
+      value: rawInput.theme,
+      fallback: current.theme,
+      legacyTokens: rawInput.tokens,
+    }),
+    palette: resolveThemePalette({
+      value: rawInput.palette,
+      fallback: current.palette,
+    }),
+  };
+}
+
 /**
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
@@ -944,7 +963,8 @@ export class SeamsWeb {
   private readonly signingEngine: SeamsWebSigningSurface;
   private readonly nearClient: NearClient;
   readonly configs: SeamsConfigsReadonly;
-  theme: ThemeName;
+  private appearance: AppearanceConfig;
+  theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
@@ -982,12 +1002,10 @@ export class SeamsWeb {
       workerWarmupPolicy: resolveBrowserWorkerWarmupPolicy(this.configs),
     });
 
-    this.theme = coerceThemeName(this.configs.ui.appearance?.theme) ?? 'dark';
+    this.appearance = this.configs.ui.appearance;
+    this.theme = this.appearance.theme.mode;
     try {
-      this.signingEngine.setAppearance({
-        theme: this.theme,
-        tokens: this.configs.ui.appearance?.tokens,
-      });
+      this.signingEngine.setAppearance(this.appearance);
     } catch {}
     const userPreferences = this.signingEngine.getUserPreferences();
 
@@ -995,7 +1013,7 @@ export class SeamsWeb {
       configs: this.configs,
       signingEngine: this.signingEngine,
       userPreferences: userPreferences,
-      getTheme: () => this.theme,
+      getAppearance: () => this.appearance,
       refreshWalletSession: async (walletId?: string) => {
         await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
       },
@@ -1119,35 +1137,33 @@ export class SeamsWeb {
     };
   }
 
-  setTheme(next: ThemeName): void {
-    const nextTheme = coerceThemeName(next);
-    if (!nextTheme) return;
-    this.setAppearance({ theme: nextTheme });
+  setTheme(next: ThemeMode): void {
+    if (next !== 'light' && next !== 'dark') return;
+    this.setAppearance({
+      theme: {
+        ...this.appearance.theme,
+        mode: next,
+      },
+    });
   }
 
   /**
-   * Update appearance (theme name and/or color token overrides) at runtime.
+   * Update resolved appearance at runtime.
    * This is the canonical internal propagation path for local signing UI,
    * wallet-host documents, and app-origin wallet iframe mode. Appearance is
    * excluded from the runtime-reset fingerprint, so warm signing-session state
    * is preserved. Fire-and-forget; never throws.
    */
-  setAppearance(appearance: Pick<AppearanceConfigInput, 'theme' | 'tokens'>): void {
-    const nextTheme = coerceThemeName(appearance.theme);
-    const normalizedAppearance = {
-      ...(nextTheme ? { theme: nextTheme } : {}),
-      ...(appearance.tokens ? { tokens: appearance.tokens } : {}),
-    };
-    if (!nextTheme && !appearance.tokens) return;
-    if (nextTheme) {
-      this.theme = nextTheme;
-    }
+  setAppearance(appearance: AppearanceConfigInput): void {
+    const normalizedAppearance = resolveRuntimeAppearance(this.appearance, appearance);
+    this.appearance = normalizedAppearance;
+    this.theme = normalizedAppearance.theme.mode;
     try {
       this.signingEngine.setAppearance(normalizedAppearance);
     } catch {}
-    if (nextTheme && __isWalletIframeHostMode()) {
+    if (__isWalletIframeHostMode()) {
       try {
-        document.documentElement.setAttribute('data-w3a-theme', nextTheme);
+        document.documentElement.setAttribute('data-w3a-theme', this.theme);
       } catch {}
     }
 

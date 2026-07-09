@@ -1,4 +1,5 @@
 import React from 'react';
+import { AuthMenuMode } from '@seams/sdk/react';
 import NavbarStatic from '@/components/Navbar/NavbarStatic';
 import { H2DemoHero, H2Footer, H2Security, H2Start } from '@/components/h2/sections';
 import '@/styles/h2.css';
@@ -8,10 +9,11 @@ import '@/styles/h2.css';
 
 export function WalletPage(): React.JSX.Element {
   return (
-    <div className="h2-page h2-page--zoom">
+    <div className="h2-page h2-page--zoom h2-page--wallet">
       <NavbarStatic appearance="light" />
       <div className="h2-col">
         <H2DemoHero
+          authDefaultModeWhenNoDetectedAccount={AuthMenuMode.Register}
           kicker="Seams · Embedded Wallet"
           title={
             <>

@@ -1,4 +1,4 @@
-import type { ThemeTokenOverridesInput } from '@/core/types/seams';
+import type { AppearanceConfig } from '@/core/types/seams';
 import type { ExportGuidance, ExportPrivateKeyDisplayEntry } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { addLitEventListener, LitComponentEvents } from './lit-events';
 import { ensureDefined, W3A_EXPORT_VIEWER_IFRAME_ID } from './registry';
@@ -13,7 +13,7 @@ export type UpsertExportViewerHostArgs = {
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
   guidance?: ExportGuidance;
-  tokens?: ThemeTokenOverridesInput;
+  appearance?: AppearanceConfig;
   loading?: boolean;
   errorMessage?: string;
   onLifecycle?: (event: 'opened' | 'closed') => void;
@@ -115,7 +115,7 @@ export async function upsertExportViewerHost(
   host.privateKey = String(args.privateKey || '').trim() || undefined;
   host.keys = Array.isArray(args.keys) ? args.keys : undefined;
   host.guidance = args.guidance;
-  host.tokens = args.tokens;
+  host.appearance = args.appearance;
   host.loading = args.loading === true;
   host.errorMessage = String(args.errorMessage || '').trim() || undefined;
   return host;

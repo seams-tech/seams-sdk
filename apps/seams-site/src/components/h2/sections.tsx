@@ -19,7 +19,7 @@ import {
   Twitter,
   Wallet,
 } from 'lucide-react';
-import { Theme, useSeams } from '@seams/sdk/react';
+import { Theme, useSeams, type AuthMenuMode } from '@seams/sdk/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
@@ -56,6 +56,7 @@ export type H2DemoHeroProps = {
   kicker?: string;
   title?: React.ReactNode;
   sub?: React.ReactNode;
+  authDefaultModeWhenNoDetectedAccount?: AuthMenuMode;
 };
 
 export function H2DemoHero({
@@ -73,6 +74,7 @@ export function H2DemoHero({
       working account: wallet included, recovery built in, every action signed.
     </>
   ),
+  authDefaultModeWhenNoDetectedAccount,
 }: H2DemoHeroProps = {}): React.JSX.Element {
   const show = useRevealOnIdle();
   const { linkProps } = useSiteRouter();
@@ -147,7 +149,11 @@ export function H2DemoHero({
           >
             {show ? (
               <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
-                <DemoPasskeyColumnLazy currentPage={demoPage} onCurrentPageChange={setDemoPage} />
+                <DemoPasskeyColumnLazy
+                  currentPage={demoPage}
+                  onCurrentPageChange={setDemoPage}
+                  defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
+                />
               </React.Suspense>
             ) : (
               <div className="h2-demo__placeholder" />

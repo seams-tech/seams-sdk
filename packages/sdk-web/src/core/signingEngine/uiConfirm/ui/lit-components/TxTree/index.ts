@@ -14,6 +14,7 @@ import { TX_TREE_THEMES } from './tx-tree-themes';
 import { formatGas, formatDeposit, formatCodeSize, shortenPubkey } from '../common/formatters';
 import { isNumber, isString } from '@shared/utils/validation';
 import { ensureExternalStyles } from '../css/css-loader';
+import type { AppearanceConfig } from '@/core/types/seams';
 // Re-exported for co-located theme typing convenience.
 export type { TxTreeStyles } from './tx-tree-themes';
 
@@ -65,6 +66,7 @@ export class TxTree extends LitElementWithProps {
     // styles accepts full CSS customization - reactive to trigger re-renders
     styles: { attribute: false, state: true },
     theme: { type: String, reflect: true },
+    appearance: { attribute: false },
     // Optional width for the tree at depth=0. Accepts number (px) or any CSS length string.
     // Exposed as attribute for convenience, but property binding works too.
     width: { type: String },
@@ -87,6 +89,7 @@ export class TxTree extends LitElementWithProps {
   depth?: number;
   declare styles?: TxTreeStyles;
   theme?: 'dark' | 'light';
+  appearance?: AppearanceConfig;
   // Optional class applied to the root container (depth=0 only)
   class?: string;
   // Optional width for the tree (applies at depth=0 root container). Number is treated as pixels.
@@ -392,10 +395,18 @@ export class TxTree extends LitElementWithProps {
       const preset = TX_TREE_THEMES[this.theme] || TX_TREE_THEMES.dark;
       this.applyStyles(preset);
     }
+    if (changedProperties.has('theme') || changedProperties.has('appearance')) {
+      this.applyAppearanceTokenVars();
+    }
   }
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.applyAppearanceTokenVars();
+  }
+
+  private applyAppearanceTokenVars(): void {
+    this.setAppearanceCssVars(this.appearance);
   }
 
   private normalizeExplorerBase(url?: string): string | undefined {

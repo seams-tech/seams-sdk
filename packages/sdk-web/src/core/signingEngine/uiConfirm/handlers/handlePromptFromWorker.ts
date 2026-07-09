@@ -25,8 +25,8 @@ import type {
   IntentDigestUserConfirmRequest,
   UserConfirmPromptEnvelope,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import { coerceThemeName } from '@shared/utils/theme';
-import type { ThemeName } from '@/core/types/seams';
+import { coerceThemeMode } from '@shared/utils/theme';
+import type { ThemeMode } from '@/core/types/seams';
 import {
   handleIntentDigestSigningFlow,
   handleTransactionSigningFlow,
@@ -50,13 +50,13 @@ export async function handlePromptFromWorker(
   let request: UserConfirmRequest;
   let confirmationConfig: NormalizedConfirmationConfig;
   let transactionSummary: TransactionSummary;
-  let theme: ThemeName;
+  let theme: ThemeMode;
 
   try {
     request = validateUserConfirmRequest(message.data);
     assertNoForbiddenMainThreadSigningSecrets(request);
     confirmationConfig = determineConfirmationConfig(ctx, request);
-    theme = coerceThemeName(ctx.getTheme?.()) ?? 'dark';
+    theme = coerceThemeMode(ctx.getTheme?.()) ?? 'dark';
 
     const parsedSummary = parseTransactionSummary(request.summary);
     const intentDigest = getIntentDigest(request);
@@ -122,7 +122,7 @@ type HandlerArgs = {
   worker: Worker;
   confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
-  theme: ThemeName;
+  theme: ThemeMode;
 };
 
 type Handler = (args: HandlerArgs) => Promise<void>;

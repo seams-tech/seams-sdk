@@ -1,7 +1,7 @@
 import React from 'react';
 import { SeamsContextProvider } from '.';
 import { DARK_TOKENS, LIGHT_TOKENS, Theme } from '../components/theme';
-import type { ThemeOverrides, ThemeProps, ThemeName } from '../components/theme';
+import type { ThemeOverrides, ThemeProps, ThemeMode } from '../components/theme';
 import { usePreconnectWalletAssets } from '../hooks/usePreconnectWalletAssets';
 import { useWalletIframeZIndex } from '../hooks/useWalletIframeZIndex';
 import type { SeamsContextProviderProps } from '../types';
@@ -12,7 +12,7 @@ import {
 } from '../../core/browser/walletIframe/csp-stylesheet';
 
 export type SeamsWebProviderThemeProps = Omit<ThemeProps, 'children'> & {
-  setTheme?: (theme: ThemeName) => void;
+  setTheme?: (theme: ThemeMode) => void;
 };
 
 export interface SeamsWebProviderProps {
@@ -21,7 +21,7 @@ export interface SeamsWebProviderProps {
   /** Theme props for the boundary (defaults to provider+scope).
    * Token precedence:
    * 1) `theme.tokens` (React override)
-   * 2) `config.appearance.tokens` (SDK config default)
+   * 2) `config.appearance.theme.colors` (SDK config default)
    * 3) built-in SDK theme tokens
    */
   theme?: SeamsWebProviderThemeProps;
@@ -48,13 +48,22 @@ export interface SeamsWebProviderProps {
 function resolveConfigTokenOverrides(
   config: SeamsWebProviderProps['config'],
 ): ThemeOverrides | undefined {
-  const lightColors = config.appearance?.tokens?.light?.colors;
-  const darkColors = config.appearance?.tokens?.dark?.colors;
-  if (!lightColors && !darkColors) return undefined;
+  const theme = config.appearance?.theme;
+  const mode = theme?.mode;
+  const colors = theme?.colors;
+  if ((mode !== 'light' && mode !== 'dark') || !colors) return undefined;
   return {
-    ...(lightColors ? { light: { colors: lightColors } } : {}),
-    ...(darkColors ? { dark: { colors: darkColors } } : {}),
+    [mode]: { colors },
   };
+}
+
+function resolveConfigThemeMode(config: SeamsWebProviderProps['config']): ThemeMode | undefined {
+  const mode = config.appearance?.theme?.mode;
+  return mode === 'light' || mode === 'dark' ? mode : undefined;
+}
+
+function resolveConfigThemeId(config: SeamsWebProviderProps['config']): string {
+  return config.appearance?.theme?.id || 'default';
 }
 
 function mergeThemeOverrideLayers(
@@ -195,6 +204,7 @@ export const SeamsWebProvider: React.FC<SeamsWebProviderProps> = ({
     ...themeOverrides
   } = theme || ({} as any);
   const configTokenOverrides = React.useMemo(() => resolveConfigTokenOverrides(config), [config]);
+  const rootTheme = controlledTheme || resolveConfigThemeMode(config) || 'dark';
   const resolvedReactTokenOverrides = React.useMemo<ThemeOverrides | undefined>(() => {
     if (!reactTokenOverrides) return undefined;
     return typeof reactTokenOverrides === 'function'
@@ -217,29 +227,21 @@ export const SeamsWebProvider: React.FC<SeamsWebProviderProps> = ({
   const providerConfig = React.useMemo<SeamsWebProviderProps['config']>(() => {
     const lightColors = mergedThemeColorOverrides.light.colors;
     const darkColors = mergedThemeColorOverrides.dark.colors;
-    const hasLight = Object.keys(lightColors).length > 0;
-    const hasDark = Object.keys(darkColors).length > 0;
-    if (!hasLight && !hasDark) return config;
+    const activeColors = rootTheme === 'dark' ? darkColors : lightColors;
     return {
       ...config,
       appearance: {
         ...(config.appearance || {}),
-        tokens: {
-          light: { colors: lightColors },
-          dark: { colors: darkColors },
+        theme: {
+          id: resolveConfigThemeId(config),
+          mode: rootTheme,
+          colors: activeColors,
         },
       },
     };
-  }, [config, mergedThemeColorOverrides.dark.colors, mergedThemeColorOverrides.light.colors]);
+  }, [config, mergedThemeColorOverrides.dark.colors, mergedThemeColorOverrides.light.colors, rootTheme]);
 
-  const rootTheme = controlledTheme || config.appearance?.theme;
-  const providerAppearance = React.useMemo(() => {
-    const tokens = providerConfig.appearance?.tokens;
-    return {
-      ...(rootTheme === 'light' || rootTheme === 'dark' ? { theme: rootTheme } : {}),
-      ...(tokens ? { tokens } : {}),
-    };
-  }, [providerConfig.appearance?.tokens, rootTheme]);
+  const providerAppearance = providerConfig.appearance;
 
   React.useEffect(() => {
     if (rootTheme === 'light' || rootTheme === 'dark') {

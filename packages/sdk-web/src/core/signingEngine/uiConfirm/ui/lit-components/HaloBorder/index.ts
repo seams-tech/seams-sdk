@@ -1,6 +1,7 @@
 import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 import { ensureExternalStyles } from '../css/css-loader';
+import type { AppearanceConfig } from '@/core/types/seams';
 
 export type HaloTheme = 'dark' | 'light';
 
@@ -8,6 +9,7 @@ export class HaloBorderElement extends LitElementWithProps {
   static properties = {
     animated: { type: Boolean },
     theme: { type: String },
+    appearance: { attribute: false },
     durationMs: { type: Number, attribute: 'duration-ms' },
     ringGap: { type: Number, attribute: 'ring-gap' },
     ringWidth: { type: Number, attribute: 'ring-width' },
@@ -21,6 +23,7 @@ export class HaloBorderElement extends LitElementWithProps {
 
   declare animated?: boolean;
   declare theme?: HaloTheme;
+  declare appearance?: AppearanceConfig;
   declare durationMs?: number;
   declare ringGap?: number;
   declare ringWidth?: number;
@@ -87,8 +90,24 @@ export class HaloBorderElement extends LitElementWithProps {
   private _startTs: number = 0;
   private _running: boolean = false;
 
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.applyCssVars();
+  }
+
   protected updated(changed?: PropertyValues): void {
-    // Bridge prop values into CSS variables (no inline style attributes)
+    this.applyCssVars();
+
+    // Start/stop animation based on "animated" or duration changes
+    if (!changed) return;
+    if (changed.has('animated') || changed.has('durationMs')) {
+      if (this.animated) this.start();
+      else this.stop();
+    }
+  }
+
+  private applyCssVars(): void {
+    this.setAppearanceCssVars(this.appearance);
     const vars: Record<string, string> = {};
     if (typeof this.ringGap === 'number') vars['--ring-gap'] = `${this.ringGap}px`;
     if (typeof this.ringWidth === 'number') vars['--ring-width'] = `${this.ringWidth}px`;
@@ -100,13 +119,6 @@ export class HaloBorderElement extends LitElementWithProps {
     // Ensure an initial angle is present
     vars['--halo-angle'] = vars['--halo-angle'] || '0deg';
     this.setCssVars(vars);
-
-    // Start/stop animation based on "animated" or duration changes
-    if (!changed) return;
-    if (changed.has('animated') || changed.has('durationMs')) {
-      if (this.animated) this.start();
-      else this.stop();
-    }
   }
 
   disconnectedCallback(): void {

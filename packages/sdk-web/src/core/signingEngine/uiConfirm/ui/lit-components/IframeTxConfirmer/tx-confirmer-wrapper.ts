@@ -1,9 +1,10 @@
 import { html, type PropertyValues } from 'lit';
 import { createRef, Ref, ref } from 'lit/directives/ref.js';
 import { LitElementWithProps } from '../LitElementWithProps';
-import type { ConfirmUIElement, ThemeName } from '../../confirm-ui-types';
+import type { ConfirmUIElement, ThemeMode } from '../../confirm-ui-types';
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import type { UserConfirmSecurityContext } from '@/core/types';
+import type { AppearanceConfig } from '@/core/types/seams';
 import { W3A_TX_CONFIRMER_ID } from '../../registry';
 import { DrawerTxConfirmerElement } from './viewer-drawer';
 import { ModalTxConfirmElement } from './viewer-modal';
@@ -23,7 +24,8 @@ export type TxConfirmerVariantElement = (ConfirmUIElement & HTMLElement) & {
   txSigningRequests?: TransactionInputWasm[];
   model?: TxDisplayModel;
   securityContext?: Partial<UserConfirmSecurityContext>;
-  theme?: ThemeName;
+  theme?: ThemeMode;
+  appearance?: AppearanceConfig;
   loading?: boolean;
   errorMessage?: string;
   body?: string;
@@ -53,6 +55,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     model: { attribute: false },
     securityContext: { type: Object },
     theme: { type: String },
+    appearance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String, attribute: 'error-message' },
     intentDigest: { type: String, attribute: 'intent-digest' },
@@ -75,7 +78,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   declare txSigningRequests?: TransactionInputWasm[];
   declare model?: TxDisplayModel;
   declare securityContext?: Partial<UserConfirmSecurityContext>;
-  declare theme: ThemeName;
+  declare theme: ThemeMode;
+  declare appearance?: AppearanceConfig;
   declare loading: boolean;
   declare errorMessage?: string;
   declare intentDigest?: string;
@@ -108,6 +112,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     this.txSigningRequests = undefined;
     this.model = undefined;
     this.theme = 'dark';
+    this.appearance = undefined;
     this.loading = false;
     this.deferClose = true;
     this.body = '';
@@ -123,6 +128,9 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
 
   protected updated(changed: PropertyValues<this>): void {
     super.updated(changed);
+    if (changed.has('theme') || changed.has('appearance')) {
+      this.applyAppearanceTokenVars();
+    }
     this.syncChildProps();
     if (changed.has('errorMessage')) {
       this.syncErrorAttribute();
@@ -141,6 +149,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
           .model=${this.model}
           .securityContext=${this.securityContext}
           .theme=${this.theme}
+          .appearance=${this.appearance}
           .nearExplorerUrl=${this.nearExplorerUrl}
           .tempoExplorerUrl=${this.tempoExplorerUrl}
           .evmExplorerUrl=${this.evmExplorerUrl}
@@ -165,6 +174,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
         .model=${this.model}
         .securityContext=${this.securityContext}
         .theme=${this.theme}
+        .appearance=${this.appearance}
         .nearExplorerUrl=${this.nearExplorerUrl}
         .tempoExplorerUrl=${this.tempoExplorerUrl}
         .evmExplorerUrl=${this.evmExplorerUrl}
@@ -189,6 +199,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     child.model = this.model;
     child.securityContext = this.securityContext;
     child.theme = this.theme;
+    child.appearance = this.appearance;
     child.loading = this.loading;
     child.errorMessage = this.errorMessage;
     child.body = this.body;
@@ -203,6 +214,10 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     child.evmExplorerUrl = this.evmExplorerUrl;
     child.requestUpdate?.();
     this.attachChildListeners();
+  }
+
+  private applyAppearanceTokenVars(): void {
+    this.setAppearanceCssVars(this.appearance);
   }
 
   private syncErrorAttribute(): void {
@@ -265,6 +280,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.applyAppearanceTokenVars();
     // Capture-phase fallback: ensure we catch early CONFIRM events even if child listeners
     // are not yet attached due to rendering/refs timing.
     this.addEventListener(

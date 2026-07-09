@@ -126,14 +126,26 @@ w3a-tx-confirm-content {
   width: min(100%, var(--tooltip-width, 100%));
   max-width: 100%;
   box-sizing: border-box;
-  padding: 1.25rem 1rem;
   border: 1px solid var(--w3a-colors-borderSecondary, var(--w3a-colors-borderPrimary));
   border-radius: 1.5rem;
-  background: var(--w3a-colors-surface2);
+  background: var(--w3a-colors-txDetailsBackground, var(--w3a-colors-surface2));
 }
-.tooltip-width > w3a-tx-tree {
+.tooltip-width > w3a-tx-tree,
+.tooltip-width > w3a-tx-tree[theme] {
   width: 100%;
   max-width: 100%;
+  --w3a-tree__tooltip-border-outer__background: var(
+    --w3a-colors-txDetailsBackground,
+    var(--w3a-colors-surface2)
+  );
+  --w3a-tree__tooltip-tree-root__background: var(
+    --w3a-colors-txDetailsBackground,
+    var(--w3a-colors-surface2)
+  );
+  --w3a-tree__file-content__background: var(
+    --w3a-colors-txDetailsBackground,
+    var(--w3a-colors-surface2)
+  );
 }
 .tooltip-width > w3a-tx-tree .tooltip-tree-root,
 .tooltip-width > w3a-tx-tree .tooltip-border-outer {

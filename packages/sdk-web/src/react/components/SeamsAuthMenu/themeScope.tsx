@@ -2,8 +2,8 @@ import React from 'react';
 import { DARK_TOKENS, LIGHT_TOKENS, type DesignTokens } from '../theme/design-tokens';
 import { createCSSVariables } from '../theme/utils';
 
-export type SeamsAuthMenuThemeName = 'light' | 'dark';
-export type SeamsAuthMenuThemeMode = SeamsAuthMenuThemeName | 'auto';
+export type SeamsAuthMenuResolvedThemeMode = 'light' | 'dark';
+export type SeamsAuthMenuThemeMode = SeamsAuthMenuResolvedThemeMode | 'auto';
 
 export interface SeamsAuthMenuThemeScopeProps {
   tag?: keyof React.JSX.IntrinsicElements;
@@ -20,13 +20,13 @@ function getSystemPrefersDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function resolveThemeName(mode?: SeamsAuthMenuThemeMode): SeamsAuthMenuThemeName {
+function resolveThemeMode(mode?: SeamsAuthMenuThemeMode): SeamsAuthMenuResolvedThemeMode {
   if (mode === 'dark' || mode === 'light') return mode;
   return getSystemPrefersDark() ? 'dark' : 'light';
 }
 
-function tokensForThemeName(name: SeamsAuthMenuThemeName): DesignTokens {
-  return name === 'dark' ? DARK_TOKENS : LIGHT_TOKENS;
+function tokensForThemeMode(mode: SeamsAuthMenuResolvedThemeMode): DesignTokens {
+  return mode === 'dark' ? DARK_TOKENS : LIGHT_TOKENS;
 }
 
 /**
@@ -44,14 +44,14 @@ export const SeamsAuthMenuThemeScope: React.FC<SeamsAuthMenuThemeScopeProps> = (
   tokens,
   children,
 }) => {
-  const themeName = resolveThemeName(theme);
+  const themeMode = resolveThemeMode(theme);
   const resolvedTokens = React.useMemo(
-    () => tokens ?? tokensForThemeName(themeName),
-    [themeName, tokens],
+    () => tokens ?? tokensForThemeMode(themeMode),
+    [themeMode, tokens],
   );
   const vars = React.useMemo(() => createCSSVariables(resolvedTokens, '--w3a'), [resolvedTokens]);
   const Comp: any = tag;
-  const attrs: any = { [dataAttr]: themeName };
+  const attrs: any = { [dataAttr]: themeMode };
   return (
     <Comp className={className} style={{ ...vars, ...style }} {...attrs}>
       {children}

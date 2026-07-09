@@ -1,7 +1,7 @@
 import { MinimalNearClient } from '@/core/rpcClients/near/NearClient';
 import { SeamsWeb } from '@/SeamsWeb';
 import { __setWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
-import type { SeamsConfigsInput } from '@/core/types/seams';
+import type { AppearanceConfigInput, SeamsConfigsInput, ThemeMode } from '@/core/types/seams';
 import type { PMSetConfigPayload } from '../shared/messages';
 import { isString } from '@shared/utils/validation';
 import { setEmbeddedBase } from '@/core/walletRuntimePaths';
@@ -54,8 +54,13 @@ function toStringRecord(value: unknown): Record<string, string> {
   return out;
 }
 
-function coerceThemeName(value: unknown): 'light' | 'dark' | undefined {
+function coerceThemeMode(value: unknown): ThemeMode | undefined {
   return value === 'light' || value === 'dark' ? value : undefined;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
 function normalizeForStableSerialize(value: unknown): unknown {
@@ -126,20 +131,70 @@ function serializeColorOverrides(colors: Record<string, string>): string[] {
   return lines;
 }
 
-function upsertLitThemeOverrideStyle(args: {
-  darkColors: Record<string, string>;
-  lightColors: Record<string, string>;
-}): void {
-  const { darkColors, lightColors } = args;
-  const darkLines = serializeColorOverrides(darkColors);
-  const lightLines = serializeColorOverrides(lightColors);
+function appearanceMode(appearance: unknown): ThemeMode | undefined {
+  const record = objectRecord(appearance);
+  if (!record) return undefined;
+  const theme = record.theme;
+  const legacyTheme = coerceThemeMode(theme);
+  if (legacyTheme) return legacyTheme;
+  return coerceThemeMode(objectRecord(theme)?.mode);
+}
+
+function appearanceThemeId(appearance: unknown, fallback: string): string {
+  const theme = objectRecord(objectRecord(appearance)?.theme);
+  const rawId = typeof theme?.id === 'string' ? theme.id.trim() : '';
+  return rawId || fallback;
+}
+
+function legacyAppearanceColors(appearance: unknown, mode: ThemeMode): Record<string, string> {
+  const tokens = objectRecord(objectRecord(appearance)?.tokens);
+  return toStringRecord(objectRecord(objectRecord(tokens?.[mode])?.colors));
+}
+
+function objectAppearanceColors(appearance: unknown, mode: ThemeMode): Record<string, string> {
+  const theme = objectRecord(objectRecord(appearance)?.theme);
+  if (coerceThemeMode(theme?.mode) !== mode) return {};
+  return toStringRecord(theme?.colors);
+}
+
+function appearanceColors(appearance: unknown, mode: ThemeMode): Record<string, string> {
+  return {
+    ...legacyAppearanceColors(appearance, mode),
+    ...objectAppearanceColors(appearance, mode),
+  };
+}
+
+function normalizeWalletHostAppearance(args: {
+  previous?: AppearanceConfigInput;
+  incoming?: AppearanceConfigInput;
+}): AppearanceConfigInput | undefined {
+  if (args.incoming === undefined) return args.previous;
+  const mode = appearanceMode(args.incoming) ?? appearanceMode(args.previous);
+  if (!mode) return args.previous;
+  const id = appearanceThemeId(args.incoming, appearanceThemeId(args.previous, 'default'));
+  const colors = {
+    ...appearanceColors(args.previous, mode),
+    ...appearanceColors(args.incoming, mode),
+  };
+  return {
+    theme: {
+      id,
+      mode,
+      colors,
+    },
+    palette: 'default',
+  };
+}
+
+function upsertLitThemeOverrideStyle(appearance?: AppearanceConfigInput): void {
+  const mode = appearanceMode(appearance);
+  const colors = mode ? appearanceColors(appearance, mode) : {};
+  const lines = serializeColorOverrides(colors);
   const cssBlocks: string[] = [];
 
-  if (darkLines.length > 0) {
-    cssBlocks.push(`${W3A_LIT_DARK_SELECTOR} {\n${darkLines.join('\n')}\n}`);
-  }
-  if (lightLines.length > 0) {
-    cssBlocks.push(`${W3A_LIT_LIGHT_SELECTOR} {\n${lightLines.join('\n')}\n}`);
+  if (mode && lines.length > 0) {
+    const selector = mode === 'light' ? W3A_LIT_LIGHT_SELECTOR : W3A_LIT_DARK_SELECTOR;
+    cssBlocks.push(`${selector} {\n${lines.join('\n')}\n}`);
   }
 
   const cssText = cssBlocks.join('\n\n').trim();
@@ -148,27 +203,6 @@ function upsertLitThemeOverrideStyle(args: {
     return;
   }
   getLitThemeOverrideStyleManager().setDynamicRule(W3A_LIT_THEME_OVERRIDE_RULE_ID, cssText);
-}
-
-function liveRuntimeAppearance(input: {
-  theme?: 'light' | 'dark';
-  lightColors: Record<string, string>;
-  darkColors: Record<string, string>;
-}): Pick<NonNullable<SeamsConfigsInput['appearance']>, 'theme' | 'tokens'> | null {
-  const hasLightColors = Object.keys(input.lightColors).length > 0;
-  const hasDarkColors = Object.keys(input.darkColors).length > 0;
-  const tokens =
-    hasLightColors || hasDarkColors
-      ? {
-          ...(hasLightColors ? { light: { colors: input.lightColors } } : {}),
-          ...(hasDarkColors ? { dark: { colors: input.darkColors } } : {}),
-        }
-      : undefined;
-  if (!input.theme && !tokens) return null;
-  return {
-    ...(input.theme ? { theme: input.theme } : {}),
-    ...(tokens ? { tokens } : {}),
-  };
 }
 
 export interface HostContext {
@@ -240,32 +274,11 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     : Array.isArray(prev.chains)
       ? prev.chains.map(cloneChainConfig)
       : [];
-  const prevLightColors = toStringRecord(prev.appearance?.tokens?.light?.colors);
-  const prevDarkColors = toStringRecord(prev.appearance?.tokens?.dark?.colors);
-  const incomingLightRaw = payload?.appearance?.tokens?.light?.colors;
-  const incomingDarkRaw = payload?.appearance?.tokens?.dark?.colors;
-  const nextLightColors =
-    incomingLightRaw !== undefined ? toStringRecord(incomingLightRaw) : prevLightColors;
-  const nextDarkColors =
-    incomingDarkRaw !== undefined ? toStringRecord(incomingDarkRaw) : prevDarkColors;
-  const incomingTheme = coerceThemeName(payload?.appearance?.theme);
-  const prevTheme = coerceThemeName(prev.appearance?.theme);
-  const nextTheme = incomingTheme ?? prevTheme;
-  const hasAppearance =
-    !!nextTheme ||
-    Object.keys(nextLightColors).length > 0 ||
-    Object.keys(nextDarkColors).length > 0;
-  const nextAppearance = hasAppearance
-    ? {
-        ...(prev.appearance || {}),
-        ...(nextTheme ? { theme: nextTheme } : {}),
-        palette: 'default' as const,
-        tokens: {
-          light: { colors: nextLightColors },
-          dark: { colors: nextDarkColors },
-        },
-      }
-    : undefined;
+  const nextAppearance = normalizeWalletHostAppearance({
+    previous: prev.appearance,
+    incoming: payload?.appearance,
+  });
+  const nextTheme = appearanceMode(nextAppearance);
 
   const base = {
     chains: nextChains,
@@ -294,7 +307,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
       ...(prev.iframeWallet || {}),
       ...(payload?.iframeWallet || {}),
     },
-    appearance: nextAppearance ?? prev.appearance,
+    appearance: nextAppearance,
   } as SeamsConfigsInput;
   ctx.walletConfigs = sanitizeWalletHostConfigs(base);
   const nextRuntimeResetFingerprint = buildWalletRuntimeResetFingerprint(ctx.walletConfigs);
@@ -304,24 +317,16 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     if (nextTheme) {
       document.documentElement.setAttribute('data-w3a-theme', nextTheme);
     }
-    upsertLitThemeOverrideStyle({
-      darkColors: nextDarkColors,
-      lightColors: nextLightColors,
-    });
+    upsertLitThemeOverrideStyle(nextAppearance);
   } catch {}
 
-  const appearanceForLiveRuntime = liveRuntimeAppearance({
-    theme: nextTheme,
-    lightColors: nextLightColors,
-    darkColors: nextDarkColors,
-  });
   if (
     ctx.seamsWeb &&
-    appearanceForLiveRuntime &&
+    nextAppearance &&
     nextRuntimeResetFingerprint === prevRuntimeResetFingerprint
   ) {
     try {
-      ctx.seamsWeb.setAppearance(appearanceForLiveRuntime);
+      ctx.seamsWeb.setAppearance(nextAppearance);
     } catch {}
   }
 

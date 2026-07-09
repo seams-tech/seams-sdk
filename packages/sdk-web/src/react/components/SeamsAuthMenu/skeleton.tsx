@@ -145,7 +145,8 @@ export const SeamsAuthMenuSkeletonInner = React.forwardRef<
                             className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                             disabled
                           >
-                            Create with Passkey
+                            <span>Create with Passkey</span>
+                            <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                           </button>
                           <SocialProviders
                             socialLogin={{ google: () => undefined }}

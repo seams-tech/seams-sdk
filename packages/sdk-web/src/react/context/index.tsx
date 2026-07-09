@@ -118,7 +118,13 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
       return;
     }
     if (theme?.theme) {
-      seams.setAppearance({ theme: theme.theme });
+      seams.setAppearance({
+        theme: {
+          id: 'react-provider',
+          mode: theme.theme,
+          colors: {},
+        },
+      });
     }
   }, [seams, theme?.appearance, theme?.theme]);
 

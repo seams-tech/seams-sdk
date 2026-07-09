@@ -251,6 +251,7 @@
 }
 
 .w3a-auth-method-btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -278,6 +279,27 @@
     border-color 160ms ease,
     transform 120ms ease,
     box-shadow 160ms ease;
+}
+
+.w3a-auth-method-badge {
+  position: absolute;
+  inset-block-start: -0.42rem;
+  inset-inline-end: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-success), white 35%);
+  border-radius: 999px;
+  background: var(--w3a-colors-success);
+  color: var(--w3a-colors-textButton, #ffffff);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  box-shadow: 0 6px 14px -10px var(--w3a-colors-success);
+  pointer-events: none;
 }
 
 .w3a-auth-method-btn:hover:not(:disabled),
@@ -394,14 +416,30 @@
   .w3a-auth-method-arrow
   > .HoverArrow
   .HoverArrow__linePath,
-.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath {
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath,
+.seams-passkey-registration-btn[data-seams-registration-button-hovered='true']
+  .w3a-auth-method-arrow
+  > .HoverArrow
+  .HoverArrow__linePath,
+.seams-passkey-registration-btn[data-seams-registration-button-focused='true']
+  .w3a-auth-method-arrow
+  > .HoverArrow
+  .HoverArrow__linePath {
   opacity: 1;
   filter: none;
   transform: scaleX(1);
 }
 
 .w3a-auth-method-btn:hover:not(:disabled) .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath,
-.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath {
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath,
+.seams-passkey-registration-btn[data-seams-registration-button-hovered='true']
+  .w3a-auth-method-arrow
+  > .HoverArrow
+  .HoverArrow__tipPath,
+.seams-passkey-registration-btn[data-seams-registration-button-focused='true']
+  .w3a-auth-method-arrow
+  > .HoverArrow
+  .HoverArrow__tipPath {
   transform: translateX(3px);
 }
 

@@ -1,13 +1,14 @@
-import { coerceThemeName } from '@shared/utils/theme';
+import { coerceThemeMode } from '@shared/utils/theme';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
 import { parseServerEnvironmentBudgetAllowance } from '../signingEngine/session/budget/policy';
 import type {
+  AppearanceTheme,
   SeamsChainConfig,
   SeamsChainConfigInput,
   SeamsChainNetwork,
   SeamsConfigsInput,
-  ThemeName,
+  ThemeMode,
   ThemePaletteName,
 } from '../types/seams';
 import {
@@ -90,13 +91,81 @@ export function toColorTokenRecord(value: unknown): Record<string, string> {
   return out;
 }
 
-export function resolveTheme(args: { value: unknown; fallback: ThemeName }): ThemeName {
+export function resolveThemeMode(args: { value: unknown; fallback: ThemeMode }): ThemeMode {
   if (args.value == null) return args.fallback;
-  const parsed = coerceThemeName(args.value);
+  const parsed = coerceThemeMode(args.value);
   if (!parsed) {
-    throw new Error("[configPresets] Invalid config: appearance.theme must be 'light' or 'dark'");
+    throw new Error("[configPresets] Invalid config: appearance.theme.mode must be 'light' or 'dark'");
   }
   return parsed;
+}
+
+function resolveAppearanceThemeId(args: { value: unknown; fallback: string }): string {
+  const id = toTrimmedString(args.value) || args.fallback;
+  if (!id) {
+    throw new Error('[configPresets] Invalid config: appearance.theme.id must be non-empty');
+  }
+  return id;
+}
+
+function readLegacyTokenColors(tokens: unknown, mode: ThemeMode): Record<string, string> {
+  if (!tokens || typeof tokens !== 'object') return {};
+  const record = tokens as Record<string, unknown>;
+  const modeRecord = record[mode];
+  if (!modeRecord || typeof modeRecord !== 'object') return {};
+  return toColorTokenRecord((modeRecord as Record<string, unknown>).colors);
+}
+
+export function resolveAppearanceTheme(args: {
+  value: unknown;
+  fallback: AppearanceTheme;
+  legacyTokens?: unknown;
+}): AppearanceTheme {
+  const fallbackMode = args.fallback.mode;
+  const legacyMode = coerceThemeMode(args.value);
+  if (legacyMode) {
+    return {
+      id: args.fallback.id,
+      mode: legacyMode,
+      colors: {
+        ...args.fallback.colors,
+        ...readLegacyTokenColors(args.legacyTokens, legacyMode),
+      },
+    };
+  }
+
+  if (args.value == null) {
+    return {
+      ...args.fallback,
+      colors: {
+        ...args.fallback.colors,
+        ...readLegacyTokenColors(args.legacyTokens, fallbackMode),
+      },
+    };
+  }
+
+  if (typeof args.value !== 'object' || Array.isArray(args.value)) {
+    throw new Error(
+      '[configPresets] Invalid config: appearance.theme must be an object with id, mode, and optional colors',
+    );
+  }
+
+  const record = args.value as Record<string, unknown>;
+  const rawMode = record.mode;
+  const mode = rawMode == null ? fallbackMode : coerceThemeMode(rawMode);
+  if (!mode) {
+    throw new Error("[configPresets] Invalid config: appearance.theme.mode must be 'light' or 'dark'");
+  }
+
+  return {
+    id: resolveAppearanceThemeId({ value: record.id, fallback: args.fallback.id }),
+    mode,
+    colors: {
+      ...args.fallback.colors,
+      ...readLegacyTokenColors(args.legacyTokens, mode),
+      ...toColorTokenRecord(record.colors),
+    },
+  };
 }
 
 export function resolveThemePalette(args: {

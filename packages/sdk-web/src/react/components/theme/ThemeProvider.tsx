@@ -3,16 +3,16 @@ import type { DesignTokens, UseThemeReturn } from './design-tokens';
 import { LIGHT_TOKENS, DARK_TOKENS } from './design-tokens';
 import { createCSSVariables, mergeTokens, PartialDeep } from './utils';
 
-export type ThemeName = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
 
 interface ThemeContextValue {
-  theme: ThemeName;
+  theme: ThemeMode;
   tokens: DesignTokens;
   isDark: boolean;
   prefix: string;
   // Precomputed CSS variables for convenience
   vars: React.CSSProperties;
-  setTheme?: (theme: ThemeName) => void;
+  setTheme?: (theme: ThemeMode) => void;
 }
 
 const ThemeContext = React.createContext<ThemeContextValue | null>(null);
@@ -21,7 +21,7 @@ export const useThemeContext = (): ThemeContextValue => {
   const ctx = React.useContext(ThemeContext);
   if (ctx) return ctx;
 
-  const theme: ThemeName = 'dark';
+  const theme: ThemeMode = 'dark';
   const tokens: DesignTokens = DARK_TOKENS;
   const vars = createCSSVariables(tokens, '--w3a');
   return {
@@ -78,10 +78,10 @@ export interface ThemeOverrides {
 
 interface ThemeProviderProps {
   children: React.ReactNode;
-  theme?: ThemeName;
+  theme?: ThemeMode;
   tokens?: ThemeOverrides | ((base: { light: DesignTokens; dark: DesignTokens }) => ThemeOverrides);
   prefix?: string; // CSS var prefix
-  setTheme?: (theme: ThemeName) => void;
+  setTheme?: (theme: ThemeMode) => void;
 }
 
 const ThemeProvider: React.FC<ThemeProviderProps> = ({
@@ -91,7 +91,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({
   prefix = '--w3a',
   setTheme,
 }) => {
-  const resolvedTheme: ThemeName = theme === 'light' || theme === 'dark' ? theme : 'dark';
+  const resolvedTheme: ThemeMode = theme === 'light' || theme === 'dark' ? theme : 'dark';
   const baseLight = React.useMemo(() => LIGHT_TOKENS, []);
   const baseDark = React.useMemo(() => DARK_TOKENS, []);
 

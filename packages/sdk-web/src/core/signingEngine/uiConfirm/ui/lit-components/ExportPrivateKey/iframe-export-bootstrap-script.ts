@@ -5,7 +5,7 @@ import type {
   ExportGuidance,
   ExportPrivateKeyDisplayEntry,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { ThemeTokenOverridesInput } from '@/core/types/seams';
+import type { AppearanceConfig } from '@/core/types/seams';
 import {
   createCspStylesheetManager,
   getDefaultCspNonce,
@@ -34,7 +34,7 @@ type MessagePayloads = {
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
     guidance?: ExportGuidance;
-    tokens?: ThemeTokenOverridesInput;
+    appearance?: AppearanceConfig;
   };
   SET_LOADING: boolean;
   SET_ERROR: string;
@@ -127,18 +127,15 @@ function serializeColorOverrides(colors: Record<string, string>): string[] {
   return lines;
 }
 
-function upsertExportTokenOverrides(tokens?: ThemeTokenOverridesInput): void {
-  const lightColors = toStringRecord(tokens?.light?.colors);
-  const darkColors = toStringRecord(tokens?.dark?.colors);
-  const darkLines = serializeColorOverrides(darkColors);
-  const lightLines = serializeColorOverrides(lightColors);
+function upsertExportAppearanceOverrides(appearance?: AppearanceConfig): void {
+  const mode = coerceTheme(appearance?.theme.mode);
+  const colors = toStringRecord(appearance?.theme.colors);
+  const lines = serializeColorOverrides(colors);
   const cssBlocks: string[] = [];
 
-  if (darkLines.length > 0) {
-    cssBlocks.push(`${EXPORT_DARK_SELECTOR} {\n${darkLines.join('\n')}\n}`);
-  }
-  if (lightLines.length > 0) {
-    cssBlocks.push(`${EXPORT_LIGHT_SELECTOR} {\n${lightLines.join('\n')}\n}`);
+  if (mode && lines.length > 0) {
+    const selector = mode === 'light' ? EXPORT_LIGHT_SELECTOR : EXPORT_DARK_SELECTOR;
+    cssBlocks.push(`${selector} {\n${lines.join('\n')}\n}`);
   }
 
   const cssText = cssBlocks.join('\n\n').trim();
@@ -224,13 +221,13 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
     }
     case 'SET_EXPORT_DATA': {
       if (!isSetExportDataPayload(payload)) break;
-      const nextTheme = coerceTheme(payload.theme);
+      const nextTheme = coerceTheme(payload.appearance?.theme.mode) ?? coerceTheme(payload.theme);
       if (nextTheme) {
         try {
           document.documentElement.setAttribute('data-w3a-theme', nextTheme);
         } catch {}
       }
-      upsertExportTokenOverrides(payload.tokens);
+      upsertExportAppearanceOverrides(payload.appearance);
       const viewer = getViewer();
       if (nextTheme) {
         viewer.theme = nextTheme;

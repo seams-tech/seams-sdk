@@ -43,7 +43,7 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
-import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
+import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeMode } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   KeyExportEventCallback,
@@ -547,7 +547,7 @@ export type SeamsWebBaseContext<TSigningEngine> = {
   signingEngine: TSigningEngine;
   nearClient: NearClient;
   configs: SeamsConfigsReadonly;
-  theme: ThemeName;
+  theme: ThemeMode;
 };
 
 export type RegistrationWebContext = SeamsWebBaseContext<RegistrationSigningSurface>;

@@ -363,35 +363,30 @@ export interface LoginState {
   thresholdEcdsaPublicKeyB64u?: string | null;
 }
 
-export type ThemeName = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
+export type ThemeId = string;
 export type ThemePaletteName = 'default';
 
-export interface ThemeTokenOverridesModeInput {
+export interface AppearanceThemeInput {
+  id: ThemeId;
+  mode: ThemeMode;
   colors?: Record<string, string>;
 }
 
-export interface ThemeTokenOverridesInput {
-  light?: ThemeTokenOverridesModeInput;
-  dark?: ThemeTokenOverridesModeInput;
+export interface AppearanceConfigInput {
+  theme?: AppearanceThemeInput;
+  palette?: ThemePaletteName;
 }
 
-export interface AppearanceConfigInput {
-  theme?: ThemeName;
-  palette?: ThemePaletteName;
-  tokens?: ThemeTokenOverridesInput;
+export interface AppearanceTheme {
+  id: ThemeId;
+  mode: ThemeMode;
+  colors: Record<string, string>;
 }
 
 export interface AppearanceConfig {
-  theme: ThemeName;
+  theme: AppearanceTheme;
   palette: ThemePaletteName;
-  tokens: {
-    light: {
-      colors: Record<string, string>;
-    };
-    dark: {
-      colors: Record<string, string>;
-    };
-  };
 }
 
 export type RegistrationResult =

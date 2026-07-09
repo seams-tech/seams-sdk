@@ -8,7 +8,8 @@ import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import TxTree from '../TxTree';
 import { ensureExternalStyles } from '../css/css-loader';
 import TxConfirmContentElement from './tx-confirm-content';
-import type { ThemeName } from '../../confirm-ui-types';
+import type { ThemeMode } from '../../confirm-ui-types';
+import type { AppearanceConfig } from '@/core/types/seams';
 import type {
   EmailOtpConfirmPrompt,
   SigningAuthMode,
@@ -88,6 +89,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     loading: { type: Boolean },
     errorMessage: { type: String },
     theme: { type: String, attribute: 'theme', reflect: true },
+    appearance: { attribute: false },
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
     tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
     evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
@@ -112,9 +114,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   securityContext?: Partial<UserConfirmSecurityContext>;
   loading = false;
   errorMessage: string | undefined = undefined;
-  // Theme tokens now come from external CSS (tx-confirmer.css)
-  // style injection has been removed to satisfy strict CSP.
-  theme: ThemeName = 'dark';
+  theme: ThemeMode = 'dark';
+  appearance?: AppearanceConfig;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
@@ -294,6 +295,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
             <div class="hero passkey-registration-confirm__hero">
               <w3a-passkey-halo-loading
                 .theme=${this.theme}
+                .appearance=${this.appearance}
                 .animated=${!this.errorMessage}
                 .ringGap=${4}
                 .ringWidth=${4}
@@ -516,6 +518,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 
   updated(changedProperties: PropertyValues) {
     super.updated(changedProperties);
+    if (changedProperties.has('theme') || changedProperties.has('appearance')) {
+      this.applyAppearanceTokenVars();
+    }
     if (
       this._isEmailOtpMode() &&
       this.otpSubmitAnimating &&
@@ -574,6 +579,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.applyAppearanceTokenVars();
     // Ensure root token theme is applied immediately on mount
     try {
       const docEl = this.ownerDocument?.documentElement as HTMLElement | undefined;
@@ -638,6 +644,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
             <div class="hero">
               <w3a-passkey-halo-loading
                 .theme=${this.theme}
+                .appearance=${this.appearance}
                 .animated=${!this.errorMessage ? true : false}
                 .ringGap=${4}
                 .ringWidth=${4}
@@ -732,6 +739,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
               .intentDigest=${this.intentDigest}
               .securityContext=${this.securityContext}
               .theme=${this.theme}
+              .appearance=${this.appearance}
               .nearExplorerUrl=${this.nearExplorerUrl}
               .tempoExplorerUrl=${this.tempoExplorerUrl}
               .evmExplorerUrl=${this.evmExplorerUrl}
@@ -829,6 +837,10 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   // Public method for two-phase close from host/bootstrap
   close(confirmed: boolean) {
     this._resolveAndCleanup(confirmed);
+  }
+
+  private applyAppearanceTokenVars(): void {
+    this.setAppearanceCssVars(this.appearance);
   }
 }
 

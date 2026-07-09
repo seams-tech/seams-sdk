@@ -1,6 +1,6 @@
 import React from 'react';
 import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
-import { preloadSeamsAuthMenu, useSeams, useTheme } from '@seams/sdk/react';
+import { preloadSeamsAuthMenu, useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
 import { CarouselProvider } from './Carousel/CarouselProvider';
@@ -96,11 +96,13 @@ export type DemoPasskeyColumnProps = {
   /** Controlled page index — pass with onCurrentPageChange to drive the carousel externally. */
   currentPage?: number;
   onCurrentPageChange?: (page: number) => void;
+  defaultModeWhenNoDetectedAccount?: AuthMenuMode;
 };
 
 export function DemoPasskeyColumn({
   currentPage: controlledPage,
   onCurrentPageChange,
+  defaultModeWhenNoDetectedAccount,
 }: DemoPasskeyColumnProps = {}) {
   const { loginState } = useSeams();
   const [internalPage, setInternalPage] = React.useState(0);
@@ -130,7 +132,9 @@ export function DemoPasskeyColumn({
           <>
             <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
               <React.Suspense fallback={<SuspenseFallback />}>
-                <PasskeyLoginMenu />
+                <PasskeyLoginMenu
+                  defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
+                />
               </React.Suspense>
             </PrefetchOnIntent>
           </>
@@ -166,7 +170,7 @@ export function DemoPasskeyColumn({
         ),
       },
     ],
-    [loginState?.isLoggedIn],
+    [defaultModeWhenNoDetectedAccount, loginState?.isLoggedIn, prefetchPasskeyMenu],
   );
 
   return (

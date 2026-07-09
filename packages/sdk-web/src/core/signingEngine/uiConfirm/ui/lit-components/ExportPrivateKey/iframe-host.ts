@@ -12,7 +12,7 @@ import type {
   ExportGuidance,
   ExportPrivateKeyDisplayEntry,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { ThemeTokenOverridesInput } from '@/core/types/seams';
+import type { AppearanceConfig } from '@/core/types/seams';
 
 type MessageType =
   | 'READY'
@@ -39,7 +39,7 @@ type MessagePayloads = {
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
     guidance?: ExportGuidance;
-    tokens?: ThemeTokenOverridesInput;
+    appearance?: AppearanceConfig;
   };
   SET_LOADING: boolean;
   SET_ERROR: string;
@@ -60,7 +60,7 @@ export class IframeExportHost extends LitElementWithProps {
     privateKey: { type: String, attribute: 'private-key' },
     keys: { attribute: false },
     guidance: { attribute: false },
-    tokens: { attribute: false },
+    appearance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
   } as const;
@@ -72,7 +72,7 @@ export class IframeExportHost extends LitElementWithProps {
   declare privateKey?: string;
   declare keys?: ExportPrivateKeyDisplayEntry[];
   declare guidance?: ExportGuidance;
-  declare tokens?: ThemeTokenOverridesInput;
+  declare appearance?: AppearanceConfig;
   declare loading: boolean;
   declare errorMessage?: string;
 
@@ -94,7 +94,7 @@ export class IframeExportHost extends LitElementWithProps {
     this.privateKey = undefined;
     this.keys = undefined;
     this.guidance = undefined;
-    this.tokens = undefined;
+    this.appearance = undefined;
     this.loading = false;
   }
 
@@ -146,7 +146,7 @@ export class IframeExportHost extends LitElementWithProps {
       publicKey: this.publicKey,
       keys: this.keys,
       guidance: this.guidance,
-      tokens: this.tokens,
+      appearance: this.appearance,
     });
     if (changed.has('loading')) {
       this.postToIframe('SET_LOADING', !!this.loading);
@@ -236,7 +236,7 @@ export class IframeExportHost extends LitElementWithProps {
             publicKey: this.publicKey,
             keys: this.keys,
             guidance: this.guidance,
-            tokens: this.tokens,
+            appearance: this.appearance,
           });
           this.postToIframe('SET_LOADING', !!this.loading);
           if (this.errorMessage) this.postToIframe('SET_ERROR', this.errorMessage);
@@ -326,7 +326,7 @@ export type ExportViewerIframeElement = HTMLElement & {
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
   guidance?: ExportGuidance;
-  tokens?: ThemeTokenOverridesInput;
+  appearance?: AppearanceConfig;
   loading?: boolean;
   errorMessage?: string;
 };

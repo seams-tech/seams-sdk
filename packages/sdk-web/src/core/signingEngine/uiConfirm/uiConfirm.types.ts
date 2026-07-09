@@ -16,7 +16,7 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { UserConfirmProgressEvent } from '../stepUpConfirmation/types';
 import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { ThemeName, ThemeTokenOverridesInput, SeamsChainConfig } from '../../types/seams';
+import type { AppearanceConfig, ThemeMode, SeamsChainConfig } from '../../types/seams';
 import type { RegistrationCredentialConfirmationPayload } from '../workerManager/validation';
 import type {
   OrchestrateNearSignatureOnlySigningConfirmationParams,
@@ -67,8 +67,8 @@ export interface UiConfirmContext {
   nonceCoordinator: NonceCoordinator;
   relayerUrl: string;
   chains?: readonly SeamsChainConfig[];
-  getTheme?: () => ThemeName;
-  getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
+  getTheme?: () => ThemeMode;
+  getAppearance?: () => AppearanceConfig;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;

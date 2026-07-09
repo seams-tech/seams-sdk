@@ -18,7 +18,7 @@ import { getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
-import type { ThemeName, ThemeTokenOverridesInput } from '@/core/types/seams';
+import type { AppearanceConfig, ThemeMode } from '@/core/types/seams';
 import {
   upsertExportViewerHost,
   removeExportViewerHostIfPresent,
@@ -34,26 +34,31 @@ function createRandomChallengeB64u(): string {
   return base64UrlEncode(bytes.buffer);
 }
 
-function toStringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object') return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof v === 'string') out[k] = v;
-  }
-  return out;
+const DEFAULT_EXPORT_APPEARANCE: AppearanceConfig = {
+  theme: {
+    id: 'default',
+    mode: 'dark',
+    colors: {},
+  },
+  palette: 'default',
+};
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === 'light' || value === 'dark';
 }
 
-function sanitizeThemeTokens(
-  tokens: ThemeTokenOverridesInput | undefined,
-): ThemeTokenOverridesInput | undefined {
-  if (!tokens) return undefined;
-  const lightColors = toStringRecord(tokens.light?.colors);
-  const darkColors = toStringRecord(tokens.dark?.colors);
-  if (Object.keys(lightColors).length === 0 && Object.keys(darkColors).length === 0)
-    return undefined;
+function resolveExportAppearance(
+  ctx: UiConfirmContext,
+  requestedMode?: ThemeMode,
+): AppearanceConfig {
+  const appearance = ctx.getAppearance?.() ?? DEFAULT_EXPORT_APPEARANCE;
+  if (!isThemeMode(requestedMode) || requestedMode === appearance.theme.mode) return appearance;
   return {
-    light: Object.keys(lightColors).length > 0 ? { colors: lightColors } : undefined,
-    dark: Object.keys(darkColors).length > 0 ? { colors: darkColors } : undefined,
+    ...appearance,
+    theme: {
+      ...appearance.theme,
+      mode: requestedMode,
+    },
   };
 }
 
@@ -74,7 +79,7 @@ async function mountExportViewer(
   ctx: UiConfirmContext,
   payload: ShowSecurePrivateKeyUiPayload,
   confirmationConfig: NormalizedConfirmationConfig,
-  theme: ThemeName,
+  theme: ThemeMode,
 ): Promise<void> {
   const hostArgs: UpsertExportViewerHostArgs = {
     theme: payload.theme || theme || 'dark',
@@ -85,7 +90,7 @@ async function mountExportViewer(
     privateKey: payload.privateKey,
     keys: Array.isArray(payload.keys) ? payload.keys : undefined,
     guidance: payload.guidance,
-    tokens: sanitizeThemeTokens(ctx.getAppearanceTokens?.()),
+    appearance: resolveExportAppearance(ctx, payload.theme),
     loading: payload.loading === true,
     errorMessage: payload.errorMessage,
     onLifecycle: payload.onLifecycle,
@@ -141,7 +146,7 @@ export async function handleLocalOnlyFlow(
   opts: {
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
-    theme: ThemeName;
+    theme: ThemeMode;
   },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;

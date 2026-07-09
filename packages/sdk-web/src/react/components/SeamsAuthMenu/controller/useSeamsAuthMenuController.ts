@@ -27,6 +27,10 @@ import type {
 import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { useSeamsAuthMenuForceInitialRegister } from '../hydrationContext';
+import {
+  NO_LAST_USED_LOGIN_METHOD,
+  type LastUsedLoginMethod,
+} from './lastUsedLoginMethod';
 import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
 import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
@@ -176,6 +180,7 @@ export interface SeamsAuthMenuController {
   canShowContinue: boolean;
   canSubmit: boolean;
   canRecoverAccountWithEmail: boolean;
+  lastUsedLoginMethod: LastUsedLoginMethod;
   onIntentChange: (next: AuthMenuMode) => void;
   onInputChange: (val: string) => void;
   onProceed: () => void;
@@ -625,6 +630,9 @@ export function useSeamsAuthMenuController(
   const [postRecoveryRotationBusy, setPostRecoveryRotationBusy] = React.useState(false);
   const [postRecoveryRotationError, setPostRecoveryRotationError] = React.useState('');
   const [methodError, setMethodError] = React.useState<string>('');
+  const [lastUsedLoginMethod, setLastUsedLoginMethod] = React.useState<LastUsedLoginMethod>(
+    NO_LAST_USED_LOGIN_METHOD,
+  );
   const [passkeyRegistrationDraft, setPasskeyRegistrationDraft] = React.useState(
     createPasskeyRegistrationDraft,
   );
@@ -753,7 +761,10 @@ export function useSeamsAuthMenuController(
     void import('../features/recentUnlockPrefill')
       .then(async (m) => {
         const result = await m.getRecentUnlockPrefill(runtime.seamsWeb);
-        if (cancelled || !result?.username) return;
+        if (cancelled) return;
+        setLastUsedLoginMethod(result.loginMethod);
+        if (result.kind !== 'recent_unlock_prefill') return;
+        if (!result.username) return;
         if (prevModeRef.current !== AuthMenuMode.Login) return;
         if (latestValueRef.current.trim().length > 0) return;
 
@@ -1558,6 +1569,7 @@ export function useSeamsAuthMenuController(
     canShowContinue,
     canSubmit,
     canRecoverAccountWithEmail,
+    lastUsedLoginMethod,
     onIntentChange,
     onInputChange,
     onProceed,

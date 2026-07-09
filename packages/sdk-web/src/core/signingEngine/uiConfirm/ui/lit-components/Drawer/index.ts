@@ -2,6 +2,7 @@ import { html } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 import { dispatchLitCancel } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
+import type { AppearanceConfig } from '@/core/types/seams';
 
 export type DrawerTheme = 'dark' | 'light';
 
@@ -22,6 +23,7 @@ export class DrawerElement extends LitElementWithProps {
   static properties = {
     open: { type: Boolean, reflect: true },
     theme: { type: String, reflect: true },
+    appearance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
     dragToClose: { type: Boolean, attribute: 'drag-to-close' },
@@ -36,6 +38,7 @@ export class DrawerElement extends LitElementWithProps {
 
   declare open: boolean;
   declare theme: DrawerTheme;
+  declare appearance?: AppearanceConfig;
   declare loading: boolean;
   declare errorMessage?: string;
   declare dragToClose: boolean;
@@ -103,6 +106,7 @@ export class DrawerElement extends LitElementWithProps {
     super();
     this.open = false;
     this.theme = 'dark';
+    this.appearance = undefined;
     this.loading = false;
     this.dragToClose = true;
     this.showCloseButton = true;
@@ -127,6 +131,7 @@ export class DrawerElement extends LitElementWithProps {
       } catch {}
     }
     super.connectedCallback();
+    this.applyAppearanceTokenVars();
     this.attachViewportSync();
   }
 
@@ -231,6 +236,9 @@ export class DrawerElement extends LitElementWithProps {
 
   updated(changedProperties: Map<string | number | symbol, unknown>) {
     super.updated(changedProperties);
+    if (changedProperties.has('theme') || changedProperties.has('appearance')) {
+      this.applyAppearanceTokenVars();
+    }
 
     if (changedProperties.has('open')) {
       // When externally toggled open, allow CSS transitions to play naturally.
@@ -259,6 +267,10 @@ export class DrawerElement extends LitElementWithProps {
       // Defer to ensure DOM paints before measuring
       setTimeout(() => this.syncCssVarsForOpenTranslate(), 0);
     }
+  }
+
+  private applyAppearanceTokenVars(): void {
+    this.setAppearanceCssVars(this.appearance);
   }
 
   // Slot-like adoption helper

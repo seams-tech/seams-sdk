@@ -17,16 +17,16 @@
 }
 
 .button--primary {
-  background: var(--w3a-colors-primary);
-  color: white;
+  background: var(--w3a-colors-buttonBackground, var(--w3a-colors-primary));
+  color: var(--w3a-colors-textButton, white);
 }
 
 .button--primary:hover:not(:disabled) {
-  background: var(--w3a-colors-primaryHover);
+  background: var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover));
   /* Add a subtle primary-colored ring on hover */
   box-shadow:
     0 6px 12px var(--site-shadow-sm),
-    0 0 0 2px var(--w3a-colors-primary);
+    0 0 0 2px var(--w3a-colors-buttonBackground, var(--w3a-colors-primary));
 }
 
 .button--primary:active:not(:disabled) {

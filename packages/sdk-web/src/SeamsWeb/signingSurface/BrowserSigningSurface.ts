@@ -4,10 +4,9 @@ import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinat
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
+  AppearanceConfig,
   SigningSessionStatus,
   SeamsConfigsReadonly,
-  ThemeTokenOverridesInput,
-  ThemeName,
 } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
@@ -169,31 +168,6 @@ async function loadEcdsaRoleLocalReadyRecordFromRuntimePorts(
   return await runtimePortsRef.current.storage.loadEcdsaRoleLocalReadyRecord(input);
 }
 
-function mergeThemeTokenOverrideMode(
-  current: ThemeTokenOverridesInput['light'] | undefined,
-  next: ThemeTokenOverridesInput['light'] | undefined,
-): ThemeTokenOverridesInput['light'] | undefined {
-  if (!next?.colors) return current;
-  return {
-    colors: {
-      ...(current?.colors ?? {}),
-      ...next.colors,
-    },
-  };
-}
-
-function mergeThemeTokenOverrides(
-  current: ThemeTokenOverridesInput | undefined,
-  next: ThemeTokenOverridesInput | undefined,
-): ThemeTokenOverridesInput | undefined {
-  if (!next) return current;
-  return {
-    ...current,
-    light: mergeThemeTokenOverrideMode(current?.light, next.light),
-    dark: mergeThemeTokenOverrideMode(current?.dark, next.dark),
-  };
-}
-
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
  */
@@ -206,8 +180,7 @@ export class BrowserSigningSurface {
   private readonly nearClient: NearClient;
   private readonly nonceCoordinator: NonceCoordinator;
   private workerBaseOrigin: string = '';
-  private theme: ThemeName = 'dark';
-  private appearanceTokens: ThemeTokenOverridesInput | undefined;
+  private appearance: AppearanceConfig;
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
@@ -240,7 +213,7 @@ export class BrowserSigningSurface {
     deps: BrowserSigningSurfaceConstructorDeps,
   ) {
     this.seamsWebConfigs = seamsWebConfigs;
-    this.appearanceTokens = seamsWebConfigs.ui.appearance?.tokens;
+    this.appearance = seamsWebConfigs.ui.appearance;
     this.nearClient = nearClient;
     this.ecdsaBootstrapStore =
       deps.signingEngineStores.walletProfileAndSignerRecords.ecdsaBootstrapStore;
@@ -261,8 +234,8 @@ export class BrowserSigningSurface {
       seamsWebConfigs: this.seamsWebConfigs,
       nearClient: this.nearClient,
       loadEcdsaRoleLocalReadyRecord,
-      getTheme: () => this.theme,
-      getAppearanceTokens: () => this.appearanceTokens,
+      getTheme: () => this.appearance.theme.mode,
+      getAppearance: () => this.appearance,
     });
 
     this.touchIdPrompt = assembly.touchIdPrompt;
@@ -337,7 +310,7 @@ export class BrowserSigningSurface {
       emailOtpSessions: this.emailOtpSessions,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       getWalletSessionActivationDeps: () => this.enginePorts.walletSessionActivationDeps,
-      getTheme: () => this.theme,
+      getTheme: () => this.appearance.theme.mode,
     });
 
     this.enginePorts = createBrowserSigningSurfaceEnginePorts({
@@ -358,7 +331,7 @@ export class BrowserSigningSurface {
       thresholdEd25519CommitQueueByKey: this.thresholdEd25519CommitQueueByKey,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       workerWarmupPolicy: deps.workerWarmupPolicy,
-      getTheme: () => this.theme,
+      getTheme: () => this.appearance.theme.mode,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       restorePasskeyEd25519SigningMaterial:
         this.restorePasskeyEd25519SigningMaterialForReconnect.bind(this),
@@ -448,13 +421,8 @@ export class BrowserSigningSurface {
     return this.nonceCoordinator;
   }
 
-  setAppearance(appearance: { theme?: ThemeName; tokens?: ThemeTokenOverridesInput }): void {
-    if (appearance.theme === 'light' || appearance.theme === 'dark') {
-      this.theme = appearance.theme;
-    }
-    if (appearance.tokens) {
-      this.appearanceTokens = mergeThemeTokenOverrides(this.appearanceTokens, appearance.tokens);
-    }
+  setAppearance(appearance: AppearanceConfig): void {
+    this.appearance = appearance;
   }
 
   getUserPreferences(): UserPreferencesManager {
