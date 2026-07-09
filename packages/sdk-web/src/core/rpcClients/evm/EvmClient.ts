@@ -17,6 +17,12 @@ export type EvmTransactionByHash = {
   to?: string | null;
   input?: string | null;
   value?: string | null;
+  calls?: readonly {
+    to?: string | null;
+    input?: string | null;
+    data?: string | null;
+    value?: string | null;
+  }[] | null;
 };
 
 export type EvmBlockHeader = {

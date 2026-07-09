@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   ethSignerWasm: '/_test-sdk/esm/core/signingEngine/chains/evm/ethSignerWasm.js',
@@ -16,7 +17,7 @@ const CANONICAL_VECTORS = JSON.parse(fs.readFileSync(VECTORS_PATH, 'utf8'));
 
 test.describe('canonical vector replay via worker-facing wasm bindings', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('replays secp256k1 and tx-finalization vectors through worker wrappers', async ({
@@ -35,11 +36,11 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
         const { computeTempoSenderHashWasm, encodeTempoSignedTxWasm } = await import(
           paths.tempoSignerWasm
         );
-        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const { getWorkerTransport } = await import(paths.signerGateway);
 
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestWorkerOperation({
+            await getWorkerTransport().requestOperation({
               kind: kind as any,
               request: request as any,
             }),
@@ -226,11 +227,11 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { encodeTempoSignedTxWasm } = await import(paths.tempoSignerWasm);
-        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const { getWorkerTransport } = await import(paths.signerGateway);
 
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestWorkerOperation({
+            await getWorkerTransport().requestOperation({
               kind: kind as any,
               request: request as any,
             }),
@@ -293,11 +294,11 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
     const result = await page.evaluate(
       async ({ paths, vectors }) => {
         const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
-        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const { getWorkerTransport } = await import(paths.signerGateway);
 
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestWorkerOperation({
+            await getWorkerTransport().requestOperation({
               kind: kind as any,
               request: request as any,
             }),

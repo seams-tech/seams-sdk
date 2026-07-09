@@ -845,7 +845,7 @@ test.describe('SeamsWeb chain signer modules', () => {
       });
 
       expect(result.txHash).toBe(txHash);
-      expect(result.payloadVerification.verified).toBe(true);
+      expect(result.payloadVerification.kind).toBe('matched');
       expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportFinalized).toBe(1);
@@ -872,6 +872,183 @@ test.describe('SeamsWeb chain signer modules', () => {
         status: 'succeeded',
         data: { operation: 'execute', txHash },
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('Tempo capability.executeEvmFamilyTransaction verifies finalized EIP-2718 call payloads', async () => {
+    const calls = {
+      signEvmFamily: 0,
+      reportBroadcastAccepted: 0,
+      reportBroadcastRejected: 0,
+      reportFinalized: 0,
+      reportDroppedOrReplaced: 0,
+      reconcileNonceLane: 0,
+    };
+    const txHash = `0x${'76'.repeat(32)}`;
+    const tempoCallTo = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
+    const tempoCallInput = '0xa41368620000000000000000000000000000000000000000000000000000000000000020';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      } catch {}
+      const id = body.id ?? Date.now();
+      const method = String(body.method || '');
+      if (method === 'eth_sendRawTransaction') {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: txHash }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (method === 'eth_getTransactionReceipt') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              transactionHash: txHash,
+              blockNumber: '0x1234',
+              status: '0x1',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (method === 'eth_getTransactionByHash') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              type: '0x76',
+              to: null,
+              input: null,
+              calls: [
+                {
+                  to: tempoCallTo,
+                  value: '0x0',
+                  input: tempoCallInput,
+                  data: null,
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32601, message: `unsupported method: ${method}` },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const signer = createLocalTempoCapability({
+        getContext: () =>
+          ({
+            configs: {
+              network: {
+                chains: [
+                  {
+                    network: 'tempo-testnet',
+                    rpcUrl: 'https://rpc.tempo.test',
+                    explorerUrl: 'https://explorer.tempo.test',
+                    chainId: 42431,
+                  },
+                ],
+              },
+            },
+            signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
+                return {
+                  chain: 'tempo',
+                  kind: 'tempoTransaction',
+                  senderHashHex: `0x${'cd'.repeat(32)}`,
+                  rawTxHex: `0x76${'34'.repeat(31)}`,
+                };
+              },
+              reportTempoBroadcastAccepted: async () => {
+                calls.reportBroadcastAccepted += 1;
+              },
+              reportTempoBroadcastRejected: async () => {
+                calls.reportBroadcastRejected += 1;
+              },
+              reportTempoFinalized: async () => {
+                calls.reportFinalized += 1;
+              },
+              reportTempoDroppedOrReplaced: async () => {
+                calls.reportDroppedOrReplaced += 1;
+              },
+              reconcileTempoNonceLane: async () => {
+                calls.reconcileNonceLane += 1;
+                return {
+                  chainNextNonce: '0',
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                };
+              },
+            },
+          }) as any,
+      });
+
+      const result = await signer.executeEvmFamilyTransaction({
+        walletSession: TEST_WALLET_SESSION,
+        chainTarget: TEMPO_CHAIN_TARGET,
+        request: {
+          chain: 'tempo',
+          kind: 'tempoTransaction',
+          senderSignatureAlgorithm: 'secp256k1',
+          tx: {
+            chainId: 42431,
+            maxPriorityFeePerGas: 1n,
+            maxFeePerGas: 2n,
+            gasLimit: 21000n,
+            calls: [
+              {
+                to: tempoCallTo,
+                value: 0n,
+                input: tempoCallInput,
+              },
+            ],
+            accessList: [],
+            nonceKey: 0n,
+          },
+        },
+      });
+
+      expect(result.txHash).toBe(txHash);
+      expect(result.payloadVerification).toMatchObject({
+        kind: 'matched',
+        observed: {
+          kind: 'tempo_eip2718_calls',
+          calls: [
+            {
+              to: tempoCallTo,
+              input: tempoCallInput,
+              data: null,
+            },
+          ],
+        },
+      });
+      expect(calls.signEvmFamily).toBe(1);
+      expect(calls.reportBroadcastAccepted).toBe(1);
+      expect(calls.reportFinalized).toBe(1);
+      expect(calls.reportBroadcastRejected).toBe(0);
+      expect(calls.reportDroppedOrReplaced).toBe(0);
+      expect(calls.reconcileNonceLane).toBe(0);
     } finally {
       globalThis.fetch = originalFetch;
     }

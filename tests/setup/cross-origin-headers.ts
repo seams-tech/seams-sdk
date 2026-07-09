@@ -1,4 +1,6 @@
 import { Page } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { buildPermissionsPolicy, buildWalletCsp } from '@/plugins/headers';
 import { buildWalletServiceHtml } from '@/plugins/plugin-utils';
 import { printLog, printStepLine } from './logging';
@@ -33,6 +35,14 @@ export async function installWalletSdkCorsShim(
   const mirror = options.mirror !== false; // default true to support NO_CADDY
   const injectWalletServiceImportMap = options.injectWalletServiceImportMap === true;
 
+  const repoRoot = (() => {
+    if (process.env.W3A_REPO_ROOT) return process.env.W3A_REPO_ROOT;
+    const cwd = process.cwd();
+    if (fs.existsSync(path.join(cwd, 'packages/sdk-web'))) return cwd;
+    return path.resolve(cwd, '..');
+  })();
+  const sdkPublicRoot = path.join(repoRoot, 'packages/sdk-web/dist/public');
+
   // Prefer BrowserContext glob patterns to ensure reliable matching across transports
   const walletHost = (() => {
     try {
@@ -41,8 +51,53 @@ export async function installWalletSdkCorsShim(
       return 'wallet.example.localhost';
     }
   })();
-  const sdkPattern: string = `**://${walletHost}/sdk/**`;
+  const appHost = (() => {
+    try {
+      return new URL(appOrigin).host;
+    } catch {
+      return '';
+    }
+  })();
+  const sdkPatterns = Array.from(
+    new Set(
+      [`**://${walletHost}/sdk/**`, appHost ? `**://${appHost}/sdk/**` : ''].filter(Boolean),
+    ),
+  );
   const walletServicePattern: string = `**://${walletHost}/wallet-service*`;
+
+  const contentTypeForAsset = (filePath: string): string => {
+    switch (path.extname(filePath)) {
+      case '.js':
+        return 'application/javascript; charset=utf-8';
+      case '.css':
+        return 'text/css; charset=utf-8';
+      case '.json':
+      case '.map':
+        return 'application/json; charset=utf-8';
+      case '.wasm':
+        return 'application/wasm';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
+  const resolveSdkPublicAsset = (url: string): string | null => {
+    try {
+      const parsed = new URL(url);
+      const sdkIndex = parsed.pathname.indexOf('/sdk/');
+      if (sdkIndex < 0) return null;
+      const rel = decodeURIComponent(parsed.pathname.slice(sdkIndex + 1));
+      const candidate = path.normalize(path.join(sdkPublicRoot, rel));
+      const normalizedRoot = path.normalize(sdkPublicRoot);
+      if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}${path.sep}`)) {
+        return null;
+      }
+      if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) return null;
+      return candidate;
+    } catch {
+      return null;
+    }
+  };
 
   const buildAssetHeaders = (orig: Record<string, string>, url: string): Record<string, string> => {
     const headers: Record<string, string> = { ...orig };
@@ -68,60 +123,74 @@ export async function installWalletSdkCorsShim(
   const ctx = page.context();
 
   // Ensure previous routes are cleared
-  await ctx.unroute(sdkPattern as any).catch(() => undefined);
-  await ctx.route(sdkPattern as any, async (route) => {
-    const req = route.request();
-    const url = req.url();
-    const method = (req.method() || 'GET').toUpperCase();
+  for (const sdkPattern of sdkPatterns) {
+    await ctx.unroute(sdkPattern as any).catch(() => undefined);
+    await ctx.route(sdkPattern as any, async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = (req.method() || 'GET').toUpperCase();
 
-    if (method === 'OPTIONS') {
-      if (logStyle === 'intercept') {
-        printLog('intercept', `sdk preflight OPTIONS ${url}`, { scope: 'cors' });
-      }
-      return route.fulfill({
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': appOrigin,
-          'Access-Control-Allow-Methods': 'GET,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-          'Access-Control-Allow-Credentials': 'true',
-        },
-        body: '',
-      });
-    }
-
-    try {
-      if (logStyle === 'intercept') {
-        printLog('intercept', `sdk ${method} ${url} [mirror=${mirror ? 'on' : 'off'}]`, {
-          scope: 'cors',
+      if (method === 'OPTIONS') {
+        if (logStyle === 'intercept') {
+          printLog('intercept', `sdk preflight OPTIONS ${url}`, { scope: 'cors' });
+        }
+        return route.fulfill({
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': appOrigin,
+            'Access-Control-Allow-Methods': 'GET,OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+            'Access-Control-Allow-Credentials': 'true',
+          },
+          body: '',
         });
       }
-      const upstreamUrl = mirror ? url.replace(walletOrigin, appOrigin) : url;
-      const fetched = await route.fetch({ url: upstreamUrl });
-      const body = await fetched.body();
-      const originalHeaders = fetched.headers();
-      const lower: Record<string, string> = {};
-      for (const [k, v] of Object.entries(originalHeaders)) if (typeof v === 'string') lower[k] = v;
-      const headers = buildAssetHeaders(lower, url);
-      await route.fulfill({ status: fetched.status(), headers, body });
-      if (logStyle === 'intercept') {
-        printLog(
-          'intercept',
-          `sdk fulfilled ${url} ← ${upstreamUrl} (status ${fetched.status()})`,
-          { scope: 'cors', indent: 1 },
-        );
+
+      try {
+        if (logStyle === 'intercept') {
+          printLog('intercept', `sdk ${method} ${url} [mirror=${mirror ? 'on' : 'off'}]`, {
+            scope: 'cors',
+          });
+        }
+        const assetPath = resolveSdkPublicAsset(url);
+        if (assetPath) {
+          const headers = buildAssetHeaders(
+            { 'content-type': contentTypeForAsset(assetPath) },
+            url,
+          );
+          await route.fulfill({ status: 200, headers, path: assetPath });
+          return;
+        }
+
+        const upstreamUrl = mirror ? url.replace(walletOrigin, appOrigin) : url;
+        const fetched = await route.fetch({ url: upstreamUrl });
+        const body = await fetched.body();
+        const originalHeaders = fetched.headers();
+        const lower: Record<string, string> = {};
+        for (const [k, v] of Object.entries(originalHeaders)) {
+          if (typeof v === 'string') lower[k] = v;
+        }
+        const headers = buildAssetHeaders(lower, url);
+        await route.fulfill({ status: fetched.status(), headers, body });
+        if (logStyle === 'intercept') {
+          printLog(
+            'intercept',
+            `sdk fulfilled ${url} ← ${upstreamUrl} (status ${fetched.status()})`,
+            { scope: 'cors', indent: 1 },
+          );
+        }
+      } catch (error) {
+        // Quiet teardown noise (page/context closed or response disposed) unless explicitly in intercept mode
+        const msg = String((error as Error)?.message || '');
+        const isTeardownNoise =
+          /Target page|context|browser has been closed|Response has been disposed/i.test(msg);
+        if (!isTeardownNoise && options.logStyle === 'intercept') {
+          printLog('intercept', `cors shim fell back (${msg})`, { scope: 'cors', indent: 1 });
+        }
+        return route.fallback();
       }
-    } catch (error) {
-      // Quiet teardown noise (page/context closed or response disposed) unless explicitly in intercept mode
-      const msg = String((error as Error)?.message || '');
-      const isTeardownNoise =
-        /Target page|context|browser has been closed|Response has been disposed/i.test(msg);
-      if (!isTeardownNoise && options.logStyle === 'intercept') {
-        printLog('intercept', `cors shim fell back (${msg})`, { scope: 'cors', indent: 1 });
-      }
-      return route.fallback();
-    }
-  });
+    });
+  }
   if (logStyle === 'intercept') {
     printLog('intercept', `wallet SDK CORS/CORP shim installed for ${walletOrigin}/sdk/*`, {
       scope: 'cors',

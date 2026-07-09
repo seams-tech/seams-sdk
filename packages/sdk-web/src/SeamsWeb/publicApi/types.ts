@@ -106,7 +106,11 @@ import type {
   ReportTempoFinalizedArgs as RuntimeReportTempoFinalizedArgs,
   TempoNonceLaneStatus as RuntimeTempoNonceLaneStatus,
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type {
+  EvmAddress,
+  EvmBytes,
+  EvmSigningRequest,
+} from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
@@ -293,21 +297,69 @@ export type TempoNonceLaneStatus = {
   blockedNonce?: string;
 };
 
-export type FinalizedEvmTxPayloadVerification = {
-  verified: boolean;
-  reason: 'matched' | 'tx_unavailable' | 'mismatch';
-  observedTo?: string | null;
-  observedInput?: string | null;
+export type FinalizedEvmEip1559PayloadExpectation = {
+  kind: 'evm_eip1559';
+  to: EvmAddress | null;
+  input: EvmBytes;
 };
 
-export type ExecuteEvmFamilyTransactionArgs = {
+export type FinalizedTempoEip2718CallPayloadExpectation = {
+  to: EvmAddress;
+  input: EvmBytes;
+};
+
+export type FinalizedTempoEip2718PayloadExpectation = {
+  kind: 'tempo_eip2718_calls';
+  calls: readonly [
+    FinalizedTempoEip2718CallPayloadExpectation,
+    ...FinalizedTempoEip2718CallPayloadExpectation[],
+  ];
+};
+
+export type FinalizedEvmTxPayloadExpectation =
+  | FinalizedEvmEip1559PayloadExpectation
+  | FinalizedTempoEip2718PayloadExpectation;
+
+export type FinalizedEvmEip1559PayloadObservation = {
+  kind: 'evm_eip1559';
+  to: string | null;
+  input: string | null;
+};
+
+export type FinalizedTempoEip2718CallPayloadObservation = {
+  to: string | null;
+  input: string | null;
+  data: string | null;
+};
+
+export type FinalizedTempoEip2718PayloadObservation = {
+  kind: 'tempo_eip2718_calls';
+  calls: readonly FinalizedTempoEip2718CallPayloadObservation[];
+};
+
+export type FinalizedEvmTxPayloadObservation =
+  | FinalizedEvmEip1559PayloadObservation
+  | FinalizedTempoEip2718PayloadObservation;
+
+export type FinalizedEvmTxPayloadVerification =
+  | {
+      kind: 'matched';
+      expected: FinalizedEvmTxPayloadExpectation;
+      observed: FinalizedEvmTxPayloadObservation;
+    }
+  | {
+      kind: 'tx_unavailable';
+      expected: FinalizedEvmTxPayloadExpectation;
+    }
+  | {
+      kind: 'mismatch';
+      expected: FinalizedEvmTxPayloadExpectation;
+      observed: FinalizedEvmTxPayloadObservation;
+    };
+
+type ExecuteEvmFamilyTransactionBaseArgs = {
   walletSession: WalletSessionRef;
-  request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
-  payloadExpectation?: {
-    to?: `0x${string}`;
-    input?: `0x${string}`;
-  };
   postFinalizationCheck?: () => Promise<void>;
   finalization?: {
     timeoutMs?: number;
@@ -321,6 +373,16 @@ export type ExecuteEvmFamilyTransactionArgs = {
     onEvent?: (event: TempoNonceLifecycleEvent) => void;
   };
 };
+
+export type ExecuteEvmFamilyTransactionArgs =
+  | (ExecuteEvmFamilyTransactionBaseArgs & {
+      request: EvmSigningRequest;
+      payloadExpectation?: FinalizedEvmEip1559PayloadExpectation;
+    })
+  | (ExecuteEvmFamilyTransactionBaseArgs & {
+      request: TempoSigningRequest;
+      payloadExpectation?: FinalizedTempoEip2718PayloadExpectation;
+    });
 
 export type ExecuteEvmFamilyTransactionResult = {
   txHash: `0x${string}`;

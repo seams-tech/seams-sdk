@@ -1,5 +1,5 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
-import { createEvmClient } from '@/core/rpcClients/evm/EvmClient';
+import { createEvmClient, type EvmTransactionByHash } from '@/core/rpcClients/evm/EvmClient';
 import type { SeamsChainConfig } from '@/core/types/seams';
 import {
   thresholdEcdsaChainTargetFromConfig,
@@ -9,6 +9,10 @@ import {
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
+  FinalizedEvmEip1559PayloadExpectation,
+  FinalizedTempoEip2718PayloadExpectation,
+  FinalizedEvmTxPayloadExpectation,
+  FinalizedEvmTxPayloadObservation,
   FinalizedEvmTxPayloadVerification,
   ReconcileTempoNonceLaneArgs,
   ReportTempoBroadcastAcceptedArgs,
@@ -187,6 +191,149 @@ function normalizeHexData(value: unknown): `0x${string}` | null {
   return normalized as `0x${string}`;
 }
 
+function trimmedStringOrNull(value: unknown): string | null {
+  const trimmed = String(value ?? '').trim();
+  return trimmed || null;
+}
+
+function normalizePayloadAddress(value: unknown): string | null {
+  const trimmed = trimmedStringOrNull(value);
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function assertNeverFinalizedPayload(value: never): never {
+  throw new Error(`[Tempo capability] unhandled finalized payload branch: ${String(value)}`);
+}
+
+function requireHexData(value: unknown, label: string): `0x${string}` {
+  const normalized = normalizeHexData(value);
+  if (!normalized) throw new Error(`[Tempo capability] invalid ${label} payload input`);
+  return normalized;
+}
+
+function eip1559PayloadExpectationFromRequest(
+  request: Extract<ExecuteEvmFamilyTransactionArgs['request'], { chain: 'evm' }>,
+): FinalizedEvmEip1559PayloadExpectation {
+  return {
+    kind: 'evm_eip1559',
+    to: request.tx.to ?? null,
+    input: requireHexData(request.tx.data || '0x', 'EVM'),
+  };
+}
+
+function tempoCallPayloadExpectationFromRequestCall(
+  call: Extract<ExecuteEvmFamilyTransactionArgs['request'], { chain: 'tempo' }>['tx']['calls'][number],
+): FinalizedTempoEip2718PayloadExpectation['calls'][number] {
+  return {
+    to: call.to,
+    input: requireHexData(call.input || '0x', 'Tempo call'),
+  };
+}
+
+function tempoPayloadExpectationFromRequest(
+  request: Extract<ExecuteEvmFamilyTransactionArgs['request'], { chain: 'tempo' }>,
+): FinalizedTempoEip2718PayloadExpectation {
+  const [firstCall, ...remainingCalls] = request.tx.calls;
+  if (!firstCall) throw new Error('[Tempo capability] Tempo transaction has no calls');
+  const firstExpectation = tempoCallPayloadExpectationFromRequestCall(firstCall);
+  const remainingExpectations = remainingCalls.map(tempoCallPayloadExpectationFromRequestCall);
+  const calls: FinalizedTempoEip2718PayloadExpectation['calls'] = [
+    firstExpectation,
+    ...remainingExpectations,
+  ];
+  return {
+    kind: 'tempo_eip2718_calls',
+    calls,
+  };
+}
+
+function payloadExpectationFromRequest(
+  request: ExecuteEvmFamilyTransactionArgs['request'],
+): FinalizedEvmTxPayloadExpectation {
+  switch (request.chain) {
+    case 'evm':
+      return eip1559PayloadExpectationFromRequest(request);
+    case 'tempo':
+      return tempoPayloadExpectationFromRequest(request);
+    default:
+      return assertNeverFinalizedPayload(request);
+  }
+}
+
+function observedCallInput(call: { input?: string | null; data?: string | null }): string | null {
+  return call.input ?? call.data ?? null;
+}
+
+function observedPayloadFromTx(tx: EvmTransactionByHash): FinalizedEvmTxPayloadObservation {
+  if (Array.isArray(tx.calls)) {
+    return {
+      kind: 'tempo_eip2718_calls',
+      calls: tx.calls.map((call) => ({
+        to: call?.to ?? null,
+        input: call ? observedCallInput(call) : null,
+        data: call?.data ?? null,
+      })),
+    };
+  }
+  return {
+    kind: 'evm_eip1559',
+    to: tx.to ?? null,
+    input: tx.input ?? null,
+  };
+}
+
+function eip1559PayloadMatches(args: {
+  expected: FinalizedEvmEip1559PayloadExpectation;
+  observed: Extract<FinalizedEvmTxPayloadObservation, { kind: 'evm_eip1559' }>;
+}): boolean {
+  return (
+    normalizePayloadAddress(args.observed.to) === normalizePayloadAddress(args.expected.to) &&
+    normalizeHexData(args.observed.input) === normalizeHexData(args.expected.input)
+  );
+}
+
+function tempoCallPayloadMatches(args: {
+  expected: FinalizedTempoEip2718PayloadExpectation['calls'][number];
+  observed: Extract<
+    FinalizedEvmTxPayloadObservation,
+    { kind: 'tempo_eip2718_calls' }
+  >['calls'][number];
+}): boolean {
+  return (
+    normalizePayloadAddress(args.observed.to) === normalizePayloadAddress(args.expected.to) &&
+    normalizeHexData(observedCallInput(args.observed)) === normalizeHexData(args.expected.input)
+  );
+}
+
+function tempoPayloadMatches(args: {
+  expected: FinalizedTempoEip2718PayloadExpectation;
+  observed: Extract<FinalizedEvmTxPayloadObservation, { kind: 'tempo_eip2718_calls' }>;
+}): boolean {
+  if (args.observed.calls.length !== args.expected.calls.length) return false;
+  return args.expected.calls.every((expected, index) => {
+    const observed = args.observed.calls[index];
+    return observed ? tempoCallPayloadMatches({ expected, observed }) : false;
+  });
+}
+
+function payloadExpectationMatchesObservation(args: {
+  expected: FinalizedEvmTxPayloadExpectation;
+  observed: FinalizedEvmTxPayloadObservation;
+}): boolean {
+  switch (args.expected.kind) {
+    case 'evm_eip1559':
+      return args.observed.kind === 'evm_eip1559'
+        ? eip1559PayloadMatches({ expected: args.expected, observed: args.observed })
+        : false;
+    case 'tempo_eip2718_calls':
+      return args.observed.kind === 'tempo_eip2718_calls'
+        ? tempoPayloadMatches({ expected: args.expected, observed: args.observed })
+        : false;
+    default:
+      return assertNeverFinalizedPayload(args.expected);
+  }
+}
+
 function resolveRpcUrlForRequest(args: {
   chains: readonly SeamsChainConfig[];
   chainTarget: ExecuteEvmFamilyTransactionArgs['chainTarget'];
@@ -239,34 +386,10 @@ function extractManagedNonceReceiptWaitIdentity(
   };
 }
 
-function inferPayloadExpectation(request: ExecuteEvmFamilyTransactionArgs['request']): {
-  to?: `0x${string}`;
-  input?: `0x${string}`;
-} {
-  if (request.chain === 'evm') {
-    const to = request.tx.to || undefined;
-    const input = normalizeHexData(request.tx.data || '0x') || undefined;
-    return {
-      ...(to ? { to } : {}),
-      ...(input ? { input } : {}),
-    };
-  }
-  if (request.tx.calls.length === 1) {
-    const call = request.tx.calls[0]!;
-    const input = normalizeHexData(call.input || '0x') || undefined;
-    return {
-      to: call.to,
-      ...(input ? { input } : {}),
-    };
-  }
-  return {};
-}
-
 async function verifyFinalizedPayload(args: {
   rpcUrl: string;
   txHash: `0x${string}`;
-  expectedTo?: `0x${string}`;
-  expectedInput?: `0x${string}`;
+  expected: FinalizedEvmTxPayloadExpectation;
 }): Promise<FinalizedEvmTxPayloadVerification> {
   const client = createEvmClient({ rpcUrl: args.rpcUrl });
   const tx = await client
@@ -276,34 +399,28 @@ async function verifyFinalizedPayload(args: {
     .catch(() => null);
   if (!tx) {
     return {
-      verified: false,
-      reason: 'tx_unavailable',
+      kind: 'tx_unavailable',
+      expected: args.expected,
     };
   }
 
-  const expectedTo = String(args.expectedTo || '')
-    .trim()
-    .toLowerCase();
-  const expectedInput = normalizeHexData(args.expectedInput);
-  const observedTo = String(tx.to || '')
-    .trim()
-    .toLowerCase();
-  const observedInput = normalizeHexData(tx.input);
-  const toMismatch = expectedTo ? observedTo !== expectedTo : false;
-  const inputMismatch = expectedInput ? observedInput !== expectedInput : false;
-  if (!toMismatch && !inputMismatch) {
+  const observed = observedPayloadFromTx(tx);
+  if (
+    payloadExpectationMatchesObservation({
+      expected: args.expected,
+      observed,
+    })
+  ) {
     return {
-      verified: true,
-      reason: 'matched',
-      observedTo: tx.to ?? null,
-      observedInput: tx.input ?? null,
+      kind: 'matched',
+      expected: args.expected,
+      observed,
     };
   }
   return {
-    verified: false,
-    reason: 'mismatch',
-    observedTo: tx.to ?? null,
-    observedInput: tx.input ?? null,
+    kind: 'mismatch',
+    expected: args.expected,
+    observed,
   };
 }
 
@@ -380,17 +497,10 @@ function assertRawTxHexOrThrow(value: unknown): `0x${string}` {
   return normalized as `0x${string}`;
 }
 
-function ensurePayloadExpectation(args: ExecuteEvmFamilyTransactionArgs): {
-  to?: `0x${string}`;
-  input?: `0x${string}`;
-} {
-  const inferred = inferPayloadExpectation(args.request);
-  return {
-    ...(inferred.to ? { to: inferred.to } : {}),
-    ...(inferred.input ? { input: inferred.input } : {}),
-    ...(args.payloadExpectation?.to ? { to: args.payloadExpectation.to } : {}),
-    ...(args.payloadExpectation?.input ? { input: args.payloadExpectation.input } : {}),
-  };
+function ensurePayloadExpectation(
+  args: ExecuteEvmFamilyTransactionArgs,
+): FinalizedEvmTxPayloadExpectation {
+  return args.payloadExpectation ?? payloadExpectationFromRequest(args.request);
 }
 
 export async function executeEvmFamilyTransactionLifecycle(args: {
@@ -550,10 +660,9 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     const payloadVerification = await verifyFinalizedPayload({
       rpcUrl,
       txHash,
-      expectedTo: payloadExpectation.to,
-      expectedInput: payloadExpectation.input,
+      expected: payloadExpectation,
     });
-    if (!payloadVerification.verified && payloadVerification.reason === 'mismatch') {
+    if (payloadVerification.kind === 'mismatch') {
       const mismatchError = new Error(
         `Finalized transaction payload mismatch for ${txHash}.`,
       ) as Error & { code?: string; details?: unknown };

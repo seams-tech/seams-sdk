@@ -108,7 +108,7 @@ export async function computeTempoSenderHashWasm(
 
 export async function encodeTempoSignedTxWasm(args: {
   tx: TempoUnsignedTx;
-  senderSignature: Uint8Array; // TempoSignature bytes
+  senderSignature: Uint8Array; // secp256k1 signature65 or packed Tempo signature envelope
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
   const sigBuf = args.senderSignature.slice().buffer;

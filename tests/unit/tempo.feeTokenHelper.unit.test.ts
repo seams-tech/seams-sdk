@@ -39,7 +39,7 @@ test.describe('Tempo fee token helpers', () => {
         decodedToken,
         decodedUnset,
       };
-    }, SDK_ESM_PATHS.index);
+    }, SDK_ESM_PATHS.advanced);
 
     const expectedCalldata =
       '0xe789744400000000000000000000000020c0000000000000000000000000000000000001';

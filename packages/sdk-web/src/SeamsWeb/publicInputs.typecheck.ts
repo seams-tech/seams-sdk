@@ -64,6 +64,101 @@ const invalidExecuteEvmSubjectInput: ExecuteEvmFamilyTransactionArgs = {
 };
 void invalidExecuteEvmSubjectInput;
 
+const evmExecuteRequest = {
+  chain: 'evm',
+  kind: 'eip1559',
+  senderSignatureAlgorithm: 'secp256k1',
+  tx: {
+    chainId: 1313,
+    maxPriorityFeePerGas: 1n,
+    maxFeePerGas: 1n,
+    gasLimit: 21_000n,
+    to: '0x1111111111111111111111111111111111111111',
+    value: 0n,
+    data: '0x',
+  },
+} satisfies Extract<SignTempoArgs['request'], { chain: 'evm' }>;
+
+const tempoExecuteRequest = {
+  chain: 'tempo',
+  kind: 'tempoTransaction',
+  senderSignatureAlgorithm: 'secp256k1',
+  tx: {
+    chainId: 1313,
+    maxPriorityFeePerGas: 1n,
+    maxFeePerGas: 1n,
+    gasLimit: 21_000n,
+    calls: [
+      {
+        to: '0x2222222222222222222222222222222222222222',
+        value: 0n,
+        input: '0x',
+      },
+    ],
+    nonceKey: 0n,
+  },
+} satisfies Extract<SignTempoArgs['request'], { chain: 'tempo' }>;
+
+const validEvmExecuteWithPayloadExpectation: Extract<
+  ExecuteEvmFamilyTransactionArgs,
+  { request: { chain: 'evm' } }
+> = {
+  walletSession,
+  request: evmExecuteRequest,
+  chainTarget: tempoChainTarget,
+  payloadExpectation: {
+    kind: 'evm_eip1559',
+    to: '0x1111111111111111111111111111111111111111',
+    input: '0x',
+  },
+};
+void validEvmExecuteWithPayloadExpectation;
+
+const invalidEvmExecuteWithTempoPayloadExpectation: Extract<
+  ExecuteEvmFamilyTransactionArgs,
+  { request: { chain: 'evm' } }
+> = {
+  walletSession,
+  request: evmExecuteRequest,
+  chainTarget: tempoChainTarget,
+  payloadExpectation: {
+    // @ts-expect-error EVM execution only accepts top-level EIP-1559 payload expectations.
+    kind: 'tempo_eip2718_calls',
+    calls: [{ to: '0x2222222222222222222222222222222222222222', input: '0x' }],
+  },
+};
+void invalidEvmExecuteWithTempoPayloadExpectation;
+
+const validTempoExecuteWithPayloadExpectation: Extract<
+  ExecuteEvmFamilyTransactionArgs,
+  { request: { chain: 'tempo' } }
+> = {
+  walletSession,
+  request: tempoExecuteRequest,
+  chainTarget: tempoChainTarget,
+  payloadExpectation: {
+    kind: 'tempo_eip2718_calls',
+    calls: [{ to: '0x2222222222222222222222222222222222222222', input: '0x' }],
+  },
+};
+void validTempoExecuteWithPayloadExpectation;
+
+const invalidTempoExecuteWithEvmPayloadExpectation: Extract<
+  ExecuteEvmFamilyTransactionArgs,
+  { request: { chain: 'tempo' } }
+> = {
+  walletSession,
+  request: tempoExecuteRequest,
+  chainTarget: tempoChainTarget,
+  payloadExpectation: {
+    // @ts-expect-error Tempo EIP-2718 execution only accepts call-list payload expectations.
+    kind: 'evm_eip1559',
+    to: '0x1111111111111111111111111111111111111111',
+    input: '0x',
+  },
+};
+void invalidTempoExecuteWithEvmPayloadExpectation;
+
 const validEcdsaBootstrapInput: BootstrapThresholdEcdsaSessionArgs = {
   kind: 'reuse_warm_ecdsa_bootstrap',
   walletSession,

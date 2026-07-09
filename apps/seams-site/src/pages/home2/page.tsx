@@ -1,19 +1,14 @@
 import React from 'react';
 import {
-  ArrowRight,
   Bot,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Fingerprint,
   Hash,
   Home,
   ListChecks,
   ScrollText,
   ShieldCheck,
   Slack,
-  Send,
-  ShoppingCart,
   Store,
   Wallet,
 } from 'lucide-react';
@@ -190,17 +185,10 @@ function WalletShellCard(): React.JSX.Element {
   );
 }
 
-type DemoWalletTransaction = {
-  merchant: string;
-  amount: string;
-  token: string;
-  network: string;
-  method: string;
-  recipient: string;
-  policy: string;
-  fee: string;
-  signer: string;
-  digest: string;
+type WalletPreviewImages = {
+  modalSrc: string;
+  drawerSrc: string;
+  label: string;
 };
 
 type HeroWalletPreview =
@@ -212,20 +200,13 @@ type HeroWalletPreview =
   | {
       kind: 'transactionConfirm';
       sub: string;
-      transaction: DemoWalletTransaction;
+      images: WalletPreviewImages;
     };
 
-const demoWalletTransaction: DemoWalletTransaction = {
-  merchant: 'Kanda Goods',
-  amount: '¥12,400',
-  token: 'USDC',
-  network: 'Tempo testnet',
-  method: 'sendDiscountCredit',
-  recipient: 'cart #8841',
-  policy: 'Owner approval required over 10%',
-  fee: '< ¥0.01',
-  signer: 'wallet_8c31...f27',
-  digest: '0x91f3...8ad2',
+const demoWalletPreviewImages: WalletPreviewImages = {
+  modalSrc: '/wallet-preview/tx-modal.png?v=3',
+  drawerSrc: '/wallet-preview/tx-drawer.png?v=3',
+  label: 'Transaction confirmer modal and drawer preview',
 };
 
 const signInWalletPreview: HeroWalletPreview = {
@@ -236,98 +217,29 @@ const signInWalletPreview: HeroWalletPreview = {
 const transactionWalletPreview: HeroWalletPreview = {
   kind: 'transactionConfirm',
   sub: 'Review a demo transaction before signing',
-  transaction: demoWalletTransaction,
+  images: demoWalletPreviewImages,
 };
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled hero wallet preview: ${String(value)}`);
 }
 
-function WalletTransactionPreview(props: {
-  transaction: DemoWalletTransaction;
-}): React.JSX.Element {
-  const transaction = props.transaction;
-
+function WalletTransactionPreview(props: { images: WalletPreviewImages }): React.JSX.Element {
+  const images = props.images;
   return (
-    <div
-      className="h2-wallet-confirm h2-fadein"
-      role="img"
-      aria-label={`${transaction.merchant} transaction confirmation preview`}
-    >
-      <div className="h2-wallet-confirm__top">
-        <span className="h2-wallet-confirm__icon" aria-hidden>
-          <Fingerprint />
-        </span>
-        <div>
-          <p className="h2-wallet-confirm__eyebrow">Wallet confirmation</p>
-          <h3 className="h2-wallet-confirm__title">Confirm transaction</h3>
-        </div>
-      </div>
-
-      <div className="h2-wallet-confirm__summary">
-        <span className="h2-wallet-confirm__merchant">
-          <ShoppingCart aria-hidden />
-          {transaction.merchant}
-        </span>
-        <span className="h2-wallet-confirm__amount">
-          {transaction.amount}
-          <small>{transaction.token}</small>
-        </span>
-      </div>
-
-      <div className="h2-wallet-confirm__details" aria-label="Demo transaction details">
-        <span className="h2-wallet-confirm__row">
-          <small>Network</small>
-          <strong>{transaction.network}</strong>
-        </span>
-        <span className="h2-wallet-confirm__row">
-          <small>Method</small>
-          <strong>{transaction.method}</strong>
-        </span>
-        <span className="h2-wallet-confirm__row">
-          <small>Recipient</small>
-          <strong>{transaction.recipient}</strong>
-        </span>
-        <span className="h2-wallet-confirm__row">
-          <small>Estimated fee</small>
-          <strong>{transaction.fee}</strong>
-        </span>
-      </div>
-
-      <div className="h2-wallet-confirm__policy">
-        <ShieldCheck aria-hidden />
-        <span>{transaction.policy}</span>
-      </div>
-
-      <div className="h2-wallet-confirm__signer">
-        <span>
-          <small>Signer</small>
-          <strong>{transaction.signer}</strong>
-        </span>
-        <span>
-          <small>Intent digest</small>
-          <strong>{transaction.digest}</strong>
-        </span>
-      </div>
-
-      <div className="h2-wallet-confirm__actions" aria-hidden>
-        <span className="h2-wallet-confirm__action h2-wallet-confirm__action--secondary">
-          Cancel
-        </span>
-        <span className="h2-wallet-confirm__action h2-wallet-confirm__action--primary">
-          <CheckCircle2 />
-          Confirm
-        </span>
-      </div>
-
-      <div className="h2-wallet-confirm__drawer" aria-hidden>
-        <span className="h2-wallet-confirm__drawer-grip" />
-        <span>
-          <Send />
-          Ready for passkey signature
-        </span>
-        <ArrowRight />
-      </div>
+    <div className="h2-wallet-confirm h2-fadein" role="img" aria-label={images.label}>
+      <img
+        className="h2-wallet-confirm__drawer-image"
+        src={images.drawerSrc}
+        alt=""
+        draggable={false}
+      />
+      <img
+        className="h2-wallet-confirm__modal-image"
+        src={images.modalSrc}
+        alt=""
+        draggable={false}
+      />
     </div>
   );
 }
@@ -337,7 +249,7 @@ function renderHeroWalletPreview(preview: HeroWalletPreview): React.JSX.Element 
     case 'signIn':
       return <WalletShellCard />;
     case 'transactionConfirm':
-      return <WalletTransactionPreview transaction={preview.transaction} />;
+      return <WalletTransactionPreview images={preview.images} />;
     default:
       return assertNever(preview);
   }

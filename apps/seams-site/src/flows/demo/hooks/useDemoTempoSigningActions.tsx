@@ -216,8 +216,13 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           pollIntervalMs: EVM_GREETING_FINALITY_POLL_INTERVAL_MS,
         },
         payloadExpectation: {
-          to: greetingCall.to,
-          input: greetingCall.input || '0x',
+          kind: 'tempo_eip2718_calls',
+          calls: [
+            {
+              to: greetingCall.to,
+              input: greetingCall.input || '0x',
+            },
+          ],
         },
         options: {
           onEvent: (event: SigningFlowEvent) =>

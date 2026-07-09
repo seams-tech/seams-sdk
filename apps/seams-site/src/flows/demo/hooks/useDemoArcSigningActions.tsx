@@ -132,7 +132,8 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
           pollIntervalMs: EVM_GREETING_FINALITY_POLL_INTERVAL_MS,
         },
         payloadExpectation: {
-          to: request.tx.to,
+          kind: 'evm_eip1559',
+          to: request.tx.to ?? null,
           input: request.tx.data || '0x',
         },
         options: {

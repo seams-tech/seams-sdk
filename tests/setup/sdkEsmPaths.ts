@@ -8,6 +8,7 @@ export function sdkEsmPath(subpath: string): string {
 // Canonical browser-only dynamic imports from Playwright's test ESM route.
 export const SDK_ESM_PATHS = {
   index: sdkEsmPath('index.js'),
+  advanced: sdkEsmPath('advanced.js'),
   base64: sdkEsmPath('utils/base64.js'),
   accountIds: sdkEsmPath('core/types/accountIds.js'),
   actions: sdkEsmPath('core/types/actions.js'),

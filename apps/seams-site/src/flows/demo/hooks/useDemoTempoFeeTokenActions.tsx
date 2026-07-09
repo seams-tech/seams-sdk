@@ -79,7 +79,8 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           feeToken: tempoFeeToken,
         });
         const payloadExpectation = {
-          to: request.tx.to,
+          kind: 'evm_eip1559' as const,
+          to: request.tx.to ?? null,
           input: request.tx.data || '0x',
         };
         const thresholdOwnerAddressPromise = resolveThresholdOwnerAddressForEvmFamily()
