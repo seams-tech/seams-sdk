@@ -580,11 +580,12 @@ Validation checkpoint, July 4, 2026:
   unit/signingEngineEcdsaIdentity.publicSurfaces.guard.unit.test.ts
   --reporter=line` passes 5/5 after moving public ECDSA identity checks to
   `evmFamilySigningKeySlotId`.
-- `pnpm -C tests exec playwright test -c playwright.source.config.ts
-  unit/emailRecoveryVerifiedRequest.source.script.unit.test.ts
-  unit/profileContinuity.source.script.unit.test.ts
-  unit/recoveryDomain.source.script.unit.test.ts --reporter=line` passes 3/3
-  after running those source scripts through `pnpm exec tsx` from `tests/`.
+- Refactor 88 cleanup retired the three synthetic recovery/profile
+  source-script wrappers and fixtures:
+  `emailRecoveryVerifiedRequest.source.script.*`,
+  `profileContinuity.source.script.*`, and `recoveryDomain.source.script.*`.
+  Recovery request, profile continuity, and recovery-domain behavior now stay
+  covered by retained parser/domain tests plus the intended recovery contract.
 - `pnpm -C tests exec playwright test -c playwright.source.config.ts
   unit/keyMaterialBrandingBoundaries.guard.unit.test.ts --reporter=line` passes 9/9
   after retargeting the registration active runtime-state assertion.

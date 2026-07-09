@@ -5,8 +5,7 @@ Reorganized: July 3, 2026 — horizontal layer phases (old Phases 1-14) were
 restructured into vertical slices. See [Phase Mapping](#phase-mapping) for where
 each old phase went.
 
-Status: Phases 0A, 0B, and 2A are complete. Phases 0D and 0F are in progress.
-Phase 0E and everything from Part 1 onward are planning.
+Status: Phases 1, 2, and 3 are complete. Phases 4 and 5 are in progress. Phase 6 onward is planning.
 
 Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md).
 
@@ -51,7 +50,7 @@ re-litigate them in later phases without a written reversal note here.
    is compile-time closed and exhaustiveness-checked. If third-party capability
    extensibility ever becomes real, reopen via module augmentation or a generic
    parameter then. The SPEC's Target Domain Types section is amended to match.
-3. **The route module manifest is defined early (Phase F3), not late.** The old
+3. **The route module manifest is defined early (Phase 9), not late.** The old
    plan defined runtime-neutral route manifests in Phase 11, after Phases 4-10
    had each rewired routes against ports. Manifest shape now lands with the
    service ports so later phases add modules instead of rewiring routes.
@@ -68,7 +67,7 @@ re-litigate them in later phases without a written reversal note here.
    evidence-kind families, keep deferred workload evidence kinds out of the
    closed `GrantEvidenceKind` union, collapse repeated branch payloads, and use
    small shared clusters such as `RecordStatus` and `OperationDigestSet`. The
-   SPEC's Target Domain Types already reflect this F2 shape.
+   SPEC's Target Domain Types already reflect this Phase 8 shape.
 8. **Client/server capability config mismatch fails early and typed.** Browser
    `authMethods`/`capabilities` config selects SDK modules only; server tenant
    runtime config is authoritative. When a client requests a capability the
@@ -82,13 +81,13 @@ re-litigate them in later phases without a written reversal note here.
 10. **Parallel implementations are deleted in the same change that replaces
     them.** The AuthService-era server stack and the D1 route services
     currently duplicate Email OTP, registration, and wallet-ID allocation
-    logic. Every F3 route port that lands deletes its `AuthService` facade
+    logic. Every Phase 9 route port that lands deletes its `AuthService` facade
     method and its duplicated `core/authService/**` helper in the same
-    commit. F3 does not exit while the Phase 2A delete-candidate ledger has
+    commit. Phase 9 does not exit while the Phase 3 delete-candidate ledger has
     entries whose D1 owner is live. Route ports replace both layers; they
     must not become a third.
 11. **One route-handler implementation; hosts are thin adapters.** The
-    parallel Express route implementations are deleted at F3, not P1. The F3
+    parallel Express route implementations are deleted at Phase 9. The Phase 9
     manifest/handler contract stays runtime-neutral (fetch-style
     request/response) so an Express adapter can be added later on demand as a
     thin wrapper — never as a second route implementation. The Node
@@ -96,7 +95,7 @@ re-litigate them in later phases without a written reversal note here.
 12. **Better Auth and native factors split by evidence grade; providers are
     interchangeable behind one port.** V1 ships on the Seams-native session
     provider (the existing passkey + Email OTP stack); the Better Auth
-    adapter is a later compatibility milestone (Phase P1B) behind the same
+    adapter is a later compatibility milestone (Phase 25) behind the same
     port. Better Auth remains the permanent, optional provider for commodity
     auth (email+password, social login, organizations, enterprise SSO); Seams
     never rebuilds those natively. The Seams-native
@@ -105,7 +104,7 @@ re-litigate them in later phases without a written reversal note here.
     passkey and Email OTP for signing-grade flows, plus Slack OTP when tenant
     policy accepts Slack OTP as operation-bound grant evidence. They are never
     ported into Better Auth. Both
-    normalize into `SeamsSession` through the same A2 exchange boundary;
+    normalize into `SeamsSession` through the same Phase 11 exchange boundary;
     Better Auth is optional at assembly (a signing-only tenant runs native
     factors alone). `seamsAuth({...})` is a composition layer wiring native
     factor modules plus an optional Better Auth instance — not a Better Auth
@@ -132,15 +131,15 @@ re-litigate them in later phases without a written reversal note here.
     the SPEC's credential-adoption note).
 13. **`CapabilityGrant` subsumes the signing budget subsystem in Slice B.**
     DB-backed grants already carry `maxUses`, TTL, one-use consumption, and
-    replay checks; B3 maps spend control onto atomic grant-use consumption
+    replay checks; Phase 20 maps spend control onto atomic grant-use consumption
     instead of porting the budget reservation subsystem. Only the client-side
     concurrent-operation fingerprinting survives.
 14. **Bloat discipline.** Each slice exit records a deletion ledger and net
     non-doc line accounting in the journal; source guards and fixtures retire
     in the same slice that makes their invariant structural (closed unions,
-    branded IDs, generic lanes). The worker fleet consolidates in B4:
+    branded IDs, generic lanes). The worker fleet consolidates in Phase 21:
     `eth-signer` and `tempo-signer` merge into one EVM-family worker — 90
-    Phase 0F made role-local material chain-agnostic, removing the reason for
+    Phase 5 made role-local material chain-agnostic, removing the reason for
     the split.
 
 ## Implementation Rules
@@ -230,23 +229,38 @@ these internal module boundaries are stable.
 
 ## Execution Order
 
-| Order | Phase | Contents | Status |
-| --- | --- | --- | --- |
-| — | 0A | Signer-set registration cut | Complete |
-| — | 0B | Wallet-rooted confirmation subjects | Complete |
-| — | 2A | AuthService mechanical module split | Complete |
-| 1 | 0D | Exact capability subject type hardening | In progress |
-| 2 | 0F | ECDSA role-local material cache slimming | In progress |
-| 3 | 0E | SDK runtime surface for hosted wallet capabilities | Planning |
-| 4 | F1 | Inventory and public-surface ledger | Planning |
-| 5 | F2 | Core vocabulary and closed capability kinds | Planning |
-| 6 | F3 | Route service ports and route module manifest | Planning |
-| 7 | A1-A7 | Slice A: vault-only tenant end to end | Planning |
-| 8 | B0-B6 | Slice B: migrate MPC signing | Planning |
-| 9 | P1, P1B, P2, P3 | Platform completion: hosts, Better Auth adapter, IdP, final hardening | Planning |
+| Phase | Contents | Status |
+| --- | --- | --- |
+| Phase 1 | Signer-set registration cut | Complete |
+| Phase 2 | Wallet-rooted confirmation subjects | Complete |
+| Phase 3 | AuthService mechanical module split | Complete |
+| Phase 4 | Exact capability subject type hardening | In progress |
+| Phase 5 | ECDSA role-local material cache slimming | In progress |
+| Phase 6 | SDK runtime surface for hosted wallet capabilities | Planning |
+| Phase 7 | Inventory and public-surface ledger | Planning |
+| Phase 8 | Core vocabulary and closed capability kinds | Planning |
+| Phase 9 | Route service ports and route module manifest | Planning |
+| Phase 10 | Slice A persistence and schema | Planning |
+| Phase 11 | Session exchange and Seams Auth provider | Planning |
+| Phase 12 | Seams authorization core | Planning |
+| Phase 13 | Management and session route policy | Planning |
+| Phase 14 | Vault capability module and integration | Planning |
+| Phase 15 | Generic client grant evidence and confirmation UI | Planning |
+| Phase 16 | Service-account grant evidence | Planning |
+| Phase 17 | Wallet auth authority refs on signing lanes | Planning |
+| Phase 18 | Wallet vocabulary and persistence migration | Planning |
+| Phase 19 | MPC capability modules | Planning |
+| Phase 20 | MPC route policy migration | Planning |
+| Phase 21 | Client worker split and bundle boundaries | Planning |
+| Phase 22 | Wallet UI adapter migration | Planning |
+| Phase 23 | Auth-first registration and capability provisioning | Planning |
+| Phase 24 | Host and example assembly migration | Planning |
+| Phase 25 | Better Auth provider adapter | Planning |
+| Phase 26 | IdP integration | Planning |
+| Phase 27 | Final deletion and hardening | Planning |
 
-Phases 0D/0F/0E are tactical fixes on the current wallet-first stack and can
-proceed in parallel with F1. F2 must not start until F1's ledger exists.
+Phases 4, 5, and 6 are tactical fixes on the current wallet-first stack and can
+proceed in parallel with Phase 7. Phase 8 must not start until Phase 7's ledger exists.
 
 ## Phase Mapping
 
@@ -255,26 +269,26 @@ documents:
 
 | Old phase | New home |
 | --- | --- |
-| 0A, 0B, 0D, 0E, 0F | Unchanged (Part 0) |
-| 0 (Inventory) | F1 |
-| 0C (Public surface and deployment inventory) | F1 |
-| 1 (Shared auth vocabulary) | F2 (new vocabulary) + B1 (wallet-touching renames) |
-| 2 (Persistence and schema) | A1 (new tables) + B1 (wallet table remap) |
-| 2A (AuthService split) | Complete (Part 0) |
-| New Slice B bridge: wallet auth authority refs | B0 |
-| 3 (Route and D1 ports) | F3 |
-| 4 (Seams authorization core) | A3 |
-| 5 (Seams auth provider) | A2 |
-| 6 (Route policy V2) | A4 (management/session/grant planes) + B3 (MPC planes) |
-| 6A (Service-account grant evidence) | A7 |
-| 7 (Client grant evidence and worker split) | A6 (generic confirmation) + B4 (worker/bundle split) |
-| 8 (React and Lit UI adapter) | A6 (generic/vault UI) + B5 (wallet UI, docs) |
-| 9 (Capability modules) | A5 (vault) + B2 (MPC) |
-| 10 (Registration and provisioning) | B6 |
-| 11 (Route module assembly) | F3 (manifest) + P1 (hosts/examples) |
-| 12 (Vault integration) | A5 |
-| 13 (IdP integration) | P2 |
-| 14 (Deletion and hardening) | In-slice deletion + P3 |
+| Legacy 0A, 0B, 0D, 0F, 0E | Phases 1, 2, 4, 5, 6 |
+| 0 (Inventory) | Phase 7 |
+| 0C (Public surface and deployment inventory) | Phase 7 |
+| 1 (Shared auth vocabulary) | Phase 8 (new vocabulary) + Phase 18 (wallet-touching renames) |
+| 2 (Persistence and schema) | Phase 10 (new tables) + Phase 18 (wallet table remap) |
+| Legacy 2A (AuthService split) | Phase 3 |
+| New Slice B bridge: wallet auth authority refs | Phase 17 |
+| 3 (Route and D1 ports) | Phase 9 |
+| 4 (Seams authorization core) | Phase 12 |
+| 5 (Seams auth provider) | Phase 11 |
+| 6 (Route policy V2) | Phase 13 (management/session/grant planes) + Phase 20 (MPC planes) |
+| 6A (Service-account grant evidence) | Phase 16 |
+| 7 (Client grant evidence and worker split) | Phase 15 (generic confirmation) + Phase 21 (worker/bundle split) |
+| 8 (React and Lit UI adapter) | Phase 15 (generic/vault UI) + Phase 22 (wallet UI, docs) |
+| 9 (Capability modules) | Phase 14 (vault) + Phase 19 (MPC) |
+| 10 (Registration and provisioning) | Phase 23 |
+| 11 (Route module assembly) | Phase 9 (manifest) + Phase 24 (hosts/examples) |
+| 12 (Vault integration) | Phase 14 |
+| 13 (IdP integration) | Phase 26 |
+| 14 (Deletion and hardening) | In-slice deletion + Phase 27 |
 
 ---
 
@@ -283,13 +297,13 @@ documents:
 These phases fix the current wallet-first stack. They are prerequisites or
 parallel work, not part of the vertical slices.
 
-## Phase 0A: Signer-Set Registration Cut
+## Phase 1: Signer-Set Registration Cut
 
 Status: complete through Refactor 82 Phase 8.
 
 Residual note: the NEAR and EVM branch helpers were extracted, but
 `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
-still carries the large registration orchestrator. Treat that slimming as F3/B6
+still carries the large registration orchestrator. Treat that slimming as Phase 9/Phase 23
 follow-up work rather than reopening this completed tactical cut.
 
 Goal: fix the registration request and D1 ceremony shape before staging or public
@@ -358,20 +372,20 @@ Check:
 
 Long-term path:
 
-- Phase 0A is still wallet-registration work. Phase B6 promotes the same shape
+- Phase 1 is still wallet-registration work. Phase 23 promotes the same shape
   into auth-first capability provisioning where registration creates an auth
   account by default and provisions only requested `CapabilityInstance` records.
 - `near_ed25519` becomes `near_ed25519_mpc_signing` capability provisioning.
 - `evm_family_ecdsa` becomes `evm_ecdsa_mpc_signing` capability provisioning.
 - The branch identity used by D1 ceremony state becomes the capability
-  provisioning identity or `capabilityId` once Phase B6 lands.
+  provisioning identity or `capabilityId` once Phase 23 lands.
 - Vault-only, IdP-only, and auth-only registration paths must not create signer
   records or load signer/HSS/WASM code.
 - Capability policies bind requested signer capabilities to registered auth
   evidence kinds through Seams authorization, replacing the current wallet-first
   registration authority checks.
 
-## Phase 0B: Wallet-Rooted Confirmation Subjects
+## Phase 2: Wallet-Rooted Confirmation Subjects
 
 Status: complete.
 
@@ -410,17 +424,81 @@ Check:
 - `SignIntentDigestSubject` is a discriminated union with no compatibility
   branch for the old names.
 
-## Phase 0D: Exact Capability Subject Type Hardening
+## Phase 3: AuthService Mechanical Module Split
 
-Status: in progress. Phase 0D.1 exact ECDSA material identity and durable NEAR
-unlock subject resolution is implemented; Phase 0D.2 full branch-specific
+Status: complete (July 3, 2026). Dated progress entries:
+[refactor-90-journal.md](./refactor-90-journal.md#phase-2a-authservice-mechanical-module-split).
+
+Goal (achieved): split `packages/sdk-server-ts/src/core/AuthService.ts` into
+smaller source modules without changing behavior, route contracts, storage
+semantics, public exports, or runtime wiring.
+
+Outcome:
+
+- `packages/sdk-server-ts/src/core/AuthService.ts` is a 7-line public barrel.
+- `core/authService/AuthService.ts` holds assembly/delegation at 1,751 lines
+  (down from 11,769), meeting the below-2,000 pre-Phase 9 target. Remaining methods
+  are constructor/config assembly, store wiring, runtime warm-up, or thin
+  delegates whose next split belongs with Phase 9 route ports or Refactor 82B
+  authority unions.
+- 40+ focused helper modules under `core/authService/` with explicit store/port
+  inputs; no `AuthServiceContext`/`AuthServiceDeps` bag exists.
+- Route and app imports of `core/authService/**` internals are audit-checked
+  each pass rather than source-guarded, because the facade boundary is
+  temporary; Phase 9 route ports replace it.
+- Routes import only the public `AuthService` facade; extracted modules import
+  no Cloudflare D1 route adapters, Express handlers, React, browser SDK code,
+  or tests.
+
+Known debt accepted by this phase: the split grouped code by mechanical
+extractability, not by the Simplified End State ownership tree. Phases 9, 11,
+and 19 re-home these modules into `authFactor/`, `session/`, `authorization/`,
+and `capability/` owners. When re-homing, name the final owner from the end-state
+tree so each file moves once more, not twice.
+
+Split inventory (final):
+
+| Cluster | Current owner | Status | Next action |
+| --- | --- | --- | --- |
+| WebAuthn/OIDC boundary parsing and provider loading | `core/authService/webauthnOidcHelpers.ts` | Active provider helper | Keep behind `AuthService` facade until WebAuthn route ports land. |
+| NEAR private-key transaction signing helpers | `core/authService/nearPrivateKeySigning.ts` | Active facade helper | Keep isolated from D1 route adapters; no route imports. |
+| Random ID generation | `core/authService/bytes.ts` | Active facade helper | Reuse from remaining facade methods; move callers with owning domains later. |
+| Boundary object guard | `core/authService/record.ts` | Active boundary helper | Replace only raw boundary checks; do not use for core domain objects. |
+| Signer WASM URL resolution | `core/authService/signerWasmUrls.ts` | Active provider helper | Keep module-local source and built-package candidates. |
+| Threshold store configuration summary | `core/authService/thresholdStoreSummary.ts` | Active diagnostics helper | Keep config diagnostics in helper; no service selection side effects. |
+| WebAuthn login/listing helpers | `core/authService/webauthn.ts` | Active facade helper | Keep behind `AuthService` facade until WebAuthn route ports land. |
+| WebAuthn sync-account helpers | `core/authService/AuthService.ts` | Active facade methods | Move only after the threshold/session dependencies are narrowed enough to avoid a broad context bag. |
+| Email OTP challenge, enrollment, unlock, registration, recovery | `core/authService/emailOtp*` plus D1 route adapters | Active but duplicated ownership | Delete AuthService-era branches once D1 ports are canonical (Phase 9 or Slice B). |
+| Wallet registration intent/ceremony/finalize helpers | `core/authService/**` plus D1 registration services | Active but duplicated ownership | Route through D1 canonical adapters, then delete old AuthService authority paths. |
+| Threshold Ed25519/ECDSA bootstrap, inventory, export | `core/authService/**` plus threshold services and D1/DO stores | Active but too broad | Defer stateful split until 82B authority unions are stable. |
+| NEAR account creation, funding, access-key checks, transactions | `core/authService/nearAccountOperations.ts`, `nearTransactions.ts` | Active facade helpers | Account creation and delegate execution stay in the facade until their queueing/registration coordination is split. |
+
+Delete-candidate ledger:
+
+| Candidate | Why it is stale or risky | Replacement | Delete phase |
+| --- | --- | --- | --- |
+| AuthService-era wallet registration authority branches | D1 registration is the canonical registration owner; duplicate authority branches caused passkey-only and Email OTP drift. | D1 registration route services plus typed Router API adapter ports. | Refactor 82 Phase 12 / Refactor 82B authority cleanup. |
+| Passkey-only Ed25519 authority checks inside shared session paths | Shared Ed25519 session code must accept the discriminated auth authority, not assume `passkey_rp` or `rpId`. | `WalletAuthAuthority` / auth-specific authority unions from Refactor 82B. | Refactor 82B. |
+| AuthService generic registration bootstrap/finalize surfaces used by Cloudflare D1 routes | They keep old AuthService request shapes alive beside D1 request models. | D1 route adapter boundary with raw parsing at route/persistence edges only. | Refactor 82 Phase 12. |
+| Helper code that only supports removed registration diagnostics | The extracted diagnostics module had no active callers after import audit. | None; deleted instead of moved. | Completed July 3, 2026. |
+| Parallel wallet-ID allocation copy in the D1 registration intent service | Router code must not import `core/authService/**` internals, so a local copy exists beside `walletRegistrationPlanning.ts`. | Collapse through the Refactor 82 route-port cleanup. | Phase 9 / Refactor 82 route-port cleanup. |
+
+---
+
+# Part 1: Foundations
+
+
+## Phase 4: Exact Capability Subject Type Hardening
+
+Status: in progress. Subphase 4.1 exact ECDSA material identity and durable NEAR
+unlock subject resolution is implemented; Phase 4.2 full branch-specific
 `unlockCore(subject)` remains.
 
-> **Supersession note (July 3, 2026):** Phase 0F supersedes the
+> **Supersession note (July 3, 2026):** Phase 5 supersedes the
 > `EcdsaRoleLocalMaterialBinding` field list sketched below. The single-builder
 > API, the branded handle/digest types, and the `WalletUnlockSubject` work in
 > this phase remain authoritative; the binding's *field list* is historical and
-> Phase 0F's material-only binding is the target shape.
+> Phase 5's material-only binding is the target shape.
 
 Goal: close the type holes that let exact capability identity drift after
 Refactor 79 and before the modular capability model lands.
@@ -445,7 +523,7 @@ type EcdsaRoleLocalMaterialBinding = {
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: EvmFamilyChainTarget;
   routerAbStateSessionId: RouterAbStateSessionId;
-}; // historical field list — see supersession note; Phase 0F narrows this
+}; // historical field list — see supersession note; Phase 5 narrows this
 
 type EcdsaRoleLocalMaterialHandle = Brand<string, 'EcdsaRoleLocalMaterialHandle'>;
 type EcdsaRoleLocalBindingDigest = Brand<string, 'EcdsaRoleLocalBindingDigest'>;
@@ -630,15 +708,15 @@ Cross-plan notes:
 - Refactor 84b HSS slimming must keep HSS crate contexts digest-only; SDK
   capability subjects may include app-specific identity before digesting.
 
-## Phase 0F: ECDSA Role-Local Material Cache Slimming
+## Phase 5: ECDSA Role-Local Material Cache Slimming
 
 Status: in progress. The `evmFamilySigningKeySlotId` role-local material-handle
-slice is complete; broader Phase 0F slimming remains pending.
+slice is complete; broader Phase 5 slimming remains pending.
 
 > This phase's material-only `EcdsaRoleLocalMaterialBinding` is the
-> authoritative target shape. It supersedes the wider Phase 0D field list.
+> authoritative target shape. It supersedes the wider Phase 4 field list.
 
-Goal: replace the Phase 0D tactical chain-specific worker-material handle with a
+Goal: replace the Phase 4 tactical chain-specific worker-material handle with a
 smaller material-cache identity. Exact signing lanes and signed Router A/B
 normal-signing state remain the authority for chain/session use.
 
@@ -813,7 +891,7 @@ type EcdsaRoleLocalMaterialBinding = {
 - Make `buildEcdsaRoleLocalMaterialIdentity()` accept only branded domain types.
   Parse raw strings in record/JWT/worker-response boundary builders before
   calling it.
-- Delete the Phase 0D regression test that expects Tempo and ARC to produce
+- Delete the Phase 4 regression test that expects Tempo and ARC to produce
   different role-local worker material handles for the same material. Replace it
   with a test proving a Tempo lane cannot open/sign through an ARC session
   record, even when the worker material handle is shared.
@@ -858,7 +936,7 @@ Check:
   cross-chain lane mismatch rejection, page-reload restored material, and
   registration-created material.
 
-## Phase 0E: SDK Runtime Surface For Hosted Wallet Capabilities
+## Phase 6: SDK Runtime Surface For Hosted Wallet Capabilities
 
 Status: planning.
 
@@ -1007,76 +1085,13 @@ Check:
 - `packages/sdk-web/src/plugins/vite.ts` is no longer part of any public
   browser wallet setup path.
 
-## Phase 2A: AuthService Mechanical Module Split
-
-Status: complete (July 3, 2026). Dated progress entries:
-[refactor-90-journal.md](./refactor-90-journal.md#phase-2a-authservice-mechanical-module-split).
-
-Goal (achieved): split `packages/sdk-server-ts/src/core/AuthService.ts` into
-smaller source modules without changing behavior, route contracts, storage
-semantics, public exports, or runtime wiring.
-
-Outcome:
-
-- `packages/sdk-server-ts/src/core/AuthService.ts` is a 7-line public barrel.
-- `core/authService/AuthService.ts` holds assembly/delegation at 1,751 lines
-  (down from 11,769), meeting the below-2,000 pre-F3 target. Remaining methods
-  are constructor/config assembly, store wiring, runtime warm-up, or thin
-  delegates whose next split belongs with Phase F3 route ports or Refactor 82B
-  authority unions.
-- 40+ focused helper modules under `core/authService/` with explicit store/port
-  inputs; no `AuthServiceContext`/`AuthServiceDeps` bag exists.
-- Route and app imports of `core/authService/**` internals are audit-checked
-  each pass rather than source-guarded, because the facade boundary is
-  temporary; F3 route ports replace it.
-- Routes import only the public `AuthService` facade; extracted modules import
-  no Cloudflare D1 route adapters, Express handlers, React, browser SDK code,
-  or tests.
-
-Known debt accepted by this phase: the split grouped code by mechanical
-extractability, not by the Simplified End State ownership tree. Phases F3, A2,
-and B2 re-home these modules into `authFactor/`, `session/`, `authorization/`,
-and `capability/` owners. When re-homing, name the final owner from the end-state
-tree so each file moves once more, not twice.
-
-Split inventory (final):
-
-| Cluster | Current owner | Status | Next action |
-| --- | --- | --- | --- |
-| WebAuthn/OIDC boundary parsing and provider loading | `core/authService/webauthnOidcHelpers.ts` | Active provider helper | Keep behind `AuthService` facade until WebAuthn route ports land. |
-| NEAR private-key transaction signing helpers | `core/authService/nearPrivateKeySigning.ts` | Active facade helper | Keep isolated from D1 route adapters; no route imports. |
-| Random ID generation | `core/authService/bytes.ts` | Active facade helper | Reuse from remaining facade methods; move callers with owning domains later. |
-| Boundary object guard | `core/authService/record.ts` | Active boundary helper | Replace only raw boundary checks; do not use for core domain objects. |
-| Signer WASM URL resolution | `core/authService/signerWasmUrls.ts` | Active provider helper | Keep module-local source and built-package candidates. |
-| Threshold store configuration summary | `core/authService/thresholdStoreSummary.ts` | Active diagnostics helper | Keep config diagnostics in helper; no service selection side effects. |
-| WebAuthn login/listing helpers | `core/authService/webauthn.ts` | Active facade helper | Keep behind `AuthService` facade until WebAuthn route ports land. |
-| WebAuthn sync-account helpers | `core/authService/AuthService.ts` | Active facade methods | Move only after the threshold/session dependencies are narrowed enough to avoid a broad context bag. |
-| Email OTP challenge, enrollment, unlock, registration, recovery | `core/authService/emailOtp*` plus D1 route adapters | Active but duplicated ownership | Delete AuthService-era branches once D1 ports are canonical (F3/Slice B). |
-| Wallet registration intent/ceremony/finalize helpers | `core/authService/**` plus D1 registration services | Active but duplicated ownership | Route through D1 canonical adapters, then delete old AuthService authority paths. |
-| Threshold Ed25519/ECDSA bootstrap, inventory, export | `core/authService/**` plus threshold services and D1/DO stores | Active but too broad | Defer stateful split until 82B authority unions are stable. |
-| NEAR account creation, funding, access-key checks, transactions | `core/authService/nearAccountOperations.ts`, `nearTransactions.ts` | Active facade helpers | Account creation and delegate execution stay in the facade until their queueing/registration coordination is split. |
-
-Delete-candidate ledger:
-
-| Candidate | Why it is stale or risky | Replacement | Delete phase |
-| --- | --- | --- | --- |
-| AuthService-era wallet registration authority branches | D1 registration is the canonical registration owner; duplicate authority branches caused passkey-only and Email OTP drift. | D1 registration route services plus typed Router API adapter ports. | Refactor 82 Phase 12 / Refactor 82B authority cleanup. |
-| Passkey-only Ed25519 authority checks inside shared session paths | Shared Ed25519 session code must accept the discriminated auth authority, not assume `passkey_rp` or `rpId`. | `WalletAuthAuthority` / auth-specific authority unions from Refactor 82B. | Refactor 82B. |
-| AuthService generic registration bootstrap/finalize surfaces used by Cloudflare D1 routes | They keep old AuthService request shapes alive beside D1 request models. | D1 route adapter boundary with raw parsing at route/persistence edges only. | Refactor 82 Phase 12. |
-| Helper code that only supports removed registration diagnostics | The extracted diagnostics module had no active callers after import audit. | None; deleted instead of moved. | Completed July 3, 2026. |
-| Parallel wallet-ID allocation copy in the D1 registration intent service | Router code must not import `core/authService/**` internals, so a local copy exists beside `walletRegistrationPlanning.ts`. | Collapse through the Refactor 82 route-port cleanup. | F3 / Refactor 82 route-port cleanup. |
-
----
-
-# Part 1: Foundations
-
-## Phase F1: Inventory And Public-Surface Ledger
+## Phase 7: Inventory And Public-Surface Ledger
 
 Status: planning. Merges the old Phase 0 (call-site inventory) and Phase 0C
 (public surface and deployment inventory).
 
 Goal: map current wallet-first coupling and make the repo-wide blast radius
-concrete before any shared vocabulary changes land. F2 must not start until the
+concrete before any shared vocabulary changes land. Phase 8 must not start until the
 ledger exists.
 
 Do — call-site inventory:
@@ -1158,18 +1173,18 @@ Check:
   `user_session`, and `threshold_session` surfaces outside generated build
   output.
 - Export maps for `@seams/sdk`, `@seams/sdk-server`, and
-  `@seams-internal/shared-ts` have target shapes before F2 type changes.
+  `@seams-internal/shared-ts` have target shapes before Phase 8 type changes.
 - Host assembly targets are recorded for Cloudflare, Node web server,
   self-hosted Worker examples, local test servers, and the on-demand Express
   adapter contract.
 - Parked surfaces have explicit source guards or issue links so they do not
   silently become generic auth dependencies.
 
-## Phase F2: Core Vocabulary And Closed Capability Kinds
+## Phase 8: Core Vocabulary And Closed Capability Kinds
 
 Status: planning. This is the additive subset of the old Phase 1. New
 vocabulary lands in new modules only; renames and deletions that touch wallet
-code are deferred to Phase B1.
+code are deferred to Phase 18.
 
 Goal: define auth and capability-grant vocabulary independent of wallets, with
 compile-time-closed capability kinds.
@@ -1239,14 +1254,14 @@ type CapabilityOperationKind =
 - Collapse `AuthPrincipal` to human plus non-human branches.
 - Expose `SeamsSession` publicly as an opaque branded handle only (Decided
   Point 5).
-- Keep the SPEC Target Domain Types and the F2 implementation in lockstep with
+- Keep the SPEC Target Domain Types and the Phase 8 implementation in lockstep with
   the simplified shape above.
 - Leave wallet code untouched in this phase: `AuthMethod = SignerAuthMethod`
-  stays; `SignerAuthMethod`/`WalletAuthMethod` move in B1.
+  stays; `SignerAuthMethod`/`WalletAuthMethod` move in Phase 18.
 
 Check:
 
-- The F1 ledger is complete for shared exports, package exports, deployment
+- The Phase 7 ledger is complete for shared exports, package exports, deployment
   hosts, console schemas, helper scripts, and parked workspaces before any type
   here merges.
 - `capabilityKinds` has no imports; `seams-authorization` and capability
@@ -1262,7 +1277,7 @@ Check:
   phases add them.
 - No existing wallet-first test or fixture changes in this phase.
 
-## Phase F3: Route Service Ports And Route Module Manifest
+## Phase 9: Route Service Ports And Route Module Manifest
 
 Status: planning. Old Phase 3 plus the route-manifest definition pulled forward
 from old Phase 11 (Decided Point 3), so Slice A and B phases add modules
@@ -1297,9 +1312,9 @@ Do — service ports:
   its `AuthService` facade method and its duplicated `core/authService/**`
   helper in the same commit. The port replaces both layers, never becomes a
   third.
-- Work through the Phase 2A delete-candidate ledger as ports land; record
+- Work through the Phase 3 delete-candidate ledger as ports land; record
   each deletion against its ledger entry.
-- Land F3 in per-port waves. Each wave must move one route family to the
+- Land Phase 9 in per-port waves. Each wave must move one route family to the
   manifest, delete the replaced facade/helper/Express path, update the ledger,
   and keep Cloudflare and Node adapters green. The phase exits only when every
   ledger row with a live D1 owner is cleared.
@@ -1319,7 +1334,7 @@ Do — route module manifest:
   `buildCloudflareRouteModules(...)`. The builder may use normal `if` blocks
   and a final spread to combine base and optional module lists; do not use
   spread-plus-ternary arrays for optional modules.
-- Later phases (A2-A7, B2-B6, P1) add modules against this contract; they must
+- Later phases (Phases 11-16, Phases 19-23, Phase 24) add modules against this contract; they must
   not introduce a second registry or bypass the manifest.
 
 Check:
@@ -1335,8 +1350,8 @@ Check:
 - No `router/express/routes/**` implementation files remain; the only Express
   artifact is the documented on-demand adapter contract.
 - Every landed route port deleted its facade method and duplicated helper in
-  the same change; the Phase 2A delete-candidate ledger has no entries whose
-  D1 owner is live. F3 does not exit otherwise.
+  the same change; the Phase 3 delete-candidate ledger has no entries whose
+  D1 owner is live. Phase 9 does not exit otherwise.
 
 ---
 
@@ -1350,7 +1365,7 @@ untouched.
 Slice exit criteria:
 
 - Native provider session -> `SeamsSession` -> capability grant -> vault proxy
-  use through the A5 minimal broker/gateway adapter -> passkey grant evidence
+  use through the Phase 14 minimal broker/gateway adapter -> passkey grant evidence
   -> vault reveal -> audit works against local D1.
 - A vault-only tenant persists principals, factors, sessions, grants, and vault
   items with zero signer tables touched and zero signer/HSS/WASM code loaded.
@@ -1360,9 +1375,9 @@ Slice exit criteria:
   the journal, and guards whose invariant this slice made structural are
   retired (Decided Point 14).
 
-## Phase A1: Slice A Persistence And Schema
+## Phase 10: Slice A Persistence And Schema
 
-Status: planning. Subset of old Phase 2; wallet-table remapping moved to B1.
+Status: planning. Subset of old Phase 2; wallet-table remapping moved to Phase 18.
 
 Goal: make the SPEC persistence model concrete for auth, session,
 authorization, and vault.
@@ -1385,7 +1400,7 @@ Do:
 - Store raw OTPs, grant tokens, refresh tokens, vault secrets, auth headers, and
   signer material only as hashes, sealed envelopes, or external references.
 - Do not remap existing wallet/signer/WebAuthn/Email-OTP tables in this phase;
-  record their remap targets in the F1 ledger for B1.
+  record their remap targets in the Phase 7 ledger for Phase 18.
 
 Check:
 
@@ -1397,7 +1412,7 @@ Check:
   vault-only and auth-only tenants without wallet-operation roles.
 - Raw provider rows cannot enter core logic.
 
-## Phase A2: Session Exchange And Seams Auth Provider
+## Phase 11: Session Exchange And Seams Auth Provider
 
 Status: planning. Old Phase 5.
 
@@ -1413,7 +1428,7 @@ Do:
   codes exchange as session evidence, and the native factor modules feed the
   same exchange as evidence sources while staying bound to the Seams
   confirmation UI. `betterAuthSessionProvider(auth)` is the deferred second
-  implementation of the same port (Phase P1B); nothing in this phase may
+  implementation of the same port (Phase 25); nothing in this phase may
   depend on Better Auth specifics.
 - Define the session-provider port as the contract first (Decided Point 12
   interchangeability clause): `betterAuthSessionProvider(auth)` and the
@@ -1421,10 +1436,10 @@ Do:
   outside the provider adapters may import provider specifics.
 - Implement `exchangeAuthProviderEvidence(command)` for Better Auth, Seams
   native factors, OIDC, and refresh. Wallet-login proof exchange may be stubbed
-  as unsupported until B6; it must fail closed, not fall through.
-- Define the session context consumed by A6 grant-evidence routes. A2 does not
+  as unsupported until Phase 23; it must fail closed, not fall through.
+- Define the session context consumed by Phase 15 grant-evidence routes. Phase 11 does not
   implement operation-bound grant-evidence challenge/verify endpoints; those
-  depend on A3 challenge records, digest canonicalization, and the generic grant
+  depend on Phase 12 challenge records, digest canonicalization, and the generic grant
   issuer.
 - Mint and manage `auth_devices` records through the session exchange boundary.
   Core session and authorization code receives `DeviceId`, never raw
@@ -1432,7 +1447,7 @@ Do:
 - Add a provider conformance suite (session create/refresh/revoke/replay,
   evidence normalization, tenant isolation) and run it against the native
   provider now; it becomes the acceptance gate for the Better Auth adapter in
-  Phase P1B.
+  Phase 25.
 - Add `seamsAuth({ database, ... })` plus D1/PostgreSQL-compatible adapters, as
   a composition layer only: it wires native factor modules plus an optional
   Better Auth instance. Commodity options (email+password, social providers,
@@ -1445,7 +1460,7 @@ Do:
 - Add rate limiting for session exchange, refresh, OTP login challenge minting,
   and native factor verification attempts.
 - Move `/session/exchange`, refresh, and revoke onto the new session exchange
-  service as manifest route modules (F3 contract).
+  service as manifest route modules (Phase 9 contract).
 
 Check:
 
@@ -1457,20 +1472,20 @@ Check:
 - The session-provider port is the only session surface routes and
   authorization consume; the conformance suite passes against the native
   provider, and a source guard rejects provider-specific imports outside
-  adapter/bridge modules — so the Phase P1B Better Auth adapter can land as
+  adapter/bridge modules — so the Phase 25 Better Auth adapter can land as
   config/assembly wiring only.
 
-## Phase A3: Seams Authorization Core
+## Phase 12: Seams Authorization Core
 
 Status: planning. Old Phase 4. Audit lives here (Decided Point 4).
 
 Goal: build the authorization module that owns grant evidence, grants, policy,
 operation digests, grant-use limits, and audit envelopes. Session lifecycle
-lives in `session/` (A2) and feeds authorization as evidence.
+lives in `session/` (Phase 11) and feeds authorization as evidence.
 
 Do:
 
-- Create the internal `authorization/` source module around the F2 vocabulary
+- Create the internal `authorization/` source module around the Phase 8 vocabulary
   and the `capabilityKinds` leaf.
 - Implement operation digest envelopes (`laneDigest`, `intentDigest`,
   `displayDigest`), policy evaluation, grant lifecycle, replay checks, and audit
@@ -1479,18 +1494,18 @@ Do:
   intent, display, challenge, evidence-set, and audit digests. Add TypeScript
   fixtures plus Rust parity vectors before a capability depends on a digest.
 - Implement generic grant-challenge records, lifecycle, and one-use
-  verification state. A6 registers the interactive evidence providers against
+  verification state. Phase 15 registers the interactive evidence providers against
   these records.
 - Implement the generic grant issuer:
   `CapabilityGrantRequest` + `GrantEvidenceRef[]` + capability binding + operation
   envelope + `CapabilityGrantPolicy` -> `CapabilityGrant`.
 - Grants are DB-backed one-use/short-TTL records (Decided Point 6).
 - Implement `seams_session` grant evidence first. `service_account_api_key`
-  lands in A7; interactive challenge evidence lands in A6.
+  lands in Phase 16; interactive challenge evidence lands in Phase 15.
 - Implement one-way grant-use consumption with result rows for success,
   pre-side-effect failure, post-side-effect failure, and replay denial.
 - Implement fail-closed `mpc_signer_proof` evaluation. The proof *producer*
-  lands with the MPC capability in B2; until then any policy requiring
+  lands with the MPC capability in Phase 19; until then any policy requiring
   `mpc_signer_proof` must deny.
 - Add the pruning job interface for expired challenges, expired/consumed grant
   evidence, expired grants, and refresh-token retention windows.
@@ -1505,20 +1520,20 @@ Check:
   targeted tests.
 - Digest canonicalization has TypeScript fixtures and Rust parity vectors.
 
-## Phase A4: Management And Session Route Policy
+## Phase 13: Management And Session Route Policy
 
-Status: planning. Old Phase 6 minus the MPC planes (those move in B3).
+Status: planning. Old Phase 6 minus the MPC planes (those move in Phase 20).
 
 Goal: make route auth speak management, session, and exact capability grants
 for the surfaces Slice A needs. Signing routes keep `threshold_session` until
-B3.
+Phase 20.
 
 Do:
 
 - Introduce `management_console`, `management_api_key`, `session_principal`, and
   `capability_grant` route auth planes. Replace `console`, `api_credentials`,
   and `user_session` on non-signing routes; leave `threshold_session` in place
-  on MPC routes for B3.
+  on MPC routes for Phase 20.
 - Add `ManagementOperationKind`, `ManagementResourceScope`, capability kind,
   operation kind, and grant use.
 - Resolve console users and API keys into tenant-scoped principals.
@@ -1535,10 +1550,10 @@ Check:
 - Management roles and API scopes cannot satisfy capability-grant routes by
   themselves.
 - Old wallet-only API scopes are gone from non-signing surfaces; remaining
-  signing-route scopes are recorded in the ledger with a B3 deletion note.
+  signing-route scopes are recorded in the ledger with a Phase 20 deletion note.
 - Management route policy and API scope parsing have targeted tests.
 
-## Phase A5: Vault Capability Module And Integration
+## Phase 14: Vault Capability Module And Integration
 
 Status: planning. Old Phase 9 (vault part) plus old Phase 12.
 
@@ -1562,12 +1577,12 @@ Do:
   use, reveal, export, permission change, and break-glass.
 - Support service-account capability grants for vault proxy use and rotation.
 - Add optional MPC-backed authorization for high-assurance tenants (policy
-  hook only; denies until B2 ships the proof producer).
+  hook only; denies until Phase 19 ships the proof producer).
 - Audit tenant, principal, capability, operation, lane digest, intent digest,
   display digest, evidence, and device.
 - Validate capability grant policies against registered grant evidence kinds
   and capability operation descriptors.
-- Mount vault routes as F3 manifest modules.
+- Mount vault routes as Phase 9 manifest modules.
 
 Check:
 
@@ -1579,10 +1594,10 @@ Check:
 - Vault proxy use, rotate, reveal/export, permission change, break-glass, and
   delegate-member denial have targeted tests.
 
-## Phase A6: Generic Client Grant Evidence And Confirmation UI
+## Phase 15: Generic Client Grant Evidence And Confirmation UI
 
 Status: planning. The generic-confirmation subsets of old Phases 7 and 8. The
-MPC worker split and wallet UI migration stay in B4/B5.
+MPC worker split and wallet UI migration stay in Phase 21/Phase 22.
 
 Goal: give vault/auth flows a browser confirmation path that never imports
 signing-engine code, without touching the existing MPC worker.
@@ -1591,18 +1606,18 @@ Do:
 
 - Add `CapabilityGrantPlan` and `CapabilityGrantChallenge`.
 - Register interactive grant-evidence providers for `passkey_assertion`,
-  `email_otp`, and `slack_otp` against the A3 grant-challenge store. Slice A's
+  `email_otp`, and `slack_otp` against the Phase 12 grant-challenge store. Slice A's
   required end-to-end reveal path uses `passkey_assertion`; Email OTP and Slack
   OTP route tests prove the provider boundary.
 - Implement provider-neutral Seams manifest routes for challenge/verify. The
   native provider mounts them directly; `seamsPasskeyGrantEvidence()` and any
-  Better Auth mounting bridge land in P1B over the same routes.
+  Better Auth mounting bridge land in Phase 25 over the same routes.
 - Add a generic auth confirmation worker that returns `GrantEvidenceRef`
   records; Seams authorization mints grants server-side. Build it beside the
-  existing `passkey-confirm.worker.ts`, which keeps serving MPC flows until B4
+  existing `passkey-confirm.worker.ts`, which keeps serving MPC flows until Phase 21
   splits it.
 - Add generic confirmation coordination separate from MPC signing coordination
-  (the `UiConfirmManager` split lands fully in B4; here only the generic side
+  (the `UiConfirmManager` split lands fully in Phase 21; here only the generic side
   is created).
 - Point vault/IdP operation prompts at the generic confirmation worker.
 - Hide wallet-only features behind capability checks so vault-only and IdP-only
@@ -1624,7 +1639,7 @@ Check:
 - Seams passkey, Email OTP, and Slack OTP grant-evidence challenge and verify
   have targeted tests.
 
-## Phase A7: Service-Account Grant Evidence
+## Phase 16: Service-Account Grant Evidence
 
 Status: planning. Old Phase 6A.
 
@@ -1697,9 +1712,9 @@ Slice exit criteria:
 - The slice's deletion ledger and net non-doc line accounting are recorded in
   the journal, and guards watching surfaces this slice deleted are retired.
 
-## Phase B0: Wallet Auth Authority Refs On Signing Lanes
+## Phase 17: Wallet Auth Authority Refs On Signing Lanes
 
-Status: planning. Start after F2 lands the Refactor 82B vocabulary mapping.
+Status: planning. Start after Phase 8 lands the Refactor 82B vocabulary mapping.
 This is the narrow bridge from Refactor 82B's stable `WalletAuthAuthority`
 model into Slice B's auth/capability migration.
 
@@ -1720,7 +1735,7 @@ Do:
   material boundaries.
 - Update lane builders and boundary parsers so core signing code requires an
   authority ref. Raw compatibility parsing remains only at request/persistence
-  boundaries and carries a named B1 deletion condition.
+  boundaries and carries a named Phase 18 deletion condition.
 - Change signing-grant admission queue keys to use
   `authorityRef.authorityDigest` instead of the interim branch-specific
   authority-key helper. Keep wallet id, signing grant id, projection version,
@@ -1753,13 +1768,13 @@ Check:
 - The Refactor 82B Phase 10D tests keep passing after the branch-specific
   queue-key helper is deleted.
 
-## Phase B1: Wallet Vocabulary And Persistence Migration
+## Phase 18: Wallet Vocabulary And Persistence Migration
 
 Status: planning. The wallet-touching remainders of old Phases 1 and 2.
 
 Do:
 
-- Turn the F1 test inventory into a redundant-test ledger.
+- Turn the Phase 7 test inventory into a redundant-test ledger.
 - Remove tests/fixtures that only assert obsolete wallet-first behavior.
 - Adapt tests that still protect valid behavior so they use auth/capability
   terminology before changing shared types.
@@ -1767,7 +1782,7 @@ Do:
 - Delete `AuthMethod = SignerAuthMethod`.
 - Replace shared `signingGrantId` fields with `capabilityGrantId`. Keep
   `thresholdSessionId` inside MPC branches only.
-- Remap existing D1 console/signer migrations onto the A1 schema:
+- Remap existing D1 console/signer migrations onto the Phase 10 schema:
   `api_keys`, `policies`, `policy_assignments`, `wallet_index`,
   `key_exports`, `approvals`, `audit_events`, webhook categories,
   observability tables, signer wallet tables, wallet auth methods, WebAuthn
@@ -1786,7 +1801,7 @@ Check:
 - Source guards reject `signingGrantId` and wallet-only `AuthMethod` outside
   capability-local modules.
 
-## Phase B2: MPC Capability Modules
+## Phase 19: MPC Capability Modules
 
 Status: planning. Old Phase 9 (MPC part).
 
@@ -1800,12 +1815,12 @@ Do:
 - Move Ed25519 and ECDSA operation lane and intent construction into their
   capability modules.
 - Add `produceMpcSignerProof` to MPC capabilities as the implementation of the
-  closed `mpc.produce_signer_proof` operation; connect it to the A3 fail-closed
+  closed `mpc.produce_signer_proof` operation; connect it to the Phase 12 fail-closed
   `mpc_signer_proof` evaluator.
 - Validate capability grant policies against registered grant evidence kinds and
   capability operation descriptors.
 - Re-home the remaining threshold/wallet helpers from `core/authService/**`
-  into these modules, guided by the Phase 2A split inventory.
+  into these modules, guided by the Phase 3 split inventory.
 
 Check:
 
@@ -1814,7 +1829,7 @@ Check:
 - `mpc_signer_proof` missing capability, inactive capability, principal
   mismatch, unsupported operation, and success have targeted tests.
 
-## Phase B3: MPC Route Policy Migration
+## Phase 20: MPC Route Policy Migration
 
 Status: planning. Old Phase 6 remainder.
 
@@ -1834,8 +1849,8 @@ Do:
 - Apply the SPEC's one-way grant-use rule: pre-consumption failures leave the
   grant untouched, and post-consumption failures record a failed use without
   refunding it. Retry uses a remaining use or a fresh grant.
-- Delete the wallet-only API scopes left on signing routes by A4.
-- Mount MPC routes as F3 manifest modules.
+- Delete the wallet-only API scopes left on signing routes by Phase 13.
+- Mount MPC routes as Phase 9 manifest modules.
 
 Check:
 
@@ -1848,20 +1863,20 @@ Check:
 - Mid-flight signing failures after grant-use consumption require re-auth or a
   grant with remaining uses; no reserve/commit/release path remains.
 
-## Phase B4: Client Worker Split And Bundle Boundaries
+## Phase 21: Client Worker Split And Bundle Boundaries
 
 Status: planning. Old Phase 7 remainder.
 
-Prerequisite: Phase 0F must finish removing `chainTarget` and
+Prerequisite: Phase 5 must finish removing `chainTarget` and
 `routerAbStateSessionId` from material-handle builders and role-local material
 surfaces before this phase starts.
 
 Do:
 
 - Split `passkey-confirm.worker.ts` into generic auth confirmation and MPC
-  capability workers; the generic worker from A6 becomes the only generic path.
+  capability workers; the generic worker from Phase 15 becomes the only generic path.
 - Consolidate the worker fleet (Decided Point 14): merge `eth-signer` and
-  `tempo-signer` into one EVM-family worker. 0F made role-local material
+  `tempo-signer` into one EVM-family worker. Phase 5 made role-local material
   chain-agnostic with chain enforcement in lanes/session records, so the
   per-chain worker split has no remaining reason. Merge the two Rust WASM
   crates (`wasm/eth_signer`, `wasm/tempo_signer`), loaders, rolldown inputs,
@@ -1873,7 +1888,7 @@ Do:
 - Complete the public entrypoint split so auth-only and vault-only imports do
   not traverse `./advanced`, `./threshold`, `./worker`, `./wasm`, wallet iframe
   signer hosts, or signing-engine modules.
-- Extend the export-map source guards from A6 to cover the MPC entrypoints.
+- Extend the export-map source guards from Phase 15 to cover the MPC entrypoints.
 
 Check:
 
@@ -1882,7 +1897,7 @@ Check:
 - Bundle/dependency checks pass for vault-only, IdP-only, MPC-only, and
   full-platform browser runtimes.
 
-## Phase B5: Wallet UI Adapter Migration
+## Phase 22: Wallet UI Adapter Migration
 
 Status: planning. Old Phase 8 remainder.
 
@@ -1906,9 +1921,9 @@ Check:
 - Seams passkey grant evidence works without local wallet signer metadata.
 - Docs and dashboard pages do not present wallet-only terms as generic auth.
 - Frontend demo, SDK React components, SeamsWeb operations, and browser workers
-  compile against the F1 owner map.
+  compile against the Phase 7 owner map.
 
-## Phase B6: Auth-First Registration And Capability Provisioning
+## Phase 23: Auth-First Registration And Capability Provisioning
 
 Status: planning. Old Phase 10.
 
@@ -1921,20 +1936,20 @@ Do:
 - Create only auth account, principal, factor, device, and session records by
   default.
 - Add explicit capability provisioning.
-- Promote the Phase 0A signer-set request into protected capability
+- Promote the Phase 1 signer-set request into protected capability
   provisioning. Wallet registration should request MPC capabilities through the
   same capability list used by vault and future capabilities.
 - Support vault-only registration and wallet registration with requested
   capabilities.
 - Keep embedded wallet login as an auth factor independent of signer material;
-  replace the A2 fail-closed stub with the real wallet-login proof exchange.
+  replace the Phase 11 fail-closed stub with the real wallet-login proof exchange.
 - Delete automatic signer provisioning from auth-only registration.
 
 Check:
 
 - New auth accounts do not create signer records unless provisioning requests
   them.
-- Phase 0A signer-set branch identities map cleanly to protected capability
+- Phase 1 signer-set branch identities map cleanly to protected capability
   records or capability provisioning identities.
 - Vault-only, IdP-only, and auth-only registration paths do not load
   signer/HSS/WASM code.
@@ -1943,15 +1958,15 @@ Check:
 
 # Part 4: Platform Completion
 
-## Phase P1: Host And Example Assembly Migration
+## Phase 24: Host And Example Assembly Migration
 
-Status: planning. Old Phase 11 remainder (the manifest itself landed in F3).
+Status: planning. Old Phase 11 remainder (the manifest itself landed in Phase 9).
 
 Do:
 
-- Move Node web-server startup to the F3 module manifest and runtime handler
+- Move Node web-server startup to the Phase 9 module manifest and runtime handler
   factory model, through the thin Node adapter.
-- Verify the Express deletion from F3 held: no parallel Express route
+- Verify the Express deletion from Phase 9 held: no parallel Express route
   implementations returned. Document the on-demand Express adapter contract —
   a thin wrapper over the runtime-neutral handlers that can be built if a
   customer requests Express hosting, never a second route implementation.
@@ -1974,15 +1989,15 @@ Check:
 - Router module construction, duplicate rejection, and Cloudflare/Node adapter
   manifest parity have targeted tests.
 
-## Phase P1B: Better Auth Provider Adapter
+## Phase 25: Better Auth Provider Adapter
 
-Status: planning. Deferred from A2 (Decided Point 12): v1 ships on the
+Status: planning. Deferred from Phase 11 (Decided Point 12): v1 ships on the
 Seams-native session provider; this phase adds Better Auth as the second
 implementation of the same session-provider port.
 
 Do:
 
-- Implement `betterAuthSessionProvider(auth)` against the A2 port contract.
+- Implement `betterAuthSessionProvider(auth)` against the Phase 11 port contract.
 - Add `seamsPasskeyGrantEvidence()` as the thin Better Auth mounting bridge
   over the existing provider-neutral grant-evidence routes.
 - Expose commodity auth (email+password, social providers, organizations,
@@ -2001,7 +2016,7 @@ Check:
 - MPC signing grant policies remain unsatisfiable by provider login evidence
   (Decided Point 12 signing boundary).
 
-## Phase P2: IdP Integration
+## Phase 26: IdP Integration
 
 Status: planning. Old Phase 13.
 
@@ -2024,10 +2039,10 @@ Check:
 - IdP OIDC flow, JWKS rotation, refresh-token rotation/replay, and claim policy
   have targeted tests.
 
-## Phase P3: Final Deletion And Hardening
+## Phase 27: Final Deletion And Hardening
 
-Status: planning. Old Phase 14, shrunk: most deletion happens in-slice (B1, B3,
-B4). This phase sweeps what remains.
+Status: planning. Old Phase 14, shrunk: most deletion happens in-slice (Phase 18, Phase 20,
+Phase 21). This phase sweeps what remains.
 
 Do:
 
@@ -2040,7 +2055,7 @@ Do:
   WASM, HSS, chain adapters, and wallet UI.
 - Delete public docs, diagrams, source guards, and helper scripts that preserve
   obsolete generic terminology.
-- Close out the Phase 2A delete-candidate ledger: every entry is deleted or has
+- Close out the Phase 3 delete-candidate ledger: every entry is deleted or has
   a written reason to survive.
 - Run the guard-retirement sweep (Decided Point 14): delete source guards and
   type fixtures whose invariant became structural during the slices — guards
@@ -2056,7 +2071,7 @@ Check:
   tests.
 - Import guards cover the intended boundaries; no guard remains whose
   invariant is structurally enforced.
-- The F1 ledger has no rows left in `move_*` or `delete` state.
+- The Phase 7 ledger has no rows left in `move_*` or `delete` state.
 - Net non-doc line change is recorded and explained; parallel-implementation
   deletions (AuthService stack, Express routes, budget subsystem, worker
   merge) appear in the accounting.
@@ -2070,7 +2085,7 @@ Part 4.
 
 Static checks:
 
-- The F1 inventory ledger exists and every row has an owner, phase, action,
+- The Phase 7 inventory ledger exists and every row has an owner, phase, action,
   and validation check.
 - Domain records require tenant, principal/session/capability IDs where
   applicable.
@@ -2086,7 +2101,7 @@ Static checks:
   without short-lived grants.
 - Public export maps expose auth/vault entrypoints that stay free of MPC imports.
 - Source guards reject old generic terms outside capability-local modules
-  (from B1 onward): `signing-session`, `signingGrantId`, `thresholdSessionId`,
+  (from Phase 18 onward): `signing-session`, `signingGrantId`, `thresholdSessionId`,
   `threshold_session`, `user_session`, wallet-only `AuthMethod`, and wallet-only
   API credential scopes.
 - Parked workspaces such as `voiceId` cannot import auth core internals unless
@@ -2102,51 +2117,51 @@ Targeted tests (owning phase in parentheses):
   combined unlock subject sets, cold page-refresh session reads from
   `WalletUnlockSubjectSet`, missing-profile denial, ambiguous-profile denial,
   expired sealed-session denial, `active_restorable` display state, and
-  restorable-session demotion to re-auth on restore failure (0D).
+  restorable-session demotion to re-auth on restore failure (Phase 4).
 - Wallet auth authority refs on Ed25519/ECDSA signing lanes, multi-factor
   collision and re-enrollment fixtures, and deletion of the interim admission
-  authority-key helper (B0).
-- Native provider session -> `SeamsSession` (A2); Better Auth session ->
-  `SeamsSession` through the same port (P1B).
+  authority-key helper (Phase 17).
+- Native provider session -> `SeamsSession` (Phase 11); Better Auth session ->
+  `SeamsSession` through the same port (Phase 25).
 - Session exchange creation, refresh, revoke, replay denial, and tenant
-  isolation (A2).
+  isolation (Phase 11).
 - Device minting, revoked-device denial, and device IDs on sessions, grant
-  evidence, MPC signer proofs, and audit rows (A2/A3/A5).
+  evidence, MPC signer proofs, and audit rows (Phase 11/Phase 12/Phase 14).
 - Seams passkey, Email OTP, and Slack OTP grant-evidence challenge and verify
-  (A6).
+  (Phase 15).
 - Digest canonicalization TypeScript fixtures and Rust parity vectors for lane,
-  intent, display, challenge, evidence-set, and audit digests (A3).
+  intent, display, challenge, evidence-set, and audit digests (Phase 12).
 - Grant lifecycle, digest mismatch, expiry, replay, one-way consumption, failed
-  consumed operation audit, and no refund after post-consumption failure (A3/B3).
-- Management route policy and API scope parsing (A4).
+  consumed operation audit, and no refund after post-consumption failure (Phase 12/Phase 20).
+- Management route policy and API scope parsing (Phase 13).
 - Service-account API key grant request: management-only denial, missing binding
   denial, missing capability grant policy denial, successful vault proxy-use
-  grant, and reveal/export denial (A7).
+  grant, and reveal/export denial (Phase 16).
 - Vault proxy use through the minimal broker/gateway adapter, rotate,
   reveal/export, permission change, break-glass, and delegate-member denial
-  (A5).
+  (Phase 14).
 - Retention pruning for expired challenges/evidence/grants and rate-limit denial
   for session exchange, OTP, WebAuthn challenge, verification, and
-  service-account grant request paths (A2/A3/A6/A7).
+  service-account grant request paths (Phase 11/Phase 12/Phase 15/Phase 16).
 - `mpc_signer_proof` missing capability, inactive capability, principal
-  mismatch, unsupported operation, and success (B2).
+  mismatch, unsupported operation, and success (Phase 19).
 - Frontend demo, SDK React components, SeamsWeb operations, and browser workers
-  compile against the new owner map (B5).
+  compile against the new owner map (Phase 22).
 - Console RBAC, API keys, policies, approvals, key exports, audit, webhooks, and
   wallet index routes compile against the new management/capability owner map
-  (A4/B5).
+  (Phase 13/Phase 22).
 - Router module construction, duplicate rejection, Cloudflare/Node adapter
   manifest parity, and the documented on-demand Express adapter contract
-  (F3/P1).
+  (Phase 9/Phase 24).
 - Node web-server startup, self-hosted Worker examples, and local test servers
-  mount only enabled capability modules (P1).
+  mount only enabled capability modules (Phase 24).
 - IdP OIDC flow, JWKS rotation, refresh-token rotation/replay, and claim policy
-  (P2).
+  (Phase 26).
 - Bundle/dependency checks for vault-only, IdP-only, MPC-only, and full-platform
-  browser runtimes (A6/B4).
+  browser runtimes (Phase 15/Phase 21).
 - Package export smoke tests for `@seams/sdk`, `@seams/sdk-server`, and
   `@seams-internal/shared-ts` auth-only, vault-only, MPC-only, and full-platform
-  imports (A6/B4).
+  imports (Phase 15/Phase 21).
 
 Security tests:
 
@@ -2182,13 +2197,13 @@ question gating it is open.
 
 | Question | Resolve by | Current lean |
 | --- | --- | --- |
-| Should `vault_access` be provisioned automatically for every tenant? | Before A5 starts | Auto-provision; it is the baseline capability. |
-| Should Ed25519 and ECDSA MPC capabilities be provisioned separately by default? | Before B6 starts | Separately; the Phase 0A signer-set shape already models them as independent branches. |
-| Which MPC capability should produce `mpc_signer_proof` by default? | Before B2 starts | — |
-| Should embedded wallet login be a default auth factor for wallet customers? | Before B6 starts | — |
+| Should `vault_access` be provisioned automatically for every tenant? | Before Phase 14 starts | Auto-provision; it is the baseline capability. |
+| Should Ed25519 and ECDSA MPC capabilities be provisioned separately by default? | Before Phase 23 starts | Separately; the Phase 1 signer-set shape already models them as independent branches. |
+| Which MPC capability should produce `mpc_signer_proof` by default? | Before Phase 19 starts | — |
+| Should embedded wallet login be a default auth factor for wallet customers? | Before Phase 23 starts | — |
 | Should VoiceID become a future `GrantEvidenceKind`, or remain a separate optional workspace? | Revisit at Slice B exit | Parked workspace with source guards. |
-| Which customer signal should trigger SAML support after the OIDC IdP path ships? | Before P2 scoping | — |
-| Which IdP scopes require additional grant evidence by default? | Before P2 starts | — |
+| Which customer signal should trigger SAML support after the OIDC IdP path ships? | Before Phase 26 scoping | — |
+| Which IdP scopes require additional grant evidence by default? | Before Phase 26 starts | — |
 
 ## Related Docs
 
