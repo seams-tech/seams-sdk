@@ -1150,8 +1150,9 @@ s_H = amortized or transferred global public data
 
 For the 349,617-gate SHA-512 reference alone, the one-bit-per-gate term is about
 43.7 KB before the Ed25519 addition, reduction, output sharing, input labels, and
-framing. Determine whether global data is cached, prepositioned, or transferred
-per ceremony before projecting network volume.
+framing. The closed analysis did not determine whether global data would be
+cached, prepositioned, or transferred per ceremony, so it produced no complete
+network-volume projection.
 
 The paper's optimistic concrete sizes also rely on a conjectural HSS-friendly
 PRG with a 128-bit seed and output length tied to the circuit. There is no
@@ -1203,7 +1204,8 @@ At one million attempts:
 
 - a 2 MiB just-in-time semi-honest Yao stream transfers about 2.10 TB decimal;
 - active Yao volume is unknown until the compiler is selected;
-- HSS volume cannot be projected until `s_H` and global-data caching are fixed;
+- the closed HSS analysis did not project volume because `s_H` and global-data
+  caching were unresolved;
 - Cloudflare's Workers bandwidth charge remains `$0` for each case.
 
 The byte difference still affects latency, storage, logging policy, and any
