@@ -77,14 +77,14 @@ migration before `ThresholdSigningService` is deleted.
 
 ## Document Authority and Resolved Conflicts
 
-The July 10, 2026 Phase 0 decision changed the current solution refactor:
+The July 10, 2026 Phase 0 decision resolved these prior conflicts:
 
-- `router-a-b-sol-refactor.md` currently classifies Yao as a benchmark-only
-  oracle and requires genuine succinct HSS as the production implementation.
-- `router-a-b-deployment.md` currently describes same-account Cloudflare as a
-  production profile.
-- current protocol identifiers and routes still use HSS and `SignerA` /
-  `SignerB` terminology for derivation roles.
+- `router-a-b-sol-refactor.md` classified Yao as a benchmark-only oracle and
+  required genuine succinct HSS as the production implementation.
+- `router-a-b-deployment.md` described same-account Cloudflare as a production
+  profile.
+- protocol identifiers and routes used HSS and `SignerA` / `SignerB`
+  terminology for derivation roles.
 
 The three implementation plans and the normative Router A/B documents were
 checkpointed together when Phase 0 closed. From that checkpoint:
@@ -974,10 +974,11 @@ shared authority.
 
 ### Production Policy
 
-`router_ab_yao_same_account_dev_v1` is local, staging, and benchmark-only.
+`router_ab_cloudflare_same_account_dev_v1` is local, staging, and
+benchmark-only.
 Production domain types do not contain a same-account branch.
 
-`router_ab_yao_separate_accounts_v1` is the strict production profile:
+`router_ab_cloudflare_separate_accounts_v1` is the strict production profile:
 
 - distinct Cloudflare account IDs;
 - distinct deploy principals and OIDC trust;
@@ -991,9 +992,6 @@ Production domain types do not contain a same-account branch.
 
 Router may share A's administrative domain only if the approved corruption
 model continues to cover Router+A and Router credentials have no B authority.
-
-Before release, update `router-a-b-deployment.md` so same-account Cloudflare is
-no longer described as strict production.
 
 ## Cloudflare Transport and Placement
 
@@ -1094,7 +1092,7 @@ Offline preprocessing uses a durable trigger or queue with its own measured
 limits and cost. A Durable Object must not remain active across the network
 stream solely to keep a request alive.
 
-## Cloudflare Cost Analysis: Streaming Yao vs Succinct HSS
+## Cloudflare Cost Analysis With Historical Succinct-HSS Context
 
 ### Pricing Snapshot
 
@@ -1127,7 +1125,8 @@ Let:
 - `t_A` and `t_B` be average CPU-ms per attempt, including rejected, aborted,
   replayed, retried, and failed invocations;
 - `s_Y` be measured Yao online and offline bytes;
-- `s_H` be measured genuine succinct-HSS bytes.
+- `s_H` be the dated analytical succinct-HSS byte estimate retained from the
+  closed HSS investigation.
 
 The planning comparison uses:
 
@@ -1163,12 +1162,10 @@ global data and computation. The analytic estimates also exclude the
 repository-specific Ed25519 arithmetic, active-security composition,
 persistence, retries, and deployment overhead.
 
-Normalize security before any selection decision:
-
-- use unamplified HSS only as a primitive feasibility measurement;
-- compare passive Yao against amplified HSS at the frozen error target;
-- production active Yao against an amplified and actively protected HSS
-  candidate.
+The HSS rows are historical analytical context. They do not authorize a new
+kernel, feasibility measurement, amplification experiment, active composition,
+or production candidate. Only the selected active Yao construction receives new
+deployment measurements.
 
 ### Separate-Account Formula
 
@@ -1237,10 +1234,10 @@ variable cost per ceremony =
 One additional aggregate CPU-second costs approximately `$20` per million
 ceremonies. Network byte volume contributes no Workers fee.
 
-The table shows the scenario directly: any backend using 100 CPU-ms per side
-costs about `$12.80`, while a backend using one CPU-second per side costs about
-`$48.80`, under the stated assumptions. Deployed Yao and HSS measurements must
-determine which row applies.
+The table shows the scenario directly: an implementation using 100 CPU-ms per
+side costs about `$12.80`, while one using one CPU-second per side costs about
+`$48.80`, under the stated assumptions. Deployed active-Yao measurements
+determine which row applies; the HSS rows remain dated context only.
 
 ### Same-Account Formula
 
@@ -2232,7 +2229,7 @@ Also run:
 
 ## Experiment Record Template
 
-Record each Yao, transport, active-security, preprocessing, or HSS comparison:
+Record each Yao, transport, active-security, or preprocessing experiment:
 
 ```markdown
 ### Experiment ID and title

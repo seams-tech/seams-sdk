@@ -553,8 +553,11 @@ sequenceDiagram
 After the Router forwards envelopes, A and B coordinate directly using the
 sequence in Section 5.4.
 
-The exact number of A/B messages depends on the chosen two-party HSS/MPC
-primitive. The implementation target is:
+The exact A/B request graph is frozen by the reviewed active-Yao suite and
+signed circuit manifest before production. Active compiler candidates may be
+compared in isolated Phase 6 experiments. No caller or runtime request selects
+the primitive, compiler, round graph, or security level. The implementation
+target is:
 
 - ideal: 1 A/B round trip
 - acceptable: 2 to 4 A/B round trips
@@ -860,13 +863,13 @@ request kinds:
 | ---------------------- | ---------------------- | ------------------------------------------------------------------------------- |
 | `registration_prepare` | `registration`         | creates the first account output relation after registration authorization      |
 | `key_export`           | `export`               | re-opens existing account output material under export authorization            |
-| `recovery`             | `export`               | re-opens existing account output material under recovery authorization          |
+| `recovery`             | `recovery`             | runs the non-seed activation family under recovery authorization                 |
 | `server_share_refresh` | `refresh`              | rotates future SigningWorker/root-share material and requires activation checks |
 
 Recovery stays distinct in Router policy, auth, abuse controls, diagnostics,
-and lifecycle state. It maps to primitive `export` because the derivation layer
-does not create a new account relation for recovery; it releases existing
-account-scoped output material after a different authority proof.
+and lifecycle state. It uses the activation/non-seed circuit family, produces
+fresh recipient-scoped activation shares, and never receives export seed wires
+or seed-output packages.
 
 ### 6.7 Endpoint And Wire Examples
 
@@ -1248,10 +1251,13 @@ change all invalidate runtime validation. After invalidation, the lane returns
 to `restore_available` or `material_pending` until the worker validates or
 restores the material again.
 
-## 8. ECDSA-HSS
+## 8. ECDSA Threshold-PRF And Additive Shares
 
-ECDSA-HSS uses Router A/B for registration/bootstrap, activation, recovery,
+ECDSA uses Router A/B for registration/bootstrap, activation, recovery,
 refresh, export, presignature pool refill, and normal EVM/Tempo digest signing.
+The existing `ECDSA-HSS` source and protocol namespace denotes this current
+threshold-PRF/additive-share flow; Phase 8 renames its public surface to the
+backend-neutral ECDSA route family. It has no Yao dependency.
 
 Protocol version:
 
