@@ -1,6 +1,7 @@
 # Ed25519 Yao Lifecycle Ideal-Functionality Boundary V1
 
-Status: **Phase 1 partial freeze for the isolated host-only reference generator**
+Status: **Phase 1 partial freeze with executable host-only structural and
+continuity evidence**
 
 This document freezes the lifecycle and party-boundary facts that already have
 normative support. It also records the decisions that still block executable
@@ -27,10 +28,11 @@ The source precedence for this boundary is:
 3. `docs/router-a-b-sol-refactor.md` owns the wider cutover constraints and
    deletion plan. See **Goal**, **Executive Decisions**, and **Non-Negotiable
    Invariants**.
-4. Current generator code supplies executable clear-arithmetic evidence only.
-   Its README explicitly leaves lifecycle transitions, provenance, and
-   active-protocol semantics open in the `lifecycle_reference` and lifecycle
-   boundary paragraphs.
+4. Current generator code supplies executable clear arithmetic, a
+   nonserializable lifecycle-semantic type layer, one metadata-only activation
+   continuation, and narrow host lifecycle-continuity evidence. Its README
+   explicitly leaves production lifecycle transitions, provenance, package
+   opening, and active-protocol semantics open.
 
 Current implementation facts:
 
@@ -40,8 +42,15 @@ Current implementation facts:
   `tools/ed25519-yao-generator/src/fixtures.rs:101-112,152-160`.
 - `ActivationOracleOutput` has no seed field while `ExportOracleOutput` requires
   one at `tools/ed25519-yao-generator/src/lib.rs:453-489`.
-- The only executable functions are the shared clear-arithmetic activation and
-  export projections at `tools/ed25519-yao-generator/src/lib.rs:501-522`.
+- `lifecycle_domain.rs` implements five disjoint host-semantic structural
+  families. Its only transition function consumes synthetic activation metadata
+  and cannot open packages or establish a production activation.
+- `lifecycle_fixtures.rs` owns a separate strict four-case recovery,
+  activation, refresh, activation continuity corpus. Rust and an independent
+  standard-library Python verifier reproduce its complete relation.
+- Registration, recovery, refresh, and export lifecycle evaluators remain
+  absent. Complete party views, package/receipt bytes, persistence, and
+  production custody remain blocked below.
 - Every current non-export vector is a lifecycle-labelled arithmetic case. The
   builder calls `evaluate_activation` before branching on the lifecycle tag at
   `tools/ed25519-yao-generator/src/fixtures.rs:423-455`. Those cases are not
@@ -259,8 +268,11 @@ after release is fixed by the **Ed25519 Export** section of
 
 ### 7.1 Rust type-shape pseudocode
 
-The following pseudocode is normative for disjointness and ownership. Names may
-change during implementation. Field presence and branch separation may not.
+The following pseudocode is normative for disjointness and ownership. The
+nonserializable host-semantic implementation follows this separation while
+using branch-specific public-input wrappers and origin-specific pending-state
+internals. Boxing or internal wrapper choices do not change the required branch
+boundaries. These are host model types, with no Serde or wire-encoding surface.
 
 ```rust
 pub enum ReferenceLifecycleRequestV1 {
@@ -423,6 +435,13 @@ pub fn evaluate_export_v1(
     inputs: ExportReferenceInputsV1,
 ) -> ReferenceLifecycleResultV1<ExportSuccessV1>;
 ```
+
+These are the complete ideal-function contracts. The current Rust slice exposes
+only `consume_activation_metadata_v1(ActivationRequestV1)`, which validates and
+promotes synthetic public metadata without opening packages or combining
+SigningWorker shares. It is deliberately named outside the complete
+`evaluate_activation_v1` contract. Registration, recovery, refresh, export, and
+full activation evaluators remain absent until their respective blockers close.
 
 The recovery and refresh input shapes are frozen for the host-only reference:
 
@@ -760,7 +779,7 @@ MUST NOT contain seed wires, seed-share outputs, or export authorization.
 
 ## 10. Uniform abort envelope
 
-All five functions use one result shape:
+All five ideal-function contracts specify one result shape:
 
 ```rust
 pub type ReferenceLifecycleResultV1<S> = Result<S, UniformLifecycleAbortV1>;
@@ -790,6 +809,12 @@ The ideal model freezes the envelope and its forbidden contents. Exact timing,
 active-protocol abort points, selective-failure independence, and failure-code
 equivalence remain Section 12.4 blockers.
 
+The host-semantic implementation constructs this shape for rejected synthetic
+activation-metadata bindings and uses one provisional redacted code. That is
+partial executable envelope evidence only. The other four functions, exact
+encoding, all active-protocol failures, timing equivalence, and
+selective-failure independence remain unimplemented.
+
 ## 11. Fixture and test strategy
 
 ### 11.1 Preserve the arithmetic corpus
@@ -799,10 +824,24 @@ Keep `vectors/ed25519-yao-v1.json` as a host-only clear-arithmetic corpus. Its
 differential implementations. No party-view test may treat that trace as a
 protocol output.
 
-### 11.2 Add a separate lifecycle corpus
+### 11.2 Narrow continuity corpus and blocked complete lifecycle corpus
 
-Create a separately versioned lifecycle corpus after the applicable blockers
-close. Use a tagged union with five distinct DTOs:
+A separately versioned four-case host continuity corpus is implemented. It
+contains:
+
+- same-root recovery continuity;
+- recovery-origin activation metadata promotion with zero reference work;
+- opposite-delta refresh continuity;
+- refresh-origin activation metadata promotion with zero reference work.
+
+Its operation counters are ideal reference metadata. They do not instrument a
+deployed network, Deriver call path, or Yao engine. Registration,
+registration-origin activation, export, ciphertext/package receipts, crash and
+persistence behavior, and separate party views remain outside this narrow
+schema.
+
+After the applicable blockers close, add a complete lifecycle corpus using a
+tagged union with five distinct DTOs:
 
 ```rust
 pub enum LifecycleFixtureCaseV1 {
@@ -1023,27 +1062,25 @@ These are production capabilities in the **Production Capabilities** section of
 
 ## 13. Alignment and readiness
 
-| Requirement                               | Current code status                                                                  | Classification        | Confidence |
-| ----------------------------------------- | ------------------------------------------------------------------------------------ | --------------------- | ---------- |
-| Five disjoint request tags                | `fixtures.rs:64-75,101-112`                                                          | full for tags         | 1.00       |
-| Export-only seed result                   | `fixtures.rs:152-160`; `lib.rs:453-489`                                              | full for oracle DTOs  | 1.00       |
-| Five disjoint prestates and transitions   | lifecycle semantics expressly excluded by the README lifecycle-boundary paragraph    | missing in code       | 1.00       |
-| Activation consumes committed packages    | current fixture builder evaluates arithmetic at `fixtures.rs:423-455`                | missing in code       | 1.00       |
-| Recovery remains distinct from export     | generator tag is distinct; legacy gate maps it to export at `protocol/gate.rs:33-40` | integration mismatch  | 1.00       |
-| Recovery seed-preserving transition       | same-root KDF/identity continuity test in `lifecycle_reference.rs`                   | partial host evidence | 1.00       |
-| Refresh identity-preserving transition    | explicit opposite-delta continuity test in `lifecycle_reference.rs`                  | partial host evidence | 1.00       |
-| Complete party views and declared leakage | clear trace is explicitly host-only at `fixtures.rs:198-204`                         | missing in code       | 1.00       |
-| Uniform lifecycle abort envelope          | oracle exposes only noncanonical tau input errors at `src/lib.rs:112-135`            | missing in code       | 0.99       |
-| Active private randomized outputs         | no protocol implementation exists                                                    | intentionally absent  | 1.00       |
+| Requirement                               | Current code status                                                                                                                  | Classification              | Confidence |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- | ---------- |
+| Five disjoint request tags                | `fixtures.rs` and branch-specific wrappers in `lifecycle_domain.rs`                                                                  | executable structural match | 1.00       |
+| Export-only seed result                   | arithmetic oracle union and structural export output family                                                                          | executable structural match | 1.00       |
+| Five disjoint prestates and transitions   | nonserializable request, pre-state, success, and output-custody families in `lifecycle_domain.rs`                                    | host-semantic match         | 0.99       |
+| Activation package-reference consumption  | `consume_activation_metadata_v1` checks and move-consumes synthetic manifests, package references, and full semantic public bindings | metadata-only evidence      | 1.00       |
+| Recovery remains distinct from export     | generator types are distinct; the superseded Router gate remains an integration cleanup item                                         | integration mismatch        | 1.00       |
+| Recovery seed-preserving transition       | committed four-case corpus plus Rust and independent Python reproduction                                                             | executable host evidence    | 1.00       |
+| Refresh identity-preserving transition    | exact role-local signed deltas plus joined/downstream equality in Rust and independent Python                                        | executable host evidence    | 1.00       |
+| Complete party views and declared leakage | host traces are explicitly excluded from party views; complete role views remain absent                                              | missing in code             | 1.00       |
+| Uniform lifecycle abort envelope          | activation-metadata mismatch uses one public-only shape and provisional redacted code                                                | partial executable evidence | 0.99       |
+| Active private randomized outputs         | no protocol implementation exists                                                                                                    | intentionally absent        | 1.00       |
 
-The safe next implementation slice includes the common public/context types,
-five disjoint request/pre-state/success DTO families, the zero-evaluation
-activation continuation model, export/non-export structural rejection tests,
-the public leakage DTOs, the uniform abort envelope, and committed recovery and
-refresh lifecycle vectors. Recovery and refresh inputs remain host-only
-synthetic evidence. Registration remains an arithmetic reference until its
-provenance and anti-bias mechanism close. No production adapter, persistence
-path, or security capability claim may land before Sections 12.1 through 12.4
-close their production gates.
+The completed slice provides branch-specific public semantics, five disjoint
+structural lifecycle families, metadata-only activation promotion, one narrow
+uniform-abort instance, and a cross-language four-case continuity corpus.
+Recovery and refresh inputs remain public synthetic host evidence. Package
+opening, global one-use issuance, complete lifecycle evaluators, party views,
+production provenance and custody, active outputs, receipts, and distributed
+persistence remain blocked by Sections 12.1 through 12.4.
 
 This document does not close Yao Phase 1 or FV0.

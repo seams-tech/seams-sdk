@@ -18,6 +18,8 @@ mod context;
 mod fixtures;
 mod kdf;
 mod kdf_fixtures;
+pub mod lifecycle_domain;
+mod lifecycle_fixtures;
 mod lifecycle_reference;
 
 pub use application_binding::{
@@ -61,6 +63,19 @@ pub use kdf_fixtures::{
     canonical_kdf_vector_corpus_v1, KdfApplicationBindingVectorV1, KdfClearReferenceTraceV1,
     KdfContinuityVectorCaseV1, KdfContributionVectorV1, KdfStableContextVectorV1,
     KdfSyntheticRootsV1, KdfVectorCorpusV1, KDF_VECTOR_CORPUS_SCHEMA_V1,
+};
+pub use lifecycle_fixtures::{
+    canonical_lifecycle_continuity_corpus_v1, ActivationContinuityVectorV1,
+    ActiveContinuityPublicStateV1, ClientContributionPairV1, CorrelatedRefreshDeltaV1,
+    FixtureIdentityV1, FrozenAdmissionV1, LifecycleContinuityCaseV1, LifecycleContinuityCorpusV1,
+    LifecycleContinuityValidationErrorV1, NonZeroEpochV1, OpenAdmissionV1,
+    RecoveryActivationContinuationV1, RecoveryContinuityVectorV1, RecoveryHostOnlyReferenceV1,
+    RecoveryPendingPublicStateV1, ReferenceOperationCountsV1, RefreshActivatedPublicStateV1,
+    RefreshActivationContinuationV1, RefreshContinuityVectorV1, RefreshHostOnlyReferenceV1,
+    RefreshPendingPublicStateV1, RetiredRoleInputEpochPairV1, RoleEpochPairV1, RoleEpochV1,
+    LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1, LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1,
+    RECOVERY_ACTIVATION_CASE_ID_V1, RECOVERY_CONTINUITY_CASE_ID_V1, REFRESH_ACTIVATION_CASE_ID_V1,
+    REFRESH_CONTINUITY_CASE_ID_V1,
 };
 pub use lifecycle_reference::{
     apply_synthetic_correlated_server_delta_v1, SyntheticContinuityDeltaErrorV1,

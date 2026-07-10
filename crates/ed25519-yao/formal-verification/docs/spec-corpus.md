@@ -13,12 +13,15 @@ Status: **FV1 baseline; Phase 1 functionality freeze remains open**
    owns the proof-system-neutral provenance statement, paired-role invariants,
    epoch meanings, and registration anti-bias requirements. Its explicit
    blockers retain commitment, proof, custody, and active composition work.
-4. [`tools/ed25519-yao-generator`](../../../../tools/ed25519-yao-generator/README.md)
+4. [`tools/ed25519-yao-generator/docs/lifecycle-continuity-v1.md`](../../../../tools/ed25519-yao-generator/docs/lifecycle-continuity-v1.md)
+   owns only the strict four-case host continuity schema and its same-root,
+   opposite-delta, epoch-promotion, and zero-reference-work relations.
+5. [`tools/ed25519-yao-generator`](../../../../tools/ed25519-yao-generator/README.md)
    owns the clear reference oracle, role-local KDF, and committed arithmetic and
-   KDF-continuity corpora.
-5. [`crates/ed25519-yao`](../../README.md) owns implemented public identifiers,
+   KDF- and lifecycle-continuity corpora.
+6. [`crates/ed25519-yao`](../../README.md) owns implemented public identifiers,
    draft manifests, digest roles, and metric validation.
-6. This formal tree contains derived mirrors, generated translations, models,
+7. This formal tree contains derived mirrors, generated translations, models,
    and explanatory evidence.
 
 The HSS formal tree is historical tooling guidance. Its statements, generated
@@ -40,12 +43,15 @@ artifacts, and theorem names have no authority over this protocol.
 - exact role/source/output-separated HKDF-SHA256 contribution derivation;
 - a disjoint five-lifecycle boundary, activation continuation, output custody,
   common public leakage, ideal sharing distributions, and uniform abort shape;
+- nonserializable host-semantic five-branch structural types and a narrow
+  synthetic activation-metadata continuation;
 - same-logical-root recovery semantics, opposite-delta refresh arithmetic, and
   the monotonic reference cutover boundary;
 - proof-system-neutral provenance statement slots, encodings, role pairing,
   root/input-state epoch meanings, and registration anti-bias requirements;
-- committed clear-arithmetic and KDF-continuity corpora plus deterministic
-  differential generation;
+- committed clear-arithmetic, KDF-continuity, and four-case
+  lifecycle-continuity corpora plus deterministic differential generation and
+  independent Python reproduction;
 - two pure clear-reference helpers: little-endian addition modulo `2^256` and
   RFC 8032 clamping.
 
@@ -56,6 +62,9 @@ artifacts, and theorem names have no authority over this protocol.
   mechanism;
 - complete role-private views, persistence views, active-protocol randomness,
   frames, and abort equivalence;
+- complete registration, recovery, refresh, and export evaluators and a
+  canonical five-branch lifecycle/party-view corpus;
+- canonical package, receipt, authorization, and transcript encodings;
 - deterministic circuit IR, compiler, schedule, and generated artifacts;
 - garbling, OT, streaming, outputs, tickets, and runtime adapters;
 - active-security assumptions and real/ideal security statements.

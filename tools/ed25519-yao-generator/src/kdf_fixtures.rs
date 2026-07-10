@@ -21,13 +21,20 @@ use crate::{
 pub const KDF_VECTOR_CORPUS_SCHEMA_V1: &str =
     "seams:router-ab:ed25519-yao:kdf-continuity-vectors:v1";
 
-const SYNTHETIC_CLIENT_ROOT_V1: [u8; 32] = [0x11; 32];
-const SYNTHETIC_DERIVER_A_ROOT_V1: [u8; 32] = [0x22; 32];
-const SYNTHETIC_DERIVER_B_ROOT_V1: [u8; 32] = [0x33; 32];
-const SYNTHETIC_WALLET_ID_V1: &str = "wallet-fixture";
-const SYNTHETIC_SIGNING_KEY_ID_V1: &str = "ed25519ks_fixture";
-const SYNTHETIC_SIGNING_ROOT_ID_V1: &str = "project-fixture:env-fixture";
-const SYNTHETIC_KEY_CREATION_SIGNER_SLOT_V1: u32 = 1;
+pub(crate) const SYNTHETIC_CLIENT_ROOT_V1: [u8; 32] = [0x11; 32];
+pub(crate) const SYNTHETIC_DERIVER_A_ROOT_V1: [u8; 32] = [0x22; 32];
+pub(crate) const SYNTHETIC_DERIVER_B_ROOT_V1: [u8; 32] = [0x33; 32];
+pub(crate) const SYNTHETIC_WALLET_ID_V1: &str = "wallet-fixture";
+pub(crate) const SYNTHETIC_SIGNING_KEY_ID_V1: &str = "ed25519ks_fixture";
+pub(crate) const SYNTHETIC_SIGNING_ROOT_ID_V1: &str = "project-fixture:env-fixture";
+pub(crate) const SYNTHETIC_KEY_CREATION_SIGNER_SLOT_V1: u32 = 1;
+
+pub(crate) struct CanonicalSyntheticKdfMaterialV1 {
+    pub(crate) application_binding: Ed25519YaoApplicationBindingFactsV1,
+    pub(crate) context: StableKeyDerivationContext,
+    pub(crate) deriver_a: DeriverAContribution,
+    pub(crate) deriver_b: DeriverBContribution,
+}
 
 /// Strict portable corpus for contribution-KDF continuity evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,44 +168,10 @@ pub struct KdfClearReferenceTraceV1 {
 
 /// Builds the canonical version-one synthetic KDF continuity corpus.
 pub fn canonical_kdf_vector_corpus_v1() -> KdfVectorCorpusV1 {
-    let application_binding = canonical_application_binding_facts_v1();
-    let application_binding_encoding = application_binding.encode();
-    let application_binding_digest = application_binding.digest();
-    let context = StableKeyDerivationContext::new(*application_binding_digest.as_bytes(), 2, 1)
-        .expect("fixed synthetic context is valid");
-    let client_root = SyntheticClientDerivationRootV1::from_fixture_bytes(SYNTHETIC_CLIENT_ROOT_V1);
-    let deriver_a_root =
-        SyntheticDeriverADerivationRootV1::from_fixture_bytes(SYNTHETIC_DERIVER_A_ROOT_V1);
-    let deriver_b_root =
-        SyntheticDeriverBDerivationRootV1::from_fixture_bytes(SYNTHETIC_DERIVER_B_ROOT_V1);
-    let client = derive_synthetic_client_contributions_v1(&client_root, &context);
-    let server_a = derive_synthetic_deriver_a_server_contribution_v1(&deriver_a_root, &context);
-    let server_b = derive_synthetic_deriver_b_server_contribution_v1(&deriver_b_root, &context);
-
-    let y_client_a = client.deriver_a().y().expose_fixture_bytes();
-    let tau_client_a = client.deriver_a().tau().expose_fixture_bytes();
-    let y_client_b = client.deriver_b().y().expose_fixture_bytes();
-    let tau_client_b = client.deriver_b().tau().expose_fixture_bytes();
-    let y_server_a = server_a.y().expose_fixture_bytes();
-    let tau_server_a = server_a.tau().expose_fixture_bytes();
-    let y_server_b = server_b.y().expose_fixture_bytes();
-    let tau_server_b = server_b.tau().expose_fixture_bytes();
-
-    let deriver_a = DeriverAContribution::try_from(RawDeriverAContribution {
-        y_client: y_client_a,
-        y_server: y_server_a,
-        tau_client: tau_client_a,
-        tau_server: tau_server_a,
-    })
-    .expect("KDF-derived A tau values are canonical");
-    let deriver_b = DeriverBContribution::try_from(RawDeriverBContribution {
-        y_client: y_client_b,
-        y_server: y_server_b,
-        tau_client: tau_client_b,
-        tau_server: tau_server_b,
-    })
-    .expect("KDF-derived B tau values are canonical");
-    let activation = evaluate_activation(&deriver_a, &deriver_b);
+    let material = canonical_synthetic_kdf_material_v1();
+    let application_binding_encoding = material.application_binding.encode();
+    let application_binding_digest = material.application_binding.digest();
+    let activation = evaluate_activation(&material.deriver_a, &material.deriver_b);
 
     KdfVectorCorpusV1 {
         schema: KDF_VECTOR_CORPUS_SCHEMA_V1.to_owned(),
@@ -220,38 +193,58 @@ pub fn canonical_kdf_vector_corpus_v1() -> KdfVectorCorpusV1 {
             },
             context: KdfStableContextVectorV1 {
                 application_binding_digest_hex: encode_hex(
-                    context.application_binding_digest().as_bytes(),
+                    material.context.application_binding_digest().as_bytes(),
                 ),
-                participant_ids: context.participant_ids().as_array(),
-                encoded_hex: encode_hex(context.encode().as_bytes()),
-                binding_sha256_hex: encode_hex(context.binding_digest().as_bytes()),
+                participant_ids: material.context.participant_ids().as_array(),
+                encoded_hex: encode_hex(material.context.encode().as_bytes()),
+                binding_sha256_hex: encode_hex(material.context.binding_digest().as_bytes()),
             },
-            contributions: KdfContributionVectorV1 {
-                y_client_a_hex: encode_hex(&y_client_a),
-                tau_client_a_hex: encode_hex(&tau_client_a),
-                y_client_b_hex: encode_hex(&y_client_b),
-                tau_client_b_hex: encode_hex(&tau_client_b),
-                y_server_a_hex: encode_hex(&y_server_a),
-                tau_server_a_hex: encode_hex(&tau_server_a),
-                y_server_b_hex: encode_hex(&y_server_b),
-                tau_server_b_hex: encode_hex(&tau_server_b),
-            },
-            synthetic_clear_reference_trace: clear_reference_trace(
-                y_client_a,
-                y_server_a,
-                y_client_b,
-                y_server_b,
-                tau_client_a,
-                tau_server_a,
-                tau_client_b,
-                tau_server_b,
+            contributions: kdf_contribution_vector_v1(&material.deriver_a, &material.deriver_b),
+            synthetic_clear_reference_trace: kdf_clear_reference_trace_v1(
+                &material.deriver_a,
+                &material.deriver_b,
                 activation.material(),
             ),
         }],
     }
 }
 
-fn canonical_application_binding_facts_v1() -> Ed25519YaoApplicationBindingFactsV1 {
+pub(crate) fn canonical_synthetic_kdf_material_v1() -> CanonicalSyntheticKdfMaterialV1 {
+    let application_binding = canonical_application_binding_facts_v1();
+    let context = StableKeyDerivationContext::new(*application_binding.digest().as_bytes(), 2, 1)
+        .expect("fixed synthetic context is valid");
+    let client_root = SyntheticClientDerivationRootV1::from_fixture_bytes(SYNTHETIC_CLIENT_ROOT_V1);
+    let deriver_a_root =
+        SyntheticDeriverADerivationRootV1::from_fixture_bytes(SYNTHETIC_DERIVER_A_ROOT_V1);
+    let deriver_b_root =
+        SyntheticDeriverBDerivationRootV1::from_fixture_bytes(SYNTHETIC_DERIVER_B_ROOT_V1);
+    let client = derive_synthetic_client_contributions_v1(&client_root, &context);
+    let server_a = derive_synthetic_deriver_a_server_contribution_v1(&deriver_a_root, &context);
+    let server_b = derive_synthetic_deriver_b_server_contribution_v1(&deriver_b_root, &context);
+    let deriver_a = DeriverAContribution::try_from(RawDeriverAContribution {
+        y_client: client.deriver_a().y().expose_fixture_bytes(),
+        y_server: server_a.y().expose_fixture_bytes(),
+        tau_client: client.deriver_a().tau().expose_fixture_bytes(),
+        tau_server: server_a.tau().expose_fixture_bytes(),
+    })
+    .expect("KDF-derived A tau values are canonical");
+    let deriver_b = DeriverBContribution::try_from(RawDeriverBContribution {
+        y_client: client.deriver_b().y().expose_fixture_bytes(),
+        y_server: server_b.y().expose_fixture_bytes(),
+        tau_client: client.deriver_b().tau().expose_fixture_bytes(),
+        tau_server: server_b.tau().expose_fixture_bytes(),
+    })
+    .expect("KDF-derived B tau values are canonical");
+
+    CanonicalSyntheticKdfMaterialV1 {
+        application_binding,
+        context,
+        deriver_a,
+        deriver_b,
+    }
+}
+
+pub(crate) fn canonical_application_binding_facts_v1() -> Ed25519YaoApplicationBindingFactsV1 {
     Ed25519YaoApplicationBindingFactsV1::new(
         Ed25519YaoApplicationBindingWalletIdV1::parse(SYNTHETIC_WALLET_ID_V1)
             .expect("fixed synthetic wallet id is canonical"),
@@ -266,18 +259,35 @@ fn canonical_application_binding_facts_v1() -> Ed25519YaoApplicationBindingFacts
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn clear_reference_trace(
-    y_client_a: [u8; 32],
-    y_server_a: [u8; 32],
-    y_client_b: [u8; 32],
-    y_server_b: [u8; 32],
-    tau_client_a: [u8; 32],
-    tau_server_a: [u8; 32],
-    tau_client_b: [u8; 32],
-    tau_server_b: [u8; 32],
+pub(crate) fn kdf_contribution_vector_v1(
+    deriver_a: &DeriverAContribution,
+    deriver_b: &DeriverBContribution,
+) -> KdfContributionVectorV1 {
+    KdfContributionVectorV1 {
+        y_client_a_hex: encode_hex(&deriver_a.y_client().expose_bytes()),
+        tau_client_a_hex: encode_hex(&deriver_a.tau_client().expose_bytes()),
+        y_client_b_hex: encode_hex(&deriver_b.y_client().expose_bytes()),
+        tau_client_b_hex: encode_hex(&deriver_b.tau_client().expose_bytes()),
+        y_server_a_hex: encode_hex(&deriver_a.y_server().expose_bytes()),
+        tau_server_a_hex: encode_hex(&deriver_a.tau_server().expose_bytes()),
+        y_server_b_hex: encode_hex(&deriver_b.y_server().expose_bytes()),
+        tau_server_b_hex: encode_hex(&deriver_b.tau_server().expose_bytes()),
+    }
+}
+
+pub(crate) fn kdf_clear_reference_trace_v1(
+    deriver_a: &DeriverAContribution,
+    deriver_b: &DeriverBContribution,
     material: &OracleMaterial,
 ) -> KdfClearReferenceTraceV1 {
+    let y_client_a = deriver_a.y_client().expose_bytes();
+    let y_server_a = deriver_a.y_server().expose_bytes();
+    let y_client_b = deriver_b.y_client().expose_bytes();
+    let y_server_b = deriver_b.y_server().expose_bytes();
+    let tau_client_a = deriver_a.tau_client().expose_bytes();
+    let tau_server_a = deriver_a.tau_server().expose_bytes();
+    let tau_client_b = deriver_b.tau_client().expose_bytes();
+    let tau_server_b = deriver_b.tau_server().expose_bytes();
     let y_a = wrapping_add_le_256(y_client_a, y_server_a);
     let y_b = wrapping_add_le_256(y_client_b, y_server_b);
     let joined_seed = wrapping_add_le_256(y_a, y_b);

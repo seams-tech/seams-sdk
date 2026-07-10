@@ -27,10 +27,11 @@ functions = [
 [evidence]
 vector_cases = 5
 kdf_vector_cases = 1
+lifecycle_continuity_vector_cases = 4
 differential_vector_cases = 128
-independent_verifier_tests = 21
+independent_verifier_tests = 41
 production_rust_tests = 16
-generator_rust_tests = 42
+generator_rust_tests = 57
 anti_drift_tests = 6
 verus_obligations = 10
 lean_model_theorems = 3

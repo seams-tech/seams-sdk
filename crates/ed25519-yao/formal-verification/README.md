@@ -14,6 +14,10 @@ Ed25519 Yao that exist today. The checked surface is deliberately narrow:
   corpus;
 - host-only synthetic same-root client-KDF continuity and opposite-delta refresh
   arithmetic evidence;
+- a strict four-case host lifecycle-continuity corpus covering recovery,
+  recovery-origin activation, refresh, and refresh-origin activation;
+- nonserializable five-branch semantic lifecycle types and a narrow synthetic
+  activation-metadata continuation, with the other four evaluators absent;
 - the proof-system-neutral provenance statement and epoch contract, which has
   no proof-artifact implementation yet;
 - 128 deterministic differential cases regenerated and checked by an
@@ -64,12 +68,13 @@ cargo yao-fv verus-check
 usable with an ordinary Rust toolchain.
 
 `cross-language-check` runs the Python mutation suite, verifies the committed
-five-case arithmetic and one-case KDF-continuity corpora including `walletId`,
-`nearEd25519SigningKeyId`, `signingRootId`, and positive immutable
-`keyCreationSignerSlot`, generates 128 deterministic public-test cases,
+five-case arithmetic, one-case KDF-continuity, and four-case host
+lifecycle-continuity corpora, generates 128 deterministic public-test cases,
 independently regenerates every input from the fixed seed, and verifies every
-output. `nearAccountId`, mutable/current signer slots, versions, and epochs are
-absent from the application binding.
+output. The application-binding checks cover `walletId`,
+`nearEd25519SigningKeyId`, `signingRootId`, and positive immutable
+`keyCreationSignerSlot`. `nearAccountId`, mutable/current signer slots,
+versions, and epochs are absent from that binding.
 
 The full local gate is:
 

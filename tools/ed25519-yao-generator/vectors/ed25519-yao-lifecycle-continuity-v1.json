@@ -1,0 +1,523 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:lifecycle-continuity-vectors:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "host_only_synthetic_continuity_v1",
+  "cases": [
+    {
+      "request_kind": "recovery",
+      "vector": {
+        "case_id": "recovery_same_root_continuity_v1",
+        "before_public": {
+          "identity": {
+            "application_binding": {
+              "wallet_id": "wallet-fixture",
+              "near_ed25519_signing_key_id": "ed25519ks_fixture",
+              "signing_root_id": "project-fixture:env-fixture",
+              "key_creation_signer_slot": 1,
+              "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+              "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+            },
+            "context": {
+              "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+              "participant_ids": [
+                1,
+                2
+              ],
+              "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+              "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+            },
+            "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+          },
+          "active_role_epochs": {
+            "deriver_a": {
+              "role_root_epoch": 3,
+              "role_input_state_epoch": 11
+            },
+            "deriver_b": {
+              "role_root_epoch": 9,
+              "role_input_state_epoch": 41
+            }
+          },
+          "active_activation_epoch": 7
+        },
+        "pending_public": {
+          "identity": {
+            "application_binding": {
+              "wallet_id": "wallet-fixture",
+              "near_ed25519_signing_key_id": "ed25519ks_fixture",
+              "signing_root_id": "project-fixture:env-fixture",
+              "key_creation_signer_slot": 1,
+              "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+              "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+            },
+            "context": {
+              "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+              "participant_ids": [
+                1,
+                2
+              ],
+              "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+              "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+            },
+            "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+          },
+          "current_role_epochs": {
+            "deriver_a": {
+              "role_root_epoch": 3,
+              "role_input_state_epoch": 11
+            },
+            "deriver_b": {
+              "role_root_epoch": 9,
+              "role_input_state_epoch": 41
+            }
+          },
+          "active_activation_epoch": 7,
+          "pending_activation_epoch": 8
+        },
+        "reference_operation_counts": {
+          "deriver_a_invocations": 1,
+          "deriver_b_invocations": 1,
+          "client_kdf_derivations_a": 1,
+          "client_kdf_derivations_b": 1,
+          "server_kdf_derivations_a": 0,
+          "server_kdf_derivations_b": 0,
+          "activation_family_evaluations": 1,
+          "export_family_evaluations": 0,
+          "pending_activation_consumptions": 0
+        },
+        "host_only_reference": {
+          "synthetic_roots": {
+            "client_root_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+            "deriver_a_root_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+            "deriver_b_root_hex": "3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          "current_contributions": {
+            "y_client_a_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "tau_client_a_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "y_client_b_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "tau_client_b_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "y_server_a_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+            "tau_server_a_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607",
+            "y_server_b_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+            "tau_server_b_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "recovered_client_root_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "rederived_client_contributions": {
+            "y_client_a_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "tau_client_a_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "y_client_b_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "tau_client_b_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03"
+          },
+          "after_contributions": {
+            "y_client_a_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "tau_client_a_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "y_client_b_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "tau_client_b_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "y_server_a_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+            "tau_server_a_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607",
+            "y_server_b_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+            "tau_server_b_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "before_clear_reference_trace": {
+            "y_a_hex": "ecbb6700b9a5158d896de352dbe690171f9b046dc94dca462a85014d87d5c1e9",
+            "y_b_hex": "da1ffa233e5993558559eb2197f0c1f8b6ac01bf3a87734ce72dd9694c761df3",
+            "joined_seed_hex": "c6db6124f7fea8e20ec7ce7472d75210d647062c04d53d9311b3dab6d34bdfdc",
+            "sha512_digest_hex": "a2760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b95d7b515689d60b84d6f6a18f3aab4e2b5714a3f8cd544a3934009a26acb84b9525d",
+            "clamped_scalar_bytes_hex": "a0760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b9557",
+            "signing_scalar_hex": "ff5240f64311ac4c85a683ede05b40ca65772c4ec5bd90313abb1785061b9507",
+            "tau_a_hex": "07c9d9796a38af52990bb8456368943d302878c88876457aa26c04b8dbf3780d",
+            "tau_b_hex": "f4451740cf21bce6a83815b6ba57b4bff68d207540096d34e5c23e4988ab920f",
+            "tau_hex": "0e3bfb5c1ff758e16ba7d5583fc669e826b6983dc97fb2ae872f4301649f0b0d",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+            "public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077"
+          },
+          "after_clear_reference_trace": {
+            "y_a_hex": "ecbb6700b9a5158d896de352dbe690171f9b046dc94dca462a85014d87d5c1e9",
+            "y_b_hex": "da1ffa233e5993558559eb2197f0c1f8b6ac01bf3a87734ce72dd9694c761df3",
+            "joined_seed_hex": "c6db6124f7fea8e20ec7ce7472d75210d647062c04d53d9311b3dab6d34bdfdc",
+            "sha512_digest_hex": "a2760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b95d7b515689d60b84d6f6a18f3aab4e2b5714a3f8cd544a3934009a26acb84b9525d",
+            "clamped_scalar_bytes_hex": "a0760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b9557",
+            "signing_scalar_hex": "ff5240f64311ac4c85a683ede05b40ca65772c4ec5bd90313abb1785061b9507",
+            "tau_a_hex": "07c9d9796a38af52990bb8456368943d302878c88876457aa26c04b8dbf3780d",
+            "tau_b_hex": "f4451740cf21bce6a83815b6ba57b4bff68d207540096d34e5c23e4988ab920f",
+            "tau_hex": "0e3bfb5c1ff758e16ba7d5583fc669e826b6983dc97fb2ae872f4301649f0b0d",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+            "public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077"
+          }
+        }
+      }
+    },
+    {
+      "request_kind": "activation",
+      "vector": {
+        "origin_kind": "recovery",
+        "transition": {
+          "case_id": "activation_after_recovery_zero_evaluation_v1",
+          "origin_case_id": "recovery_same_root_continuity_v1",
+          "pending_public": {
+            "identity": {
+              "application_binding": {
+                "wallet_id": "wallet-fixture",
+                "near_ed25519_signing_key_id": "ed25519ks_fixture",
+                "signing_root_id": "project-fixture:env-fixture",
+                "key_creation_signer_slot": 1,
+                "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+                "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+              },
+              "context": {
+                "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+                "participant_ids": [
+                  1,
+                  2
+                ],
+                "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+                "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+              },
+              "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+              "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+              "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+            },
+            "current_role_epochs": {
+              "deriver_a": {
+                "role_root_epoch": 3,
+                "role_input_state_epoch": 11
+              },
+              "deriver_b": {
+                "role_root_epoch": 9,
+                "role_input_state_epoch": 41
+              }
+            },
+            "active_activation_epoch": 7,
+            "pending_activation_epoch": 8
+          },
+          "activated_public": {
+            "identity": {
+              "application_binding": {
+                "wallet_id": "wallet-fixture",
+                "near_ed25519_signing_key_id": "ed25519ks_fixture",
+                "signing_root_id": "project-fixture:env-fixture",
+                "key_creation_signer_slot": 1,
+                "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+                "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+              },
+              "context": {
+                "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+                "participant_ids": [
+                  1,
+                  2
+                ],
+                "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+                "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+              },
+              "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+              "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+              "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+            },
+            "active_role_epochs": {
+              "deriver_a": {
+                "role_root_epoch": 3,
+                "role_input_state_epoch": 11
+              },
+              "deriver_b": {
+                "role_root_epoch": 9,
+                "role_input_state_epoch": 41
+              }
+            },
+            "active_activation_epoch": 8
+          },
+          "reference_operation_counts": {
+            "deriver_a_invocations": 0,
+            "deriver_b_invocations": 0,
+            "client_kdf_derivations_a": 0,
+            "client_kdf_derivations_b": 0,
+            "server_kdf_derivations_a": 0,
+            "server_kdf_derivations_b": 0,
+            "activation_family_evaluations": 0,
+            "export_family_evaluations": 0,
+            "pending_activation_consumptions": 1
+          }
+        }
+      }
+    },
+    {
+      "request_kind": "refresh",
+      "vector": {
+        "case_id": "refresh_opposite_delta_continuity_v1",
+        "before_public": {
+          "identity": {
+            "application_binding": {
+              "wallet_id": "wallet-fixture",
+              "near_ed25519_signing_key_id": "ed25519ks_fixture",
+              "signing_root_id": "project-fixture:env-fixture",
+              "key_creation_signer_slot": 1,
+              "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+              "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+            },
+            "context": {
+              "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+              "participant_ids": [
+                1,
+                2
+              ],
+              "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+              "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+            },
+            "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+          },
+          "active_role_epochs": {
+            "deriver_a": {
+              "role_root_epoch": 3,
+              "role_input_state_epoch": 11
+            },
+            "deriver_b": {
+              "role_root_epoch": 9,
+              "role_input_state_epoch": 41
+            }
+          },
+          "active_activation_epoch": 8
+        },
+        "pending_public": {
+          "identity": {
+            "application_binding": {
+              "wallet_id": "wallet-fixture",
+              "near_ed25519_signing_key_id": "ed25519ks_fixture",
+              "signing_root_id": "project-fixture:env-fixture",
+              "key_creation_signer_slot": 1,
+              "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+              "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+            },
+            "context": {
+              "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+              "participant_ids": [
+                1,
+                2
+              ],
+              "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+              "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+            },
+            "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+          },
+          "current_role_epochs": {
+            "deriver_a": {
+              "role_root_epoch": 3,
+              "role_input_state_epoch": 11
+            },
+            "deriver_b": {
+              "role_root_epoch": 9,
+              "role_input_state_epoch": 41
+            }
+          },
+          "next_role_epochs": {
+            "deriver_a": {
+              "role_root_epoch": 3,
+              "role_input_state_epoch": 12
+            },
+            "deriver_b": {
+              "role_root_epoch": 9,
+              "role_input_state_epoch": 43
+            }
+          },
+          "active_activation_epoch": 8,
+          "pending_activation_epoch": 9,
+          "derivation_admission": "frozen"
+        },
+        "reference_operation_counts": {
+          "deriver_a_invocations": 1,
+          "deriver_b_invocations": 1,
+          "client_kdf_derivations_a": 0,
+          "client_kdf_derivations_b": 0,
+          "server_kdf_derivations_a": 0,
+          "server_kdf_derivations_b": 0,
+          "activation_family_evaluations": 1,
+          "export_family_evaluations": 0,
+          "pending_activation_consumptions": 0
+        },
+        "host_only_reference": {
+          "synthetic_roots": {
+            "client_root_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+            "deriver_a_root_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+            "deriver_b_root_hex": "3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          "before_contributions": {
+            "y_client_a_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "tau_client_a_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "y_client_b_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "tau_client_b_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "y_server_a_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+            "tau_server_a_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607",
+            "y_server_b_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+            "tau_server_b_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "delta": {
+            "delta_y_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+            "delta_tau_hex": "1100000000000000000000000000000000000000000000000000000000000000"
+          },
+          "after_contributions": {
+            "y_client_a_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "tau_client_a_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "y_client_b_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "tau_client_b_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "y_server_a_hex": "05fb91551baac74c96f1b6d2448b2a3a22d50ade4838ed5602f1f9caaa380b7f",
+            "tau_server_a_hex": "e02ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607",
+            "y_server_b_hex": "488675d3489c9301019be568aa2f59977680d3c5e117da72177dde19348e42fd",
+            "tau_server_b_hex": "7dc75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "before_clear_reference_trace": {
+            "y_a_hex": "ecbb6700b9a5158d896de352dbe690171f9b046dc94dca462a85014d87d5c1e9",
+            "y_b_hex": "da1ffa233e5993558559eb2197f0c1f8b6ac01bf3a87734ce72dd9694c761df3",
+            "joined_seed_hex": "c6db6124f7fea8e20ec7ce7472d75210d647062c04d53d9311b3dab6d34bdfdc",
+            "sha512_digest_hex": "a2760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b95d7b515689d60b84d6f6a18f3aab4e2b5714a3f8cd544a3934009a26acb84b9525d",
+            "clamped_scalar_bytes_hex": "a0760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b9557",
+            "signing_scalar_hex": "ff5240f64311ac4c85a683ede05b40ca65772c4ec5bd90313abb1785061b9507",
+            "tau_a_hex": "07c9d9796a38af52990bb8456368943d302878c88876457aa26c04b8dbf3780d",
+            "tau_b_hex": "f4451740cf21bce6a83815b6ba57b4bff68d207540096d34e5c23e4988ab920f",
+            "tau_hex": "0e3bfb5c1ff758e16ba7d5583fc669e826b6983dc97fb2ae872f4301649f0b0d",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+            "public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077"
+          },
+          "after_clear_reference_trace": {
+            "y_a_hex": "91610da65e4bbb322f1389f8808c36bdc440aa126ff36feccf2aa7f22c7b678f",
+            "y_b_hex": "357a547e98b3edafdfb3457cf14a1c5311075c1995e1cda6418833c4a6d0774d",
+            "joined_seed_hex": "c6db6124f7fea8e20ec7ce7472d75210d647062c04d53d9311b3dab6d34bdfdc",
+            "sha512_digest_hex": "a2760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b95d7b515689d60b84d6f6a18f3aab4e2b5714a3f8cd544a3934009a26acb84b9525d",
+            "clamped_scalar_bytes_hex": "a0760dc7c7000805b5b6591c3a3d9b3266772c4ec5bd90313abb1785061b9557",
+            "signing_scalar_hex": "ff5240f64311ac4c85a683ede05b40ca65772c4ec5bd90313abb1785061b9507",
+            "tau_a_hex": "18c9d9796a38af52990bb8456368943d302878c88876457aa26c04b8dbf3780d",
+            "tau_b_hex": "e3451740cf21bce6a83815b6ba57b4bff68d207540096d34e5c23e4988ab920f",
+            "tau_hex": "0e3bfb5c1ff758e16ba7d5583fc669e826b6983dc97fb2ae872f4301649f0b0d",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01",
+            "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+            "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+            "public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077"
+          }
+        }
+      }
+    },
+    {
+      "request_kind": "activation",
+      "vector": {
+        "origin_kind": "refresh",
+        "transition": {
+          "case_id": "activation_after_refresh_zero_evaluation_v1",
+          "origin_case_id": "refresh_opposite_delta_continuity_v1",
+          "pending_public": {
+            "identity": {
+              "application_binding": {
+                "wallet_id": "wallet-fixture",
+                "near_ed25519_signing_key_id": "ed25519ks_fixture",
+                "signing_root_id": "project-fixture:env-fixture",
+                "key_creation_signer_slot": 1,
+                "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+                "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+              },
+              "context": {
+                "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+                "participant_ids": [
+                  1,
+                  2
+                ],
+                "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+                "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+              },
+              "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+              "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+              "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+            },
+            "current_role_epochs": {
+              "deriver_a": {
+                "role_root_epoch": 3,
+                "role_input_state_epoch": 11
+              },
+              "deriver_b": {
+                "role_root_epoch": 9,
+                "role_input_state_epoch": 41
+              }
+            },
+            "next_role_epochs": {
+              "deriver_a": {
+                "role_root_epoch": 3,
+                "role_input_state_epoch": 12
+              },
+              "deriver_b": {
+                "role_root_epoch": 9,
+                "role_input_state_epoch": 43
+              }
+            },
+            "active_activation_epoch": 8,
+            "pending_activation_epoch": 9,
+            "derivation_admission": "frozen"
+          },
+          "activated_public": {
+            "identity": {
+              "application_binding": {
+                "wallet_id": "wallet-fixture",
+                "near_ed25519_signing_key_id": "ed25519ks_fixture",
+                "signing_root_id": "project-fixture:env-fixture",
+                "key_creation_signer_slot": 1,
+                "encoded_hex": "000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001",
+                "digest_sha256_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121"
+              },
+              "context": {
+                "application_binding_digest_hex": "b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121",
+                "participant_ids": [
+                  1,
+                  2
+                ],
+                "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f7631b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff70812100010002",
+                "binding_sha256_hex": "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655"
+              },
+              "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+              "x_client_point_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
+              "x_server_point_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+            },
+            "active_role_epochs": {
+              "deriver_a": {
+                "role_root_epoch": 3,
+                "role_input_state_epoch": 12
+              },
+              "deriver_b": {
+                "role_root_epoch": 9,
+                "role_input_state_epoch": 43
+              }
+            },
+            "retired_role_input_state_epochs": {
+              "deriver_a": 11,
+              "deriver_b": 41
+            },
+            "active_activation_epoch": 9,
+            "derivation_admission": "open"
+          },
+          "reference_operation_counts": {
+            "deriver_a_invocations": 0,
+            "deriver_b_invocations": 0,
+            "client_kdf_derivations_a": 0,
+            "client_kdf_derivations_b": 0,
+            "server_kdf_derivations_a": 0,
+            "server_kdf_derivations_b": 0,
+            "activation_family_evaluations": 0,
+            "export_family_evaluations": 0,
+            "pending_activation_consumptions": 1
+          }
+        }
+      }
+    }
+  ]
+}

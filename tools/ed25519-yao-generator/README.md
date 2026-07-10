@@ -142,6 +142,41 @@ points, and the public key. This module accepts public fixtures only. It does
 not implement credential recovery, production delta generation, commitment
 proofs, package delivery, persistence, or active security.
 
+## Host-only lifecycle evidence
+
+`lifecycle_domain` is a nonserializable semantic type layer. It makes the five
+request, pre-state, success, and output-custody families structurally disjoint.
+Only a narrow metadata continuation for synthetic registration-, recovery-, and
+refresh-origin package references is executable. That continuation checks its
+semantic public bindings, consumes the Rust value by move, promotes the
+origin-specific staged public state, and constructs a private zero-reference-
+work witness. It does not open a package, combine SigningWorker shares, verify a
+production receipt, establish globally unique issuance, or instrument deployed
+network and Deriver calls.
+
+`lifecycle_fixtures` is a separate strict JSON evidence surface. Its four cases
+cover same-root recovery, recovery-origin activation, opposite-delta refresh,
+and refresh-origin activation. The refresh case changes role-local `y_A`,
+`y_B`, `tau_A`, and `tau_B` by exact opposite deltas while preserving joined
+and downstream identity fields. The activation cases contain public-state
+promotion and ideal reference counters only.
+
+Regenerate or check the lifecycle-continuity corpus with:
+
+```sh
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- emit-lifecycle-continuity \
+  --output tools/ed25519-yao-generator/vectors/ed25519-yao-lifecycle-continuity-v1.json
+
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- check-lifecycle-continuity \
+  --input tools/ed25519-yao-generator/vectors/ed25519-yao-lifecycle-continuity-v1.json
+```
+
+Registration and export cases, complete party views, ciphertext/package and
+receipt encodings, persistence transitions, and the other four evaluators stay
+outside this slice.
+
 The five-case arithmetic corpus continues to record caller-supplied synthetic
 contributions. The KDF continuity corpus connects the frozen context and roots
 to the same oracle in a separate strict schema. The proof-system-neutral

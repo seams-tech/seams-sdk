@@ -21,15 +21,37 @@ Meaningful proof work begins in stages:
 1. FV0 freezes the reference-functionality and party-view boundary alongside
    Yao Phase 1. Mechanized lifecycle and view proofs start after Phase 1 closes.
 2. Yao Phase 2 closes before the circuit/compiler proof starts.
-3. Yao Phase 6 selects and freezes the active-security suite before any
-   malicious-security composition theorem starts.
-4. Yao Phase 13 closes before deployment-profile evidence is accepted, Yao
+3. Yao Phase 6A selects and freezes the active-security suite, provenance,
+   randomized-output realization, garbling hash, implementation strategy,
+   platform, and assumption boundary before FV5 or any malicious-security
+   composition theorem starts.
+4. Yao Phase 6B closes before FV6 claims implementation-linked active-security
+   evidence.
+5. Yao Phase 13 closes before deployment-profile evidence is accepted, Yao
    Phase 14 closes before verification gates replace HSS gates, and Yao Phase 15
    closes before final release evidence is complete.
 
 The maintainer should receive an explicit readiness notice at each gate. A
 directory that builds, a reflexive view theorem, or a handwritten model alone
 does not satisfy a readiness gate.
+
+### Phase 6A Proof-Scope Gate
+
+Before Phase 6A closes, formal work is limited to construction-independent
+evidence:
+
+- canonical encoders, KDF continuity, golden vectors, and anti-drift;
+- lifecycle and value-custody ideal boundaries;
+- oracle arithmetic and manifest identity;
+- deterministic circuit and schedule equivalence;
+- passive garbling functional correctness as benchmark-only evidence.
+
+Construction-specific randomized-output, stream retention and disposal,
+malicious OT, active compiler, provenance artifact, output authentication,
+ticket preprocessing, and real/ideal security work begin only after the signed
+Phase 6A decision record freezes their targets. FV6 links those targets to the
+Phase 6B production implementation. Proof artifacts for losing candidates are
+deleted before product integration.
 
 ## Scope
 
@@ -55,9 +77,10 @@ The following remain outside the mechanized claim unless later phases add a
 reviewed proof track for them:
 
 - A+B collusion;
-- Cloudflare platform compromise;
+- platform compromise spanning both independent administrative domains;
 - simultaneous compromise of both independent deployment authorities;
-- side channels outside the reviewed Rust/WASM constant-time boundary;
+- side channels outside the reviewed Rust/WASM/native compiled constant-time
+  boundary;
 - entropy-source, compiler, hardware, TLS, and platform correctness;
 - availability against a malicious participant;
 - foundational security reductions for the selected hash, block-cipher or
@@ -80,15 +103,22 @@ The Yao corpus uses this precedence:
    the frozen bit- and byte-level functionality produced by Yao Phase 1;
 3. the proof-system-neutral provenance statement and epoch contract in
    `tools/ed25519-yao-generator/docs/input-provenance-v1.md`;
-4. the independently reproducible golden, KDF-continuity, and randomized vector
+4. the signed Phase 6A active-construction decision record and its versioned
+   stream, ticket, deployment-profile, and release-SLO specifications;
+5. the independently reproducible golden, KDF-continuity, and randomized vector
    corpora;
-5. reviewed Rust source and deterministic circuit artifacts;
-6. formal mirrors, generated Lean, handwritten models, and explanatory prose.
+6. reviewed Rust source and deterministic circuit artifacts;
+7. formal mirrors, generated Lean, handwritten models, and explanatory prose.
 
 Any disagreement between two levels becomes a recorded compliance finding.
 Proof work stops at the affected boundary until the authoritative source and
 implementation agree. A formal model must never silently redefine behavior to
 match a convenient implementation.
+
+CI regenerates prose golden bytes and digests from
+`tools/ed25519-yao-generator` and diffs them against every versioned normative
+specification. Formal anti-drift evidence consumes those exact generated
+artifacts rather than manually copied constants.
 
 ## Lessons Retained from `ed25519-hss`
 
@@ -244,10 +274,15 @@ owner. Its current proof-facing scope includes:
   version, or epoch;
 - the frozen `StableKeyDerivationContext` and contribution KDF;
 - synthetic same-logical-root client-KDF continuity and opposite-delta refresh
-  arithmetic.
+  arithmetic;
+- nonserializable five-branch host-semantic lifecycle types and a synthetic
+  activation-metadata continuation;
+- the committed four-case recovery/activation/refresh/activation continuity
+  corpus and its independent Python reproduction.
 
-Complete lifecycle-specific registration, activation, recovery, refresh, and
-export vectors remain Phase 1 work.
+Complete registration, registration-origin activation, and export cases,
+canonical party views, packages, receipts, persistence transitions, and the
+registration/recovery/refresh/export evaluators remain Phase 1 work.
 
 The clear oracle stays host-only and synthetic. Production crates retain no
 reverse dependency on it.
@@ -346,7 +381,7 @@ encode the assumption record and supported corruption set.
 | Ticket use is at most once               | ticket state machine         | Verus state-machine invariant + extracted bridge       | crash-safe storage atomicity                                         |
 | One-malicious-Deriver privacy            | selected active suite        | Lean conditional real/ideal composition                | malicious OT, active compiler, input consistency, primitive security |
 | Same-account development isolation       | deployment profile           | typed profile and conditional topology lemma           | honest shared administrator/control plane                            |
-| Separate-account production independence | deployment profile           | production type exclusion + conditional topology lemma | operational attestation of independent accounts/deployers            |
+| Independent-domain production separation | deployment profile           | production type exclusion + conditional topology lemma | operational attestation of independent administrators                |
 
 No row is considered proved until its production link, generated-artifact
 link, assumption set, and verification command are all present.
@@ -362,12 +397,13 @@ At minimum, record:
 - malicious OT extension and base-OT security;
 - the selected active compiler, input consistency mechanism, and output
   authentication mechanism;
-- OS, Worker, and Web Crypto randomness;
+- OS, Worker, Container/native, and Web Crypto randomness where selected;
 - HPKE, signatures, TLS, peer authentication, and key custody;
 - constant-time and secret-erasure boundaries;
 - Rust, LLVM/WASM, Verus, Aeneas, Charon, Lean, and circuit-generator
   correctness;
-- Durable Object atomicity and persistence behavior used by the ticket proof;
+- selected persistence atomicity and durability behavior used by the ticket
+  proof, including Durable Objects for Worker profiles;
 - no A+B collusion;
 - the administrative-independence premise for production;
 - the honest shared-control-plane premise for same-account development.
@@ -377,8 +413,8 @@ and invalidation trigger.
 
 ## Deployment Profile Semantics
 
-Both deployment profiles use the same reviewed protocol and circuit artifacts.
-They instantiate different operational premises.
+All approved deployment profiles use the same reviewed protocol and circuit
+artifacts. They instantiate different operational premises.
 
 ### Same-account development
 
@@ -390,12 +426,20 @@ which is equivalent to A+B compromise and lies outside the protocol theorem.
 This profile supports local development, staging, and optimistic latency
 measurement. It does not instantiate the strict server-blind production claim.
 
-### Separate-account production
+### Independent-domain production
 
 The formal protocol claim assumes Router plus at most one corrupt Deriver and
-no A+B collusion. Independent account and deployer control is an operational
-premise checked by configuration, release evidence, and human review. Lean
-cannot derive administrative independence from a deployment identifier.
+no A+B collusion. Independent administrator and deployer control is an
+operational premise checked by configuration, release evidence, and human
+review. Lean cannot derive administrative independence from a deployment
+identifier.
+
+Phase 6A selects exactly one production profile: separate-account Cloudflare
+Workers, separate-account Cloudflare Containers, or independently administered
+native services. The protocol theorem is shared. Each profile supplies distinct
+premises for constant-time execution, randomness, persistence, erasure,
+placement, transport, CPU features, and supply-chain integrity. A proof for one
+profile does not establish those premises for another.
 
 The production configuration type must remain unable to represent the
 same-account profile.
@@ -415,7 +459,9 @@ phase whose production owner is absent or blocked.
 | 0                         | 0                       | plan approval                 |
 | 1                         | 1                       | FV0-FV1                       |
 | 2-3                       | 2                       | FV2-FV4                       |
-| 4-6                       | 3                       | FV5-FV6                       |
+| 6A                        | 3A                      | gate before FV5/FV6           |
+| 4-5                       | 3B                      | FV5                           |
+| 6B                        | 3B                      | FV6                           |
 | 7-8                       | 4-5                     | FV7                           |
 | 9-10                      | 6                       | FV8 deployment assumptions    |
 | 11                        | 7                       | FV7-FV8 integration evidence  |
@@ -438,6 +484,10 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
 - [x] Define five disjoint lifecycle boundary contracts separately, including
       pre-state/success types, activation continuation, and export-only seed
       output.
+- [x] Implement the nonserializable five-branch host-semantic type layer and a
+      narrow synthetic activation-metadata continuation.
+- [x] Commit and independently reproduce the four-case same-root recovery and
+      opposite-delta refresh lifecycle-continuity corpus.
 - [ ] Close blocked private-input and transition semantics and freeze five
       executable ideal functionalities.
 - [x] Freeze the exact `StableKeyDerivationContext` encoding, validation, and
@@ -455,7 +505,11 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       encoding, role pairing, and root/input-state epoch meanings.
 - [ ] Close production root-custody, registration anti-bias,
       refresh-delta-generation, and distributed-realization contracts. Leave
-      commitment/proof artifact selection to Yao Phase 6 and FV6.
+      commitment/proof artifact selection to Yao Phase 6A and implementation
+      linkage to FV6.
+- [ ] State Deriver anti-bias against adaptive input, selective abort, and retry
+      after peer-dependent information. Record client vanity-key grinding as a
+      separate product/admission premise when allowed.
 - [x] Freeze output custody, ideal sharing randomness, common public leakage,
       forbidden values, and the uniform abort-envelope shape.
 - [ ] Freeze role-private inputs, complete randomness/frames, persistence views,
@@ -465,6 +519,9 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       surface.
 - [x] Create the trusted-computing-base and assumption ledger.
 - [ ] Audit the Yao plan, oracle, manifests, and vectors for contradictions.
+- [ ] Add the versioned normative specs and Phase 6A decision-record schema to
+      the spec corpus as they freeze; regenerate their golden bytes in the
+      anti-drift gate.
 - [ ] Resolve every critical or high compliance finding.
 - [ ] Obtain independent cryptographic review of the claim boundary.
 
@@ -574,9 +631,11 @@ Exit gate:
 
 ### FV5: Prove private outputs and streaming invariants
 
-Depends on: Yao Phases 4-5 and FV4
+Depends on: Yao Phase 6A, Yao Phases 4-5, and FV4
 
-- [ ] Formalize protocol-generated randomized output sharing.
+- [ ] Import the Phase 6A construction, randomized-output, stream request-graph,
+      retention, challenge, and disposal decisions as fixed proof targets.
+- [ ] Formalize the selected protocol-generated randomized output sharing.
 - [ ] Prove neither role can choose a linear mask that reveals the joined
       output.
 - [ ] Prove recipient packages are disjoint and correctly bound.
@@ -586,6 +645,8 @@ Depends on: Yao Phases 4-5 and FV4
 - [ ] Prove transcript commitments bind all headers and payload frames.
 - [ ] Prove role state never requires a whole-stream `Vec`.
 - [ ] Model early EOF, duplicate, reordering, overflow, timeout, and abort.
+- [ ] Prove that evaluation and disposal never precede the selected
+      construction's commitment, challenge, checking, or retention obligations.
 
 Exit gate:
 
@@ -595,17 +656,21 @@ Exit gate:
 
 ### FV6: Model and prove the selected active-security composition
 
-Depends on: Yao Phase 6 and FV3-FV5
+Depends on: Yao Phases 6A and 6B plus FV3-FV5
 
-- [ ] Freeze one reviewed active compiler and malicious-OT construction.
-- [ ] Freeze input provenance, input consistency, selective-failure,
-      randomized-output, and output-authentication mechanisms.
+- [ ] Import the reviewed Phase 6A active compiler, malicious OT, provenance,
+      input-consistency, randomized-output, garbling-hash, selective-failure,
+      and output-authentication decisions without widening their claims.
+- [ ] Link every selected component to the exact Phase 6B implementation,
+      parameter, artifact digest, and compiled target.
 - [ ] Define probabilistic or relational real/ideal execution semantics.
 - [ ] Define distinct simulators for corrupt A and corrupt B.
 - [ ] State primitive and compiler assumptions at their exact call boundaries.
 - [ ] Prove correctness with abort for corrupt A and corrupt B.
 - [ ] Prove input provenance and consistency composition.
 - [ ] Prove abort behavior does not leak undeclared honest-input information.
+- [ ] Prove either Deriver cannot bias an accepted joint output through adaptive
+      input, abort, or protocol retry under the frozen provenance mechanism.
 - [ ] Prove active output shares are authentic and correctly recipient-bound.
 - [ ] Prove the conditional one-malicious-Deriver privacy theorem.
 - [ ] Record the explicit absence of an A+B theorem.
@@ -614,6 +679,8 @@ Depends on: Yao Phase 6 and FV3-FV5
 Exit gate:
 
 - [ ] Production circuit and protocol IDs identify the reviewed active suite.
+- [ ] The theorem assumptions and state machine match the signed Phase 6A
+      decision record and Phase 6B production artifacts.
 - [ ] Every theorem premise maps to code, artifact metadata, or an external
       assumption with evidence.
 - [ ] No theorem relies on reflexive view equality as privacy evidence.
@@ -623,12 +690,21 @@ Exit gate:
 
 Depends on: Yao Phases 7-8 and FV6
 
-- [ ] Model `Prepositioning`, `Available`, `Reserved`, `Activated`,
-      `OutputPrepared`, `OutputCommitted`, `Consumed`, and `Destroyed` as
-      consuming states.
+- [ ] Model `Generated`, `Paired`, `Prepositioning`, `Available`, `Reserved`,
+      `Activated`, `OutputPrepared`, `OutputCommitted`, `Consumed`, and
+      `Destroyed` as consuming states.
 - [ ] Prove a ticket reaches `Consumed` at most once.
 - [ ] Prove retries cannot repeat OT, labels, masks, or output release.
 - [ ] Prove crash recovery preserves terminal-state monotonicity.
+- [ ] Model `EpochFloorAuthorityV1` and prove that restore, deployment rollback,
+      and peer-key rotation cannot lower the accepted epoch or revive old
+      base-OT material.
+- [ ] Prove circuit-floor rollout stops old issuance, destroys old
+      pre-activation tickets, permits only the signed bounded drain set, and
+      never revives an old digest on rollback.
+- [ ] Prove local busy rejection and durable budget rejection occur before
+      ticket allocation; model burn attribution and circuit-breaking state as
+      Router/operations boundaries.
 - [ ] Bind ticket, request, account, epoch, circuit, protocol, peer, transcript,
       and recipient identities.
 - [ ] Prove the Router adapter maps each lifecycle request to exact role-local
@@ -643,6 +719,8 @@ Depends on: Yao Phases 7-8 and FV6
 Exit gate:
 
 - [ ] One-use, lifecycle, and export-authorization claims are linked to Rust.
+- [ ] Epoch-floor and circuit-rollout safety claims are linked to their
+      independent authority and production persistence boundaries.
 - [ ] Every extracted axiom and opaque function remains in the ledger.
 - [ ] Router admission policy stays owned by Router A/B formal verification.
 
@@ -651,11 +729,14 @@ Exit gate:
 Depends on: Yao Phases 9-10 and 13 plus FV7
 
 - [ ] Define `SameAccountDevelopmentAssumptions`.
-- [ ] Define `SeparateAccountProductionAssumptions`.
+- [ ] Define `IndependentDomainProductionAssumptions` and the concrete Worker,
+      Container, or native-service premises selected by Phase 6A.
 - [ ] Prove the production configuration excludes same-account deployment.
 - [ ] Map administrative-independence premises to deployment evidence.
-- [ ] Map role-isolation premises to Worker bindings, secrets, and storage
-      evidence.
+- [ ] Map role-isolation premises to the selected runtime bindings, secrets,
+      persistence, backups, logs, and erasure evidence.
+- [ ] Map local admission, durable budget, persistence critical-path, epoch-floor,
+      circuit-rollout, and burn-control premises to Phase 13 evidence.
 - [ ] Run the full proof and anti-drift suite on native and WASM artifacts where
       applicable.
 - [ ] Obtain pre-cutover independent formal-methods and deployment review.
@@ -664,7 +745,8 @@ Exit gate:
 
 - [ ] The proposed release claim matches the proved conditional theorem exactly.
 - [ ] Same-account evidence carries development-only wording.
-- [ ] Separate-account evidence demonstrates independent operational control.
+- [ ] Selected strict-profile evidence demonstrates independent operational
+      control.
 - [ ] Every Phase 13 security and deployment premise maps to a checked theorem,
       explicit assumption, or reviewed external evidence item.
 
@@ -775,7 +857,10 @@ stream transcript, ticket lifecycle, or artifact encoding requires:
 | Typed draft manifest and canonical digest binding              | complete                                                                                                                                          |
 | Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                                                                                                                        |
 | RFC 8032 reference vectors                                     | partial Phase 1 foundation                                                                                                                        |
-| Five lifecycle ideal-functionality boundary contracts          | recovery/refresh reference semantics frozen; complete DTOs, provenance proofs, and active outputs missing                                         |
+| Five lifecycle structural boundary families                    | nonserializable host-semantic types exist; complete executable ideal functionalities remain missing                                               |
+| Synthetic activation-metadata continuation                     | registration/recovery/refresh origins, semantic public-binding checks, move consumption, and zero reference work are executable                   |
+| Four-case lifecycle-continuity corpus                          | committed Rust corpus and independent Python reproduction cover recovery/activation/refresh/activation                                            |
+| Complete lifecycle evaluators and party views                  | registration, recovery, refresh, and export evaluators plus canonical packages, receipts, persistence, and party views are missing                |
 | Frozen Yao application binding                                 | visible-ASCII four-field encoder with positive immutable `keyCreationSignerSlot`, golden KDF vector, and independent Python reproduction complete |
 | Frozen `StableKeyDerivationContext` encoding and binding       | application binding through stable-context binding implemented in the host reference                                                              |
 | Stable-context KDF integration and continuity vectors          | implemented in isolated host-only reference                                                                                                       |
@@ -784,14 +869,16 @@ stream transcript, ticket lifecycle, or artifact encoding requires:
 | Deterministic circuit IR, compiler, schedule, and artifacts    | missing                                                                                                                                           |
 | Passive garbler/evaluator implementation                       | missing                                                                                                                                           |
 | Private randomized outputs and streaming state machine         | missing                                                                                                                                           |
+| Signed Phase 6A construction and platform decision             | missing; FV5 and construction-specific proof work remain gate-closed                                                                              |
 | Selected reviewed active suite                                 | missing                                                                                                                                           |
+| Versioned stream, ticket, deployment, and SLO specifications   | missing                                                                                                                                           |
 | One-use ticket and adapter state machines                      | missing                                                                                                                                           |
 | Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending                                                                                                   |
 
 Current verdict: continue Yao Phase 1 plus the FV0 traceability and FV1
 mechanical-scaffold work. Notify the maintainer to begin FV2 when Phase 1 and the
-FV1 exit gate are satisfied. Notify again before FV3 and FV6 when their
-implementation gates close.
+FV1 exit gate are satisfied. Notify again before FV3, before FV5 when Phase 6A
+closes, and before FV6 when the Phase 6B implementation gate closes.
 
 ## Definition of Done
 
@@ -808,7 +895,8 @@ Formal verification is comprehensive enough for production review when:
   simulators;
 - activation, recovery, and refresh cannot contain a seed-export result;
 - ticket and output state is consuming and at most once;
-- same-account and separate-account claims remain explicitly different;
+- same-account and selected independent-domain claims remain explicitly
+  different;
 - CI fails on missing tools, skipped tracks, drift, or proof failure;
 - independent reviewers approve the formal model, implementation bridge,
   assumption ledger, and release wording.

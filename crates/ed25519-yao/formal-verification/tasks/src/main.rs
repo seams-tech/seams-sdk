@@ -61,6 +61,7 @@ struct ExtractionBaseline {
 struct EvidenceCounts {
     vector_cases: usize,
     kdf_vector_cases: usize,
+    lifecycle_continuity_vector_cases: usize,
     differential_vector_cases: usize,
     independent_verifier_tests: usize,
     production_rust_tests: usize,
@@ -152,8 +153,14 @@ fn print_help() {
 fn run_vectors_check() -> Result<(), DynError> {
     let baseline = load_baseline()?;
     let vector_file = generator_dir(&baseline).join("vectors/ed25519-yao-v1.json");
+    let lifecycle_file =
+        generator_dir(&baseline).join("vectors/ed25519-yao-lifecycle-continuity-v1.json");
     let generator_manifest = generator_manifest(&baseline);
     require_file(&vector_file, "committed Ed25519 Yao vector corpus")?;
+    require_file(
+        &lifecycle_file,
+        "committed Ed25519 Yao lifecycle-continuity corpus",
+    )?;
     let generator_manifest_string = path_string(&generator_manifest)?;
     let vector_file_string = path_string(&vector_file)?;
     let output = run_cargo_capture(
@@ -178,10 +185,38 @@ fn run_vectors_check() -> Result<(), DynError> {
         )
         .into());
     }
+    let lifecycle_file_string = path_string(&lifecycle_file)?;
+    let lifecycle_output = run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-vectors",
+            "--",
+            "check-lifecycle-continuity",
+            "--input",
+            lifecycle_file_string,
+        ],
+        "vectors-check lifecycle-continuity corpus",
+    )?;
+    let lifecycle_summary = format!(
+        "checked {} lifecycle-continuity cases",
+        baseline.evidence.lifecycle_continuity_vector_cases
+    );
+    if !lifecycle_output.contains(&lifecycle_summary) {
+        return Err(format!(
+            "lifecycle command did not report expected nonzero case count `{lifecycle_summary}`"
+        )
+        .into());
+    }
     println!(
-        "vectors-check ok: {} canonical cases in {}",
+        "vectors-check ok: {} canonical cases in {}; {} lifecycle-continuity cases in {}",
         baseline.evidence.vector_cases,
-        vector_file.display()
+        vector_file.display(),
+        baseline.evidence.lifecycle_continuity_vector_cases,
+        lifecycle_file.display()
     );
     Ok(())
 }
@@ -198,9 +233,15 @@ fn run_cross_language_check() -> Result<(), DynError> {
     let verifier = verifier_dir.join("verify_vectors.py");
     let committed_corpus = generator_dir(&baseline).join("vectors/ed25519-yao-v1.json");
     let kdf_corpus = generator_dir(&baseline).join("vectors/ed25519-yao-kdf-v1.json");
+    let lifecycle_corpus =
+        generator_dir(&baseline).join("vectors/ed25519-yao-lifecycle-continuity-v1.json");
     require_file(&verifier, "independent Python vector verifier")?;
     require_file(&committed_corpus, "committed Ed25519 Yao vector corpus")?;
     require_file(&kdf_corpus, "committed Ed25519 Yao KDF continuity corpus")?;
+    require_file(
+        &lifecycle_corpus,
+        "committed Ed25519 Yao lifecycle-continuity corpus",
+    )?;
 
     let unit_output = capture_command(
         Command::new(&python)
@@ -237,6 +278,17 @@ fn run_cross_language_check() -> Result<(), DynError> {
         &kdf_output,
         baseline.evidence.kdf_vector_cases,
         "KDF continuity vector",
+    )?;
+
+    let lifecycle_output = capture_command(
+        Command::new(&python).arg(&verifier).arg(&lifecycle_corpus),
+        "cross-language-check lifecycle-continuity corpus",
+        true,
+    )?;
+    require_reported_case_count(
+        &lifecycle_output,
+        baseline.evidence.lifecycle_continuity_vector_cases,
+        "lifecycle-continuity vector",
     )?;
 
     let temporary = TemporaryDirectory::create("differential")?;
@@ -279,9 +331,10 @@ fn run_cross_language_check() -> Result<(), DynError> {
     )?;
 
     println!(
-        "cross-language-check ok: {verifier_test_count} verifier tests; committed arithmetic cases: {}; KDF continuity cases: {}; independently regenerated differential cases: {}",
+        "cross-language-check ok: {verifier_test_count} verifier tests; committed arithmetic cases: {}; KDF continuity cases: {}; lifecycle-continuity cases: {}; independently regenerated differential cases: {}",
         baseline.evidence.vector_cases,
         baseline.evidence.kdf_vector_cases,
+        baseline.evidence.lifecycle_continuity_vector_cases,
         baseline.evidence.differential_vector_cases
     );
     Ok(())
@@ -717,6 +770,7 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
     let counts = [
         baseline.evidence.vector_cases,
         baseline.evidence.kdf_vector_cases,
+        baseline.evidence.lifecycle_continuity_vector_cases,
         baseline.evidence.differential_vector_cases,
         baseline.evidence.independent_verifier_tests,
         baseline.evidence.production_rust_tests,

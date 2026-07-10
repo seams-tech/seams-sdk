@@ -17,6 +17,8 @@ python3 tools/ed25519-yao-verifier/verify_vectors.py \
 python3 tools/ed25519-yao-verifier/verify_vectors.py \
   tools/ed25519-yao-generator/vectors/ed25519-yao-kdf-v1.json
 python3 tools/ed25519-yao-verifier/verify_vectors.py \
+  tools/ed25519-yao-generator/vectors/ed25519-yao-lifecycle-continuity-v1.json
+python3 tools/ed25519-yao-verifier/verify_vectors.py \
   /tmp/ed25519-yao-differential-v1.json \
   --differential-seed-hex \
   5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a
@@ -36,6 +38,13 @@ binding facts are wallet identity, Ed25519 signing-key identity, logical
 signing-root identity, and the immutable positive key-creation signer slot. It
 independently enforces the version-one identifier grammar of one or more visible
 ASCII bytes in `0x21..=0x7e`.
+
+The lifecycle-continuity schema is a separate host-only artifact. The verifier
+recomputes same-root recovery, opposite-delta refresh, the changed role-local
+aggregates, the preserved downstream identity trace, strict epoch promotion,
+and recovery/refresh-origin activation with zero evaluation counts. It makes no
+claim about production custody, Yao execution, output packages, or distributed
+cutover.
 
 All inputs are committed or generated public test vectors. The arithmetic is
 variable-time Python intended solely for host-side verification. Production

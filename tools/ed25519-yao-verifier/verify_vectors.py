@@ -17,6 +17,10 @@ VECTOR_CORPUS_SCHEMA_V1 = "seams:router-ab:ed25519-yao:vectors:v1"
 KDF_VECTOR_CORPUS_SCHEMA_V1 = (
     "seams:router-ab:ed25519-yao:kdf-continuity-vectors:v1"
 )
+LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1 = (
+    "seams:router-ab:ed25519-yao:lifecycle-continuity-vectors:v1"
+)
+LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1 = "host_only_synthetic_continuity_v1"
 PROTOCOL_ID_V1 = "router_ab_ed25519_yao_v1"
 STABLE_CONTEXT_DOMAIN_V1 = b"seams/router-ab/ed25519-yao/stable-key-context/v1"
 STABLE_CONTEXT_BINDING_DOMAIN_V1 = (
@@ -105,6 +109,179 @@ KDF_APPLICATION_BINDING_KEYS = frozenset(
 )
 KDF_ROOT_KEYS = frozenset(
     {"client_root_hex", "deriver_a_root_hex", "deriver_b_root_hex"}
+)
+
+LIFECYCLE_CORPUS_KEY_ORDER = ("schema", "protocol_id", "evidence_scope", "cases")
+LIFECYCLE_CASE_KEY_ORDER = ("request_kind", "vector")
+LIFECYCLE_ACTIVATION_VECTOR_KEY_ORDER = ("origin_kind", "transition")
+LIFECYCLE_APPLICATION_BINDING_KEY_ORDER = (
+    "wallet_id",
+    "near_ed25519_signing_key_id",
+    "signing_root_id",
+    "key_creation_signer_slot",
+    "encoded_hex",
+    "digest_sha256_hex",
+)
+LIFECYCLE_CONTEXT_KEY_ORDER = (
+    "application_binding_digest_hex",
+    "participant_ids",
+    "encoded_hex",
+    "binding_sha256_hex",
+)
+LIFECYCLE_IDENTITY_KEY_ORDER = (
+    "application_binding",
+    "context",
+    "registered_public_key_hex",
+    "x_client_point_hex",
+    "x_server_point_hex",
+)
+LIFECYCLE_ROLE_EPOCH_KEY_ORDER = ("role_root_epoch", "role_input_state_epoch")
+LIFECYCLE_ROLE_EPOCH_PAIR_KEY_ORDER = ("deriver_a", "deriver_b")
+LIFECYCLE_ACTIVE_STATE_KEY_ORDER = (
+    "identity",
+    "active_role_epochs",
+    "active_activation_epoch",
+)
+LIFECYCLE_RECOVERY_PENDING_STATE_KEY_ORDER = (
+    "identity",
+    "current_role_epochs",
+    "active_activation_epoch",
+    "pending_activation_epoch",
+)
+LIFECYCLE_REFRESH_PENDING_STATE_KEY_ORDER = (
+    "identity",
+    "current_role_epochs",
+    "next_role_epochs",
+    "active_activation_epoch",
+    "pending_activation_epoch",
+    "derivation_admission",
+)
+LIFECYCLE_REFRESH_ACTIVATED_STATE_KEY_ORDER = (
+    "identity",
+    "active_role_epochs",
+    "retired_role_input_state_epochs",
+    "active_activation_epoch",
+    "derivation_admission",
+)
+LIFECYCLE_RETIRED_EPOCH_KEY_ORDER = ("deriver_a", "deriver_b")
+LIFECYCLE_OPERATION_COUNT_KEY_ORDER = (
+    "deriver_a_invocations",
+    "deriver_b_invocations",
+    "client_kdf_derivations_a",
+    "client_kdf_derivations_b",
+    "server_kdf_derivations_a",
+    "server_kdf_derivations_b",
+    "activation_family_evaluations",
+    "export_family_evaluations",
+    "pending_activation_consumptions",
+)
+LIFECYCLE_ROOT_KEY_ORDER = (
+    "client_root_hex",
+    "deriver_a_root_hex",
+    "deriver_b_root_hex",
+)
+LIFECYCLE_CONTRIBUTION_KEY_ORDER = (
+    "y_client_a_hex",
+    "tau_client_a_hex",
+    "y_client_b_hex",
+    "tau_client_b_hex",
+    "y_server_a_hex",
+    "tau_server_a_hex",
+    "y_server_b_hex",
+    "tau_server_b_hex",
+)
+LIFECYCLE_CLIENT_CONTRIBUTION_KEY_ORDER = (
+    "y_client_a_hex",
+    "tau_client_a_hex",
+    "y_client_b_hex",
+    "tau_client_b_hex",
+)
+LIFECYCLE_TRACE_KEY_ORDER = (
+    "y_a_hex",
+    "y_b_hex",
+    "joined_seed_hex",
+    "sha512_digest_hex",
+    "clamped_scalar_bytes_hex",
+    "signing_scalar_hex",
+    "tau_a_hex",
+    "tau_b_hex",
+    "tau_hex",
+    "x_client_base_hex",
+    "x_server_base_hex",
+    "x_client_point_hex",
+    "x_server_point_hex",
+    "public_key_hex",
+)
+LIFECYCLE_RECOVERY_HOST_KEY_ORDER = (
+    "synthetic_roots",
+    "current_contributions",
+    "recovered_client_root_hex",
+    "rederived_client_contributions",
+    "after_contributions",
+    "before_clear_reference_trace",
+    "after_clear_reference_trace",
+)
+LIFECYCLE_REFRESH_DELTA_KEY_ORDER = ("delta_y_hex", "delta_tau_hex")
+LIFECYCLE_REFRESH_HOST_KEY_ORDER = (
+    "synthetic_roots",
+    "before_contributions",
+    "delta",
+    "after_contributions",
+    "before_clear_reference_trace",
+    "after_clear_reference_trace",
+)
+LIFECYCLE_RECOVERY_VECTOR_KEY_ORDER = (
+    "case_id",
+    "before_public",
+    "pending_public",
+    "reference_operation_counts",
+    "host_only_reference",
+)
+LIFECYCLE_REFRESH_VECTOR_KEY_ORDER = LIFECYCLE_RECOVERY_VECTOR_KEY_ORDER
+LIFECYCLE_RECOVERY_ACTIVATION_KEY_ORDER = (
+    "case_id",
+    "origin_case_id",
+    "pending_public",
+    "activated_public",
+    "reference_operation_counts",
+)
+LIFECYCLE_REFRESH_ACTIVATION_KEY_ORDER = LIFECYCLE_RECOVERY_ACTIVATION_KEY_ORDER
+
+LIFECYCLE_CASE_SEQUENCE_V1 = (
+    ("recovery", "recovery_same_root_continuity_v1"),
+    ("activation", "activation_after_recovery_zero_evaluation_v1"),
+    ("refresh", "refresh_opposite_delta_continuity_v1"),
+    ("activation", "activation_after_refresh_zero_evaluation_v1"),
+)
+LIFECYCLE_WALLET_ID_V1 = "wallet-fixture"
+LIFECYCLE_SIGNING_KEY_ID_V1 = "ed25519ks_fixture"
+LIFECYCLE_SIGNING_ROOT_ID_V1 = "project-fixture:env-fixture"
+LIFECYCLE_KEY_CREATION_SIGNER_SLOT_V1 = 1
+LIFECYCLE_CLIENT_ROOT_V1 = bytes((0x11,)) * 32
+LIFECYCLE_DERIVER_A_ROOT_V1 = bytes((0x22,)) * 32
+LIFECYCLE_DERIVER_B_ROOT_V1 = bytes((0x33,)) * 32
+LIFECYCLE_DELTA_Y_V1 = bytes((0xA5,)) * 32
+LIFECYCLE_DELTA_TAU_V1 = 17
+LIFECYCLE_PUBLIC_KEY_V1 = bytes.fromhex(
+    "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077"
+)
+LIFECYCLE_X_CLIENT_POINT_V1 = bytes.fromhex(
+    "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72"
+)
+LIFECYCLE_X_SERVER_POINT_V1 = bytes.fromhex(
+    "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02"
+)
+LIFECYCLE_PUBLIC_FORBIDDEN_SUFFIXES_V1 = (
+    "_root_hex",
+    "_contribution_hex",
+    "_delta_hex",
+    "joined_seed_hex",
+    "sha512_digest_hex",
+    "clamped_scalar_bytes_hex",
+    "signing_scalar_hex",
+    "x_client_base_hex",
+    "x_server_base_hex",
+    "authorized_seed_hex",
 )
 
 LOWER_HEX = re.compile(r"[0-9a-f]+\Z")
@@ -259,6 +436,20 @@ def _require_exact_keys(value: Any, expected: Iterable[str], path: str) -> dict[
         unexpected = sorted(actual_keys - expected_keys)
         raise VerificationError(
             f"{path} has invalid keys; missing={missing}, unexpected={unexpected}"
+        )
+    return object_value
+
+
+def _require_ordered_keys(
+    value: Any, expected: Sequence[str], path: str
+) -> dict[str, Any]:
+    object_value = _require_exact_keys(value, expected, path)
+    actual_order = tuple(object_value)
+    expected_order = tuple(expected)
+    if actual_order != expected_order:
+        raise VerificationError(
+            f"{path} has noncanonical key order; "
+            f"expected={list(expected_order)}, actual={list(actual_order)}"
         )
     return object_value
 
@@ -691,6 +882,814 @@ def verify_kdf_corpus(corpus: Any) -> int:
     return len(cases)
 
 
+def _require_exact_value(value: Any, expected: Any, path: str) -> None:
+    if value != expected:
+        raise VerificationError(f"{path} must equal {expected!r}")
+
+
+def _require_epoch(value: Any, path: str) -> int:
+    if type(value) is not int or not 1 <= value <= 0xFFFF_FFFF_FFFF_FFFF:
+        raise VerificationError(f"{path} must be a nonzero u64")
+    return value
+
+
+def _require_u8(value: Any, path: str) -> int:
+    if type(value) is not int or not 0 <= value <= 0xFF:
+        raise VerificationError(f"{path} must be a u8")
+    return value
+
+
+def _verify_lifecycle_case_id(value: Any, expected: str, path: str) -> str:
+    case_id = _require_string(value, path)
+    if not case_id or any(ord(character) < 0x21 or ord(character) > 0x7E for character in case_id):
+        raise VerificationError(f"{path} must be nonempty visible ASCII")
+    _require_exact_value(case_id, expected, path)
+    return case_id
+
+
+def _scan_lifecycle_public_boundary(value: Any, path: str) -> None:
+    if type(value) is dict:
+        for key, nested in value.items():
+            if any(key.endswith(suffix) for suffix in LIFECYCLE_PUBLIC_FORBIDDEN_SUFFIXES_V1):
+                raise VerificationError(f"{path}.{key} is forbidden in a public lifecycle object")
+            _scan_lifecycle_public_boundary(nested, f"{path}.{key}")
+    elif type(value) is list:
+        for index, nested in enumerate(value):
+            _scan_lifecycle_public_boundary(nested, f"{path}[{index}]")
+
+
+def _verify_lifecycle_identity(identity: Any, path: str) -> dict[str, Any]:
+    identity_object = _require_ordered_keys(identity, LIFECYCLE_IDENTITY_KEY_ORDER, path)
+    _scan_lifecycle_public_boundary(identity_object, path)
+
+    binding_path = f"{path}.application_binding"
+    binding = _require_ordered_keys(
+        identity_object["application_binding"],
+        LIFECYCLE_APPLICATION_BINDING_KEY_ORDER,
+        binding_path,
+    )
+    application_binding_digest = _verify_application_binding(binding, binding_path)
+    _require_exact_value(binding["wallet_id"], LIFECYCLE_WALLET_ID_V1, f"{binding_path}.wallet_id")
+    _require_exact_value(
+        binding["near_ed25519_signing_key_id"],
+        LIFECYCLE_SIGNING_KEY_ID_V1,
+        f"{binding_path}.near_ed25519_signing_key_id",
+    )
+    _require_exact_value(
+        binding["signing_root_id"],
+        LIFECYCLE_SIGNING_ROOT_ID_V1,
+        f"{binding_path}.signing_root_id",
+    )
+    _require_exact_value(
+        binding["key_creation_signer_slot"],
+        LIFECYCLE_KEY_CREATION_SIGNER_SLOT_V1,
+        f"{binding_path}.key_creation_signer_slot",
+    )
+
+    context_path = f"{path}.context"
+    context = _require_ordered_keys(
+        identity_object["context"], LIFECYCLE_CONTEXT_KEY_ORDER, context_path
+    )
+    context_binding = _verify_context(context, context_path)
+    context_application_binding_digest = _decode_hex(
+        context["application_binding_digest_hex"],
+        32,
+        f"{context_path}.application_binding_digest_hex",
+    )
+    if context_application_binding_digest != application_binding_digest:
+        raise VerificationError(
+            f"{context_path}.application_binding_digest_hex does not match "
+            f"{binding_path}.digest_sha256_hex"
+        )
+    _require_exact_value(context["participant_ids"], [1, 2], f"{context_path}.participant_ids")
+
+    registered_public_key = _decode_hex(
+        identity_object["registered_public_key_hex"],
+        32,
+        f"{path}.registered_public_key_hex",
+    )
+    x_client_point = _decode_hex(
+        identity_object["x_client_point_hex"], 32, f"{path}.x_client_point_hex"
+    )
+    x_server_point = _decode_hex(
+        identity_object["x_server_point_hex"], 32, f"{path}.x_server_point_hex"
+    )
+    if registered_public_key != LIFECYCLE_PUBLIC_KEY_V1:
+        raise VerificationError(f"{path}.registered_public_key_hex is not the canonical fixture key")
+    if x_client_point != LIFECYCLE_X_CLIENT_POINT_V1:
+        raise VerificationError(f"{path}.x_client_point_hex is not the canonical fixture point")
+    if x_server_point != LIFECYCLE_X_SERVER_POINT_V1:
+        raise VerificationError(f"{path}.x_server_point_hex is not the canonical fixture point")
+
+    return {
+        "object": identity_object,
+        "context": context,
+        "context_binding": context_binding,
+        "registered_public_key": registered_public_key,
+        "x_client_point": x_client_point,
+        "x_server_point": x_server_point,
+    }
+
+
+def _verify_lifecycle_role_epoch(value: Any, path: str) -> tuple[int, int]:
+    role_epoch = _require_ordered_keys(value, LIFECYCLE_ROLE_EPOCH_KEY_ORDER, path)
+    return (
+        _require_epoch(role_epoch["role_root_epoch"], f"{path}.role_root_epoch"),
+        _require_epoch(
+            role_epoch["role_input_state_epoch"], f"{path}.role_input_state_epoch"
+        ),
+    )
+
+
+def _verify_lifecycle_role_epoch_pair(
+    value: Any, path: str
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    pair = _require_ordered_keys(value, LIFECYCLE_ROLE_EPOCH_PAIR_KEY_ORDER, path)
+    return (
+        _verify_lifecycle_role_epoch(pair["deriver_a"], f"{path}.deriver_a"),
+        _verify_lifecycle_role_epoch(pair["deriver_b"], f"{path}.deriver_b"),
+    )
+
+
+def _verify_lifecycle_active_state(value: Any, path: str) -> dict[str, Any]:
+    state = _require_ordered_keys(value, LIFECYCLE_ACTIVE_STATE_KEY_ORDER, path)
+    _scan_lifecycle_public_boundary(state, path)
+    return {
+        "object": state,
+        "identity": _verify_lifecycle_identity(state["identity"], f"{path}.identity"),
+        "epochs": _verify_lifecycle_role_epoch_pair(
+            state["active_role_epochs"], f"{path}.active_role_epochs"
+        ),
+        "activation_epoch": _require_epoch(
+            state["active_activation_epoch"], f"{path}.active_activation_epoch"
+        ),
+    }
+
+
+def _verify_lifecycle_recovery_pending_state(value: Any, path: str) -> dict[str, Any]:
+    state = _require_ordered_keys(
+        value, LIFECYCLE_RECOVERY_PENDING_STATE_KEY_ORDER, path
+    )
+    _scan_lifecycle_public_boundary(state, path)
+    return {
+        "object": state,
+        "identity": _verify_lifecycle_identity(state["identity"], f"{path}.identity"),
+        "current_epochs": _verify_lifecycle_role_epoch_pair(
+            state["current_role_epochs"], f"{path}.current_role_epochs"
+        ),
+        "active_activation_epoch": _require_epoch(
+            state["active_activation_epoch"], f"{path}.active_activation_epoch"
+        ),
+        "pending_activation_epoch": _require_epoch(
+            state["pending_activation_epoch"], f"{path}.pending_activation_epoch"
+        ),
+    }
+
+
+def _verify_lifecycle_refresh_pending_state(value: Any, path: str) -> dict[str, Any]:
+    state = _require_ordered_keys(
+        value, LIFECYCLE_REFRESH_PENDING_STATE_KEY_ORDER, path
+    )
+    _scan_lifecycle_public_boundary(state, path)
+    _require_exact_value(state["derivation_admission"], "frozen", f"{path}.derivation_admission")
+    return {
+        "object": state,
+        "identity": _verify_lifecycle_identity(state["identity"], f"{path}.identity"),
+        "current_epochs": _verify_lifecycle_role_epoch_pair(
+            state["current_role_epochs"], f"{path}.current_role_epochs"
+        ),
+        "next_epochs": _verify_lifecycle_role_epoch_pair(
+            state["next_role_epochs"], f"{path}.next_role_epochs"
+        ),
+        "active_activation_epoch": _require_epoch(
+            state["active_activation_epoch"], f"{path}.active_activation_epoch"
+        ),
+        "pending_activation_epoch": _require_epoch(
+            state["pending_activation_epoch"], f"{path}.pending_activation_epoch"
+        ),
+    }
+
+
+def _verify_lifecycle_refresh_activated_state(value: Any, path: str) -> dict[str, Any]:
+    state = _require_ordered_keys(
+        value, LIFECYCLE_REFRESH_ACTIVATED_STATE_KEY_ORDER, path
+    )
+    _scan_lifecycle_public_boundary(state, path)
+    retired_path = f"{path}.retired_role_input_state_epochs"
+    retired = _require_ordered_keys(
+        state["retired_role_input_state_epochs"],
+        LIFECYCLE_RETIRED_EPOCH_KEY_ORDER,
+        retired_path,
+    )
+    retired_epochs = (
+        _require_epoch(retired["deriver_a"], f"{retired_path}.deriver_a"),
+        _require_epoch(retired["deriver_b"], f"{retired_path}.deriver_b"),
+    )
+    _require_exact_value(state["derivation_admission"], "open", f"{path}.derivation_admission")
+    return {
+        "object": state,
+        "identity": _verify_lifecycle_identity(state["identity"], f"{path}.identity"),
+        "active_epochs": _verify_lifecycle_role_epoch_pair(
+            state["active_role_epochs"], f"{path}.active_role_epochs"
+        ),
+        "retired_epochs": retired_epochs,
+        "activation_epoch": _require_epoch(
+            state["active_activation_epoch"], f"{path}.active_activation_epoch"
+        ),
+    }
+
+
+def _verify_lifecycle_counts(value: Any, expected: dict[str, int], path: str) -> None:
+    counts = _require_ordered_keys(value, LIFECYCLE_OPERATION_COUNT_KEY_ORDER, path)
+    _scan_lifecycle_public_boundary(counts, path)
+    for field_name in LIFECYCLE_OPERATION_COUNT_KEY_ORDER:
+        actual = _require_u8(counts[field_name], f"{path}.{field_name}")
+        if actual != expected[field_name]:
+            raise VerificationError(
+                f"{path}.{field_name} must equal {expected[field_name]} for this lifecycle case"
+            )
+
+
+def _verify_lifecycle_roots(value: Any, path: str) -> dict[str, bytes]:
+    roots = _require_ordered_keys(value, LIFECYCLE_ROOT_KEY_ORDER, path)
+    decoded = {
+        field_name: _decode_hex(roots[field_name], 32, f"{path}.{field_name}")
+        for field_name in LIFECYCLE_ROOT_KEY_ORDER
+    }
+    expected = {
+        "client_root_hex": LIFECYCLE_CLIENT_ROOT_V1,
+        "deriver_a_root_hex": LIFECYCLE_DERIVER_A_ROOT_V1,
+        "deriver_b_root_hex": LIFECYCLE_DERIVER_B_ROOT_V1,
+    }
+    for field_name, expected_bytes in expected.items():
+        if decoded[field_name] != expected_bytes:
+            raise VerificationError(f"{path}.{field_name} is not the canonical synthetic root")
+    return decoded
+
+
+def _verify_lifecycle_contributions(value: Any, path: str) -> dict[str, bytes]:
+    contributions = _require_ordered_keys(
+        value, LIFECYCLE_CONTRIBUTION_KEY_ORDER, path
+    )
+    decoded: dict[str, bytes] = {}
+    for field_name in LIFECYCLE_CONTRIBUTION_KEY_ORDER:
+        if field_name.startswith("tau_"):
+            scalar = _decode_scalar(contributions[field_name], f"{path}.{field_name}")
+            decoded[field_name] = scalar.to_bytes(32, "little")
+        else:
+            decoded[field_name] = _decode_hex(
+                contributions[field_name], 32, f"{path}.{field_name}"
+            )
+    return decoded
+
+
+def _verify_lifecycle_client_contributions(value: Any, path: str) -> dict[str, bytes]:
+    contributions = _require_ordered_keys(
+        value, LIFECYCLE_CLIENT_CONTRIBUTION_KEY_ORDER, path
+    )
+    decoded: dict[str, bytes] = {}
+    for field_name in LIFECYCLE_CLIENT_CONTRIBUTION_KEY_ORDER:
+        if field_name.startswith("tau_"):
+            scalar = _decode_scalar(contributions[field_name], f"{path}.{field_name}")
+            decoded[field_name] = scalar.to_bytes(32, "little")
+        else:
+            decoded[field_name] = _decode_hex(
+                contributions[field_name], 32, f"{path}.{field_name}"
+            )
+    return decoded
+
+
+def _derive_lifecycle_contributions(
+    roots: dict[str, bytes], context_binding: bytes
+) -> dict[str, bytes]:
+    client_a_y, client_a_tau = _derive_kdf_contribution(
+        roots["client_root_hex"], context_binding, 0x01, 0x01
+    )
+    client_b_y, client_b_tau = _derive_kdf_contribution(
+        roots["client_root_hex"], context_binding, 0x02, 0x01
+    )
+    server_a_y, server_a_tau = _derive_kdf_contribution(
+        roots["deriver_a_root_hex"], context_binding, 0x01, 0x02
+    )
+    server_b_y, server_b_tau = _derive_kdf_contribution(
+        roots["deriver_b_root_hex"], context_binding, 0x02, 0x02
+    )
+    return {
+        "y_client_a_hex": client_a_y,
+        "tau_client_a_hex": client_a_tau,
+        "y_client_b_hex": client_b_y,
+        "tau_client_b_hex": client_b_tau,
+        "y_server_a_hex": server_a_y,
+        "tau_server_a_hex": server_a_tau,
+        "y_server_b_hex": server_b_y,
+        "tau_server_b_hex": server_b_tau,
+    }
+
+
+def _require_lifecycle_contributions_equal(
+    actual: dict[str, bytes], expected: dict[str, bytes], path: str
+) -> None:
+    for field_name in expected:
+        if actual[field_name] != expected[field_name]:
+            raise VerificationError(
+                f"{path}.{field_name} does not match the independently computed value"
+            )
+
+
+def _verify_lifecycle_trace(
+    context: dict[str, Any],
+    contributions: Any,
+    trace: Any,
+    path: str,
+) -> dict[str, Any]:
+    contribution_object = _require_ordered_keys(
+        contributions, LIFECYCLE_CONTRIBUTION_KEY_ORDER, f"{path}.inputs"
+    )
+    trace_object = _require_ordered_keys(
+        trace, LIFECYCLE_TRACE_KEY_ORDER, f"{path}.clear_reference_trace"
+    )
+    reference = {
+        "case_id": "lifecycle_trace_reference_v1",
+        "context": context,
+        "inputs": contribution_object,
+        "clear_reference_trace": trace_object,
+    }
+    _verify_reference(reference, path, set())
+    return trace_object
+
+
+def _require_lifecycle_identity_matches_trace(
+    identity: dict[str, Any], trace: dict[str, Any], path: str
+) -> None:
+    expected = (
+        ("registered_public_key", "public_key_hex"),
+        ("x_client_point", "x_client_point_hex"),
+        ("x_server_point", "x_server_point_hex"),
+    )
+    for identity_field, trace_field in expected:
+        trace_value = _decode_hex(trace[trace_field], 32, f"{path}.{trace_field}")
+        if identity[identity_field] != trace_value:
+            raise VerificationError(
+                f"{path}.{trace_field} does not match the public fixture identity"
+            )
+
+
+def _recovery_counts_v1() -> dict[str, int]:
+    return {
+        "deriver_a_invocations": 1,
+        "deriver_b_invocations": 1,
+        "client_kdf_derivations_a": 1,
+        "client_kdf_derivations_b": 1,
+        "server_kdf_derivations_a": 0,
+        "server_kdf_derivations_b": 0,
+        "activation_family_evaluations": 1,
+        "export_family_evaluations": 0,
+        "pending_activation_consumptions": 0,
+    }
+
+
+def _refresh_counts_v1() -> dict[str, int]:
+    return {
+        "deriver_a_invocations": 1,
+        "deriver_b_invocations": 1,
+        "client_kdf_derivations_a": 0,
+        "client_kdf_derivations_b": 0,
+        "server_kdf_derivations_a": 0,
+        "server_kdf_derivations_b": 0,
+        "activation_family_evaluations": 1,
+        "export_family_evaluations": 0,
+        "pending_activation_consumptions": 0,
+    }
+
+
+def _activation_counts_v1() -> dict[str, int]:
+    return {
+        "deriver_a_invocations": 0,
+        "deriver_b_invocations": 0,
+        "client_kdf_derivations_a": 0,
+        "client_kdf_derivations_b": 0,
+        "server_kdf_derivations_a": 0,
+        "server_kdf_derivations_b": 0,
+        "activation_family_evaluations": 0,
+        "export_family_evaluations": 0,
+        "pending_activation_consumptions": 1,
+    }
+
+
+def _verify_recovery_lifecycle_case(vector: Any, path: str) -> dict[str, Any]:
+    recovery = _require_ordered_keys(vector, LIFECYCLE_RECOVERY_VECTOR_KEY_ORDER, path)
+    before = _verify_lifecycle_active_state(recovery["before_public"], f"{path}.before_public")
+    pending = _verify_lifecycle_recovery_pending_state(
+        recovery["pending_public"], f"{path}.pending_public"
+    )
+    expected_epochs = ((3, 11), (9, 41))
+    _require_exact_value(before["epochs"], expected_epochs, f"{path}.before_public.active_role_epochs")
+    _require_exact_value(before["activation_epoch"], 7, f"{path}.before_public.active_activation_epoch")
+    if pending["identity"]["object"] != before["identity"]["object"]:
+        raise VerificationError(f"{path}.pending_public.identity must equal before_public.identity")
+    _require_exact_value(
+        pending["current_epochs"], expected_epochs, f"{path}.pending_public.current_role_epochs"
+    )
+    _require_exact_value(
+        pending["active_activation_epoch"], 7, f"{path}.pending_public.active_activation_epoch"
+    )
+    _require_exact_value(
+        pending["pending_activation_epoch"], 8, f"{path}.pending_public.pending_activation_epoch"
+    )
+    if pending["pending_activation_epoch"] <= pending["active_activation_epoch"]:
+        raise VerificationError(f"{path}.pending_public pending activation epoch must advance")
+    _verify_lifecycle_counts(
+        recovery["reference_operation_counts"],
+        _recovery_counts_v1(),
+        f"{path}.reference_operation_counts",
+    )
+
+    host_path = f"{path}.host_only_reference"
+    host = _require_ordered_keys(
+        recovery["host_only_reference"], LIFECYCLE_RECOVERY_HOST_KEY_ORDER, host_path
+    )
+    roots = _verify_lifecycle_roots(host["synthetic_roots"], f"{host_path}.synthetic_roots")
+    expected_contributions = _derive_lifecycle_contributions(
+        roots, before["identity"]["context_binding"]
+    )
+    current = _verify_lifecycle_contributions(
+        host["current_contributions"], f"{host_path}.current_contributions"
+    )
+    _require_lifecycle_contributions_equal(
+        current, expected_contributions, f"{host_path}.current_contributions"
+    )
+    recovered_root = _decode_hex(
+        host["recovered_client_root_hex"], 32, f"{host_path}.recovered_client_root_hex"
+    )
+    if recovered_root != roots["client_root_hex"]:
+        raise VerificationError(
+            f"{host_path}.recovered_client_root_hex must equal the current client root"
+        )
+    rederived_expected = _derive_lifecycle_contributions(
+        {**roots, "client_root_hex": recovered_root},
+        before["identity"]["context_binding"],
+    )
+    rederived = _verify_lifecycle_client_contributions(
+        host["rederived_client_contributions"],
+        f"{host_path}.rederived_client_contributions",
+    )
+    _require_lifecycle_contributions_equal(
+        rederived,
+        {field_name: rederived_expected[field_name] for field_name in LIFECYCLE_CLIENT_CONTRIBUTION_KEY_ORDER},
+        f"{host_path}.rederived_client_contributions",
+    )
+    after = _verify_lifecycle_contributions(
+        host["after_contributions"], f"{host_path}.after_contributions"
+    )
+    _require_lifecycle_contributions_equal(after, current, f"{host_path}.after_contributions")
+    before_trace = _verify_lifecycle_trace(
+        before["identity"]["context"],
+        host["current_contributions"],
+        host["before_clear_reference_trace"],
+        f"{host_path}.before",
+    )
+    after_trace = _verify_lifecycle_trace(
+        before["identity"]["context"],
+        host["after_contributions"],
+        host["after_clear_reference_trace"],
+        f"{host_path}.after",
+    )
+    if after_trace != before_trace:
+        raise VerificationError(
+            f"{host_path}.after_clear_reference_trace must equal the before trace"
+        )
+    _require_lifecycle_identity_matches_trace(before["identity"], before_trace, host_path)
+    return {"kind": "recovery", "pending": pending["object"]}
+
+
+def _wrapping_sub_256(left: bytes, right: bytes) -> bytes:
+    difference = int.from_bytes(left, "little") - int.from_bytes(right, "little")
+    return (difference & SEED_MODULUS_MASK).to_bytes(32, "little")
+
+
+def _verify_refresh_lifecycle_case(vector: Any, path: str) -> dict[str, Any]:
+    refresh = _require_ordered_keys(vector, LIFECYCLE_REFRESH_VECTOR_KEY_ORDER, path)
+    before = _verify_lifecycle_active_state(refresh["before_public"], f"{path}.before_public")
+    pending = _verify_lifecycle_refresh_pending_state(
+        refresh["pending_public"], f"{path}.pending_public"
+    )
+    current_epochs = ((3, 11), (9, 41))
+    next_epochs = ((3, 12), (9, 43))
+    _require_exact_value(before["epochs"], current_epochs, f"{path}.before_public.active_role_epochs")
+    _require_exact_value(before["activation_epoch"], 8, f"{path}.before_public.active_activation_epoch")
+    if pending["identity"]["object"] != before["identity"]["object"]:
+        raise VerificationError(f"{path}.pending_public.identity must equal before_public.identity")
+    _require_exact_value(
+        pending["current_epochs"], current_epochs, f"{path}.pending_public.current_role_epochs"
+    )
+    _require_exact_value(pending["next_epochs"], next_epochs, f"{path}.pending_public.next_role_epochs")
+    for role_index, role_name in enumerate(("deriver_a", "deriver_b")):
+        current_root, current_input = pending["current_epochs"][role_index]
+        next_root, next_input = pending["next_epochs"][role_index]
+        if next_root != current_root:
+            raise VerificationError(f"{path}.pending_public.{role_name} role-root epoch must stay fixed")
+        if next_input <= current_input:
+            raise VerificationError(f"{path}.pending_public.{role_name} input-state epoch must advance")
+    _require_exact_value(
+        pending["active_activation_epoch"], 8, f"{path}.pending_public.active_activation_epoch"
+    )
+    _require_exact_value(
+        pending["pending_activation_epoch"], 9, f"{path}.pending_public.pending_activation_epoch"
+    )
+    if pending["pending_activation_epoch"] <= pending["active_activation_epoch"]:
+        raise VerificationError(f"{path}.pending_public pending activation epoch must advance")
+    _verify_lifecycle_counts(
+        refresh["reference_operation_counts"],
+        _refresh_counts_v1(),
+        f"{path}.reference_operation_counts",
+    )
+
+    host_path = f"{path}.host_only_reference"
+    host = _require_ordered_keys(
+        refresh["host_only_reference"], LIFECYCLE_REFRESH_HOST_KEY_ORDER, host_path
+    )
+    roots = _verify_lifecycle_roots(host["synthetic_roots"], f"{host_path}.synthetic_roots")
+    expected_before = _derive_lifecycle_contributions(
+        roots, before["identity"]["context_binding"]
+    )
+    before_contributions = _verify_lifecycle_contributions(
+        host["before_contributions"], f"{host_path}.before_contributions"
+    )
+    _require_lifecycle_contributions_equal(
+        before_contributions, expected_before, f"{host_path}.before_contributions"
+    )
+    delta_path = f"{host_path}.delta"
+    delta = _require_ordered_keys(host["delta"], LIFECYCLE_REFRESH_DELTA_KEY_ORDER, delta_path)
+    delta_y = _decode_hex(delta["delta_y_hex"], 32, f"{delta_path}.delta_y_hex")
+    delta_tau = _decode_scalar(delta["delta_tau_hex"], f"{delta_path}.delta_tau_hex")
+    if delta_y == bytes(32):
+        raise VerificationError(f"{delta_path}.delta_y_hex must be nonzero")
+    if delta_tau == 0:
+        raise VerificationError(f"{delta_path}.delta_tau_hex must be nonzero")
+    if delta_y != LIFECYCLE_DELTA_Y_V1:
+        raise VerificationError(f"{delta_path}.delta_y_hex is not the canonical fixture delta")
+    if delta_tau != LIFECYCLE_DELTA_TAU_V1:
+        raise VerificationError(f"{delta_path}.delta_tau_hex is not the canonical fixture delta")
+
+    expected_after = dict(before_contributions)
+    expected_after["y_server_a_hex"] = _wrapping_add_256(
+        before_contributions["y_server_a_hex"], delta_y
+    )
+    expected_after["y_server_b_hex"] = _wrapping_sub_256(
+        before_contributions["y_server_b_hex"], delta_y
+    )
+    expected_after["tau_server_a_hex"] = _encode_scalar(
+        int.from_bytes(before_contributions["tau_server_a_hex"], "little") + delta_tau
+    )
+    expected_after["tau_server_b_hex"] = _encode_scalar(
+        int.from_bytes(before_contributions["tau_server_b_hex"], "little") - delta_tau
+    )
+    after_contributions = _verify_lifecycle_contributions(
+        host["after_contributions"], f"{host_path}.after_contributions"
+    )
+    _require_lifecycle_contributions_equal(
+        after_contributions, expected_after, f"{host_path}.after_contributions"
+    )
+    before_trace = _verify_lifecycle_trace(
+        before["identity"]["context"],
+        host["before_contributions"],
+        host["before_clear_reference_trace"],
+        f"{host_path}.before",
+    )
+    after_trace = _verify_lifecycle_trace(
+        before["identity"]["context"],
+        host["after_contributions"],
+        host["after_clear_reference_trace"],
+        f"{host_path}.after",
+    )
+    role_local_trace_relations = (
+        (
+            "y_a_hex",
+            _wrapping_add_256(bytes.fromhex(before_trace["y_a_hex"]), delta_y),
+        ),
+        (
+            "y_b_hex",
+            _wrapping_sub_256(bytes.fromhex(before_trace["y_b_hex"]), delta_y),
+        ),
+        (
+            "tau_a_hex",
+            _encode_scalar(
+                int.from_bytes(bytes.fromhex(before_trace["tau_a_hex"]), "little")
+                + delta_tau
+            ),
+        ),
+        (
+            "tau_b_hex",
+            _encode_scalar(
+                int.from_bytes(bytes.fromhex(before_trace["tau_b_hex"]), "little")
+                - delta_tau
+            ),
+        ),
+    )
+    for field_name, expected_bytes in role_local_trace_relations:
+        _require_expected_bytes(
+            after_trace[field_name],
+            expected_bytes,
+            f"{host_path}.after_clear_reference_trace.{field_name}",
+        )
+    preserved_trace_fields = (
+        "joined_seed_hex",
+        "sha512_digest_hex",
+        "clamped_scalar_bytes_hex",
+        "signing_scalar_hex",
+        "tau_hex",
+        "x_client_base_hex",
+        "x_server_base_hex",
+        "x_client_point_hex",
+        "x_server_point_hex",
+        "public_key_hex",
+    )
+    for field_name in preserved_trace_fields:
+        if after_trace[field_name] != before_trace[field_name]:
+            raise VerificationError(
+                f"{host_path}.after_clear_reference_trace.{field_name} must preserve identity"
+            )
+    _require_lifecycle_identity_matches_trace(before["identity"], before_trace, host_path)
+    return {"kind": "refresh", "pending": pending["object"]}
+
+
+def _verify_activation_lifecycle_case(
+    vector: Any,
+    expected_origin_kind: str,
+    prior_cases: dict[str, dict[str, Any]],
+    path: str,
+) -> None:
+    activation = _require_ordered_keys(
+        vector, LIFECYCLE_ACTIVATION_VECTOR_KEY_ORDER, path
+    )
+    origin_kind = _require_string(activation["origin_kind"], f"{path}.origin_kind")
+    if origin_kind not in {"recovery", "refresh"}:
+        raise VerificationError(f"{path}.origin_kind is unsupported")
+    _require_exact_value(origin_kind, expected_origin_kind, f"{path}.origin_kind")
+    transition_path = f"{path}.transition"
+    transition_order = (
+        LIFECYCLE_RECOVERY_ACTIVATION_KEY_ORDER
+        if origin_kind == "recovery"
+        else LIFECYCLE_REFRESH_ACTIVATION_KEY_ORDER
+    )
+    transition = _require_ordered_keys(
+        activation["transition"], transition_order, transition_path
+    )
+    origin_case_id = _require_string(
+        transition["origin_case_id"], f"{transition_path}.origin_case_id"
+    )
+    expected_origin_case_id = (
+        "recovery_same_root_continuity_v1"
+        if origin_kind == "recovery"
+        else "refresh_opposite_delta_continuity_v1"
+    )
+    _require_exact_value(
+        origin_case_id, expected_origin_case_id, f"{transition_path}.origin_case_id"
+    )
+    origin = prior_cases.get(origin_case_id)
+    if origin is None:
+        raise VerificationError(
+            f"{transition_path}.origin_case_id must reference an earlier lifecycle case"
+        )
+    if origin["kind"] != origin_kind:
+        raise VerificationError(
+            f"{transition_path}.origin_case_id has the wrong lifecycle request kind"
+        )
+    if transition["pending_public"] != origin["pending"]:
+        raise VerificationError(
+            f"{transition_path}.pending_public must equal the origin pending state byte-for-byte"
+        )
+    _verify_lifecycle_counts(
+        transition["reference_operation_counts"],
+        _activation_counts_v1(),
+        f"{transition_path}.reference_operation_counts",
+    )
+
+    if origin_kind == "recovery":
+        pending = _verify_lifecycle_recovery_pending_state(
+            transition["pending_public"], f"{transition_path}.pending_public"
+        )
+        activated = _verify_lifecycle_active_state(
+            transition["activated_public"], f"{transition_path}.activated_public"
+        )
+        if activated["identity"]["object"] != pending["identity"]["object"]:
+            raise VerificationError(f"{transition_path}.activated_public.identity changed")
+        _require_exact_value(
+            activated["epochs"],
+            pending["current_epochs"],
+            f"{transition_path}.activated_public.active_role_epochs",
+        )
+        _require_exact_value(
+            activated["activation_epoch"],
+            pending["pending_activation_epoch"],
+            f"{transition_path}.activated_public.active_activation_epoch",
+        )
+    else:
+        pending = _verify_lifecycle_refresh_pending_state(
+            transition["pending_public"], f"{transition_path}.pending_public"
+        )
+        activated = _verify_lifecycle_refresh_activated_state(
+            transition["activated_public"], f"{transition_path}.activated_public"
+        )
+        if activated["identity"]["object"] != pending["identity"]["object"]:
+            raise VerificationError(f"{transition_path}.activated_public.identity changed")
+        _require_exact_value(
+            activated["active_epochs"],
+            pending["next_epochs"],
+            f"{transition_path}.activated_public.active_role_epochs",
+        )
+        expected_retired = (
+            pending["current_epochs"][0][1],
+            pending["current_epochs"][1][1],
+        )
+        _require_exact_value(
+            activated["retired_epochs"],
+            expected_retired,
+            f"{transition_path}.activated_public.retired_role_input_state_epochs",
+        )
+        _require_exact_value(
+            activated["activation_epoch"],
+            pending["pending_activation_epoch"],
+            f"{transition_path}.activated_public.active_activation_epoch",
+        )
+
+
+def verify_lifecycle_continuity_corpus(corpus: Any) -> int:
+    """Independently verifies the strict four-case host lifecycle corpus."""
+    corpus_object = _require_ordered_keys(corpus, LIFECYCLE_CORPUS_KEY_ORDER, "$")
+    _require_exact_value(
+        _require_string(corpus_object["schema"], "$.schema"),
+        LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1,
+        "$.schema",
+    )
+    _require_exact_value(
+        _require_string(corpus_object["protocol_id"], "$.protocol_id"),
+        PROTOCOL_ID_V1,
+        "$.protocol_id",
+    )
+    _require_exact_value(
+        _require_string(corpus_object["evidence_scope"], "$.evidence_scope"),
+        LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1,
+        "$.evidence_scope",
+    )
+    cases = corpus_object["cases"]
+    if type(cases) is not list or len(cases) != len(LIFECYCLE_CASE_SEQUENCE_V1):
+        raise VerificationError("$.cases must contain exactly four lifecycle cases")
+
+    case_ids: set[str] = set()
+    prior_cases: dict[str, dict[str, Any]] = {}
+    for index, ((expected_kind, expected_case_id), case) in enumerate(
+        zip(LIFECYCLE_CASE_SEQUENCE_V1, cases)
+    ):
+        case_path = f"$.cases[{index}]"
+        case_object = _require_ordered_keys(case, LIFECYCLE_CASE_KEY_ORDER, case_path)
+        request_kind = _require_string(
+            case_object["request_kind"], f"{case_path}.request_kind"
+        )
+        if request_kind not in {"recovery", "activation", "refresh"}:
+            raise VerificationError(f"{case_path}.request_kind is unsupported")
+        _require_exact_value(request_kind, expected_kind, f"{case_path}.request_kind")
+
+        vector_path = f"{case_path}.vector"
+        if request_kind == "recovery":
+            vector = _require_ordered_keys(
+                case_object["vector"], LIFECYCLE_RECOVERY_VECTOR_KEY_ORDER, vector_path
+            )
+            case_id = _verify_lifecycle_case_id(
+                vector["case_id"], expected_case_id, f"{vector_path}.case_id"
+            )
+            record = _verify_recovery_lifecycle_case(vector, vector_path)
+            prior_cases[case_id] = record
+        elif request_kind == "refresh":
+            vector = _require_ordered_keys(
+                case_object["vector"], LIFECYCLE_REFRESH_VECTOR_KEY_ORDER, vector_path
+            )
+            case_id = _verify_lifecycle_case_id(
+                vector["case_id"], expected_case_id, f"{vector_path}.case_id"
+            )
+            record = _verify_refresh_lifecycle_case(vector, vector_path)
+            prior_cases[case_id] = record
+        else:
+            activation = _require_ordered_keys(
+                case_object["vector"], LIFECYCLE_ACTIVATION_VECTOR_KEY_ORDER, vector_path
+            )
+            transition = _require_object(
+                activation["transition"], f"{vector_path}.transition"
+            )
+            case_id = _verify_lifecycle_case_id(
+                transition.get("case_id"), expected_case_id, f"{vector_path}.transition.case_id"
+            )
+            expected_origin_kind = "recovery" if index == 1 else "refresh"
+            _verify_activation_lifecycle_case(
+                activation, expected_origin_kind, prior_cases, vector_path
+            )
+        if case_id in case_ids:
+            raise VerificationError(f"{case_path} duplicates case id {case_id!r}")
+        case_ids.add(case_id)
+
+    return len(cases)
+
+
 def verify_corpus(corpus: Any, *, differential_seed: bytes | None = None) -> int:
     """Verifies every case and returns the nonzero case count."""
     corpus_object = _require_exact_keys(corpus, {"schema", "protocol_id", "cases"}, "$")
@@ -764,6 +1763,12 @@ def verify_document(document: Any, *, differential_seed: bytes | None = None) ->
                 "--differential-seed-hex applies only to the arithmetic vector schema"
             )
         return verify_kdf_corpus(document_object)
+    if schema == LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1:
+        if differential_seed is not None:
+            raise VerificationError(
+                "--differential-seed-hex applies only to the arithmetic vector schema"
+            )
+        return verify_lifecycle_continuity_corpus(document_object)
     raise VerificationError(f"$.schema {schema!r} is unsupported")
 
 
