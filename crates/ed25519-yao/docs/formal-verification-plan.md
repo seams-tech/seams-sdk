@@ -1,6 +1,6 @@
 # Ed25519 Yao Formal Verification Scaffold Plan
 
-Status: **planned; verification implementation has not started**
+Status: **FV1 mechanical scaffold in progress; protocol-security proofs have not started**
 
 This document defines the formal-verification workstream for the fixed
 Router A/B Ed25519 Streaming Yao protocol. It adapts the useful structure from
@@ -12,9 +12,9 @@ threshold-PRF and additive-share design.
 
 ## Current Decision
 
-The repository is ready to retain this plan. It is ready for a mechanical
-toolchain scaffold after approval. The implementation is **not yet complete
-enough for protocol-security proofs**.
+The repository retains this approved plan and FV1 mechanical toolchain work has
+begun. The implementation is **not yet complete enough for protocol-security
+proofs**.
 
 Meaningful proof work begins in stages:
 
@@ -23,6 +23,9 @@ Meaningful proof work begins in stages:
 2. Yao Phase 2 closes before the circuit/compiler proof starts.
 3. Yao Phase 6 selects and freezes the active-security suite before any
    malicious-security composition theorem starts.
+4. Yao Phase 13 closes before deployment-profile evidence is accepted, Yao
+   Phase 14 closes before verification gates replace HSS gates, and Yao Phase 15
+   closes before final release evidence is complete.
 
 The maintainer should receive an explicit readiness notice at each gate. A
 directory that builds, a reflexive view theorem, or a handwritten model alone
@@ -123,6 +126,7 @@ crates/ed25519-yao/formal-verification
   .gitignore
   README.md
   Makefile
+  toolchain.toml
   docs
     assumption-ledger.md
     compliance-baseline.md
@@ -154,7 +158,6 @@ crates/ed25519-yao/formal-verification
     tests/anti_drift.rs
   lean-boundary
     README.md
-    aeneas-toolchain.toml
     lean-toolchain
     lakefile.lean
     lake-manifest.json
@@ -389,6 +392,33 @@ same-account profile.
 
 ## Phased TODO
 
+### Cross-plan phase crosswalk and status rules
+
+`docs/yaos-ab.md` owns Ed25519 implementation gates.
+`docs/router-a-b-sol-refactor.md` owns the wider product migration and cleanup
+gates. This document owns formal-evidence gates. A formal phase may prepare
+mechanical scaffolding in parallel, but it cannot prove or open an implementation
+phase whose production owner is absent or blocked.
+
+| Yao implementation phases | Wider Router A/B phases | Formal-verification phases    |
+| ------------------------- | ----------------------- | ----------------------------- |
+| 0                         | 0                       | plan approval                 |
+| 1                         | 1                       | FV0-FV1                       |
+| 2-3                       | 2                       | FV2-FV4                       |
+| 4-6                       | 3                       | FV5-FV6                       |
+| 7-8                       | 4-5                     | FV7                           |
+| 9-10                      | 6                       | FV8 deployment assumptions    |
+| 11                        | 7                       | FV7-FV8 integration evidence  |
+| 12                        | 8                       | outside Ed25519 Yao proofs    |
+| 13                        | 9                       | FV8 pre-cutover evidence gate |
+| 14                        | 10                      | FV9 verification hard cutover |
+| 15                        | 11                      | FV10 final release evidence   |
+
+Phase 0 is closed, Yao Phase 1 is in progress, and Yao Phase 2 remains blocked.
+The current oracle and manifest code is partial foundation evidence. It does not
+open FV2 circuit proofs or any later security theorem. A checked formal TODO
+means only that exact artifact or proof obligation is complete.
+
 ### FV0: Freeze claims, sources, and proof obligations
 
 Depends on: Yao Phase 1
@@ -396,11 +426,15 @@ Depends on: Yao Phase 1
 - [ ] Create `docs/spec-corpus.md` with source precedence and exact immutable
       source revisions.
 - [ ] Define the five lifecycle ideal functionalities separately.
-- [ ] Freeze the exact `StableKeyDerivationContext` bytes and identity rules.
+- [x] Freeze the exact `StableKeyDerivationContext` encoding, validation, and
+      binding-digest bytes.
+- [ ] Freeze role-local KDF integration and public-key continuity rules for the
+      stable context.
 - [ ] Freeze role-specific inputs, outputs, leakage, randomness, and aborts.
 - [ ] Define the two supported corruption games and excluded corruption sets.
-- [ ] Create stable proof-obligation identifiers.
-- [ ] Create the trusted-computing-base and assumption ledger.
+- [x] Create stable proof-obligation identifiers for the implemented FV1
+      surface.
+- [x] Create the trusted-computing-base and assumption ledger.
 - [ ] Audit the Yao plan, oracle, manifests, and vectors for contradictions.
 - [ ] Resolve every critical or high compliance finding.
 - [ ] Obtain independent cryptographic review of the claim boundary.
@@ -416,26 +450,30 @@ Exit gate:
 
 Depends on: plan approval; may run alongside the end of FV0
 
-- [ ] Create the directory layout in this document.
-- [ ] Add a host-only task-runner crate under `formal-verification/tasks`.
-- [ ] Add `cargo yao-fv` and `just ed25519-yao-fv` commands.
-- [ ] Pin Verus, `vstd`, Aeneas, Charon, and Lean exactly.
-- [ ] Add deterministic Aeneas bootstrap and clean-checkout diagnostics.
-- [ ] Declare explicit `Ed25519Yao`, `Ed25519YaoBoundary`, and Aeneas Lean
+- [x] Create the directory layout in this document.
+- [x] Add a host-only task-runner crate under `formal-verification/tasks`.
+- [x] Add `cargo yao-fv` and `just ed25519-yao-fv` commands.
+- [x] Pin the Verus release, `vstd`, Aeneas/Charon source revisions, and Lean
+      exactly.
+- [x] Add exact source-pinned Aeneas bootstrap and actionable missing-tool
+      diagnostics.
+- [ ] Lock the Aeneas bootstrap package environment and verify it from empty
+      caches.
+- [x] Declare explicit `Ed25519Yao`, `Ed25519YaoBoundary`, and Aeneas Lean
       dependencies.
-- [ ] Make Lean checks build named targets and assert expected output files.
-- [ ] Make a missing Verus toolchain a gated failure.
-- [ ] Run anti-drift tests even when Verus tool discovery fails.
-- [ ] Add README status language that makes zero security claims.
-- [ ] Add repository-relative documentation links only.
+- [x] Make Lean checks build named targets and assert expected output files.
+- [x] Make a missing Verus toolchain a gated failure.
+- [x] Run anti-drift tests even when Verus tool discovery fails.
+- [x] Add README status language that makes zero security claims.
+- [x] Add repository-relative documentation links only.
 - [ ] Verify the scaffold from a clean checkout with empty tool caches.
 
 Exit gate:
 
-- [ ] Every focused command executes real work and reports a nonzero check
+- [x] Every focused command executes real work and reports a nonzero check
       count or an explicit artifact list.
 - [ ] The full scaffold command succeeds from a clean checkout.
-- [ ] There are no `sorry`, `admit`, placeholder privacy theorems, or unlisted
+- [x] There are no `sorry`, `admit`, placeholder privacy theorems, or unlisted
       axioms.
 
 ### FV2: Prove oracle and manifest foundations
@@ -579,9 +617,9 @@ Exit gate:
 - [ ] Every extracted axiom and opaque function remains in the ledger.
 - [ ] Router admission policy stays owned by Router A/B formal verification.
 
-### FV8: Instantiate deployment profiles and gate release
+### FV8: Instantiate deployment profiles and validate pre-cutover evidence
 
-Depends on: Yao Phases 9-10, 13, and 15 plus FV7
+Depends on: Yao Phases 9-10 and 13 plus FV7
 
 - [ ] Define `SameAccountDevelopmentAssumptions`.
 - [ ] Define `SeparateAccountProductionAssumptions`.
@@ -591,19 +629,60 @@ Depends on: Yao Phases 9-10, 13, and 15 plus FV7
       evidence.
 - [ ] Run the full proof and anti-drift suite on native and WASM artifacts where
       applicable.
-- [ ] Require clean-checkout reproducibility in CI.
-- [ ] Publish theorem, assumption, artifact, toolchain, and review hashes in the
-      release evidence.
-- [ ] Obtain independent formal-methods and deployment review.
-- [ ] Replace the HSS formal-verification default gate at hard cutover and
-      delete HSS-only aliases and compatibility paths.
+- [ ] Obtain pre-cutover independent formal-methods and deployment review.
 
 Exit gate:
 
-- [ ] The release claim matches the proved conditional theorem exactly.
+- [ ] The proposed release claim matches the proved conditional theorem exactly.
 - [ ] Same-account evidence carries development-only wording.
 - [ ] Separate-account evidence demonstrates independent operational control.
+- [ ] Every Phase 13 security and deployment premise maps to a checked theorem,
+      explicit assumption, or reviewed external evidence item.
+
+### FV9: Replace verification gates at hard cutover
+
+Depends on: Yao Phase 14 and FV8
+
+- [ ] Replace the HSS formal-verification default gate with the Yao gate in the
+      same hard-cutover change.
+- [ ] Delete HSS-only verification aliases, compatibility paths, generated
+      artifacts, and proof jobs after their current owners move or are deleted.
+- [ ] Require clean-checkout reproducibility in CI.
+- [ ] Run the full proof, extraction, anti-drift, source-guard, native, and WASM
+      artifact suite against the cutover tree.
+- [ ] Prove repository verification commands cannot silently skip a Yao track or
+      fall back to the deleted HSS track.
+
+Exit gate:
+
 - [ ] All default repository verification commands exercise the Yao tracks.
+- [ ] No default command, artifact path, or release check depends on the deleted
+      HSS verification tree.
+- [ ] The hard-cutover commit records the exact proof, artifact, and toolchain
+      digests it exercised.
+
+### FV10: Publish final release evidence
+
+Depends on: Yao Phase 15 and FV9
+
+- [ ] Publish theorem, assumption, artifact, toolchain, and review hashes in the
+      release evidence.
+- [ ] Obtain final independent formal-methods and deployment approval for the
+      cutover artifacts and exact release wording.
+- [ ] Reproduce every formal track from a clean checkout under the independent
+      operator workflow.
+- [ ] Bind the signed production deployment manifests to the verified protocol,
+      circuit, schema, and proof-artifact digests.
+- [ ] Record every accepted external premise and residual exclusion in the
+      published security capability.
+
+Exit gate:
+
+- [ ] The published release claim matches the proved conditional theorem and
+      assumption ledger exactly.
+- [ ] Both independent Deriver operators attest to the verified artifact set.
+- [ ] Production burn-in introduces no proof, artifact, deployment, or
+      assumption drift.
 
 ## Command Contract
 
@@ -612,6 +691,7 @@ The scaffold should eventually provide:
 ```sh
 cargo yao-fv vectors-check
 cargo yao-fv parity
+cargo yao-fv anti-drift
 cargo yao-fv verus-check
 cargo yao-fv aeneas-check
 cargo yao-fv lean-check
@@ -621,20 +701,22 @@ make -C crates/ed25519-yao/formal-verification check
 just ed25519-yao-fv
 ```
 
-`all` runs, in order:
+`all` runs six nonempty tracks, in order:
 
-1. vector regeneration and diff;
-2. Rust oracle/circuit/protocol parity;
+1. vector regeneration and byte comparison;
+2. Rust oracle/manifest parity, including compile-fail doctests;
 3. production/mirror anti-drift tests;
-4. Aeneas extraction and generated-artifact diff;
-5. explicit Lean boundary builds;
-6. explicit Lean model builds;
-7. Verus verification;
-8. an assertion that every expected track and target actually ran.
+4. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
+   builds;
+5. the explicit Lean model build;
+6. Verus verification through a driver in the same pinned release bundle.
 
-The aggregate repository formal-verification command adds this gate while Yao
-is isolated. At the Ed25519 hard cutover it removes the obsolete HSS gate in
-the same change.
+Every track checks an exact nonzero evidence count or explicit artifact list
+from `formal-verification/toolchain.toml`.
+
+After the FV1 empty-cache bootstrap gate closes, the aggregate repository
+formal-verification command adds Yao while the implementation remains isolated.
+At the Ed25519 hard cutover it removes the obsolete HSS gate in the same change.
 
 ## Anti-Drift Policy
 
@@ -655,26 +737,27 @@ stream transcript, ticket lifecycle, or artifact encoding requires:
 
 ## Readiness Dashboard
 
-| Prerequisite                                                   | Current state              |
-| -------------------------------------------------------------- | -------------------------- |
-| Frozen protocol, circuit-family, and output-schema identifiers | complete                   |
-| Typed draft manifest and canonical digest binding              | complete                   |
-| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation |
-| RFC 8032 reference vectors                                     | partial Phase 1 foundation |
-| Five exact lifecycle ideal functionalities                     | missing                    |
-| Frozen `StableKeyDerivationContext` and continuity vectors     | missing                    |
-| Complete party views, leakage, and aborts                      | missing                    |
-| Deterministic circuit IR, compiler, schedule, and artifacts    | missing                    |
-| Passive garbler/evaluator implementation                       | missing                    |
-| Private randomized outputs and streaming state machine         | missing                    |
-| Selected reviewed active suite                                 | missing                    |
-| One-use ticket and adapter state machines                      | missing                    |
-| Formal-verification directory and clean build gate             | missing                    |
+| Prerequisite                                                   | Current state                                   |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| Frozen protocol, circuit-family, and output-schema identifiers | complete                                        |
+| Typed draft manifest and canonical digest binding              | complete                                        |
+| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                      |
+| RFC 8032 reference vectors                                     | partial Phase 1 foundation                      |
+| Five exact lifecycle ideal functionalities                     | missing                                         |
+| Frozen `StableKeyDerivationContext` encoding and binding       | complete                                        |
+| Stable-context KDF integration and continuity vectors          | missing                                         |
+| Complete party views, leakage, and aborts                      | missing                                         |
+| Deterministic circuit IR, compiler, schedule, and artifacts    | missing                                         |
+| Passive garbler/evaluator implementation                       | missing                                         |
+| Private randomized outputs and streaming state machine         | missing                                         |
+| Selected reviewed active suite                                 | missing                                         |
+| One-use ticket and adapter state machines                      | missing                                         |
+| Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending |
 
-Current verdict: retain the plan and continue Yao Phase 1. FV1 may begin after
-explicit approval. Notify the maintainer to begin FV0 and FV2 when Phase 1 and
-the FV1 exit gate are satisfied. Notify again before FV3 and FV6 when their
-implementation gates close.
+Current verdict: continue Yao Phase 1 and the FV1 mechanical scaffold. Notify
+the maintainer to begin FV0 and FV2 when Phase 1 and the FV1 exit gate are
+satisfied. Notify again before FV3 and FV6 when their implementation gates
+close.
 
 ## Definition of Done
 

@@ -181,15 +181,15 @@ responsibility.
 
 ## Current-State Gap Matrix
 
-| Requirement                                                                      | Intended source                            | Current implementation evidence                                                                                                                 | Classification                  | Confidence | Owning phase |
-| -------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ------------ |
-| Ed25519 derivation uses strict A/B role processes                                | `router-a-b-SPEC.md` Sections 2-5          | `/router-ab/ed25519/hss/*` dispatches to `ThresholdSigningService` in `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts` | Critical mismatch               |     `0.99` | 5, 7, 10     |
-| Ed25519 identity derives from canonical `d`                                      | `crates/ed25519-hss/specs/derivation.md`   | `router-ab-core` selects independent `x_client_base` and `x_server_base` threshold-PRF purposes                                                 | Critical mismatch               |     `0.99` | 1, 5         |
-| Neither peer obtains both share sides                                            | `router-a-b-SPEC.md` Section 3             | `DdhHssSharedWord` and client/server delivery APIs carry both sides                                                                             | Critical mismatch               |     `0.99` | 3, 4         |
-| Actively secure Streaming Yao is implemented                                     | `yaos-ab.md`                                | No fixed-circuit active Yao crate, malicious OT, input binding, or authenticated private-output implementation exists                           | Critical missing implementation |     `0.99` | 2, 3, 4      |
-| Production uses independent operators                                            | Deployment intent                          | Active deployment documentation and bindings still prioritize same-account Service Bindings                                                     | High missing implementation     |     `0.97` | 6, 11        |
-| ECDSA threshold-PRF/additive shares use strict Router A/B only                   | Router A/B spec                            | Strict ECDSA components exist, while generic service getters and threshold route handlers remain reachable                                      | High partial match              |     `0.96` | 5, 8, 10     |
-| One malicious Deriver cannot corrupt or selectively fail the protocol undetected | Target threat model                        | No active Yao compiler, malicious OT, input consistency, or authenticated private-output composition exists                                     | Critical missing implementation |     `0.95` | 3, 4, 9      |
+| Requirement                                                                      | Intended source                          | Current implementation evidence                                                                                                                 | Classification                  | Confidence | Owning phase |
+| -------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ------------ |
+| Ed25519 derivation uses strict A/B role processes                                | `router-a-b-SPEC.md` Sections 2-5        | `/router-ab/ed25519/hss/*` dispatches to `ThresholdSigningService` in `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts` | Critical mismatch               |     `0.99` | 5, 7, 10     |
+| Ed25519 identity derives from canonical `d`                                      | `crates/ed25519-hss/specs/derivation.md` | `router-ab-core` selects independent `x_client_base` and `x_server_base` threshold-PRF purposes                                                 | Critical mismatch               |     `0.99` | 1, 5         |
+| Neither peer obtains both share sides                                            | `router-a-b-SPEC.md` Section 3           | `DdhHssSharedWord` and client/server delivery APIs carry both sides                                                                             | Critical mismatch               |     `0.99` | 3, 4         |
+| Actively secure Streaming Yao is implemented                                     | `yaos-ab.md`                             | No fixed-circuit active Yao crate, malicious OT, input binding, or authenticated private-output implementation exists                           | Critical missing implementation |     `0.99` | 2, 3, 4      |
+| Production uses independent operators                                            | Deployment intent                        | Active deployment documentation and bindings still prioritize same-account Service Bindings                                                     | High missing implementation     |     `0.97` | 6, 11        |
+| ECDSA threshold-PRF/additive shares use strict Router A/B only                   | Router A/B spec                          | Strict ECDSA components exist, while generic service getters and threshold route handlers remain reachable                                      | High partial match              |     `0.96` | 5, 8, 10     |
+| One malicious Deriver cannot corrupt or selectively fail the protocol undetected | Target threat model                      | No active Yao compiler, malicious OT, input consistency, or authenticated private-output composition exists                                     | Critical missing implementation |     `0.95` | 3, 4, 9      |
 
 This matrix is the initial implementation baseline. Each phase updates the
 corresponding row with code, tests, and evidence. A partial match does not count
@@ -203,12 +203,16 @@ flowchart LR
   R -->|"A envelope"| A["Deriver A account"]
   R -->|"B envelope"| B["Deriver B account"]
   A <-->|"signed transcript-bound secure-computation messages"| B
-  A -->|"encrypted client output A"| C
-  B -->|"encrypted client output B"| C
-  A -->|"encrypted server output A"| SW["SigningWorker"]
-  B -->|"encrypted server output B"| SW
+  A -->|"opaque recipient ciphertexts A"| R
+  B -->|"opaque recipient ciphertexts B"| R
+  R -->|"encrypted client package set"| C
+  R -->|"encrypted server package set"| SW["SigningWorker"]
   SW -->|"activation receipt / signing response"| R
 ```
+
+Router-mediated ciphertext relay is the sole target product topology. The large
+garbled stream remains direct between A and B. Router carries only compact
+recipient ciphertexts and public receipts and cannot decrypt or combine them.
 
 Normal signing after activation remains:
 
@@ -367,20 +371,47 @@ advertise the hardened claim until the active-security phase and audit pass.
 
 ## Phase Overview
 
-| Phase | Name                                             | Depends on          | Exit result                                            |
-| ----: | ------------------------------------------------ | ------------------- | ------------------------------------------------------ |
-|     0 | Freeze contract and stop-ship status             | None                | Approved scope, threat model, budgets, identity policy |
-|     1 | Freeze functionality, vectors, and party views   | Phase 0             | Canonical Ed25519/ECDSA identity and lifecycle oracle  |
-|     2 | Build isolated Yao oracle and circuit foundations | Phase 1            | Exact vectors, manifests, and deterministic artifacts  |
-|     3 | Build the actively secure Streaming Yao core     | Phase 2             | Role-local production construction                     |
-|     4 | Add one-use role and preprocessing protocol      | Phase 3             | Malicious privacy/correctness-with-abort candidate     |
-|     5 | Add strict Router A/B protocol integration       | Phases 1, 4         | Typed Ed25519 and ECDSA strict lifecycle contracts     |
-|     6 | Implement independent-account Cloudflare runtime | Phase 5 wire freeze | Signed cross-account A/B execution                     |
-|     7 | Migrate Ed25519 product lifecycles               | Phases 5, 6         | All Ed25519 flows use strict Router A/B                |
-|     8 | Complete ECDSA strict migration                  | Phases 5, 6         | All ECDSA flows use strict Router A/B                  |
-|     9 | Security, constant-time, and performance gates   | Phases 3-8          | Auditable release evidence                             |
-|    10 | Hard cutover and legacy deletion                 | Phases 7-9          | One implementation; generic service deleted            |
-|    11 | Independent production evidence and release      | Phase 10            | Signed two-operator release evidence                   |
+| Phase | Name                                              | Depends on          | Exit result                                            |
+| ----: | ------------------------------------------------- | ------------------- | ------------------------------------------------------ |
+|     0 | Freeze contract and stop-ship status              | None                | Approved scope, threat model, budgets, identity policy |
+|     1 | Freeze functionality, vectors, and party views    | Phase 0             | Canonical Ed25519/ECDSA identity and lifecycle oracle  |
+|     2 | Build isolated Yao oracle and circuit foundations | Phase 1             | Exact vectors, manifests, and deterministic artifacts  |
+|     3 | Build the actively secure Streaming Yao core      | Phase 2             | Role-local production construction                     |
+|     4 | Add one-use role and preprocessing protocol       | Phase 3             | Malicious privacy/correctness-with-abort candidate     |
+|     5 | Add strict Router A/B protocol integration        | Phases 1, 4         | Typed Ed25519 and ECDSA strict lifecycle contracts     |
+|     6 | Implement independent-account Cloudflare runtime  | Phase 5 wire freeze | Signed cross-account A/B execution                     |
+|     7 | Migrate Ed25519 product lifecycles                | Phases 5, 6         | All Ed25519 flows use strict Router A/B                |
+|     8 | Complete ECDSA strict migration                   | Phases 5, 6         | All ECDSA flows use strict Router A/B                  |
+|     9 | Security, constant-time, and performance gates    | Phases 3-8          | Auditable release evidence                             |
+|    10 | Hard cutover and legacy deletion                  | Phases 7-9          | One implementation; generic service deleted            |
+|    11 | Independent production evidence and release       | Phase 10            | Signed two-operator release evidence                   |
+
+### Cross-Plan Phase Crosswalk And Status Rules
+
+`yaos-ab.md` owns the fine-grained Ed25519 Yao phase gates. This plan owns the
+wider Ed25519/ECDSA product migration and cleanup gates. The formal-verification
+plan owns proof readiness and evidence. A checked task means only that exact
+foundation exists; it cannot bypass a blocked dependency or phase exit gate.
+
+| This plan | Authoritative Yao phases | Formal-verification phases |
+| --------- | ------------------------ | -------------------------- |
+| 0         | 0                        | planning only              |
+| 1         | 1                        | FV0-FV1                    |
+| 2         | 1-3 foundation slice     | FV2-FV4                    |
+| 3         | 3-6                      | FV4-FV6                    |
+| 4         | 7                        | FV7                        |
+| 5         | 8                        | FV7                        |
+| 6         | 9-10                     | FV8                        |
+| 7         | 11                       | FV7-FV8 evidence           |
+| 8         | 12                       | outside Ed25519 Yao proofs |
+| 9         | 13                       | FV8                        |
+| 10        | 14                       | FV9                        |
+| 11        | 15                       | FV10                       |
+
+Current status is aligned across plans: Phase 0 is closed and Phase 1 is in
+progress. This plan's Phase 2 remains blocked on Phase 1. Its existing isolated
+oracle, identifiers, draft manifests, and tests are partial foundation work and
+do not open circuit synthesis, passive Yao, active protocol, or integration.
 
 ## Phase 0: Freeze Contract And Stop-Ship Status
 
@@ -438,18 +469,24 @@ backend.
 
 ### TODO
 
-- [ ] Move the exact correctness oracle into
+- [x] Move the exact correctness oracle into
       `tools/ed25519-yao-generator`, with no `ed25519-hss` dependency.
-- [ ] Define `Ed25519CanonicalDerivationV1` fixtures containing the complete
-      context, A/B inputs, joined test-only values, `d`, SHA-512 digest, clamped
-      `a`, `tau`, both output shares, public key, and export seed.
-- [ ] Freeze KDF labels, context fields, canonical encoding, endianness,
-      reductions, participant identifiers, and domain separators.
-- [ ] Add standard Ed25519 seed import/export vectors.
-- [ ] Add randomized differential vectors and carry-heavy addition cases.
-- [ ] Add clamp-boundary and scalar-reduction edge cases.
-- [ ] Verify `a = 2*x_client_base - x_server_base mod l` for every vector.
-- [ ] Verify exported `d` reproduces the registered public key and standard
+- [x] Define `VectorClearReferenceTraceV1` fixtures containing the complete
+      stable-context record, A/B inputs, joined test-only `y_A`, `y_B`, `d`,
+      SHA-512 digest, clamped and reduced `a`, `tau_A`, `tau_B`, `tau`, both
+      unshared scalar bases, public commitments, public key, and export seed.
+- [x] Freeze stable-context fields, canonical encoding, endianness, reductions,
+      participant identifiers, and domain separators.
+- [ ] Freeze role-local contribution KDF labels and bind the stable context into
+      those KDFs.
+- [x] Add standard RFC 8032 seed import/export and signature-parity vectors.
+- [ ] Add randomized differential vectors against an independent
+      implementation.
+- [x] Add carry-heavy addition cases.
+- [x] Add clamp-boundary and scalar-reduction edge cases.
+- [x] Verify `a = 2*x_client_base - x_server_base mod l` for every committed
+      vector.
+- [x] Verify exported `d` reproduces the registered public key and standard
       signature behavior.
 - [ ] Add refresh-before/after vectors proving stable `d`, `a`, public key, and
       output reconstruction.
@@ -480,7 +517,7 @@ backend.
 
 ## Phase 2: Build Isolated Yao Oracle And Circuit Foundations
 
-Status: **started; SDK and Router integration deferred**
+Status: **blocked on Phase 1; partial isolated foundations completed ahead of gate**
 
 Goal: establish exact, deterministic foundations in isolated crates before any
 product-path code changes.
@@ -501,13 +538,13 @@ crates/ed25519-yao/
 
 ### TODO
 
-- [ ] Implement activation and export reference functions as distinct output
+- [x] Implement activation and export reference functions as distinct output
       types; seed output is impossible outside export.
-- [ ] Add RFC 8032, carry-heavy, clamp, reduction, output-equation, and
+- [x] Add RFC 8032, carry-heavy, clamp, reduction, output-equation, and
       noncanonical-scalar vectors.
-- [ ] Freeze `router_ab_ed25519_yao_v1`, activation circuit, and export circuit
+- [x] Freeze `router_ab_ed25519_yao_v1`, activation circuit, and export circuit
       identifiers in the production crate.
-- [ ] Define validated digests and required circuit metrics without runtime
+- [x] Define validated digests and required circuit metrics without runtime
       backend or security-profile selectors.
 - [ ] Implement a minimal fixed circuit IR and exact SHA-512 specialization.
 - [ ] Implement 256-bit addition, clamp, reduction modulo `l`, `tau`
@@ -687,8 +724,8 @@ Goal: implement the operational segregation required by the security claim.
 - [ ] Replace shared A/B internal bearer secrets with per-edge asymmetric
       authentication or reviewed mutually authenticated transport.
 - [ ] Maintain independent atomic replay state at A and B.
-- [ ] Deliver encrypted output shares directly to Client and SigningWorker when
-      the deployment permits; Router may relay only opaque ciphertext.
+- [ ] Return exact encrypted output-share package sets to Router and require
+      Router to relay only opaque ciphertext to Client and SigningWorker.
 - [ ] Require SigningWorker activation acknowledgement before a registration or
       refresh ceremony becomes complete.
 - [ ] Add fail-closed startup validation for forbidden bindings, secrets, stores,
@@ -713,7 +750,8 @@ Goal: implement the operational segregation required by the security claim.
       tests pass.
 - [ ] Router sees only public metadata, ciphertext, and receipts.
 - [ ] Role-local crash/retry/equivocation tests pass in Durable Objects.
-- [ ] Two-account staging meets the frozen resource budgets.
+- [ ] Two-account staging records the latency, memory, CPU, payload, and cold-
+      start evidence consumed by Phase 9; Phase 9 applies the release budgets.
 
 ## Phase 7: Migrate Ed25519 Product Lifecycles
 
@@ -1152,9 +1190,9 @@ they do not replace them.
 | 2026-07-10 | Standard Ed25519 seed export is mandatory                  | Wallets must export/import through the canonical Ed25519 seed path             |
 | 2026-07-10 | Active Streaming Yao is the sole Ed25519 target            | It offers the highest-confidence path to the approved malicious-Deriver claim  |
 | 2026-07-10 | Stop all succinct-HSS implementation and optimization work | Existing simulator and analytical measurements remain historical evidence only |
-| 2026-07-10 | ECDSA retains threshold PRF and additive scalar shares     | Its scalar lifecycle does not require the Ed25519 seed-to-scalar circuit        |
+| 2026-07-10 | ECDSA retains threshold PRF and additive scalar shares     | Its scalar lifecycle does not require the Ed25519 seed-to-scalar circuit       |
 | 2026-07-10 | Production requires separate Cloudflare accounts/deployers | Separate Workers in one account do not meet the operational segregation target |
-| 2026-07-10 | Development cutover requires wallet reprovisioning         | One clean Yao-era stable context removes migration and compatibility paths      |
+| 2026-07-10 | Development cutover requires wallet reprovisioning         | One clean Yao-era stable context removes migration and compatibility paths     |
 | 2026-07-10 | No ECDSA-specific successor to `ThresholdSigningService`   | Existing strict Router A/B ECDSA components are the target owners              |
 
 ## Phase Progress Record

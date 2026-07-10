@@ -13,6 +13,22 @@ use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha512};
 
+mod context;
+mod fixtures;
+
+pub use context::{
+    ApplicationBindingDigest, NormalizedParticipantIds, ParticipantPosition,
+    StableKeyDerivationContext, StableKeyDerivationContextBindingDigest,
+    StableKeyDerivationContextBytes, StableKeyDerivationContextError,
+    STABLE_KEY_DERIVATION_CONTEXT_BINDING_DOMAIN_V1, STABLE_KEY_DERIVATION_CONTEXT_DOMAIN_V1,
+    STABLE_KEY_DERIVATION_CONTEXT_ENCODED_LEN,
+};
+pub use fixtures::{
+    canonical_vector_corpus_v1, LifecycleRequestKindV1, VectorCaseV1, VectorClearReferenceTraceV1,
+    VectorContextV1, VectorCorpusV1, VectorExportCaseV1, VectorInputsV1, VectorReferenceCaseV1,
+    VECTOR_CORPUS_SCHEMA_V1,
+};
+
 /// Fallible result returned while validating raw role contributions.
 pub type OracleResult<T> = Result<T, OracleError>;
 

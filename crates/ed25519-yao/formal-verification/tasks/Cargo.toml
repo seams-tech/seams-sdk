@@ -1,0 +1,17 @@
+[package]
+name = "ed25519-yao-formal-verification-tasks"
+version = "0.1.0"
+edition = "2021"
+description = "Host-only task runner for the isolated Ed25519 Yao verification tracks"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "ed25519-yao-formal-verification-tasks"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[workspace]

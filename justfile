@@ -38,6 +38,34 @@ ed25519-hss-fv-verus:
   cargo hss-fv parity
   cargo hss-fv verus-check
 
+# Run every currently gated Ed25519 Yao formal-verification track.
+ed25519-yao-fv:
+  cargo yao-fv all
+
+# Check the committed Ed25519 Yao vector corpus through the clear oracle.
+ed25519-yao-fv-vectors:
+  cargo yao-fv vectors-check
+
+# Run the Rust manifest and clear-oracle parity suites.
+ed25519-yao-fv-parity:
+  cargo yao-fv parity
+
+# Run production-to-mirror anti-drift without requiring Verus.
+ed25519-yao-fv-anti-drift:
+  cargo yao-fv anti-drift
+
+# Build the named Ed25519 Yao Lean model target.
+ed25519-yao-fv-lean:
+  cargo yao-fv lean-check
+
+# Run the pinned Aeneas extraction and named Lean boundary targets.
+ed25519-yao-fv-aeneas:
+  cargo yao-fv aeneas-check
+
+# Verify the current Ed25519 Yao Verus mirror with the pinned release.
+ed25519-yao-fv-verus:
+  cargo yao-fv verus-check
+
 # Run the active crate parity tests for `ecdsa-hss`.
 ecdsa-hss-fv-parity:
   cargo test -q --manifest-path crates/ecdsa-hss/Cargo.toml --test role_local_mvp

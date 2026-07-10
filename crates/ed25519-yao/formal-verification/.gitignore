@@ -1,0 +1,5 @@
+/tasks/target/
+/verus/target/
+/lean-boundary/.lake/
+/lean-boundary/tools/
+/lean-model/.lake/

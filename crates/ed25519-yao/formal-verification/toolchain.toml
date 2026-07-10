@@ -1,0 +1,30 @@
+[verus]
+release = "0.2026.04.03.21dfcd2"
+vstd = "0.0.0-2026-03-29-0113"
+
+[aeneas]
+repo = "https://github.com/AeneasVerif/aeneas.git"
+rev = "42c0e90dacf486f7d3ed5b6cde3a9a81f04915a4"
+
+[charon]
+repo = "https://github.com/AeneasVerif/charon.git"
+rev = "419f53b6eed3fe487a8427fd290a734c49634366"
+
+[lean]
+toolchain = "leanprover/lean4:v4.28.0-rc1"
+
+[extraction]
+crate = "tools/ed25519-yao-generator"
+functions = [
+  "ed25519_yao_generator::wrapping_add_le_256",
+  "ed25519_yao_generator::clamp_rfc8032",
+]
+
+[evidence]
+vector_cases = 5
+production_rust_tests = 16
+generator_rust_tests = 19
+anti_drift_tests = 6
+verus_obligations = 10
+lean_model_theorems = 3
+aeneas_extracted_functions = 2

@@ -59,8 +59,9 @@ flowchart LR
   R --> A["Deriver A"]
   R --> B["Deriver B"]
   A <--> B
-  A --> SW["SigningWorker when activation output is needed"]
-  B --> SW
+  A -->|"opaque recipient ciphertexts"| R
+  B -->|"opaque recipient ciphertexts"| R
+  R --> SW["SigningWorker when activation output is needed"]
 ```
 
 Deriver A and Deriver B leave the hot signing path after activation. Normal
@@ -87,8 +88,8 @@ Router may hold:
 
 Router must never hold both raw sides of protected split values. Router must not
 open deriver plaintext envelopes, client output packages, SigningWorker output
-packages, raw root material, canonical ECDSA private keys, or Ed25519 HSS client
-base material.
+packages, raw root material, canonical ECDSA private keys, or Ed25519 client-base
+material.
 
 ### 2.2 Deriver A And Deriver B
 
@@ -137,7 +138,7 @@ protocol logic, crypto-secret material, key/share derivation, binding checks,
 nonce/client-base state, ECDSA-HSS client signing shares, presign/client-share
 material, PRF-derived secret state, and signing-share generation.
 
-TypeScript must not own raw Ed25519 HSS client-base material, raw ECDSA-HSS
+TypeScript must not own raw Ed25519 client-base material, raw ECDSA-HSS
 client signing shares, presignature secrets, nonce secrets, PRF.first bytes, or
 signing shares.
 
@@ -152,9 +153,11 @@ Router A/B targets this split-custody invariant:
 
 ```text
 server never has joined d, a, x_client_base
-client never has joined d, a, y_server, tau_server
-client opens only x_client_base
+outside explicit authorized export, client never has joined d or a
+client never has joined y_server or tau_server
+in non-export ceremonies, client opens only x_client_base
 SigningWorker opens only x_server_base
+authorized export lets only the client reconstruct d and therefore derive a
 ```
 
 Split values are algebraic relationships, not transport payloads:
@@ -171,14 +174,14 @@ may receive both raw sides of a protected split value.
 
 Threat containment matrix:
 
-| Compromise | Expected exposure | Required containment |
-| --- | --- | --- |
-| Router | Public metadata, ciphertext, hashes, timings | No deriver plaintext, root shares, output shares, or signing shares |
-| Deriver A | A custody material and A local derived material | No B plaintext, no joined `d`, no joined `a`, no `x_client_base`, no `x_server_base` |
-| Deriver B | B custody material and B local derived material | No A plaintext, no joined `d`, no joined `a`, no `x_client_base`, no `x_server_base` |
-| SigningWorker | Activated server signing material and nonce/presign state | No `k_org`, no joined root, no client material, no Deriver A/B root material |
-| Client | User client material and local worker handles | No server root material, no `y_server`, no `tau_server` |
-| Logs/observability | Public metadata, hashes, timings, state transitions | No protocol payload plaintext or secret material |
+| Compromise         | Expected exposure                                                                         | Required containment                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Router             | Public metadata, ciphertext, hashes, timings                                              | No deriver plaintext, root shares, output shares, or signing shares                              |
+| Deriver A          | A custody material and A local derived material                                           | No B plaintext, no joined `d`, no joined `a`, no `x_client_base`, no `x_server_base`             |
+| Deriver B          | B custody material and B local derived material                                           | No A plaintext, no joined `d`, no joined `a`, no `x_client_base`, no `x_server_base`             |
+| SigningWorker      | Activated server signing material and nonce/presign state                                 | No `k_org`, no joined root, no client material, no Deriver A/B root material                     |
+| Client             | User client material, local worker handles, and `d`/`a` during explicit authorized export | No server root material, `y_server`, or `tau_server`; `d`/`a` only in explicit authorized export |
+| Logs/observability | Public metadata, hashes, timings, state transitions                                       | No protocol payload plaintext or secret material                                                 |
 
 Production release claim:
 
@@ -279,8 +282,9 @@ flowchart TD
     R1 --> A["Deriver A"]
     R1 --> B["Deriver B"]
     A <--> B
-    A --> SW1["SigningWorker"]
-    B --> SW1
+    A -->|"opaque ciphertexts"| R1
+    B -->|"opaque ciphertexts"| R1
+    R1 --> SW1["SigningWorker"]
     SW1 --> AR["Activation receipt"]
     AR --> R1
   end
@@ -342,10 +346,10 @@ Production release requires:
 One `DerivationCeremony` lifecycle covers request-kind-specific scope:
 
 - `registration`
-- `key_export`
+- `activation`
 - `recovery`
-- `server_share_refresh`
-- `activation_refresh`
+- `refresh`
+- `export`
 
 Normal signing is not a derivation ceremony. It consumes active SigningWorker
 state.
@@ -446,10 +450,9 @@ sequenceDiagram
   B->>A: protocol message B1
   A->>B: protocol message A2
   B->>A: protocol message B2
-  A-->>R: encrypted client package A, public delivery metadata
-  B-->>R: encrypted client package B, public delivery metadata
-  A-->>SW: encrypted SigningWorker proof bundle A
-  B-->>SW: encrypted SigningWorker proof bundle B
+  A-->>R: encrypted recipient packages A, public delivery metadata
+  B-->>R: encrypted recipient packages B, public delivery metadata
+  R-->>SW: opaque encrypted SigningWorker package set
   SW-->>R: activation receipt/status
 ```
 
@@ -465,8 +468,9 @@ Client output:
 flowchart LR
   A["Deriver A"] --> CA["EncryptToClient(x_client_A package)"]
   B["Deriver B"] --> CB["EncryptToClient(x_client_B package)"]
-  CA --> C["Client opens x_client_base = x_client_A + x_client_B"]
-  CB --> C
+  CA --> R["Router opaque relay"]
+  CB --> R
+  R --> C["Client opens x_client_base = x_client_A + x_client_B"]
 ```
 
 SigningWorker output:
@@ -475,8 +479,9 @@ SigningWorker output:
 flowchart LR
   A["Deriver A"] --> SA["EncryptToSigningWorker(x_server_A package)"]
   B["Deriver B"] --> SB["EncryptToSigningWorker(x_server_B package)"]
-  SA --> SW["SigningWorker opens x_server_base = x_server_A + x_server_B"]
-  SB --> SW
+  SA --> R["Router opaque relay"]
+  SB --> R
+  R --> SW["SigningWorker opens x_server_base = x_server_A + x_server_B"]
 ```
 
 Output packages bind request kind, transcript digest, recipient identity, role,
@@ -500,10 +505,9 @@ sequenceDiagram
   R->>B: encrypted B envelope
   A->>B: A/B protocol message
   B->>A: A/B protocol message
-  A->>R: encrypted client package A
-  B->>R: encrypted client package B
-  A->>SW: encrypted SigningWorker package A
-  B->>SW: encrypted SigningWorker package B
+  A->>R: encrypted client and SigningWorker packages A
+  B->>R: encrypted client and SigningWorker packages B
+  R->>SW: opaque encrypted SigningWorker package set
   SW->>SW: open and activate x_server_base
   SW->>R: activation receipt/status
   R->>C: encrypted client packages
@@ -575,10 +579,10 @@ At the end of the A/B protocol:
 
 ```mermaid
 flowchart TD
-  A["Deriver A"] --> ACA["x_client_A"]
-  A --> ASA["x_server_A"]
-  B["Deriver B"] --> BCB["x_client_B"]
-  B --> BSB["x_server_B"]
+  A["Deriver A"] --> ACA["authenticated x_client_A share"]
+  A --> ASA["authenticated x_server_A share"]
+  B["Deriver B"] --> BCB["authenticated x_client_B share"]
+  B --> BSB["authenticated x_server_B share"]
 ```
 
 Client-output material:
@@ -587,87 +591,128 @@ Client-output material:
 flowchart LR
   ACA["x_client_A package"] --> EA["EncryptToClient"]
   BCB["x_client_B package"] --> EB["EncryptToClient"]
-  EA --> C["Client opens x_client_base = x_client_A + x_client_B"]
-  EB --> C
+  EA --> R["Router opaque relay"]
+  EB --> R
+  R --> C["Client verifies, then opens x_client_base"]
 ```
 
 SigningWorker-output material:
 
 ```mermaid
 flowchart LR
-  ASA["x_server_A package"] --> SW["SigningWorker"]
-  BSB["x_server_B package"] --> SW
-  SW --> OPEN["SigningWorker opens x_server_base = x_server_A + x_server_B"]
+  ASA["x_server_A package"] --> R["Router opaque relay"]
+  BSB["x_server_B package"] --> R
+  R --> SW["SigningWorker verifies, then opens x_server_base"]
 ```
 
-The direct A/B -> SigningWorker delivery path is the preferred production
-activation profile when latency matters. The payload is still recipient-scoped
-ciphertext; Deriver A/B do not receive SigningWorker state, and SigningWorker
-does not request A/B derivation work. Router-mediated relay can carry the same
-ciphertext in local tests or restricted deployments, with the same
-SigningWorker verification and receipt rules.
+Router-mediated ciphertext relay is the sole product delivery topology. A and B
+return compact recipient ciphertexts and a signed public receipt to Router.
+Router forwards the client package set in the public response and forwards the
+SigningWorker package set over its private worker edge. Router cannot decrypt,
+combine, substitute, or reinterpret either package set. This keeps lifecycle
+admission, delivery status, and activation receipts on one control-plane path
+without placing recipient plaintext in Router.
 
-If the Router aggregates responses, it aggregates ciphertext only:
+The target relay response is a discriminated union so export-only seed material
+cannot appear in an activation-family response:
 
 ```ts
-type RouterSplitDerivationResponse = {
+type RouterYaoActivationRelayResponse = {
+  kind: 'activation_output';
   requestId: string;
   protocolVersion: string;
-  requestKind: RouterSplitDerivationRequest['requestKind'];
+  requestKind: 'registration' | 'activation' | 'recovery' | 'refresh';
   accountId: string;
   sessionId: string;
   transcriptNonce: string;
   publicTranscriptDigest: string;
-  aClientPackage: EncryptedClientPackage;
-  bClientPackage: EncryptedClientPackage;
+  publicOutputReceipt: SignedYaoOutputReceipt;
+  aClientPackage: Ed25519YaoActivationShareCiphertextV1;
+  bClientPackage: Ed25519YaoActivationShareCiphertextV1;
+  aSigningWorkerPackage: Ed25519YaoActivationShareCiphertextV1;
+  bSigningWorkerPackage: Ed25519YaoActivationShareCiphertextV1;
+  aSeedExportPackage?: never;
+  bSeedExportPackage?: never;
 };
+
+type RouterYaoExportRelayResponse = {
+  kind: 'seed_export_output';
+  requestId: string;
+  protocolVersion: string;
+  requestKind: 'export';
+  accountId: string;
+  sessionId: string;
+  transcriptNonce: string;
+  publicTranscriptDigest: string;
+  publicOutputReceipt: SignedYaoOutputReceipt;
+  aSeedExportPackage: Ed25519YaoSeedExportShareCiphertextV1;
+  bSeedExportPackage: Ed25519YaoSeedExportShareCiphertextV1;
+  aClientPackage?: never;
+  bClientPackage?: never;
+  aSigningWorkerPackage?: never;
+  bSigningWorkerPackage?: never;
+};
+
+type RouterYaoDerivationRelayResponse =
+  | RouterYaoActivationRelayResponse
+  | RouterYaoExportRelayResponse;
 ```
 
-The Router may verify public transcript hashes and deriver signatures, but it
-must not be able to decrypt `aClientPackage` or `bClientPackage`.
-
-Strict production delivery uses `RecipientProofBundlePayloadV1` rather than a
-joined output package. Each deriver filters its proof batch into a single
-recipient-scoped payload before delivery:
+Activation-family delivery uses `Ed25519YaoActivationSharePayloadV1` encrypted
+as `Ed25519YaoActivationShareCiphertextV1`. Export delivery uses the disjoint
+`Ed25519YaoSeedExportSharePayloadV1` encrypted as
+`Ed25519YaoSeedExportShareCiphertextV1`. Each Deriver emits one role-private
+share per authorized recipient:
 
 ```mermaid
 flowchart LR
-  A["Deriver A"] --> AC["RecipientProofBundlePayloadV1(client, x_client_base, deriver_a)"]
-  B["Deriver B"] --> BC["RecipientProofBundlePayloadV1(client, x_client_base, deriver_b)"]
-  A --> AS["RecipientProofBundlePayloadV1(SigningWorker, x_server_base, deriver_a)"]
-  B --> BS["RecipientProofBundlePayloadV1(SigningWorker, x_server_base, deriver_b)"]
-  AC --> C["Client"]
-  BC --> C
-  AS --> SW["SigningWorker"]
-  BS --> SW
+  A["Deriver A"] --> AC["encrypted client share A"]
+  B["Deriver B"] --> BC["encrypted client share B"]
+  A --> AS["encrypted SigningWorker share A"]
+  B --> BS["encrypted SigningWorker share B"]
+  AC --> R["Router"]
+  BC --> R
+  AS --> R
+  BS --> R
+  R --> C["Client"]
+  R --> SW["SigningWorker"]
 ```
 
-The canonical payload binds lifecycle id, producing deriver identity, recipient
-role, opened-share kind, recipient identity, transcript digest, and the nested
-single-bundle proof batch. The decoder rejects payloads that contain more than
-one proof bundle, target the wrong recipient class, or mismatch the enclosed
-proof-batch binding. The wire kind is `recipient_proof_bundle`.
+Every activation-share payload contains exactly one scalar share, its public
+point commitment, and the reviewed active-output binding that ties the decoded
+scalar, point, ciphertext digest, recipient, circuit, ticket, and transcript to
+the actively secure Yao execution. It never contains the joined
+`x_client_base`, joined `x_server_base`, a seed share, or a nested HSS proof
+batch. A seed-export payload contains exactly one authenticated seed share and
+cannot be decoded as an activation share.
 
-`RecipientProofBundleCiphertextV1` encrypts that canonical payload to the final
-recipient and is the payload carried by the public
-`recipient_proof_bundle` wire kind. Its public header and AAD bind algorithm,
-producing deriver identity, recipient role, opened-share kind, recipient
-identity, recipient encryption key, transcript digest, payload digest, and
-nonce. Cloudflare uses HPKE base mode with X25519, HKDF-SHA256, and AES-256-GCM
-for this envelope.
+The canonical payload and HPKE AAD bind protocol and circuit digest, lifecycle
+and request kind, account/wallet/key identity, root and deployment epochs,
+producing Deriver and peer identity, recipient role and public key, ticket ID,
+transcript root, output kind, payload digest, expiry, replay domain, algorithm,
+and nonce. Recipients verify the active-output binding and public receipt before
+combining shares. Router verifies only public signatures, digests, and delivery
+metadata.
+
+`RecipientProofBundlePayloadV1`, `RecipientProofBundleCiphertextV1`, the
+`recipient_proof_bundle` wire kind, and nested proof-batch filtering describe the
+historical HSS delivery path currently scheduled for deletion. They are not
+valid target Yao payloads, wire kinds, or release evidence.
 
 The first deployable strict profile should be:
 
 ```text
 1. A and B decrypt only their own role envelopes.
-2. A and B run the authenticated A/B proof-batch exchange.
-3. A and B filter full proof batches into client and SigningWorker
-   RecipientProofBundlePayloadV1 values.
-4. A and B encrypt each recipient payload to the final recipient key.
-5. Router forwards opaque encrypted client bundles in the public response.
-6. SigningWorker receives only opaque encrypted SigningWorker bundles and opens
-   x_server_base locally.
-7. Client opens only x_client_base locally.
+2. A and B run the reviewed active Streaming Yao protocol.
+3. A and B decode only their role-private authenticated output shares.
+4. A and B encrypt each active-output-bound share to its final recipient key.
+5. A and B return the exact ciphertext digest set and co-signed public receipt
+   to Router after both one-use tickets reach Consumed.
+6. Router relays opaque encrypted client packages in the public response and
+   opaque encrypted SigningWorker packages over the private worker edge.
+7. SigningWorker verifies both role packages and opens only x_server_base.
+8. Client verifies both role packages and opens only x_client_base, or d only
+   in the explicit authorized export branch.
 ```
 
 ### 5.9 Detailed Normal Signing Flow
@@ -828,7 +873,7 @@ role-specific encrypted envelopes:
 ```ts
 type RouterSplitDerivationRequest = {
   protocolVersion: string;
-  requestKind: 'registration' | 'key_export' | 'recovery' | 'server_share_refresh';
+  requestKind: 'registration' | 'activation' | 'recovery' | 'refresh' | 'export';
   accountId: string;
   sessionId: string;
   transcriptNonce: string;
@@ -854,22 +899,30 @@ Each encrypted deriver envelope must bind:
 The plaintext inside `aEnvelope` is valid only for A. The plaintext inside
 `bEnvelope` is valid only for B.
 
-#### Product-To-Primitive Request Mapping
+#### Product Operation To Ideal Functionality To Circuit Mapping
 
-Router-facing product operations remain more specific than primitive derivation
-request kinds:
+Router validates a product operation, converts it once to one canonical request
+kind, and dispatches the fixed ideal functionality and circuit family below.
+Callers never provide an ideal-function or circuit identifier.
 
-| Product operation      | Primitive request kind | Reason                                                                          |
-| ---------------------- | ---------------------- | ------------------------------------------------------------------------------- |
-| `registration_prepare` | `registration`         | creates the first account output relation after registration authorization      |
-| `key_export`           | `export`               | re-opens existing account output material under export authorization            |
-| `recovery`             | `recovery`             | runs the non-seed activation family under recovery authorization                 |
-| `server_share_refresh` | `refresh`              | rotates future SigningWorker/root-share material and requires activation checks |
+| Product/control operation   | Canonical request kind | Ideal functionality         | Circuit family              | Secret result                                                                                                            |
+| --------------------------- | ---------------------- | --------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `registration_prepare`      | `registration`         | `F_ed25519_registration_v1` | `ed25519_yao_activation_v1` | fresh client and SigningWorker activation-share ciphertexts; no seed                                                     |
+| `signing_worker_activation` | `activation`           | `F_ed25519_activation_v1`   | `ed25519_yao_activation_v1` | activate the previously committed SigningWorker shares; no seed                                                          |
+| `recovery`                  | `recovery`             | `F_ed25519_recovery_v1`     | `ed25519_yao_activation_v1` | fresh recipient activation-share ciphertexts preserving registered identity; no seed                                     |
+| `server_share_refresh`      | `refresh`              | `F_ed25519_refresh_v1`      | `ed25519_yao_activation_v1` | next-epoch recipient activation-share ciphertexts preserving joined `y`, joined `tau`, `d`, and public identity; no seed |
+| `key_export`                | `export`               | `F_ed25519_export_v1`       | `ed25519_yao_export_v1`     | two authenticated seed-share ciphertexts addressed only to the authorized client                                         |
 
-Recovery stays distinct in Router policy, auth, abuse controls, diagnostics,
-and lifecycle state. It uses the activation/non-seed circuit family, produces
-fresh recipient-scoped activation shares, and never receives export seed wires
-or seed-output packages.
+`signing_worker_activation` is an internal control-plane continuation after
+registration, recovery, or refresh output is committed. It consumes and verifies
+the previously produced activation-family packages and never causes a second Yao
+evaluation. Request kind remains transcript-bound even when four ideal
+functionalities share the activation circuit artifact.
+
+Recovery remains distinct in Router policy, authorization, abuse controls,
+diagnostics, and lifecycle state. It preserves `d` through a non-export state
+transition, produces fresh recipient-scoped activation shares, and never receives
+export seed wires or seed-output packages.
 
 ### 6.7 Endpoint And Wire Examples
 
@@ -908,12 +961,12 @@ Router response:
 }
 ```
 
-SigningWorker-share refresh uses the same outer shape with the current
-`server_share_refresh` request-kind label:
+SigningWorker-share refresh uses the same outer shape with the canonical
+`refresh` request-kind label:
 
 ```json
 {
-  "request_kind": "server_share_refresh",
+  "request_kind": "refresh",
   "a_envelope_b64u": "b64u_canonical_encrypted_a_refresh",
   "b_envelope_b64u": "b64u_canonical_encrypted_b_refresh"
 }
@@ -1216,10 +1269,10 @@ Burn semantics:
 
 Final Ed25519 signing consumes only a validated runtime material state, current
 Wallet Session credential, and current server-budget admission. Restore,
-worker-material validation, PRF claims, and HSS setup happen before final
-signing. The final signing path must not restore material, claim PRF, run HSS
-reconstruction, read raw persistence optionals, or fall back to non-Router
-signing.
+worker-material validation, derivation, and activation happen before final
+signing. The final signing path must not restore material, invoke a Deriver,
+reconstruct split derivation state, read raw persistence optionals, or fall back
+to non-Router signing.
 
 If material is absent or invalid, readiness must classify the lane as
 `restore_available`, `material_pending`, or `material_restore_required` before
@@ -1326,8 +1379,9 @@ sequenceDiagram
   R->>B: B envelope, public request metadata
   A->>B: authenticated derivation message
   B->>A: authenticated derivation message
-  A-->>SW: encrypted SigningWorker activation bundle A
-  B-->>SW: encrypted SigningWorker activation bundle B
+  A-->>R: encrypted SigningWorker activation bundle A
+  B-->>R: encrypted SigningWorker activation bundle B
+  R-->>SW: opaque encrypted activation bundle set
   SW-->>R: activation receipt with public ECDSA identity
   R-->>C: public identity, activation receipt, client-facing evidence
 ```
@@ -1392,18 +1446,18 @@ request-digest drift fail closed.
 
 ### 8.6 ECDSA Material Boundaries
 
-| Material | Allowed location |
-| --- | --- |
-| `y_client` | Client only |
-| `x_client` | Client only |
-| Deriver A root/provisioning share | Deriver A only |
-| Deriver B root/provisioning share | Deriver B only |
-| Joined `y_server` | No single production worker |
-| Joined `x_server` before activation | No Deriver or Router plaintext |
-| Activated SigningWorker material | SigningWorker only |
-| Canonical `x` / `privateKeyHex` | Authorized client export runtime only |
-| ECDSA presign/triple/nonce material | SigningWorker/signing backend only |
-| Public `X_client`, `X_server`, `X`, address | Public transcript after validation |
+| Material                                    | Allowed location                      |
+| ------------------------------------------- | ------------------------------------- |
+| `y_client`                                  | Client only                           |
+| `x_client`                                  | Client only                           |
+| Deriver A root/provisioning share           | Deriver A only                        |
+| Deriver B root/provisioning share           | Deriver B only                        |
+| Joined `y_server`                           | No single production worker           |
+| Joined `x_server` before activation         | No Deriver or Router plaintext        |
+| Activated SigningWorker material            | SigningWorker only                    |
+| Canonical `x` / `privateKeyHex`             | Authorized client export runtime only |
+| ECDSA presign/triple/nonce material         | SigningWorker/signing backend only    |
+| Public `X_client`, `X_server`, `X`, address | Public transcript after validation    |
 
 ECDSA-HSS follows the same persisted-hint versus runtime-validation boundary as
 Ed25519. Persisted role-local material, role-local blobs, presign handles, and
@@ -1450,18 +1504,18 @@ timestamp for the same account, active-state session id, and SigningWorker.
 
 ECDSA-HSS transcript domains are protocol-specific:
 
-| Domain | Current label |
-| --- | --- |
-| Stable key context | `ecdsa-hss:context:v2` |
-| Context binding | `ecdsa-hss:role-local:v2:context-binding` |
-| Public identity | `router-ab-protocol/ecdsa-hss/public-identity/v1` |
-| Registration request | `router-ab-protocol/ecdsa-hss/registration-request/v1` |
-| Export request | `router-ab-protocol/ecdsa-hss/export-request/v1` |
-| Recovery request | `router-ab-protocol/ecdsa-hss/recovery-request/v1` |
-| Activation refresh request | `router-ab-protocol/ecdsa-hss/refresh-request/v1` |
-| Normal-signing scope | `router-ab-protocol/ecdsa-hss/normal-signing-scope/v1` |
-| Prepare request | `router-ab-protocol/ecdsa-hss/normal-signing-request/v1` |
-| Finalize request | `router-ab-protocol/ecdsa-hss/normal-signing-finalize-request/v1` |
+| Domain                     | Current label                                                     |
+| -------------------------- | ----------------------------------------------------------------- |
+| Stable key context         | `ecdsa-hss:context:v2`                                            |
+| Context binding            | `ecdsa-hss:role-local:v2:context-binding`                         |
+| Public identity            | `router-ab-protocol/ecdsa-hss/public-identity/v1`                 |
+| Registration request       | `router-ab-protocol/ecdsa-hss/registration-request/v1`            |
+| Export request             | `router-ab-protocol/ecdsa-hss/export-request/v1`                  |
+| Recovery request           | `router-ab-protocol/ecdsa-hss/recovery-request/v1`                |
+| Activation refresh request | `router-ab-protocol/ecdsa-hss/refresh-request/v1`                 |
+| Normal-signing scope       | `router-ab-protocol/ecdsa-hss/normal-signing-scope/v1`            |
+| Prepare request            | `router-ab-protocol/ecdsa-hss/normal-signing-request/v1`          |
+| Finalize request           | `router-ab-protocol/ecdsa-hss/normal-signing-finalize-request/v1` |
 
 Every registration, export, recovery, and refresh transcript binds wallet id,
 RP id, key scope, ECDSA threshold key id, signing root id, signing root version,
@@ -1488,13 +1542,13 @@ epochs.
 
 Envelope and output kinds:
 
-| Operation | Deriver envelopes | Output |
-| --- | --- | --- |
-| Registration/bootstrap | Signer A/B registration envelopes | SigningWorker activation bundles |
-| Explicit export | Signer A/B export envelopes | Client-recipient export bundles |
-| Recovery | Signer A/B recovery envelopes | Client-recipient recovery/export bundles |
-| Activation refresh | Signer A/B refresh envelopes | SigningWorker activation bundles for the next epoch |
-| Normal signing | None | SigningWorker ECDSA signature response |
+| Operation              | Deriver envelopes                 | Output                                              |
+| ---------------------- | --------------------------------- | --------------------------------------------------- |
+| Registration/bootstrap | Signer A/B registration envelopes | SigningWorker activation bundles                    |
+| Explicit export        | Signer A/B export envelopes       | Client-recipient export bundles                     |
+| Recovery               | Signer A/B recovery envelopes     | Client-recipient recovery/export bundles            |
+| Activation refresh     | Signer A/B refresh envelopes      | SigningWorker activation bundles for the next epoch |
+| Normal signing         | None                              | SigningWorker ECDSA signature response              |
 
 Public identity equations:
 
@@ -1733,7 +1787,7 @@ Source guards should reject:
 - client-visible Router normal-signing grants
 - TypeScript access to raw Ed25519 client-base material or ECDSA signing shares
 - final signing paths that read raw persistence material optionals or invoke
-  restore/HSS setup
+  restore or derivation setup
 - persisted record classifiers that mark material handles as sign-ready without
   worker validation
 - logs containing protocol payload plaintext
@@ -1755,9 +1809,10 @@ pub enum Role {
 
 pub enum RequestKind {
     Registration,
-    KeyExport,
+    Activation,
     Recovery,
-    ServerShareRefresh,
+    Refresh,
+    Export,
 }
 
 pub struct RoleIdentity {
@@ -1906,80 +1961,48 @@ includes `wasm-streams` 0.6.x. `CloudflareWorkerEnvReaderV1` adapts real
 presence of every configured Durable Object namespace and service binding before
 returning accepted startup descriptors.
 
-#### Production A/B Orchestration Gate
+#### Target Yao A/B Orchestration Gate
 
-Strict server-blind production uses recipient-side combine. A and B return only
-recipient-scoped proof-batch material: the client receives only `x_client_base`
-proof bundles, and the standalone SigningWorker receives only `x_server_base`
-proof bundles. Each recipient combines its own output locally.
+Strict production uses recipient-side combine over active-output-bound Yao
+shares. A and B decode only their own role-private output shares, encrypt each
+share to its fixed recipient, and return the exact ciphertexts plus their
+co-signed public output receipt to Router. Router is the mandatory opaque relay
+to Client and SigningWorker.
 
-The decrypted strict delivery payload is `RecipientProofBundlePayloadV1`. The
-public wire payload for `WireMessageKindV1::RecipientProofBundle` is
-`RecipientProofBundleCiphertextV1`. The decrypted payload binds:
+The decrypted target payloads are the disjoint
+`Ed25519YaoActivationSharePayloadV1` and
+`Ed25519YaoSeedExportSharePayloadV1` shapes from Section 5.8. The public wire
+payloads are their corresponding ciphertext types. Activation payloads bind one
+canonical scalar share, one public point commitment, and one active-output
+binding. Export payloads bind one seed share and exist only under the explicit
+authorized export functionality. Neither shape nests an HSS proof batch or
+contains a joined recipient value.
 
-- lifecycle id
-- producing deriver identity
-- recipient role
-- opened-share kind
-- recipient identity
-- transcript digest
-- nested `AbDerivationProofBatchPayloadV1`
-
-The nested proof batch must contain exactly one proof bundle. The one bundle's
-binding must match the declared recipient role, opened-share kind, recipient
-identity, transcript digest, and producing deriver identity.
-
-`RecipientProofBundleCiphertextV1` encrypts the canonical proof-bundle payload
-to the final recipient. Its AAD binds:
-
-- algorithm
-- producing deriver identity
-- recipient role
-- opened-share kind
-- recipient identity
-- recipient encryption key
-- transcript digest
-- payload digest
-- nonce
-
-The Cloudflare adapter uses HPKE base mode with X25519, HKDF-SHA256, and
-AES-256-GCM for this proof-bundle envelope.
-
-The preloaded synchronous deriver host remains an adapter-test boundary and a
-weaker deployment-profile building block. It must not satisfy the strict
-server-blind release gate because it combines final output packages inside a
-deriver process.
-
-Alternative orchestration profiles:
-
-- **Encrypted rendezvous:** A and B use a transcript-scoped rendezvous, such as
-  a Durable Object, and encrypt peer bundles to the specific peer or final
-  recipient. This keeps Router opaque and adds timeout, replay, cleanup, and
-  equivocation rules.
-- **Deriver-side combine:** A or B combines proof batches and emits final output
-  packages. This is the simplest path and matches the preloaded test handler,
-  but it is a weaker deployment profile unless the combiner runs inside a
-  separately trusted boundary.
-
-Live direct-peer coordination requires more than an authenticated peer message.
-The recipient deriver also needs its own Router-to-deriver encrypted envelope,
-role-envelope AAD, request-context digest, root-share metadata, and root-share
-wire before it can produce its proof batch. The deployable strict path must
-choose either transcript-scoped rendezvous for both role-specific private
-bootstraps or independent Router dispatch to A and B with direct A/B used only
-as a transcript/liveness check.
+Router independently dispatches the compact role envelopes to A and B. A and B
+then use direct signed cross-account HTTPS for the binary garbled stream,
+malicious OT, and bounded control frames. The large stream never traverses
+Router. After both one-use tickets reach `Consumed`, each role returns its
+persisted recipient ciphertexts and the complete package-digest set to Router.
 
 Strict release gates:
 
-- The client path must reject any SigningWorker-output proof bundle.
-- The SigningWorker path must reject any client-output proof bundle.
-- Router may relay opaque bundles, but it must not decrypt them or combine
-  recipient outputs.
-- Strict production delivery must use `RecipientProofBundleCiphertextV1` or a
-  later encrypted version, and the decrypted payload must preserve the same
-  one-recipient invariant.
-- Deriver-side combine must have its own release profile and must not satisfy the
-  strict server-blind release gate.
+- Client parsing rejects every SigningWorker-output package.
+- SigningWorker parsing rejects every client-output or seed-export package.
+- Non-export parsing rejects every seed-bearing package.
+- Router relays exact opaque ciphertext and verifies only public receipt and
+  delivery metadata; it cannot decrypt or combine recipient outputs.
+- Each recipient verifies the active-output binding, scalar-to-point relation,
+  package digest set, transcript root, and co-signed receipt before combining.
+- No Deriver-side combine, synchronous joined-state adapter, or clear
+  reconstruction profile satisfies the strict production gate.
+
+Historical implementation note: the current
+`RecipientProofBundlePayloadV1`, `RecipientProofBundleCiphertextV1`,
+`WireMessageKindV1::RecipientProofBundle`, and
+`AbDerivationProofBatchPayloadV1` code belongs to the superseded HSS path. It may
+remain temporarily as migration evidence while replacement work is incomplete.
+It is scheduled for hard deletion and supplies no Yao security or release
+evidence.
 
 Durable Object scopes:
 
@@ -2034,12 +2057,12 @@ Implemented production metadata:
 
 Deriver-envelope HPKE private-key source rules:
 
-| Worker        | Allowed deriver-envelope Secret bindings |
-| ------------- | ---------------------------------------- |
-| Router        | none                                     |
+| Worker        | Allowed deriver-envelope Secret bindings                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| Router        | none                                                                                                        |
 | Deriver A     | `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`, optional `SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
 | Deriver B     | `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`, optional `SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
-| SigningWorker | none                                     |
+| SigningWorker | none                                                                                                        |
 
 Direct A/B peer-message signing key-source rules:
 
@@ -2052,8 +2075,8 @@ Direct A/B peer-message signing key-source rules:
 
 Direct A/B peer-message verifying key-source rules:
 
-| Worker        | Allowed peer-message verifying keys                                    |
-| ------------- | ---------------------------------------------------------------------- |
+| Worker        | Allowed peer-message verifying keys                                  |
+| ------------- | -------------------------------------------------------------------- |
 | Router        | optional public config only                                          |
 | Deriver A     | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
 | Deriver B     | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
@@ -2692,8 +2715,8 @@ Initial Verus targets should be state-machine and boundary invariants:
 - Router cannot construct deriver plaintext.
 - A-only input cannot enter B-only state.
 - B-only input cannot enter A-only state.
-- client-output proof bundles cannot be accepted as server output.
-- server-output proof bundles cannot be accepted as client output.
+- client-output Yao share packages cannot be accepted as server output.
+- server-output Yao share packages cannot be accepted as client output.
 - every accepted output binds to the transcript, role, account, session, and
   request kind.
 

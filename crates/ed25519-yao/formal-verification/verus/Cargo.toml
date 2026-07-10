@@ -1,0 +1,26 @@
+[package]
+name = "ed25519-yao-verus"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone Verus mirror for implemented Ed25519 Yao metadata and reference helpers"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+vstd = "=0.0.0-2026-03-29-0113"
+
+[dev-dependencies]
+ed25519-yao = { path = "../.." }
+ed25519-yao-generator = { path = "../../../../tools/ed25519-yao-generator" }
+
+[lib]
+name = "ed25519_yao_verus"
+path = "src/lib.rs"
+
+[package.metadata.verus]
+verify = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }
+
+[workspace]
