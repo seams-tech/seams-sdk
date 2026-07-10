@@ -86,9 +86,69 @@ function findClientDataOriginFallbackViolations() {
     .map((pattern) => `packages/sdk-server-ts/src/core/AuthService.ts matches ${pattern}`);
 }
 
+function findWalletRegistrationOriginViolations() {
+  const violations = [];
+  const touchPromptPath =
+    'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.ts';
+  const touchPrompt = readRepoFile(touchPromptPath);
+  if (/\b(?:webAuthnPromptQueue|enqueueWebAuthnPrompt)\b/.test(touchPrompt)) {
+    violations.push(`${touchPromptPath} retains a promise-tail WebAuthn queue`);
+  }
+  if (!/registrationOriginPolicy:\s*'wallet_origin_only'/.test(touchPrompt)) {
+    violations.push(`${touchPromptPath} does not require wallet-origin registration`);
+  }
+
+  const fallbackPath =
+    'packages/sdk-web/src/core/signingEngine/webauthnAuth/fallbacks/safari-fallbacks.ts';
+  const fallback = readRepoFile(fallbackPath);
+  if (!/class\s+WalletOriginWebAuthnUnavailableError/.test(fallback)) {
+    violations.push(`${fallbackPath} lacks the typed wallet-origin registration error`);
+  }
+  if (!/if \(kind === 'create'\)[\s\S]{0,500}WalletOriginWebAuthnUnavailableError/.test(fallback)) {
+    violations.push(`${fallbackPath} does not stop CREATE before parent fallback handling`);
+  }
+
+  const hostPath = 'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts';
+  const host = readRepoFile(hostPath);
+  if (!/continuePreparedIframePasskeyRegistration\(activated\)/.test(host)) {
+    violations.push(`${hostPath} does not use the prepared registration continuation`);
+  }
+  if (/registerPasskey\s*\(/.test(host)) {
+    violations.push(`${hostPath} invokes the broad registerPasskey path after activation`);
+  }
+  const continuationCall = host.indexOf('continuePreparedIframePasskeyRegistration(activated)');
+  const continuationThen = host.indexOf('registration.then', continuationCall);
+  if (continuationCall < 0 || continuationThen < continuationCall) {
+    violations.push(`${hostPath} does not start the prepared continuation before promise dispatch`);
+  }
+
+  const seamsWebPath = 'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts';
+  const seamsWeb = readRepoFile(seamsWebPath);
+  const continuationStart = seamsWeb.indexOf('continuePreparedIframePasskeyRegistration(');
+  const credentialStart = seamsWeb.indexOf(
+    'startPreparedPasskeyRegistrationCredential',
+    continuationStart,
+  );
+  const registrationStart = seamsWeb.indexOf(
+    'registerWalletWithPreparedPasskeyAuthority',
+    credentialStart,
+  );
+  if (
+    continuationStart < 0 ||
+    credentialStart < continuationStart ||
+    registrationStart < credentialStart
+  ) {
+    violations.push(
+      `${seamsWebPath} does not start WebAuthn before registration continuation work`,
+    );
+  }
+  return violations;
+}
+
 const violations = [
   ...findVerifierCallOriginViolations(),
   ...findClientDataOriginFallbackViolations(),
+  ...findWalletRegistrationOriginViolations(),
 ];
 
 if (violations.length > 0) {

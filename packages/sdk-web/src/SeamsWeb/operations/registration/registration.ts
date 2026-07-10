@@ -399,6 +399,44 @@ export type WalletRegistrationPrecomputeHandle = {
   scope: WalletRegistrationPrecomputeScope;
 };
 
+export type PreparedPasskeyRegistrationPrecompute = {
+  kind: 'prepared_passkey_registration_precompute_v1';
+  handle: WalletRegistrationPrecomputeHandle;
+  walletId: string;
+  registrationIntentDigestB64u: string;
+};
+
+type RegisterWalletPasskeyAuthorityMode =
+  | {
+      kind: 'collect_during_registration';
+      authority?: never;
+    }
+  | {
+      kind: 'use_started_authority';
+      authority: Promise<Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>>>;
+    };
+
+export type RegistrationOperationCancellation =
+  | { kind: 'none'; signal?: never }
+  | { kind: 'abort_signal'; signal: AbortSignal };
+
+class RegistrationOperationCancelledError extends Error {
+  readonly code = 'cancelled';
+
+  constructor() {
+    super('Wallet registration cancelled');
+    this.name = 'RegistrationOperationCancelledError';
+  }
+}
+
+function throwIfRegistrationOperationCancelled(
+  cancellation: RegistrationOperationCancellation,
+): void {
+  if (cancellation.kind === 'abort_signal' && cancellation.signal.aborted) {
+    throw new RegistrationOperationCancelledError();
+  }
+}
+
 type WalletRegistrationPrecomputeHandleInternal = WalletRegistrationPrecomputeHandle & {
   read(): Promise<WalletRegistrationPrecomputeReady>;
   snapshot(): RegistrationTimingBucketValues;
@@ -2265,6 +2303,21 @@ export function disposeWalletRegistrationPrecompute(
   handle: WalletRegistrationPrecomputeHandle,
 ): void {
   requireWalletRegistrationPrecomputeHandle(handle).dispose();
+}
+
+export async function preparePasskeyRegistrationPrecompute(
+  handle: WalletRegistrationPrecomputeHandle,
+): Promise<PreparedPasskeyRegistrationPrecompute> {
+  const internal = requireWalletRegistrationPrecomputeHandle(handle);
+  const ready = await internal.read();
+  const warmup = await ready.registrationWarmup;
+  if (warmup.kind === 'failed') throw warmup.error;
+  return {
+    kind: 'prepared_passkey_registration_precompute_v1',
+    handle,
+    walletId: String(ready.intentResponse.intent.walletId),
+    registrationIntentDigestB64u: ready.intentResponse.registrationIntentDigestB64u,
+  };
 }
 
 function createSucceededRegistrationTimingSummary(input: {
@@ -4503,6 +4556,8 @@ async function registerEcdsaWalletOnly(args: {
 async function registerWalletInternal(
   args: RegisterWalletOperationInput & {
     precomputeMode: RegisterWalletPrecomputeMode;
+    passkeyAuthorityMode: RegisterWalletPasskeyAuthorityMode;
+    cancellation: RegistrationOperationCancellation;
   },
 ): Promise<RegistrationResult> {
   const { context, wallet, signerSelection } = args;
@@ -4556,6 +4611,7 @@ async function registerWalletInternal(
   });
 
   try {
+    throwIfRegistrationOperationCancelled(args.cancellation);
     await registrationTiming.measure('inputValidationMs', () =>
       validateRegistrationInputs(
         context,
@@ -4608,6 +4664,7 @@ async function registerWalletInternal(
     }
     const { relayerUrl, intentResponse, registrationWarmup, thresholdRuntimePolicyScope } =
       precomputeReady;
+    throwIfRegistrationOperationCancelled(args.cancellation);
     activeIntent = activeWalletRegistrationIntentFromReady(precomputeReady);
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
     const registrationSessionRpId = requiredRegistrationRpId({
@@ -4641,6 +4698,7 @@ async function registerWalletInternal(
       recorder: registrationTiming,
       warmup: registrationWarmup,
     });
+    throwIfRegistrationOperationCancelled(args.cancellation);
     if (args.authMethod.kind === 'passkey') {
       emitRegistrationEvent(onEvent, eventAccountId, {
         authMethod: args.authMethod.kind,
@@ -4656,18 +4714,33 @@ async function registerWalletInternal(
         behavior: 'requireClick',
         ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
       };
-      passkeyAuthority = await registrationTiming.measure('authProofMs', () =>
-        collectPasskeyRegistrationAuthority({
-          context,
-          walletId: String(intentResponse.intent.walletId),
-          signerSlot: ed25519Selection.signerSlot,
-          registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-          options,
-          confirmationConfigOverride: confirmationConfig,
-          walletIframeActivation: options.walletIframeActivation,
-        }),
-      );
+      switch (args.passkeyAuthorityMode.kind) {
+        case 'collect_during_registration':
+          passkeyAuthority = await registrationTiming.measure('authProofMs', () =>
+            collectPasskeyRegistrationAuthority({
+              context,
+              walletId: String(intentResponse.intent.walletId),
+              signerSlot: ed25519Selection.signerSlot,
+              registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+              options,
+              confirmationConfigOverride: confirmationConfig,
+              walletIframeActivation: options.walletIframeActivation,
+            }),
+          );
+          break;
+        case 'use_started_authority': {
+          const startedAuthority = args.passkeyAuthorityMode.authority;
+          passkeyAuthority = await registrationTiming.measure(
+            'authProofMs',
+            () => startedAuthority,
+          );
+          break;
+        }
+        default:
+          assertNever(args.passkeyAuthorityMode);
+      }
       registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
+      throwIfRegistrationOperationCancelled(args.cancellation);
       ed25519PrfFirstB64u = passkeyAuthority.prfFirstB64u;
       ecdsaPasskeyPrfFirstB64u = passkeyAuthority.prfFirstB64u;
       registrationAuthorityScope = {
@@ -4806,6 +4879,7 @@ async function registerWalletInternal(
         ...startAuthority,
       }),
     );
+    throwIfRegistrationOperationCancelled(args.cancellation);
     registrationTiming.captureRouteDiagnostics(preparedRegistration.registrationDiagnostics);
     const startedCeremony = await registrationTiming.measure('walletRegisterStartMs', () =>
       startWalletRegistration({
@@ -4817,6 +4891,7 @@ async function registerWalletInternal(
         headers: registrationRouteDiagnosticsHeaders(),
       }),
     );
+    throwIfRegistrationOperationCancelled(args.cancellation);
     registrationTiming.captureRouteDiagnostics(startedCeremony.registrationDiagnostics);
     if (!startedCeremony.ed25519) {
       throw new Error('Wallet registration start did not return Ed25519 HSS material');
@@ -4889,6 +4964,7 @@ async function registerWalletInternal(
           : {}),
       }),
     );
+    throwIfRegistrationOperationCancelled(args.cancellation);
     if (!responded.ed25519) {
       throw new Error('Wallet registration HSS respond did not return Ed25519 server input');
     }
@@ -5003,6 +5079,7 @@ async function registerWalletInternal(
         ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
       }),
     );
+    throwIfRegistrationOperationCancelled(args.cancellation);
     registrationTiming.captureRouteDiagnostics(finalized.registrationDiagnostics);
     if ('kind' in finalized && finalized.kind === 'already_finalized_restore_required') {
       const result = alreadyFinalizedRestoreRequiredResult(finalized.walletId);
@@ -5142,6 +5219,7 @@ async function registerWalletInternal(
     }
     const signerSlot = persistenceCommit.signerSlot;
     registrationState.databaseStored = true;
+    throwIfRegistrationOperationCancelled(args.cancellation);
     emitRegistrationEvent(onEvent, nearAccountId, {
       authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
@@ -5242,6 +5320,8 @@ export async function registerWallet(
   return await registerWalletInternal({
     ...args,
     precomputeMode: { kind: 'start_inside_register_wallet' },
+    passkeyAuthorityMode: { kind: 'collect_during_registration' },
+    cancellation: { kind: 'none' },
   });
 }
 
@@ -5256,6 +5336,32 @@ export async function registerWalletWithStartedPrecompute(
       kind: 'use_started_precompute',
       handle: args.precompute,
     },
+    passkeyAuthorityMode: { kind: 'collect_during_registration' },
+    cancellation: { kind: 'none' },
+  });
+}
+
+export async function registerWalletWithPreparedPasskeyAuthority(
+  args: RegisterWalletOperationInput & {
+    precompute: PreparedPasskeyRegistrationPrecompute;
+    authority: Promise<Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>>>;
+    cancellation: Extract<RegistrationOperationCancellation, { kind: 'abort_signal' }>;
+  },
+): Promise<RegistrationResult> {
+  if (args.authMethod.kind !== 'passkey') {
+    throw new Error('Prepared passkey authority requires passkey registration');
+  }
+  return await registerWalletInternal({
+    ...args,
+    precomputeMode: {
+      kind: 'use_started_precompute',
+      handle: args.precompute.handle,
+    },
+    passkeyAuthorityMode: {
+      kind: 'use_started_authority',
+      authority: args.authority,
+    },
+    cancellation: args.cancellation,
   });
 }
 

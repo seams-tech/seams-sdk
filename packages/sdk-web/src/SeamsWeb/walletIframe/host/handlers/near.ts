@@ -8,8 +8,15 @@ import type {
   SignTransactionHooksOptions,
 } from '@/core/types/sdkSentEvents';
 import type { RegistrationResult } from '@/core/types/seams';
+import type {
+  ActivatedPreparedIframePasskeyRegistration,
+  PreparedIframePasskeyRegistration,
+  RegistrationActivationWebAuthnPromptOwner,
+} from '@/SeamsWeb/SeamsWeb';
+import { activatePreparedIframePasskeyRegistration } from '@/SeamsWeb/SeamsWeb';
 import {
   isRegistrationActivationButtonInteractionState,
+  parseRegistrationActivationMessageIdentity,
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
   type PMSendTxPayload,
@@ -17,9 +24,8 @@ import {
   type PMRegistrationActivationPreparePayload,
 } from '../../shared/messages';
 import type {
-  RegistrationActivationButtonCss,
-  RegistrationActivationButtonCssProperty,
   RegistrationActivationButtonPresentation,
+  RegistrationActivationMessageIdentity,
 } from '@/SeamsWeb/publicApi/types';
 import {
   nearAccountRefFromAccountId,
@@ -27,6 +33,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { SEAMS_PASSKEY_REGISTRATION_BTN_ID } from '@/core/signingEngine/uiConfirm/ui/registry';
+import { ensureExternalStyles } from '@/core/signingEngine/uiConfirm/ui/lit-components/css/css-loader';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   extractBorshBytesFromPlainSignedTx,
@@ -37,6 +44,10 @@ import {
 } from '@shared/utils/validation';
 import { type RegisterWalletInput, walletIdFromString } from '@shared/utils/registrationIntent';
 import type { ActionArgs } from '@/core/types';
+import {
+  webAuthnPromptCoordinator,
+  type ReservedRegistrationWebAuthnPrompt,
+} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 
@@ -78,28 +89,41 @@ type RegistrationActivationDeferred = {
 };
 
 type RegistrationActivationRecordBase = {
-  activationId: string;
-  requestId: string | undefined;
+  identity: RegistrationActivationMessageIdentity;
   deferred: RegistrationActivationDeferred;
+  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
+  abortOperation(): void;
 };
 
 type RegistrationActivationRecord =
   | (RegistrationActivationRecordBase & {
       kind: 'preparing';
       container?: never;
+      prepared?: never;
+      reservation?: never;
+      owner?: never;
+      disposePrepared?: never;
     })
   | (RegistrationActivationRecordBase & {
       kind: 'ready';
       container: HTMLElement;
+      prepared: PreparedIframePasskeyRegistration;
+      reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+      owner: RegistrationActivationWebAuthnPromptOwner;
+      disposePrepared(): void;
     })
   | (RegistrationActivationRecordBase & {
       kind: 'started';
-      container: HTMLElement;
+      container?: never;
+      prepared: PreparedIframePasskeyRegistration;
+      reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+      owner: RegistrationActivationWebAuthnPromptOwner;
+      disposePrepared(): void;
     });
 
 type RegistrationActivationRecordWithContainer = Extract<
   RegistrationActivationRecord,
-  { kind: 'ready' | 'started' }
+  { kind: 'ready' }
 >;
 
 type RegistrationActivationCancelErrorCode = 'cancelled' | 'registration_activation_expired';
@@ -112,7 +136,11 @@ type RegistrationActivationStartResult =
   | { kind: 'missing' }
   | { kind: 'already_started' }
   | { kind: 'expired'; record: RegistrationActivationRecord }
-  | { kind: 'started'; record: Extract<RegistrationActivationRecord, { kind: 'started' }> };
+  | {
+      kind: 'started';
+      record: Extract<RegistrationActivationRecord, { kind: 'started' }>;
+      activationContainer: HTMLElement;
+    };
 
 type RegistrationActivationRenderResult =
   | { kind: 'cancelled_during_render' }
@@ -125,6 +153,18 @@ type RegistrationActivationFocusTarget =
 const registrationActivationRecords = new Map<string, RegistrationActivationRecord>();
 const REGISTRATION_ACTIVATION_START_EVENT = 'seams-registration-activation-start';
 const REGISTRATION_ACTIVATION_STATE_EVENT = 'seams-registration-activation-state';
+const REGISTRATION_ACTIVATION_FOCUS_EXIT_EVENT = 'seams-registration-activation-focus-exit';
+
+function registrationActivationIdentitiesEqual(
+  left: RegistrationActivationMessageIdentity,
+  right: RegistrationActivationMessageIdentity,
+): boolean {
+  return (
+    left.surfaceId === right.surfaceId &&
+    left.activationId === right.activationId &&
+    left.requestId === right.requestId
+  );
+}
 
 function createRegistrationActivationDeferred(): RegistrationActivationDeferred {
   let resolveDeferred!: (result: RegistrationResult) => void;
@@ -142,15 +182,17 @@ function createRegistrationActivationDeferred(): RegistrationActivationDeferred 
 }
 
 function createPreparingRegistrationActivationRecord(args: {
-  activationId: string;
-  requestId: string | undefined;
+  identity: RegistrationActivationMessageIdentity;
   deferred: RegistrationActivationDeferred;
+  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
+  abortOperation(): void;
 }): RegistrationActivationRecord {
   return {
     kind: 'preparing',
-    activationId: args.activationId,
-    requestId: args.requestId,
+    identity: args.identity,
     deferred: args.deferred,
+    cancellation: args.cancellation,
+    abortOperation: args.abortOperation,
   };
 }
 
@@ -159,8 +201,8 @@ function registrationActivationRecordWithContainer(
 ): RegistrationActivationRecordWithContainer | null {
   switch (record.kind) {
     case 'ready':
-    case 'started':
       return record;
+    case 'started':
     case 'preparing':
       return null;
   }
@@ -169,13 +211,22 @@ function registrationActivationRecordWithContainer(
 function createReadyRegistrationActivationRecord(args: {
   record: RegistrationActivationRecord;
   container: HTMLElement;
+  prepared: PreparedIframePasskeyRegistration;
+  reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+  owner: RegistrationActivationWebAuthnPromptOwner;
+  disposePrepared(): void;
 }): Extract<RegistrationActivationRecord, { kind: 'ready' }> {
   return {
     kind: 'ready',
-    activationId: args.record.activationId,
-    requestId: args.record.requestId,
+    identity: args.record.identity,
     deferred: args.record.deferred,
+    cancellation: args.record.cancellation,
+    abortOperation: args.record.abortOperation,
     container: args.container,
+    prepared: args.prepared,
+    reservation: args.reservation,
+    owner: args.owner,
+    disposePrepared: args.disposePrepared,
   };
 }
 
@@ -184,16 +235,24 @@ function createStartedRegistrationActivationRecord(
 ): Extract<RegistrationActivationRecord, { kind: 'started' }> {
   return {
     kind: 'started',
-    activationId: record.activationId,
-    requestId: record.requestId,
+    identity: record.identity,
     deferred: record.deferred,
-    container: record.container,
+    cancellation: record.cancellation,
+    abortOperation: record.abortOperation,
+    prepared: record.prepared,
+    reservation: record.reservation,
+    owner: record.owner,
+    disposePrepared: record.disposePrepared,
   };
 }
 
 function markRegistrationActivationReady(args: {
   activationId: string;
   container: HTMLElement;
+  prepared: PreparedIframePasskeyRegistration;
+  reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+  owner: RegistrationActivationWebAuthnPromptOwner;
+  disposePrepared(): void;
 }): RegistrationActivationRenderResult {
   const record = registrationActivationRecords.get(args.activationId);
   if (!record) {
@@ -203,17 +262,24 @@ function markRegistrationActivationReady(args: {
   const readyRecord = createReadyRegistrationActivationRecord({
     record,
     container: args.container,
+    prepared: args.prepared,
+    reservation: args.reservation,
+    owner: args.owner,
+    disposePrepared: args.disposePrepared,
   });
   registrationActivationRecords.set(args.activationId, readyRecord);
   return { kind: 'ready', record: readyRecord };
 }
 
 function markRegistrationActivationStarted(args: {
-  activationId: string;
+  identity: RegistrationActivationMessageIdentity;
   expiresAtMs: number;
 }): RegistrationActivationStartResult {
-  const record = registrationActivationRecords.get(args.activationId);
+  const record = registrationActivationRecords.get(args.identity.activationId);
   if (!record) return { kind: 'missing' };
+  if (!registrationActivationIdentitiesEqual(record.identity, args.identity)) {
+    return { kind: 'missing' };
+  }
   switch (record.kind) {
     case 'preparing':
       return { kind: 'missing' };
@@ -222,47 +288,11 @@ function markRegistrationActivationStarted(args: {
     case 'ready': {
       if (Date.now() >= args.expiresAtMs) return { kind: 'expired', record };
       const startedRecord = createStartedRegistrationActivationRecord(record);
-      registrationActivationRecords.set(args.activationId, startedRecord);
-      return { kind: 'started', record: startedRecord };
+      registrationActivationRecords.set(args.identity.activationId, startedRecord);
+      return { kind: 'started', record: startedRecord, activationContainer: record.container };
     }
   }
 }
-const ALLOWED_REGISTRATION_BUTTON_CSS_PROPERTIES = new Set<RegistrationActivationButtonCssProperty>(
-  [
-    'width',
-    'height',
-    'minWidth',
-    'minHeight',
-    'maxWidth',
-    'maxHeight',
-    'padding',
-    'border',
-    'borderColor',
-    'borderRadius',
-    'background',
-    'backgroundColor',
-    'color',
-    'boxShadow',
-    'fontFamily',
-    'fontSize',
-    'fontWeight',
-    'lineHeight',
-    'letterSpacing',
-    'textAlign',
-    'cursor',
-    'outline',
-    'outlineColor',
-    'outlineOffset',
-    'outlineWidth',
-  ],
-);
-
-function registrationOptionsWithoutActivation(options: unknown): Record<string, unknown> {
-  const out = isObject(options) ? { ...(options as Record<string, unknown>) } : {};
-  delete out.walletIframeActivation;
-  return out;
-}
-
 function parseRegistrationActivationProvidedWallet(
   payload: PMRegistrationActivationPreparePayload,
 ): Extract<RegisterWalletInput, { kind: 'provided' }> {
@@ -286,6 +316,11 @@ function parseRegistrationActivationProvidedWallet(
 function removeRegistrationActivationRecord(activationId: string): void {
   const record = registrationActivationRecords.get(activationId);
   registrationActivationRecords.delete(activationId);
+  record?.abortOperation();
+  if (record?.kind === 'ready') {
+    webAuthnPromptCoordinator.releaseReservation(record.reservation);
+    record.disposePrepared();
+  }
   const recordWithContainer = record ? registrationActivationRecordWithContainer(record) : null;
   try {
     recordWithContainer?.container.remove();
@@ -304,6 +339,10 @@ function registrationActivationExpiredError(): RegistrationActivationCancelError
   return error;
 }
 
+function throwIfRegistrationActivationCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw registrationActivationCancelledError();
+}
+
 function rejectRegistrationActivationRecord(
   record: RegistrationActivationRecord,
   error: Error,
@@ -312,10 +351,13 @@ function rejectRegistrationActivationRecord(
 }
 
 function registrationActivationFocusTarget(
-  activationId: string,
+  identity: RegistrationActivationMessageIdentity,
 ): RegistrationActivationFocusTarget {
-  const record = registrationActivationRecords.get(activationId);
-  const recordWithContainer = record ? registrationActivationRecordWithContainer(record) : null;
+  const record = registrationActivationRecords.get(identity.activationId);
+  if (!record || !registrationActivationIdentitiesEqual(record.identity, identity)) {
+    return { kind: 'unavailable' };
+  }
+  const recordWithContainer = registrationActivationRecordWithContainer(record);
   if (!recordWithContainer) return { kind: 'unavailable' };
   return { kind: 'available', container: recordWithContainer.container };
 }
@@ -325,10 +367,8 @@ type RegistrationActivationButtonElement = HTMLElement & {
   label?: string;
   busyLabel?: string;
   accessibleLabel?: string;
-  mode?: RegistrationActivationButtonPresentation['kind'];
-  buttonStyle?: RegistrationActivationButtonCss;
-  shadowPaddingPx?: number;
   focusButton?(): void;
+  activationReady?(): Promise<void>;
 };
 
 function normalizeRequiredPresentationString(value: unknown, field: string): string {
@@ -336,72 +376,6 @@ function normalizeRequiredPresentationString(value: unknown, field: string): str
     throw new Error(`Invalid registration activation presentation: ${field} is required`);
   }
   return value.trim();
-}
-
-function rejectRegistrationActivationPresentationFields(
-  record: Record<string, unknown>,
-  kind: RegistrationActivationButtonPresentation['kind'],
-  fields: readonly string[],
-): void {
-  for (const field of fields) {
-    if (record[field] === undefined) continue;
-    throw new Error(
-      `Invalid registration activation presentation: ${field} is not allowed for ${kind}`,
-    );
-  }
-}
-
-function normalizeRegistrationButtonCss(
-  input: unknown,
-  field: string,
-): RegistrationActivationButtonCss {
-  if (input === undefined) return {};
-  if (!isObject(input)) {
-    throw new Error(`Invalid registration activation presentation: ${field} must be an object`);
-  }
-  const normalized: RegistrationActivationButtonCss = {};
-  for (const [property, value] of Object.entries(input)) {
-    if (
-      !ALLOWED_REGISTRATION_BUTTON_CSS_PROPERTIES.has(
-        property as RegistrationActivationButtonCssProperty,
-      )
-    ) {
-      throw new Error(
-        `Invalid registration activation presentation: unsupported CSS property ${property}`,
-      );
-    }
-    if (typeof value !== 'string') {
-      throw new Error(
-        `Invalid registration activation presentation: CSS property ${property} must be a string`,
-      );
-    }
-    if (/\burl\s*\(/i.test(value)) {
-      throw new Error(
-        `Invalid registration activation presentation: CSS property ${property} cannot use url(...)`,
-      );
-    }
-    normalized[property as RegistrationActivationButtonCssProperty] = value;
-  }
-  return normalized;
-}
-
-function normalizeRequiredRegistrationButtonCss(
-  input: unknown,
-  field: string,
-): RegistrationActivationButtonCss {
-  if (input === undefined) {
-    throw new Error(`Invalid registration activation presentation: ${field} is required`);
-  }
-  return normalizeRegistrationButtonCss(input, field);
-}
-
-function normalizeRegistrationActivationShadowPaddingPx(input: unknown): number {
-  if (typeof input !== 'number' || !Number.isFinite(input) || input < 0) {
-    throw new Error(
-      'Invalid registration activation presentation: shadowPaddingPx must be a non-negative number',
-    );
-  }
-  return input;
 }
 
 function normalizeRegistrationActivationPresentation(
@@ -417,81 +391,17 @@ function normalizeRegistrationActivationPresentation(
     record.accessibleLabel,
     'accessibleLabel',
   );
-  switch (record.kind) {
-    case 'outline_overlay':
-      rejectRegistrationActivationPresentationFields(record, 'outline_overlay', [
-        'iframeVisualStyle',
-        'shadowPaddingPx',
-      ]);
-      return {
-        kind: 'outline_overlay',
-        label,
-        busyLabel,
-        accessibleLabel,
-        iframeButtonStyle: normalizeRegistrationButtonCss(
-          record.iframeButtonStyle,
-          'iframeButtonStyle',
-        ),
-      };
-    case 'iframe_button':
-      rejectRegistrationActivationPresentationFields(record, 'iframe_button', [
-        'iframeButtonStyle',
-      ]);
-      return {
-        kind: 'iframe_button',
-        label,
-        busyLabel,
-        accessibleLabel,
-        iframeVisualStyle: normalizeRequiredRegistrationButtonCss(
-          record.iframeVisualStyle,
-          'iframeVisualStyle',
-        ),
-        shadowPaddingPx: normalizeRegistrationActivationShadowPaddingPx(record.shadowPaddingPx),
-      };
-    default:
-      throw new Error('Invalid registration activation presentation kind');
+  if (record.kind !== 'outline_overlay') {
+    throw new Error('Invalid registration activation presentation kind');
   }
-}
-
-function registrationButtonStyleForPresentation(
-  presentation: RegistrationActivationButtonPresentation,
-): RegistrationActivationButtonCss {
-  switch (presentation.kind) {
-    case 'outline_overlay':
-      return presentation.iframeButtonStyle ?? {};
-    case 'iframe_button':
-      return presentation.iframeVisualStyle;
-  }
-}
-
-function cssPropertyName(property: string): string {
-  return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
-}
-
-function applyRegistrationButtonStyle(args: {
-  button: HTMLElement;
-  style: RegistrationActivationButtonCss;
-}): void {
-  for (const [property, value] of Object.entries(args.style)) {
-    if (typeof value !== 'string') continue;
-    const styleDeclaration = args.button.style as CSSStyleDeclaration & Record<string, string>;
-    if (typeof styleDeclaration.setProperty === 'function') {
-      styleDeclaration.setProperty(cssPropertyName(property), value);
-    } else {
-      styleDeclaration[property] = value;
+  for (const forbiddenField of ['iframeButtonStyle', 'iframeVisualStyle', 'shadowPaddingPx']) {
+    if (record[forbiddenField] !== undefined) {
+      throw new Error(
+        `Invalid registration activation presentation: ${forbiddenField} is not allowed`,
+      );
     }
   }
-}
-
-function applyFallbackRegistrationButtonInset(args: {
-  button: HTMLElement;
-  presentation: RegistrationActivationButtonPresentation;
-}): void {
-  const shadowPaddingPx =
-    args.presentation.kind === 'iframe_button' ? args.presentation.shadowPaddingPx : 0;
-  args.button.style.margin = `${shadowPaddingPx}px`;
-  args.button.style.width = shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
-  args.button.style.height = shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
+  return { kind: 'outline_overlay', label, busyLabel, accessibleLabel };
 }
 
 async function ensureRegistrationActivationButtonElementDefined(): Promise<void> {
@@ -504,16 +414,30 @@ async function ensureRegistrationActivationButtonElementDefined(): Promise<void>
 
 function postRegistrationActivationButtonState(args: {
   deps: HandlerDeps;
-  requestId: string | undefined;
-  activationId: string;
+  identity: RegistrationActivationMessageIdentity;
   state: RegistrationActivationButtonInteractionState;
 }): void {
   args.deps.post({
     type: 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
-    requestId: args.requestId,
+    requestId: args.identity.requestId,
     payload: {
-      activationId: args.activationId,
+      ...args.identity,
       state: args.state,
+    },
+  });
+}
+
+function postRegistrationActivationFocusExit(args: {
+  deps: HandlerDeps;
+  identity: RegistrationActivationMessageIdentity;
+  direction: 'forward' | 'backward';
+}): void {
+  args.deps.post({
+    type: 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT',
+    requestId: args.identity.requestId,
+    payload: {
+      ...args.identity,
+      direction: args.direction,
     },
   });
 }
@@ -524,65 +448,60 @@ function configureRegistrationActivationElement(args: {
   presentation: RegistrationActivationButtonPresentation;
   onStart(): void;
   onState(state: RegistrationActivationButtonInteractionState): void;
+  onFocusExit(direction: 'forward' | 'backward'): void;
 }): void {
   args.element.activationId = args.payload.activationId;
   args.element.label = args.presentation.label;
   args.element.busyLabel = args.presentation.busyLabel;
   args.element.accessibleLabel = args.presentation.accessibleLabel;
-  args.element.mode = args.presentation.kind;
-  args.element.buttonStyle = registrationButtonStyleForPresentation(args.presentation);
-  args.element.shadowPaddingPx =
-    args.presentation.kind === 'iframe_button' ? args.presentation.shadowPaddingPx : 0;
   args.element.addEventListener(REGISTRATION_ACTIVATION_START_EVENT, args.onStart, { once: true });
   args.element.addEventListener(REGISTRATION_ACTIVATION_STATE_EVENT, (event) => {
     const state = (event as CustomEvent<unknown>).detail;
     if (!isRegistrationActivationButtonInteractionState(state)) return;
     args.onState(state);
   });
+  args.element.addEventListener(REGISTRATION_ACTIVATION_FOCUS_EXIT_EVENT, (event) => {
+    const direction = (event as CustomEvent<{ direction?: unknown }>).detail?.direction;
+    if (direction !== 'forward' && direction !== 'backward') return;
+    args.onFocusExit(direction);
+  });
 }
 
-function renderFallbackRegistrationActivationButton(args: {
+async function renderFallbackRegistrationActivationButton(args: {
   payload: PMRegistrationActivationPreparePayload;
   presentation: RegistrationActivationButtonPresentation;
+  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
   onStart(): void;
-}): HTMLElement {
+  onFocusExit(direction: 'forward' | 'backward'): void;
+}): Promise<HTMLElement> {
+  throwIfRegistrationActivationCancelled(args.cancellation.signal);
   const container = document.createElement('section');
   container.setAttribute('data-seams-registration-activation-id', args.payload.activationId);
-  Object.assign(container.style, {
-    width: '100%',
-    height: '100%',
-    boxSizing: 'border-box',
-    background: 'transparent',
-    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  });
+  container.className = 'seams-passkey-registration-surface';
 
   const button = document.createElement('button');
   button.type = 'button';
+  button.className = 'seams-passkey-registration-fallback__button';
   button.setAttribute('data-seams-registration-activation-start', 'true');
   button.setAttribute('aria-label', args.presentation.accessibleLabel);
   button.textContent = args.presentation.label;
-  Object.assign(button.style, {
-    width: '100%',
-    height: '100%',
-    minHeight: '0',
-    border: '0',
-    padding: '0',
-    background: 'transparent',
-    color: 'transparent',
-    cursor: 'pointer',
-  });
-  applyRegistrationButtonStyle({
-    button,
-    style: registrationButtonStyleForPresentation(args.presentation),
-  });
-  applyFallbackRegistrationButtonInset({ button, presentation: args.presentation });
   button.addEventListener('click', () => {
     button.disabled = true;
     button.textContent = args.presentation.busyLabel;
-    button.style.cursor = 'default';
     args.onStart();
   });
+  button.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    event.preventDefault();
+    args.onFocusExit(event.shiftKey ? 'backward' : 'forward');
+  });
   container.appendChild(button);
+  await ensureExternalStyles(
+    container,
+    'seams-passkey-registration-btn.css',
+    'data-seams-passkey-registration-btn-css',
+  );
+  throwIfRegistrationActivationCancelled(args.cancellation.signal);
   document.body.appendChild(container);
   return container;
 }
@@ -590,28 +509,37 @@ function renderFallbackRegistrationActivationButton(args: {
 async function renderRegistrationActivationButton(args: {
   payload: PMRegistrationActivationPreparePayload;
   presentation: RegistrationActivationButtonPresentation;
+  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
   onStart(): void;
   onState(state: RegistrationActivationButtonInteractionState): void;
+  onFocusExit(direction: 'forward' | 'backward'): void;
 }): Promise<HTMLElement> {
   if (typeof customElements === 'undefined') {
     return renderFallbackRegistrationActivationButton(args);
   }
   await ensureRegistrationActivationButtonElementDefined();
+  throwIfRegistrationActivationCancelled(args.cancellation.signal);
   const container = document.createElement('section');
   container.setAttribute('data-seams-registration-activation-id', args.payload.activationId);
-  Object.assign(container.style, {
-    width: '100%',
-    height: '100%',
-    boxSizing: 'border-box',
-    background: 'transparent',
-  });
+  container.className = 'seams-passkey-registration-surface';
   const element = document.createElement(
     SEAMS_PASSKEY_REGISTRATION_BTN_ID,
   ) as RegistrationActivationButtonElement;
   configureRegistrationActivationElement({ ...args, element });
   container.appendChild(element);
   document.body.appendChild(container);
-  return container;
+  if (!element.activationReady) {
+    container.remove();
+    throw new Error('Passkey registration activation element has no readiness contract');
+  }
+  try {
+    await element.activationReady();
+    throwIfRegistrationActivationCancelled(args.cancellation.signal);
+    return container;
+  } catch (error) {
+    container.remove();
+    throw error;
+  }
 }
 
 function focusRegistrationActivationButton(container: HTMLElement): void {
@@ -628,44 +556,13 @@ function focusRegistrationActivationButton(container: HTMLElement): void {
   fallback?.focus?.({ preventScroll: true });
 }
 
-async function runRegistrationActivationPasskeyRegistration(args: {
-  pm: ReturnType<HandlerDeps['getSeamsWeb']>;
-  deps: HandlerDeps;
-  requestId: string | undefined;
-  payload: PMRegistrationActivationPreparePayload;
-  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
-}): Promise<RegistrationResult> {
-  const hooksOptions = withProgress(
-    args.deps,
-    args.requestId,
-    registrationOptionsWithoutActivation(args.payload.options),
-  ) as RegistrationHooksOptions;
-  return await args.pm.registration.registerPasskey({
-    wallet: args.wallet,
-    ...hooksOptions,
-    confirmationConfig: {
-      ...(args.payload.confirmationConfig || {}),
-      uiMode: 'none',
-      behavior: 'skipClick',
-      autoProceedDelay: 0,
-    },
-    walletIframeActivation: {
-      kind: 'wallet_iframe_registration_activation_v1',
-      activationId: args.payload.activationId,
-      activatedAtMs: Date.now(),
-    },
-  });
-}
-
 function startRegistrationActivation(args: {
   pm: ReturnType<HandlerDeps['getSeamsWeb']>;
   deps: HandlerDeps;
-  requestId: string | undefined;
   payload: PMRegistrationActivationPreparePayload;
-  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
 }): void {
   const startResult = markRegistrationActivationStarted({
-    activationId: args.payload.activationId,
+    identity: args.payload,
     expiresAtMs: args.payload.expiresAtMs,
   });
   switch (startResult.kind) {
@@ -676,17 +573,53 @@ function startRegistrationActivation(args: {
       rejectRegistrationActivationRecord(startResult.record, registrationActivationExpiredError());
       removeRegistrationActivationRecord(args.payload.activationId);
       return;
-    case 'started':
+    case 'started': {
       args.deps.post({
         type: 'PM_REGISTRATION_ACTIVATION_STARTED',
-        requestId: args.requestId,
-        payload: { activationId: args.payload.activationId },
+        requestId: args.payload.requestId,
+        payload: {
+          surfaceId: args.payload.surfaceId,
+          activationId: args.payload.activationId,
+          requestId: args.payload.requestId,
+        },
       });
-      void runRegistrationActivationPasskeyRegistration(args).then(
+      let activated: ActivatedPreparedIframePasskeyRegistration;
+      try {
+        activated = activatePreparedIframePasskeyRegistration({
+          prepared: startResult.record.prepared,
+          identity: startResult.record.identity,
+          reservation: startResult.record.reservation,
+          cancellation: startResult.record.cancellation,
+          activatedAtMs: Date.now(),
+        });
+      } catch (error) {
+        webAuthnPromptCoordinator.releaseReservation(startResult.record.reservation);
+        args.pm.disposePreparedIframePasskeyRegistration(startResult.record.prepared);
+        startResult.record.deferred.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        startResult.activationContainer.remove();
+        return;
+      }
+      let registration: Promise<RegistrationResult>;
+      try {
+        registration = args.pm.continuePreparedIframePasskeyRegistration(activated);
+      } catch (error) {
+        webAuthnPromptCoordinator.releaseReservation(startResult.record.reservation);
+        args.pm.disposePreparedIframePasskeyRegistration(startResult.record.prepared);
+        startResult.record.deferred.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        startResult.activationContainer.remove();
+        return;
+      }
+      startResult.activationContainer.remove();
+      void registration.then(
         startResult.record.deferred.resolve,
         startResult.record.deferred.reject,
       );
       return;
+    }
   }
 }
 
@@ -702,6 +635,10 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_REGISTRATION_ACTIVATION_PREPARE: async (req: Req<'PM_REGISTRATION_ACTIVATION_PREPARE'>) => {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;
+      const identity = parseRegistrationActivationMessageIdentity(payload);
+      if (!identity || req.requestId !== identity.requestId) {
+        throw new Error('Registration activation identity is invalid');
+      }
       if (deps.respondIfCancelled(req.requestId)) return;
       if (Date.now() >= payload.expiresAtMs) {
         throw new Error('Registration activation expired');
@@ -711,12 +648,14 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
       removeRegistrationActivationRecord(payload.activationId);
       const deferred = createRegistrationActivationDeferred();
+      const preparationAbortController = new AbortController();
       registrationActivationRecords.set(
         payload.activationId,
         createPreparingRegistrationActivationRecord({
-          activationId: payload.activationId,
-          requestId: req.requestId,
+          identity,
           deferred,
+          cancellation: { kind: 'abort_signal', signal: preparationAbortController.signal },
+          abortOperation: preparationAbortController.abort.bind(preparationAbortController),
         }),
       );
 
@@ -724,36 +663,72 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         () => expireRegistrationActivationBeforeStart(payload.activationId),
         Math.max(1, payload.expiresAtMs - Date.now()),
       );
+      let prepared: PreparedIframePasskeyRegistration | null = null;
+      let reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner> | null =
+        null;
 
       try {
+        const hooksOptions = withProgress(deps, payload.requestId, {}) as RegistrationHooksOptions;
+        prepared = await pm.prepareIframePasskeyRegistration({
+          wallet,
+          options: hooksOptions,
+          expiresAtMs: payload.expiresAtMs,
+        });
+        const owner: RegistrationActivationWebAuthnPromptOwner = {
+          kind: 'registration_activation',
+          identity,
+        };
+        reservation = await webAuthnPromptCoordinator.reserveRegistrationPrompt({
+          owner,
+          expiresAtMs: payload.expiresAtMs,
+          cancellation: {
+            kind: 'abort_signal',
+            signal: preparationAbortController.signal,
+          },
+        });
         const container = await renderRegistrationActivationButton({
           payload,
           presentation,
+          cancellation: {
+            kind: 'abort_signal',
+            signal: preparationAbortController.signal,
+          },
           onStart: () =>
             startRegistrationActivation({
               pm,
               deps,
-              requestId: req.requestId,
               payload,
-              wallet,
             }),
           onState: (state) =>
             postRegistrationActivationButtonState({
               deps,
-              requestId: req.requestId,
-              activationId: payload.activationId,
+              identity,
               state,
             }),
+          onFocusExit: (direction) =>
+            postRegistrationActivationFocusExit({
+              deps,
+              identity,
+              direction,
+            }),
         });
+        if (!webAuthnPromptCoordinator.isLiveReservation({ reservation, owner })) {
+          container.remove();
+          throw new Error('Registration activation WebAuthn reservation expired before ready');
+        }
         const renderResult = markRegistrationActivationReady({
           activationId: payload.activationId,
           container,
+          prepared,
+          reservation,
+          owner,
+          disposePrepared: pm.disposePreparedIframePasskeyRegistration.bind(pm, prepared),
         });
         if (renderResult.kind === 'ready') {
           deps.post({
             type: 'PM_REGISTRATION_ACTIVATION_READY',
-            requestId: req.requestId,
-            payload: { activationId: payload.activationId, expiresAtMs: payload.expiresAtMs },
+            requestId: identity.requestId,
+            payload: { ...identity, expiresAtMs: payload.expiresAtMs },
           });
         }
 
@@ -762,14 +737,23 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         respondOkResult(deps, req.requestId, result);
       } finally {
         window.clearTimeout(expiryTimer);
+        const activeRecord = registrationActivationRecords.get(payload.activationId);
+        if (!activeRecord || activeRecord.kind === 'preparing') {
+          if (reservation) webAuthnPromptCoordinator.releaseReservation(reservation);
+          if (prepared) pm.disposePreparedIframePasskeyRegistration(prepared);
+        }
         removeRegistrationActivationRecord(payload.activationId);
       }
     },
 
     PM_REGISTRATION_ACTIVATION_CANCEL: async (req: Req<'PM_REGISTRATION_ACTIVATION_CANCEL'>) => {
       const payload = req.payload!;
+      const identity = parseRegistrationActivationMessageIdentity(payload);
+      if (!identity) {
+        throw new Error('Registration activation cancellation identity is invalid');
+      }
       const record = registrationActivationRecords.get(payload.activationId);
-      if (record) {
+      if (record && registrationActivationIdentitiesEqual(record.identity, identity)) {
         rejectRegistrationActivationRecord(record, registrationActivationCancelledError());
         removeRegistrationActivationRecord(payload.activationId);
       }
@@ -778,7 +762,11 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_REGISTRATION_ACTIVATION_FOCUS: async (req: Req<'PM_REGISTRATION_ACTIVATION_FOCUS'>) => {
       const payload = req.payload!;
-      const focusTarget = registrationActivationFocusTarget(payload.activationId);
+      const identity = parseRegistrationActivationMessageIdentity(payload);
+      if (!identity) {
+        throw new Error('Registration activation focus identity is invalid');
+      }
+      const focusTarget = registrationActivationFocusTarget(identity);
       if (focusTarget.kind === 'available') {
         focusRegistrationActivationButton(focusTarget.container);
       }

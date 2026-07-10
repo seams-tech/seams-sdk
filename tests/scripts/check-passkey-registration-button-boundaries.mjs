@@ -10,6 +10,10 @@ const registrationButtonRoot =
   'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/passkey-registration-btn';
 const forbiddenImport =
   /(?:IframeTxConfirmer|TxTree|tx-confirmer|tx-confirm|export-key|export-private-key|ExportKey|viewer-modal|viewer-drawer|Drawer|Modal|\/react\b|@\/react\b|SeamsAuthMenu)/;
+const strictCspSources = [
+  'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/passkey-registration-btn/components/seams-passkey-registration-btn-element.ts',
+  'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts',
+];
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -47,6 +51,11 @@ function collectViolations() {
       if (forbiddenImport.test(specifier)) {
         violations.push(`${relativePath}: forbidden registration-button import ${specifier}`);
       }
+    }
+  }
+  for (const relativePath of strictCspSources) {
+    if (/\.style\b|style\.setProperty\b/.test(readSource(relativePath))) {
+      violations.push(`${relativePath}: registration activation layout must use CSP-safe CSS`);
     }
   }
   return violations;

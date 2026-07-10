@@ -66,6 +66,7 @@ async function ensureDocumentLink(
   assetName: string,
   markerAttr: string,
 ): Promise<void> {
+  if (!doc.head) return;
   const existing = doc.head?.querySelector(`link[${markerAttr}]`) as HTMLLinkElement | null;
   if (existing) {
     await waitForStylesheet(existing);
@@ -75,7 +76,7 @@ async function ensureDocumentLink(
   link.rel = 'stylesheet';
   link.href = resolveStylesheetUrl(assetName);
   link.setAttribute(markerAttr, '');
-  doc.head?.appendChild(link);
+  doc.head.appendChild(link);
   await waitForStylesheet(link);
 }
 

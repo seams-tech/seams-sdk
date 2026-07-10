@@ -64,11 +64,11 @@ const REGISTRATION_ACTIVATION_STATE_FILTER_SCRIPT = String.raw`
             payload: { code: 'cancelled', message: 'Registration activation cancelled by test' }
           });
         };
-        const postButtonState = (requestId, activationId, state) => {
+        const postButtonState = (requestId, identity, state) => {
           adoptedPort.postMessage({
             type: 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
             requestId,
-            payload: { activationId, state }
+            payload: { ...identity, state }
           });
         };
 
@@ -82,19 +82,34 @@ const REGISTRATION_ACTIVATION_STATE_FILTER_SCRIPT = String.raw`
           if (data.type === 'PM_REGISTRATION_ACTIVATION_PREPARE') {
             const payload = data.payload || {};
             const activationId = payload.activationId;
+            const identity = {
+              activationId,
+              surfaceId: payload.surfaceId,
+              requestId: payload.requestId
+            };
             activationRequestIds.set(activationId, requestId);
-            postButtonState(requestId, activationId, earlyState);
-            postButtonState(requestId, activationId + ':forged', unknownActivationState);
+            postButtonState(requestId, identity, earlyState);
+            postButtonState(requestId, { ...identity, activationId: activationId + ':forged' }, unknownActivationState);
             adoptedPort.postMessage({
               type: 'PM_REGISTRATION_ACTIVATION_READY',
               requestId,
               payload: {
-                activationId,
+                ...identity,
                 expiresAtMs: payload.expiresAtMs
               }
             });
-            postButtonState(requestId, activationId, malformedState);
-            postButtonState(requestId, activationId, validState);
+            postButtonState(requestId, identity, malformedState);
+            postButtonState(requestId, identity, validState);
+            postButtonState(
+              requestId,
+              { ...identity, surfaceId: identity.surfaceId + ':forged' },
+              unknownActivationState
+            );
+            postButtonState(
+              requestId,
+              { ...identity, requestId: identity.requestId + ':forged' },
+              unknownActivationState
+            );
             return;
           }
 
@@ -136,12 +151,17 @@ const REGISTRATION_ACTIVATION_STARTED_RELEASE_SCRIPT = String.raw`
           if (data.type === 'PM_REGISTRATION_ACTIVATION_PREPARE') {
             const payload = data.payload || {};
             const activationId = payload.activationId;
+            const identity = {
+              activationId,
+              surfaceId: payload.surfaceId,
+              requestId: payload.requestId
+            };
             activationRequestIds.set(activationId, requestId);
             adoptedPort.postMessage({
               type: 'PM_REGISTRATION_ACTIVATION_READY',
               requestId,
               payload: {
-                activationId,
+                ...identity,
                 expiresAtMs: payload.expiresAtMs
               }
             });
@@ -149,7 +169,7 @@ const REGISTRATION_ACTIVATION_STARTED_RELEASE_SCRIPT = String.raw`
               adoptedPort.postMessage({
                 type: 'PM_REGISTRATION_ACTIVATION_STARTED',
                 requestId,
-                payload: { activationId }
+                payload: identity
               });
             }, 20);
             return;
@@ -192,13 +212,18 @@ const REGISTRATION_ACTIVATION_DELAYED_READY_SCRIPT = String.raw`
           if (data.type === 'PM_REGISTRATION_ACTIVATION_PREPARE') {
             const payload = data.payload || {};
             const activationId = payload.activationId;
+            const identity = {
+              activationId,
+              surfaceId: payload.surfaceId,
+              requestId: payload.requestId
+            };
             activationRequestIds.set(activationId, requestId);
             setTimeout(() => {
               adoptedPort.postMessage({
                 type: 'PM_REGISTRATION_ACTIVATION_READY',
                 requestId,
                 payload: {
-                  activationId,
+                  ...identity,
                   expiresAtMs: payload.expiresAtMs
                 }
               });
@@ -243,6 +268,11 @@ const REGISTRATION_ACTIVATION_CLICK_SCRIPT = String.raw`
           if (data.type === 'PM_REGISTRATION_ACTIVATION_PREPARE') {
             const payload = data.payload || {};
             const activationId = payload.activationId;
+            const identity = {
+              activationId,
+              surfaceId: payload.surfaceId,
+              requestId: payload.requestId
+            };
             activationRequestIds.set(activationId, requestId);
             document.body.style.margin = '0';
             document.body.innerHTML = '';
@@ -256,7 +286,7 @@ const REGISTRATION_ACTIVATION_CLICK_SCRIPT = String.raw`
               adoptedPort.postMessage({
                 type: 'PM_REGISTRATION_ACTIVATION_STARTED',
                 requestId,
-                payload: { activationId }
+                payload: identity
               });
               respondOk(requestId, { success: true, walletId: '' });
             }, { once: true });
@@ -265,7 +295,7 @@ const REGISTRATION_ACTIVATION_CLICK_SCRIPT = String.raw`
               type: 'PM_REGISTRATION_ACTIVATION_READY',
               requestId,
               payload: {
-                activationId,
+                ...identity,
                 expiresAtMs: payload.expiresAtMs
               }
             });
@@ -396,8 +426,8 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           const afterReadyStyle = iframeAfterReady ? getComputedStyle(iframeAfterReady) : null;
           const anchoredAfterReady = Boolean(
             iframeAfterReady &&
-              iframeAfterReady.getAttribute('aria-hidden') !== 'true' &&
-              afterReadyStyle?.pointerEvents === 'auto',
+            iframeAfterReady.getAttribute('aria-hidden') !== 'true' &&
+            afterReadyStyle?.pointerEvents === 'auto',
           );
           const targetReadyState = {
             active: target.getAttribute('data-seams-registration-button-active'),
@@ -449,6 +479,65 @@ test.describe('WalletIframeRouter registration activation surface', () => {
       busy: 'false',
       disabled: 'false',
     });
+  });
+
+  test('rejects fullscreen wallet work while the anchored activation lease is ready', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ routerPath, walletOrigin, waitForSource }) => {
+        const waitForBrowser = eval(waitForSource) as typeof waitFor;
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 5000,
+          sdkBasePath: '/sdk',
+          testOptions: { ownerTag: 'tests' },
+        });
+        await router.init();
+
+        const target = document.createElement('div');
+        target.style.cssText = 'position:absolute;left:40px;top:80px;width:240px;height:60px;';
+        document.body.appendChild(target);
+        const walletId =
+          'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
+        const surface = router.createPasskeyRegistrationActivationSurface({
+          wallet: { kind: 'provided', walletId },
+          presentation: {
+            kind: 'outline_overlay',
+            label: 'Create passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+          },
+        });
+        surface.mount(target);
+        await waitForBrowser(() => surface.state().kind === 'ready', 3000);
+
+        let errorCode = '';
+        try {
+          await router.registerWallet({} as never);
+        } catch (error) {
+          errorCode = String((error as { code?: unknown }).code || '');
+        }
+        const overlayState = router.getOverlayState();
+        surface.dispose();
+        target.remove();
+        return { errorCode, overlayState };
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+      },
+    );
+
+    expect(result.errorCode).toBe('wallet_iframe_surface_busy');
+    expect(result.overlayState.mode).toBe('anchored');
+    expect(result.overlayState.visible).toBe(true);
   });
 
   test('waits for registration activation target layout before cancelling', async ({ page }) => {
@@ -507,7 +596,10 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           );
           await new Promise((resolve) => setTimeout(resolve, 80));
           target.style.display = 'block';
-          const ready = await waitForBrowser(() => states.some((state) => state.kind === 'ready'), 3000);
+          const ready = await waitForBrowser(
+            () => states.some((state) => state.kind === 'ready'),
+            3000,
+          );
           const targetUnavailable = states.some(
             (state) => state.kind === 'cancelled' && state.reason === 'target_unavailable',
           );
@@ -690,12 +782,14 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           const unsubscribe = surface.onStateChange((state) => states.push(state.kind));
           surface.mount(target);
           const ready = await waitForBrowser(() => states.includes('ready'), 3000);
-          (window as typeof window & {
-            __registrationActivationTest?: {
-              states: string[];
-              dispose(): void;
-            };
-          }).__registrationActivationTest = {
+          (
+            window as typeof window & {
+              __registrationActivationTest?: {
+                states: string[];
+                dispose(): void;
+              };
+            }
+          ).__registrationActivationTest = {
             states,
             dispose() {
               unsubscribe();
@@ -786,7 +880,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           const target = document.createElement('div');
           target.className = 'seams-passkey-registration-btn';
           target.style.cssText =
-            'position:absolute;left:40px;top:210px;width:220px;height:56px;border-radius:28px;box-shadow:0 0 0 12px rgba(20,120,140,0.28);';
+            'position:absolute;left:40px;top:40px;width:220px;height:56px;border-radius:28px;box-shadow:0 0 0 12px rgba(20,120,140,0.28);';
           spacer.appendChild(target);
           scrollHost.appendChild(spacer);
           document.body.appendChild(scrollHost);
@@ -840,7 +934,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
               Math.abs(targetRect.height - iframeRect.height) <= 1
             );
           }, 3000);
-          scrollHost.scrollTop = 80;
+          scrollHost.scrollTop = 20;
           const scrolledRectsAligned = await waitForBrowser(() => {
             const iframe = document.querySelector(
               'iframe.w3a-wallet-overlay.is-anchored[data-w3a-owner="tests"]',
@@ -939,6 +1033,181 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     expect(result.states).toEqual(expect.arrayContaining(['mounting', 'ready']));
     expect(result.cleared).toBe(true);
     expect(result.overlayReleased).toBe(true);
+  });
+
+  test('rejects hidden, detached, undersized, inert, and low-opacity targets', async ({ page }) => {
+    const results = await page.evaluate(
+      async ({ routerPath, walletOrigin, waitForSource }) => {
+        const waitForBrowser = eval(waitForSource) as typeof waitFor;
+        const { WalletIframeRouter } = (await import(
+          routerPath
+        )) as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 1000,
+          sdkBasePath: '/sdk',
+          testOptions: { ownerTag: 'tests' },
+        });
+        await router.init();
+        const walletId =
+          'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
+        const cases: Array<{ name: string; target: HTMLElement; cleanup(): void }> = [];
+
+        const undersized = document.createElement('div');
+        undersized.style.cssText = 'width:40px;height:56px;';
+        document.body.appendChild(undersized);
+        cases.push({ name: 'undersized', target: undersized, cleanup: () => undersized.remove() });
+
+        const hidden = document.createElement('div');
+        hidden.style.cssText = 'width:100px;height:56px;visibility:hidden;';
+        document.body.appendChild(hidden);
+        cases.push({ name: 'hidden', target: hidden, cleanup: () => hidden.remove() });
+
+        const inertHost = document.createElement('div');
+        inertHost.setAttribute('inert', '');
+        const inertTarget = document.createElement('div');
+        inertTarget.style.cssText = 'width:100px;height:56px;';
+        inertHost.appendChild(inertTarget);
+        document.body.appendChild(inertHost);
+        cases.push({ name: 'inert', target: inertTarget, cleanup: () => inertHost.remove() });
+
+        const opacityHost = document.createElement('div');
+        opacityHost.style.opacity = '0.09';
+        const opacityTarget = document.createElement('div');
+        opacityTarget.style.cssText = 'width:100px;height:56px;';
+        opacityHost.appendChild(opacityTarget);
+        document.body.appendChild(opacityHost);
+        cases.push({
+          name: 'low-opacity',
+          target: opacityTarget,
+          cleanup: () => opacityHost.remove(),
+        });
+
+        const detached = document.createElement('div');
+        detached.style.cssText = 'width:100px;height:56px;';
+        cases.push({ name: 'detached', target: detached, cleanup: () => undefined });
+
+        const outcomes: Array<{ name: string; reason: string }> = [];
+        for (const entry of cases) {
+          const surface = router.createPasskeyRegistrationActivationSurface({
+            wallet: { kind: 'provided', walletId },
+            presentation: {
+              kind: 'outline_overlay',
+              label: 'Create passkey',
+              busyLabel: 'Creating passkey...',
+              accessibleLabel: 'Create passkey account',
+            },
+          });
+          surface.mount(entry.target);
+          await waitForBrowser(() => surface.state().kind === 'cancelled', 2500);
+          const state = surface.state();
+          outcomes.push({
+            name: entry.name,
+            reason: state.kind === 'cancelled' ? state.reason : state.kind,
+          });
+          surface.dispose();
+          entry.cleanup();
+        }
+        return outcomes;
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+      },
+    );
+
+    expect(results).toEqual([
+      { name: 'undersized', reason: 'target_unavailable' },
+      { name: 'hidden', reason: 'target_unavailable' },
+      { name: 'inert', reason: 'target_unavailable' },
+      { name: 'low-opacity', reason: 'target_unavailable' },
+      { name: 'detached', reason: 'target_unavailable' },
+    ]);
+  });
+
+  test('suspends and restores the iframe hit target when an ancestor clips the CTA', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ routerPath, walletOrigin, waitForSource }) => {
+        const waitForBrowser = eval(waitForSource) as typeof waitFor;
+        const { WalletIframeRouter } = (await import(
+          routerPath
+        )) as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 1000,
+          sdkBasePath: '/sdk',
+          testOptions: { ownerTag: 'tests' },
+        });
+        await router.init();
+
+        const clippingHost = document.createElement('div');
+        clippingHost.style.cssText =
+          'position:absolute;left:40px;top:40px;width:240px;height:100px;overflow:hidden;';
+        const target = document.createElement('div');
+        target.style.cssText = 'position:absolute;left:20px;top:20px;width:180px;height:56px;';
+        clippingHost.appendChild(target);
+        document.body.appendChild(clippingHost);
+
+        const walletId =
+          'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
+        const surface = router.createPasskeyRegistrationActivationSurface({
+          wallet: { kind: 'provided', walletId },
+          presentation: {
+            kind: 'outline_overlay',
+            label: 'Create passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+          },
+        });
+        surface.mount(target);
+        const ready = await waitForBrowser(() => surface.state().kind === 'ready', 3000);
+        const visible = await waitForBrowser(() => {
+          const iframe = document.querySelector(
+            'iframe.w3a-wallet-overlay[data-w3a-owner="tests"]',
+          ) as HTMLIFrameElement | null;
+          return Boolean(iframe?.classList.contains('is-anchored'));
+        }, 2000);
+
+        target.style.top = '72px';
+        const suspended = await waitForBrowser(() => {
+          const iframe = document.querySelector(
+            'iframe.w3a-wallet-overlay[data-w3a-owner="tests"]',
+          ) as HTMLIFrameElement | null;
+          return Boolean(
+            iframe?.classList.contains('is-hidden') &&
+            iframe.getAttribute('aria-hidden') === 'true',
+          );
+        }, 2000);
+
+        target.style.top = '20px';
+        const restored = await waitForBrowser(() => {
+          const iframe = document.querySelector(
+            'iframe.w3a-wallet-overlay[data-w3a-owner="tests"]',
+          ) as HTMLIFrameElement | null;
+          return Boolean(
+            iframe?.classList.contains('is-anchored') &&
+            iframe.getAttribute('aria-hidden') === 'false',
+          );
+        }, 2000);
+        surface.dispose();
+        clippingHost.remove();
+        return { ready, visible, suspended, restored };
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+      },
+    );
+
+    expect(result).toEqual({ ready: true, visible: true, suspended: true, restored: true });
   });
 
   test('releases the anchored hit target after iframe registration starts', async ({ page }) => {

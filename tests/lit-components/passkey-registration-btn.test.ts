@@ -51,7 +51,7 @@ test.describe('seams-passkey-registration-btn', () => {
         const starts: unknown[] = [];
 
         element.addEventListener(stateEvent, (event) => {
-          states.push({ ...((event as CustomEvent<InteractionState>).detail) });
+          states.push({ ...(event as CustomEvent<InteractionState>).detail });
         });
         element.addEventListener(startEvent, (event) => {
           starts.push((event as CustomEvent<unknown>).detail);
@@ -139,7 +139,7 @@ test.describe('seams-passkey-registration-btn', () => {
           }) as DOMRect;
 
         element.addEventListener(stateEvent, (event) => {
-          states.push({ ...((event as CustomEvent<InteractionState>).detail) });
+          states.push({ ...(event as CustomEvent<InteractionState>).detail });
         });
 
         button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 42 }));
@@ -214,6 +214,139 @@ test.describe('seams-passkey-registration-btn', () => {
     expect(result).toEqual([{ activationId: 'activation-keyboard' }]);
   });
 
+  test('emits typed forward and backward focus exits for Tab navigation', async ({ page }) => {
+    await mountComponent(page, {
+      tagName: TAG_NAME,
+      props: {
+        activationId: 'activation-focus-exit',
+        label: 'Create with passkey',
+        busyLabel: 'Creating passkey...',
+        accessibleLabel: 'Create passkey account',
+      },
+    });
+
+    const result = await page.evaluate(
+      async ({ tagName, modulePath }) => {
+        const mod = await import(modulePath);
+        const focusExitEvent = mod.SEAMS_PASSKEY_REGISTRATION_ACTIVATION_FOCUS_EXIT_EVENT as string;
+        const element = document.querySelector(tagName) as HTMLElement & {
+          updateComplete?: Promise<unknown>;
+        };
+        await element.updateComplete;
+        const button = element.querySelector('button') as HTMLButtonElement;
+        const directions: string[] = [];
+        element.addEventListener(focusExitEvent, (event) => {
+          directions.push((event as CustomEvent<{ direction: string }>).detail.direction);
+        });
+        button.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
+        button.dispatchEvent(
+          new KeyboardEvent('keydown', { bubbles: true, key: 'Tab', shiftKey: true }),
+        );
+        return directions;
+      },
+      { tagName: TAG_NAME, modulePath: MODULE_PATH },
+    );
+
+    expect(result).toEqual(['forward', 'backward']);
+  });
+
+  test('starts a reserved credential create inline from the trusted button click', async ({
+    page,
+  }) => {
+    await mountComponent(page, {
+      tagName: TAG_NAME,
+      props: {
+        activationId: 'activation-inline-create',
+        label: 'Create with passkey',
+        busyLabel: 'Creating passkey...',
+        accessibleLabel: 'Create passkey account',
+      },
+    });
+    const touchIdPromptPath = sdkEsmPath(
+      'core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.js',
+    );
+    const coordinatorPath = sdkEsmPath(
+      'core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator.js',
+    );
+
+    await page.evaluate(
+      async ({ tagName, modulePath, touchIdPromptPath, coordinatorPath }) => {
+        const componentModule = await import(modulePath);
+        const promptModule = await import(touchIdPromptPath);
+        const coordinatorModule = await import(coordinatorPath);
+        const identity = {
+          surfaceId: 'surface-inline-create',
+          activationId: 'activation-inline-create',
+          requestId: 'request-inline-create',
+        };
+        const owner = { kind: 'registration_activation' as const, identity };
+        const reservation =
+          await coordinatorModule.webAuthnPromptCoordinator.reserveRegistrationPrompt({
+            owner,
+            expiresAtMs: Date.now() + 10_000,
+            cancellation: { kind: 'none' },
+          });
+        const prompt = new promptModule.TouchIdPrompt('example.localhost');
+        const element = document.querySelector(tagName) as HTMLElement;
+        const eventName =
+          componentModule.SEAMS_PASSKEY_REGISTRATION_ACTIVATION_START_EVENT as string;
+        const credentials = navigator.credentials as unknown as {
+          create: typeof navigator.credentials.create;
+        };
+        const originalCreate = credentials.create.bind(navigator.credentials);
+        let handlerReturned = false;
+        let credentialCreate:
+          | { calledBeforeHandlerReturned: boolean; userActivationActive: boolean }
+          | undefined;
+        credentials.create = async (): Promise<Credential | null> => {
+          credentialCreate = {
+            calledBeforeHandlerReturned: !handlerReturned,
+            userActivationActive: navigator.userActivation.isActive,
+          };
+          return { id: 'credential-id', type: 'public-key' } as Credential;
+        };
+        element.addEventListener(
+          eventName,
+          () => {
+            const operation = prompt.generateRegistrationCredentialsInternal({
+              walletId: 'alice.testnet',
+              challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              signerSlot: 1,
+              intendedUserName: 'alice.testnet',
+              prompt: {
+                kind: 'reserved',
+                reservation,
+                owner,
+                cancellation: { kind: 'none' },
+              },
+            });
+            (globalThis as any).__seamsInlineCredentialOperation = operation.finally(() => {
+              credentials.create = originalCreate;
+            });
+            handlerReturned = true;
+          },
+          { once: true },
+        );
+        (globalThis as any).__seamsInlineCredentialCreate = () => credentialCreate;
+      },
+      { tagName: TAG_NAME, modulePath: MODULE_PATH, touchIdPromptPath, coordinatorPath },
+    );
+
+    await page.locator(`${TAG_NAME} button`).click();
+    const result = await page.evaluate(async () => {
+      await (globalThis as any).__seamsInlineCredentialOperation;
+      const value = (globalThis as any).__seamsInlineCredentialCreate();
+      delete (globalThis as any).__seamsInlineCredentialOperation;
+      delete (globalThis as any).__seamsInlineCredentialCreate;
+      return value;
+    });
+
+    expect(result).toEqual({
+      calledBeforeHandlerReturned: true,
+      userActivationActive: true,
+    });
+  });
+
   test('fills the wallet iframe viewport so the whole CTA is clickable', async ({ page }) => {
     const result = await page.evaluate(
       async ({ modulePath, tagName }) => {
@@ -229,6 +362,8 @@ test.describe('seams-passkey-registration-btn', () => {
           elementHeight: number;
           buttonHeight: number;
           buttonWidth: number;
+          inlineStyleCount: number;
+          stylesheetReady: boolean;
           error?: string;
         }>((resolve) => {
           const onMessage = (event: MessageEvent) => {
@@ -269,7 +404,7 @@ test.describe('seams-passkey-registration-btn', () => {
                   element.accessibleLabel = 'Create passkey account';
                   host.appendChild(element);
                   document.body.appendChild(host);
-                  await element.updateComplete;
+                  await element.activationReady();
                   await new Promise((resolve) => requestAnimationFrame(resolve));
                   const button = element.querySelector('button');
                   if (!button) throw new Error('missing internal button');
@@ -278,9 +413,12 @@ test.describe('seams-passkey-registration-btn', () => {
                     elementHeight: element.getBoundingClientRect().height,
                     buttonHeight: button.getBoundingClientRect().height,
                     buttonWidth: button.getBoundingClientRect().width,
+                    inlineStyleCount: [document.documentElement, document.body, element, button]
+                      .filter((node) => node.hasAttribute('style')).length,
+                    stylesheetReady: Boolean(document.head.querySelector('link[data-seams-passkey-registration-btn-css]')?.sheet),
                   });
                 } catch (error) {
-                  post({ bodyHeight: 0, elementHeight: 0, buttonHeight: 0, buttonWidth: 0, error: String(error?.message || error) });
+                  post({ bodyHeight: 0, elementHeight: 0, buttonHeight: 0, buttonWidth: 0, inlineStyleCount: -1, stylesheetReady: false, error: String(error?.message || error) });
                 }
               </script>
             </body>
@@ -300,59 +438,71 @@ test.describe('seams-passkey-registration-btn', () => {
     expect(result.elementHeight).toBeGreaterThanOrEqual(71);
     expect(result.buttonHeight).toBeGreaterThanOrEqual(71);
     expect(result.buttonWidth).toBeGreaterThanOrEqual(319);
+    expect(result.inlineStyleCount).toBe(0);
+    expect(result.stylesheetReady).toBe(true);
   });
 
   test('uses the same rpID source for WebAuthn registration options', async ({ page }) => {
-    const result = await page.evaluate(async ({ touchIdPromptPath }) => {
-      const mod = await import(touchIdPromptPath);
-      const prompt = new mod.TouchIdPrompt('example.localhost');
-      const originalCreate = navigator.credentials.create.bind(navigator.credentials);
-      let captured:
-        | {
-            rpId: string;
-            userName: string;
-            displayName: string;
-            userId: string;
-            fallbackRpId: string;
-          }
-        | undefined;
+    const result = await page.evaluate(
+      async ({ touchIdPromptPath }) => {
+        const mod = await import(touchIdPromptPath);
+        const prompt = new mod.TouchIdPrompt('example.localhost');
+        const originalCreate = navigator.credentials.create.bind(navigator.credentials);
+        let captured:
+          | {
+              rpId: string;
+              userName: string;
+              displayName: string;
+              userId: string;
+              fallbackRpId: string;
+            }
+          | undefined;
 
-      const credentials = navigator.credentials as unknown as {
-        create: typeof navigator.credentials.create;
-      };
-      credentials.create = async (options?: CredentialCreationOptions): Promise<Credential | null> => {
-        const publicKey = options?.publicKey as PublicKeyCredentialCreationOptions;
-        const user = publicKey.user;
-        captured = {
-          rpId: publicKey.rp.id || '',
-          userName: user.name,
-          displayName: user.displayName,
-          userId: new TextDecoder().decode(user.id),
-          fallbackRpId: prompt.getRpId(),
+        const credentials = navigator.credentials as unknown as {
+          create: typeof navigator.credentials.create;
         };
-        return {
-          id: 'credential-id',
-          type: 'public-key',
-        } as Credential;
-      };
+        credentials.create = async (
+          options?: CredentialCreationOptions,
+        ): Promise<Credential | null> => {
+          const publicKey = options?.publicKey as PublicKeyCredentialCreationOptions;
+          const user = publicKey.user;
+          captured = {
+            rpId: publicKey.rp.id || '',
+            userName: user.name,
+            displayName: user.displayName,
+            userId: new TextDecoder().decode(user.id),
+            fallbackRpId: prompt.getRpId(),
+          };
+          return {
+            id: 'credential-id',
+            type: 'public-key',
+          } as Credential;
+        };
 
-      try {
-        await prompt.generateRegistrationCredentialsInternal({
-          walletId: 'alice.testnet',
-          challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-          signerSlot: 1,
-          intendedUserName: 'alice.testnet',
-        });
-      } finally {
-        credentials.create = originalCreate;
-      }
+        try {
+          await prompt.generateRegistrationCredentialsInternal({
+            walletId: 'alice.testnet',
+            challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            signerSlot: 1,
+            intendedUserName: 'alice.testnet',
+            prompt: {
+              kind: 'immediate',
+              requestId: 'rp-id-test',
+              cancellation: { kind: 'none' },
+            },
+          });
+        } finally {
+          credentials.create = originalCreate;
+        }
 
-      return captured;
-    }, {
-      touchIdPromptPath: sdkEsmPath(
-        'core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.js',
-      ),
-    });
+        return captured;
+      },
+      {
+        touchIdPromptPath: sdkEsmPath(
+          'core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.js',
+        ),
+      },
+    );
 
     expect(result).toEqual({
       rpId: 'example.localhost',
@@ -363,28 +513,34 @@ test.describe('seams-passkey-registration-btn', () => {
     });
   });
 
-  test('rejects WebAuthn registration when username does not match wallet ID', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(async ({ touchIdPromptPath }) => {
-      const mod = await import(touchIdPromptPath);
-      const prompt = new mod.TouchIdPrompt('example.localhost');
-      try {
-        await prompt.generateRegistrationCredentialsInternal({
-          walletId: 'alice.testnet',
-          challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-          signerSlot: 1,
-          intendedUserName: 'alice',
-        });
-        return { ok: true, message: '' };
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
-      }
-    }, {
-      touchIdPromptPath: sdkEsmPath(
-        'core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.js',
-      ),
-    });
+  test('rejects WebAuthn registration when username does not match wallet ID', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ touchIdPromptPath }) => {
+        const mod = await import(touchIdPromptPath);
+        const prompt = new mod.TouchIdPrompt('example.localhost');
+        try {
+          await prompt.generateRegistrationCredentialsInternal({
+            walletId: 'alice.testnet',
+            challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            signerSlot: 1,
+            intendedUserName: 'alice',
+            prompt: {
+              kind: 'immediate',
+              requestId: 'username-test',
+              cancellation: { kind: 'none' },
+            },
+          });
+          return { ok: true, message: '' };
+        } catch (error) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      {
+        touchIdPromptPath: sdkEsmPath(
+          'core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.js',
+        ),
+      },
+    );
 
     expect(result).toEqual({
       ok: false,
@@ -395,36 +551,39 @@ test.describe('seams-passkey-registration-btn', () => {
   test('renders registration modal intended user name and rpID without transaction tree', async ({
     page,
   }) => {
-    await page.evaluate(async ({ confirmUiPath }) => {
-      const mod = await import(confirmUiPath);
-      const { mountConfirmUI } =
-        mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
-      const handle = await mountConfirmUI({
-        ctx: {
-          userPreferencesManager: {
-            getCurrentWalletId: () => 'alice.testnet',
-          },
-        } as any,
-        summary: { intentDigest: 'register:alice.testnet:1' } as any,
-        txSigningRequests: [],
-        securityContext: {
+    await page.evaluate(
+      async ({ confirmUiPath }) => {
+        const mod = await import(confirmUiPath);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+        const handle = await mountConfirmUI({
+          ctx: {
+            userPreferencesManager: {
+              getCurrentWalletId: () => 'alice.testnet',
+            },
+          } as any,
+          summary: { intentDigest: 'register:alice.testnet:1' } as any,
+          txSigningRequests: [],
+          securityContext: {
             passkeyRegistration: {
               kind: 'passkey_registration_confirm_display_v1',
               intendedUserName: 'alice.testnet',
               accountId: 'alice.testnet',
               rpId: 'example.localhost',
               signerSlot: 1,
-          },
-        } as any,
-        loading: false,
-        theme: 'dark',
-        uiMode: 'modal',
-        nearAccountIdOverride: 'alice.testnet',
-      });
-      (globalThis as any).__seamsPasskeyRegistrationModalHandle = handle;
-    }, {
-      confirmUiPath: CONFIRM_UI_PATH,
-    });
+            },
+          } as any,
+          loading: false,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+        (globalThis as any).__seamsPasskeyRegistrationModalHandle = handle;
+      },
+      {
+        confirmUiPath: CONFIRM_UI_PATH,
+      },
+    );
 
     await page.waitForSelector('.passkey-registration-confirm__identity');
     const identity = page.locator('.passkey-registration-confirm__identity');

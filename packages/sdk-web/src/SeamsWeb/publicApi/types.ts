@@ -754,18 +754,40 @@ export interface RegistrationCapability {
   ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
 
+export type WalletIframeSurfaceId = string & {
+  readonly __walletIframeSurfaceId: unique symbol;
+};
+
+export type RegistrationActivationId = string & {
+  readonly __registrationActivationId: unique symbol;
+};
+
+export type WalletIframeRequestId = string & {
+  readonly __walletIframeRequestId: unique symbol;
+};
+
+export type RegistrationActivationMessageIdentity = {
+  surfaceId: WalletIframeSurfaceId;
+  activationId: RegistrationActivationId;
+  requestId: WalletIframeRequestId;
+};
+
 export type RegistrationActivationSurfaceState =
   | { kind: 'idle' }
-  | { kind: 'mounting'; activationId: string }
-  | { kind: 'ready'; activationId: string; expiresAtMs: number }
-  | { kind: 'starting'; activationId: string }
-  | { kind: 'completed'; activationId: string; result: RegistrationResult }
+  | { kind: 'mounting'; identity: RegistrationActivationMessageIdentity }
+  | { kind: 'ready'; identity: RegistrationActivationMessageIdentity; expiresAtMs: number }
+  | { kind: 'starting'; identity: RegistrationActivationMessageIdentity }
+  | {
+      kind: 'completed';
+      identity: RegistrationActivationMessageIdentity;
+      result: RegistrationResult;
+    }
   | {
       kind: 'cancelled';
-      activationId: string;
+      identity: RegistrationActivationMessageIdentity;
       reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
     }
-  | { kind: 'failed'; activationId: string; error: string };
+  | { kind: 'failed'; identity: RegistrationActivationMessageIdentity; error: string };
 
 export type WalletIframeRegistrationActivationSurface = {
   kind: 'wallet_iframe_registration_activation_surface_v1';
@@ -781,56 +803,15 @@ export type CreatePasskeyRegistrationActivationSurfaceArgs = {
   presentation: RegistrationActivationButtonPresentation;
 };
 
-export type RegistrationActivationButtonCssProperty =
-  | 'width'
-  | 'height'
-  | 'minWidth'
-  | 'minHeight'
-  | 'maxWidth'
-  | 'maxHeight'
-  | 'padding'
-  | 'border'
-  | 'borderColor'
-  | 'borderRadius'
-  | 'background'
-  | 'backgroundColor'
-  | 'color'
-  | 'boxShadow'
-  | 'fontFamily'
-  | 'fontSize'
-  | 'fontWeight'
-  | 'lineHeight'
-  | 'letterSpacing'
-  | 'textAlign'
-  | 'cursor'
-  | 'outline'
-  | 'outlineColor'
-  | 'outlineOffset'
-  | 'outlineWidth';
-
-export type RegistrationActivationButtonCss = Partial<
-  Record<RegistrationActivationButtonCssProperty, string>
->;
-
-export type RegistrationActivationButtonPresentation =
-  | {
-      kind: 'outline_overlay';
-      label: string;
-      busyLabel: string;
-      accessibleLabel: string;
-      iframeButtonStyle?: RegistrationActivationButtonCss;
-      iframeVisualStyle?: never;
-      shadowPaddingPx?: never;
-    }
-  | {
-      kind: 'iframe_button';
-      label: string;
-      busyLabel: string;
-      accessibleLabel: string;
-      iframeVisualStyle: RegistrationActivationButtonCss;
-      shadowPaddingPx: number;
-      iframeButtonStyle?: never;
-    };
+export type RegistrationActivationButtonPresentation = {
+  kind: 'outline_overlay';
+  label: string;
+  busyLabel: string;
+  accessibleLabel: string;
+  iframeButtonStyle?: never;
+  iframeVisualStyle?: never;
+  shadowPaddingPx?: never;
+};
 
 export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;

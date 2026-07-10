@@ -149,10 +149,26 @@ import type {
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
 import { restoreThresholdEd25519WorkerMaterialFromCredential } from '../operations/session/thresholdWarmSessionBootstrap';
+import { serializeRegistrationCredentialWithPRF } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import type {
+  RegistrationWebAuthnPromptOwner,
+  ReservedRegistrationWebAuthnPrompt,
+} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 
 type RuntimePortsRef = {
   current: RuntimePorts | null;
 };
+
+function serializePreparedRegistrationCredential(
+  credential: PublicKeyCredential,
+): WebAuthnRegistrationCredential {
+  return serializeRegistrationCredentialWithPRF({
+    credential,
+    firstPrfOutput: true,
+    secondPrfOutput: true,
+  });
+}
 
 async function loadEcdsaRoleLocalReadyRecordFromRuntimePorts(
   runtimePortsRef: RuntimePortsRef,
@@ -769,6 +785,34 @@ export class BrowserSigningSurface {
       this.registrationPublicDeps,
       params,
     );
+  }
+
+  startPreparedPasskeyRegistrationCredential(args: {
+    walletId: string;
+    signerSlot: number;
+    challengeB64u: string;
+    expectedRpId: string;
+    reservation: ReservedRegistrationWebAuthnPrompt;
+    owner: RegistrationWebAuthnPromptOwner;
+    cancellation: { kind: 'abort_signal'; signal: AbortSignal };
+  }): Promise<WebAuthnRegistrationCredential> {
+    const runtimeRpId = this.touchIdPrompt.getRpId();
+    if (runtimeRpId !== args.expectedRpId) {
+      throw new Error('Prepared registration rpId does not match the wallet runtime');
+    }
+    const credential = this.touchIdPrompt.generateRegistrationCredentialsInternal({
+      walletId: args.walletId,
+      challengeB64u: args.challengeB64u,
+      signerSlot: args.signerSlot,
+      intendedUserName: args.walletId,
+      prompt: {
+        kind: 'reserved',
+        reservation: args.reservation,
+        owner: args.owner,
+        cancellation: args.cancellation,
+      },
+    });
+    return credential.then(serializePreparedRegistrationCredential);
   }
 
   getAuthenticationCredentialsSerialized(args: {

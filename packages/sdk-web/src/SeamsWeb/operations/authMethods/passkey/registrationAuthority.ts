@@ -66,6 +66,62 @@ function zeroRegistrationConfirmationDiagnostics(): RegistrationConfirmationDiag
   };
 }
 
+function buildPasskeyRegistrationAuthorityMaterial(args: {
+  credential: WebAuthnRegistrationCredential;
+  diagnostics: RegistrationConfirmationDiagnostics;
+  requestConfirmationMs: number;
+}): PasskeyRegistrationAuthorityMaterial {
+  const prfExtractionStartedAt = performance.now();
+  const prfFirstB64u = requirePasskeyPrfFirstB64u(
+    args.credential,
+    'Passkey registration authority',
+  );
+  const prfExtractionMs = roundDurationMs(prfExtractionStartedAt);
+  const credentialRedactionStartedAt = performance.now();
+  const webauthnRegistration = redactedPasskeyRegistrationCredential(args.credential);
+  const credentialRedactionMs = roundDurationMs(credentialRedactionStartedAt);
+  return {
+    kind: 'passkey',
+    credential: args.credential,
+    webauthnRegistration,
+    prfFirstB64u,
+    diagnostics: {
+      kind: 'passkey_registration_authority_diagnostics_v1',
+      requestConfirmationMs: args.requestConfirmationMs,
+      prfExtractionMs,
+      credentialRedactionMs,
+      confirmationWorkerReadyMs: args.diagnostics.workerReadyMs,
+      confirmationWorkerRequestRoundTripMs: args.diagnostics.workerRequestRoundTripMs,
+      confirmationWorkerResponseValidationMs: args.diagnostics.workerResponseValidationMs,
+      confirmationRequestSetupMs: args.diagnostics.requestSetupMs,
+      confirmationPromptUserMs: args.diagnostics.promptUserMs,
+      confirmationPromptElementDefineMs: args.diagnostics.promptElementDefineMs,
+      confirmationPromptMountMs: args.diagnostics.promptMountMs,
+      confirmationPromptHostFirstUpdateMs: args.diagnostics.promptHostFirstUpdateMs,
+      confirmationPromptHostInteractiveMs: args.diagnostics.promptHostInteractiveMs,
+      confirmationPromptConfirmEventMs: args.diagnostics.promptConfirmEventMs,
+      confirmationPromptDecisionWaitMs: args.diagnostics.promptDecisionWaitMs,
+      confirmationCredentialCreateStartMs: args.diagnostics.credentialCreateStartMs,
+      confirmationCredentialCreateMs: args.diagnostics.credentialCreateMs,
+      confirmationCredentialSerializeMs: args.diagnostics.credentialSerializeMs,
+      confirmationDuplicateRetryCount: args.diagnostics.duplicateRetryCount,
+      confirmationMainThreadTotalMs: args.diagnostics.mainThreadTotalMs,
+    },
+  };
+}
+
+export async function collectPasskeyRegistrationAuthorityFromCredential(
+  credentialPromise: Promise<WebAuthnRegistrationCredential>,
+): Promise<PasskeyRegistrationAuthorityMaterial> {
+  const startedAt = performance.now();
+  const credential = await credentialPromise;
+  return buildPasskeyRegistrationAuthorityMaterial({
+    credential,
+    diagnostics: zeroRegistrationConfirmationDiagnostics(),
+    requestConfirmationMs: roundDurationMs(startedAt),
+  });
+}
+
 export async function collectPasskeyRegistrationAuthority(args: {
   context: { signingEngine: WebAuthnRegistrationConfirmationSurface };
   walletId: string;
@@ -89,41 +145,9 @@ export async function collectPasskeyRegistrationAuthority(args: {
   const confirmationDiagnostics =
     registrationSession.registrationDiagnostics ?? zeroRegistrationConfirmationDiagnostics();
 
-  const credential = registrationSession.credential;
-  const prfExtractionStartedAt = performance.now();
-  const prfFirstB64u = requirePasskeyPrfFirstB64u(credential, 'Passkey registration authority');
-  const prfExtractionMs = roundDurationMs(prfExtractionStartedAt);
-
-  const credentialRedactionStartedAt = performance.now();
-  const webauthnRegistration = redactedPasskeyRegistrationCredential(credential);
-  const credentialRedactionMs = roundDurationMs(credentialRedactionStartedAt);
-
-  return {
-    kind: 'passkey',
-    credential,
-    webauthnRegistration,
-    prfFirstB64u,
-    diagnostics: {
-      kind: 'passkey_registration_authority_diagnostics_v1',
-      requestConfirmationMs,
-      prfExtractionMs,
-      credentialRedactionMs,
-      confirmationWorkerReadyMs: confirmationDiagnostics.workerReadyMs,
-      confirmationWorkerRequestRoundTripMs: confirmationDiagnostics.workerRequestRoundTripMs,
-      confirmationWorkerResponseValidationMs: confirmationDiagnostics.workerResponseValidationMs,
-      confirmationRequestSetupMs: confirmationDiagnostics.requestSetupMs,
-      confirmationPromptUserMs: confirmationDiagnostics.promptUserMs,
-      confirmationPromptElementDefineMs: confirmationDiagnostics.promptElementDefineMs,
-      confirmationPromptMountMs: confirmationDiagnostics.promptMountMs,
-      confirmationPromptHostFirstUpdateMs: confirmationDiagnostics.promptHostFirstUpdateMs,
-      confirmationPromptHostInteractiveMs: confirmationDiagnostics.promptHostInteractiveMs,
-      confirmationPromptConfirmEventMs: confirmationDiagnostics.promptConfirmEventMs,
-      confirmationPromptDecisionWaitMs: confirmationDiagnostics.promptDecisionWaitMs,
-      confirmationCredentialCreateStartMs: confirmationDiagnostics.credentialCreateStartMs,
-      confirmationCredentialCreateMs: confirmationDiagnostics.credentialCreateMs,
-      confirmationCredentialSerializeMs: confirmationDiagnostics.credentialSerializeMs,
-      confirmationDuplicateRetryCount: confirmationDiagnostics.duplicateRetryCount,
-      confirmationMainThreadTotalMs: confirmationDiagnostics.mainThreadTotalMs,
-    },
-  };
+  return buildPasskeyRegistrationAuthorityMaterial({
+    credential: registrationSession.credential,
+    diagnostics: confirmationDiagnostics,
+    requestConfirmationMs,
+  });
 }

@@ -8,6 +8,13 @@ import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/col
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { executeWebAuthnWithParentFallbacksSafari } from '../../webauthnAuth/fallbacks/safari-fallbacks';
 import { type WalletId, walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  webAuthnPromptCoordinator,
+  type RegistrationWebAuthnPromptOwner,
+  type ReservedRegistrationWebAuthnPrompt,
+  type WebAuthnPromptCancellation,
+} from './webauthnPromptCoordinator';
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 
 function isRegistrableSuffix(host: string, cand: string): boolean {
   if (!host || !cand) return false;
@@ -31,22 +38,28 @@ function decodeChallengeB64u(challengeB64u: string): Uint8Array {
   return decoded;
 }
 
-let webAuthnPromptQueue: Promise<void> = Promise.resolve();
+export type RegistrationCredentialPrompt =
+  | {
+      kind: 'immediate';
+      requestId: string;
+      cancellation: WebAuthnPromptCancellation;
+      reservation?: never;
+      owner?: never;
+    }
+  | {
+      kind: 'reserved';
+      reservation: ReservedRegistrationWebAuthnPrompt;
+      owner: RegistrationWebAuthnPromptOwner;
+      cancellation: WebAuthnPromptCancellation;
+      requestId?: never;
+    };
 
-async function enqueueWebAuthnPrompt<T>(operation: () => Promise<T>): Promise<T> {
-  const run = webAuthnPromptQueue.then(operation, operation);
-  webAuthnPromptQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return await run;
-}
-
-interface RegisterCredentialsArgs {
+export interface RegisterCredentialsArgs {
   walletId: string;
   challengeB64u: string;
   signerSlot?: number;
   intendedUserName: string;
+  prompt: RegistrationCredentialPrompt;
 }
 
 type ExpectedPasskeyRegistrationUser = {
@@ -128,69 +141,77 @@ export class TouchIdPrompt {
    * This is the preferred entry point for WebAuthn-only flows where the challenge
    * is already a canonical digest (e.g. `sessionPolicyDigest32`).
    */
-  async getAuthenticationCredentialsSerializedForChallengeB64u({
+  getAuthenticationCredentialsSerializedForChallengeB64u(
+    args: AuthenticateCredentialsForChallengeB64uArgs,
+  ): Promise<WebAuthnAuthenticationCredential> {
+    const requestId = `webauthn-get-${secureRandomBase36(12, 'WebAuthn get request IDs')}`;
+    return webAuthnPromptCoordinator.runImmediate({
+      owner: { kind: 'wallet_request', requestId, operation: 'authentication' },
+      operation: this.executeAuthenticationCredential.bind(this, args),
+    });
+  }
+
+  private async executeAuthenticationCredential({
     subjectId: _subjectId,
     challengeB64u,
     allowCredentials = [],
     includeSecondPrfOutput = false,
   }: AuthenticateCredentialsForChallengeB64uArgs): Promise<WebAuthnAuthenticationCredential> {
-    return await enqueueWebAuthnPrompt(async () => {
-      // New controller per get() call
-      this.abortController = new AbortController();
-      this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
-      const rpId = this.getRpId();
+    // New controller per get() call
+    this.abortController = new AbortController();
+    this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
+    const rpId = this.getRpId();
 
-      const challengeBytes = decodeChallengeB64u(challengeB64u);
+    const challengeBytes = decodeChallengeB64u(challengeB64u);
 
-      const publicKey: PublicKeyCredentialRequestOptions = {
-        challenge: challengeBytes as BufferSource,
-        rpId,
-        userVerification: 'preferred' as UserVerificationRequirement,
-        timeout: 60000,
-        extensions: {
-          prf: {
-            eval: {
-              first: getPrfFirstSaltV1() as BufferSource,
-              second: getPrfSecondSaltV1() as BufferSource,
-            },
+    const publicKey: PublicKeyCredentialRequestOptions = {
+      challenge: challengeBytes as BufferSource,
+      rpId,
+      userVerification: 'preferred' as UserVerificationRequirement,
+      timeout: 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: getPrfFirstSaltV1() as BufferSource,
+            second: getPrfSecondSaltV1() as BufferSource,
           },
         },
-      };
-      if (allowCredentials.length > 0) {
-        publicKey.allowCredentials = allowCredentials.map((credential) => ({
-          id: base64UrlDecode(credential.id) as BufferSource,
-          type: 'public-key' as PublicKeyCredentialType,
-          transports: credential.transports,
-        }));
-      }
+      },
+    };
+    if (allowCredentials.length > 0) {
+      publicKey.allowCredentials = allowCredentials.map((credential) => ({
+        id: base64UrlDecode(credential.id) as BufferSource,
+        type: 'public-key' as PublicKeyCredentialType,
+        transports: credential.transports,
+      }));
+    }
 
-      try {
-        const credentialMaybe = (await executeWebAuthnWithParentFallbacksSafari('get', publicKey, {
-          rpId,
-          inIframe: TouchIdPrompt._inIframe(),
-          timeoutMs: publicKey.timeout as number | undefined,
-          permitGetBridgeOnAncestorError: this.safariGetWebauthnRegistrationFallback,
-          abortSignal: this.abortController.signal,
-        })) as unknown;
+    try {
+      const credentialMaybe = (await executeWebAuthnWithParentFallbacksSafari('get', publicKey, {
+        rpId,
+        inIframe: TouchIdPrompt._inIframe(),
+        timeoutMs: publicKey.timeout as number | undefined,
+        permitGetBridgeOnAncestorError: this.safariGetWebauthnRegistrationFallback,
+        abortSignal: this.abortController.signal,
+      })) as unknown;
 
-        // Support parent-bridge fallback returning an already-serialized credential.
-        const serialized = isSerializedAuthenticationCredential(credentialMaybe)
-          ? credentialMaybe
-          : serializeAuthenticationCredentialWithPRF({
-              credential: credentialMaybe as PublicKeyCredential,
-              firstPrfOutput: true,
-              secondPrfOutput: includeSecondPrfOutput,
-            });
-        assertSerializedAuthenticationCredentialChallenge(serialized, challengeB64u);
-        return serialized;
-      } finally {
-        this.removePageAbortHandlers?.();
-        this.removePageAbortHandlers = undefined;
-        this.removeExternalAbortListener?.();
-        this.removeExternalAbortListener = undefined;
-        this.abortController = undefined;
-      }
-    });
+      // Support parent-bridge fallback returning an already-serialized credential.
+      const serialized = isSerializedAuthenticationCredential(credentialMaybe)
+        ? credentialMaybe
+        : serializeAuthenticationCredentialWithPRF({
+            credential: credentialMaybe as PublicKeyCredential,
+            firstPrfOutput: true,
+            secondPrfOutput: includeSecondPrfOutput,
+          });
+      assertSerializedAuthenticationCredentialChallenge(serialized, challengeB64u);
+      return serialized;
+    } finally {
+      this.removePageAbortHandlers?.();
+      this.removePageAbortHandlers = undefined;
+      this.removeExternalAbortListener?.();
+      this.removeExternalAbortListener = undefined;
+      this.abortController = undefined;
+    }
   }
 
   /**
@@ -200,68 +221,109 @@ export class TouchIdPrompt {
    * @param signerSlot - Local signer slot for WebAuthn user-handle disambiguation.
    * @returns Credential with PRF output
    */
-  async generateRegistrationCredentialsInternal({
+  generateRegistrationCredentialsInternal(
+    args: RegisterCredentialsArgs,
+  ): Promise<PublicKeyCredential> {
+    switch (args.prompt.kind) {
+      case 'reserved':
+        return webAuthnPromptCoordinator.runReserved({
+          reservation: args.prompt.reservation,
+          owner: args.prompt.owner,
+          operation: this.executeRegistrationCredential.bind(this, args),
+        });
+      case 'immediate':
+        return webAuthnPromptCoordinator.runImmediate({
+          owner: {
+            kind: 'wallet_request',
+            requestId: args.prompt.requestId,
+            operation: 'registration',
+          },
+          operation: this.executeRegistrationCredential.bind(this, args),
+        });
+    }
+  }
+
+  private async executeRegistrationCredential({
     walletId,
     challengeB64u,
     signerSlot,
     intendedUserName,
+    prompt,
   }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
-    return await enqueueWebAuthnPrompt(async () => {
-      // New controller per create() call
-      this.abortController = new AbortController();
-      this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
-      // Single source of truth for rpId: use getRpId().
-      const rpId = this.getRpId();
-      const expectedUser = requireExpectedPasskeyRegistrationUser({ walletId, intendedUserName });
-      const publicKey: PublicKeyCredentialCreationOptions = {
-        challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
-        rp: {
-          name: 'WebAuthn Passkey',
-          id: rpId,
-        },
-        user: {
-          id: new TextEncoder().encode(generateSignerSlotUserId(walletId, signerSlot)),
-          name: expectedUser.walletId,
-          displayName: expectedUser.walletId,
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: 'public-key' },
-          { alg: -257, type: 'public-key' },
-        ],
-        authenticatorSelection: {
-          residentKey: 'required',
-          userVerification: 'preferred',
-        },
-        timeout: 60000,
-        attestation: 'none',
-        extensions: {
-          prf: {
-            eval: {
-              // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
-              first: getPrfFirstSaltV1() as BufferSource,
-              second: getPrfSecondSaltV1() as BufferSource,
-            },
+    // New controller per create() call
+    this.abortController = new AbortController();
+    this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
+    this.removeExternalAbortListener = attachExternalAbortSignal(
+      this.abortController,
+      prompt.cancellation,
+    );
+    // Single source of truth for rpId: use getRpId().
+    const rpId = this.getRpId();
+    const expectedUser = requireExpectedPasskeyRegistrationUser({ walletId, intendedUserName });
+    const publicKey: PublicKeyCredentialCreationOptions = {
+      challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
+      rp: {
+        name: 'WebAuthn Passkey',
+        id: rpId,
+      },
+      user: {
+        id: new TextEncoder().encode(generateSignerSlotUserId(walletId, signerSlot)),
+        name: expectedUser.walletId,
+        displayName: expectedUser.walletId,
+      },
+      pubKeyCredParams: [
+        { alg: -7, type: 'public-key' },
+        { alg: -257, type: 'public-key' },
+      ],
+      authenticatorSelection: {
+        residentKey: 'required',
+        userVerification: 'preferred',
+      },
+      timeout: 60000,
+      attestation: 'none',
+      extensions: {
+        prf: {
+          eval: {
+            // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
+            first: getPrfFirstSaltV1() as BufferSource,
+            second: getPrfSecondSaltV1() as BufferSource,
           },
         },
-      };
-      try {
-        const result = await executeWebAuthnWithParentFallbacksSafari('create', publicKey, {
-          rpId,
-          inIframe: TouchIdPrompt._inIframe(),
-          timeoutMs: publicKey.timeout as number | undefined,
-          // Pass AbortSignal through when supported; Safari bridge path may ignore it.
-          abortSignal: this.abortController.signal,
-        });
-        return result as PublicKeyCredential;
-      } finally {
-        this.removePageAbortHandlers?.();
-        this.removePageAbortHandlers = undefined;
-        this.removeExternalAbortListener?.();
-        this.removeExternalAbortListener = undefined;
-        this.abortController = undefined;
-      }
-    });
+      },
+    };
+    try {
+      const result = await executeWebAuthnWithParentFallbacksSafari('create', publicKey, {
+        rpId,
+        inIframe: TouchIdPrompt._inIframe(),
+        registrationOriginPolicy: 'wallet_origin_only',
+        timeoutMs: publicKey.timeout as number | undefined,
+        // Pass AbortSignal through when supported; Safari bridge path may ignore it.
+        abortSignal: this.abortController.signal,
+      });
+      return result as PublicKeyCredential;
+    } finally {
+      this.removePageAbortHandlers?.();
+      this.removePageAbortHandlers = undefined;
+      this.removeExternalAbortListener?.();
+      this.removeExternalAbortListener = undefined;
+      this.abortController = undefined;
+    }
   }
+}
+
+function attachExternalAbortSignal(
+  controller: AbortController,
+  cancellation: WebAuthnPromptCancellation,
+): (() => void) | undefined {
+  if (cancellation.kind === 'none') return undefined;
+  const signal = cancellation.signal;
+  const abort = controller.abort.bind(controller);
+  if (signal.aborted) {
+    abort();
+    return undefined;
+  }
+  signal.addEventListener('abort', abort, { once: true });
+  return signal.removeEventListener.bind(signal, 'abort', abort);
 }
 
 // Type guard for already-serialized authentication credential

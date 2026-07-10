@@ -51,6 +51,7 @@
 
 import {
   parseRegistrationActivationButtonStatePayload,
+  parseRegistrationActivationFocusExitPayload,
   parseRegistrationActivationReadyPayload,
   parseRegistrationActivationStartedPayload,
   type ParentToChildEnvelope,
@@ -59,6 +60,7 @@ import {
   type PreferencesChangedPayload,
   type RegistrationActivationButtonInteractionState,
   type PMRegistrationActivationButtonStatePayload,
+  type PMRegistrationActivationFocusExitPayload,
   type PMRegistrationActivationReadyPayload,
   type PMRegistrationActivationStartedPayload,
 } from '../shared/messages';
@@ -114,9 +116,12 @@ import type {
 } from '@/core/types/seams';
 import type {
   CreatePasskeyRegistrationActivationSurfaceArgs,
-  RegistrationActivationButtonPresentation,
+  RegistrationActivationMessageIdentity,
   RegistrationActivationSurfaceState,
   WalletIframeRegistrationActivationSurface,
+  WalletIframeRequestId,
+  WalletIframeSurfaceId,
+  RegistrationActivationId,
 } from '@/SeamsWeb/publicApi/types';
 import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -183,7 +188,10 @@ import type {
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
-import OverlayController, { type DOMRectLike } from './overlay/overlay-controller';
+import OverlayController, {
+  type AnchoredOverlayLease,
+  type DOMRectLike,
+} from './overlay/overlay-controller';
 import {
   isObject,
   isPlainSignedTransactionLike,
@@ -378,6 +386,14 @@ function getErrorCode(error: Error): string {
   if (!isObject(error)) return '';
   const code = (error as { code?: unknown }).code;
   return typeof code === 'string' ? code : '';
+}
+
+function walletIframeSurfaceBusyError(): Error & { code: 'wallet_iframe_surface_busy' } {
+  const error = new Error(
+    'The wallet iframe is reserved by an active registration surface',
+  ) as Error & { code: 'wallet_iframe_surface_busy' };
+  error.code = 'wallet_iframe_surface_busy';
+  return error;
 }
 
 function shouldTreatRegistrationActivationErrorAsExpired(error: Error): boolean {
@@ -597,6 +613,10 @@ type ParsedRegistrationActivationChildMessage =
   | {
       type: 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE';
       payload: PMRegistrationActivationButtonStatePayload;
+    }
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT';
+      payload: PMRegistrationActivationFocusExitPayload;
     };
 
 function parseRegistrationActivationChildMessage(
@@ -615,6 +635,10 @@ function parseRegistrationActivationChildMessage(
       const payload = parseRegistrationActivationButtonStatePayload(msg.payload);
       return payload ? { type: msg.type, payload } : null;
     }
+    case 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT': {
+      const payload = parseRegistrationActivationFocusExitPayload(msg.payload);
+      return payload ? { type: msg.type, payload } : null;
+    }
     default:
       return null;
   }
@@ -628,8 +652,54 @@ function clearRegistrationActivationButtonState(target: HTMLElement | null): voi
   }
 }
 
+function registrationActivationIdentitiesEqual(
+  left: RegistrationActivationMessageIdentity,
+  right: RegistrationActivationMessageIdentity,
+): boolean {
+  return (
+    left.surfaceId === right.surfaceId &&
+    left.activationId === right.activationId &&
+    left.requestId === right.requestId
+  );
+}
+
+function focusableRegistrationActivationElements(doc: Document): HTMLElement[] {
+  const selector = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',');
+  return Array.from(doc.querySelectorAll<HTMLElement>(selector)).filter((element) => {
+    if (!element.isConnected || element.closest('[inert]')) return false;
+    const style = doc.defaultView?.getComputedStyle(element);
+    if (style?.display === 'none' || style?.visibility === 'hidden') return false;
+    return element.getClientRects().length > 0;
+  });
+}
+
+function focusRegistrationActivationSibling(
+  target: HTMLElement,
+  direction: 'forward' | 'backward',
+): void {
+  const elements = focusableRegistrationActivationElements(target.ownerDocument);
+  const targetIndex = elements.indexOf(target);
+  const nextIndex = direction === 'forward' ? targetIndex + 1 : targetIndex - 1;
+  const next = elements[nextIndex];
+  if (next && next !== target) {
+    next.focus({ preventScroll: true });
+    return;
+  }
+  target.blur();
+}
+
 function readRegistrationActivationTargetRect(target: HTMLElement): DOMRectLike | null {
   if (target.isConnected === false) return null;
+  if (typeof target.getClientRects === 'function' && target.getClientRects().length === 0) {
+    return null;
+  }
   const rect = target.getBoundingClientRect();
   const top = Number(rect.top);
   const left = Number(rect.left);
@@ -640,12 +710,62 @@ function readRegistrationActivationTargetRect(target: HTMLElement): DOMRectLike 
     !Number.isFinite(left) ||
     !Number.isFinite(width) ||
     !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
+    width < 44 ||
+    height < 44
   ) {
     return null;
   }
   return { top, left, width, height };
+}
+
+type RegistrationActivationTargetGeometry =
+  | { kind: 'interactive'; rect: DOMRectLike }
+  | { kind: 'suspended'; rect: DOMRectLike }
+  | { kind: 'unavailable'; rect?: never };
+
+function isRegistrationActivationClippingValue(value: string): boolean {
+  return value === 'hidden' || value === 'clip' || value === 'auto' || value === 'scroll';
+}
+
+function registrationActivationTargetGeometry(
+  target: HTMLElement,
+): RegistrationActivationTargetGeometry {
+  const rect = readRegistrationActivationTargetRect(target);
+  if (!rect || typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
+    return rect ? { kind: 'interactive', rect } : { kind: 'unavailable' };
+  }
+  let effectiveOpacity = 1;
+  let current: HTMLElement | null = target;
+  let partiallyClipped = false;
+  while (current) {
+    if (current.hasAttribute('inert')) return { kind: 'unavailable' };
+    const styles = window.getComputedStyle(current);
+    if (
+      styles.display === 'none' ||
+      styles.visibility === 'hidden' ||
+      styles.visibility === 'collapse' ||
+      styles.contentVisibility === 'hidden'
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const opacity = Number(styles.opacity);
+    effectiveOpacity *= Number.isFinite(opacity) ? opacity : 1;
+    if (effectiveOpacity < 0.1) return { kind: 'unavailable' };
+    if (current !== target) {
+      const ancestorRect = current.getBoundingClientRect();
+      const clipsX = isRegistrationActivationClippingValue(styles.overflowX);
+      const clipsY = isRegistrationActivationClippingValue(styles.overflowY);
+      if (
+        (clipsX &&
+          (rect.left < ancestorRect.left || rect.left + rect.width > ancestorRect.right)) ||
+        (clipsY && (rect.top < ancestorRect.top || rect.top + rect.height > ancestorRect.bottom))
+      ) {
+        partiallyClipped = true;
+      }
+    }
+    current = current.parentElement;
+  }
+  return partiallyClipped ? { kind: 'suspended', rect } : { kind: 'interactive', rect };
 }
 
 function installRegistrationActivationTargetProxy(args: {
@@ -722,19 +842,6 @@ function installRegistrationActivationIframeAccessibility(args: {
   };
 }
 
-function visibleRegistrationActivationTargetRect(target: HTMLElement): DOMRectLike | null {
-  const rect = readRegistrationActivationTargetRect(target);
-  if (!rect) return null;
-  const viewportWidth = Number(globalThis.innerWidth || document.documentElement.clientWidth || 0);
-  const viewportHeight = Number(
-    globalThis.innerHeight || document.documentElement.clientHeight || 0,
-  );
-  if (viewportWidth <= 0 || viewportHeight <= 0) return rect;
-  if (rect.left + rect.width <= 0 || rect.top + rect.height <= 0) return null;
-  if (rect.left >= viewportWidth || rect.top >= viewportHeight) return null;
-  return rect;
-}
-
 function nextRegistrationActivationLayoutFrame(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame === 'function') {
@@ -749,11 +856,11 @@ async function waitForVisibleRegistrationActivationTarget(target: HTMLElement): 
   const deadline = Date.now() + REGISTRATION_ACTIVATION_TARGET_VISIBILITY_TIMEOUT_MS;
   let frames = 0;
   while (frames < REGISTRATION_ACTIVATION_TARGET_VISIBILITY_MAX_FRAMES && Date.now() <= deadline) {
-    if (visibleRegistrationActivationTargetRect(target)) return true;
+    if (registrationActivationTargetGeometry(target).kind !== 'unavailable') return true;
     await nextRegistrationActivationLayoutFrame();
     frames += 1;
   }
-  return visibleRegistrationActivationTargetRect(target) !== null;
+  return registrationActivationTargetGeometry(target).kind !== 'unavailable';
 }
 
 function collectRegistrationActivationGeometryTargets(target: HTMLElement): EventTarget[] {
@@ -768,7 +875,7 @@ function collectRegistrationActivationGeometryTargets(target: HTMLElement): Even
   while (current) {
     const styles = window.getComputedStyle(current);
     const overflow = `${styles.overflow} ${styles.overflowX} ${styles.overflowY}`;
-    if (/\b(auto|scroll|overlay)\b/.test(overflow)) {
+    if (/\b(auto|scroll|overlay|hidden|clip)\b/.test(overflow)) {
       events.push(current);
     }
     current = current.parentElement;
@@ -776,46 +883,25 @@ function collectRegistrationActivationGeometryTargets(target: HTMLElement): Even
   return events;
 }
 
-function registrationActivationShadowPaddingPx(
-  presentation: RegistrationActivationButtonPresentation,
-): number {
-  if (presentation.kind !== 'iframe_button') return 0;
-  return Number.isFinite(presentation.shadowPaddingPx)
-    ? Math.max(0, presentation.shadowPaddingPx)
-    : 0;
-}
-
-function registrationActivationOverlayRectForPresentation(args: {
-  rect: DOMRectLike;
-  presentation: RegistrationActivationButtonPresentation;
-}): DOMRectLike {
-  const shadowPaddingPx = registrationActivationShadowPaddingPx(args.presentation);
-  if (shadowPaddingPx <= 0) return args.rect;
-  return {
-    top: args.rect.top - shadowPaddingPx,
-    left: args.rect.left - shadowPaddingPx,
-    width: args.rect.width + shadowPaddingPx * 2,
-    height: args.rect.height + shadowPaddingPx * 2,
-  };
-}
-
 function installRegistrationActivationOverlayGeometry(args: {
   target: HTMLElement;
   overlayState: WalletIframeOverlayState;
-  presentation: RegistrationActivationButtonPresentation;
+  lease: AnchoredOverlayLease;
   onTargetUnavailable(): void;
 }): RegistrationActivationMountCleanup | null {
   const applyRect = (): boolean => {
-    const rect = visibleRegistrationActivationTargetRect(args.target);
-    if (!rect) return false;
-    const overlayRect = registrationActivationOverlayRectForPresentation({
-      rect,
-      presentation: args.presentation,
-    });
-    args.overlayState.forceFullscreen = false;
-    args.overlayState.controller.setSticky(true);
-    args.overlayState.controller.showAnchored(overlayRect);
-    return true;
+    const geometry = registrationActivationTargetGeometry(args.target);
+    switch (geometry.kind) {
+      case 'unavailable':
+        return false;
+      case 'suspended':
+        args.overlayState.controller.suspendAnchoredForLease(args.lease);
+        return true;
+      case 'interactive':
+        args.overlayState.forceFullscreen = false;
+        args.overlayState.controller.setSticky(true);
+        return args.overlayState.controller.showAnchoredForLease(args.lease, geometry.rect);
+    }
   };
   if (!applyRect()) return null;
   let disposed = false;
@@ -1038,6 +1124,7 @@ export class WalletIframeRouter {
       if (!data || typeof data !== 'object') return;
       const type = (data as { type?: unknown }).type;
       if (type === 'REGISTER_BUTTON_SUBMIT') {
+        if (this.overlayState.controller.getState().ownership === 'anchored_lease') return;
         // User clicked the register arrow inside the wallet-anchored UI
         // Force the overlay to fullscreen immediately so the TxConfirmer
         // can mount and capture activation in Safari/iOS/mobile.
@@ -1370,7 +1457,13 @@ export class WalletIframeRouter {
   createPasskeyRegistrationActivationSurface(
     payload: CreatePasskeyRegistrationActivationSurfaceArgs,
   ): WalletIframeRegistrationActivationSurface {
-    const activationId = `regact-${secureRandomBase36(16, 'registration activation IDs')}`;
+    const identity: RegistrationActivationMessageIdentity = {
+      surfaceId:
+        `regsurf-${secureRandomBase36(16, 'registration activation surface IDs')}` as WalletIframeSurfaceId,
+      activationId:
+        `regact-${secureRandomBase36(16, 'registration activation IDs')}` as RegistrationActivationId,
+      requestId: this.allocateRequestId(),
+    };
     const expiresAtMs = Date.now() + 5 * 60 * 1000;
     let currentState: RegistrationActivationSurfaceState = { kind: 'idle' };
     let mounted = false;
@@ -1379,6 +1472,7 @@ export class WalletIframeRouter {
     let targetCleanup: RegistrationActivationMountCleanup | null = null;
     let geometryCleanup: RegistrationActivationMountCleanup | null = null;
     let iframeTitleCleanup: RegistrationActivationMountCleanup | null = null;
+    let overlayLease: AnchoredOverlayLease | null = null;
     const listeners = new Set<(state: RegistrationActivationSurfaceState) => void>();
     const setState = (next: RegistrationActivationSurfaceState): void => {
       currentState = next;
@@ -1400,35 +1494,56 @@ export class WalletIframeRouter {
     };
     const releaseActivationOverlay = (): void => {
       cleanupActivationMount();
+      if (overlayLease) {
+        this.overlayState.controller.releaseAnchoredLease(overlayLease);
+        overlayLease = null;
+      }
       this.releaseOverlayLockAndHideWhenIdle();
     };
     const postActivationCancel = (reason: RegistrationActivationCancelReason): void => {
       void this.post({
         type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
-        payload: { activationId, reason },
+        payload: { ...identity, reason },
       }).catch(() => {});
     };
     const cancelActivation = (reason: RegistrationActivationCancelReason): void => {
       if (disposed) return;
       disposed = true;
-      this.registrationActivationListeners.delete(activationId);
+      this.registrationActivationListeners.delete(identity.activationId);
       postActivationCancel(reason);
-      setState({ kind: 'cancelled', activationId, reason });
+      setState({ kind: 'cancelled', identity, reason });
+      releaseActivationOverlay();
+    };
+    const failActivation = (error: string): void => {
+      if (disposed) return;
+      disposed = true;
+      this.registrationActivationListeners.delete(identity.activationId);
+      postActivationCancel('disposed');
+      setState({ kind: 'failed', identity, error });
       releaseActivationOverlay();
     };
     const activationEventListener = (event: ChildToParentEnvelope): void => {
       const parsed = parseRegistrationActivationChildMessage(event);
-      if (!parsed || parsed.payload.activationId !== activationId) return;
+      if (!parsed || !registrationActivationIdentitiesEqual(parsed.payload, identity)) return;
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_READY') {
         if (!target) {
           cancelActivation('target_unavailable');
           return;
         }
         if (!geometryCleanup) {
+          if (this.progressBus.wantsVisible()) {
+            failActivation('wallet_iframe_surface_busy');
+            return;
+          }
+          overlayLease = this.overlayState.controller.acquireAnchoredLease();
+          if (!overlayLease) {
+            failActivation('wallet_iframe_surface_busy');
+            return;
+          }
           geometryCleanup = installRegistrationActivationOverlayGeometry({
             target,
             overlayState: this.overlayState,
-            presentation: payload.presentation,
+            lease: overlayLease,
             onTargetUnavailable: () => cancelActivation('target_unavailable'),
           });
         }
@@ -1442,20 +1557,25 @@ export class WalletIframeRouter {
         });
         setState({
           kind: 'ready',
-          activationId,
+          identity,
           expiresAtMs: parsed.payload.expiresAtMs,
         });
         return;
       }
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
         if (currentState.kind !== 'ready') return;
-        setState({ kind: 'starting', activationId });
+        setState({ kind: 'starting', identity });
         releaseActivationOverlay();
         return;
       }
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
         if (!canApplyRegistrationActivationButtonState(currentState)) return;
         applyRegistrationActivationButtonState({ target, state: parsed.payload.state });
+        return;
+      }
+      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT') {
+        if (!target || !canApplyRegistrationActivationButtonState(currentState)) return;
+        focusRegistrationActivationSibling(target, parsed.payload.direction);
       }
     };
 
@@ -1474,7 +1594,7 @@ export class WalletIframeRouter {
           onFocusRequest: () => {
             void this.post({
               type: 'PM_REGISTRATION_ACTIVATION_FOCUS',
-              payload: { activationId },
+              payload: identity,
             }).catch(() => {});
           },
         });
@@ -1483,8 +1603,11 @@ export class WalletIframeRouter {
           state: REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE,
         });
         mounted = true;
-        setState({ kind: 'mounting', activationId });
-        this.registrationActivationListeners.set(activationId, new Set([activationEventListener]));
+        setState({ kind: 'mounting', identity });
+        this.registrationActivationListeners.set(
+          identity.activationId,
+          new Set([activationEventListener]),
+        );
         void (async () => {
           try {
             const targetVisible = await waitForVisibleRegistrationActivationTarget(mountTarget);
@@ -1493,27 +1616,25 @@ export class WalletIframeRouter {
               cancelActivation('target_unavailable');
               return;
             }
-            const safeOptions = removeFunctionsFromOptions(payload.options);
             const res = await this.post<RegistrationResult>(
               {
                 type: 'PM_REGISTRATION_ACTIVATION_PREPARE',
                 payload: {
-                  activationId,
+                  ...identity,
                   expiresAtMs,
                   wallet: payload.wallet,
-                  ...(safeOptions ? { options: safeOptions } : {}),
-                  ...(payload.options?.confirmationConfig
-                    ? { confirmationConfig: payload.options.confirmationConfig }
-                    : {}),
                   presentation: payload.presentation,
                 },
                 options: {
                   onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
                 },
               },
-              { timeoutMs: Math.max(1, expiresAtMs - Date.now()) },
+              {
+                timeoutMs: Math.max(1, expiresAtMs - Date.now()),
+                requestId: identity.requestId,
+              },
             );
-            setState({ kind: 'completed', activationId, result: res.result });
+            setState({ kind: 'completed', identity, result: res.result });
             const walletId = res.result?.success ? String(res.result.walletId || '') : '';
             if (walletId) {
               const { login: st } = await this.getWalletSession(walletId);
@@ -1525,19 +1646,19 @@ export class WalletIframeRouter {
             const code = getErrorCode(err);
             if (code === 'cancelled') {
               postActivationCancel('user_cancelled');
-              setState({ kind: 'cancelled', activationId, reason: 'user_cancelled' });
+              setState({ kind: 'cancelled', identity, reason: 'user_cancelled' });
             } else if (shouldTreatRegistrationActivationErrorAsExpired(err)) {
               postActivationCancel('expired');
-              setState({ kind: 'cancelled', activationId, reason: 'expired' });
+              setState({ kind: 'cancelled', identity, reason: 'expired' });
             } else {
               setState({
                 kind: 'failed',
-                activationId,
+                identity,
                 error: err.message || 'Registration failed',
               });
             }
           } finally {
-            this.registrationActivationListeners.delete(activationId);
+            this.registrationActivationListeners.delete(identity.activationId);
             releaseActivationOverlay();
           }
         })();
@@ -1545,10 +1666,10 @@ export class WalletIframeRouter {
       dispose: (): void => {
         if (disposed) return;
         disposed = true;
-        this.registrationActivationListeners.delete(activationId);
+        this.registrationActivationListeners.delete(identity.activationId);
         if (shouldCancelRegistrationActivationOnDispose(currentState)) {
           postActivationCancel('disposed');
-          setState({ kind: 'cancelled', activationId, reason: 'disposed' });
+          setState({ kind: 'cancelled', identity, reason: 'disposed' });
         }
         releaseActivationOverlay();
       },
@@ -1567,6 +1688,7 @@ export class WalletIframeRouter {
   async registerWallet(
     payload: Parameters<RegistrationCapability['registerWallet']>[0],
   ): Promise<RegistrationResult> {
+    this.assertOverlaySurfaceAvailable();
     this.overlayState.forceFullscreen = true;
     this.overlayState.controller.setSticky(true);
     this.overlayState.controller.showFullscreen();
@@ -1608,6 +1730,7 @@ export class WalletIframeRouter {
   async addWalletSigner(
     payload: Parameters<RegistrationCapability['addWalletSigner']>[0],
   ): Promise<RegistrationResult> {
+    this.assertOverlaySurfaceAvailable();
     this.overlayState.forceFullscreen = true;
     this.overlayState.controller.setSticky(true);
     this.overlayState.controller.showFullscreen();
@@ -2797,7 +2920,8 @@ export class WalletIframeRouter {
     if (
       msg.type === 'PM_REGISTRATION_ACTIVATION_READY' ||
       msg.type === 'PM_REGISTRATION_ACTIVATION_STARTED' ||
-      msg.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE'
+      msg.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE' ||
+      msg.type === 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT'
     ) {
       const parsed = parseRegistrationActivationChildMessage(msg);
       if (parsed) {
@@ -2916,7 +3040,11 @@ export class WalletIframeRouter {
    */
   private async post<T>(
     envelope: Omit<ParentToChildEnvelope, 'requestId'>,
-    postOpts?: { timeoutMs?: number; progressTimeoutExtensionFactor?: number },
+    postOpts?: {
+      timeoutMs?: number;
+      progressTimeoutExtensionFactor?: number;
+      requestId?: WalletIframeRequestId;
+    },
   ): Promise<PostResult<T>> {
     // Step 1: Lazily initialize the iframe/client if not ready yet
     if (!this.state.ready || !this.state.port) {
@@ -2924,10 +3052,16 @@ export class WalletIframeRouter {
     }
 
     // Step 2: Generate unique request ID for correlation
-    const requestId = `${Date.now()}-${++this.state.reqCounter}`;
+    const requestId = postOpts?.requestId ?? this.allocateRequestId();
     const full: ParentToChildEnvelope = { ...(envelope as ParentToChildEnvelope), requestId };
     const { options } = full;
     const overlayIntent = this.computeOverlayIntent(envelope.type);
+    if (
+      overlayIntent.mode === 'fullscreen' &&
+      this.overlayState.controller.getState().ownership === 'anchored_lease'
+    ) {
+      throw walletIframeSurfaceBusyError();
+    }
     const timeoutMs = postOpts?.timeoutMs ?? this.opts.requestTimeoutMs;
     const parsedProgressTimeoutExtensionFactor = Number(postOpts?.progressTimeoutExtensionFactor);
     const progressTimeoutExtensionFactor =
@@ -3008,6 +3142,16 @@ export class WalletIframeRouter {
         reject(toError(err));
       }
     });
+  }
+
+  private allocateRequestId(): WalletIframeRequestId {
+    return `${Date.now()}-${++this.state.reqCounter}` as WalletIframeRequestId;
+  }
+
+  private assertOverlaySurfaceAvailable(): void {
+    if (this.overlayState.controller.getState().ownership === 'anchored_lease') {
+      throw walletIframeSurfaceBusyError();
+    }
   }
 
   /**

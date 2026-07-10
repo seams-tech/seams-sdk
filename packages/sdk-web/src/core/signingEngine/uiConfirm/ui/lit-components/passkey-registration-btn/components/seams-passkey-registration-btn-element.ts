@@ -1,8 +1,7 @@
-import { html, type PropertyValues } from 'lit';
+import { html } from 'lit';
 import { LitElementWithProps } from '../../LitElementWithProps';
 import { ensureExternalStyles } from '../../css/css-loader';
 import { SEAMS_PASSKEY_REGISTRATION_BTN_ID } from '../../../registry';
-import type { RegistrationActivationButtonCss } from '@/SeamsWeb/publicApi/types';
 import { buildPasskeyRegistrationButtonInteractionState } from '../state/passkey-registration-button-builders';
 import type {
   PasskeyRegistrationButtonInteractionState,
@@ -13,64 +12,8 @@ export const SEAMS_PASSKEY_REGISTRATION_ACTIVATION_START_EVENT =
   'seams-registration-activation-start';
 export const SEAMS_PASSKEY_REGISTRATION_ACTIVATION_STATE_EVENT =
   'seams-registration-activation-state';
-
-type PasskeyRegistrationButtonMode = 'outline_overlay' | 'iframe_button';
-
-function cssPropertyName(property: string): string {
-  return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
-}
-
-function applyRegistrationButtonDocumentLayout(doc: Document | null): void {
-  if (!doc) return;
-  const html = doc.documentElement;
-  const body = doc.body;
-  if (html) {
-    html.style.inlineSize = '100%';
-    html.style.blockSize = '100%';
-    html.style.minInlineSize = '100%';
-    html.style.minBlockSize = '100%';
-    html.style.margin = '0';
-    html.style.padding = '0';
-    html.style.overflow = 'hidden';
-    html.style.background = 'transparent';
-  }
-  if (body) {
-    body.style.inlineSize = '100%';
-    body.style.blockSize = '100%';
-    body.style.minInlineSize = '100%';
-    body.style.minBlockSize = '100%';
-    body.style.margin = '0';
-    body.style.padding = '0';
-    body.style.overflow = 'hidden';
-    body.style.background = 'transparent';
-  }
-}
-
-function applyRegistrationButtonElementLayout(element: HTMLElement): void {
-  element.style.display = 'block';
-  element.style.inlineSize = '100%';
-  element.style.blockSize = '100%';
-  element.style.background = 'transparent';
-}
-
-function applyRegistrationButtonBaseStyle(button: HTMLButtonElement): void {
-  const style = button.style;
-  style.appearance = 'none';
-  style.display = 'block';
-  style.inlineSize = '100%';
-  style.blockSize = '100%';
-  style.minInlineSize = '0';
-  style.minBlockSize = '0';
-  style.boxSizing = 'border-box';
-  style.border = '0';
-  style.margin = '0';
-  style.padding = '0';
-  style.background = 'transparent';
-  style.color = 'transparent';
-  style.font = 'inherit';
-  style.cursor = 'pointer';
-  style.setProperty('-webkit-tap-highlight-color', 'transparent');
-}
+export const SEAMS_PASSKEY_REGISTRATION_ACTIVATION_FOCUS_EXIT_EVENT =
+  'seams-registration-activation-focus-exit';
 
 export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
   static properties = {
@@ -78,9 +21,6 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
     label: { type: String },
     busyLabel: { type: String, attribute: 'busy-label' },
     accessibleLabel: { type: String, attribute: 'accessible-label' },
-    mode: { type: String },
-    buttonStyle: { attribute: false },
-    shadowPaddingPx: { type: Number, attribute: 'shadow-padding-px' },
     lifecycle: { attribute: false },
   } as const;
 
@@ -88,14 +28,12 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
   declare label: string;
   declare busyLabel: string;
   declare accessibleLabel: string;
-  declare mode: PasskeyRegistrationButtonMode;
-  declare buttonStyle?: RegistrationActivationButtonCss;
-  declare shadowPaddingPx: number;
   declare lifecycle: PasskeyRegistrationButtonLifecycle;
 
   private hovered = false;
   private focused = false;
   private pressed = false;
+  private stylesReadyPromise: Promise<void> = Promise.resolve();
 
   constructor() {
     super();
@@ -103,8 +41,6 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
     this.label = 'Create passkey';
     this.busyLabel = 'Creating passkey...';
     this.accessibleLabel = 'Create passkey';
-    this.mode = 'outline_overlay';
-    this.shadowPaddingPx = 0;
     this.lifecycle = { kind: 'ready', busy: false, disabled: false };
   }
 
@@ -114,18 +50,18 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
 
   connectedCallback(): void {
     super.connectedCallback();
-    applyRegistrationButtonDocumentLayout(this.ownerDocument);
-    applyRegistrationButtonElementLayout(this);
-    void ensureExternalStyles(
+    this.stylesReadyPromise = ensureExternalStyles(
       this,
       'seams-passkey-registration-btn.css',
       'data-seams-passkey-registration-btn-css',
     );
   }
 
-  protected updated(changedProperties: PropertyValues<this>): void {
-    super.updated(changedProperties);
-    this.applyButtonStyle();
+  async activationReady(): Promise<void> {
+    await Promise.all([this.stylesReadyPromise, this.updateComplete]);
+    if (!this.findButton()) {
+      throw new Error('Passkey registration activation button failed to render');
+    }
   }
 
   focusButton(): void {
@@ -161,30 +97,6 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
 
   private findButton(): HTMLButtonElement | null {
     return this.querySelector('button');
-  }
-
-  private applyButtonStyle(): void {
-    const button = this.findButton();
-    if (!button) return;
-    applyRegistrationButtonBaseStyle(button);
-    if (this.buttonStyle) {
-      for (const [property, value] of Object.entries(this.buttonStyle)) {
-        if (typeof value !== 'string') continue;
-        button.style.setProperty(cssPropertyName(property), value);
-      }
-    }
-    this.applyButtonInset(button);
-  }
-
-  private applyButtonInset(button: HTMLButtonElement): void {
-    const shadowPaddingPx =
-      this.mode === 'iframe_button' && Number.isFinite(this.shadowPaddingPx)
-        ? Math.max(0, this.shadowPaddingPx)
-        : 0;
-    button.style.margin = `${shadowPaddingPx}px`;
-    button.style.inlineSize =
-      shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
-    button.style.blockSize = shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
   }
 
   private isPointerInsideButton(event: PointerEvent | DragEvent): boolean {
@@ -299,6 +211,17 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
   };
 
   private handleKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      this.dispatchEvent(
+        new CustomEvent(SEAMS_PASSKEY_REGISTRATION_ACTIVATION_FOCUS_EXIT_EVENT, {
+          bubbles: true,
+          composed: true,
+          detail: { direction: event.shiftKey ? 'backward' : 'forward' },
+        }),
+      );
+      return;
+    }
     if (event.key !== 'Enter' && event.key !== ' ') return;
     this.setInteractionState({ pressed: true });
   };

@@ -9,7 +9,10 @@
  *   important for broad compatibility unless you restrict supported browsers.
  */
 
-import { createCspStylesheetManager, getDefaultCspNonce } from '@/core/browser/walletIframe/csp-stylesheet';
+import {
+  createCspStylesheetManager,
+  getDefaultCspNonce,
+} from '@/core/browser/walletIframe/csp-stylesheet';
 
 export type DOMRectLike = {
   top: number;
@@ -83,8 +86,8 @@ export function setFullscreen(el: HTMLElement): void {
 export function setAnchored(el: HTMLElement, rect: DOMRectLike): void {
   ensureOverlayBase(el);
   const id = asId(el);
-  const top = Math.max(0, Math.round(rect.top));
-  const left = Math.max(0, Math.round(rect.left));
+  const top = Math.round(rect.top);
+  const left = Math.round(rect.left);
   const width = Math.max(1, Math.round(rect.width));
   const height = Math.max(1, Math.round(rect.height));
   const rule = `#${id}.${CLASS_ANCHORED}{ top:${top}px; left:${left}px; width:${width}px; height:${height}px; }`;

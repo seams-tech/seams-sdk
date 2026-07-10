@@ -139,4 +139,63 @@ test.describe('OverlayController', () => {
     expect(res.afterForceHide.width).toBe('0px');
     expect(res.afterForceHide.height).toBe('0px');
   });
+
+  test('anchored lease rejects unrelated fullscreen and hide mutations', async ({ page }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.overlay);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const overlay = new OverlayController({ ensureIframe: () => iframe });
+        const lease = overlay.acquireAnchoredLease();
+        if (!lease) throw new Error('Expected anchored overlay lease');
+        overlay.showAnchoredForLease(lease, { top: 10, left: 12, width: 123, height: 45 });
+
+        overlay.showFullscreen();
+        overlay.forceHide();
+        overlay.showAnchored({ top: 0, left: 0, width: 500, height: 500 });
+        const whileLeased = {
+          ...overlay.getState(),
+          top: getComputedStyle(iframe).top,
+          left: getComputedStyle(iframe).left,
+          width: getComputedStyle(iframe).width,
+          height: getComputedStyle(iframe).height,
+        };
+
+        const released = overlay.releaseAnchoredLease(lease);
+        const afterRelease = overlay.getState();
+        return { whileLeased, released, afterRelease };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(res.whileLeased.mode).toBe('anchored');
+    expect(res.whileLeased.visible).toBe(true);
+    expect(res.whileLeased.ownership).toBe('anchored_lease');
+    expect(res.whileLeased.top).toBe('10px');
+    expect(res.whileLeased.left).toBe('12px');
+    expect(res.whileLeased.width).toBe('123px');
+    expect(res.whileLeased.height).toBe('45px');
+    expect(res.released).toBe(true);
+    expect(res.afterRelease.visible).toBe(false);
+    expect(res.afterRelease.ownership).toBe('unowned');
+  });
+
+  test('does not acquire an anchored lease over an existing visible surface', async ({ page }) => {
+    const acquired = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.overlay);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const overlay = new OverlayController({ ensureIframe: () => iframe });
+        overlay.showFullscreen();
+        return overlay.acquireAnchoredLease() !== null;
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(acquired).toBe(false);
+  });
 });

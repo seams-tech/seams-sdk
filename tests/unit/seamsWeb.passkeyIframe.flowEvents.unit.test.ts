@@ -363,13 +363,17 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         });
         await new Promise((resolve) => window.setTimeout(resolve, 0));
         const target = document.createElement('div');
+        const duplicateTarget = document.createElement('div');
         document.body.appendChild(target);
+        document.body.appendChild(duplicateTarget);
         surface.mount(target);
+        surface.mount(duplicateTarget);
         await new Promise((resolve) => window.setTimeout(resolve, 0));
         surface.dispose();
         return {
           ...calls,
           mountedWalletId: target.getAttribute('data-mounted-wallet-id'),
+          duplicateMountedWalletId: duplicateTarget.getAttribute('data-mounted-wallet-id'),
         };
       },
       { walletOrigin: WALLET_ORIGIN },
@@ -382,6 +386,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
       mountWalletIds: ['frost-orchid-k7p9m2'],
       disposeWalletIds: ['frost-orchid-k7p9m2'],
       mountedWalletId: 'frost-orchid-k7p9m2',
+      duplicateMountedWalletId: null,
     });
   });
 

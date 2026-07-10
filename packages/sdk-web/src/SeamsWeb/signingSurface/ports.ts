@@ -45,6 +45,11 @@ import type {
 } from '@/core/accountData/near/nearAccountData.types';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeMode } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import type {
+  RegistrationWebAuthnPromptOwner,
+  ReservedRegistrationWebAuthnPrompt,
+} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type {
   KeyExportEventCallback,
   SigningEngineResolveExactKeyExportLaneInput,
@@ -203,7 +208,10 @@ export type LoginWarmSigningSurface = RuntimeStartupSurface &
   EcdsaSessionBootstrapSurface &
   Ed25519SessionConnectionSurface &
   WorkerOperationContext &
-  Pick<SigningSessionSurface, 'hydrateSigningSession' | 'putWarmSessionEd25519UnsealAuthorization'> &
+  Pick<
+    SigningSessionSurface,
+    'hydrateSigningSession' | 'putWarmSessionEd25519UnsealAuthorization'
+  > &
   NonceCoordinatorSurface &
   RpIdSurface;
 
@@ -354,6 +362,15 @@ export interface WebAuthnRegistrationConfirmationSurface {
     challengeB64u?: string;
     walletIframeActivation?: RegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload>;
+  startPreparedPasskeyRegistrationCredential(args: {
+    walletId: string;
+    signerSlot: number;
+    challengeB64u: string;
+    expectedRpId: string;
+    reservation: ReservedRegistrationWebAuthnPrompt;
+    owner: RegistrationWebAuthnPromptOwner;
+    cancellation: { kind: 'abort_signal'; signal: AbortSignal };
+  }): Promise<WebAuthnRegistrationCredential>;
 }
 
 export interface PasskeyLoginAssertionSurface {
@@ -471,16 +488,12 @@ export interface ThresholdEd25519HssClientSurface {
     args: Parameters<
       typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
     >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
-  >;
+  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle>;
   prepareThresholdEd25519HssAddStageRequestMessage(
     args: Parameters<
       typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
     >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
-  >;
+  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage>;
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     args: Parameters<
       typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle

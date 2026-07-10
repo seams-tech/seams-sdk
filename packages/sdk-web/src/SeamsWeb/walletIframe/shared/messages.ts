@@ -32,6 +32,10 @@ import type {
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
   ResolveExactKeyExportLaneInput,
+  RegistrationActivationId,
+  RegistrationActivationMessageIdentity,
+  WalletIframeRequestId,
+  WalletIframeSurfaceId,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
@@ -126,6 +130,7 @@ export type ChildToParentType =
   | 'PM_REGISTRATION_ACTIVATION_READY'
   | 'PM_REGISTRATION_ACTIVATION_STARTED'
   | 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE'
+  | 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT'
   | 'PM_RESULT'
   | 'ERROR';
 
@@ -162,31 +167,26 @@ export interface PMCancelPayload {
   requestId?: string; // when omitted, host may attempt best-effort global cancel (close UIs)
 }
 
-export interface PMRegistrationActivationPreparePayload {
-  activationId: string;
+export interface PMRegistrationActivationPreparePayload extends RegistrationActivationMessageIdentity {
   expiresAtMs: number;
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  confirmationConfig?: Partial<ConfirmationConfig>;
-  options?: Record<string, unknown>;
   presentation: RegistrationActivationButtonPresentation;
 }
 
-export interface PMRegistrationActivationCancelPayload {
-  activationId: string;
+export interface PMRegistrationActivationCancelPayload extends RegistrationActivationMessageIdentity {
   reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
 }
 
-export interface PMRegistrationActivationFocusPayload {
-  activationId: string;
-}
+export type PMRegistrationActivationFocusPayload = RegistrationActivationMessageIdentity;
 
-export interface PMRegistrationActivationReadyPayload {
-  activationId: string;
+export interface PMRegistrationActivationReadyPayload extends RegistrationActivationMessageIdentity {
   expiresAtMs: number;
 }
 
-export interface PMRegistrationActivationStartedPayload {
-  activationId: string;
+export type PMRegistrationActivationStartedPayload = RegistrationActivationMessageIdentity;
+
+export interface PMRegistrationActivationFocusExitPayload extends RegistrationActivationMessageIdentity {
+  direction: 'forward' | 'backward';
 }
 
 function recordPayload(value: unknown): Record<string, unknown> | null {
@@ -209,24 +209,59 @@ function positiveSafeIntegerPayloadNumber(
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+function walletIframeSurfaceIdFromBoundary(value: string): WalletIframeSurfaceId {
+  return value as WalletIframeSurfaceId;
+}
+
+function registrationActivationIdFromBoundary(value: string): RegistrationActivationId {
+  return value as RegistrationActivationId;
+}
+
+function walletIframeRequestIdFromBoundary(value: string): WalletIframeRequestId {
+  return value as WalletIframeRequestId;
+}
+
+export function parseRegistrationActivationMessageIdentity(
+  value: unknown,
+): RegistrationActivationMessageIdentity | null {
+  const record = recordPayload(value);
+  if (!record) return null;
+  const surfaceId = nonEmptyPayloadString(record, 'surfaceId');
+  const activationId = nonEmptyPayloadString(record, 'activationId');
+  const requestId = nonEmptyPayloadString(record, 'requestId');
+  if (!surfaceId || !activationId || !requestId) return null;
+  return {
+    surfaceId: walletIframeSurfaceIdFromBoundary(surfaceId),
+    activationId: registrationActivationIdFromBoundary(activationId),
+    requestId: walletIframeRequestIdFromBoundary(requestId),
+  };
+}
+
 export function parseRegistrationActivationReadyPayload(
   value: unknown,
 ): PMRegistrationActivationReadyPayload | null {
   const record = recordPayload(value);
   if (!record) return null;
-  const activationId = nonEmptyPayloadString(record, 'activationId');
+  const identity = parseRegistrationActivationMessageIdentity(record);
   const expiresAtMs = positiveSafeIntegerPayloadNumber(record, 'expiresAtMs');
-  if (!activationId || !expiresAtMs) return null;
-  return { activationId, expiresAtMs };
+  if (!identity || !expiresAtMs) return null;
+  return { ...identity, expiresAtMs };
 }
 
 export function parseRegistrationActivationStartedPayload(
   value: unknown,
 ): PMRegistrationActivationStartedPayload | null {
+  return parseRegistrationActivationMessageIdentity(value);
+}
+
+export function parseRegistrationActivationFocusExitPayload(
+  value: unknown,
+): PMRegistrationActivationFocusExitPayload | null {
   const record = recordPayload(value);
   if (!record) return null;
-  const activationId = nonEmptyPayloadString(record, 'activationId');
-  return activationId ? { activationId } : null;
+  const identity = parseRegistrationActivationMessageIdentity(record);
+  if (!identity || (record.direction !== 'forward' && record.direction !== 'backward')) return null;
+  return { ...identity, direction: record.direction };
 }
 
 export type RegistrationActivationButtonInteractionState = {
@@ -253,8 +288,7 @@ export function isRegistrationActivationButtonInteractionState(
   );
 }
 
-export interface PMRegistrationActivationButtonStatePayload {
-  activationId: string;
+export interface PMRegistrationActivationButtonStatePayload extends RegistrationActivationMessageIdentity {
   state: RegistrationActivationButtonInteractionState;
 }
 
@@ -263,9 +297,9 @@ export function parseRegistrationActivationButtonStatePayload(
 ): PMRegistrationActivationButtonStatePayload | null {
   const record = recordPayload(value);
   if (!record) return null;
-  const activationId = nonEmptyPayloadString(record, 'activationId');
-  if (!activationId || !isRegistrationActivationButtonInteractionState(record.state)) return null;
-  return { activationId, state: record.state };
+  const identity = parseRegistrationActivationMessageIdentity(record);
+  if (!identity || !isRegistrationActivationButtonInteractionState(record.state)) return null;
+  return { ...identity, state: record.state };
 }
 
 export interface PMRegisterWalletPayload {
@@ -469,7 +503,7 @@ export interface PMReportTempoDroppedOrReplacedPayload extends PMTempoNonceLifec
   txHash?: `0x${string}`;
 }
 
-export interface PMReconcileTempoNonceLanePayload extends PMTempoNonceLifecyclePayloadBase {}
+export type PMReconcileTempoNonceLanePayload = PMTempoNonceLifecyclePayloadBase;
 
 export type PMResolveExactKeyExportLanePayload = ResolveExactKeyExportLaneInput;
 
@@ -600,7 +634,7 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
   remainingUses?: number;
 }
 
-export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload extends PMEmailOtpEcdsaCapabilityPayload {}
+export type PMEmailOtpEcdsaEnrollmentCapabilityPayload = PMEmailOtpEcdsaCapabilityPayload;
 
 export interface PMPrefillRouterAbEcdsaHssPresignaturePoolPayload {
   walletSession: WalletSessionRef;
@@ -796,5 +830,6 @@ export type ChildToParentEnvelope =
       'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
       PMRegistrationActivationButtonStatePayload
     >
+  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT', PMRegistrationActivationFocusExitPayload>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

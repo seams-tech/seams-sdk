@@ -26,6 +26,13 @@ import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/ad
 import type { ThemeMode } from '@/core/types/seams';
 import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { UserConfirmResponsePort } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
+import {
+  webAuthnPromptCoordinator,
+  type RegistrationWebAuthnPromptOwner,
+  type ReservedRegistrationWebAuthnPrompt,
+} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+import type { RegistrationCredentialPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import type { WalletIframeRequestId } from '@/SeamsWeb/publicApi/types';
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -50,17 +57,20 @@ function buildPasskeyRegistrationCredentialArgs(args: {
   walletId: string;
   challengeB64u: string;
   signerSlot?: number;
+  prompt: RegistrationCredentialPrompt;
 }): {
   walletId: string;
   challengeB64u: string;
   signerSlot?: number;
   intendedUserName: string;
+  prompt: RegistrationCredentialPrompt;
 } {
   return {
     walletId: args.walletId,
     challengeB64u: args.challengeB64u,
     signerSlot: args.signerSlot,
     intendedUserName: args.walletId,
+    prompt: args.prompt,
   };
 }
 
@@ -88,6 +98,7 @@ export async function handleRegistrationFlow(
   let credentialCreateMs = 0;
   let credentialSerializeMs = 0;
   let duplicateRetryCount = 0;
+  let promptReservation: ReservedRegistrationWebAuthnPrompt | null = null;
 
   const buildDiagnostics = (): RegistrationConfirmationDiagnostics => ({
     kind: 'registration_confirmation_diagnostics_v1',
@@ -155,6 +166,16 @@ export async function handleRegistrationFlow(
     };
     requestSetupMs = roundDurationMs(requestSetupStartedAt);
 
+    const promptOwner: RegistrationWebAuthnPromptOwner = {
+      kind: 'registration_modal',
+      requestId: request.requestId as WalletIframeRequestId,
+    };
+    promptReservation = await webAuthnPromptCoordinator.reserveRegistrationPrompt({
+      owner: promptOwner,
+      expiresAtMs: Date.now() + 5 * 60 * 1000,
+      cancellation: { kind: 'none' },
+    });
+
     // 3) UI confirm
     const promptUserStartedAt = performance.now();
     const {
@@ -192,6 +213,12 @@ export async function handleRegistrationFlow(
             walletId,
             challengeB64u,
             signerSlot,
+            prompt: {
+              kind: 'reserved',
+              reservation: promptReservation,
+              owner: promptOwner,
+              cancellation: { kind: 'none' },
+            },
           }),
         );
       } catch (e: unknown) {
@@ -225,6 +252,11 @@ export async function handleRegistrationFlow(
               walletId,
               challengeB64u,
               signerSlot: nextSignerSlot,
+              prompt: {
+                kind: 'immediate',
+                requestId: request.requestId,
+                cancellation: { kind: 'none' },
+              },
             }),
           );
         } else {
@@ -284,5 +316,9 @@ export async function handleRegistrationFlow(
           ? msg
           : msg || ERROR_MESSAGES.collectCredentialsFailed,
     });
+  } finally {
+    if (promptReservation) {
+      webAuthnPromptCoordinator.releaseReservation(promptReservation);
+    }
   }
 }

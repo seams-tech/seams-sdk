@@ -4,7 +4,11 @@ import {
   isRegistrationBenchmarkDiagnosticsEnabled,
   registerWallet as registerWalletWithUnifiedCeremony,
   registerWalletWithStartedPrecompute,
+  registerWalletWithPreparedPasskeyAuthority,
+  preparePasskeyRegistrationPrecompute,
+  disposeWalletRegistrationPrecompute,
   startWalletRegistrationPrecompute,
+  type PreparedPasskeyRegistrationPrecompute,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import {
@@ -31,6 +35,7 @@ import type {
   CreateUnlockFlowEventInput,
   KeyExportHooksOptions,
   LoginHooksOptions,
+  RegistrationHooksOptions,
   RegistrationFlowEvent,
   UnlockFlowEvent,
 } from '@/core/types/sdkSentEvents';
@@ -154,6 +159,18 @@ import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent'
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { isObject } from '@shared/utils/validation';
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
+import type {
+  RegistrationActivationId,
+  RegistrationActivationMessageIdentity,
+  WalletIframeRequestId,
+  WalletIframeSurfaceId,
+} from './publicApi/types';
+import type {
+  RegistrationWebAuthnPromptOwner,
+  ReservedRegistrationWebAuthnPrompt,
+} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+import { collectPasskeyRegistrationAuthorityFromCredential } from './operations/authMethods/passkey/registrationAuthority';
 
 function requireSeamsWebRegistrationRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
@@ -161,6 +178,108 @@ function requireSeamsWebRegistrationRpId(value: string): WebAuthnRpId {
     throw new Error(parsed.error.message);
   }
   return parsed.value;
+}
+
+function requireNearRegistrationSignerSlot(
+  selection: Parameters<RegistrationCapability['registerWallet']>[0]['signerSelection'],
+): number {
+  for (const signer of selection.signers) {
+    if (signer.kind === 'near_ed25519') return signer.signerSlot;
+  }
+  throw new Error('Passkey registration requires a NEAR Ed25519 signer');
+}
+
+export type PreparedIframePasskeyRegistration = {
+  kind: 'prepared_iframe_passkey_registration_v1';
+  registration: Parameters<RegistrationCapability['registerWallet']>[0];
+  precompute: PreparedPasskeyRegistrationPrecompute;
+  walletId: string;
+  rpId: WebAuthnRpId;
+  signerSlot: number;
+  challengeB64u: string;
+  expiresAtMs: number;
+};
+
+export type RegistrationActivationWebAuthnPromptOwner = Extract<
+  RegistrationWebAuthnPromptOwner,
+  { kind: 'registration_activation' }
+>;
+
+const activatedPreparedIframePasskeyRegistrationBrand: unique symbol = Symbol(
+  'activatedPreparedIframePasskeyRegistration',
+);
+
+export type ActivatedPreparedIframePasskeyRegistration = {
+  readonly [activatedPreparedIframePasskeyRegistrationBrand]: true;
+  kind: 'activated_prepared_iframe_passkey_registration_v1';
+  prepared: PreparedIframePasskeyRegistration;
+  activation: {
+    identity: RegistrationActivationMessageIdentity;
+    activatedAtMs: number;
+  };
+  reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
+};
+
+function registrationActivationMessageIdentitiesEqual(
+  left: RegistrationActivationMessageIdentity,
+  right: RegistrationActivationMessageIdentity,
+): boolean {
+  return (
+    left.surfaceId === right.surfaceId &&
+    left.activationId === right.activationId &&
+    left.requestId === right.requestId
+  );
+}
+
+export function activatePreparedIframePasskeyRegistration(args: {
+  prepared: PreparedIframePasskeyRegistration;
+  identity: RegistrationActivationMessageIdentity;
+  reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
+  activatedAtMs: number;
+}): ActivatedPreparedIframePasskeyRegistration {
+  if (
+    !registrationActivationMessageIdentitiesEqual(args.reservation.owner.identity, args.identity)
+  ) {
+    throw new Error('Registration activation reservation identity does not match');
+  }
+  if (args.cancellation.signal.aborted) {
+    throw new Error('Registration activation was cancelled before activation');
+  }
+  return {
+    [activatedPreparedIframePasskeyRegistrationBrand]: true,
+    kind: 'activated_prepared_iframe_passkey_registration_v1',
+    prepared: args.prepared,
+    activation: {
+      identity: args.identity,
+      activatedAtMs: args.activatedAtMs,
+    },
+    reservation: args.reservation,
+    cancellation: args.cancellation,
+  };
+}
+
+type PasskeyRegistrationActivationSurface = ReturnType<
+  RegistrationCapability['createPasskeyRegistrationActivationSurface']
+>;
+type PasskeyRegistrationActivationSurfaceState = ReturnType<
+  PasskeyRegistrationActivationSurface['state']
+>;
+type PasskeyRegistrationActivationSurfaceMountLifecycle =
+  | { kind: 'idle' }
+  | { kind: 'mounting' }
+  | {
+      kind: 'mounted';
+      surface: PasskeyRegistrationActivationSurface;
+      unsubscribe(): void;
+    }
+  | { kind: 'disposed' };
+
+function readPasskeyRegistrationActivationSurfaceMountLifecycle(
+  lifecycle: PasskeyRegistrationActivationSurfaceMountLifecycle,
+): PasskeyRegistrationActivationSurfaceMountLifecycle {
+  return lifecycle;
 }
 
 ///////////////////////////////////////
@@ -1362,19 +1481,116 @@ export class SeamsWeb {
     });
   }
 
+  async prepareIframePasskeyRegistration(args: {
+    wallet: Extract<
+      Parameters<RegistrationCapability['registerWallet']>[0]['wallet'],
+      { kind: 'provided' }
+    >;
+    options: RegistrationHooksOptions;
+    expiresAtMs: number;
+  }): Promise<PreparedIframePasskeyRegistration> {
+    if (Date.now() >= args.expiresAtMs) {
+      throw new Error('Registration activation expired before preparation');
+    }
+    const rpId = requireSeamsWebRegistrationRpId(this.signingEngine.getRpId());
+    const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
+      configs: this.configs,
+      wallet: args.wallet,
+      preference: this.configs.registration.nearAccountProvisioning,
+    });
+    const signerSelection = buildNearWalletRegistrationSignerSetSelection({
+      configs: this.configs,
+      accountProvisioning,
+      options: args.options,
+    });
+    const signerSlot = requireNearRegistrationSignerSlot(signerSelection);
+    const registration: Parameters<RegistrationCapability['registerWallet']>[0] = {
+      wallet: args.wallet,
+      authMethod: { kind: 'passkey', rpId },
+      signerSelection,
+      options: args.options,
+    };
+    const handle = startWalletRegistrationPrecompute({
+      context: this.getContext(),
+      authMethod: registration.authMethod,
+      wallet: registration.wallet,
+      signerSelection: registration.signerSelection,
+    });
+    try {
+      const precompute = await preparePasskeyRegistrationPrecompute(handle);
+      if (Date.now() >= args.expiresAtMs) {
+        throw new Error('Registration activation expired during preparation');
+      }
+      return {
+        kind: 'prepared_iframe_passkey_registration_v1',
+        registration,
+        precompute,
+        walletId: precompute.walletId,
+        rpId,
+        signerSlot,
+        challengeB64u: precompute.registrationIntentDigestB64u,
+        expiresAtMs: args.expiresAtMs,
+      };
+    } catch (error) {
+      disposeWalletRegistrationPrecompute(handle);
+      throw error;
+    }
+  }
+
+  continuePreparedIframePasskeyRegistration(
+    activated: ActivatedPreparedIframePasskeyRegistration,
+  ): Promise<RegistrationResult> {
+    if (activated[activatedPreparedIframePasskeyRegistrationBrand] !== true) {
+      throw new Error('Registration activation lifecycle is invalid');
+    }
+    if (Date.now() >= activated.prepared.expiresAtMs) {
+      disposeWalletRegistrationPrecompute(activated.prepared.precompute.handle);
+      throw new Error('Registration activation expired before WebAuthn');
+    }
+    const credential = this.signingEngine.startPreparedPasskeyRegistrationCredential({
+      walletId: activated.prepared.walletId,
+      signerSlot: activated.prepared.signerSlot,
+      challengeB64u: activated.prepared.challengeB64u,
+      expectedRpId: activated.prepared.rpId,
+      reservation: activated.reservation,
+      owner: activated.reservation.owner,
+      cancellation: activated.cancellation,
+    });
+    const authority = collectPasskeyRegistrationAuthorityFromCredential(credential);
+    return registerWalletWithPreparedPasskeyAuthority({
+      context: this.getContext(),
+      authMethod: activated.prepared.registration.authMethod,
+      wallet: activated.prepared.registration.wallet,
+      signerSelection: activated.prepared.registration.signerSelection,
+      options: {
+        ...(activated.prepared.registration.options || {}),
+        walletIframeActivation: {
+          kind: 'wallet_iframe_registration_activation_v1',
+          activationId: activated.activation.identity.activationId,
+          activatedAtMs: activated.activation.activatedAtMs,
+        },
+      },
+      authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
+      precompute: activated.prepared.precompute,
+      authority,
+      cancellation: activated.cancellation,
+    });
+  }
+
+  disposePreparedIframePasskeyRegistration(prepared: PreparedIframePasskeyRegistration): void {
+    disposeWalletRegistrationPrecompute(prepared.precompute.handle);
+  }
+
   private createPasskeyRegistrationActivationSurfaceDomain(
     args: Parameters<RegistrationCapability['createPasskeyRegistrationActivationSurface']>[0],
   ): ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']> {
     if (!this.walletIframe.shouldUseWalletIframe()) {
       throw new Error('[SeamsWeb] Registration activation surfaces require wallet iframe mode.');
     }
-    type Surface = ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']>;
-    type SurfaceState = ReturnType<Surface['state']>;
-    let state: SurfaceState = { kind: 'idle' };
-    let inner: Surface | null = null;
-    let disposed = false;
-    const listeners = new Set<(next: SurfaceState) => void>();
-    const setState = (next: SurfaceState): void => {
+    let state: PasskeyRegistrationActivationSurfaceState = { kind: 'idle' };
+    let mountLifecycle: PasskeyRegistrationActivationSurfaceMountLifecycle = { kind: 'idle' };
+    const listeners = new Set<(next: PasskeyRegistrationActivationSurfaceState) => void>();
+    const setState = (next: PasskeyRegistrationActivationSurfaceState): void => {
       state = next;
       for (const listener of listeners) {
         try {
@@ -1383,34 +1599,61 @@ export class SeamsWeb {
       }
     };
     const activationWalletId = String(args.wallet.walletId);
+    const initializationIdentity: RegistrationActivationMessageIdentity = {
+      surfaceId:
+        `regsurf-init-${secureRandomBase36(12, 'registration initialization surface IDs')}` as WalletIframeSurfaceId,
+      activationId:
+        `regact-init-${secureRandomBase36(12, 'registration initialization activation IDs')}` as RegistrationActivationId,
+      requestId:
+        `regreq-init-${secureRandomBase36(12, 'registration initialization request IDs')}` as WalletIframeRequestId,
+    };
     void this.initWalletIframe(activationWalletId).catch(() => {});
     return {
       kind: 'wallet_iframe_registration_activation_surface_v1',
       mount: (target: HTMLElement) => {
+        if (mountLifecycle.kind !== 'idle') return;
+        mountLifecycle = { kind: 'mounting' };
         void (async () => {
           try {
-            if (disposed) return;
             const router = await this.walletIframe.requireRouter(activationWalletId);
-            if (disposed) return;
-            inner = router.createPasskeyRegistrationActivationSurface(args);
-            inner.onStateChange(setState);
-            inner.mount(target);
+            if (mountLifecycle.kind !== 'mounting') return;
+            const surface = router.createPasskeyRegistrationActivationSurface(args);
+            const unsubscribe = surface.onStateChange(setState);
+            mountLifecycle = { kind: 'mounted', surface, unsubscribe };
+            surface.mount(target);
           } catch (error) {
+            const failedLifecycle =
+              readPasskeyRegistrationActivationSurfaceMountLifecycle(mountLifecycle);
+            if (failedLifecycle.kind === 'disposed') return;
+            if (failedLifecycle.kind === 'mounted') {
+              failedLifecycle.surface.dispose();
+              failedLifecycle.unsubscribe();
+            }
+            mountLifecycle = { kind: 'disposed' };
             if (isWalletIframeReadyTimeoutError(error)) {
-              setState({ kind: 'cancelled', activationId: '', reason: 'target_unavailable' });
+              setState({
+                kind: 'cancelled',
+                identity: initializationIdentity,
+                reason: 'target_unavailable',
+              });
               return;
             }
             const message =
               error instanceof Error ? error.message : 'Registration activation failed';
-            setState({ kind: 'failed', activationId: '', error: message });
+            setState({ kind: 'failed', identity: initializationIdentity, error: message });
           }
         })();
       },
       dispose: () => {
-        disposed = true;
-        inner?.dispose();
+        const lifecycle = mountLifecycle;
+        if (lifecycle.kind === 'disposed') return;
+        mountLifecycle = { kind: 'disposed' };
+        if (lifecycle.kind === 'mounted') {
+          lifecycle.surface.dispose();
+          lifecycle.unsubscribe();
+        }
         if (state.kind === 'idle') {
-          setState({ kind: 'cancelled', activationId: '', reason: 'disposed' });
+          setState({ kind: 'cancelled', identity: initializationIdentity, reason: 'disposed' });
         }
       },
       state: () => state,

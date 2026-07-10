@@ -1,7 +1,4 @@
-// Safari/WebAuthn fallbacks: centralized retry + top-level bridge
-// - Encapsulates Safari-specific error handling (ancestor-origin, not-focused)
-// - Bridges create/get to top-level via postMessage when needed
-// - Keeps helpers private to reduce file count and surface area
+// Safari/WebAuthn fallbacks: wallet-origin registration and GET-only parent bridging.
 
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 
@@ -47,7 +44,7 @@ export type ParentDomainWebAuthnClient = {
   ): Promise<BridgeResponse>;
 };
 
-export interface OrchestratorDeps {
+interface OrchestratorDepsBase {
   rpId: string;
   inIframe: boolean;
   timeoutMs?: number;
@@ -59,25 +56,54 @@ export interface OrchestratorDeps {
   abortSignal?: AbortSignal;
 }
 
+export type RegistrationOrchestratorDeps = OrchestratorDepsBase & {
+  registrationOriginPolicy: 'wallet_origin_only';
+};
+
+export type AuthenticationOrchestratorDeps = OrchestratorDepsBase & {
+  registrationOriginPolicy?: never;
+};
+
+export class WalletOriginWebAuthnUnavailableError extends Error {
+  readonly code = 'wallet_origin_webauthn_unavailable';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'WalletOriginWebAuthnUnavailableError';
+  }
+}
+
 /**
  * Execute a WebAuthn operation with Safari-aware fallbacks.
  *
  * Steps:
  * 1) Try native WebAuthn via navigator.credentials.{create|get}
- * 2) If the failure matches Safari's ancestor-origin restriction and we are in an iframe,
+ * Registration surfaces a typed wallet-origin error for iframe restrictions. Authentication
+ * keeps the established Safari bridge behavior described below.
+ * 2) If GET matches Safari's ancestor-origin restriction and we are in an iframe,
  *    ask the parent/top-level window to perform the WebAuthn operation (bridge). If the
  *    parent reports a user cancellation, throw NotAllowedError; if it times out, continue.
  * 3) If the failure matches Safari's "document not focused" path, first attempt to refocus
  *    and retry native once; if still blocked and in an iframe, ask the parent window to handle it.
- * 4) Generic last resort: when in an iframe (constrained context), always attempt the parent
+ * 4) Generic GET fallback: when in an iframe, attempt the parent
  *    WebAuthn once even if the error wasn't recognized as a Safari-specific case. If the parent
  *    path times out, surface a deterministic timeout error without re-trying native again.
  * 5) Otherwise, rethrow the original error.
  */
+export function executeWebAuthnWithParentFallbacksSafari(
+  kind: 'create',
+  publicKey: PublicKeyCredentialCreationOptions,
+  deps: RegistrationOrchestratorDeps,
+): Promise<PublicKeyCredential | unknown>;
+export function executeWebAuthnWithParentFallbacksSafari(
+  kind: 'get',
+  publicKey: PublicKeyCredentialRequestOptions,
+  deps: AuthenticationOrchestratorDeps,
+): Promise<PublicKeyCredential | unknown>;
 export async function executeWebAuthnWithParentFallbacksSafari(
   kind: Kind,
   publicKey: AnyPublicKeyOptions,
-  deps: OrchestratorDeps,
+  deps: RegistrationOrchestratorDeps | AuthenticationOrchestratorDeps,
 ): Promise<PublicKeyCredential | unknown> {
   const { inIframe, timeoutMs = 60000, permitGetBridgeOnAncestorError = true } = deps;
   const bridgeClient = deps.bridgeClient || new WindowParentDomainWebAuthnClient();
@@ -101,6 +127,11 @@ export async function executeWebAuthnWithParentFallbacksSafari(
   if (isTestForceNativeFail()) {
     if (kind === 'create') bumpCounter('__W3A_TEST_NATIVE_CREATE_ATTEMPTS');
     else bumpCounter('__W3A_TEST_NATIVE_GET_ATTEMPTS');
+    if (kind === 'create') {
+      throw new WalletOriginWebAuthnUnavailableError(
+        'Wallet-origin WebAuthn registration is unavailable in this browsing context',
+      );
+    }
     try {
       const bridged = await requestParentDomainWebAuthn(kind, publicKey, bridgeClient, timeoutMs);
       if (bridged?.ok) return bridged.credential;
@@ -143,6 +174,15 @@ export async function executeWebAuthnWithParentFallbacksSafari(
     // This avoids double prompts when a user cancels the native sheet.
     const name = safeName(e);
     if (name === 'NotAllowedError' && !isAncestorOriginError(e) && !isDocumentNotFocusedError(e)) {
+      throw e;
+    }
+
+    if (kind === 'create') {
+      if (isAncestorOriginError(e) || isDocumentNotFocusedError(e)) {
+        throw new WalletOriginWebAuthnUnavailableError(
+          `Wallet-origin WebAuthn registration is unavailable: ${safeMessage(e)}`,
+        );
+      }
       throw e;
     }
 

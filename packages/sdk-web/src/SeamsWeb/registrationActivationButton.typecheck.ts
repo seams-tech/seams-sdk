@@ -3,29 +3,19 @@ import type {
   RegistrationActivationButtonPresentation,
 } from './publicApi/types';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import type {
+  ActivatedPreparedIframePasskeyRegistration,
+  PreparedIframePasskeyRegistration,
+  RegistrationActivationWebAuthnPromptOwner,
+} from './SeamsWeb';
+import type { ReservedRegistrationWebAuthnPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+import type { RegistrationActivationMessageIdentity } from './publicApi/types';
 
 export const validOutlineOverlayPresentation: RegistrationActivationButtonPresentation = {
   kind: 'outline_overlay',
   label: 'Create with Passkey',
   busyLabel: 'Creating passkey...',
   accessibleLabel: 'Create passkey account',
-  iframeButtonStyle: {
-    width: '100%',
-    borderRadius: '999px',
-    boxShadow: '0 12px 24px rgba(0, 0, 0, 0.18)',
-  },
-};
-
-export const validIframeButtonPresentation: RegistrationActivationButtonPresentation = {
-  kind: 'iframe_button',
-  label: 'Create with Passkey',
-  busyLabel: 'Creating passkey...',
-  accessibleLabel: 'Create passkey account',
-  iframeVisualStyle: {
-    width: '100%',
-    borderRadius: '999px',
-  },
-  shadowPaddingPx: 16,
 };
 
 export const validActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
@@ -38,23 +28,24 @@ export const missingWalletActivationSurfaceArgs: CreatePasskeyRegistrationActiva
   presentation: validOutlineOverlayPresentation,
 };
 
-export const serverAllocatedActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
-  // @ts-expect-error visible activation cannot allocate a different wallet later.
-  wallet: { kind: 'server_allocated' },
-  presentation: validOutlineOverlayPresentation,
-};
+export const serverAllocatedActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs =
+  {
+    // @ts-expect-error visible activation cannot allocate a different wallet later.
+    wallet: { kind: 'server_allocated' },
+    presentation: validOutlineOverlayPresentation,
+  };
 
-// @ts-expect-error outline_overlay cannot carry iframe_button-only styling.
 export const invalidMixedOutlinePresentation: RegistrationActivationButtonPresentation = {
   kind: 'outline_overlay',
   label: 'Create with Passkey',
   busyLabel: 'Creating passkey...',
   accessibleLabel: 'Create passkey account',
+  // @ts-expect-error public outline overlays cannot style wallet-origin DOM.
   iframeVisualStyle: {},
 };
 
-// @ts-expect-error iframe_button requires its visual style branch and shadow padding.
 export const invalidIncompleteIframeButtonPresentation: RegistrationActivationButtonPresentation = {
+  // @ts-expect-error iframe_button is internal and unavailable through the public API.
   kind: 'iframe_button',
   label: 'Create with Passkey',
   busyLabel: 'Creating passkey...',
@@ -66,3 +57,18 @@ export const invalidActivationSurfaceArgs: CreatePasskeyRegistrationActivationSu
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
   options: {},
 };
+
+declare const preparedRegistration: PreparedIframePasskeyRegistration;
+declare const activationIdentity: RegistrationActivationMessageIdentity;
+declare const activationReservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+declare const activationCancellation: { kind: 'abort_signal'; signal: AbortSignal };
+
+// @ts-expect-error Activated registration values can only be created by the lifecycle builder.
+const rawActivatedRegistration: ActivatedPreparedIframePasskeyRegistration = {
+  kind: 'activated_prepared_iframe_passkey_registration_v1',
+  prepared: preparedRegistration,
+  activation: { identity: activationIdentity, activatedAtMs: 1_900_000_000_000 },
+  reservation: activationReservation,
+  cancellation: activationCancellation,
+};
+void rawActivatedRegistration;

@@ -97,6 +97,85 @@ Model iframe presentation as a discriminated union with required branch fields.
 Core router and overlay code should accept the narrow branch they need.
 
 ```ts
+type WalletIframeSurfaceId = string & {
+  readonly __walletIframeSurfaceId: unique symbol;
+};
+
+type RequestId = string & {
+  readonly __requestId: unique symbol;
+};
+
+type RegistrationActivationId = string & {
+  readonly __registrationActivationId: unique symbol;
+};
+
+type RequestSurfaceIdentity = {
+  kind: 'request_surface_identity_v1';
+  surfaceId: WalletIframeSurfaceId;
+  requestId: RequestId;
+  activationId?: never;
+};
+
+type RegistrationActivationSurfaceIdentity = {
+  kind: 'registration_activation_surface_identity_v1';
+  surfaceId: WalletIframeSurfaceId;
+  requestId: RequestId;
+  activationId: RegistrationActivationId;
+};
+
+type ProvidedPasskeyRegistrationWallet = {
+  kind: 'provided';
+  walletId: WalletId;
+};
+
+type ResolvedPasskeyRegistrationWallet =
+  | ProvidedPasskeyRegistrationWallet
+  | { kind: 'server_allocated_resolved'; walletId: WalletId };
+
+type PasskeyRegistrationPreparationReceipt = {
+  kind: 'passkey_registration_preparation_receipt_v1';
+  expiresAtMs: number;
+};
+
+type PasskeyRegistrationPreparationData<
+  Wallet extends ResolvedPasskeyRegistrationWallet = ResolvedPasskeyRegistrationWallet,
+> = {
+  wallet: Wallet;
+  rpId: WebAuthnRpId;
+  signerSlot: number;
+  registrationIntentDigestB64u: string;
+  challengeB64u: string;
+  display: PasskeyRegistrationConfirmDisplay;
+  expiresAtMs: number;
+};
+
+type WalletIframePreparedPasskeyRegistration =
+  | {
+      kind: 'wallet_iframe_prepared_activation_registration_v1';
+      data: PasskeyRegistrationPreparationData<ProvidedPasskeyRegistrationWallet>;
+      confirmation: {
+        kind: 'iframe_activation_confirmation_armed';
+        requiredProof: 'wallet_iframe_activation';
+      };
+      warmup: {
+        kind: 'complete';
+        registrationWarmup: 'complete';
+        activationElement: 'defined_or_fallback_ready';
+      };
+    }
+  | {
+      kind: 'wallet_iframe_prepared_modal_registration_v1';
+      data: PasskeyRegistrationPreparationData;
+      confirmation: {
+        kind: 'wallet_confirm_button_required';
+      };
+      warmup: {
+        kind: 'complete';
+        registrationWarmup: 'complete';
+        modal: 'rendered_and_focusable';
+      };
+    };
+
 type WalletIframeSurface =
   | HiddenWalletIframeSurface
   | AnchoredRegistrationActivationSurface
@@ -107,36 +186,45 @@ type WalletIframeSurface =
 
 type HiddenWalletIframeSurface = {
   kind: 'hidden';
-  surfaceId?: never;
-  requestId?: never;
-  activationId?: never;
+  identity?: never;
 };
+
+type AnchoredRegistrationPlacement =
+  | {
+      kind: 'interactive';
+      targetRect: RegistrationActivationTargetRect;
+    }
+  | {
+      kind: 'suspended';
+      reason: 'ancestor_clipped';
+      lastTargetRect: RegistrationActivationTargetRect;
+    };
+
+type AnchoredRegistrationFocusOwner =
+  | { kind: 'outside' }
+  | { kind: 'proxy' }
+  | { kind: 'iframe_button' };
 
 type AnchoredRegistrationActivationSurface = {
   kind: 'anchored_registration_activation';
-  surfaceId: WalletIframeSurfaceId;
-  activationId: RegistrationActivationId;
-  requestId: RequestId;
-  wallet: { kind: 'provided'; walletId: WalletId };
+  identity: RegistrationActivationSurfaceIdentity;
+  wallet: ProvidedPasskeyRegistrationWallet;
+  preparation: PasskeyRegistrationPreparationReceipt;
   presentation: RegistrationActivationButtonPresentation;
-  targetRect: RegistrationActivationTargetRect;
-  expiresAtMs: number;
-  focus: 'proxy' | 'iframe_button';
+  placement: AnchoredRegistrationPlacement;
+  focusOwner: AnchoredRegistrationFocusOwner;
 };
 
 type ModalRegistrationConfirmSurface = {
   kind: 'modal_registration_confirm';
-  surfaceId: WalletIframeSurfaceId;
-  requestId: RequestId;
-  wallet: RegisterWalletInput;
-  rpId: WebAuthnRpId;
+  identity: RequestSurfaceIdentity;
+  preparation: PasskeyRegistrationPreparationReceipt;
   userActivation: 'wallet_confirm_button_required';
 };
 
 type ModalTransactionConfirmSurface = {
   kind: 'modal_transaction_confirm';
-  surfaceId: WalletIframeSurfaceId;
-  requestId: RequestId;
+  identity: RequestSurfaceIdentity;
   chain: ChainId;
   transactionDigest: TransactionDigest;
   userActivation: 'wallet_confirm_button_required';
@@ -144,20 +232,25 @@ type ModalTransactionConfirmSurface = {
 
 type ModalKeyExportConfirmSurface = {
   kind: 'modal_key_export_confirm';
-  surfaceId: WalletIframeSurfaceId;
-  requestId: RequestId;
+  identity: RequestSurfaceIdentity;
   exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_hss_report';
   userActivation: 'wallet_confirm_button_required';
 };
 
 type ModalUnlockConfirmSurface = {
   kind: 'modal_unlock_confirm';
-  surfaceId: WalletIframeSurfaceId;
-  requestId: RequestId;
+  identity: RequestSurfaceIdentity;
   unlockKind: 'passkey' | 'device_link';
   userActivation: 'wallet_confirm_button_required';
 };
 ```
+
+`WalletIframePreparedPasskeyRegistration` is wallet-iframe host state and never
+enters the app-origin router. The router receives only
+`PasskeyRegistrationPreparationReceipt`, whose expiry supports parent-side
+cleanup. The wallet iframe rechecks its authoritative expiry and complete
+prepared record when activation occurs. The receipt cannot authorize WebAuthn
+or reconstruct the prepared registration.
 
 The initial implementation may keep viewport modal surfaces visually fullscreen.
 They should still be represented as modal surface state as the replacement for
@@ -172,19 +265,36 @@ Replace direct `OverlayController` calls with one renderer:
 ```ts
 type WalletIframeSurfaceRenderMode =
   | { kind: 'hidden' }
-  | { kind: 'anchored'; rect: DOMRectLike; title: string }
+  | { kind: 'anchored_interactive'; rect: DOMRectLike; title: string }
+  | { kind: 'anchored_suspended'; title: string }
   | { kind: 'viewport_modal'; title: string; focusTrap: true };
+
+function renderAnchoredRegistrationActivationSurface(
+  surface: AnchoredRegistrationActivationSurface,
+): WalletIframeSurfaceRenderMode {
+  switch (surface.placement.kind) {
+    case 'interactive':
+      return {
+        kind: 'anchored_interactive',
+        rect: surface.placement.targetRect,
+        title: surface.presentation.accessibleLabel,
+      };
+    case 'suspended':
+      return {
+        kind: 'anchored_suspended',
+        title: surface.presentation.accessibleLabel,
+      };
+    default:
+      return assertNever(surface.placement);
+  }
+}
 
 function renderWalletIframeSurface(surface: WalletIframeSurface): WalletIframeSurfaceRenderMode {
   switch (surface.kind) {
     case 'hidden':
       return { kind: 'hidden' };
     case 'anchored_registration_activation':
-      return {
-        kind: 'anchored',
-        rect: surface.targetRect,
-        title: surface.presentation.accessibleLabel,
-      };
+      return renderAnchoredRegistrationActivationSurface(surface);
     case 'modal_registration_confirm':
       return { kind: 'viewport_modal', title: 'Confirm passkey registration', focusTrap: true };
     case 'modal_transaction_confirm':
@@ -204,7 +314,12 @@ phase. Its public surface should shrink to render modes:
 
 - `applyHidden()`
 - `applyAnchored(rect, accessibility)`
+- `applyAnchoredSuspended(accessibility)`
 - `applyViewportModal(accessibility)`
+
+`applyAnchoredSuspended()` keeps surface ownership and geometry observers alive
+while setting the iframe hidden, inert, unfocusable, and unable to receive
+pointer events. It never reuses the ownerless `hidden` surface state.
 
 The router should own `WalletIframeSurface`. The overlay controller should own
 only DOM effects derived from a surface render mode.
@@ -217,61 +332,201 @@ Surface transitions should be explicit domain events:
 type WalletIframeSurfaceEvent =
   | {
       kind: 'registration_activation_prepared';
-      surfaceId: WalletIframeSurfaceId;
-      activationId: RegistrationActivationId;
-      requestId: RequestId;
-      wallet: { kind: 'provided'; walletId: WalletId };
+      identity: RegistrationActivationSurfaceIdentity;
+      wallet: ProvidedPasskeyRegistrationWallet;
+      preparation: PasskeyRegistrationPreparationReceipt;
       presentation: RegistrationActivationButtonPresentation;
-      targetRect: RegistrationActivationTargetRect;
-      expiresAtMs: number;
+      placement: AnchoredRegistrationPlacement;
     }
   | {
-      kind: 'registration_activation_target_rect_changed';
-      surfaceId: WalletIframeSurfaceId;
-      activationId: RegistrationActivationId;
-      targetRect: RegistrationActivationTargetRect;
+      kind: 'registration_activation_placement_changed';
+      identity: RegistrationActivationSurfaceIdentity;
+      placement: AnchoredRegistrationPlacement;
+    }
+  | {
+      kind: 'registration_activation_focus_owner_changed';
+      identity: RegistrationActivationSurfaceIdentity;
+      focusOwner: AnchoredRegistrationFocusOwner;
     }
   | {
       kind: 'registration_activation_cancelled';
-      surfaceId: WalletIframeSurfaceId;
-      activationId: RegistrationActivationId;
+      identity: RegistrationActivationSurfaceIdentity;
       reason: RegistrationActivationCancellationReason;
     }
   | {
-      kind: 'modal_request_started';
-      surfaceId: WalletIframeSurfaceId;
-      requestId: RequestId;
-      modalKind: 'registration_confirm' | 'transaction_confirm' | 'key_export_confirm' | 'unlock_confirm';
+      kind: 'registration_activation_finished';
+      identity: RegistrationActivationSurfaceIdentity;
+    }
+  | {
+      kind: 'registration_modal_request_started';
+      identity: RequestSurfaceIdentity;
+      preparation: PasskeyRegistrationPreparationReceipt;
+    }
+  | {
+      kind: 'transaction_modal_request_started';
+      identity: RequestSurfaceIdentity;
+      chain: ChainId;
+      transactionDigest: TransactionDigest;
+    }
+  | {
+      kind: 'key_export_modal_request_started';
+      identity: RequestSurfaceIdentity;
+      exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_hss_report';
+    }
+  | {
+      kind: 'unlock_modal_request_started';
+      identity: RequestSurfaceIdentity;
+      unlockKind: 'passkey' | 'device_link';
     }
   | {
       kind: 'request_finished';
-      surfaceId: WalletIframeSurfaceId;
-      requestId: RequestId;
+      identity: RequestSurfaceIdentity;
     }
   | {
       kind: 'request_cancelled';
-      surfaceId: WalletIframeSurfaceId;
-      requestId: RequestId;
+      identity: RequestSurfaceIdentity;
     };
 ```
 
 Every reducer branch must compare the event identity to the active surface
 identity before mutating state. For example, a
-`registration_activation_target_rect_changed` event with the wrong
+`registration_activation_placement_changed` event with the wrong
 `activationId` cannot move the iframe.
+
+## Message Identity Contract
+
+Every message that can affect iframe visibility, geometry, focus, activation, or
+modal completion must parse into a typed identity before reaching the reducer.
+
+```ts
+type WalletIframeConnectionId = string & {
+  readonly __walletIframeConnectionId: unique symbol;
+};
+
+type WalletIframeWireMessageIdentity =
+  | RegistrationActivationSurfaceIdentity
+  | RequestSurfaceIdentity;
+
+type TrustedWalletIframeInboundIdentity = {
+  kind: 'trusted_wallet_iframe_inbound_identity_v1';
+  connectionId: WalletIframeConnectionId;
+  wireIdentity: WalletIframeWireMessageIdentity;
+};
+```
+
+Rules:
+
+- `connectionId` is created by the active wallet iframe handshake. It is trusted
+  transport metadata and never appears in serialized postMessage payloads.
+- The router authenticates the owning `MessagePort`, parses the wire identity,
+  and attaches `connectionId` exactly once before creating internal events.
+- A reconnected wallet iframe receives a new `connectionId`; messages from the
+  old connection become stale.
+- Parent-to-child messages include the complete wire identity for the active
+  branch.
+- Registration activation messages use
+  `RegistrationActivationSurfaceIdentity`; other request surfaces use
+  `RequestSurfaceIdentity` and cannot carry `activationId`.
+- Child-to-parent messages that lack the active identity are ignored.
+- Messages with matching `requestId` and mismatched `surfaceId` are stale.
+- Messages with matching `surfaceId` and mismatched `requestId` are stale.
+- `PM_CANCEL` carries the complete wire identity required by the target surface.
+- Core surface logic has no identity-free global cancel. Connection teardown is
+  a separate trusted event carrying `connectionId`; it may clear only the active
+  surface owned by that connection.
+- Raw postMessage payloads are parsed once at the router or host boundary.
+  Internal code consumes typed surface events.
+- Router-local geometry and focus events carry the complete surface identity but
+  have no `connectionId`, because they did not arrive from the iframe transport.
+
+## Surface Arbitration
+
+The router has one foreground surface. A foreground surface is any surface that
+can make the iframe visible, focusable, or able to receive pointer events.
+
+Arbitration returns a result instead of throwing an untyped exception:
+
+```ts
+type ForegroundWalletIframeSurface = Exclude<
+  WalletIframeSurface,
+  HiddenWalletIframeSurface
+>;
+
+type WalletIframeSurfaceBusyError = {
+  kind: 'wallet_iframe_surface_busy';
+  activeSurfaceKind: ForegroundWalletIframeSurface['kind'];
+  attemptedSurfaceKind: ForegroundWalletIframeSurface['kind'];
+  retry: 'after_active_surface_finishes';
+};
+
+type BeginForegroundWalletIframeSurfaceResult =
+  | { kind: 'started'; surface: ForegroundWalletIframeSurface }
+  | { kind: 'idempotent'; surface: ForegroundWalletIframeSurface }
+  | { kind: 'rejected'; error: WalletIframeSurfaceBusyError };
+```
+
+The public error excludes active request, wallet, transaction, and activation
+identifiers. Internal diagnostics may record those values after boundary
+redaction rules are applied.
+
+Arbitration policy:
+
+- `hidden` may transition to any foreground surface.
+- A second foreground request with the same complete branch identity is an
+  idempotent replay and returns the current surface state.
+- A second foreground request with any different identity field is rejected with
+  a typed `wallet_iframe_surface_busy` error.
+- Background/read-only requests may run while a foreground surface is active
+  only when they do not request iframe visibility, focus, pointer events, or
+  user activation.
+- Background progress events may call app callbacks and update diagnostics.
+  They cannot mutate `WalletIframeSurface`.
+- Completion, timeout, or cancellation for request A can hide the iframe only
+  when request A owns the active surface.
+- A timeout for the active surface sends best-effort cancel for that surface and
+  transitions to `hidden`.
+- A timeout for a background request leaves the active surface unchanged.
+- The first implementation should reject competing foreground surfaces instead
+  of queueing them. Queueing can be added later with an explicit queue state.
+- Rejection leaves the active surface, timers, observers, focus state, and
+  cleanup ownership unchanged. The attempted surface installs no resources.
+- Direct APIs return the typed rejected result through their existing
+  recoverable-error channel.
+- `SeamsAuthMenu` maps a busy rejection to a non-interactive waiting state and
+  retries surface construction when the router returns to `hidden`, provided the
+  mounted component, mode, and wallet identity still match. This consumer-level
+  retry does not add a router queue.
 
 ## Router Invariants
 
 - The router has exactly one `WalletIframeSurface` value.
 - The hidden state owns no request, activation, or surface identity.
+- Every active surface stores identity once in its branch-specific `identity`
+  field. Wallet-iframe prepared registration stores no surface or request
+  identity.
 - Anchored registration activation must have a provided wallet ID.
+- Anchored registration activation receives a preparation receipt only after the
+  wallet iframe has stored registration intent, challenge, rpID, display model,
+  and authoritative expiry.
 - Anchored registration activation must have a non-expired activation ID.
-- Modal surfaces must have a request ID.
+- Modal registration surfaces must have a preparation receipt before they become
+  visible. The wallet iframe must still have complete prepared registration data
+  before enabling its confirm button.
+- Wallet-iframe modal prepared state contains a provided wallet or a resolved
+  server allocation with a concrete wallet ID.
+- Wallet-iframe prepared registration owns the authoritative expiry. The surface
+  receipt reports that expiry for cleanup and supplies no independent authority.
+- Modal surfaces must have a request ID and surface ID.
 - Only the active surface can update iframe geometry.
 - Only the active surface can make the iframe focusable.
 - Progress events cannot directly show or hide the iframe.
-- Parent-window messages cannot transition surfaces without matching
-  `surfaceId`, `requestId`, or `activationId`.
+- Parent-window messages cannot transition surfaces unless every identity field
+  required by the active branch matches.
+- Child-window messages cannot transition surfaces without matching
+  `connectionId`, `surfaceId`, and `requestId`.
+- Registration child messages also require matching `activationId`.
+- `connectionId` comes from the authenticated transport and is absent from wire
+  payloads.
 - Host-origin messages cannot mint `walletIframeActivation`.
 - App-origin API calls cannot supply trusted activation proofs.
 - Cleanup is owned by the surface that installed listeners, timers, geometry
@@ -287,22 +542,32 @@ Activation-button registration:
 1. `SeamsAuthMenu` builds a wallet-bound registration draft.
 2. `createPasskeyRegistrationActivationSurface()` creates a surface ID and
    activation ID.
-3. The router transitions to `anchored_registration_activation`.
-4. The renderer positions the iframe over the CTA border box.
-5. The wallet iframe renders the real registration button.
-6. The user click lands in wallet-origin DOM.
-7. The host mints `walletIframeActivation`.
-8. Registration calls WebAuthn from the trusted iframe event chain.
-9. The active surface finishes and transitions to `hidden`.
+3. The host prepares wallet ID, rpID, registration intent digest, WebAuthn
+   challenge, display data, warmup, and no-UI confirmation.
+4. The wallet iframe stores prepared registration under the complete activation
+   identity and sends `READY` with identity and expiry only.
+5. The router transitions to `anchored_registration_activation` only after the
+   prepared registration is ready.
+6. The renderer positions the iframe over the CTA border box.
+7. The wallet iframe renders the real registration button.
+8. The user click lands in wallet-origin DOM.
+9. The host atomically consumes prepared state and mints
+   `walletIframeActivation`.
+10. `continuePreparedIframePasskeyRegistration()` calls WebAuthn before its
+    first `await`.
+11. The active surface finishes and transitions to `hidden`.
 
 Code-only registration:
 
 1. App-origin code calls `registration.registerPasskey()`.
-2. The router transitions to `modal_registration_confirm`.
-3. The wallet iframe renders a registration-specific confirmation modal.
-4. The user clicks the wallet-origin confirm button.
-5. WebAuthn starts from the wallet-origin event chain.
-6. The active surface finishes and transitions to `hidden`.
+2. The host resolves a provided or server-allocated wallet ID, then prepares
+   rpID, registration intent digest, WebAuthn challenge, display data, and
+   expiry.
+3. The router transitions to `modal_registration_confirm`.
+4. The wallet iframe renders a registration-specific confirmation modal.
+5. The user clicks the wallet-origin confirm button.
+6. WebAuthn starts from the wallet-origin event chain.
+7. The active surface finishes and transitions to `hidden`.
 
 Registration must never force fullscreen through a separate router lock. The
 modal path can use a viewport modal render mode, but it must still be owned by
@@ -363,22 +628,37 @@ Each active surface must expose one logical control model:
 - anchored activation surfaces use an app-domain focus proxy and an iframe-owned
   real button
 - focus movement from proxy to iframe button is explicit and test-covered
+- Tab and Shift+Tab leave the iframe through a typed focus-exit bridge and
+  continue relative to the app-domain proxy's visual tab position
 - the app-domain proxy and iframe button must not be announced as duplicate
   unrelated controls
 - modal surfaces use wallet-origin focus management
 - hidden iframe state is inert, `aria-hidden`, and unfocusable
 - cleanup restores only attributes changed by the active surface
+- focus-entry and focus-exit events carry complete active-surface identity and
+  are ignored after release
+- cleanup restores focus to the proxy only while focus still belongs to the
+  released iframe surface
 
 ## Geometry Contract
 
 Anchored surfaces must:
 
 - measure with `target.getBoundingClientRect()`
-- reject zero-size targets
+- reject targets narrower than `44` CSS pixels or shorter than `44` CSS pixels
 - reject detached targets
 - reject `display: none`
-- reject `visibility: hidden`
-- reject effective `opacity: 0`, including hidden ancestors where practical
+- reject `visibility: hidden` or `visibility: collapse`
+- reject `content-visibility: hidden` and inert targets or ancestors
+- reject effective target-and-ancestor opacity below `0.1`
+- identify clipping ancestors from `overflow-x` and `overflow-y` values of
+  `hidden`, `clip`, `auto`, or `scroll`
+- transition placement to `suspended/ancestor_clipped` while any clipping
+  ancestor hides part of the target border box
+- keep suspended surfaces hidden, inert, unfocusable, and unable to receive
+  pointer events while retaining ownership and geometry observers
+- resume an unexpired suspended surface only when the complete target border box
+  is visible inside every clipping ancestor
 - update on `ResizeObserver`
 - update on document scroll
 - update on scrollable ancestor movement
@@ -401,29 +681,50 @@ should set surface state, then let the renderer apply the resulting mode.
 - [ ] Add source-guard coverage preventing new direct fullscreen calls outside
       the surface renderer.
 - [ ] Document current request types that require wallet-origin user activation.
+- [ ] Document which current requests are foreground surfaces and which remain
+      background/read-only while a surface is active.
 - [ ] Delete obsolete comments that describe fullscreen as the default
       activation mechanism after a call site moves to surfaces.
 
 ### Phase 1: Introduce Surface Domain Types
 
 - [ ] Add `WalletIframeSurface` and `WalletIframeSurfaceEvent` unions.
+- [ ] Add branded `WalletIframeSurfaceId`, `WalletIframeConnectionId`,
+      `RequestId`, and `RegistrationActivationId` boundary parsers.
 - [ ] Add branch-specific builders for each surface.
 - [ ] Add an exhaustive reducer that applies transition events.
+- [ ] Add foreground surface arbitration with a typed
+      `wallet_iframe_surface_busy` rejection.
+- [ ] Return `started`, `idempotent`, and `rejected` arbitration branches; busy
+      rejection must install no resources and preserve the active owner.
+- [ ] Split serialized wire identity from trusted inbound identity and attach
+      `connectionId` from the authenticated `MessagePort` at the boundary.
 - [ ] Add `assertNever` coverage for surface and event switches.
 - [ ] Add type fixtures rejecting invalid states:
       - hidden with request ID
       - anchored registration without activation ID
-      - anchored registration with `server_allocated` wallet
+      - anchored registration with `server_allocated_resolved` wallet
+      - anchored registration without a preparation receipt
+      - code-only registration modal without a preparation receipt
+      - wallet-iframe prepared registration with unresolved `server_allocated`
+      - app-origin surface state containing challenge, intent digest, or
+        confirmation state
+      - surface branches with an independent expiry outside the preparation
+        receipt
       - modal transaction without request ID
       - broad object-spread construction that smuggles incompatible branch
         fields
 - [ ] Keep raw postMessage payload parsing at router and host boundaries.
 - [ ] Convert parsed payloads into precise internal surface events immediately.
+- [ ] Add stale-message tests for mismatched `connectionId`, `surfaceId`,
+      `requestId`, and `activationId`.
+- [ ] Add parser tests proving serialized payloads cannot supply
+      `connectionId`.
 
 ### Phase 2: Surface Renderer
 
-- [ ] Add a renderer that maps `WalletIframeSurface` to hidden, anchored, or
-      viewport-modal render modes.
+- [ ] Add a renderer that maps `WalletIframeSurface` to hidden,
+      anchored-interactive, anchored-suspended, or viewport-modal render modes.
 - [ ] Restrict `OverlayController` to low-level DOM writes derived from render
       modes.
 - [ ] Remove router-level `forceFullscreen` from new surface paths.
@@ -431,32 +732,75 @@ should set surface state, then let the renderer apply the resulting mode.
       geometry derived from the render mode.
 - [ ] Add unit tests proving each surface renders the expected overlay mode.
 - [ ] Add cleanup tests proving stale render modes cannot revive an old surface.
+- [ ] Prove anchored-suspended retains surface ownership while removing iframe
+      visibility, focusability, and pointer events.
 
 ### Phase 3: Convert Registration Activation
 
 - [ ] Route `createPasskeyRegistrationActivationSurface()` through
       `anchored_registration_activation`.
-- [ ] Carry `surfaceId`, `activationId`, provided wallet, presentation, expiry,
-      and target geometry in the active surface.
+- [ ] Keep `outline_overlay` as the only public registration presentation;
+      retain `iframe_button` under internal research scope.
+- [ ] Carry one `RegistrationActivationSurfaceIdentity`, provided wallet,
+      presentation, preparation receipt, and placement in the active surface.
+- [ ] Prepare registration intent digest, WebAuthn challenge, rpID, display data,
+      warmup, and no-UI confirmation before activation `READY`.
+- [ ] Store prepared registration inside the wallet iframe; make `READY` expose
+      identity and expiry only.
+- [ ] Acquire the shared WebAuthn prompt reservation before registration
+      activation reaches `READY`; bind reservation ownership to the complete
+      surface identity.
+- [ ] Add `continuePreparedIframePasskeyRegistration()` and require an activated,
+      single-use prepared state as its only input.
+- [ ] Call `navigator.credentials.create()` before the continuation's first
+      `await`.
 - [ ] Move geometry observer ownership into the active surface cleanup.
-- [ ] Implement hidden and effective-opacity target cancellation.
-- [ ] Ensure target rect updates match the active `surfaceId` and
-      `activationId`.
+- [ ] Implement the `44x44` CSS-pixel minimum, opacity `0.1` threshold, hidden,
+      inert, and content-visibility cancellation rules.
+- [ ] Implement clipping-ancestor suspension and recovery.
+- [ ] Ensure placement updates match the complete active surface identity.
 - [ ] Ensure duplicate clicks, expired activations, disposed activations, and
       wrong activation IDs cannot start registration.
 - [ ] Keep WebAuthn start synchronous from the wallet-origin click handler.
+- [ ] Consume the prompt reservation inline and release it exactly once on every
+      terminal surface transition.
+- [ ] Prohibit parent-domain WebAuthn `create` fallback for registration surfaces.
+- [ ] Map unsupported WebKit/Safari wallet-iframe creation to
+      `wallet_origin_webauthn_unavailable` without creating an app-origin
+      credential.
 - [ ] Remove fullscreen fallback from activation-button registration.
 
 Validation:
 
 - [ ] Unit: reducer rejects stale registration activation geometry events.
 - [ ] Unit: disposed activation cannot move or show the iframe.
+- [ ] Unit: competing foreground surface requests return
+      `wallet_iframe_surface_busy`.
+- [ ] Unit: busy rejection preserves the active surface and installs no timers,
+      observers, focus handlers, or mirrored state.
+- [ ] Unit: expired prepared registration rejects before WebAuthn.
+- [ ] Type fixture: the registration continuation rejects preparing, ready,
+      expired, reused, and raw registration inputs.
+- [ ] Unit: `READY` cannot carry prepared challenge or digest state.
+- [ ] Unit: `READY` requires a live prompt reservation owned by the active
+      surface identity.
+- [ ] Unit: cancellation, expiry, disposal, replacement, and failure release the
+      reservation exactly once.
+- [ ] Unit: registration ancestor-origin and focus errors cannot invoke the
+      parent-domain WebAuthn create bridge.
 - [ ] Component: iframe registration button starts once from pointer and
       keyboard activation.
 - [ ] Browser: CTA rect and iframe rect match within 1 CSS pixel.
-- [ ] Browser: hidden, zero-size, detached, and opacity-zero targets cancel.
+- [ ] Browser: hidden, undersized, detached, inert, and low-opacity targets
+      cancel.
+- [ ] Browser: clipping ancestors suspend the iframe hit target and restore it
+      after the complete CTA becomes visible.
 - [ ] Browser: WebAuthn starts without mounting transaction confirmation UI.
-- [ ] Browser: Chromium and WebKit/Safari cover the trusted activation path.
+- [ ] Browser: Chromium covers the native trusted activation path and proves
+      credential creation starts before the next microtask checkpoint.
+- [ ] Browser: each supported WebKit/Safari version covers the same native
+      wallet-origin path; unsupported versions return the typed wallet-origin
+      error without a parent bridge request.
 
 ### Phase 4: Convert Code-Only Registration Modal
 
@@ -465,15 +809,23 @@ Validation:
 - [ ] Render the wallet-origin registration modal from modal surface state.
 - [ ] Bind wallet ID, rpID, request ID, and registration digest before the modal
       confirm button can start WebAuthn.
+- [ ] Bind WebAuthn challenge and expiry before enabling the modal confirm
+      button.
+- [ ] Reserve the shared WebAuthn prompt coordinator before enabling the modal
+      confirm button and release it on every terminal modal transition.
+- [ ] Resolve server allocation to a concrete wallet ID before constructing
+      prepared modal state or enabling confirm.
 - [ ] Remove registration-specific fullscreen locks and preflight overlay show.
 - [ ] Ensure modal cancellation hides only the matching request surface.
-- [ ] Keep server-allocated wallet behavior only for direct/headless
-      registration where no wallet ID was shown to the user.
+- [ ] Keep pending server allocation outside renderable modal surface state.
 
 Validation:
 
 - [ ] Unit: code-only registration creates `modal_registration_confirm`.
 - [ ] Unit: stale modal result cannot hide a newer active surface.
+- [ ] Unit: modal confirm after prepared registration expiry rejects before
+      WebAuthn.
+- [ ] Type fixture: modal prepared state rejects unresolved server allocation.
 - [ ] Browser: modal displays intended user name and rpID.
 - [ ] Browser: WebAuthn starts only after wallet-origin confirm click.
 
@@ -492,8 +844,12 @@ Validation:
 Validation:
 
 - [ ] Unit: concurrent request attempts choose one active surface deterministically.
+- [ ] Unit: public busy errors expose surface kinds without request, wallet,
+      activation, or transaction identifiers.
 - [ ] Unit: finishing request A cannot hide request B's surface.
 - [ ] Unit: timeout for request A cannot cancel request B's surface.
+- [ ] Unit: background/read-only request progress cannot mutate the active
+      foreground surface.
 - [ ] Unit: progress events cannot show or hide the iframe directly.
 - [ ] Browser: modal surfaces focus trap only while active.
 - [ ] Browser: hidden iframe never blocks clicks.
@@ -510,8 +866,9 @@ Validation:
 - [ ] Keep the wallet-origin modal confirmer as the default for apps that do not
       opt into localized signing activation.
 
-This phase should start after registration proves the browser activation model
-across Chromium and Safari/WebKit.
+This phase should start after registration proves the native browser activation
+model in Chromium and the supported Safari/WebKit matrix, including the typed
+unsupported branch with no parent-domain registration fallback.
 
 ### Phase 7: Delete Imperative Overlay Paths
 
@@ -523,8 +880,9 @@ across Chromium and Safari/WebKit.
 - [ ] Remove `REGISTER_BUTTON_SUBMIT` fullscreen forcing.
 - [ ] Remove compatibility comments and tests that assert fullscreen
       registration activation.
-- [ ] Keep only boundary compatibility that is still required for persisted
-      records or public request payloads.
+- [ ] Delete obsolete public request and fullscreen compatibility paths. Retain
+      persisted-record compatibility only when an owned deletion condition is
+      documented at that boundary.
 
 ## Testing Strategy
 
@@ -537,17 +895,28 @@ Required static and unit coverage:
 - stale event rejection tests
 - request correlation tests
 - parser tests for raw postMessage payloads
+- tests proving `connectionId` comes from authenticated transport metadata and
+  cannot be supplied on the wire
+- arbitration result and resource-ownership tests
+- prepared-registration type fixtures for resolved wallet, complete surface
+  identity, wallet-authoritative expiry, receipt-only app state, and narrow
+  continuation input
+- WebAuthn prompt reservation ownership and exact-once cleanup tests
+- source guards preventing registration from using the parent-domain WebAuthn
+  create bridge
 - source guards for direct overlay mutation
 
 Required browser coverage:
 
 - registration activation geometry
 - trusted activation to WebAuthn from iframe button
-- WebKit/Safari transient activation behavior
+- WebKit/Safari native wallet-origin success and typed unsupported behavior
 - focus forwarding and keyboard activation
+- forward and reverse Tab egress relative to the app-domain focus proxy
 - modal focus management
 - hidden iframe click-through behavior
 - scroll, resize, nested scroll containers, visual viewport changes
+- clipping-ancestor suspension and recovery
 
 Run full SDK build when shared public types, message schemas, registration
 flows, signing flows, or overlay controller APIs change.
@@ -560,10 +929,36 @@ flows, signing flows, or overlay controller APIs change.
   surface.
 - Registration no longer uses fullscreen preflight or fullscreen submit locks.
 - Router visibility is derived from one `WalletIframeSurface` value.
+- Foreground surface arbitration rejects competing visible/focusable surfaces
+  with a typed, redacted error while preserving the active owner's resources.
 - Progress events no longer directly show or hide the iframe.
 - Stale request, activation, and progress messages cannot affect the active
   surface.
+- Serialized surface messages carry complete branch-specific wire identity.
+  Trusted inbound boundary records additionally carry the `connectionId`
+  attached from the authenticated `MessagePort`; the boundary validates it
+  before constructing a reducer event.
+- Active surfaces store identity once. Wallet-iframe prepared registration owns
+  the authoritative expiry; app-origin surface state receives an expiry-only
+  preparation receipt.
+- Server-allocated registration becomes renderable only after allocation
+  resolves to a concrete wallet ID.
+- Registration `READY` messages expose identity and expiry while prepared
+  challenge, intent, confirmation, and warmup state remain wallet-iframe
+  internal.
+- Registration `READY` also requires a live WebAuthn prompt reservation owned by
+  the active surface identity.
+- Activation-button registration reaches `navigator.credentials.create()` from a
+  narrow, pre-armed wallet-origin continuation before its first `await` in
+  Chromium and every supported Safari/WebKit version.
+- Registration never delegates credential creation to the app-origin parent.
+  Unsupported Safari/WebKit versions return
+  `wallet_origin_webauthn_unavailable` and create no app-origin credential.
 - Hidden iframe state cannot block app clicks or receive focus.
+- Clipped anchored targets suspend iframe visibility and pointer routing until
+  the complete CTA is visible again.
+- Tab and Shift+Tab leave anchored surfaces at the app proxy's visual tab
+  position.
 - WebAuthn remains wallet-origin for interoperable embedded wallet passkeys.
-- Chromium and Safari/WebKit browser validation cover the registration
-  activation path before release.
+- Chromium validation and the supported Safari/WebKit matrix cover the
+  registration activation path before release.

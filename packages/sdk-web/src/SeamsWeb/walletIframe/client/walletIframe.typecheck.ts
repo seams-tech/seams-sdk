@@ -10,10 +10,18 @@ import type {
   ParentToChildType,
 } from '../shared/messages';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import type {
+  RegistrationActivationId,
+  WalletIframeRequestId,
+  WalletIframeSurfaceId,
+} from '@/SeamsWeb/publicApi/types';
 
 declare const walletSession: WalletSessionRef;
 declare const nearAccount: NearAccountRef;
 declare const ed25519Lane: ExactEd25519SigningLaneIdentity;
+declare const activationId: RegistrationActivationId;
+declare const activationRequestId: WalletIframeRequestId;
+declare const activationSurfaceId: WalletIframeSurfaceId;
 
 const iframeExportPayload: PMExportKeypairUiPayload = {
   kind: 'near',
@@ -48,7 +56,9 @@ const staleRegisterRoute: ParentToChildType = 'PM_REGISTER';
 void staleRegisterRoute;
 
 const activationPreparePayload: PMRegistrationActivationPreparePayload = {
-  activationId: 'activation-1',
+  activationId,
+  requestId: activationRequestId,
+  surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
   presentation: {
@@ -60,9 +70,24 @@ const activationPreparePayload: PMRegistrationActivationPreparePayload = {
 };
 void activationPreparePayload;
 
+// @ts-expect-error activation prepare requires complete surface correlation identity.
+const activationPrepareWithoutIdentity: PMRegistrationActivationPreparePayload = {
+  expiresAtMs: 1_900_000_000_000,
+  wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  presentation: {
+    kind: 'outline_overlay',
+    label: 'Register',
+    busyLabel: 'Registering...',
+    accessibleLabel: 'Register wallet',
+  },
+};
+void activationPrepareWithoutIdentity;
+
 // @ts-expect-error Activation prepare must carry the displayed provided wallet ID.
 const activationPrepareWithoutWallet: PMRegistrationActivationPreparePayload = {
-  activationId: 'activation-1',
+  activationId,
+  requestId: activationRequestId,
+  surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
   presentation: {
     kind: 'outline_overlay',
@@ -74,7 +99,9 @@ const activationPrepareWithoutWallet: PMRegistrationActivationPreparePayload = {
 void activationPrepareWithoutWallet;
 
 const activationPrepareWithServerAllocatedWallet: PMRegistrationActivationPreparePayload = {
-  activationId: 'activation-1',
+  activationId,
+  requestId: activationRequestId,
+  surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
   presentation: {
     kind: 'outline_overlay',
@@ -88,7 +115,9 @@ const activationPrepareWithServerAllocatedWallet: PMRegistrationActivationPrepar
 void activationPrepareWithServerAllocatedWallet;
 
 const activationPrepareWithNearAccount: PMRegistrationActivationPreparePayload = {
-  activationId: 'activation-1',
+  activationId,
+  requestId: activationRequestId,
+  surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
   presentation: {
@@ -101,5 +130,19 @@ const activationPrepareWithNearAccount: PMRegistrationActivationPreparePayload =
   nearAccountId: 'alice.testnet',
 };
 void activationPrepareWithNearAccount;
+
+const activationPrepareWithConfirmationPolicy: PMRegistrationActivationPreparePayload = {
+  ...activationPreparePayload,
+  // @ts-expect-error activation preparation derives wallet-owned confirmation policy.
+  confirmationConfig: { uiMode: 'none' },
+};
+void activationPrepareWithConfirmationPolicy;
+
+const activationPrepareWithGenericOptions: PMRegistrationActivationPreparePayload = {
+  ...activationPreparePayload,
+  // @ts-expect-error activation preparation carries no generic options bag.
+  options: {},
+};
+void activationPrepareWithGenericOptions;
 
 export {};

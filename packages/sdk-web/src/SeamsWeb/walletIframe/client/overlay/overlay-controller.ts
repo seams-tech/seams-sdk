@@ -28,8 +28,7 @@
  * - Uses high z-index (2147483646) to ensure overlay is above other content
  * - Controls pointer-events to avoid blocking page interaction when hidden
  * - Properly manages ARIA attributes for accessibility compliance
- * - Performs basic clamping (non-negative top/left, min size) but does not
- *   guarantee content stays fully within the viewport
+ * - Preserves viewport-relative coordinates, including negative offscreen positions
  *
  * Usage Pattern:
  * 1. Create controller with iframe reference
@@ -44,12 +43,20 @@ import { setAnchored, setFullscreen, setHidden } from './overlay-styles';
 
 type Mode = 'hidden' | 'fullscreen' | 'anchored';
 
+export type AnchoredOverlayLease = {
+  readonly kind: 'anchored_overlay_lease_v1';
+  readonly leaseId: string;
+};
+
 export class OverlayController {
   private ensureIframe: () => HTMLIFrameElement;
   private mode: Mode = 'hidden';
   private visible = false;
   private sticky = false;
   private rect: DOMRectLike | null = null;
+  private suspended = false;
+  private anchoredLease: AnchoredOverlayLease | null = null;
+  private leaseCounter = 0;
 
   constructor(opts: { ensureIframe: () => HTMLIFrameElement }) {
     this.ensureIframe = opts.ensureIframe;
@@ -69,6 +76,7 @@ export class OverlayController {
    * This mode allows the iframe to receive user activation events
    */
   showFullscreen(): void {
+    if (this.anchoredLease) return;
     const iframe = this.ensureIframe();
     this.visible = true;
     this.mode = 'fullscreen';
@@ -86,13 +94,35 @@ export class OverlayController {
    * Show overlay in anchored mode - positioned at specific coordinates
    * Used for inline UI components that need to appear at a specific location
    * Coordinates are viewport-relative (from getBoundingClientRect()); values are
-   * clamped to non-negative top/left and minimum width/height
+   * preserved as measured, with only minimum width/height enforcement
    */
   showAnchored(rect: DOMRectLike): void {
+    if (this.anchoredLease) return;
+    this.applyAnchored(rect);
+  }
+
+  acquireAnchoredLease(): AnchoredOverlayLease | null {
+    if (this.anchoredLease || this.visible || this.mode !== 'hidden') return null;
+    const lease: AnchoredOverlayLease = Object.freeze({
+      kind: 'anchored_overlay_lease_v1',
+      leaseId: `anchored-overlay-${++this.leaseCounter}`,
+    });
+    this.anchoredLease = lease;
+    return lease;
+  }
+
+  showAnchoredForLease(lease: AnchoredOverlayLease, rect: DOMRectLike): boolean {
+    if (this.anchoredLease !== lease) return false;
+    this.applyAnchored(rect);
+    return true;
+  }
+
+  private applyAnchored(rect: DOMRectLike): void {
     const iframe = this.ensureIframe();
     this.visible = true;
     this.mode = 'anchored';
     this.rect = { ...rect };
+    this.suspended = false;
 
     // Apply anchored geometry via dynamic rule + classes (CSP-safe)
     setAnchored(iframe, rect);
@@ -107,10 +137,32 @@ export class OverlayController {
    * If overlay is currently in anchored mode, immediately apply new position
    */
   setAnchoredRect(rect: DOMRectLike): void {
+    if (this.anchoredLease) return;
     this.rect = { ...rect };
     if (this.visible && this.mode === 'anchored') {
       this.showAnchored(this.rect);
     }
+  }
+
+  suspendAnchored(): void {
+    if (this.anchoredLease) return;
+    this.applyAnchoredSuspension();
+  }
+
+  suspendAnchoredForLease(lease: AnchoredOverlayLease): boolean {
+    if (this.anchoredLease !== lease) return false;
+    this.applyAnchoredSuspension();
+    return true;
+  }
+
+  private applyAnchoredSuspension(): void {
+    if (this.mode !== 'anchored') return;
+    const iframe = this.ensureIframe();
+    this.visible = false;
+    this.suspended = true;
+    setHidden(iframe);
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('tabindex', '-1');
   }
 
   /**
@@ -130,7 +182,23 @@ export class OverlayController {
    * Clear anchored rectangle - removes stored coordinates
    */
   clearAnchoredRect(): void {
+    if (this.anchoredLease) return;
     this.rect = null;
+  }
+
+  releaseAnchoredLease(lease: AnchoredOverlayLease): boolean {
+    if (this.anchoredLease !== lease) return false;
+    this.anchoredLease = null;
+    this.rect = null;
+    this.sticky = false;
+    const iframe = this.ensureIframe();
+    this.visible = false;
+    this.mode = 'hidden';
+    this.suspended = false;
+    setHidden(iframe);
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('tabindex', '-1');
+    return true;
   }
 
   /**
@@ -139,6 +207,7 @@ export class OverlayController {
    * Used when WebAuthn activation is complete or operation is cancelled
    */
   hide(): void {
+    if (this.anchoredLease) return;
     // Step 1: Check sticky mode - don't hide if operation is still in progress
     if (this.sticky) {
       return;
@@ -147,6 +216,7 @@ export class OverlayController {
     const iframe = this.ensureIframe();
     this.visible = false;
     this.mode = 'hidden';
+    this.suspended = false;
 
     // Apply hidden state via classes (CSP-safe)
     setHidden(iframe);
@@ -157,16 +227,26 @@ export class OverlayController {
   }
 
   forceHide(): void {
+    if (this.anchoredLease) return;
     this.sticky = false;
     if (!this.visible) return;
     this.hide();
   }
 
-  getState(): { visible: boolean; mode: Mode; sticky: boolean; rect?: DOMRectLike } {
+  getState(): {
+    visible: boolean;
+    mode: Mode;
+    sticky: boolean;
+    suspended: boolean;
+    ownership: 'unowned' | 'anchored_lease';
+    rect?: DOMRectLike;
+  } {
     return {
       visible: this.visible,
       mode: this.mode,
       sticky: this.sticky,
+      suspended: this.suspended,
+      ownership: this.anchoredLease ? 'anchored_lease' : 'unowned',
       rect: this.rect || undefined,
     };
   }
