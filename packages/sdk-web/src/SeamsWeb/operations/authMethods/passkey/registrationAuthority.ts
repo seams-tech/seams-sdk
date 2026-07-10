@@ -4,6 +4,7 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnRegistrationConfirmationSurface } from '@/SeamsWeb/signingSurface/types';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   redactedPasskeyRegistrationCredential,
   requirePasskeyPrfFirstB64u,
@@ -124,7 +125,7 @@ export async function collectPasskeyRegistrationAuthorityFromCredential(
 
 export async function collectPasskeyRegistrationAuthority(args: {
   context: { signingEngine: WebAuthnRegistrationConfirmationSurface };
-  walletId: string;
+  walletId: WalletId;
   signerSlot: number;
   registrationIntentDigestB64u: string;
   options: RegistrationHooksOptions;

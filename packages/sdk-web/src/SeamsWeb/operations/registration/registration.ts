@@ -4270,7 +4270,7 @@ async function registerEcdsaWalletOnly(args: {
       passkeyAuthority = await registrationTiming.measure('authProofMs', () =>
         collectPasskeyRegistrationAuthority({
           context,
-          walletId: String(walletId),
+          walletId,
           signerSlot: 1,
           registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
           options,
@@ -4719,7 +4719,7 @@ async function registerWalletInternal(
           passkeyAuthority = await registrationTiming.measure('authProofMs', () =>
             collectPasskeyRegistrationAuthority({
               context,
-              walletId: String(intentResponse.intent.walletId),
+              walletId: intentResponse.intent.walletId,
               signerSlot: ed25519Selection.signerSlot,
               registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
               options,

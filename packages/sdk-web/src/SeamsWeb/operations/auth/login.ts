@@ -4147,11 +4147,19 @@ function snapshotToSigningSessionStatusForUi(
 ): SigningSessionStatus | null {
   if (!snapshot) return null;
   return selectSigningSessionStatusForDisplay([
-    snapshotLaneToDisplaySigningSessionStatus(snapshot.lanes.ed25519.near),
+    snapshotToEd25519SigningSessionStatusForUi(snapshot),
     ...ecdsaAvailableLaneTargets(snapshot).map((target) =>
       snapshotLaneToDisplaySigningSessionStatus(ecdsaAvailableLaneForTarget(snapshot, target)),
     ),
   ]);
+}
+
+function snapshotToEd25519SigningSessionStatusForUi(
+  snapshot: AvailableSigningLanes | null,
+): SigningSessionStatus | null {
+  return snapshot
+    ? snapshotLaneToDisplaySigningSessionStatus(snapshot.lanes.ed25519.near)
+    : null;
 }
 
 async function readAvailableSigningLanesForUi(
@@ -4231,14 +4239,17 @@ async function getLoginStateInternal(
           .getWarmThresholdEd25519SessionStatus(nearSubject.nearAccountId)
           .catch(() => null)
       : null;
-    const snapshotStatusForLogin = await resolveSnapshotSigningSessionStatusForUi(
+    const availableLanesForLogin = await readAvailableSigningLanesForUi(
       context,
       resolvedWalletId,
     ).catch(() => null);
+    const snapshotStatusForLogin = snapshotToSigningSessionStatusForUi(availableLanesForLogin);
+    const ed25519SnapshotStatusForLogin =
+      snapshotToEd25519SigningSessionStatusForUi(availableLanesForLogin);
     const shouldGateNearPublicKey =
       requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin;
     const hasThresholdEd25519SigningCapability =
-      isSessionDisplayActive(ed25519WarmStatus) || isSessionDisplayActive(snapshotStatusForLogin);
+      isSessionDisplayActive(ed25519WarmStatus) || ed25519SnapshotStatusForLogin !== null;
     const publicKey =
       userData?.operationalPublicKey &&
       (!shouldGateNearPublicKey || hasThresholdEd25519SigningCapability)
