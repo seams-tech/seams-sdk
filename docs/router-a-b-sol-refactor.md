@@ -462,7 +462,8 @@ resource evidence, or independent review are unresolved.
 
 ## Phase 1: Freeze Functionality, Vectors, And Party Views
 
-Status: **in progress — isolated Rust crates only**
+Status: **in progress — isolated Rust crates and partial lifecycle/party-boundary
+specification only**
 
 Goal: define exact executable semantics independently from any secure-computation
 backend.
@@ -477,11 +478,13 @@ backend.
       unshared scalar bases, public commitments, public key, and export seed.
 - [x] Freeze stable-context fields, canonical encoding, endianness, reductions,
       participant identifiers, and domain separators.
-- [ ] Freeze role-local contribution KDF labels and bind the stable context into
+- [ ] Freeze the upstream Yao-only application-binding digest preimage and
+      golden vectors; exclude `signingRootVersion` and every mutable epoch.
+- [x] Freeze role-local contribution KDF labels and bind the stable context into
       those KDFs.
 - [x] Add standard RFC 8032 seed import/export and signature-parity vectors.
-- [ ] Add randomized differential vectors against an independent
-      implementation.
+- [x] Add deterministic pseudorandom differential vectors against an
+      independent implementation.
 - [x] Add carry-heavy addition cases.
 - [x] Add clamp-boundary and scalar-reduction edge cases.
 - [x] Verify `a = 2*x_client_base - x_server_base mod l` for every committed
@@ -492,15 +495,22 @@ backend.
       output reconstruction.
 - [ ] Freeze ECDSA strict identity, bootstrap, presign, signature, export,
       recovery, and refresh vectors before moving residual service callers.
-- [ ] Write request-kind-specific ideal functionalities for Ed25519
-      registration, activation, recovery, refresh, and export.
+- [x] Freeze request-kind-specific pre-state, success, output-custody, and
+      identity boundary contracts for Ed25519 registration, activation,
+      recovery, refresh, and export.
+- [ ] Close the recovery, refresh, provenance/anti-bias, and active-output
+      blockers required for executable lifecycle ideal functionalities.
 - [ ] Write corresponding ECDSA lifecycle functionality and ownership maps by
       referencing the existing strict ECDSA protocol.
-- [ ] Specify complete views for Client, Router, Deriver A, Deriver B,
-      SigningWorker, persistence, logs, and each supported corruption set.
-- [ ] Record every allowed output and every forbidden joined value per role.
-- [ ] Freeze transcript fields, direction tags, sequence numbering, recipient
-      identities, circuit/backend identifiers, and all key/deployment epochs.
+- [x] Freeze the common-leakage and output-custody boundary for Client, Router,
+      Deriver A, Deriver B, SigningWorker, observers, and logs.
+- [ ] Specify complete role-private inputs, randomness, frames, persistence
+      views, abort equivalence, and each supported corruption set.
+- [x] Record every allowed output and every forbidden joined value per role.
+- [x] Freeze semantic transcript fields, recipient identities, derived circuit
+      mapping, and public epoch categories.
+- [ ] Freeze canonical transcript encoding, direction tags, sequence numbering,
+      exact circuit/backend digests, and signed receipt bytes.
 - [ ] Create an alignment matrix from each Router A/B invariant to its planned
       enforcement code and test.
 

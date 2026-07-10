@@ -1,0 +1,47 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:vectors:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "cases": [
+    {
+      "request_kind": "registration",
+      "vector": {
+        "case_id": "differential_0000_registration_v1",
+        "context": {
+          "application_binding_digest_hex": "45ed8b06832451f4222851dc6d31b9ec880600f90d7ad91d3c1934cbbca51a03",
+          "participant_ids": [
+            1,
+            32769
+          ],
+          "encoded_hex": "7365616d732f726f757465722d61622f656432353531392d79616f2f737461626c652d6b65792d636f6e746578742f763145ed8b06832451f4222851dc6d31b9ec880600f90d7ad91d3c1934cbbca51a0300018001",
+          "binding_sha256_hex": "8dad975de6dc9a2c91fef04d1af68269c7e755fa2c1669a8056d24b23e0c001a"
+        },
+        "inputs": {
+          "y_client_a_hex": "5f49b8d781ad4e2979a1eb232a4e13ca496e076adab25ea478e8af6f6c9cec57",
+          "y_server_a_hex": "5838fb5576a84e872afcdf0cd3e159f6924fb3b193c2902618d705ab48987636",
+          "y_client_b_hex": "4f36010ed1946128cc9923b4b0eb6580162bab6bc53865683e94038b7a6177ef",
+          "y_server_b_hex": "aa0d9227efa7086cbedacf0c377cb3f67e6e7cf2dc19bd273535394e8d97b9f3",
+          "tau_client_a_hex": "fb13079b8438d2d2efa627b828e278cf40d09ad87ef761a4c824960c84d01301",
+          "tau_server_a_hex": "dae298f831182463ecd23b86ec4a3899238d66c36d59e7da6dcada4b17ce2e09",
+          "tau_client_b_hex": "6d443c6fe7ad69723b710eaa72ed9305fcb5b03960421c6ca76e35826555b40a",
+          "tau_server_b_hex": "8156e32b1246b196383378d9044ee74cc8efe83d779fc0bd9586af878c95770f"
+        },
+        "clear_reference_trace": {
+          "y_a_hex": "b781b32df8559db0a39dcb30fd2f6dc0dcbdba1b6e75efca90bfb51ab534638e",
+          "y_b_hex": "f9439335c03c6a948a74f3c0e76719779599275ea252229073c93cd907f930e3",
+          "joined_seed_hex": "b0c54663b89207452e12bff1e49786377257e27910c8115b0489f2f3bc2d9471",
+          "sha512_digest_hex": "9fd920e69427ee76baaeab1c755a51a05cdf93d541c59d65cc764f4be66ba924035471e98926fbcf35c293759d655042882a1e5acd3e09235bd0580a31bdb59c",
+          "clamped_scalar_bytes_hex": "98d920e69427ee76baaeab1c755a51a05cdf93d541c59d65cc764f4be66ba964",
+          "signing_scalar_hex": "0ae25db8f6d47f66b401de4a3d7f17235cdf93d541c59d65cc764f4be66ba904",
+          "tau_a_hex": "d5f69f93b650f635dc79633e152db168645d019cec50497f36ef70589b9e420a",
+          "tau_b_hex": "01c7293edf9008b19d078fe098419c3dc4a59977d7e1dc293df5e409f2ea2b0a",
+          "tau_hex": "e9e9d3747b7eec8ea3e4fa7bcf746e9128039b13c43226a973e455628d896e04",
+          "x_client_base_hex": "f3cb312d72536cf557e6d8c60cf485b484e22ee905f8c30e405ba5ad73f51709",
+          "x_server_base_hex": "dcb505a2edd15884fbcad342dc68f445ade5c9fcc92aeab7b33ffb0f017f860d",
+          "x_client_point_hex": "8018048757e831c119ceedd80c5e8520e0e6e0ed668deba50fe9e7c50418dd6e",
+          "x_server_point_hex": "682661171a5b7d3f841fd40b17a908e710420c8e2ff801adad8164de0f141bbf",
+          "public_key_hex": "f3dd268a3722d3a58212841681eff28ea26222605dd7f8747e2e3b324d90168e"
+        }
+      }
+    }
+  ]
+}

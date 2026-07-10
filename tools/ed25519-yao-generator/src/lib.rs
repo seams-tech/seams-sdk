@@ -15,6 +15,8 @@ use sha2::{Digest, Sha512};
 
 mod context;
 mod fixtures;
+mod kdf;
+mod kdf_fixtures;
 
 pub use context::{
     ApplicationBindingDigest, NormalizedParticipantIds, ParticipantPosition,
@@ -24,9 +26,28 @@ pub use context::{
     STABLE_KEY_DERIVATION_CONTEXT_ENCODED_LEN,
 };
 pub use fixtures::{
-    canonical_vector_corpus_v1, LifecycleRequestKindV1, VectorCaseV1, VectorClearReferenceTraceV1,
-    VectorContextV1, VectorCorpusV1, VectorExportCaseV1, VectorInputsV1, VectorReferenceCaseV1,
-    VECTOR_CORPUS_SCHEMA_V1,
+    canonical_vector_corpus_v1, differential_vector_corpus_v1, DifferentialVectorError,
+    LifecycleRequestKindV1, VectorCaseV1, VectorClearReferenceTraceV1, VectorContextV1,
+    VectorCorpusV1, VectorExportCaseV1, VectorInputsV1, VectorReferenceCaseV1,
+    DIFFERENTIAL_INPUT_DOMAIN_V1, MAX_DIFFERENTIAL_VECTOR_CASES_V1, VECTOR_CORPUS_SCHEMA_V1,
+};
+pub use kdf::{
+    derive_synthetic_client_contributions_v1, derive_synthetic_deriver_a_server_contribution_v1,
+    derive_synthetic_deriver_b_server_contribution_v1, SyntheticClientContributionsV1,
+    SyntheticClientDerivationRootV1, SyntheticDeriverAClientContributionV1,
+    SyntheticDeriverADerivationRootV1, SyntheticDeriverAServerContributionV1,
+    SyntheticDeriverBClientContributionV1, SyntheticDeriverBDerivationRootV1,
+    SyntheticDeriverBServerContributionV1, SyntheticTauContributionV1, SyntheticYContributionV1,
+    CONTRIBUTION_KDF_CLIENT_SOURCE_TAG_V1, CONTRIBUTION_KDF_EXPAND_INFO_DOMAIN_V1,
+    CONTRIBUTION_KDF_EXPAND_INFO_LEN_V1, CONTRIBUTION_KDF_EXTRACT_SALT_V1,
+    CONTRIBUTION_KDF_ROLE_A_TAG_V1, CONTRIBUTION_KDF_ROLE_B_TAG_V1,
+    CONTRIBUTION_KDF_SERVER_SOURCE_TAG_V1, CONTRIBUTION_KDF_TAU_OUTPUT_TAG_V1,
+    CONTRIBUTION_KDF_Y_OUTPUT_TAG_V1,
+};
+pub use kdf_fixtures::{
+    canonical_kdf_vector_corpus_v1, KdfClearReferenceTraceV1, KdfContinuityVectorCaseV1,
+    KdfContributionVectorV1, KdfStableContextVectorV1, KdfSyntheticRootsV1, KdfVectorCorpusV1,
+    KDF_VECTOR_CORPUS_SCHEMA_V1,
 };
 
 /// Fallible result returned while validating raw role contributions.

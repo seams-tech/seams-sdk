@@ -13,6 +13,10 @@ rev = "419f53b6eed3fe487a8427fd290a734c49634366"
 [lean]
 toolchain = "leanprover/lean4:v4.28.0-rc1"
 
+[python]
+minimum_major = 3
+minimum_minor = 11
+
 [extraction]
 crate = "tools/ed25519-yao-generator"
 functions = [
@@ -22,8 +26,11 @@ functions = [
 
 [evidence]
 vector_cases = 5
+kdf_vector_cases = 1
+differential_vector_cases = 128
+independent_verifier_tests = 17
 production_rust_tests = 16
-generator_rust_tests = 19
+generator_rust_tests = 31
 anti_drift_tests = 6
 verus_obligations = 10
 lean_model_theorems = 3

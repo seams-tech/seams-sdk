@@ -221,11 +221,53 @@ application binding digest is an immutable SDK-owned 32-byte value. Lifecycle,
 authorization, transport, deployment, key-epoch, ticket, and circuit metadata
 remain in `CeremonyTranscriptContext` and never enter this stable encoding.
 
+The upstream application-binding preimage and canonical encoder remain a Phase
+1 blocker. They require a new Yao-only domain and immutable wallet/key/root
+identifiers. Existing HSS binding bytes cannot be reused, and mutable values
+such as `signingRootVersion` or any deployment/root-share epoch cannot enter the
+digest. Product integration remains blocked until the exact preimage, length
+encoding, normalization, and golden vectors are frozen.
+
 The golden encoding with `application_binding_digest = 0x42 * 32` and
 participant identifiers `1` and `2` ends in `00010002`; its binding digest is
 `ce5305908b0c31bfe09072b549cb349b0c901f7d3fde60c63fa8e2dfb088a42d`.
-The role-local KDF integration and public-key continuity vectors remain open
-Phase 1 work.
+
+The version-one role-local contribution KDF is also frozen:
+
+```text
+extract_salt = ASCII("seams/router-ab/ed25519-yao/contribution-kdf/hkdf-sha256/extract/v1")
+expand_domain = ASCII("seams/router-ab/ed25519-yao/contribution-kdf/hkdf-sha256/expand/v1")
+
+role_tag   = A:0x01 | B:0x02
+source_tag = client:0x01 | server:0x02
+output_tag = y:0x01 | tau:0x02
+
+PRK = HKDF-Extract-SHA256(extract_salt, root[32])
+info = expand_domain || 0x00 || role_tag || source_tag || output_tag
+       || StableKeyDerivationContextBindingV1[32]
+
+y = HKDF-Expand-SHA256(PRK, info(output=y), 32)
+tau_wide = HKDF-Expand-SHA256(PRK, info(output=tau), 64)
+tau = LE512(tau_wide) mod l, encoded as one canonical LE32 scalar
+```
+
+One stable client derivation root produces the role-separated client/A and
+client/B contributions. Deriver A's independent stable root produces only the
+server/A contribution. Deriver B's independent stable root produces only the
+server/B contribution. The KDF runs at initial provisioning or explicit wallet
+key rotation. Activation consumes committed packages. Recovery must either
+rewrap the same logical client derivation root or use a reviewed compensating
+transition, and refresh must apply a reviewed correlated zero-sum transition;
+neither operation may independently rerun the KDF under a changed root while
+claiming identity continuity. Phase 1 still has to select the exact recovery
+transition.
+
+Request kind, authorization, transport, deployment, HPKE, storage, ticket,
+activation, root-share, and SigningWorker epochs never enter `info`. They bind
+the ceremony and input-provenance statement separately. The isolated reference
+implementation and committed continuity corpus live under
+`tools/ed25519-yao-generator`; production root custody and provenance proof
+remain later security gates.
 
 The circuit receives four `y` contributions:
 
@@ -254,13 +296,13 @@ Neither mathematical output is decoded to either Deriver.
 
 ### Fixed Circuit Families
 
-The target has two production circuit families:
+The target has two production circuit artifact families:
 
 1. `ed25519_yao_activation_v1`
    - registration;
-   - activation;
    - recovery;
    - refresh;
+   - packages consumed by activation without another circuit evaluation;
    - output shares for `x_client_base` and `x_server_base`;
    - no seed output wires.
 2. `ed25519_yao_export_v1`
@@ -276,13 +318,13 @@ export field, export recipient, or seed-output branch.
 The product/control operation, canonical request kind, ideal functionality, and
 circuit family mapping is fixed as follows:
 
-| Product/control operation   | Request kind   | Ideal functionality         | Circuit family              |
-| --------------------------- | -------------- | --------------------------- | --------------------------- |
-| `registration_prepare`      | `registration` | `F_ed25519_registration_v1` | `ed25519_yao_activation_v1` |
-| `signing_worker_activation` | `activation`   | `F_ed25519_activation_v1`   | `ed25519_yao_activation_v1` |
-| `recovery`                  | `recovery`     | `F_ed25519_recovery_v1`     | `ed25519_yao_activation_v1` |
-| `server_share_refresh`      | `refresh`      | `F_ed25519_refresh_v1`      | `ed25519_yao_activation_v1` |
-| `key_export`                | `export`       | `F_ed25519_export_v1`       | `ed25519_yao_export_v1`     |
+| Product/control operation   | Request kind   | Ideal functionality         | Circuit family                                 |
+| --------------------------- | -------------- | --------------------------- | ---------------------------------------------- |
+| `registration_prepare`      | `registration` | `F_ed25519_registration_v1` | `ed25519_yao_activation_v1`                    |
+| `signing_worker_activation` | `activation`   | `F_ed25519_activation_v1`   | committed `ed25519_yao_activation_v1` packages |
+| `recovery`                  | `recovery`     | `F_ed25519_recovery_v1`     | `ed25519_yao_activation_v1`                    |
+| `server_share_refresh`      | `refresh`      | `F_ed25519_refresh_v1`      | `ed25519_yao_activation_v1`                    |
+| `key_export`                | `export`       | `F_ed25519_export_v1`       | `ed25519_yao_export_v1`                        |
 
 Router performs this conversion at the admitted request boundary. Callers never
 select the ideal functionality or circuit family. Activation consumes and
@@ -1592,8 +1634,8 @@ Goal: remove conflicting architectural authority before implementation.
 
 ## Phase 1: Freeze Reference Functionality, Vectors, and Party Views
 
-Status: **in progress — isolated oracle, stable-context, portable-vector, and
-manifest foundations only**
+Status: **in progress — isolated oracle, KDF, portable-vector, manifest, and
+partial lifecycle/party-boundary foundations only**
 
 Goal: establish an exact oracle before circuit synthesis.
 
@@ -1604,50 +1646,74 @@ Goal: establish an exact oracle before circuit synthesis.
       dependencies.
 - [x] Freeze and test clear-oracle byte order, field arithmetic, clamp, scalar
       reduction, and stable-context encoding rules.
-- [ ] Freeze the role-local KDF labels and bind the stable context into every
+- [x] Freeze the role-local KDF labels and bind the stable context into every
       contribution derivation.
-- [ ] Define disjoint registration, activation, recovery, refresh, and export
-      ideal functionalities and request types.
-- [ ] Freeze each operation's pre-state, private inputs, persisted update,
-      outputs, and identity invariant.
-- [ ] Replace the current `Recovery -> Export` mapping in the target contract.
+- [x] Freeze evidence-backed request, pre-state, success, output-custody, and
+      identity shapes for five disjoint lifecycle boundary contracts in
+      `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`.
+- [ ] Close recovery preservation, refresh cutover, role-input
+      provenance/anti-bias, and active-output blockers required for five
+      executable ideal functionalities.
+- [x] Freeze each operation's public pre-state class, success-state class,
+      output family, and identity invariant.
+- [ ] Freeze role-private inputs/provenance, exact persisted transitions,
+      rollback/cutover semantics, and executable evaluators.
+- [x] Replace the `Recovery -> Export` mapping in the isolated target contract.
+- [ ] Delete the superseded `Recovery -> Export` implementation during Router
+      integration.
 - [ ] Specify recovery's non-export seed-preserving state transition.
-- [ ] Remove any registration precondition requiring an already-registered
-      account public key.
-- [ ] Enumerate all private inputs, public inputs, outputs, leakage, and aborts.
-- [ ] Write party views for Client, Router, A, B, SigningWorker, and observers.
+- [x] Freeze registration with an unregistered pre-state and no pre-existing
+      account public-key requirement.
+- [ ] Delete conflicting product-path registration preconditions during Router
+      integration.
+- [x] Freeze common public inputs/leakage, allowed outputs, forbidden values,
+      ideal output-sharing distributions, and the uniform abort envelope.
+- [ ] Freeze complete role-private inputs, protocol randomness/frames,
+      lifecycle-specific abort equivalence, and persistence views.
+- [x] Freeze output-custody views for Client, Router, A, B, SigningWorker,
+      observers, and logs.
+- [ ] Add complete executable party views and both corruption games after the
+      private-input and active-protocol decisions close.
 - [x] Add RFC 8032-compatible seed-to-public-key vectors.
-- [ ] Add cross-language vectors for split `y`, split `tau`, joined `d`,
+- [x] Add cross-language vectors for split `y`, split `tau`, joined `d`,
       `a`, `x_client_base`, `x_server_base`, and public commitments.
-- [ ] Add randomized differential vectors against a standard Ed25519
-      implementation.
+- [x] Add deterministic pseudorandom differential vectors against an
+      independent standard-library Ed25519 implementation.
 - [ ] Add registration, activation, recovery, refresh, and export vectors.
 - [x] Add a committed five-case request-kind-tagged clear-arithmetic corpus
       containing the complete synthetic joined trace, RFC 8032 cases,
       arithmetic wrap boundaries, and an export-only authorized seed result.
 - [x] Add exact golden `StableKeyDerivationContext` encoding and binding vectors
       for the Phase 0 policy.
-- [ ] Bind the frozen stable context into the role-local KDF and add public-key
+- [ ] Freeze the Yao-only application-binding digest preimage and golden vectors;
+      exclude `signingRootVersion` and every mutable epoch.
+- [x] Bind the frozen stable context into the role-local KDF and add public-key
       continuity vectors.
 - [ ] Freeze role-local root/input provenance commitments and epoch semantics.
-- [ ] Specify which public identity is checked during recovery and refresh.
+- [x] Specify the registered `A_pub` as the public identity checked during
+      recovery and refresh.
 - [ ] Specify registration anti-bias requirements.
 
 ### July 10, 2026 Implementation Checkpoint
 
-The first isolated Phase 1 slice is implemented in
+The current isolated Phase 1 slice is implemented in
 `tools/ed25519-yao-generator`. It provides the frozen stable-context type,
-strict request-kind-tagged JSON DTOs, a byte-for-byte regeneration CLI, complete
-synthetic clear traces, RFC 8032 export/signature parity, arithmetic-boundary
-coverage, and production dependency guards. The joined trace is test-only and
-does not model party-visible outputs.
+role-separated HKDF-SHA256 contribution derivation, strict request-kind-tagged
+JSON DTOs, byte-for-byte corpus generation, complete synthetic clear traces,
+RFC 8032 export/signature parity, deterministic differential generation,
+arithmetic-boundary coverage, and production dependency guards. The joined
+trace is test-only and does not model party-visible outputs. The companion
+ideal-functionality boundary freezes disjoint lifecycle shapes and value
+custody while leaving recovery, refresh, provenance, and active-output details
+explicitly blocked.
 
 The companion FV1 tree under `crates/ed25519-yao/formal-verification` now runs
-six counted local tracks: vectors, Rust parity including compile-fail doctests,
-anti-drift, Aeneas/Lean boundary extraction, the Lean model, and Verus. Its
-empty-cache Aeneas bootstrap remains open because the ambient opam package set
-is not yet locked. Lifecycle state transitions, role-local KDF provenance,
-party views, and an independent cross-language verifier remain Phase 1 work.
+seven counted local tracks: vectors, independent Python reproduction, Rust
+parity including compile-fail doctests, anti-drift, Aeneas/Lean boundary
+extraction, the Lean model, and Verus. Its empty-cache Aeneas bootstrap remains
+open because the ambient opam package set is not yet locked. Complete lifecycle
+state transitions, role-input provenance, executable party views, and active
+protocol semantics remain Phase 1 work.
 
 ### Exit Gate
 

@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
@@ -15,6 +16,7 @@ struct VerificationBaseline {
     aeneas: SourcePin,
     charon: SourcePin,
     lean: LeanPin,
+    python: PythonPin,
     extraction: ExtractionBaseline,
     evidence: EvidenceCounts,
 }
@@ -41,6 +43,13 @@ struct LeanPin {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PythonPin {
+    minimum_major: usize,
+    minimum_minor: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ExtractionBaseline {
     #[serde(rename = "crate")]
     crate_path: String,
@@ -51,6 +60,9 @@ struct ExtractionBaseline {
 #[serde(deny_unknown_fields)]
 struct EvidenceCounts {
     vector_cases: usize,
+    kdf_vector_cases: usize,
+    differential_vector_cases: usize,
+    independent_verifier_tests: usize,
     production_rust_tests: usize,
     generator_rust_tests: usize,
     anti_drift_tests: usize,
@@ -62,6 +74,32 @@ struct EvidenceCounts {
 struct ArtifactSnapshot {
     path: PathBuf,
     bytes: Vec<u8>,
+}
+
+struct TemporaryDirectory {
+    path: PathBuf,
+}
+
+impl TemporaryDirectory {
+    fn create(label: &str) -> Result<Self, DynError> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let path = env::temp_dir().join(format!(
+            "ed25519-yao-{label}-{}-{timestamp}",
+            std::process::id()
+        ));
+        fs::create_dir(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TemporaryDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
 }
 
 fn main() {
@@ -76,6 +114,7 @@ fn run() -> Result<(), DynError> {
     match task.as_str() {
         "all" | "check" => run_all(),
         "vectors-check" => run_vectors_check(),
+        "cross-language-check" => run_cross_language_check(),
         "parity" => run_parity(),
         "anti-drift" => run_anti_drift(),
         "lean-check" => run_lean_check(),
@@ -86,7 +125,7 @@ fn run() -> Result<(), DynError> {
             Ok(())
         }
         unknown => Err(format!(
-            "unknown task `{unknown}`; expected all, check, vectors-check, parity, anti-drift, lean-check, aeneas-check, or verus-check"
+            "unknown task `{unknown}`; expected all, check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, or verus-check"
         )
         .into()),
     }
@@ -94,18 +133,19 @@ fn run() -> Result<(), DynError> {
 
 fn run_all() -> Result<(), DynError> {
     run_vectors_check()?;
+    run_cross_language_check()?;
     run_parity()?;
     run_anti_drift()?;
     run_aeneas_check()?;
     run_lean_check()?;
     run_verus_check()?;
-    println!("all ok: 6 nonempty Ed25519 Yao verification tracks executed");
+    println!("all ok: 7 nonempty Ed25519 Yao verification tracks executed");
     Ok(())
 }
 
 fn print_help() {
     println!(
-        "usage: cargo yao-fv [all|check|vectors-check|parity|anti-drift|lean-check|aeneas-check|verus-check]"
+        "usage: cargo yao-fv [all|check|vectors-check|cross-language-check|parity|anti-drift|lean-check|aeneas-check|verus-check]"
     );
 }
 
@@ -142,6 +182,107 @@ fn run_vectors_check() -> Result<(), DynError> {
         "vectors-check ok: {} canonical cases in {}",
         baseline.evidence.vector_cases,
         vector_file.display()
+    );
+    Ok(())
+}
+
+fn run_cross_language_check() -> Result<(), DynError> {
+    const DIFFERENTIAL_SEED_HEX: &str =
+        "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
+
+    let baseline = load_baseline()?;
+    let python = resolve_program("python3", "install the pinned minimum Python version")?;
+    verify_python_version(&python, &baseline.python)?;
+
+    let verifier_dir = independent_verifier_dir();
+    let verifier = verifier_dir.join("verify_vectors.py");
+    let committed_corpus = generator_dir(&baseline).join("vectors/ed25519-yao-v1.json");
+    let kdf_corpus = generator_dir(&baseline).join("vectors/ed25519-yao-kdf-v1.json");
+    require_file(&verifier, "independent Python vector verifier")?;
+    require_file(&committed_corpus, "committed Ed25519 Yao vector corpus")?;
+    require_file(&kdf_corpus, "committed Ed25519 Yao KDF continuity corpus")?;
+
+    let unit_output = capture_command(
+        Command::new(&python)
+            .args(["-m", "unittest", "discover", "-s"])
+            .arg(&verifier_dir)
+            .args(["-p", "test_*.py"]),
+        "cross-language-check Python mutation suite",
+        true,
+    )?;
+    let verifier_test_count = parse_python_test_count(&unit_output)?;
+    require_exact_count(
+        "independent verifier test",
+        verifier_test_count,
+        baseline.evidence.independent_verifier_tests,
+    )?;
+
+    let committed_output = capture_command(
+        Command::new(&python).arg(&verifier).arg(&committed_corpus),
+        "cross-language-check committed corpus",
+        true,
+    )?;
+    require_reported_case_count(
+        &committed_output,
+        baseline.evidence.vector_cases,
+        "committed independent vector",
+    )?;
+
+    let kdf_output = capture_command(
+        Command::new(&python).arg(&verifier).arg(&kdf_corpus),
+        "cross-language-check KDF continuity corpus",
+        true,
+    )?;
+    require_reported_case_count(
+        &kdf_output,
+        baseline.evidence.kdf_vector_cases,
+        "KDF continuity vector",
+    )?;
+
+    let temporary = TemporaryDirectory::create("differential")?;
+    let differential_corpus = temporary.path().join("ed25519-yao-differential-v1.json");
+    let generator_manifest = generator_manifest(&baseline);
+    let generator_manifest_string = path_string(&generator_manifest)?;
+    let differential_corpus_string = path_string(&differential_corpus)?;
+    let differential_count = baseline.evidence.differential_vector_cases.to_string();
+    run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-vectors",
+            "--",
+            "emit-differential",
+            "--seed-hex",
+            DIFFERENTIAL_SEED_HEX,
+            "--cases",
+            &differential_count,
+            "--output",
+            differential_corpus_string,
+        ],
+        "cross-language-check deterministic corpus generation",
+    )?;
+    let differential_output = capture_command(
+        Command::new(&python)
+            .arg(&verifier)
+            .arg(&differential_corpus)
+            .args(["--differential-seed-hex", DIFFERENTIAL_SEED_HEX]),
+        "cross-language-check deterministic differential corpus",
+        true,
+    )?;
+    require_reported_case_count(
+        &differential_output,
+        baseline.evidence.differential_vector_cases,
+        "deterministic differential vector",
+    )?;
+
+    println!(
+        "cross-language-check ok: {verifier_test_count} verifier tests; committed arithmetic cases: {}; KDF continuity cases: {}; independently regenerated differential cases: {}",
+        baseline.evidence.vector_cases,
+        baseline.evidence.kdf_vector_cases,
+        baseline.evidence.differential_vector_cases
     );
     Ok(())
 }
@@ -558,6 +699,7 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
         || baseline.verus.vstd.is_empty()
         || baseline.lean.toolchain.is_empty()
         || baseline.extraction.crate_path.is_empty()
+        || baseline.python.minimum_major == 0
     {
         return Err("verification baseline contains an empty tool or crate pin".into());
     }
@@ -574,6 +716,9 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
     )?;
     let counts = [
         baseline.evidence.vector_cases,
+        baseline.evidence.kdf_vector_cases,
+        baseline.evidence.differential_vector_cases,
+        baseline.evidence.independent_verifier_tests,
         baseline.evidence.production_rust_tests,
         baseline.evidence.generator_rust_tests,
         baseline.evidence.anti_drift_tests,
@@ -686,6 +831,62 @@ fn parse_verus_verified_count(output: &str) -> Result<usize, DynError> {
     Ok(count)
 }
 
+fn verify_python_version(python: &Path, pin: &PythonPin) -> Result<(), DynError> {
+    let output = capture_command(
+        Command::new(python).arg("--version"),
+        "python3 --version",
+        false,
+    )?;
+    let version = output
+        .split_whitespace()
+        .find(|value| {
+            value
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_digit())
+        })
+        .ok_or("python3 --version did not report a version number")?;
+    let mut components = version.split('.');
+    let major: usize = components
+        .next()
+        .ok_or("Python version is missing its major component")?
+        .parse()?;
+    let minor: usize = components
+        .next()
+        .ok_or("Python version is missing its minor component")?
+        .parse()?;
+    if (major, minor) < (pin.minimum_major, pin.minimum_minor) {
+        return Err(format!(
+            "Python version mismatch: require at least {}.{}, received {major}.{minor}",
+            pin.minimum_major, pin.minimum_minor
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn parse_python_test_count(output: &str) -> Result<usize, DynError> {
+    let result_line = output
+        .lines()
+        .find(|line| line.trim_start().starts_with("Ran "))
+        .ok_or("Python unittest output did not report a test count")?;
+    let count = result_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or("Python unittest result is missing its test count")?
+        .parse()?;
+    Ok(count)
+}
+
+fn require_reported_case_count(output: &str, expected: usize, label: &str) -> Result<(), DynError> {
+    let expected_summary = format!("verified {expected} independent Ed25519 Yao vector cases");
+    if expected > 0 && output.contains(&expected_summary) {
+        Ok(())
+    } else {
+        Err(format!("{label} output did not contain `{expected_summary}`").into())
+    }
+}
+
 fn reject_forbidden_lean_declarations() -> Result<(), DynError> {
     let mut lean_files = Vec::new();
     collect_source_files(
@@ -793,6 +994,10 @@ fn generator_dir(baseline: &VerificationBaseline) -> PathBuf {
 
 fn generator_manifest(baseline: &VerificationBaseline) -> PathBuf {
     generator_dir(baseline).join("Cargo.toml")
+}
+
+fn independent_verifier_dir() -> PathBuf {
+    repository_root().join("tools/ed25519-yao-verifier")
 }
 
 fn formal_verification_dir() -> PathBuf {

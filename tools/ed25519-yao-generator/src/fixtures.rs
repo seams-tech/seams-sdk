@@ -1,5 +1,8 @@
+use core::fmt;
+
 use curve25519_dalek::scalar::Scalar;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 
 use crate::{
     evaluate_activation, evaluate_export, wrapping_add_le_256, DeriverAContribution,
@@ -9,6 +12,41 @@ use crate::{
 
 /// Schema identifier for the first portable Ed25519 Yao vector corpus.
 pub const VECTOR_CORPUS_SCHEMA_V1: &str = "seams:router-ab:ed25519-yao:vectors:v1";
+
+/// Domain separating deterministic differential inputs from protocol KDFs.
+pub const DIFFERENTIAL_INPUT_DOMAIN_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/differential-input/v1";
+
+/// Largest differential corpus accepted by the host-only generator.
+pub const MAX_DIFFERENTIAL_VECTOR_CASES_V1: usize = 4_096;
+
+/// Invalid deterministic differential-corpus request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DifferentialVectorError {
+    /// A differential corpus must contain at least one case.
+    EmptyCorpus,
+    /// The requested corpus exceeds the bounded host-only test workload.
+    TooManyCases {
+        /// Caller-provided number of cases.
+        requested: usize,
+        /// Fixed version-one upper bound.
+        maximum: usize,
+    },
+}
+
+impl fmt::Display for DifferentialVectorError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyCorpus => formatter.write_str("differential corpus must be nonempty"),
+            Self::TooManyCases { requested, maximum } => write!(
+                formatter,
+                "differential corpus requested {requested} cases; maximum is {maximum}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DifferentialVectorError {}
 
 const RFC8032_VECTOR_ONE_SEED: [u8; 32] = [
     0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
@@ -312,15 +350,86 @@ pub fn canonical_vector_corpus_v1() -> VectorCorpusV1 {
     }
 }
 
+/// Builds a deterministic differential corpus from a public 32-byte test seed.
+///
+/// This generator never consumes operating-system randomness. The seed and all
+/// derived values are public test material and must never be used as wallet
+/// roots or protocol contributions.
+pub fn differential_vector_corpus_v1(
+    public_test_seed: [u8; 32],
+    case_count: usize,
+) -> Result<VectorCorpusV1, DifferentialVectorError> {
+    if case_count == 0 {
+        return Err(DifferentialVectorError::EmptyCorpus);
+    }
+    if case_count > MAX_DIFFERENTIAL_VECTOR_CASES_V1 {
+        return Err(DifferentialVectorError::TooManyCases {
+            requested: case_count,
+            maximum: MAX_DIFFERENTIAL_VECTOR_CASES_V1,
+        });
+    }
+
+    let cases = (0..case_count)
+        .map(|index| build_differential_vector_case(public_test_seed, index))
+        .collect();
+
+    Ok(VectorCorpusV1 {
+        schema: VECTOR_CORPUS_SCHEMA_V1.to_owned(),
+        protocol_id: ed25519_yao::PROTOCOL_ID_STR.to_owned(),
+        cases,
+    })
+}
+
 fn build_vector_case((index, request_kind): (usize, LifecycleRequestKindV1)) -> VectorCaseV1 {
     let index = u8::try_from(index).expect("five vector cases fit in u8");
     let inputs = SyntheticInputs::for_request_kind(request_kind);
     let context = StableKeyDerivationContext::new([0x40u8 + index; 32], 2, 1)
         .expect("fixed context is valid");
+    build_vector_case_from_inputs(
+        case_id(request_kind).to_owned(),
+        request_kind,
+        inputs,
+        context,
+    )
+}
+
+fn build_differential_vector_case(public_test_seed: [u8; 32], index: usize) -> VectorCaseV1 {
+    let request_kind = differential_request_kind(index);
+    let index_u32 = u32::try_from(index).expect("bounded vector index fits in u32");
+    let inputs = SyntheticInputs {
+        y_client_a: derive_differential_y(public_test_seed, index_u32, 0x01),
+        y_server_a: derive_differential_y(public_test_seed, index_u32, 0x02),
+        y_client_b: derive_differential_y(public_test_seed, index_u32, 0x03),
+        y_server_b: derive_differential_y(public_test_seed, index_u32, 0x04),
+        tau_client_a: derive_differential_tau(public_test_seed, index_u32, 0x05),
+        tau_server_a: derive_differential_tau(public_test_seed, index_u32, 0x06),
+        tau_client_b: derive_differential_tau(public_test_seed, index_u32, 0x07),
+        tau_server_b: derive_differential_tau(public_test_seed, index_u32, 0x08),
+    };
+    let context_digest = derive_differential_y(public_test_seed, index_u32, 0x09);
+    let participant_low =
+        u16::try_from(index % 32_767).expect("participant remainder fits in u16") + 1;
+    let participant_high = participant_low + 32_768;
+    let context =
+        StableKeyDerivationContext::new(context_digest, participant_high, participant_low)
+            .expect("derived participant identifiers are distinct and nonzero");
+    let case_id = format!(
+        "differential_{index:04}_{}_v1",
+        request_kind_label(request_kind)
+    );
+    build_vector_case_from_inputs(case_id, request_kind, inputs, context)
+}
+
+fn build_vector_case_from_inputs(
+    case_id: String,
+    request_kind: LifecycleRequestKindV1,
+    inputs: SyntheticInputs,
+    context: StableKeyDerivationContext,
+) -> VectorCaseV1 {
     let (deriver_a, deriver_b) = inputs.validate();
     let activation = evaluate_activation(&deriver_a, &deriver_b);
     let reference = VectorReferenceCaseV1 {
-        case_id: case_id(request_kind).to_owned(),
+        case_id,
         context: context_fixture(&context),
         inputs: inputs_fixture(inputs),
         clear_reference_trace: trace_fixture(inputs, activation.material()),
@@ -344,6 +453,56 @@ fn build_vector_case((index, request_kind): (usize, LifecycleRequestKindV1)) -> 
             })
         }
     }
+}
+
+fn differential_request_kind(index: usize) -> LifecycleRequestKindV1 {
+    match index % 5 {
+        0 => LifecycleRequestKindV1::Registration,
+        1 => LifecycleRequestKindV1::Activation,
+        2 => LifecycleRequestKindV1::Recovery,
+        3 => LifecycleRequestKindV1::Refresh,
+        4 => LifecycleRequestKindV1::Export,
+        _ => unreachable!("remainder modulo five is in range"),
+    }
+}
+
+fn request_kind_label(request_kind: LifecycleRequestKindV1) -> &'static str {
+    match request_kind {
+        LifecycleRequestKindV1::Registration => "registration",
+        LifecycleRequestKindV1::Activation => "activation",
+        LifecycleRequestKindV1::Recovery => "recovery",
+        LifecycleRequestKindV1::Refresh => "refresh",
+        LifecycleRequestKindV1::Export => "export",
+    }
+}
+
+fn derive_differential_y(public_test_seed: [u8; 32], case_index: u32, field_tag: u8) -> [u8; 32] {
+    let wide = derive_differential_wide(public_test_seed, case_index, field_tag);
+    wide[..32]
+        .try_into()
+        .expect("SHA-512 prefix has the requested length")
+}
+
+fn derive_differential_tau(public_test_seed: [u8; 32], case_index: u32, field_tag: u8) -> Scalar {
+    Scalar::from_bytes_mod_order_wide(&derive_differential_wide(
+        public_test_seed,
+        case_index,
+        field_tag,
+    ))
+}
+
+fn derive_differential_wide(
+    public_test_seed: [u8; 32],
+    case_index: u32,
+    field_tag: u8,
+) -> [u8; 64] {
+    let mut hasher = Sha512::new();
+    hasher.update(DIFFERENTIAL_INPUT_DOMAIN_V1);
+    hasher.update([0u8]);
+    hasher.update(public_test_seed);
+    hasher.update(case_index.to_be_bytes());
+    hasher.update([field_tag]);
+    hasher.finalize().into()
 }
 
 fn case_id(request_kind: LifecycleRequestKindV1) -> &'static str {

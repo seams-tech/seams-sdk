@@ -79,12 +79,40 @@ cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
   --input tools/ed25519-yao-generator/vectors/ed25519-yao-v1.json
 ```
 
-These fixtures record caller-supplied synthetic contributions alongside a
-context. The context does not yet feed the contribution KDF. The client/server
-contribution KDFs, role-local provenance commitments, lifecycle pre-state and
-transition semantics, and independent cross-language verifier remain Phase 1
-work. The corpus therefore provides an executable clear-arithmetic boundary
-and request-shape fixture. It does not close the lifecycle or continuity gates.
+Generate a larger deterministic differential corpus from public test material
+with:
+
+```sh
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- emit-differential \
+  --seed-hex 5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a \
+  --cases 128 \
+  --output /tmp/ed25519-yao-differential-v1.json
+```
+
+For case index `i` and one-byte field tag `t`, the generator computes
+`SHA-512(domain || 0x00 || public_test_seed[32] || BE32(i) || t)`. Tags `0x01`
+through `0x08` produce the four `y` and four `tau` inputs; tag `0x09` produces
+the application-binding digest. A `y` input uses the first 32 digest bytes. A
+`tau` input reduces all 64 digest bytes modulo `l`. The request kind cycles in
+registration, activation, recovery, refresh, export order. Differential seeds
+are public reproducibility inputs and are never wallet material.
+
+The contribution KDF uses HKDF-SHA256 with frozen extract/expand domains and
+fixed A/B, client/server, and `y`/`tau` tags. Its expand info ends with the
+stable-context binding digest. A single synthetic client root produces the two
+role-separated client contributions; separate synthetic A and B roots each
+produce only their own server contribution. The committed
+`vectors/ed25519-yao-kdf-v1.json` corpus records the three public synthetic
+roots, all eight derived contributions, and the resulting public identity.
+
+The five-case arithmetic corpus continues to record caller-supplied synthetic
+contributions. The KDF continuity corpus connects the frozen context and roots
+to the same oracle in a separate strict schema. Role-input provenance,
+registration anti-bias, recovery/refresh transitions, executable party views,
+and active-protocol semantics remain Phase 1 work. The lifecycle boundary is
+specified in `docs/ideal-functionalities-v1.md`; its explicit blockers prevent
+the fixture corpus from being mistaken for a complete lifecycle model.
 
 This crate must never be linked into a production Worker or exposed as a
 protocol API. It contains no message formats, network handlers, persistence,

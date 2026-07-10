@@ -18,8 +18,8 @@ proofs**.
 
 Meaningful proof work begins in stages:
 
-1. Yao Phase 1 closes before the reference-functionality and party-view model
-   starts.
+1. FV0 freezes the reference-functionality and party-view boundary alongside
+   Yao Phase 1. Mechanized lifecycle and view proofs start after Phase 1 closes.
 2. Yao Phase 2 closes before the circuit/compiler proof starts.
 3. Yao Phase 6 selects and freezes the active-security suite before any
    malicious-security composition theorem starts.
@@ -73,11 +73,13 @@ generated artifacts are historical inputs only.
 
 The Yao corpus uses this precedence:
 
-1. the approved security claim, ideal functionalities, corruption model, and
-   topology in `docs/yaos-ab.md`;
-2. the frozen bit- and byte-level functionality plus party views produced by
-   Yao Phase 1;
-3. the independently reproducible golden and randomized vector corpus;
+1. the approved security claim, corruption model, and topology in
+   `docs/yaos-ab.md`;
+2. the lifecycle and value-custody boundary in
+   `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`, together with
+   the frozen bit- and byte-level functionality produced by Yao Phase 1;
+3. the independently reproducible golden, KDF-continuity, and randomized vector
+   corpora;
 4. reviewed Rust source and deterministic circuit artifacts;
 5. formal mirrors, generated Lean, handwritten models, and explanatory prose.
 
@@ -421,16 +423,25 @@ means only that exact artifact or proof obligation is complete.
 
 ### FV0: Freeze claims, sources, and proof obligations
 
-Depends on: Yao Phase 1
+Depends on: Yao Phase 0; runs alongside Yao Phase 1
 
 - [ ] Create `docs/spec-corpus.md` with source precedence and exact immutable
       source revisions.
-- [ ] Define the five lifecycle ideal functionalities separately.
+- [x] Define five disjoint lifecycle boundary contracts separately, including
+      pre-state/success types, activation continuation, and export-only seed
+      output.
+- [ ] Close blocked private-input and transition semantics and freeze five
+      executable ideal functionalities.
 - [x] Freeze the exact `StableKeyDerivationContext` encoding, validation, and
       binding-digest bytes.
-- [ ] Freeze role-local KDF integration and public-key continuity rules for the
+- [ ] Freeze the upstream Yao-only application-binding digest preimage,
+      normalization, and golden vectors without mutable root/deployment epochs.
+- [x] Freeze role-local KDF integration and public-key continuity rules for the
       stable context.
-- [ ] Freeze role-specific inputs, outputs, leakage, randomness, and aborts.
+- [x] Freeze output custody, ideal sharing randomness, common public leakage,
+      forbidden values, and the uniform abort-envelope shape.
+- [ ] Freeze role-private inputs, complete randomness/frames, persistence views,
+      and exact active-protocol abort equivalence.
 - [ ] Define the two supported corruption games and excluded corruption sets.
 - [x] Create stable proof-obligation identifiers for the implemented FV1
       surface.
@@ -690,6 +701,7 @@ The scaffold should eventually provide:
 
 ```sh
 cargo yao-fv vectors-check
+cargo yao-fv cross-language-check
 cargo yao-fv parity
 cargo yao-fv anti-drift
 cargo yao-fv verus-check
@@ -701,15 +713,17 @@ make -C crates/ed25519-yao/formal-verification check
 just ed25519-yao-fv
 ```
 
-`all` runs six nonempty tracks, in order:
+`all` runs seven nonempty tracks, in order:
 
 1. vector regeneration and byte comparison;
-2. Rust oracle/manifest parity, including compile-fail doctests;
-3. production/mirror anti-drift tests;
-4. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
+2. independent Python reproduction of committed and deterministic differential
+   vector corpora;
+3. Rust oracle/manifest parity, including compile-fail doctests;
+4. production/mirror anti-drift tests;
+5. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
    builds;
-5. the explicit Lean model build;
-6. Verus verification through a driver in the same pinned release bundle.
+6. the explicit Lean model build;
+7. Verus verification through a driver in the same pinned release bundle.
 
 Every track checks an exact nonzero evidence count or explicit artifact list
 from `formal-verification/toolchain.toml`.
@@ -737,22 +751,22 @@ stream transcript, ticket lifecycle, or artifact encoding requires:
 
 ## Readiness Dashboard
 
-| Prerequisite                                                   | Current state                                   |
-| -------------------------------------------------------------- | ----------------------------------------------- |
-| Frozen protocol, circuit-family, and output-schema identifiers | complete                                        |
-| Typed draft manifest and canonical digest binding              | complete                                        |
-| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                      |
-| RFC 8032 reference vectors                                     | partial Phase 1 foundation                      |
-| Five exact lifecycle ideal functionalities                     | missing                                         |
-| Frozen `StableKeyDerivationContext` encoding and binding       | complete                                        |
-| Stable-context KDF integration and continuity vectors          | missing                                         |
-| Complete party views, leakage, and aborts                      | missing                                         |
-| Deterministic circuit IR, compiler, schedule, and artifacts    | missing                                         |
-| Passive garbler/evaluator implementation                       | missing                                         |
-| Private randomized outputs and streaming state machine         | missing                                         |
-| Selected reviewed active suite                                 | missing                                         |
-| One-use ticket and adapter state machines                      | missing                                         |
-| Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending |
+| Prerequisite                                                   | Current state                                                                                |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Frozen protocol, circuit-family, and output-schema identifiers | complete                                                                                     |
+| Typed draft manifest and canonical digest binding              | complete                                                                                     |
+| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                                                                   |
+| RFC 8032 reference vectors                                     | partial Phase 1 foundation                                                                   |
+| Five exact lifecycle ideal functionalities                     | partial Phase 1 boundary; recovery, refresh, provenance, and active outputs blocked          |
+| Frozen `StableKeyDerivationContext` encoding and binding       | context wrapper complete; upstream application-binding preimage missing                      |
+| Stable-context KDF integration and continuity vectors          | implemented in isolated host-only reference                                                  |
+| Complete party views, leakage, and aborts                      | partial custody/leakage boundary; executable role views and active abort equivalence missing |
+| Deterministic circuit IR, compiler, schedule, and artifacts    | missing                                                                                      |
+| Passive garbler/evaluator implementation                       | missing                                                                                      |
+| Private randomized outputs and streaming state machine         | missing                                                                                      |
+| Selected reviewed active suite                                 | missing                                                                                      |
+| One-use ticket and adapter state machines                      | missing                                                                                      |
+| Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending                                              |
 
 Current verdict: continue Yao Phase 1 and the FV1 mechanical scaffold. Notify
 the maintainer to begin FV0 and FV2 when Phase 1 and the FV1 exit gate are

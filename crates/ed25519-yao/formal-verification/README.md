@@ -8,7 +8,10 @@ Ed25519 Yao that exist today. The checked surface is deliberately narrow:
 
 - frozen protocol, circuit, output-schema, and manifest identifiers;
 - draft-manifest digest roles and metric shape;
-- the frozen stable-context encoding and five-case executable vector corpus;
+- the frozen stable-context encoding, role-local contribution KDF, five-case
+  arithmetic corpus, and one-case KDF-continuity corpus;
+- 128 deterministic differential cases regenerated and checked by an
+  independent standard-library Python implementation;
 - the clear generator's `wrapping_add_le_256` and `clamp_rfc8032` boundaries;
 - executable production-to-mirror anti-drift checks.
 
@@ -26,6 +29,9 @@ does not establish Yao security.
   yet.
 - [`tasks/`](tasks/Cargo.toml) owns host-only command orchestration. Production
   crates have no dependency on this task runner or on the clear oracle.
+- `tools/ed25519-yao-verifier` is a standard-library Python implementation that
+  independently reproduces stable-context binding, clear arithmetic, and
+  Edwards25519 point encodings.
 - [`docs/`](docs/) records sources, obligations, assumptions, and the current
   compliance baseline.
 
@@ -40,6 +46,7 @@ Run focused checks from the repository root:
 
 ```sh
 cargo yao-fv vectors-check
+cargo yao-fv cross-language-check
 cargo yao-fv parity
 cargo yao-fv anti-drift
 cargo yao-fv lean-check
@@ -49,6 +56,11 @@ cargo yao-fv verus-check
 
 `anti-drift` is intentionally independent of Verus discovery. It remains
 usable with an ordinary Rust toolchain.
+
+`cross-language-check` runs the Python mutation suite, verifies the committed
+five-case arithmetic and one-case KDF-continuity corpora, generates 128
+deterministic public-test cases, independently regenerates every input from the
+fixed seed, and verifies every output.
 
 The full local gate is:
 

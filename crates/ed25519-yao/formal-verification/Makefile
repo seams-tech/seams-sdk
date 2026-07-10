@@ -1,13 +1,16 @@
 CARGO ?= cargo
 TASKS := run --locked --quiet --manifest-path tasks/Cargo.toml --
 
-.PHONY: check vectors-check parity anti-drift lean-check aeneas-check verus-check
+.PHONY: check vectors-check cross-language-check parity anti-drift lean-check aeneas-check verus-check
 
 check:
 	@$(CARGO) $(TASKS) all
 
 vectors-check:
 	@$(CARGO) $(TASKS) vectors-check
+
+cross-language-check:
+	@$(CARGO) $(TASKS) cross-language-check
 
 parity:
 	@$(CARGO) $(TASKS) parity

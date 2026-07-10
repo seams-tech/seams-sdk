@@ -46,6 +46,10 @@ ed25519-yao-fv:
 ed25519-yao-fv-vectors:
   cargo yao-fv vectors-check
 
+# Reproduce canonical and deterministic differential vectors in independent Python.
+ed25519-yao-fv-cross-language:
+  cargo yao-fv cross-language-check
+
 # Run the Rust manifest and clear-oracle parity suites.
 ed25519-yao-fv-parity:
   cargo yao-fv parity

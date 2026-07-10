@@ -1,0 +1,146 @@
+use ed25519_yao_generator::{
+    canonical_kdf_vector_corpus_v1, derive_synthetic_client_contributions_v1,
+    derive_synthetic_deriver_a_server_contribution_v1,
+    derive_synthetic_deriver_b_server_contribution_v1, evaluate_activation, DeriverAContribution,
+    DeriverBContribution, KdfVectorCorpusV1, RawDeriverAContribution, RawDeriverBContribution,
+    StableKeyDerivationContext, SyntheticClientDerivationRootV1, SyntheticDeriverADerivationRootV1,
+    SyntheticDeriverBDerivationRootV1,
+};
+
+const COMMITTED_CORPUS: &str = include_str!("../vectors/ed25519-yao-kdf-v1.json");
+
+#[derive(Clone, Copy)]
+struct SyntheticRoots {
+    client: [u8; 32],
+    deriver_a: [u8; 32],
+    deriver_b: [u8; 32],
+}
+
+fn public_key(
+    roots: SyntheticRoots,
+    application_binding: [u8; 32],
+    participant_ids: [u16; 2],
+) -> [u8; 32] {
+    let context = StableKeyDerivationContext::new(
+        application_binding,
+        participant_ids[0],
+        participant_ids[1],
+    )
+    .expect("synthetic context is valid");
+    let client = derive_synthetic_client_contributions_v1(
+        &SyntheticClientDerivationRootV1::from_fixture_bytes(roots.client),
+        &context,
+    );
+    let server_a = derive_synthetic_deriver_a_server_contribution_v1(
+        &SyntheticDeriverADerivationRootV1::from_fixture_bytes(roots.deriver_a),
+        &context,
+    );
+    let server_b = derive_synthetic_deriver_b_server_contribution_v1(
+        &SyntheticDeriverBDerivationRootV1::from_fixture_bytes(roots.deriver_b),
+        &context,
+    );
+    let deriver_a = DeriverAContribution::try_from(RawDeriverAContribution {
+        y_client: client.deriver_a().y().expose_fixture_bytes(),
+        y_server: server_a.y().expose_fixture_bytes(),
+        tau_client: client.deriver_a().tau().expose_fixture_bytes(),
+        tau_server: server_a.tau().expose_fixture_bytes(),
+    })
+    .expect("derived A contribution is canonical");
+    let deriver_b = DeriverBContribution::try_from(RawDeriverBContribution {
+        y_client: client.deriver_b().y().expose_fixture_bytes(),
+        y_server: server_b.y().expose_fixture_bytes(),
+        tau_client: client.deriver_b().tau().expose_fixture_bytes(),
+        tau_server: server_b.tau().expose_fixture_bytes(),
+    })
+    .expect("derived B contribution is canonical");
+
+    evaluate_activation(&deriver_a, &deriver_b)
+        .material()
+        .public_key()
+        .expose_bytes()
+}
+
+#[test]
+fn committed_kdf_corpus_matches_the_canonical_builder_byte_for_byte() {
+    let expected = canonical_kdf_vector_corpus_v1();
+    let parsed: KdfVectorCorpusV1 =
+        serde_json::from_str(COMMITTED_CORPUS).expect("committed KDF corpus is valid JSON");
+    let canonical = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&expected).expect("KDF corpus serializes")
+    );
+
+    assert_eq!(parsed, expected);
+    assert_eq!(COMMITTED_CORPUS, canonical);
+}
+
+#[test]
+fn kdf_corpus_rejects_unknown_fields() {
+    let mut value = serde_json::to_value(canonical_kdf_vector_corpus_v1())
+        .expect("KDF corpus converts to JSON");
+    value
+        .as_object_mut()
+        .expect("corpus is an object")
+        .insert("unexpected".to_owned(), serde_json::Value::Bool(true));
+
+    assert!(serde_json::from_value::<KdfVectorCorpusV1>(value).is_err());
+}
+
+#[test]
+fn changing_any_synthetic_root_or_stable_context_changes_identity() {
+    let roots = SyntheticRoots {
+        client: [0x11; 32],
+        deriver_a: [0x22; 32],
+        deriver_b: [0x33; 32],
+    };
+    let baseline = public_key(roots, [0x42; 32], [1, 2]);
+
+    assert_ne!(
+        baseline,
+        public_key(
+            SyntheticRoots {
+                client: [0x12; 32],
+                ..roots
+            },
+            [0x42; 32],
+            [1, 2]
+        )
+    );
+    assert_ne!(
+        baseline,
+        public_key(
+            SyntheticRoots {
+                deriver_a: [0x23; 32],
+                ..roots
+            },
+            [0x42; 32],
+            [1, 2]
+        )
+    );
+    assert_ne!(
+        baseline,
+        public_key(
+            SyntheticRoots {
+                deriver_b: [0x34; 32],
+                ..roots
+            },
+            [0x42; 32],
+            [1, 2]
+        )
+    );
+    assert_ne!(baseline, public_key(roots, [0x43; 32], [1, 2]));
+}
+
+#[test]
+fn participant_reordering_preserves_the_derived_identity() {
+    let roots = SyntheticRoots {
+        client: [0x11; 32],
+        deriver_a: [0x22; 32],
+        deriver_b: [0x33; 32],
+    };
+
+    assert_eq!(
+        public_key(roots, [0x42; 32], [1, 2]),
+        public_key(roots, [0x42; 32], [2, 1])
+    );
+}
