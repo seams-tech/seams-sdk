@@ -18,7 +18,8 @@ SigningWorker activation, and normal signing admission.
 
 ## Flow Shape
 
-Registration, recovery, export, refresh, rotation, delegation, and activation:
+Ed25519 registration, recovery, export, refresh, share provisioning, and
+activation:
 
 ```text
 Client -> Router -> Deriver A + Deriver B -> Client or SigningWorker
@@ -41,13 +42,17 @@ material for the selected signing root, key version, lane, and session.
 
 Public clients use Router A/B normal signing surfaces.
 
+Ed25519 lifecycle ceremonies use Streaming Yao between A and B. ECDSA uses its
+strict threshold-PRF and additive-share path. Both curves leave the Derivers
+after activation and use Router plus SigningWorker for normal signing.
+
 ## Sign-Ready Boundary
 
 Router A/B separates signing authority from signing material readiness.
 
 ```text
 Wallet Session auth + signingGrantId -> may spend budget
-thresholdSessionId + worker material -> may participate in MPC/HSS signing
+thresholdSessionId + worker material -> may participate in threshold signing
 both validated together -> sign-ready
 ```
 

@@ -25,10 +25,11 @@ The canonical private key is not reconstructed in the wallet iframe, Router, or
 SigningWorker during normal signing. Export is a separate operation with fresh
 authorization, audit capture, and public-key parity checks.
 
-## Hidden-Share Derivation
+## Split-Role Derivation
 
-Server-side material can be derived through HSS and threshold PRF flows. Each
-role receives only the output it is allowed to use:
+Ed25519 material is produced by Streaming Yao between Deriver A and Deriver B.
+ECDSA material uses strict threshold-PRF derivation and additive scalar shares.
+Each role receives only the output it is allowed to use:
 
 - client and browser workers receive holder-side signing material or handles;
 - Router receives public routing and policy state;
@@ -36,10 +37,10 @@ role receives only the output it is allowed to use:
 - SigningWorker receives activated server-side signing material and one-use
   presignature state.
 
-HSS and threshold PRF flows let Seams derive compatible signing shares without
-joining the underlying root material in one process. Deployments that need a
-stronger server runtime boundary can place sensitive roles inside TEEs while
-preserving the same threshold-signing model.
+These curve-specific flows derive compatible signing shares without joining the
+underlying root material in one process. Deployments that need a stronger
+server runtime boundary can place sensitive roles inside TEEs while preserving
+the same threshold-signing model.
 
 ## Cloudflare-Native Self-Hosting
 
@@ -49,7 +50,8 @@ no server fleet.
 
 That gives teams a practical path from prototype to production:
 
-- start with a Cloudflare-native deployment;
+- start with a same-account development deployment or a separate-account
+  production-parity deployment;
 - keep Router, Deriver, and SigningWorker roles separated;
 - scale with Workers instead of managing long-running servers;
 - preserve the same wallet architecture as operational isolation increases.
@@ -61,5 +63,5 @@ storage, TEEs, and stricter release controls around the same protocol shape.
 Read next:
 
 - [Threshold Signing](/concepts/threshold-signing/)
-- [HSS Key Derivation](/concepts/threshold-signing/hss-key-derivation)
+- [Streaming Yao A/B](/concepts/threshold-signing/streaming-yao-ab)
 - [Route Auth And Deployment](/concepts/advanced/route-auth-and-deployment)

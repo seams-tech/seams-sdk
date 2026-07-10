@@ -47,7 +47,7 @@ flowchart LR
 | --- | --- |
 | App origin | Integration UI and public SDK calls. It receives request data and public results. |
 | Wallet iframe origin | Wallet UI, encrypted wallet-origin records, auth-method flows, workers, and session state. |
-| Browser signing workers | Holder-side material, HSS client handles, and operation-local signing state. |
+| Browser signing workers | Holder-side signing material, compact lifecycle inputs, and operation-local signing state. |
 | Router | Public API boundary for admission, policy, Wallet Session verification, replay, quota, and signing budget. |
 | Deriver A | A-side derivation role with A-side sealed material and A-side protocol state. |
 | Deriver B | B-side derivation role with B-side sealed material and B-side protocol state. |
@@ -72,8 +72,9 @@ the user completes an explicit export flow.
 Router A/B is the split-server boundary behind key derivation and signing
 admission.
 
-Registration, recovery, export, refresh, rotation, delegation, and
-SigningWorker activation use the split derivation path:
+Ed25519 registration, recovery, export, share refresh, and SigningWorker
+activation use the split derivation path. Device linking uses it when new
+signing shares must be provisioned:
 
 ```text
 Client worker -> Router -> Deriver A + Deriver B -> Client or SigningWorker
@@ -91,25 +92,25 @@ envelopes. Deriver A and Deriver B receive role-specific material. SigningWorker
 receives activated server signing material for the selected signing root, key
 version, lane, and session.
 
-## HSS And Key Derivation
+## Ed25519 And ECDSA Derivation
 
-HSS means homomorphic secret sharing. Seams uses HSS to split and derive wallet
-key material homomorphically: each side transforms its own secret contribution
-and the protocol produces compatible signing shares.
+Ed25519 uses an actively secure, fixed-circuit Streaming Yao ceremony between
+Deriver A and Deriver B. The circuit preserves the standard export-compatible
+derivation:
 
-HSS is used for key-derivation operations:
+```text
+d -> SHA-512(d) -> clamp -> a
+```
 
-- registration;
-- key export;
-- key delegation;
-- key rotation;
-- recovery;
-- refresh;
-- SigningWorker activation.
+The multi-megabyte garbled-circuit stream travels only between the Derivers.
+The client and Router exchange compact encrypted envelopes and output packages.
 
-Normal transaction signing consumes the resulting signing shares. HSS is not
-rerun for every signature, and the wallet key is not reconstructed for ordinary
-signing.
+ECDSA stays on its curve-specific strict Router A/B path. Deriver A and Deriver
+B use threshold-PRF derivation to produce additive secp256k1 scalar shares. It
+does not use the Ed25519 Yao circuit.
+
+Normal Ed25519 and ECDSA signing consume already-activated shares and
+presignature state. Neither flow invokes the Derivers during ordinary signing.
 
 ## Custody Model
 

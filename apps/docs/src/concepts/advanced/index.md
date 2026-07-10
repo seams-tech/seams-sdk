@@ -16,6 +16,5 @@ Read next:
 
 - [Route Auth And Deployment](/concepts/advanced/route-auth-and-deployment)
 - [Router A/B Protocol](/concepts/advanced/router-ab-protocol)
-- [HSS Internals](/concepts/advanced/hss-internals)
 - [Rotation Ceremonies](/concepts/advanced/rotation-ceremonies)
 - [Diagram Sources](/concepts/advanced/diagram-sources)

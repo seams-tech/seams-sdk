@@ -17,9 +17,11 @@ one vague "rotate keys" action.
 | Delegated lane revocation | Lane status and server-share admission. | No |
 | Wallet rekey | Wallet key material. | Usually yes |
 
-HSS participates when a rotation derives, refreshes, exports, delegates, or
-activates key material. Envelope rewrap can stay at the storage layer when the
-underlying share is unchanged.
+Ed25519 Streaming Yao participates when a lifecycle operation provisions or
+refreshes signing shares, activates SigningWorker material, or performs an
+authorized export. Envelope rewrap stays at the storage layer when the
+underlying share is unchanged. ECDSA follows its separate strict Router A/B
+threshold-PRF path.
 
 ## Address-Preserving Refresh
 

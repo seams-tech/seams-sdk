@@ -33,7 +33,8 @@ flowchart TD
 | Replay and idempotency | Prevents request reuse and ambiguous execution. |
 
 Normal signing uses the signing shares produced during registration, refresh, or
-activation. HSS is used for key-derivation operations.
+activation. Ed25519 Streaming Yao and ECDSA threshold-PRF derivation stay
+outside this normal-signing path.
 
 ## Wallet Examples
 

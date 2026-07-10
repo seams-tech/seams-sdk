@@ -19,7 +19,7 @@ shares and presignature state; it does not reconstruct the full private key.
 | --- | --- | --- |
 | App origin | Public wallet ids, request intents, non-secret SDK state. | Holder shares, server shares, PRF outputs, Email OTP secret material, VoiceID templates, root shares. |
 | Wallet iframe | Wallet UI state, encrypted IndexedDB records, session markers. | Server root shares, Deriver A/B plaintext, unrelated wallet-origin records. |
-| Browser signing workers | Hot holder material, client HSS material handles, operation-local secrets. | Deriver A/B root shares, joined server contribution. |
+| Browser signing workers | Hot holder material, compact lifecycle inputs, operation-local secrets. | Deriver A/B root shares, joined server contribution. |
 | Email OTP worker | Email OTP factor-derived secret material and hot signing handles. | Plaintext export output outside the authorized export flow. |
 | Router | Public routing metadata, policy decisions, Wallet Session admission, replay state. | Plaintext holder shares, root shares, joined wallet private keys. |
 | Deriver A | A-side sealed root share and A-side protocol state. | B-side root share, joined root, joined wallet key. |

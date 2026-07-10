@@ -113,20 +113,20 @@ export default defineConfig({
               { text: 'Overview', link: '/concepts/threshold-signing/' },
               { text: 'Router A/B', link: '/concepts/threshold-signing/router-ab' },
               {
-                text: 'HSS Key Derivation',
-                link: '/concepts/threshold-signing/hss-key-derivation',
+                text: 'Streaming Yao A/B',
+                link: '/concepts/threshold-signing/streaming-yao-ab',
               },
               {
                 text: 'Serverless Threshold Signing',
                 link: '/concepts/threshold-signing/serverless-threshold-signing',
               },
               {
-                text: 'NEAR Ed25519 HSS',
-                link: '/concepts/threshold-signing/near-ed25519-hss',
+                text: 'Ed25519',
+                link: '/concepts/threshold-signing/ed25519',
               },
               {
-                text: 'EVM ECDSA-HSS',
-                link: '/concepts/threshold-signing/evm-ecdsa-hss',
+                text: 'EVM ECDSA',
+                link: '/concepts/threshold-signing/evm-ecdsa',
               },
             ],
           },
@@ -177,7 +177,6 @@ export default defineConfig({
                 text: 'Router A/B Protocol',
                 link: '/concepts/advanced/router-ab-protocol',
               },
-              { text: 'HSS Internals', link: '/concepts/advanced/hss-internals' },
               {
                 text: 'Rotation Ceremonies',
                 link: '/concepts/advanced/rotation-ceremonies',

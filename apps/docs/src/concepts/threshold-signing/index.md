@@ -18,9 +18,9 @@ holder-side share + admitted server-side share -> signature
 ```
 
 Router decides whether the operation may reach signing. SigningWorker
-participates only after Router admission. HSS appears in derivation and
-activation ceremonies; normal signing spends the already-derived shares and
-presignature state.
+participates only after Router admission. Ed25519 Streaming Yao and ECDSA
+threshold-PRF derivation appear in lifecycle ceremonies; normal signing spends
+the already-derived shares and presignature state.
 
 ## Session Identity Versus Signing Authority
 
@@ -28,7 +28,7 @@ Threshold signing tracks two separate identities:
 
 | Identity | Purpose |
 | --- | --- |
-| `thresholdSessionId` | Identifies the MPC/HSS protocol session and its signing material. Multi-round protocol state, restored holder material, and server material must all refer to this id. |
+| `thresholdSessionId` | Identifies the threshold protocol session and its signing material. Protocol state, restored holder material, and server material must all refer to this id. |
 | `signingGrantId` | Identifies the Wallet Session signing grant. This is the auth and budget boundary for remaining uses, expiry, and step-up. |
 
 The protocol session says which threshold material must be used. The signing
@@ -56,7 +56,7 @@ separate phases that must complete before final signing.
 Read next:
 
 - [Router A/B](/concepts/threshold-signing/router-ab)
-- [HSS Key Derivation](/concepts/threshold-signing/hss-key-derivation)
+- [Streaming Yao A/B](/concepts/threshold-signing/streaming-yao-ab)
 - [Serverless Threshold Signing](/concepts/threshold-signing/serverless-threshold-signing)
-- [NEAR Ed25519 HSS](/concepts/threshold-signing/near-ed25519-hss)
-- [EVM ECDSA-HSS](/concepts/threshold-signing/evm-ecdsa-hss)
+- [Ed25519](/concepts/threshold-signing/ed25519)
+- [EVM ECDSA](/concepts/threshold-signing/evm-ecdsa)

@@ -37,7 +37,7 @@ deploy to Cloudflare.
 2. [Wallet Infrastructure Comparison](/concepts/wallet-infrastructure-comparison) for deployment and cost tradeoffs.
 3. [Policy](/concepts/policy/) for mandates, proofs, and authorization.
 4. [Custody](/concepts/custody/) for who can hold or open key material.
-5. [Threshold Signing](/concepts/threshold-signing/) for Router A/B and HSS.
+5. [Threshold Signing](/concepts/threshold-signing/) for Router A/B, Streaming Yao, and signing shares.
 6. [Sessions](/concepts/sessions/) for signing lanes and bounded runtime authority.
 7. [Auth Methods](/concepts/auth-methods/) for passkeys, Email OTP, and VoiceID.
 8. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.

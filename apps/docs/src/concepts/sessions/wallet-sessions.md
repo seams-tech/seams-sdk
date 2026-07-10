@@ -23,7 +23,7 @@ insufficient. Transaction signing needs the exact lane plus the admitted budget.
 
 | Field | Meaning |
 | --- | --- |
-| `thresholdSessionId` | The curve/session material identity for the threshold protocol. It ties MPC/HSS round trips, restored material, and persisted lane records to the same protocol session. |
+| `thresholdSessionId` | The curve/session material identity for the threshold protocol. It ties protocol state, restored material, and persisted lane records to the same protocol session. |
 | `signingGrantId` | The Wallet Session signing authorization grant. It owns the budget state, such as expiry and remaining uses. |
 
 The same threshold session can only be used for signing when it is paired with

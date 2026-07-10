@@ -74,5 +74,5 @@ models:
 
 - [Architecture](/concepts/architecture)
 - [Custody Model](/concepts/custody/)
-- [HSS Key Derivation](/concepts/threshold-signing/hss-key-derivation)
+- [Streaming Yao A/B](/concepts/threshold-signing/streaming-yao-ab)
 - [Auth Methods](/concepts/auth-methods/)

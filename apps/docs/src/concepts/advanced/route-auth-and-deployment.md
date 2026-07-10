@@ -21,6 +21,16 @@ browser CORS or parse Wallet Session credentials directly.
 
 ## Deployment Roles
 
-Production Router A/B uses Router, Deriver A, Deriver B, and SigningWorker as
-separate roles. Local development may bundle roles for smoke testing, but the
-release security boundary is the split-role deployment.
+Both supported Cloudflare profiles keep Router, Deriver A, Deriver B, and
+SigningWorker as distinct runtime roles:
+
+| Profile | Use | A/B transport | Security boundary |
+| --- | --- | --- | --- |
+| Same account | Development, staging, and latency benchmarks | Service Bindings | Separate Worker runtimes under one shared account control plane. |
+| Separate accounts | Production and production-parity development | Authenticated, pinned HTTPS | Independent A and B administration, credentials, storage, logs, and deployment authority. |
+
+The deployment profile is selected before startup. Client requests cannot
+choose the topology. Same-account deployment retains isolation against a
+runtime compromise confined to one Worker while the account control plane
+remains honest. An account administrator can modify both roles, so the strict
+production claim requires separate accounts.
