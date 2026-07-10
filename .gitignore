@@ -54,6 +54,7 @@ wasm/email_otp_runtime/target
 wasm/threshold_prf/target
 wasm/hss_client_signer/target/
 crates/*/target
+tools/*/target
 crates/threshold-prf/wasm-bench/pkg
 crates/threshold-prf/wasm-bench/target
 crates/*/formal-verification/**/target
