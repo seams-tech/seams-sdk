@@ -1,16 +1,19 @@
 import React from 'react';
 import {
   Bot,
+  Box,
   ChevronLeft,
   ChevronRight,
   Hash,
   Home,
   ListChecks,
+  Lock,
   ScrollText,
   ShieldCheck,
   Slack,
   Store,
   Wallet,
+  X,
 } from 'lucide-react';
 import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
 import { DEMO_THEME_PRESETS } from '@/context/app-themes';
@@ -187,7 +190,6 @@ function WalletShellCard(): React.JSX.Element {
 
 type WalletPreviewImages = {
   modalSrc: string;
-  drawerSrc: string;
   label: string;
 };
 
@@ -205,8 +207,7 @@ type HeroWalletPreview =
 
 const demoWalletPreviewImages: WalletPreviewImages = {
   modalSrc: '/wallet-preview/tx-modal.png?v=3',
-  drawerSrc: '/wallet-preview/tx-drawer.png?v=3',
-  label: 'Transaction confirmer modal and drawer preview',
+  label: 'Transaction confirmer drawer preview: escrow release for an order',
 };
 
 const signInWalletPreview: HeroWalletPreview = {
@@ -224,22 +225,50 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled hero wallet preview: ${String(value)}`);
 }
 
+/* The signing drawer carries the scene, fully visible at the same optical
+   scale as the login shell; the funding prompt is a faded backdrop card
+   peeking out behind it for depth, never covering readable content. The
+   drawer is an HTML replica of the confirmer (the screenshots aren't
+   editable), showing a multi-step escrow release instead of a toy call. */
 function WalletTransactionPreview(props: { images: WalletPreviewImages }): React.JSX.Element {
   const images = props.images;
   return (
     <div className="h2-wallet-confirm h2-fadein" role="img" aria-label={images.label}>
-      <img
-        className="h2-wallet-confirm__drawer-image"
-        src={images.drawerSrc}
-        alt=""
-        draggable={false}
-      />
-      <img
-        className="h2-wallet-confirm__modal-image"
-        src={images.modalSrc}
-        alt=""
-        draggable={false}
-      />
+      <div className="h2-wallet-confirm__card h2-wallet-confirm__card--back" aria-hidden>
+        <img src={images.modalSrc} alt="" draggable={false} />
+      </div>
+      <div className="h2-wallet-confirm__card h2-wallet-confirm__card--front h2-txmock">
+        <span className="h2-txmock__handle" />
+        <X className="h2-txmock__close" aria-hidden />
+        <p className="h2-txmock__title">Review transaction</p>
+        <p className="h2-txmock__meta">
+          <Lock aria-hidden /> localhost
+          <Box aria-hidden /> Tempo | ChainID: 42431
+        </p>
+        <p className="h2-txmock__desc">Release escrow for order #8841: delivery confirmed.</p>
+        <div className="h2-txmock__tree">
+          <p>
+            Transaction to contract <strong>0xE5C7...F204</strong>
+          </p>
+          <p className="h2-txmock__step">
+            Calling <strong>verifyDelivery()</strong>
+            <span className="h2-txmock__args">{'{ "trackingId": "YMT-2984-8841" }'}</span>
+          </p>
+          <p className="h2-txmock__step">
+            Calling <strong>releaseEscrow()</strong>
+            <span className="h2-txmock__args">
+              {'{ "orderId": "#8841", "amount": "12,400 JPYC" }'}
+            </span>
+          </p>
+          <p className="h2-txmock__step">
+            Calling <strong>closeOrder()</strong> using 180k gas
+          </p>
+        </div>
+        <div className="h2-txmock__actions">
+          <span className="h2-txmock__btn h2-txmock__btn--ghost">Cancel</span>
+          <span className="h2-txmock__btn h2-txmock__btn--solid">Confirm</span>
+        </div>
+      </div>
     </div>
   );
 }

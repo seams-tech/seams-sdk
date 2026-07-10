@@ -432,7 +432,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
         >
           ${fundingNotice.shortAccountId}
         </button>
-        needs funding before signing.
+        needs funding
       </div>
     `;
   }

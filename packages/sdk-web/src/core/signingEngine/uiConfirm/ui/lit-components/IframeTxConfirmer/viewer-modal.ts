@@ -489,7 +489,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
         >
           ${fundingNotice.shortAccountId}
         </button>
-        needs funding before signing.
+        needs funding
       </div>
     `;
   }

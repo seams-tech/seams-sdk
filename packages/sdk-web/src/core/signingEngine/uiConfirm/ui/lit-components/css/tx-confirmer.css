@@ -1097,6 +1097,17 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   margin-bottom: 1rem;
   padding-left: 0rem;
 }
+/* Align the drawer's host/network meta row with its left-aligned title, which
+   carries a 0.5rem padding; the modal keeps 0 (its row is centered). The
+   tighter margin-bottom rebalances the gaps around the confirmation body:
+   collapsed margins gave 16px above it but only 8px below. */
+.drawer-tx-confirmer-root .rpid-wrapper {
+  padding-left: 0.5rem;
+  margin-bottom: 0.625rem;
+}
+.drawer-tx-confirmer-root .confirmation-body {
+  margin: 0 0.5rem 0.875rem;
+}
 .confirmation-body {
   margin-top: 0.5rem;
   font-size: 0.8rem;

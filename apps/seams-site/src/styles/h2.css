@@ -946,16 +946,17 @@ body:has(.h2-page) {
   background-color: color-mix(in srgb, var(--h2-stone) 42%, var(--h2-taupe) 58%);
 }
 
-.h2-heroscene__aside:has(.h2-wallet-confirm) {
-  padding-bottom: 0;
-}
-
 .h2-heroscene__aside-body {
   flex: 1;
   display: grid;
   place-items: center;
   /* slight top bias so the card sits optically centered under the header */
   padding-top: 10px;
+}
+
+/* the confirmer scene bottom-anchors: its drawer docks to the band edge */
+.h2-heroscene__aside:has(.h2-wallet-confirm) {
+  padding-bottom: 0;
 }
 
 .h2-heroscene__aside-body:has(.h2-wallet-confirm) {
@@ -988,39 +989,196 @@ body:has(.h2-page) {
   opacity: 1;
 }
 
+/* Confirmer scene: one readable card (the signing drawer) centered like the
+   login shell, with the funding prompt as a faded prop behind it. The PNGs
+   are tight interior crops, so the card chrome (white ground, border,
+   radius, shadow) is applied here. */
 .h2-wallet-confirm {
   justify-self: center;
   pointer-events: none;
   position: relative;
-  isolation: isolate;
-  width: min(468px, 100%);
-  height: 455px;
-  overflow: hidden;
-  color: var(--h2-ink);
+  width: min(384px, 100%);
+  /* room for the backdrop card's up-right peek */
+  margin: 18px 22px 0 0;
 }
 
-.h2-wallet-confirm__modal-image,
-.h2-wallet-confirm__drawer-image {
-  position: absolute;
+.h2-wallet-confirm__card {
+  background: #ffffff;
+  border: 1px solid #d6d1cb;
+  border-radius: 22px;
+  padding: 20px 18px;
+}
+
+.h2-wallet-confirm__card img {
   display: block;
-  filter: drop-shadow(0 1px 2px rgba(18, 22, 28, 0.06));
+  width: 100%;
+  height: auto;
   user-select: none;
 }
 
-.h2-wallet-confirm__drawer-image {
-  right: 0;
-  bottom: 0;
+/* the drawer screenshot is a bottom sheet (drag handle up top): dock it to
+   the band's bottom edge with top-only rounding and an upward shadow */
+.h2-wallet-confirm__card--front {
+  position: relative;
   z-index: 2;
-  width: min(416px, calc(100% - 10px));
-  height: auto;
+  border-radius: 34px 34px 0 0;
+  border-bottom: none;
+  padding-bottom: 26px;
+  filter: drop-shadow(0 -14px 32px rgba(15, 23, 42, 0.1));
 }
 
-.h2-wallet-confirm__modal-image {
-  left: 0;
-  bottom: 197px;
-  z-index: 3;
-  width: min(350px, calc(100% - 76px));
-  height: auto;
+.h2-wallet-confirm__card--back {
+  position: absolute;
+  top: -26px;
+  right: -22px;
+  z-index: 1;
+  width: 88%;
+  opacity: 0.55;
+}
+
+/* HTML replica of the confirmer drawer (editable, unlike the screenshots);
+   type/color matched to the SDK confirmer, which uses the system stack */
+.h2-txmock {
+  padding: 16px 22px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #0a0a0a;
+}
+
+.h2-txmock__handle {
+  display: block;
+  width: 44px;
+  height: 5px;
+  margin: 0 auto 8px;
+  border-radius: 9999px;
+  background: #e7e4df;
+}
+
+.h2-txmock__close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 18px;
+  height: 18px;
+  color: #a59f97;
+}
+
+.h2-txmock__title {
+  margin: 22px 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.h2-txmock__meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: #777169;
+}
+
+.h2-txmock__meta svg {
+  width: 13px;
+  height: 13px;
+  color: #7c9fe0;
+}
+
+.h2-txmock__meta svg:not(:first-of-type) {
+  margin-left: 8px;
+}
+
+.h2-txmock__desc {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  color: #777169;
+}
+
+.h2-txmock__tree {
+  margin: 0 0 16px;
+  padding: 13px 15px;
+  border-radius: 16px;
+  border: 1px solid #f0eeeb;
+  background: #f6f5f3;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.h2-txmock__tree p {
+  margin: 0;
+}
+
+.h2-txmock__tree strong {
+  color: #7c9fe0;
+  font-weight: 600;
+}
+
+/* connected tree rail: each step carries a vertical segment spanning its
+   full height plus the gap above, so the rail runs unbroken from the
+   contract line down to the last branch */
+.h2-txmock__step {
+  position: relative;
+  margin-top: 7px !important;
+  padding-left: 19px;
+}
+
+.h2-txmock__step::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: -7px;
+  bottom: 0;
+  border-left: 2px solid #ddd9d3;
+}
+
+/* the rail ends at the last step's branch point */
+.h2-txmock__step:last-child::before {
+  bottom: auto;
+  height: 16px;
+}
+
+/* branch tick into each call */
+.h2-txmock__step::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  width: 9px;
+  height: 2px;
+  background: #ddd9d3;
+}
+
+/* expanded call args, like the confirmer's json view */
+.h2-txmock__args {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--h2-mono);
+  font-size: 10.5px;
+  color: #8a857c;
+}
+
+.h2-txmock__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.h2-txmock__btn {
+  display: grid;
+  place-items: center;
+  height: 48px;
+  border-radius: 9999px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.h2-txmock__btn--ghost {
+  background: #ffffff;
+  border: 1px solid #ebe8e4;
+}
+
+.h2-txmock__btn--solid {
+  background: #000000;
+  color: #ffffff;
 }
 
 /* simple crossfade when the pager swaps scenes */
@@ -1302,26 +1460,14 @@ body:has(.h2-page) {
     margin: 0;
   }
 
+  /* narrow columns: keep the readable drawer, drop the backdrop peek */
   .h2-wallet-confirm {
-    width: min(468px, 100%);
-  }
-}
-
-@media (max-width: 520px) {
-  .h2-wallet-confirm {
-    width: min(468px, 100%);
-    height: 430px;
+    width: min(384px, 100%);
+    margin: 0;
   }
 
-  .h2-wallet-confirm__modal-image {
-    left: 0;
-    bottom: 180px;
-    width: min(334px, calc(100% - 68px));
-  }
-
-  .h2-wallet-confirm__drawer-image {
-    right: 0;
-    width: min(400px, calc(100% - 8px));
+  .h2-wallet-confirm__card--back {
+    display: none;
   }
 }
 
