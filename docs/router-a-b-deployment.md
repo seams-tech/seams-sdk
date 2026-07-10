@@ -2,1016 +2,215 @@
 
 Date consolidated: June 20, 2026
 
-Status: canonical merged Router A/B deployment reference. This file contains the
-merged deployment choices content and deployment reference material.
+Last architecture decision: July 10, 2026
 
-Merged source section:
+Status: canonical deployment reference for the approved strict Router A/B
+topology. Production requires independently administered Cloudflare accounts
+for Deriver A and Deriver B. Same-account Workers and Service Bindings are
+development, staging, and benchmark profiles only.
 
-- Router A/B Deployment Choices
+Related active documents:
 
-Related active docs:
+- [Router A/B specification](./router-a-b-SPEC.md)
+- [Router A/B solution refactor](./router-a-b-sol-refactor.md)
+- [Streaming Yao A/B plan](./yaos-ab.md)
+- [Router A/B local development](./router-a-b-local-dev.md)
+- [Deployment runbook](./deployment/README.md)
+- [Deployment infrastructure](./deployment/infra.md)
 
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-local-dev.md](./router-a-b-local-dev.md)
-- [docs/deployment/README.md](./deployment/README.md)
-- [docs/deployment/infra.md](./deployment/infra.md)
+## Approved Protocol Placement
 
----
+- Ed25519 uses `router_ab_ed25519_yao_v1`. Deriver A is the fixed garbler;
+  Deriver B is the fixed evaluator. The large binary stream travels directly
+  between their accounts over signed HTTPS.
+- ECDSA uses strict Router A/B threshold-PRF derivation and additive secp256k1
+  scalar shares. It has no dependency on the Ed25519 Yao crate or stream.
+- Router performs public admission and opaque routing. It never opens Deriver
+  inputs, output shares, Yao frames, or ECDSA role material.
+- SigningWorker owns activated server signing state and remains outside both
+  derivation protocols after activation.
+- Normal Ed25519 and ECDSA signing uses Client, Router, and SigningWorker. It
+  makes zero Deriver calls.
 
-## Active Deployment Reference
+## Deployment Profiles
 
-Router A/B deployment work covers Cloudflare credentials, Wrangler config,
-role-specific secrets, upload/deploy workflows, deployment manifests, deployed
-browser evidence, runtime metrics, CORS/origin evidence, and operational
-hardening.
+| Profile | Account boundary | Transport | Intended use | Security claim |
+| --- | --- | --- | --- | --- |
+| `router_ab_cloudflare_same_account_dev_v1` | One account, distinct Workers and bindings | Service Bindings or local HTTP | Local development, staging, latency lower bound, and benchmarks | Contains a compromise confined to one Worker runtime while account administration remains honest; excludes account-admin and shared-CI compromise |
+| `router_ab_cloudflare_separate_accounts_v1` | Product/control account plus independent A and B accounts | Signed cross-account HTTPS on every Deriver edge | The only production profile | Supports the Router-plus-one-malicious-Deriver claim when protocol and review gates pass |
 
-Local cleanup and local smoke evidence do not prove deployed readiness.
+No production manifest, capability response, request, or persisted record may
+select the same-account profile. No runtime fallback crosses between profiles.
 
-## Active Plan: Split GitHub Environments
+## Production Account Topology
 
-Status: workflow split implemented; staging deploy evidence pending.
-
-`.github/workflows/deploy-router-ab.yml` now selects role-specific GitHub
-Environments from `inputs.target`:
-
-```yaml
-environment:
-  name: ${{ inputs.target }}-router
+```mermaid
+flowchart LR
+  C["Client"] -->|"public HTTPS"| R["Router — product account"]
+  R -->|"signed HTTPS + A ciphertext"| A["Deriver A account"]
+  R -->|"signed HTTPS + B ciphertext"| B["Deriver B account"]
+  A <-->|"signed binary HTTPS stream"| B
+  A -->|"recipient ciphertext + receipt"| R
+  B -->|"recipient ciphertext + receipt"| R
+  R <-->|"private binding or signed HTTPS"| SW["SigningWorker — product account"]
 ```
 
-That shape enforces role-level secret isolation because each role job reads only
-the GitHub Environment for the Worker it deploys.
+The product/control account owns Router and SigningWorker. Deriver A and
+Deriver B each use a different Cloudflare account, administrator, protected CI
+environment, deployment credential, Durable Object namespace, backup boundary,
+log sink, and audit export.
 
-Target environments:
+Production release requires:
 
 ```text
-staging-router
-staging-deriver-a
-staging-deriver-b
-staging-signing-worker
+A.cloudflare_account_id != B.cloudflare_account_id
+A.deploy_principal_id    != B.deploy_principal_id
+A.storage_namespace      != B.storage_namespace
+A.peer_signing_key       != B.peer_signing_key
+A.envelope_hpke_key      != B.envelope_hpke_key
+```
 
+No human, CI principal, API token, OIDC trust, break-glass credential, or secret
+store may deploy, read secrets for, or restore both A and B.
+
+## Network And Authentication Edges
+
+| Edge | Production transport | Required binding |
+| --- | --- | --- |
+| Client -> Router | Public HTTPS | application auth, lifecycle grant, request identity, expiry, replay nonce |
+| Router -> A | Cross-account HTTPS | Router asymmetric signature, A endpoint identity, A HPKE ciphertext, body digest |
+| Router -> B | Cross-account HTTPS | Router asymmetric signature, B endpoint identity, B HPKE ciphertext, body digest |
+| A -> B / B -> A | Direct cross-account HTTPS | pinned peer key, role, protocol/circuit digest, transcript, sequence, frame digest, expiry |
+| A/B -> recipients | Router-relayed or direct ciphertext | recipient identity, request kind, output kind, transcript, active-output binding |
+| Router <-> SigningWorker | Product-account Service Binding or signed HTTPS | admitted request, SigningWorker identity, activation/session epoch |
+
+The Router never proxies or buffers Yao table frames. Production A/B edges do
+not use Service Bindings, `.internal` hostnames, shared bearer secrets, or a
+credential accepted by both roles.
+
+## Production CI And Deployment Authority
+
+Production uses separate protected deployment paths for A and B. A workflow may
+validate every public artifact, while an actor able to release A cannot release
+B and vice versa.
+
+Required environments:
+
+```text
 production-router
-production-deriver-a
-production-deriver-b
 production-signing-worker
+production-deriver-a  # controlled by A operator
+production-deriver-b  # controlled by B operator
 ```
 
-The generator command for these environments is:
-
-```bash
-pnpm router:deploy:env-keygen
-pnpm router:deploy:env-keygen -- --env staging
-pnpm router:deploy:env-keygen -- --env production
-```
-
-### Environment Contents
-
-Each GitHub Environment must be self-contained. Do not put Router A/B
-deployment identity keys in repository-level Actions variables.
-
-`<target>-router` variables:
-
-```text
-ROUTER_AB_JWT_ISSUER
-ROUTER_AB_JWT_AUDIENCE
-ROUTER_AB_JWT_JWKS_URL
-ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
-ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
-ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY
-ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX
-ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX
-```
-
-`<target>-router` secrets:
-
-```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
-ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
-```
-
-`<target>-deriver-a` variables:
-
-```text
-ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
-ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX
-ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX
-```
-
-`<target>-deriver-a` secrets:
-
-```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
-ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
-SIGNER_A_ROOT_SHARE_WIRE_SECRET
-SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY
-SIGNER_A_PEER_SIGNING_KEY
-```
-
-`<target>-deriver-b` variables:
-
-```text
-ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
-ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX
-ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX
-```
-
-`<target>-deriver-b` secrets:
-
-```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
-ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
-SIGNER_B_ROOT_SHARE_WIRE_SECRET
-SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY
-SIGNER_B_PEER_SIGNING_KEY
-```
-
-`<target>-signing-worker` variables:
-
-```text
-ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY
-```
-
-`<target>-signing-worker` secrets:
-
-```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
-ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
-SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY
-```
-
-### Workflow Shape
-
-Keep one manual workflow entrypoint:
-
-```text
-workflow: deploy-router-ab
-inputs:
-  target: staging | production
-  operation: validate | upload-version | deploy
-  role: all | router | deriver-a | deriver-b | signing-worker
-```
-
-The workflow uses role-specific jobs:
-
-```text
-validate_router_ab
-upload_or_deploy_signing_worker
-upload_or_deploy_deriver_a
-upload_or_deploy_deriver_b
-upload_or_deploy_router
-```
-
-Each role job must set its GitHub Environment from `target` plus the role:
-
-```yaml
-environment:
-  name: ${{ inputs.target }}-router
-```
-
-The equivalent names for the other jobs are:
-
-```text
-${{ inputs.target }}-deriver-a
-${{ inputs.target }}-deriver-b
-${{ inputs.target }}-signing-worker
-```
-
-Each job declares only the variables and secrets required by its role.
-
-### Deploy Ordering
-
-For `operation=deploy` and `role=all`, deploy order must be:
-
-```text
-signing-worker -> deriver-a + deriver-b -> router
-```
-
-Reason:
-
-- Deriver A and Deriver B bind to SigningWorker.
-- Router binds to Deriver A, Deriver B, and SigningWorker.
-- Deploying Router last avoids service-binding references to undeployed or
-  stale role workers.
-
-For individual roles:
-
-```text
-role=signing-worker -> signing-worker job only
-role=deriver-a      -> deriver-a job only
-role=deriver-b      -> deriver-b job only
-role=router         -> router job only
-```
-
-### Validation Rules
-
-The workflow and release gate keep these checks in place:
-
-- `pnpm router:deploy:check`
-- `cargo test --manifest-path crates/router-ab-core/Cargo.toml`
-- `cargo test --manifest-path crates/router-ab-dev/Cargo.toml`
-- `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml`
-- strict Worker entrypoint `cargo check` for Router, Deriver A, Deriver B, and
-  SigningWorker
-- startup dry-run with `pnpm router:deploy:dry-run`
-
-Workflow source guards now run through `pnpm router:deploy:check`:
-
-- no deploy job may use the shared `environment: ${{ inputs.target }}`
-- no role job may reference another role's private key secret
-- Router job must not reference root-share or role-private signing secrets
-- SigningWorker job must not reference Deriver A/B root-share or peer-signing
-  secrets
-- Deriver A job must not reference B private/root-share secrets
-- Deriver B job must not reference A private/root-share secrets
-
-### Implementation Tasks
-
-- [x] Refactor `.github/workflows/deploy-router-ab.yml` into role-specific
-      upload/deploy jobs.
-- [x] Set role job environments to `${{ inputs.target }}-<role>`.
-- [x] Move the shared shell helpers into repeated small role-local steps or a
-      local checked-in script if duplication becomes noisy.
-- [x] Keep `validate-router-ab` free of private Worker secrets.
-- [x] Ensure `operation=upload-version` uses the same split environments as
-      `operation=deploy`.
-- [x] Preserve `role=all` plus individual role deploy behavior.
-- [x] Add source guards for forbidden role secret references.
-- [x] Run the validation matrix above for local workflow/source checks.
-- [ ] Trigger staging deploy with `target=staging`, `operation=deploy`,
-      `role=all`.
-- [ ] Verify the deployed Router keyset endpoint:
-      `https://staging.seams.sh/.well-known/router-ab/keyset`.
-- [ ] Verify the Router JWT JWKS endpoint:
-      `https://staging.seams.sh/.well-known/router-ab/jwks.json`.
-- [ ] Run deployed browser evidence after Router, relay, and domain wiring are
-      live.
-
-### Done Criteria
-
-- GitHub Actions never exposes Deriver A private/root-share secrets to Deriver
-  B, Router, or SigningWorker jobs.
-- GitHub Actions never exposes Deriver B private/root-share secrets to Deriver
-  A, Router, or SigningWorker jobs.
-- Router deploy has only Router admission/config secrets and public deployment
-  identity values.
-- SigningWorker deploy has only SigningWorker server-output private material,
-  shared internal service auth, and Cloudflare deploy credentials.
-- Staging deploy completes from the split environments.
-- Production can be configured with separate generated values without changing
-  workflow code.
-
-## Merged Source: Router A/B Deployment Choices
-
-### Router A/B Deployment Choices
-
-Date created: June 12, 2026
-
-Status: completed decision memo; superseded for active implementation.
-
-Related docs:
-
-- [Router A/B signer plan](router-a-b-SPEC.md)
-- [Router A/B signer spec](router-a-b-SPEC.md)
-- [Router A/B local development](router-a-b-local-dev.md)
-- [Deployment runbook](deployment/README.md)
-- [Deployment infrastructure](deployment/infra.md)
-
-## Completion Note
-
-This document made the deployment-profile decision: same-account Cloudflare is
-the first production self-host target, separate Cloudflare accounts are a
-hardening profile, and provider-diverse signers remain future enterprise scope.
-
-The active same-account implementation now lives in the checked-in Wrangler
-configs, GitHub Actions workflows, local parity harness, and deployment runbook:
-
-- `.github/workflows/router-ab.yml`
-- `.github/workflows/deploy-router-ab.yml`
-- `crates/router-ab-cloudflare/wrangler.router.toml`
-- `crates/router-ab-cloudflare/wrangler.signer-a.toml`
-- `crates/router-ab-cloudflare/wrangler.signer-b.toml`
-- `crates/router-ab-cloudflare/wrangler.signing-worker.toml`
-- `docs/deployment/README.md`
-- `docs/deployment/infra.md`
-- `docs/router-a-b-local-dev.md`
-
-Use this file as a historical architecture memo and product framing reference.
-Do not use the implementation checklist below as the active deployment plan.
-
-## Goal
-
-Support Router A/B as the default production self-host architecture while
-keeping deployment simple through infrastructure-as-code.
-
-The product surface should stay:
-
-```text
-Customer deploys one wallet backend profile.
-Users and apps see one public Router URL.
-Router, Signer A, and Signer B use role-separated runtime and storage.
-Transport and credentials are selected by deployment profile.
-```
-
-The same Router A/B protocol should run in three deployment scenarios:
-
-1. same Cloudflare account
-2. separate Cloudflare accounts
-3. provider-diverse signers
-
-The SDK must not fork protocol semantics across these scenarios. It should
-fork only the transport, credential, storage, observability, and deployment
-adapters.
-
-## Security Position
-
-Router A/B is superior to a one-Worker production self-host profile because no
-single Worker process needs both A and B role-local derivation material.
-
-The one-Worker profile may remain useful for local development, tests,
-evaluation, and emergency portability. It should not be the recommended
-production self-host profile.
-
-Production self-host default:
-
-```text
-router_ab_cloudflare_same_account_v1
-```
-
-Operational hardening profile:
-
-```text
-router_ab_cloudflare_separate_accounts_v1
-```
-
-Highest-assurance profile:
-
-```text
-router_ab_provider_diverse_v1
-```
-
-## Common Architecture
-
-All Router A/B deployment profiles share the same logical roles:
-
-```text
-Client -> Router -> Signer A / Relayer
-                 -> Signer B
-
-Signer A <-> Signer B for derivation-time coordination where required.
-Normal signing remains Client -> Router -> Signer A / Relayer.
-```
-
-Common invariants:
-
-- Router is the only public wallet backend endpoint.
-- Router handles auth, policy, rate limits, replay, and public lifecycle state.
-- Router receives only public metadata and encrypted signer envelopes.
-- Signer A receives only A envelopes, A root-share storage, and A decrypt
-  credentials.
-- Signer B receives only B envelopes, B root-share storage, and B decrypt
-  credentials.
-- Signer A initially hosts the relayer role and may activate `x_relayer_base`.
-- No single production process receives both raw sides of protected split
-  derivation material.
-- Every signer response and output package binds to the same transcript.
-
-## Deployment Profile Matrix
-
-| Profile                                     | Transport                                                    | Credential boundary                                                       | Operational security                                                                                          | Intended use                                |
-| ------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `router_ab_cloudflare_same_account_v1`      | Cloudflare Service Bindings                                  | separate Worker secrets and bindings in one Cloudflare account            | protects against single Worker compromise and accidental role mixing; weaker against account-admin compromise | default self-host production                |
-| `router_ab_cloudflare_separate_accounts_v1` | authenticated HTTPS between Cloudflare accounts              | separate account credentials, deploy tokens, secrets, logs, and storage   | stronger against insider, CI token, and single-account compromise                                             | hardened self-host production               |
-| `router_ab_provider_diverse_v1`             | authenticated HTTPS or mutually authenticated provider links | separate provider credentials, optional attestation-bound signer identity | strongest operational separation, highest complexity                                                          | enterprise / regulated / high-value custody |
-
-## Signer Engine Modes
-
-Transport profile and signer engine mode are separate choices.
-
-```ts
-type RouterAbSignerEngineMode =
-  | {
-      kind: 'hss_server_blind_v1';
-      trustedHardwareRequired: false;
-    }
-  | {
-      kind: 'tee_accelerated_threshold_v1';
-      trustedHardwareRequired: true;
-      attestationPolicyDigest: string;
-    };
-```
-
-### HSS Server-Blind Mode
-
-`hss_server_blind_v1` is the portable default.
-
-Properties:
-
-- runs on commodity serverless infrastructure
-- does not require TEEs, enclave measurements, or secret-release services
-- preserves server-blindness without trusted hardware
-- supports same-account Cloudflare, separate-account Cloudflare, and
-  provider-diverse non-TEE deployments
-- adds HSS overhead during derivation/bootstrap flows, with current visible
-  latency work concentrated on Ed25519 registration
-
-Use this mode when self-hostability and low operational burden matter more than
-the lowest possible bootstrap latency.
-
-### TEE-Accelerated Threshold Mode
-
-`tee_accelerated_threshold_v1` is a hardened low-latency mode for customers
-that can operate, or pay us to operate, attested signer environments.
-
-Properties:
-
-- Router A/B topology remains intact
-- Signer A and Signer B run inside approved TEE or enclave boundaries
-- role-local key shares are released only to attested signer code
-- signer identity binds role, key epoch, deployment epoch, provider, and
-  attestation measurement
-- HSS can be bypassed for a non-HSS threshold signer path where the TEE boundary
-  supplies the server-blindness and tamper-resistance assumptions
-- bootstrap and signing latency can improve because the signer engine no longer
-  pays the HSS hidden-evaluation cost
-
-This mode is an extension of Router A/B, not a replacement. The Router,
-capability document, transcript binding, signer-set identity, migration
-semantics, and client SDK behavior should remain stable.
-
-Required controls:
-
-- public or relying-party-verifiable attestation evidence
-- allowlisted enclave measurements
-- explicit secret-release policy
-- signed deployment manifests
-- constrained upgrade policy
-- signer key epoch and deployment epoch rotation
-- audit evidence for enclave image changes and secret release
-
-Risk tradeoff:
-
-```text
-HSS mode derives server-blindness from cryptographic protocol boundaries.
-TEE mode derives part of that protection from attested execution and
-secret-release policy.
-```
-
-The SDK should expose the mode explicitly so customers and app developers can
-set a security and latency policy rather than accidentally changing trust
-assumptions.
-
-## Customizable Transport And Credentials Layer
-
-Router A/B core should depend on a small deployment-neutral host interface.
-Deployment profiles implement that interface.
-
-```ts
-type RouterAbDeploymentProfile =
-  | {
-      kind: 'router_ab_cloudflare_same_account_v1';
-      cloudflareAccountId: string;
-      transport: CloudflareServiceBindingTransport;
-      credentials: SameAccountCloudflareCredentials;
-      signerEngineMode: { kind: 'hss_server_blind_v1' };
-    }
-  | {
-      kind: 'router_ab_cloudflare_separate_accounts_v1';
-      routerAccountId: string;
-      signerAAccountId: string;
-      signerBAccountId: string;
-      transport: AuthenticatedHttpsTransport;
-      credentials: SeparateAccountCloudflareCredentials;
-      signerEngineMode: { kind: 'hss_server_blind_v1' };
-    }
-  | {
-      kind: 'router_ab_provider_diverse_v1';
-      routerProvider: ProviderDeploymentRef;
-      signerAProvider: ProviderDeploymentRef;
-      signerBProvider: ProviderDeploymentRef;
-      transport: AuthenticatedProviderTransport;
-      credentials: ProviderDiverseCredentials;
-      attestationPolicy: SignerAttestationPolicy;
-      signerEngineMode: RouterAbSignerEngineMode;
-    };
-```
-
-Core runtime interfaces:
-
-```ts
-type RouterAbTransport =
-  | {
-      kind: 'cloudflare_service_binding';
-      callSignerA(request: RouterToSignerPayload): Promise<SignerResponse>;
-      callSignerB(request: RouterToSignerPayload): Promise<SignerResponse>;
-    }
-  | {
-      kind: 'authenticated_https';
-      callPeer(peer: PeerEndpoint, request: CanonicalWireMessage): Promise<CanonicalWireMessage>;
-    };
-
-type RouterAbCredentialProvider = {
-  workerIdentity(): Promise<WorkerIdentity>;
-  signerIdentity(role: 'A' | 'B'): Promise<SignerIdentity>;
-  relayerIdentity(): Promise<RelayerIdentity>;
-  signTranscript(input: TranscriptSigningInput): Promise<TranscriptSignature>;
-  decryptRoleEnvelope(input: RoleEnvelopeDecryptInput): Promise<RoleEnvelopePlaintext>;
-  unwrapRoleShare(input: RoleShareUnwrapInput): Promise<RoleLocalShareWire>;
-};
-```
-
-These interfaces are illustrative. The implementation should live in Rust core
-host traits and TypeScript/Cloudflare adapters where each runtime needs them.
-The important boundary is that protocol code receives typed capabilities, not
-ambient environment variables, broad account clients, or generic key/value
-storage.
-
-## Scenario 1: Same Cloudflare Account
-
-This is the default production self-host profile.
-
-```text
-Cloudflare account:
-  Router Worker
-  Signer A Worker / Relayer
-  Signer B Worker
-  ROUTER_REPLAY_DO
-  ROUTER_LIFECYCLE_DO
-  SIGNER_A_ROOT_SHARE_DO
-  SIGNER_A_RELAYER_OUTPUT_DO
-  SIGNER_B_ROOT_SHARE_DO
-  same-account Service Bindings
-```
-
-Transport:
-
-- Router calls Signer A and Signer B through Service Bindings.
-- Signer A and Signer B call each other through Service Bindings when direct
-  A/B coordination is needed.
-- No Signer Worker needs a public URL.
-
-Credential boundary:
-
-- Router has Router signing credentials, public signer registry, replay
-  Durable Object binding, lifecycle Durable Object binding, and Service
-  Bindings to A and B.
-- Router must not have signer decrypt keys, root-share Durable Object bindings,
-  or relayer-output bindings.
-- Signer A has A decrypt credentials, A root-share binding, A relayer-output
-  binding, Signer B peer binding, and A transcript-signing credentials.
-- Signer B has B decrypt credentials, B root-share binding, Signer A peer
-  binding, and B transcript-signing credentials.
-
-IaC requirements:
-
-- Generate one repository template with three Worker configs.
-- Generate distinct GitHub Actions jobs for Router, Signer A, and Signer B.
-- Use separate GitHub Environments for Router, A, and B secrets.
-- Add deploy-time checks that reject forbidden bindings per role.
-- Add smoke tests proving Router cannot access signer stores, A cannot access
-  B stores, and B cannot access A or relayer-output stores.
-
-Security claim:
-
-```text
-No single Worker process has both A and B role-local derivation material.
-```
-
-Residual risk:
-
-```text
-A Cloudflare account administrator or overbroad CI token may be able to modify
-multiple Worker scripts or attach forbidden bindings.
-```
-
-This profile is still much stronger than a one-Worker self-host profile. It is
-the right default because infrastructure-as-code can hide most deployment
-complexity from the customer.
-
-## Scenario 2: Separate Cloudflare Accounts
-
-This is the operational hardening profile.
-
-```text
-Cloudflare account 1:
-  Router Worker
-  ROUTER_REPLAY_DO
-  ROUTER_LIFECYCLE_DO
-
-Cloudflare account 2:
-  Signer A Worker / Relayer
-  SIGNER_A_ROOT_SHARE_DO
-  SIGNER_A_RELAYER_OUTPUT_DO
-
-Cloudflare account 3:
-  Signer B Worker
-  SIGNER_B_ROOT_SHARE_DO
-```
-
-Transport:
-
-- Router calls A and B over authenticated HTTPS.
-- A and B call each other over authenticated HTTPS when direct A/B
-  coordination is needed.
-- Service Bindings are replaced by endpoint URLs, pinned peer identities, and
-  request authentication.
-
-Credential boundary:
-
-- Each Cloudflare account has its own deploy credentials.
-- Each account has its own GitHub Environment or external CI trust root.
-- Each account owns only its role-specific Durable Object namespaces and
-  secrets.
-- Router account stores only public lifecycle and replay state.
-- Signer A and Signer B accounts each store only their own root-share state.
-- Logs, alerts, and audit exports are separate per account.
-
-Required authenticated transport properties:
-
-- mutual request authentication or equivalent signed request envelopes
-- replay protection at every role boundary
-- signer identity and key epoch pinned by Router policy
-- endpoint deployment epoch bound into the transcript
-- explicit peer allowlist for Router, A, B, and relayer identities
-- fail-closed behavior when an endpoint presents the wrong role or key epoch
-
-Security claim:
-
-```text
-Compromise of one Cloudflare account should not grant access to the other
-signer role's root-share storage, deploy credentials, or logs.
-```
-
-Residual risk:
-
-```text
-Cloudflare platform-level compromise or collusion of both signer accounts can
-still compromise server-side custody.
-```
-
-This profile is intended for customers concerned about insiders, overbroad
-account admin access, long-lived CI tokens, or accidental role binding in one
-Cloudflare account.
-
-## Scenario 3: Provider-Diverse Signers
-
-This is the highest-assurance profile.
-
-```text
-Cloudflare:
-  Router Worker
-
-Provider A:
-  Signer A / Relayer
-  A root-share storage
-  optional TEE or enclave boundary
-
-Provider B:
-  Signer B
-  B root-share storage
-  optional TEE or enclave boundary
-```
-
-Example provider placements:
-
-- Router on Cloudflare, Signer A on AWS Nitro Enclave-backed service, Signer B
-  on Google Cloud Confidential VM.
-- Router on Cloudflare, Signer A and Signer B on two independent customer
-  Kubernetes clusters with separate KMS roots.
-- Router on customer infrastructure, A and B on two managed enclave providers.
-
-Transport:
-
-- authenticated HTTPS or mutually authenticated provider links
-- canonical Router A/B wire messages
-- no provider-specific RPC in protocol-critical bytes
-- optional attestation evidence carried alongside signer identity
-
-Credential boundary:
-
-- each provider has separate deploy credentials
-- each signer role has independent unwrap/decrypt credentials
-- attested signer identity can bind provider, measurement, signing key,
-  protocol version, and deployment epoch
-- Router policy decides which attested signer identities are acceptable
-
-Security claim:
-
-```text
-Compromise of Cloudflare alone does not expose Signer A or Signer B plaintext.
-Compromise of one signer provider exposes only that signer role.
-```
-
-Residual risk:
-
-```text
-This profile has more operational complexity, higher latency, and a larger
-incident-response surface.
-```
-
-Provider-diverse deployment should reuse the same wire vectors and transcript
-binding as Cloudflare deployments. Adding a provider should mean implementing a
-host adapter, not changing the protocol.
-
-## Transcript And Identity Binding
-
-All deployment profiles must bind the same minimum identity fields into the
-Router A/B transcript:
-
-- protocol version
-- request kind
-- account/session/project/environment scope
-- signing root id and version
-- root-share epoch
-- signer set id
-- signer A identity and key epoch
-- signer B identity and key epoch
-- relayer identity and key epoch
-- deployment profile id
-- deployment epoch
-- transport kind
-- Router request digest
-- client ephemeral public key
-- nonce and expiry
-
-Provider-diverse profiles may additionally bind:
-
-- provider name
-- attestation measurement
-- attestation evidence digest
-- hardware or enclave policy id
-- signed deployment manifest digest
-
-Changing deployment profile, signer key epoch, relayer identity, root-share
-epoch, or deployment epoch must change transcript-bound fields.
-
-## Deployment Manifest
-
-Every self-host deployment should produce a signed deployment manifest.
-
-```ts
-type RouterAbDeploymentManifestV1 = {
-  manifestVersion: 'router_ab_deployment_manifest_v1';
-  deploymentProfile:
-    | 'router_ab_cloudflare_same_account_v1'
-    | 'router_ab_cloudflare_separate_accounts_v1'
-    | 'router_ab_provider_diverse_v1';
-  deploymentEpoch: string;
-  publicRouterUrl: string;
-  signerSetId: string;
-  routerIdentity: PublicWorkerIdentity;
-  signerAIdentity: PublicSignerIdentity;
-  signerBIdentity: PublicSignerIdentity;
-  relayerIdentity: PublicRelayerIdentity;
-  signerEngineMode: 'hss_server_blind_v1' | 'tee_accelerated_threshold_v1';
-  transport: PublicTransportDescriptor;
-  storageScopes: PublicStorageScopeDescriptor[];
-  createdAtMs: number;
-  manifestDigest: string;
-  signature: string;
-};
-```
-
-The manifest is used by:
-
-- client capability discovery
-- migration/import verification
-- smoke tests
-- incident response
-- signer rotation
-- deployment drift detection
-
-The manifest must not contain secrets, root shares, decrypted envelope material,
-or private endpoint credentials.
-
-## SDK Surface
-
-The browser/client SDK should interact with one public backend URL regardless of
-deployment profile.
-
-```ts
-createSeamsClient({
-  walletBackendUrl: 'https://wallet.example.com',
-  requiredSecurityLevel: 'split_server_level_c',
-});
-```
-
-The backend capability document should make the deployment profile explicit:
-
-```ts
-type WalletBackendCapability =
-  | {
-      kind: 'router_ab_cloudflare_same_account_v1';
-      securityLevel: 'split_server_level_c';
-      publicRouterUrl: string;
-      signerSetId: string;
-      deploymentEpoch: string;
-      signerEngineMode: 'hss_server_blind_v1';
-    }
-  | {
-      kind: 'router_ab_cloudflare_separate_accounts_v1';
-      securityLevel: 'split_server_level_c_hardened';
-      publicRouterUrl: string;
-      signerSetId: string;
-      deploymentEpoch: string;
-      signerEngineMode: 'hss_server_blind_v1';
-    }
-  | {
-      kind: 'router_ab_provider_diverse_v1';
-      securityLevel: 'split_server_provider_diverse';
-      publicRouterUrl: string;
-      signerSetId: string;
-      deploymentEpoch: string;
-      signerEngineMode: 'hss_server_blind_v1' | 'tee_accelerated_threshold_v1';
-      attestationPolicyDigest: string;
-    };
-```
-
-The client should reject a backend whose advertised security level is lower than
-the app's configured requirement.
-
-Server-side SDK exports should be profile-specific:
-
-```ts
-import { createRouterAbCloudflareSameAccountDeployment } from '@seams/sdk/server/self-host/router-ab/cloudflare-same-account';
-
-import { createRouterAbCloudflareSeparateAccountsDeployment } from '@seams/sdk/server/self-host/router-ab/cloudflare-separate-accounts';
-
-import { createRouterAbProviderDiverseDeployment } from '@seams/sdk/server/self-host/router-ab/provider-diverse';
-```
-
-These factories should produce profile-specific Wrangler files, GitHub Actions
-workflows, smoke tests, and import commands.
-
-## GitHub Actions And IaC
-
-Same-account template:
-
-```text
-.github/workflows/deploy-router-ab-cloudflare.yml
-infra/cloudflare/router/wrangler.toml
-infra/cloudflare/signer-a/wrangler.toml
-infra/cloudflare/signer-b/wrangler.toml
-infra/cloudflare/smoke/router-ab-boundary-checks.yml
-```
-
-Separate-account template:
-
-```text
-.github/workflows/deploy-router.yml
-.github/workflows/deploy-signer-a.yml
-.github/workflows/deploy-signer-b.yml
-infra/cloudflare/router/wrangler.toml
-infra/cloudflare/signer-a/wrangler.toml
-infra/cloudflare/signer-b/wrangler.toml
-infra/cloudflare/cross-account-auth.yml
-```
-
-Provider-diverse template:
-
-```text
-.github/workflows/deploy-router.yml
-.github/workflows/deploy-signer-a-provider.yml
-.github/workflows/deploy-signer-b-provider.yml
-infra/router/
-infra/signer-a/
-infra/signer-b/
-infra/attestation-policy/
-```
-
-Generated workflows must:
-
-- deploy each role independently
-- run role-boundary startup checks
-- run no-forbidden-binding checks
-- run transcript vector checks
-- run import verification on test bundles
-- publish a signed deployment manifest
-- run post-deploy smoke tests through the public Router URL
-
-## Import And Migration
-
-Migration bundle handling should be profile-aware.
-
-Same-account import:
-
-- Router receives public import metadata.
-- Signer A receives A role package only.
-- Signer B receives B role package only.
-- Signer A relayer store receives relayer activation state only after
-  verification.
-
-Separate-account import:
-
-- Router import metadata goes to the Router account.
-- A role package is uploaded using Signer A account credentials.
-- B role package is uploaded using Signer B account credentials.
-- Cross-account import receipts are collected into one audit artifact.
-
-Provider-diverse import:
-
-- each provider receives only its role-local sealed package
-- provider attestation evidence is recorded before activation
-- address/public-key parity must pass before production traffic is enabled
-
-In every profile:
-
-- imported shares must derive the same wallet identities
-- hosted signing must be disabled after customer verification
-- hosted shares must be deleted or retired with audit evidence
-- rollback behavior must be explicit
-
-## Health And Boundary Checks
-
-Required checks for every profile:
-
-- Router startup fails if signer root-share bindings or signer decrypt secrets
-  are present.
-- Signer A startup fails if B root-share bindings or B decrypt secrets are
-  present.
-- Signer B startup fails if A root-share bindings, relayer-output bindings, or
-  A decrypt secrets are present.
-- Router can reserve replay state and persist public lifecycle state.
-- Signer A can read only A startup metadata.
-- Signer B can read only B startup metadata.
-- A and B produce transcript-bound signer responses.
-- Client-output packages cannot be accepted as relayer-output packages.
-- Relayer-output packages cannot be returned to the client as client output.
-
-Separate-account and provider-diverse profiles add:
-
-- peer endpoint identity checks
-- signed request verification checks
-- deployment epoch mismatch rejection
-- stale signer key epoch rejection
-- endpoint allowlist checks
-
-## Future Deployment Work
-
-These items are future deployment scope, not active local cleanup tasks.
-
-Profile metadata and capability documents:
-
-- Add deployment profile ids to Router A/B protocol metadata.
-- Add deployment epoch to transcript-bound metadata.
-- Add signer engine mode to deployment manifests and capability documents.
-- Add public deployment manifest types.
-- Add capability document branches for each Router A/B deployment profile.
-- Add client-side security-level downgrade rejection.
-
-Same-account Cloudflare deployment:
-
-- Generate same-account Cloudflare Wrangler templates.
-- Generate one GitHub Actions workflow with separate role deploy jobs.
-- Add GitHub Environment separation for Router, Deriver A, Deriver B, and
-  SigningWorker.
-- Add Service Binding transport adapter.
-- Add role-boundary smoke tests.
-- Add signed deployment manifest generation.
-
-Separate-account Cloudflare deployment:
-
-- Generate separate-account Cloudflare templates.
-- Add authenticated HTTPS transport adapter.
-- Add request-signing and peer verification.
-- Add cross-account import workflow.
-- Add separate-account drift and boundary checks.
-- Add runbooks for rotating one account or signer role independently.
-
-Provider-diverse and TEE-backed deployment:
-
-- Define provider-neutral authenticated transport requirements.
-- Add attestation-policy shape.
-- Add `tee_accelerated_threshold_v1` signer engine mode.
-- Add non-HSS threshold signer vectors and latency gates for TEE mode.
-- Add provider adapter interface for signer deployment.
-- Add one reference provider-diverse deployment.
-- Add attestation digest binding to the deployment manifest.
-- Add latency and availability measurement gates.
-
-### Phase 5: Documentation And Product Packaging
-
-- [x] Make `router_ab_cloudflare_same_account_v1` the documented production
-      self-host default.
-- [x] Document `router_ab_cloudflare_separate_accounts_v1` as the insider-risk
-      hardening path.
-- [x] Document `router_ab_provider_diverse_v1` as the enterprise
-      highest-assurance path.
-- [x] Keep one-Worker self-host docs under local/dev/evaluation/escape-hatch
-      language.
-
-## Decision Summary
-
-Router A/B should be the default production self-host architecture.
-
-The SDK should support multiple Router A/B deployment profiles by making the
-transport and credentials layer customizable. Same-account Cloudflare keeps the
-customer experience simple. Separate Cloudflare accounts harden against
-insiders and account-level compromise. Provider-diverse signers provide a
-future path for customers that need stronger operational independence.
-
-The protocol, transcript binding, output package formats, migration semantics,
-and client SDK behavior should remain stable across all three profiles.
+Rules:
+
+- production has no `role=all` deployment action;
+- A and B jobs use different Cloudflare account IDs and deploy credentials;
+- A and B protected environments have disjoint approvers and OIDC subjects;
+- neither job can read the opposite role's private keys, roots, storage,
+  backups, logs, or account token;
+- each operator independently verifies the same content-addressed public
+  artifact, protocol digest, circuit digest, and deployment manifest;
+- Router and SigningWorker may share the product account and deployment
+  authority; neither receives a Deriver root or envelope private key;
+- emergency rollback disables admission or deploys a previously reviewed
+  artifact independently to each role. It never re-enables an old backend.
+
+The existing single-workflow and same-account Wrangler assets are development
+fixtures until they are replaced or renamed. They cannot be promoted by
+changing an environment flag.
+
+## Role Secret Matrix
+
+| Owner | Private material | Forbidden material |
+| --- | --- | --- |
+| Router | admission-signing key, replay and lifecycle stores | A/B roots, A/B envelope private keys, A/B peer-signing keys, Yao state, ECDSA scalar shares |
+| Deriver A | A root/provisioning state, A envelope private key, A peer-signing key, A ticket store | every B private value, SigningWorker private key, joined inputs or outputs |
+| Deriver B | B root/provisioning state, B envelope private key, B peer-signing key, B ticket store | every A private value, SigningWorker private key, joined inputs or outputs |
+| SigningWorker | server-output private key, activated signing state, nonce/presign state | A/B roots, A/B peer keys, client-output private key |
+
+Public verifying and encryption keys may be distributed through a signed
+deployment manifest. Private keys use role-local secret stores and rotation
+epochs.
+
+## Fail-Closed Startup Validation
+
+Every Worker validates its precise deployment identity before serving traffic.
+
+Router rejects startup when it has:
+
+- a Deriver root/store binding;
+- a Deriver envelope private key or peer-signing key;
+- equal A and B account identities in a production manifest;
+- a same-account production profile;
+- an old HSS route or caller-selectable Ed25519 backend.
+
+Deriver A and B reject startup when they have:
+
+- an opposite-role root, private key, storage binding, or deploy identity;
+- the same account, CI principal, or peer-signing key as the other production
+  Deriver;
+- a shared bearer credential for an A/B production edge;
+- a circuit or protocol digest outside the signed allowlist;
+- generator, clear-evaluator, passive-Yao, or old HSS code in the production
+  bundle.
+
+SigningWorker rejects startup when it has a Deriver root, Deriver envelope
+private key, Yao ticket, or peer-signing key.
+
+## Development And Benchmark Profile
+
+The same-account profile remains useful for:
+
+- local protocol development;
+- deterministic integration tests;
+- a Service Binding latency lower bound;
+- Worker-runtime containment tests;
+- same-colocation memory and throughput measurements.
+
+Its capability response must identify
+`router_ab_cloudflare_same_account_dev_v1`. Tests must reject that profile when
+the target environment is production. Results from it cannot prove independent
+operator security or production cross-account latency.
+
+## Production Release Evidence
+
+Before production enablement:
+
+- [ ] An independent deployment reviewer verifies account, CI, approver,
+      credential, storage, backup, log, and audit separation.
+- [ ] Negative tests prove Router cannot access A or B stores, A cannot access B
+      resources, and B cannot access A resources.
+- [ ] Signed HTTPS tests cover wrong peer, wrong role, body tampering, replay,
+      expiry, sequence gaps, duplicate frames, and stale deployment epochs.
+- [ ] Final role bundles are scanned for opposite-role secrets and forbidden
+      dependencies.
+- [ ] Both operators reproduce and approve protocol, circuit, source, and bundle
+      digests independently.
+- [ ] Cross-account cold/warm p50, p95, p99, CPU, memory, payload, request count,
+      retry, and abort measurements pass the Yao plan's gates.
+- [ ] ECDSA strict bootstrap, activation, recovery, export, refresh, pool, and
+      signing vectors pass with zero Yao dependency.
+- [ ] Normal Ed25519 and ECDSA signing traces contain zero Deriver calls.
+- [ ] Credential rotation, peer-key rotation, restore, one-role outage, and
+      fail-closed rollback drills pass.
+
+## Cutover
+
+This repository is in development. Existing Ed25519 wallets and ceremony state
+are invalidated and reprovisioned under one frozen Yao-era stable context. The
+cutover deletes same-account production manifests, old HSS routes and backend
+selectors, shared A/B credentials, generic threshold-service paths, and
+legacy-only fixtures. Compatibility logic and dual production profiles are not
+retained.
+
+## Decision Log
+
+| Date | Decision | Reason |
+| --- | --- | --- |
+| 2026-07-10 | Separate A/B Cloudflare accounts are mandatory in production | Same-account administration can replace both roles and defeats operational segregation |
+| 2026-07-10 | Same-account Service Bindings are development and benchmark only | They measure a useful lower bound and Worker-runtime containment under honest account administration |
+| 2026-07-10 | Product account owns Router and SigningWorker | Those roles may share an administrative domain without joining Deriver roots |
+| 2026-07-10 | Production has no deploy-all authority across A and B | Independent deployers are part of the approved security claim |
+| 2026-07-10 | Ed25519 uses active Streaming Yao; ECDSA uses threshold PRF plus additive shares | Each signature family keeps the construction suited to its key semantics |

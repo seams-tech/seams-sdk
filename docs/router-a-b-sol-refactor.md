@@ -1,0 +1,1178 @@
+# Router A/B Ed25519 Yao And ECDSA Strict Refactor Plan
+
+Date created: July 10, 2026
+
+Status: approved implementation plan. Phase 0 closed on July 10, 2026. The
+current Ed25519 hidden-evaluation backend is scheduled for deletion, and no
+further succinct-HSS implementation work is authorized. Production release is
+blocked until the actively secure Streaming Yao path, strict Router A/B cutover,
+legacy deletion, independent deployment, and security gates in this plan are
+complete.
+
+Companion documents:
+
+- [Router A/B specification](./router-a-b-SPEC.md)
+- [Router A/B deployment reference](./router-a-b-deployment.md)
+- [Router A/B local development](./router-a-b-local-dev.md)
+- [Router A/B cleanup history](./router-a-b-cleanup.md)
+- [Ed25519 HSS derivation](../crates/ed25519-hss/specs/derivation.md)
+- [Ed25519 HSS protocol](../crates/ed25519-hss/specs/protocol.md)
+- [Optimization 8](../crates/ed25519-hss/docs/optimization-8.md)
+- [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
+
+Optimization 8 owns latency experiment evidence. This plan owns protocol
+correctness, security, strict Router A/B integration, product migration,
+operational segregation, and deletion of obsolete implementations.
+
+## Goal
+
+Make strict Router A/B the only SDK/server architecture for every Ed25519 and
+ECDSA lifecycle:
+
+- registration and bootstrap;
+- SigningWorker activation;
+- normal signing;
+- presignature or nonce-pool fill;
+- recovery and material restore;
+- explicit key export;
+- server-share or role-share refresh;
+- add-signer and related wallet lifecycle operations.
+
+The Ed25519 flow must preserve the standard export-compatible derivation:
+
+```text
+d = LE32(y_client + y_server mod 2^256)
+h = SHA-512(d)
+a = LE256(clamp(h[0..32])) mod l
+```
+
+The output projection must remain:
+
+```text
+tau = tau_client + tau_server mod l
+x_client_base = a + tau mod l
+x_server_base = a + 2 * tau mod l
+a = 2 * x_client_base - x_server_base mod l
+```
+
+The refactor must also delete `ThresholdSigningService`. ECDSA-HSS does not get
+an extracted replacement service or compatibility fallback. Existing strict
+ECDSA Router A/B components are the target owners for every remaining ECDSA
+responsibility.
+
+## Executive Decisions
+
+1. **Strict Router A/B is the only production topology.** Router performs
+   admission, replay protection, policy, lifecycle tracking, and opaque routing.
+   Deriver A and Deriver B perform role-local derivation. SigningWorker owns
+   activated signing state and signing-time preprocessing.
+2. **Ed25519 uses one exact protocol, `router_ab_ed25519_yao_v1`.** It computes the
+   canonical seed, SHA-512 expansion, clamped scalar, and signing-share
+   projection through actively secure Streaming Yao between fixed Deriver A
+   garbler and Deriver B evaluator roles. Runtime selection between Ed25519
+   derivation candidates is not a product feature.
+3. **`mpc_threshold_prf_v1` is ECDSA-only.** Its independently
+   derived client and server scalar outputs have no canonical seed and cannot
+   provide standard Ed25519 key export. ECDSA retains strict Router A/B
+   threshold-PRF derivation and additive secp256k1 scalar shares.
+4. **The current `ed25519-hss` backend is deleted after replacement.** Formula-derived artifact
+   sizes, deterministic padding, revealing commitments, joined-share objects,
+   and same-process reconstruction are not retained in production code. No
+   further succinct-HSS kernel, amplification, or optimization work proceeds.
+5. **ECDSA also completes the strict cutover.** The existing strict
+   `router-ab-core::protocol::ecdsa_hss` and SigningWorker architecture absorb
+   all remaining generic service, authorization, pool, recovery, export, and
+   refresh responsibilities.
+6. **Production uses independent Cloudflare operators.** The required profile
+   is `router_ab_cloudflare_separate_accounts_v1`. Same-account bindings are
+   limited to local development, staging, and performance evaluation.
+7. **The production security target is privacy and correctness-with-abort
+   against Router plus at most one malicious Deriver.** The selected fixed-
+   circuit Yao construction requires a reviewed active-security compiler,
+   malicious OT, input provenance and consistency, selective-failure
+   resistance, and authenticated private outputs before production.
+8. **The cutover is destructive.** Old ceremony records, session shapes, route
+   bodies, feature branches, tests, fixtures, and fallback code are deleted.
+   Every existing development Ed25519 wallet is reprovisioned under the frozen
+   Yao-era stable context. No compatibility or conversion path is retained.
+9. **Ed25519 Yao development starts in isolated Rust crates.** The exact oracle
+   and generator live in `tools/ed25519-yao-generator`; production protocol
+   manifests and later cryptographic code live in `crates/ed25519-yao`.
+   Router, Cloudflare, SigningWorker, persistence, route, and SDK integration
+   remain deferred until the isolated security and circuit gates pass.
+
+## Non-Goals
+
+- A generic garbling or MPC framework.
+- A runtime-pluggable production backend registry.
+- Compatibility with unfinished legacy ceremonies or old sealed session
+  records.
+- A fallback from strict Router A/B to TypeScript threshold routes.
+- A quorum larger than two Derivers in this refactor.
+- Fairness or guaranteed availability when either Deriver aborts.
+- Protection after Deriver A and Deriver B collude.
+- A rewrite of normal signing algorithms whose strict Router A/B implementation
+  already satisfies the target ownership model.
+
+## Non-Negotiable Invariants
+
+### Canonical Ed25519 Identity
+
+- `d` is exactly 32 little-endian bytes obtained from addition modulo
+  `2^256`.
+- SHA-512 consumes exactly the standard Ed25519 seed bytes.
+- Clamping follows the standard Ed25519 pruning rules.
+- Export releases the exact seed `d`, never a scalar-native substitute.
+- Importing the exported seed reproduces the registered Ed25519 public key.
+- Refresh preserves `d`, `a`, the public key, and address unless the operation
+  is explicitly classified as wallet-key rotation.
+
+### Role Separation
+
+- Router never opens Deriver input envelopes or output-share packages.
+- Deriver A cannot represent or reconstruct Deriver B's private input.
+- Deriver B cannot represent or reconstruct Deriver A's private input.
+- No production type contains both sides of `y`, `tau`, `d`, `a`,
+  `x_client_base`, or `x_server_base`.
+- SigningWorker receives only shares addressed to its current identity and
+  activation epoch.
+- Client receives only client-addressed output shares or explicitly authorized
+  export shares.
+- TypeScript receives opaque ciphertext, handles, public metadata, and receipts;
+  it does not receive raw signing or derivation material.
+
+### ECDSA Threshold-PRF And Additive-Share Ownership
+
+- Every ECDSA bootstrap, signing, pool-fill, export, recovery, and refresh call
+  enters through a strict Router A/B public route.
+- Deriver A and Deriver B evaluate the strict ECDSA threshold PRF under stable,
+  role-local root material and derive additive secp256k1 scalar shares.
+- The client and SigningWorker scalar shares satisfy
+  `x = x_client + x_server mod n`; public-point parity is verified before
+  activation and export.
+- Deriver A and Deriver B own only role-local ECDSA derivation material.
+- SigningWorker owns active ECDSA server signing shares and server
+  presignatures.
+- Browser/WASM owns client ECDSA shares and client presignature material.
+- No `ThresholdSigningService`, ECDSA-specific successor service, or old
+  threshold route remains reachable.
+
+### Ed25519 Export
+
+- Export is a distinct request branch with step-up authorization.
+- Export authorization binds wallet/key identity, operation, recipient key,
+  transcript, expiry, and one-use nonce.
+- Each Deriver validates export authorization independently.
+- Export releases additive seed contributions only to the authorized client.
+- The client reconstructs `d`, recomputes the public key, and requires equality
+  with the registered key before returning an exported key.
+- Export authorization is consumed even if client delivery or local import
+  validation fails after release.
+
+### Deployment
+
+- Deriver A and Deriver B use separate Cloudflare accounts, deploy principals,
+  secrets, Durable Objects, backups, logs, audit exports, and approvers.
+- No human, CI principal, API token, break-glass credential, or secret store can
+  administer both Derivers.
+- A and B authenticate direct peer messages with distinct asymmetric keys.
+- Router and SigningWorker have no access to either Deriver root store or
+  envelope decryption key.
+
+## Current-State Gap Matrix
+
+| Requirement                                                                      | Intended source                            | Current implementation evidence                                                                                                                 | Classification                  | Confidence | Owning phase |
+| -------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ------------ |
+| Ed25519 derivation uses strict A/B role processes                                | `router-a-b-SPEC.md` Sections 2-5          | `/router-ab/ed25519/hss/*` dispatches to `ThresholdSigningService` in `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts` | Critical mismatch               |     `0.99` | 5, 7, 10     |
+| Ed25519 identity derives from canonical `d`                                      | `crates/ed25519-hss/specs/derivation.md`   | `router-ab-core` selects independent `x_client_base` and `x_server_base` threshold-PRF purposes                                                 | Critical mismatch               |     `0.99` | 1, 5         |
+| Neither peer obtains both share sides                                            | `router-a-b-SPEC.md` Section 3             | `DdhHssSharedWord` and client/server delivery APIs carry both sides                                                                             | Critical mismatch               |     `0.99` | 3, 4         |
+| Actively secure Streaming Yao is implemented                                     | `yaos-ab.md`                                | No fixed-circuit active Yao crate, malicious OT, input binding, or authenticated private-output implementation exists                           | Critical missing implementation |     `0.99` | 2, 3, 4      |
+| Production uses independent operators                                            | Deployment intent                          | Active deployment documentation and bindings still prioritize same-account Service Bindings                                                     | High missing implementation     |     `0.97` | 6, 11        |
+| ECDSA threshold-PRF/additive shares use strict Router A/B only                   | Router A/B spec                            | Strict ECDSA components exist, while generic service getters and threshold route handlers remain reachable                                      | High partial match              |     `0.96` | 5, 8, 10     |
+| One malicious Deriver cannot corrupt or selectively fail the protocol undetected | Target threat model                        | No active Yao compiler, malicious OT, input consistency, or authenticated private-output composition exists                                     | Critical missing implementation |     `0.95` | 3, 4, 9      |
+
+This matrix is the initial implementation baseline. Each phase updates the
+corresponding row with code, tests, and evidence. A partial match does not count
+as release completion.
+
+## Target Architecture
+
+```mermaid
+flowchart LR
+  C["Browser / client WASM"] -->|"public request + opaque A/B envelopes"| R["Router"]
+  R -->|"A envelope"| A["Deriver A account"]
+  R -->|"B envelope"| B["Deriver B account"]
+  A <-->|"signed transcript-bound secure-computation messages"| B
+  A -->|"encrypted client output A"| C
+  B -->|"encrypted client output B"| C
+  A -->|"encrypted server output A"| SW["SigningWorker"]
+  B -->|"encrypted server output B"| SW
+  SW -->|"activation receipt / signing response"| R
+```
+
+Normal signing after activation remains:
+
+```text
+Client -> Router -> SigningWorker -> Router -> Client
+```
+
+Deriver A and Deriver B participate only in derivation-time ceremonies,
+recovery, export, refresh, or activation. They remain outside the normal signing
+latency path.
+
+## Target Source Ownership
+
+```text
+tools/ed25519-yao-generator
+  exact clear reference functionality and vectors
+  deterministic circuit compiler and liveness schedule generator
+  developer/CI artifact emission
+  no production reverse dependency
+
+crates/ed25519-yao
+  validated fixed protocol and circuit manifests
+  reviewed embedded production artifacts
+  actively secure garbler/evaluator, OT, and private-output protocol
+  no clear joined evaluator or generator dependency
+
+crates/router-ab-core
+  public request and authorization contracts
+  typed Ed25519 Yao and ECDSA lifecycle states
+  canonical transcript and wire metadata
+  recipient and role identities
+  replay/error/output receipt contracts
+  no secret-processing implementation
+
+crates/router-ab-ed25519-yao
+  production adapter between router-ab-core contracts and ed25519-yao roles
+  no Router, HTTP, Cloudflare, persistence, or browser policy
+
+crates/router-ab-cloudflare
+  public Router Worker
+  Deriver A Worker adapter
+  Deriver B Worker adapter
+  SigningWorker adapter
+  role-local Durable Objects
+  signed cross-account HTTPS transport
+
+crates/signer-core and browser WASM
+  client input derivation and splitting
+  recipient-envelope construction
+  client output combination
+  explicit seed export reconstruction and verification
+  client Ed25519 and ECDSA signing material
+
+packages/sdk-web
+  public lifecycle orchestration
+  worker handles and public metadata
+  no raw crypto material
+
+packages/sdk-server-ts
+  application auth integration and scoped Router grant issuance
+  no threshold signing or hidden-evaluation service
+```
+
+The new adapter crate is deferred until Phase 5. The first implementation slice
+creates only `tools/ed25519-yao-generator` and `crates/ed25519-yao`; Router,
+Cloudflare, SigningWorker, persistence, SDK, and route code remain untouched.
+When composition begins, `router-ab-core` stays cryptography-agnostic,
+`ed25519-yao` stays transport-agnostic, and one adapter owns production
+composition.
+
+## Domain-State Rules
+
+- Use distinct Rust enums for Ed25519 registration, export, recovery, refresh,
+  and activation requests.
+- Use distinct role-local state types for Deriver A and Deriver B.
+- Use consuming transitions for secret lifecycle state. Finalization accepts
+  owned state and cannot be called twice.
+- Model preprocessing as:
+
+  ```text
+  Available -> Reserved -> Consumed
+                       -> Destroyed
+  ```
+
+- An uncertain crash destroys the affected one-use material.
+- Export types can carry `SeedExportShare`; every non-export request type makes
+  that field impossible.
+- Client-output and SigningWorker-output branches use distinct recipient types.
+- Raw request bodies, persisted records, and worker responses are validated once
+  at their boundary and converted to precise internal types.
+- Boundary compatibility shapes do not enter core logic.
+- All switches over protocol, request, recipient, role, and lifecycle unions are
+  exhaustive.
+- Add compile-time fixtures that reject missing identity, broad-spread
+  construction, wrong-recipient fields, mixed protocol branches, reusable
+  consumed state, and legacy service inputs.
+
+## Root And Key-Continuity Policy
+
+The development cutover performs an unconditional hard identity reset for every
+existing Ed25519 wallet. Each wallet is reprovisioned under one new, frozen
+Yao-era `StableKeyDerivationContext`. Old records are invalidated. No migration,
+address-preserving conversion, runtime compatibility flag, or retained HSS
+backend exists.
+
+For newly provisioned Ed25519 wallets:
+
+- Deriver A and Deriver B each own stable, independent derivation material or
+  stable per-account role-local material.
+- Their role-local contributions algebraically define `y_server` and
+  `tau_server`.
+- The exact KDF, labels, context fields, endianness, and reduction rules are
+  frozen in Phase 1 vectors.
+- Deployment, HPKE, peer-signing, and storage-encryption epochs are transcript
+  metadata. They do not change the wallet derivation context.
+
+Operational rotation taxonomy:
+
+- Rotating deployment, transport, HPKE, signing, wrapping, or storage keys keeps
+  wallet identity stable.
+- Rewrapping the same Deriver root keeps wallet identity stable.
+- Refreshing correlated role-local account shares preserves their joined `y`,
+  `tau`, `d`, and public key.
+- Replacing derivation roots changes wallet keys and is an explicit wallet-key
+  rotation.
+
+ECDSA key continuity is frozen separately through existing strict ECDSA public
+key and signing vectors. Moving an ECDSA lifecycle from
+`ThresholdSigningService` to strict Router A/B must preserve its public key or be
+classified as explicit wallet-key rotation.
+
+## Security Target
+
+Production targets:
+
+```text
+privacy and correctness-with-abort against Router plus at most one malicious
+Deriver, under static corruption and no A+B collusion
+```
+
+Explicit exclusions:
+
+- Deriver A and Deriver B collusion;
+- sequential compromise of both role states without proactive refresh and
+  verified erasure;
+- client and SigningWorker collusion, because together they can reconstruct
+  `a = 2*x_client_base - x_server_base`;
+- Cloudflare platform compromise spanning both independent accounts;
+- a common software-supply-chain compromise approved by both independent
+  deployers;
+- availability, fairness, and protection from a Deriver that always aborts.
+
+The minimum passive/semi-honest construction may be used only as an isolated
+research milestone. Product capability responses and documentation must not
+advertise the hardened claim until the active-security phase and audit pass.
+
+## Phase Overview
+
+| Phase | Name                                             | Depends on          | Exit result                                            |
+| ----: | ------------------------------------------------ | ------------------- | ------------------------------------------------------ |
+|     0 | Freeze contract and stop-ship status             | None                | Approved scope, threat model, budgets, identity policy |
+|     1 | Freeze functionality, vectors, and party views   | Phase 0             | Canonical Ed25519/ECDSA identity and lifecycle oracle  |
+|     2 | Build isolated Yao oracle and circuit foundations | Phase 1            | Exact vectors, manifests, and deterministic artifacts  |
+|     3 | Build the actively secure Streaming Yao core     | Phase 2             | Role-local production construction                     |
+|     4 | Add one-use role and preprocessing protocol      | Phase 3             | Malicious privacy/correctness-with-abort candidate     |
+|     5 | Add strict Router A/B protocol integration       | Phases 1, 4         | Typed Ed25519 and ECDSA strict lifecycle contracts     |
+|     6 | Implement independent-account Cloudflare runtime | Phase 5 wire freeze | Signed cross-account A/B execution                     |
+|     7 | Migrate Ed25519 product lifecycles               | Phases 5, 6         | All Ed25519 flows use strict Router A/B                |
+|     8 | Complete ECDSA strict migration                  | Phases 5, 6         | All ECDSA flows use strict Router A/B                  |
+|     9 | Security, constant-time, and performance gates   | Phases 3-8          | Auditable release evidence                             |
+|    10 | Hard cutover and legacy deletion                 | Phases 7-9          | One implementation; generic service deleted            |
+|    11 | Independent production evidence and release      | Phase 10            | Signed two-operator release evidence                   |
+
+## Phase 0: Freeze Contract And Stop-Ship Status
+
+Status: **complete — closed July 10, 2026; production gates remain active**
+
+Goal: make the intended security and identity contract authoritative before new
+cryptographic or routing code is written.
+
+### TODO
+
+- [x] Classify the current `ed25519-hss` candidate, artifact, DDH, joined
+      client/server, and joined runtime paths as historical research inputs
+      scheduled for deletion.
+- [x] Remove the current prime-order implementation from production-security
+      consideration.
+- [x] Update `router-a-b-SPEC.md` so Ed25519 targets
+      `router_ab_ed25519_yao_v1` and never uses `mpc_threshold_prf_v1`.
+- [x] Update `router-a-b-deployment.md` so
+      `router_ab_cloudflare_separate_accounts_v1` is mandatory for production;
+      classify same-account Service Bindings as local/staging-only.
+- [x] Record the hardened security claim, corruption matrix, explicit
+      exclusions, and required active-security compiler.
+- [x] Freeze unconditional Ed25519 development-wallet reprovisioning under one
+      new stable Yao-era context. No compatibility or secure-conversion path is
+      retained.
+- [x] Confirm ECDSA identity remains governed by its existing strict protocol
+      vectors; no ECDSA derivation change is introduced by Yao.
+- [x] Freeze initial p50, p95, payload, Worker memory, cold-start, round-trip,
+      preprocessing-storage, and correctness-error budgets.
+- [x] Freeze actively secure Yao as the only production security level. Passive
+      artifacts are isolated measurement inputs and have no product entrypoint.
+- [x] Assign generic-service inventory and source-guard work to the integration
+      and deletion phases; the first slice does not edit overlapping SDK code.
+- [x] Add this plan and `yaos-ab.md` to the active architecture set.
+
+### Exit Gate
+
+- [x] Security claim and party-corruption matrix are approved.
+- [x] Key-continuity and root-refresh policy are approved for the development
+      cutover.
+- [x] Product resource budgets are recorded before prototype measurement.
+- [x] Documentation no longer claims the current backend meets the target.
+- [x] Every generic-service caller category has a target owner and deletion
+      phase; the exact source inventory remains an integration deliverable.
+
+Release remains a no-go while party views, active-security details, exact
+resource evidence, or independent review are unresolved.
+
+## Phase 1: Freeze Functionality, Vectors, And Party Views
+
+Status: **in progress — isolated Rust crates only**
+
+Goal: define exact executable semantics independently from any secure-computation
+backend.
+
+### TODO
+
+- [ ] Move the exact correctness oracle into
+      `tools/ed25519-yao-generator`, with no `ed25519-hss` dependency.
+- [ ] Define `Ed25519CanonicalDerivationV1` fixtures containing the complete
+      context, A/B inputs, joined test-only values, `d`, SHA-512 digest, clamped
+      `a`, `tau`, both output shares, public key, and export seed.
+- [ ] Freeze KDF labels, context fields, canonical encoding, endianness,
+      reductions, participant identifiers, and domain separators.
+- [ ] Add standard Ed25519 seed import/export vectors.
+- [ ] Add randomized differential vectors and carry-heavy addition cases.
+- [ ] Add clamp-boundary and scalar-reduction edge cases.
+- [ ] Verify `a = 2*x_client_base - x_server_base mod l` for every vector.
+- [ ] Verify exported `d` reproduces the registered public key and standard
+      signature behavior.
+- [ ] Add refresh-before/after vectors proving stable `d`, `a`, public key, and
+      output reconstruction.
+- [ ] Freeze ECDSA strict identity, bootstrap, presign, signature, export,
+      recovery, and refresh vectors before moving residual service callers.
+- [ ] Write request-kind-specific ideal functionalities for Ed25519
+      registration, activation, recovery, refresh, and export.
+- [ ] Write corresponding ECDSA lifecycle functionality and ownership maps by
+      referencing the existing strict ECDSA protocol.
+- [ ] Specify complete views for Client, Router, Deriver A, Deriver B,
+      SigningWorker, persistence, logs, and each supported corruption set.
+- [ ] Record every allowed output and every forbidden joined value per role.
+- [ ] Freeze transcript fields, direction tags, sequence numbering, recipient
+      identities, circuit/backend identifiers, and all key/deployment epochs.
+- [ ] Create an alignment matrix from each Router A/B invariant to its planned
+      enforcement code and test.
+
+### Exit Gate
+
+- [ ] Two independent Ed25519 implementations agree with every canonical and
+      randomized vector.
+- [ ] Standard seed export/import parity passes.
+- [ ] ECDSA vectors identify every value that must remain stable through the
+      strict migration.
+- [ ] Ideal functionality, party views, and transcript schema receive protocol
+      review.
+- [ ] No backend-specific assumption appears in the reference oracle.
+
+## Phase 2: Build Isolated Yao Oracle And Circuit Foundations
+
+Status: **started; SDK and Router integration deferred**
+
+Goal: establish exact, deterministic foundations in isolated crates before any
+product-path code changes.
+
+### Target Ownership
+
+```text
+tools/ed25519-yao-generator/
+  exact clear reference oracle
+  deterministic circuit compiler and schedule generator
+  test vectors and manifest emission
+
+crates/ed25519-yao/
+  validated protocol and circuit manifests
+  embedded reviewed production artifacts after Phase 3
+  no clear joined evaluator or generator dependency
+```
+
+### TODO
+
+- [ ] Implement activation and export reference functions as distinct output
+      types; seed output is impossible outside export.
+- [ ] Add RFC 8032, carry-heavy, clamp, reduction, output-equation, and
+      noncanonical-scalar vectors.
+- [ ] Freeze `router_ab_ed25519_yao_v1`, activation circuit, and export circuit
+      identifiers in the production crate.
+- [ ] Define validated digests and required circuit metrics without runtime
+      backend or security-profile selectors.
+- [ ] Implement a minimal fixed circuit IR and exact SHA-512 specialization.
+- [ ] Implement 256-bit addition, clamp, reduction modulo `l`, `tau`
+      aggregation, and both output equations.
+- [ ] Emit canonical manifests, liveness schedules, deterministic digests, and
+      real passive gate/table counts.
+- [ ] Differential-test the clear evaluator against the Phase 1 oracle.
+- [ ] Prove the production crate and Cloudflare bundles have no dependency on
+      the generator, clear evaluator, or `ed25519-hss`.
+- [ ] Run focused native tests, WASM compilation, boundary tests, and compiled
+      constant-time review in proportion to each slice.
+
+### Exit Gate
+
+- [ ] Deterministic activation and export artifacts reproduce all vectors.
+- [ ] Production manifest types reject zero, stale, unknown, or mixed digests.
+- [ ] Circuit digests and counts reproduce across clean builds.
+- [ ] Seed-bearing fields exist only in export outputs.
+- [ ] No product route, SDK caller, or Cloudflare adapter changes in this phase.
+
+## Phase 3: Build The Actively Secure Streaming Yao Core
+
+Status: **blocked on Phase 2 artifacts and active-suite selection**
+
+Goal: implement one role-local, actively secure fixed-circuit protocol in
+`crates/ed25519-yao`.
+
+### TODO
+
+- [ ] Select a reviewed active fixed-circuit compiler and malicious-secure OT
+      construction with the independent cryptographic reviewer.
+- [ ] Define disjoint consuming Deriver A garbler and Deriver B evaluator state
+      families.
+- [ ] Implement fixed-size zeroizing labels, public unique gate tweaks, bounded
+      schedule traversal, and incremental garbling/evaluation.
+- [ ] Implement garbling correctness, evaluator-input consistency,
+      selective-failure resistance, and authenticated private output.
+- [ ] Bind role inputs to provisioned roots, epochs, request authorization, and
+      the frozen stable derivation context.
+- [ ] Define directional A-to-B and B-to-A frames with bounded canonical
+      parsing and transcript authentication.
+- [ ] Define distinct client activation, SigningWorker activation, and export-
+      only seed output packages.
+- [ ] Add corrupt-A, corrupt-B, malformed-OT, wrong-circuit, output-equivocation,
+      replay, and abort tests.
+- [ ] Measure exact online/offline payload, rounds, CPU, memory, and cold starts
+      in native and Worker/WASM environments.
+- [ ] Delete losing passive or active-security experiment implementations before
+      product integration.
+- [ ] Obtain independent cryptographic review with no open critical or high
+      finding.
+
+### Exit Gate
+
+- [ ] Router plus one malicious Deriver learns no forbidden peer or recipient
+      value.
+- [ ] A malicious Deriver produces a valid authenticated output or a detectable
+      uniform abort.
+- [ ] All Phase 1 vectors pass through separate role processes.
+- [ ] The selected construction meets the frozen Worker resource budgets.
+- [ ] No passive protocol entrypoint is reachable from production code.
+
+## Phase 4: Active Security And One-Use Role Protocol
+
+Status: **blocked on Phase 3**
+
+Goal: give the selected active construction a crash-safe, one-use operational
+lifecycle that meets the hardened one-malicious-Deriver claim.
+
+### TODO
+
+- [ ] Specify how Deriver A and Deriver B supply their private inputs without
+      revealing selected labels or counterpart root contributions.
+- [ ] Carry the Phase 3 reviewed OT and active-security suite into one-use
+      preprocessing records without adding a second protocol.
+- [ ] Implement input consistency, selective-failure resistance, authenticated
+      internal values or labels, output authentication, and protocol-abort
+      semantics.
+- [ ] Bind preprocessing to account, wallet/key, request kind, role identities,
+      recipient keys, root epoch, deployment epoch, protocol/circuit digest,
+      authorization digest, expiry, and transcript nonce.
+- [ ] Implement atomic `Available -> Reserved -> Consumed | Destroyed`
+      preprocessing records.
+- [ ] Burn uncertain material after crashes, timeouts, malformed peer responses,
+      equivocation, or partial output release.
+- [ ] Give A and B independent replay and consume records.
+- [ ] Add input-role swap, output-recipient swap, reflection, reordering, gap,
+      duplicate, stale-epoch, cross-wallet, cross-operation, and mixed-circuit
+      tests.
+- [ ] Add concurrent-consume and crash-at-every-transition tests.
+- [ ] Produce public share commitments `X_client` and `X_server` and verify
+      `2 * X_client - X_server = A` before activation.
+- [ ] Document that public commitment parity checks share consistency while the
+      active-secure circuit supplies the derivation-correctness argument.
+- [ ] Obtain independent review of the active-security composition and party
+      views.
+
+### Exit Gate
+
+- [ ] Router plus one malicious Deriver learns no forbidden peer or recipient
+      value.
+- [ ] A malicious Deriver can cause at most a detectable abort or a valid output.
+- [ ] Selective-failure and output-equivocation tests pass.
+- [ ] One-use state cannot be replayed, cloned, rolled back, or consumed twice.
+- [ ] The approved security claim exactly matches the implemented composition.
+
+## Phase 5: Strict Router A/B Protocol Integration
+
+Status: **blocked on Phases 1 and 4**
+
+Goal: give Ed25519 and ECDSA explicit, typed, strict Router lifecycles
+without importing secret-processing code into Router.
+
+### TODO
+
+- [ ] Add `crates/router-ab-core/src/protocol/ed25519_yao.rs` with distinct
+      registration, activation, recovery, refresh, and export request branches.
+- [ ] Keep the existing strict ECDSA-HSS protocol as the ECDSA authority and add
+      any missing bootstrap, export, recovery, refresh, pool-fill, or activation
+      branches there.
+- [ ] Define typed public request, Router admission, Deriver request, peer
+      message, recipient output, activation receipt, and terminal result states.
+- [ ] Make export fields impossible in registration, recovery, refresh, and
+      activation branches.
+- [ ] Make client and SigningWorker recipient packages distinct types.
+- [ ] Make protocol/circuit/backend identifiers fixed by the request kind rather
+      than caller-selected strings.
+- [ ] Remove Ed25519 selection of `MpcThresholdPrfV1` from
+      `protocol/public_request.rs` and every Ed25519 request builder.
+- [ ] Retain threshold PRF for strict ECDSA derivation and remove it from every
+      Ed25519 request, selector, vector, and fixture.
+- [ ] Add a production adapter between `router-ab-core` and `ed25519-yao` without
+      using `router-ab-dev` or a clear reconstruction helper.
+- [ ] Add canonical encoding and cross-language vectors for every new request,
+      transcript, peer message, output package, and receipt.
+- [ ] Extend lifecycle, wire, output, error, and boundary parser tests.
+- [ ] Add compile-time and source-guard tests rejecting joined state, mixed
+      recipients, mixed protocols, optional identity, legacy service types, and
+      broad object construction.
+- [ ] Ensure normal Ed25519 and ECDSA signing remain Router-to-SigningWorker
+      paths with zero Deriver calls after activation.
+- [ ] Update `router-a-b-SPEC.md`, core README/specs, and route documentation to
+      match the exact implemented branches.
+
+### Exit Gate
+
+- [ ] Core lifecycle switches are exhaustive.
+- [ ] Invalid protocol, request, role, recipient, and epoch combinations fail at
+      parsing or compilation.
+- [ ] Router contract types contain no root, input-share, output-share, or clear
+      HSS material.
+- [ ] Ed25519 and ECDSA core vector suites pass.
+- [ ] Normal signing traces prove zero Deriver calls.
+
+## Phase 6: Independent-Account Cloudflare Runtime
+
+Status: **blocked on Phase 5 wire freeze**
+
+Goal: implement the operational segregation required by the security claim.
+
+### TODO
+
+- [ ] Add strict public Ed25519 registration, export, recovery, refresh, and
+      activation routes to `crates/router-ab-cloudflare/src/paths.rs`.
+- [ ] Complete strict ECDSA routes for every lifecycle identified in Phase 5.
+- [ ] Run cryptographic role code only inside Deriver A or Deriver B Worker
+      adapters.
+- [ ] Store secret role state only in the corresponding role-local Durable
+      Object namespace.
+- [ ] Implement authenticated, canonical, transcript-bound HTTPS transport
+      between independent accounts.
+- [ ] Sign peer envelopes over sender and recipient role, identities, method,
+      path, body digest, transcript digest, sequence number, protocol/circuit
+      version, root/key/deployment epochs, nonce, issue time, and expiry.
+- [ ] Use distinct asymmetric keys for peer signing, role-envelope decryption,
+      recipient output encryption, and deployment-manifest signing.
+- [ ] Replace shared A/B internal bearer secrets with per-edge asymmetric
+      authentication or reviewed mutually authenticated transport.
+- [ ] Maintain independent atomic replay state at A and B.
+- [ ] Deliver encrypted output shares directly to Client and SigningWorker when
+      the deployment permits; Router may relay only opaque ciphertext.
+- [ ] Require SigningWorker activation acknowledgement before a registration or
+      refresh ceremony becomes complete.
+- [ ] Add fail-closed startup validation for forbidden bindings, secrets, stores,
+      endpoints, and duplicate role identities.
+- [ ] Build role-specific artifacts and scan each final bundle for opposite-role
+      secret owners and joined-state code.
+- [ ] Provision separate Cloudflare accounts, CI environments, approvers, deploy
+      tokens, Durable Objects, backups, logs, and audit exports.
+- [ ] Require each independent deployer to verify and approve the reviewed
+      content-addressed artifact and protocol/circuit digest.
+- [ ] Publish a signed deployment manifest and capability document.
+- [ ] Make clients reject a downgrade from the required production profile.
+- [ ] Add negative deployment tests proving Router cannot access either root
+      store, A cannot access B resources, and B cannot access A resources.
+- [ ] Benchmark the actual cross-account topology, including cold starts and p95
+      network latency.
+
+### Exit Gate
+
+- [ ] No principal or credential can administer both A and B.
+- [ ] Signed cross-account transport, replay, expiry, wrong-peer, and body-tamper
+      tests pass.
+- [ ] Router sees only public metadata, ciphertext, and receipts.
+- [ ] Role-local crash/retry/equivocation tests pass in Durable Objects.
+- [ ] Two-account staging meets the frozen resource budgets.
+
+## Phase 7: Migrate Ed25519 Product Lifecycles
+
+Status: **blocked on Phases 5 and 6**
+
+Goal: move every Ed25519 product caller to the strict Rust Router A/B protocol.
+
+### TODO
+
+- [ ] Replace the browser evaluator/garbler lifecycle with client input
+      derivation, A/B splitting, HPKE envelope construction, recipient-share
+      opening, and result verification.
+- [ ] Replace
+      `packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
+      with one strict Router client lifecycle.
+- [ ] Keep raw client roots, `y_client`, `tau_client`, output shares, and `d`
+      inside Rust/WASM-owned secret types.
+- [ ] Wire registration and SigningWorker activation through strict Router
+      routes.
+- [ ] Wire add-signer through the same strict derivation boundary.
+- [ ] Wire passkey restore and email recovery through strict recovery grants and
+      routes.
+- [ ] Wire explicit export through a separate step-up grant and export branch.
+- [ ] Wire server-share and activation refresh through strict refresh routes.
+- [ ] Require the client to verify the public key after registration, recovery,
+      refresh, and export.
+- [ ] Require SigningWorker to combine only its A/B activation shares and reject
+      client output packages.
+- [ ] Make strict Router URL, deployment profile, protocol/circuit digest,
+      SigningWorker identity, root epoch, and material binding required in
+      persisted ready state.
+- [ ] Bump persisted Ed25519 record versions and reject old ceremony/session
+      shapes. Do not add restore compatibility.
+- [ ] Replace TypeScript service calls in wallet registration, add-signer,
+      recovery, export, and WebAuthn/email operations with scoped Router grant
+      issuance and strict requests.
+- [ ] Add E2E coverage for registration to normal sign, recovery to same key,
+      export to standard import, refresh to same key, and add-signer.
+
+### Exit Gate
+
+- [ ] Repository traces show every Ed25519 derivation-time call enters strict
+      Router A/B.
+- [ ] No Ed25519 product caller invokes `ThresholdSigningService` or the old HSS
+      WASM driver.
+- [ ] Client and SigningWorker receive only their recipient-scoped shares.
+- [ ] Standard export and public-key parity pass end to end.
+- [ ] Normal signing remains Deriver-free.
+
+## Phase 8: Complete ECDSA Strict Migration
+
+Status: **blocked on Phases 5 and 6**
+
+Goal: remove every remaining ECDSA dependency on the generic threshold service
+and make strict Router A/B threshold-PRF derivation plus additive secp256k1
+scalar shares the sole ECDSA architecture.
+
+### TODO
+
+- [ ] Inventory all ECDSA callers of `ThresholdSigningService`,
+      `getThresholdSigningService`, `thresholdEcdsaOperations`,
+      `thresholdEcdsaKeyInventory`, and threshold ECDSA route handlers.
+- [ ] Map each caller to strict Router admission, Deriver A/B derivation,
+      SigningWorker state, client WASM, or deletion.
+- [ ] Freeze the stable ECDSA threshold-PRF context independently from ceremony
+      transcripts and prove registration, export, recovery, and refresh identity
+      parity with golden vectors.
+- [ ] Authenticate each Deriver root-share commitment against its independent
+      identity and epoch registry.
+- [ ] Move ECDSA bootstrap and SigningWorker activation to strict ECDSA
+      routes.
+- [ ] Move ECDSA presignature pool creation and refill to strict Deriver and
+      SigningWorker ownership.
+- [ ] Move ECDSA normal signing to strict Router and SigningWorker exclusively;
+      retain no generic service bridge.
+- [ ] Move ECDSA export, recovery, refresh, and add-signer flows to explicit
+      strict lifecycle branches.
+- [ ] Replace TypeScript threshold-service authorization with scoped Router
+      grants and typed strict requests.
+- [ ] Move retained ECDSA stores to their actual owner: role-local Deriver,
+      SigningWorker, Router lifecycle, or client worker.
+- [ ] Remove ECDSA service acquisition from Cloudflare and Node router assembly.
+- [ ] Remove ECDSA methods and types from generic auth-service ports.
+- [ ] Update SDK ECDSA ready states so strict Router URL, Wallet Session grant,
+      SigningWorker identity, key/root epochs, protocol version, and pool state
+      are required.
+- [ ] Add E2E coverage for ECDSA bootstrap to sign, pool hit, pool miss/refill,
+      recovery, export, refresh, and add-signer.
+- [ ] Add source guards proving normal ECDSA signing invokes zero Derivers after
+      activation and no ECDSA path reaches the generic service.
+
+### Exit Gate
+
+- [ ] Every ECDSA public product flow enters a strict Router route.
+- [ ] ECDSA derivation uses the frozen threshold PRF and additive scalar-share
+      relation, with no `ed25519-yao` dependency.
+- [ ] Every ECDSA secret is owned by Client, one Deriver, or SigningWorker as
+      specified.
+- [ ] No ECDSA caller references `ThresholdSigningService` or a successor
+      centralized signing service.
+- [ ] ECDSA public-key and signature vectors remain stable or an explicit key
+      rotation has been recorded.
+- [ ] Normal signing remains Deriver-free.
+
+## Phase 9: Security, Constant-Time, And Performance Gates
+
+Status: **blocked on integrated Phases 3-8**
+
+Goal: produce release evidence for the exact native, WASM, protocol, and
+deployment artifacts that will ship.
+
+### Constant-Time TODO
+
+- [ ] Inventory role roots, `y`, `tau`, `d`, SHA-512 state, `a`, output shares,
+      OT choices, labels, masks, preprocessing seeds,
+      ECDSA shares, nonces, and presignatures as secrets.
+- [ ] Require fixed circuit topology, loop counts, message counts, allocation
+      sizes, and secret-payload lengths.
+- [ ] Remove secret-dependent branches, iterator termination, indexes, table
+      lookups, payload selection, division, and remainder.
+- [ ] Use reviewed constant-time field/group operations and constant-time
+      selection/equality.
+- [ ] Zeroize inputs, intermediates, masks, labels, OT state, RNG state,
+      presignatures, and abandoned ceremonies.
+- [ ] Keep secrets out of errors, logs, traces, metrics, panic payloads, debug
+      formatting, and crash artifacts.
+- [ ] Analyze isolated Rust secret kernels at `O0` and `O3` on x86_64 and arm64.
+- [ ] Trace every analyzer finding to public or secret input and retain a triage
+      report.
+- [ ] Inspect the final optimized WASM after `wasm-opt` for secret-derived
+      branches, indirect calls, loads, stores, division, and remainder.
+- [ ] Run fixed-versus-random timing tests for native kernels as supporting
+      evidence.
+- [ ] Repeat compiled-output review when Rust, LLVM, curve libraries, WASM
+      tooling, or release flags change.
+
+### Protocol And Adversarial TODO
+
+- [ ] Run party-view tests for every supported corruption set.
+- [ ] Fuzz every public, peer, persistence, and recipient-package parser.
+- [ ] Test malformed/noncanonical/torsion points and invalid scalar encodings.
+- [ ] Test replay, concurrent consume, rollback, crash recovery, expiry,
+      reflection, reordering, gaps, wrong roles, wrong recipients, mixed epochs,
+      mixed wallets, mixed protocols, and mixed circuit versions.
+- [ ] Test output equivocation and selective-failure attempts.
+- [ ] Scan logs, diagnostics, persistence, browser messages, and crash records for
+      secret material.
+- [ ] Translation-validate the optimized circuit against the Phase 1 reference
+      and pin IR digest plus gate count.
+- [ ] Verify Ed25519 `2 * X_client - X_server = A` and standard export parity.
+- [ ] Verify ECDSA public-key, signature, recovery-id, and presignature parity.
+- [ ] Run full registration, recovery, export, refresh, activation, pool, and
+      normal-signing E2E matrices for both protocols.
+
+### Performance And Review TODO
+
+- [ ] Record intended-product p50/p95, cold starts, memory, payloads, round trips,
+      preprocessing throughput, storage, and pool exhaustion behavior.
+- [ ] Preserve historical HSS measurements as dated context; run no new HSS
+      implementation or optimization experiment.
+- [ ] Verify normal signing latency has not acquired Deriver work.
+- [ ] Complete an independent cryptographic review of construction, parameters,
+      amplification, active security, constant-time behavior, and implementation.
+- [ ] Complete an independent deployment review of account separation, CI,
+      credentials, storage, logs, backups, peer transport, and incident response.
+- [ ] Close every critical and high finding. Give medium findings an explicit
+      disposition, owner, and deadline.
+
+### Exit Gate
+
+- [ ] No unresolved secret-derived variable-time instruction, branch, or memory
+      access remains.
+- [ ] Native x86_64, native arm64, and shipped WASM evidence passes.
+- [ ] All adversarial, vector, fuzz, lifecycle, and product tests pass.
+- [ ] Product resource budgets pass on the independent-account topology.
+- [ ] Both independent reviews approve legacy deletion and release progression.
+
+## Phase 10: Hard Cutover And Legacy Deletion
+
+Status: **blocked on Phases 7-9**
+
+Goal: leave one strict production architecture and no compatibility path.
+
+### Generic Service Deletion TODO
+
+- [ ] Delete
+      `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`.
+- [ ] Delete `createThresholdSigningService.ts` and
+      `createCloudflareDurableObjectThresholdSigningService.ts`.
+- [ ] Delete `d1ThresholdSigningRuntime.ts` and remove it from Router/service
+      assembly.
+- [ ] Delete all `getThresholdSigningService` ports, providers, setters, getters,
+      optional config, and exports.
+- [ ] Move any still-current narrow helper into its real strict owner and delete
+      the emptied generic module. Do not introduce an ECDSA-specific replacement
+      service.
+- [ ] Delete generic service stores and record shapes that exist only for the old
+      ceremony architecture.
+
+### Ed25519 Deletion TODO
+
+- [ ] Delete Ed25519 HSS cases from
+      `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`.
+- [ ] Delete old prepare/respond/advance/finalize route definitions and constants.
+- [ ] Delete
+      `packages/sdk-server-ts/src/core/ThresholdService/ed25519HssWasm.ts`.
+- [ ] Delete Ed25519 server-input combine code from `thresholdPrfWasm.ts` and
+      `signingRootShareResolver.ts`.
+- [ ] Delete legacy registration, add-signer, recovery, and export ceremony
+      records and stores.
+- [ ] Delete old browser evaluator/garbler lifecycle, worker messages, client
+      driver state, and serialized ceremony state.
+- [ ] Delete obsolete `near_signer` threshold-HSS exports and WASM feature
+      branches.
+- [ ] Delete simulator-only crate modules, binaries, benchmarks, fixtures, and
+      formal claims after their real replacements land.
+- [ ] Delete the `router-ab-dev` clear reconstruction adapter and tests.
+
+### ECDSA Deletion TODO
+
+- [ ] Delete legacy cases and service bridges from `thresholdEcdsa.ts` and
+      related Node/Cloudflare route assembly.
+- [ ] Delete old public `/threshold-ecdsa/*` route definitions, clients, and
+      constants.
+- [ ] Delete generic-service ECDSA authorization, key-inventory, pool-fill,
+      recovery, export, and refresh helpers superseded by strict Router A/B.
+- [ ] Delete old ECDSA session, presignature, and ceremony stores after strict
+      owner migrations complete.
+- [ ] Delete fixtures, mocks, snapshots, and tests that protect generic-service
+      ECDSA behavior.
+
+### Repository Cleanup TODO
+
+- [ ] Reject and delete unfinished legacy Ed25519 and ECDSA ceremony records.
+- [ ] Reject old persisted ready-session versions at the boundary and remove the
+      parsers after development data cleanup.
+- [ ] Delete stale environment variables, Durable Object bindings, migrations,
+      deployment templates, and documentation for the generic service.
+- [ ] Delete old route names, type aliases, feature flags, deprecated symbols,
+      and fallback branches.
+- [ ] Add repository source guards for old route literals, generic service
+      symbols, joined HSS APIs, placeholder artifact types, simulator modules,
+      and dev clear reconstruction.
+- [ ] Add dependency guards proving production Router, Deriver A, Deriver B,
+      SigningWorker, browser, and TypeScript bundles import only their allowed
+      role surfaces.
+- [ ] Scan final Worker and browser bundles for forbidden symbols and secret
+      owners.
+- [ ] Update Router A/B, Ed25519 HSS, ECDSA-HSS, deployment, recovery, export,
+      local-dev, and optimization documentation.
+- [ ] Delete tests and fixtures for obsolete behavior. Do not adapt them to
+      preserve it.
+
+### Exit Gate
+
+- [ ] Repository search finds no `ThresholdSigningService` definition or caller.
+- [ ] Repository search finds no active old Ed25519 or ECDSA threshold route.
+- [ ] Repository search finds no production joined-state HSS API or simulator.
+- [ ] One current Ed25519 protocol version and one current ECDSA protocol version
+      remain.
+- [ ] Full Rust, WASM, TypeScript, SDK, strict Router, E2E, and deployment suites
+      pass.
+- [ ] Obsolete secret records, Durable Objects, backups, and deployment bindings
+      have documented destruction evidence.
+
+Rollback means redeploying the same strict protocol artifact and restoring
+role-local state from independently controlled backups. It never means
+reactivating deleted code.
+
+## Phase 11: Independent Production Evidence And Release
+
+Status: **blocked on Phase 10**
+
+Goal: prove the shipped system matches the strict two-operator architecture.
+
+### TODO
+
+- [ ] Deploy Router, Deriver A, Deriver B, and SigningWorker from the reviewed
+      content-addressed artifacts.
+- [ ] Have independent A and B operators verify and sign their deployment
+      manifests.
+- [ ] Capture account ids, deploy principals, artifact digests, peer-key
+      fingerprints, envelope-key fingerprints, endpoint identities, protocol
+      version, circuit digest, root epochs, and redacted access evidence.
+- [ ] Run negative access probes proving A credentials cannot read or deploy B,
+      and B credentials cannot read or deploy A.
+- [ ] Run Ed25519 registration, activation, normal signing, recovery, export,
+      refresh, and add-signer smoke tests.
+- [ ] Run ECDSA bootstrap, activation, pool hit, pool refill, normal signing,
+      recovery, export, refresh, and add-signer smoke tests.
+- [ ] Verify Router, Deriver, SigningWorker, and client logs contain only allowed
+      public metadata.
+- [ ] Rehearse independent peer-key rotation, envelope-key rotation, deployment
+      rollback, role revocation, incident freeze, backup restore, and audit-log
+      correlation.
+- [ ] Complete staging burn-in without replay, atomic-consume, memory-growth,
+      identity-parity, or cross-role-access failures.
+- [ ] Publish a signed release checklist and exact security capability claim.
+
+### Exit Gate
+
+- [ ] Production uses `router_ab_cloudflare_separate_accounts_v1`.
+- [ ] Both independent operators approve the same reviewed protocol/circuit
+      artifact.
+- [ ] All product smoke and negative-access tests pass.
+- [ ] No critical/high audit finding or security-claim mismatch remains.
+- [ ] There is no legacy fallback in code, configuration, storage, deployment,
+      or runbooks.
+
+## Flow Completion Matrix
+
+Every row must be green before Phase 10 deletion begins.
+
+| Protocol | Flow           | Public owner | Secret-computation owners                   | Recipient                            | Required evidence                                       |
+| -------- | -------------- | ------------ | ------------------------------------------- | ------------------------------------ | ------------------------------------------------------- |
+| Ed25519  | Registration   | Router       | Deriver A + Deriver B                       | Client + SigningWorker               | Canonical vector, activation receipt, public-key parity |
+| Ed25519  | Normal signing | Router       | Client + SigningWorker                      | Client                               | Zero Deriver calls, standard signature verification     |
+| Ed25519  | Recovery       | Router       | Deriver A + Deriver B                       | Client + SigningWorker               | Same public key, fresh activation epoch                 |
+| Ed25519  | Export         | Router       | Deriver A + Deriver B                       | Client only                          | Step-up, one-use auth, standard seed import parity      |
+| Ed25519  | Refresh        | Router       | Deriver A + Deriver B                       | SigningWorker and client if required | Same public key, old epoch rejected                     |
+| Ed25519  | Add signer     | Router       | Deriver A + Deriver B                       | New scoped recipient + SigningWorker | Identity and policy binding                             |
+| ECDSA    | Bootstrap      | Router       | Deriver A + Deriver B                       | Client + SigningWorker               | Frozen public-key parity and activation receipt         |
+| ECDSA    | Normal signing | Router       | Client + SigningWorker                      | Client                               | Zero Deriver calls, signature/recovery-id parity        |
+| ECDSA    | Pool fill      | Router       | Client + strict role owners + SigningWorker | Client + SigningWorker               | One-use matched presignatures                           |
+| ECDSA    | Recovery       | Router       | Deriver A + Deriver B                       | Client + SigningWorker               | Same public key, fresh activation epoch                 |
+| ECDSA    | Export         | Router       | Deriver A + Deriver B                       | Client only                          | Step-up, one-use auth, public-key parity                |
+| ECDSA    | Refresh        | Router       | Deriver A + Deriver B                       | SigningWorker and client if required | Same public key, old epoch rejected                     |
+| ECDSA    | Add signer     | Router       | Deriver A + Deriver B                       | New scoped recipient + SigningWorker | Identity and policy binding                             |
+
+## Source And Bundle Guards
+
+Add guards as soon as the new owner exists; keep them after deletion.
+
+| Boundary                    | Forbidden                                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Router                      | Deriver plaintext, root stores, secret HSS types, output-share opening, generic threshold service         |
+| Deriver A                   | B root/store/decrypt key, joined values, SigningWorker private key, client output opening                 |
+| Deriver B                   | A root/store/decrypt key, joined values, SigningWorker private key, client output opening                 |
+| SigningWorker               | Deriver roots, client-output opening, Router authorization parsing, both-role executors                   |
+| Browser TypeScript          | Raw roots, raw signing shares, `d`, `a`, HSS keys/tags, OT labels, presignature secrets                   |
+| SDK/server TypeScript       | Threshold signing service, joined HSS execution, raw Ed25519/ECDSA shares                                 |
+| Production dependency graph | `router-ab-dev`, simulator modules, placeholder artifact modules, clear reconstruction helpers            |
+| Logs and diagnostics        | Any secret protocol payload, raw share, label, mask, nonce, seed, scalar, presignature, or decryption key |
+
+Guards must inspect imports, public signatures, route registration, environment
+bindings, final Worker bundles, browser bundles, and generated TypeScript/WASM
+exports. String-only guards supplement structural type and dependency checks;
+they do not replace them.
+
+## Release Gates Summary
+
+### Gate 0: Design Ready
+
+- [x] Ed25519 Yao and ECDSA threshold-PRF/additive-share architecture and
+      development identity policy are frozen.
+- [x] Security claim, root policy, export behavior, and initial resource budgets
+      are approved; executable party views remain a Phase 1 deliverable.
+- [x] Independent cryptographic review is assigned as a mandatory Phase 3 gate.
+
+### Gate 1: Cryptographic Candidate Ready
+
+- [ ] One reviewed active Yao suite implements malicious OT, garbler correctness,
+      input provenance and consistency, selective-failure resistance, and
+      authenticated private outputs.
+- [ ] Standard, randomized, role-view, malformed-input, and export tests pass.
+- [ ] Preliminary constant-time and resource budgets pass.
+
+### Gate 2: Strict Integration Ready
+
+- [ ] Every Ed25519 and ECDSA lifecycle uses typed strict Router A/B contracts.
+- [ ] Recipient and role boundaries pass adversarial tests.
+- [ ] No production API constructs joined state.
+
+### Gate 3: Independent Deployment Ready
+
+- [ ] Separate-account access matrix, signed transport, replay, rotation, restore,
+      and actual-topology performance evidence pass.
+
+### Gate 4: Legacy Deletion Complete
+
+- [ ] `ThresholdSigningService`, both protocols' residual routes, joined HSS
+      simulator, old stores, and compatibility paths are gone.
+
+### Gate 5: Production Release
+
+- [ ] Final native/WASM constant-time evidence passes.
+- [ ] Independent cryptographic and deployment audits pass.
+- [ ] Staging burn-in and every flow in the completion matrix pass.
+- [ ] One production backend and one current protocol version per signature
+      family remain.
+
+## Recommended Execution Order
+
+1. Use the closed Phase 0 decisions to complete the isolated Phase 1 oracle.
+2. Build only the isolated generator and `ed25519-yao` foundations in Phase 2.
+3. Select and implement the Phase 3 active suite, then add the Phase 4 one-use
+   lifecycle.
+4. Prepare Phase 5 Router types and Phase 6 deployment infrastructure in
+   parallel once the transcript and wire contracts are stable.
+5. Run Ed25519 Phase 7 and ECDSA Phase 8 in parallel after strict staging is
+   available.
+6. Run Phase 9 against the exact artifacts intended for cutover.
+7. Perform Phase 10 as one hard deletion cut after both protocol flow matrices
+   pass.
+8. Release only through Phase 11 independent evidence.
+
+## Completion Criteria
+
+- [ ] Strict Router A/B is the only Ed25519 and ECDSA product
+      architecture.
+- [ ] Ed25519 exports the exact standard seed derived through
+      `d -> SHA-512(d) -> clamp -> a`.
+- [ ] `crates/ed25519-yao` implements one actively secure fixed-circuit
+      construction with reviewed OT, role-local state, authenticated private
+      outputs, and reproducible artifacts.
+- [ ] ECDSA uses only strict Router A/B threshold-PRF derivation and additive
+      secp256k1 scalar shares, with no Yao dependency.
+- [ ] Router, Deriver A, Deriver B, SigningWorker, Client, storage, and logs obey
+      the frozen party-view specification.
+- [ ] Production A and B are controlled by independent Cloudflare deployers.
+- [ ] Normal Ed25519 and ECDSA signing invoke no Deriver after activation.
+- [ ] `ThresholdSigningService` and every replacement-shaped centralized
+      service are absent.
+- [ ] Old routes, stores, records, flags, aliases, mocks, fixtures, and fallback
+      paths are deleted.
+- [ ] Standard identity, export, recovery, refresh, signing, constant-time,
+      adversarial, deployment, and audit gates pass.
+- [ ] Active documentation states exactly the security claim supported by the
+      shipped construction and deployment.
+
+## Decision Log
+
+| Date       | Decision                                                   | Reason                                                                         |
+| ---------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 2026-07-10 | Strict Router A/B owns both Ed25519 and ECDSA              | One role-separated signing architecture; no generic service fallback           |
+| 2026-07-10 | Standard Ed25519 seed export is mandatory                  | Wallets must export/import through the canonical Ed25519 seed path             |
+| 2026-07-10 | Active Streaming Yao is the sole Ed25519 target            | It offers the highest-confidence path to the approved malicious-Deriver claim  |
+| 2026-07-10 | Stop all succinct-HSS implementation and optimization work | Existing simulator and analytical measurements remain historical evidence only |
+| 2026-07-10 | ECDSA retains threshold PRF and additive scalar shares     | Its scalar lifecycle does not require the Ed25519 seed-to-scalar circuit        |
+| 2026-07-10 | Production requires separate Cloudflare accounts/deployers | Separate Workers in one account do not meet the operational segregation target |
+| 2026-07-10 | Development cutover requires wallet reprovisioning         | One clean Yao-era stable context removes migration and compatibility paths      |
+| 2026-07-10 | No ECDSA-specific successor to `ThresholdSigningService`   | Existing strict Router A/B ECDSA components are the target owners              |
+
+## Phase Progress Record
+
+Append one entry per meaningful phase result:
+
+```text
+Phase:
+Date:
+Commit:
+Owner:
+Scope completed:
+Commands/tests:
+Artifacts and digests:
+Security evidence:
+Performance evidence:
+Deletion ledger:
+Open blockers:
+Gate decision: pass | fail | repeat
+Decision rationale:
+```

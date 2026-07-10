@@ -2,9 +2,10 @@
 
 Date consolidated: June 20, 2026
 
-Status: canonical Router A/B architecture and protocol reference. This document
-replaces the deleted Router A/B signer, Wallet Session, ECDSA-HSS, and future
-quorum planning docs. Deployment profile and rollout details live in
+Status: canonical Router A/B architecture and protocol reference, updated for
+the July 10, 2026 Phase 0 decision. Ed25519 targets actively secure Streaming
+Yao. ECDSA targets strict threshold-PRF derivation and additive scalar shares.
+Deployment profile and rollout details live in
 [router-a-b-deployment.md](./router-a-b-deployment.md). Local commands and smoke
 coverage live in [router-a-b-local-dev.md](./router-a-b-local-dev.md). Historical
 cleanup closure lives in [router-a-b-cleanup.md](./router-a-b-cleanup.md).
@@ -12,13 +13,20 @@ cleanup closure lives in [router-a-b-cleanup.md](./router-a-b-cleanup.md).
 ## 1. Overview
 
 Router A/B is the split-custody signing architecture for SDK/server Ed25519 and
-ECDSA-HSS product signing. The browser sees one public backend, the Router.
+ECDSA product signing. The browser sees one public backend, the Router.
 Router owns public admission and private worker forwarding. Deriver A, Deriver B,
 and SigningWorker stay behind private service boundaries.
 
-Current local/core status:
+Approved target status:
 
-- Ed25519 and ECDSA product signing use Router A/B only.
+- Ed25519 uses `router_ab_ed25519_yao_v1`, with Deriver A fixed as garbler and
+  Deriver B fixed as evaluator.
+- ECDSA uses strict Router A/B threshold-PRF derivation and additive secp256k1
+  scalar shares. ECDSA never depends on the Ed25519 Yao circuit.
+- Production Deriver A and B use independent Cloudflare accounts and deployment
+  principals. Same-account bindings are limited to development and benchmarks.
+- Existing development Ed25519 wallets are reprovisioned under one frozen
+  Yao-era stable context. No HSS compatibility backend or migration flag exists.
 - Old public threshold signing routes are deleted from active product signing.
 - Wallet Session bearer JWT auth is the public signing authorization boundary.
 - Server-authoritative signing budget and step-up behavior are owned by
@@ -172,47 +180,48 @@ Threat containment matrix:
 | Client | User client material and local worker handles | No server root material, no `y_server`, no `tau_server` |
 | Logs/observability | Public metadata, hashes, timings, state transitions | No protocol payload plaintext or secret material |
 
-Initial release claim:
+Production release claim:
 
 ```text
-Router A/B Level C prevents a single production server process from holding
-joined d, a, x_client_base, y_server, or tau_server during derivation-time
-ceremonies, assuming the role-separated protocol boundary is followed.
+Router A/B provides privacy and correctness-with-abort against the Router plus
+at most one malicious Deriver under static corruption, independent A/B
+administrative domains, a reviewed active two-party construction, authenticated
+role-bound transport, input provenance, one-use preprocessing, and no A+B
+collusion.
 ```
 
-This is a split-custody and boundary claim. It is not a full malicious-secure
-MPC proof system.
+The claim excludes A+B collusion, sequential compromise of retained state
+without reviewed refresh/erasure, a Cloudflare platform-wide compromise,
+common supply-chain compromise approved by both deployers, fairness, and
+availability.
 
 ## 4. Protocol Decisions
 
 ### 4.1 Split Derivation Primitive
 
-Production Router A/B split derivation uses `mpc_threshold_prf_v1`.
+The signature families use distinct fixed derivation protocols:
 
-Reasons:
+- Ed25519 uses `router_ab_ed25519_yao_v1` for the exact
+  `d -> SHA-512(d) -> clamp -> a` function, role-private output shares, and
+  export-only seed shares.
+- ECDSA uses its fixed strict Router A/B threshold PRF, then derives additive
+  secp256k1 scalar shares satisfying `x = x_client + x_server mod n`.
 
-- It preserves continuity with the current threshold-PRF root custody model.
-- It keeps the same wallet identity story across hosted and self-hosted modes.
-- It already has native proof-path performance that is acceptable for setup,
-  export, refresh, and recovery.
-- It has the clearer correctness-hardening, refresh-continuity, and
-  formal-verification path.
+No request may select a backend, downgrade the security profile, route Ed25519
+through `mpc_threshold_prf_v1`, or route ECDSA through Yao.
 
-The split-root derivation candidate remains prototype material. It needs fresh
-vectors, leakage analysis, root-generation review, anti-bias review, and refresh
-or address-verification acceptance before promotion.
+### 4.2 Role-Separated Ed25519 Yao Boundary
 
-### 4.2 Role-Separated HSS Boundary
-
-Production Router A/B code uses role-separated HSS APIs. Joined-state executor
-APIs remain outside production Router A/B paths.
+Production Ed25519 Router A/B uses fixed active-Yao role APIs. Clear evaluators,
+joined-state executors, passive protocol entrypoints, and circuit generators
+remain outside production dependency graphs.
 
 Allowed role-separated API inputs:
 
 - role-local root material
-- role-local client material
+- role-local client material and provisioned-root proof inputs
 - transcript metadata
-- authenticated peer protocol messages
+- authenticated bounded peer frames
 - request-kind-specific scope
 
 Forbidden production inputs and outputs:
@@ -222,43 +231,37 @@ Forbidden production inputs and outputs:
 - joined `y_server`
 - joined `tau_server`
 - joined `x_client_base`
-- joined hidden-word executor state
-- evaluator driver state that lets one worker reconstruct protected values
+- clear evaluator or joined circuit input
+- runtime backend or security-profile selectors
 
 Allowed outputs:
 
-- encrypted client-output package shares
-- encrypted SigningWorker-output package shares
+- authenticated encrypted client-output package shares
+- authenticated encrypted SigningWorker-output package shares
+- export-only encrypted seed shares
 - public transcript digest
 - typed redacted diagnostics
 
-Draft role-separated API shape:
+Target role-state shape:
 
 ```rust
-pub struct RoleSeparatedHssInput<R> {
-    pub role: R,
-    pub transcript: TranscriptBinding,
-    pub local_root_material: RoleLocalRootMaterial<R>,
-    pub local_client_material: RoleLocalClientMaterial<R>,
-    pub peer_messages: Vec<AuthenticatedPeerMessage>,
+pub enum Ed25519YaoRoleState {
+    Garbler(DeriverAConsumingState),
+    Evaluator(DeriverBConsumingState),
 }
 
-pub struct RoleSeparatedHssStepOutput<R> {
-    pub role: R,
-    pub peer_messages: Vec<AuthenticatedPeerMessage>,
-    pub client_output_package: Option<EncryptedClientOutputPackage>,
-    pub signing_worker_output_package: Option<SigningWorkerOutputPackage>,
-    pub transcript_digest: TranscriptDigest,
-    pub diagnostics: RedactedCeremonyDiagnostics,
+pub enum Ed25519YaoOutput {
+    Activation(ActivationRecipientPackages),
+    Export(ExportRecipientPackages),
 }
 
-pub trait RoleSeparatedHssEngine<R> {
-    fn advance(
-        &mut self,
-        input: RoleSeparatedHssInput<R>,
-    ) -> Result<RoleSeparatedHssStepOutput<R>, HssRoleError>;
-}
+// Consuming transitions take owned state and return one precise next state.
 ```
+
+Activation types contain no seed field. Export types carry only recipient-
+encrypted seed shares. The active suite supplies malicious OT, garbling
+correctness, input consistency/provenance, selective-failure resistance,
+authenticated private outputs, and uniform correctness-with-abort.
 
 ### 4.3 SigningWorker Placement
 
@@ -312,24 +315,25 @@ Digest ordering:
 Role envelopes must carry typed AAD supplied by Router. Deriver private service
 bodies require `aad.digest()` to match the envelope's public `aad_digest`.
 
-### 4.5 Output Correctness Levels
+### 4.5 Output Correctness Release Gate
 
-Initial release target: Minimum Level C.
-
-Minimum Level C requires:
+Production release requires:
 
 - Router never opens joined secret material.
 - Deriver A and Deriver B never open joined secret material.
 - SigningWorker opens only its server-recipient output.
 - Client opens only client-recipient output.
-- Source guards reject joined-state executor imports in production Router A/B
-  paths.
+- Source guards reject joined-state, generator, clear-evaluator, passive-Yao,
+  and old HSS imports in production Router A/B paths.
 - Transcript and output package digests bind role, request kind, deriver set,
   root-share epoch, SigningWorker id, client identity, and replay nonce.
-
-Later hardening may add stronger output correctness checks, public commitments,
-DLEQ-style proofs, TEE-backed role execution, or provider-diverse role placement.
-Those are future protocol/profile decisions.
+- The active construction enforces garbler correctness, evaluator-input
+  consistency, provisioned-input provenance, selective-failure resistance, and
+  authenticated private outputs.
+- Public point commitments and the Ed25519 relation
+  `2 * X_client - X_server = A_pub` pass before activation.
+- Output anti-equivocation and one-use ticket tests pass for both corrupt-role
+  cases.
 
 ## 5. Ceremony And Transcript Model
 
@@ -714,20 +718,21 @@ A or B can:
 - attempt transcript confusion
 - attempt to make the other party or client accept a bad output
 
-This architecture primarily targets joined-state exclusion. Strong active
-malicious correctness requires additional checks, commitments, proofs, or
-verifying-share bindings.
+The active Yao construction must turn every malicious A or B behavior into a
+valid authenticated output or a uniform detectable abort. Garbling correctness,
+malicious OT, input provenance and consistency, selective-failure resistance,
+private output authenticity, and anti-equivocation are release requirements.
 
 ## 6. Public And Private API
 
 ### 6.1 Public Route Families
 
-Current public signing-capable route families:
+Target public signing-capable route families:
 
 - Ed25519 Wallet Session issuance: `/router-ab/wallet-session/ed25519`
-- Ed25519 HSS lifecycle: `/router-ab/ed25519/hss/*`
+- Ed25519 derivation lifecycle: `/router-ab/ed25519/derive/*`
 - Ed25519 normal signing: `/router-ab/ed25519/sign/*`
-- ECDSA-HSS Wallet Session/bootstrap/lifecycle: `/router-ab/ecdsa-hss/*`
+- ECDSA Wallet Session/bootstrap/lifecycle: `/router-ab/ecdsa/*`
 - Wallet Session seal: `/wallet-session/seal/*`
 - Wallet Session budget status: `/router-ab/wallet-budget/status`
 
@@ -740,9 +745,9 @@ Old public threshold signing routes are not active product signing paths:
 - `/threshold-ecdsa/presign/*`
 - `/threshold-ecdsa/sign/*`
 
-Retained threshold-named paths, if any, must be non-signing compatibility
-boundaries, private/internal routes, or historical source-guard fixtures with
-explicit ownership.
+Threshold- and HSS-named product routes are deleted during the hard cutover.
+Historical route literals may remain only in dated plans or source-guard
+fixtures.
 
 ### 6.2 Private Route Families
 
@@ -752,8 +757,8 @@ Private routes are internal service routes and require internal service auth:
 - Deriver B private ceremony routes
 - SigningWorker activation routes
 - SigningWorker Ed25519 normal-signing routes
-- SigningWorker ECDSA-HSS prepare/finalize routes
-- SigningWorker ECDSA-HSS pool-fill put routes
+- SigningWorker ECDSA prepare/finalize routes
+- SigningWorker ECDSA pool-fill put routes
 
 Private routes receive admitted Router bodies. They do not parse browser cookies,
 Wallet Session bearer tokens, publishable keys, or app-session credentials.
@@ -2257,8 +2262,8 @@ SigningWorker Worker:
     Deriver B peer-message signing key
 ```
 
-For the first same-account prototype, these can be separate bindings in one
-Cloudflare account:
+The development and benchmark-only same-account profile may use these separate
+bindings in one Cloudflare account:
 
 ```text
 ROUTER_REPLAY_DO
@@ -2276,8 +2281,9 @@ DERIVER_A_PEER_VERIFYING_KEY_HEX
 DERIVER_B_PEER_VERIFYING_KEY_HEX
 ```
 
-For the stronger multi-account deployment, each account should own only the
-bindings it needs:
+Strict production requires separate accounts. Each account owns only the
+bindings it needs, and no deploy principal or credential can administer both A
+and B:
 
 ```text
 Router account:
@@ -2390,8 +2396,8 @@ pure Rust crates:
   role-specific state machines
   transcript hashing and binding
   encrypted envelope framing
-  threshold-PRF integration
-  A/B HSS derivation protocol
+  fixed active Ed25519 Yao protocol and manifests
+  ECDSA-only threshold-PRF integration and additive scalar shares
   client-output and SigningWorker-output package validation
 
 platform-agnostic deriver engines:
@@ -2533,10 +2539,19 @@ split out more crates only when dependency boundaries or module size require
 it.
 
 ```text
+tools/ed25519-yao-generator
+  exact clear Ed25519 reference oracle
+  deterministic circuit and schedule generation
+  test/CI only; no production reverse dependency
+
+crates/ed25519-yao
+  validated fixed protocol and circuit manifests
+  actively secure Streaming Yao primitives and role states
+  no clear joined evaluator or generator dependency
+
 crates/router-ab-core
-  pure Rust derivation and service protocol core
-  selected mpc_threshold_prf_v1 derivation backend
-  split-root comparison/prototype material
+  pure Rust derivation and service protocol contracts
+  fixed Ed25519 Yao lifecycle and ECDSA threshold-PRF lifecycle
   transcript, envelope, lifecycle, wire, host-trait, and local simulation modules
   vectors, measurement gates, specs, and formal-verification scaffolding
 
@@ -2552,10 +2567,7 @@ crates/router-ab-cloudflare
   Service Binding/fetch transport
 
 crates/threshold-prf
-  threshold-PRF primitives and vectors
-
-crates/ed25519-hss
-  HSS derivation and signing primitives
+  ECDSA threshold-PRF primitives and vectors
 ```
 
 Optional later package:
@@ -2852,8 +2864,8 @@ Future protocol and deployment work includes:
 - t-of-N deriver quorum
 - provider-diverse deployments
 - TEE-backed SigningWorker or Deriver roles
-- stronger output correctness proofs
-- public commitments or DLEQ-style verification
+- additional publicly verifiable output proofs beyond the mandatory active-Yao
+  bindings
 - self-host export/import vectors
 - distributed or approved-provisioning root-share refresh
 - address/public-key parity gates after root-share refresh
@@ -2873,6 +2885,6 @@ Router A/B v1 remains strict 2-of-2: Deriver A plus Deriver B.
 - Adding fallback from Router A/B signing to legacy signing paths.
 - Treating deployment evidence as local cleanup evidence.
 - Letting TypeScript own raw crypto-secret client material.
-- Full malicious-secure MPC proof system in v1.
+- A general-purpose malicious-secure MPC framework.
 - Two-server online signing for every normal signature.
 - Generalized quorum or provider-diverse deployment in Router A/B v1.
