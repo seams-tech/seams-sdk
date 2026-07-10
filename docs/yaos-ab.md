@@ -990,6 +990,11 @@ Production domain types do not contain a same-account branch.
 - production startup/deployment rejection when account or deploy-principal
   identities coincide.
 
+Development and staging may also select the separate-account profile for
+production-parity testing. Both deployment profiles run the same protocol and
+circuit artifacts; only deployment configuration selects the account topology.
+The client request has no topology selector.
+
 Router may share A's administrative domain only if the approved corruption
 model continues to cover Router+A and Router credentials have no B authority.
 

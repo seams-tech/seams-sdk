@@ -37,10 +37,14 @@ Related active documents:
 | Profile | Account boundary | Transport | Intended use | Security claim |
 | --- | --- | --- | --- | --- |
 | `router_ab_cloudflare_same_account_dev_v1` | One account, distinct Workers and bindings | Service Bindings or local HTTP | Local development, staging, latency lower bound, and benchmarks | Contains a compromise confined to one Worker runtime while account administration remains honest; excludes account-admin and shared-CI compromise |
-| `router_ab_cloudflare_separate_accounts_v1` | Product/control account plus independent A and B accounts | Signed cross-account HTTPS on every Deriver edge | The only production profile | Supports the Router-plus-one-malicious-Deriver claim when protocol and review gates pass |
+| `router_ab_cloudflare_separate_accounts_v1` | Product/control account plus independent A and B accounts | Signed cross-account HTTPS on every Deriver edge | Production, production-parity staging, and optional two-account development | Supports the Router-plus-one-malicious-Deriver claim when protocol and review gates pass |
 
-No production manifest, capability response, request, or persisted record may
-select the same-account profile. No runtime fallback crosses between profiles.
+Development tooling supports either profile. A developer may use one account
+for fast iteration or two accounts to exercise the production trust and network
+boundaries. Deployment configuration selects the profile before startup; it is
+not a caller-selected protocol option. No production manifest, capability
+response, request, or persisted record may select the same-account profile. No
+runtime fallback crosses between profiles.
 
 ## Production Account Topology
 
