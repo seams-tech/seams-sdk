@@ -1,5 +1,5 @@
 .demo-page-header {
-  padding: var(--site-space-6);
+  padding: var(--site-space-4) var(--site-space-6) 0;
   text-align: center;
 }
 
@@ -7,7 +7,7 @@
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--site-text-primary);
-  margin: 0 0 1rem;
+  margin: 0;
 }
 
 .greeting-controls-box {
@@ -226,6 +226,9 @@
 
 .funding-address-text {
   flex: 1;
+  /* let the flex item shrink so the ellipsis works instead of forcing the
+     card wider than its fixed width */
+  min-width: 0;
   color: var(--site-text-primary);
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
@@ -293,5 +296,181 @@
   .button-with-tooltip-container {
     animation: none;
     opacity: 1;
+  }
+}
+
+/* Chain picker: segmented control matching the SeamsAuthMenu seg — same
+   track color, themable pill variable, and 320ms spring easing. Three equal
+   segments, so the pill needs no measurement: translateX percentages resolve
+   against the pill's own width (one segment). */
+.demo-chain-seg {
+  position: relative;
+  min-height: 48px;
+  margin-bottom: var(--site-space-4);
+  padding: 4px;
+  border-radius: 9999px;
+  background: var(--w3a-colors-surface2);
+}
+
+.demo-chain-seg__pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 16px) / 3);
+  border-radius: 9999px;
+  background: var(--w3a-passkey-auth-menu2-seg-active-bg, var(--w3a-colors-surface));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--w3a-colors-borderPrimary) 80%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.07);
+  /* one pill-width plus one 4px gap per step */
+  transform: translateX(calc(var(--demo-seg-index, 0) * (100% + 4px)));
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.demo-chain-seg__grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  min-height: 40px;
+  height: 100%;
+}
+
+.demo-chain-seg__btn {
+  border: none;
+  background: transparent;
+  border-radius: 9999px;
+  color: var(--site-text-secondary);
+  font-family: var(--site-font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 200ms var(--site-ease);
+}
+
+.demo-chain-seg__btn.is-active {
+  color: var(--site-text-primary);
+}
+
+/* Testnet plumbing lives behind a collapsed disclosure */
+.demo-setup {
+  margin-top: var(--site-space-4);
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius-lg);
+  background: var(--site-surface-muted);
+}
+
+.demo-setup summary {
+  padding: var(--site-space-3) var(--site-space-4);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--site-text-secondary);
+}
+
+.demo-setup[open] summary {
+  color: var(--site-text-primary);
+}
+
+.demo-setup__body {
+  display: grid;
+  gap: var(--site-space-3);
+  padding: 0 var(--site-space-4) var(--site-space-4);
+}
+
+.demo-setup__hint {
+  font-size: 0.85rem;
+  color: var(--site-text-secondary);
+  line-height: 1.45;
+}
+
+/* ---------- motion (transitions, not keyframes, so they stay interruptible;
+   easing per easeOutQuad, cubic-bezier(0.25, 0.46, 0.45, 0.94)) ---------- */
+
+/* the whole menu follows its content height (chain switch, expander toggle)
+   via the AnimatedHeight wrapper. Kept short and linear on purpose: the
+   expander's own 280ms eased transition is the single source of motion, and
+   the wrapper just tracks that moving edge frame-by-frame — a long eased
+   follow here lags a full curve behind and reads as a two-stage animation */
+.animated-height {
+  transition: height 100ms linear;
+  overflow: clip;
+}
+
+/* chain view enters softly: opacity + a touch of blur, no motion. The
+   min-height exceeds every closed variant (NEAR with delegate button and
+   funding status included) so all three chains render the same height;
+   only expanding the setup disclosure grows the card. */
+.demo-chain-view {
+  min-height: 288px;
+  animation: demo-chain-in 220ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes demo-chain-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
+/* expander: animate open/close via ::details-content block-size (browsers
+   without support snap open, which is the prior behavior) */
+.demo-setup {
+  interpolate-size: allow-keywords;
+}
+
+.demo-setup::details-content {
+  block-size: 0;
+  overflow-y: clip;
+  transition:
+    block-size 280ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    content-visibility 280ms allow-discrete;
+}
+
+.demo-setup[open]::details-content {
+  block-size: auto;
+}
+
+/* rotating chevron replaces the default disclosure marker */
+.demo-setup summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  list-style: none;
+  user-select: none;
+}
+
+.demo-setup summary::-webkit-details-marker {
+  display: none;
+}
+
+.demo-setup summary::before {
+  content: '';
+  flex: none;
+  width: 0.4em;
+  height: 0.4em;
+  margin-top: -0.15em;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 240ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.demo-setup[open] summary::before {
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-height,
+  .demo-setup::details-content,
+  .demo-setup summary::before,
+  .demo-chain-seg__pill {
+    transition: none;
+  }
+
+  .demo-chain-view {
+    animation: none;
   }
 }

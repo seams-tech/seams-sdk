@@ -148,7 +148,9 @@ export function DemoPasskeyColumn({
           <>
             <GlassBorder
               className="demo-transaction-shell"
-              style={{ maxWidth: 480, marginTop: '1rem' }}
+              /* fixed width: content-sized width made the card snap wider when
+                 the testnet-setup expander revealed its long address row */
+              style={{ width: 'min(480px, calc(100vw - 2rem))', marginTop: '1rem' }}
             >
               <React.Suspense fallback={<SuspenseFallback />}>
                 <DemoPage />

@@ -188,27 +188,15 @@ function WalletShellCard(): React.JSX.Element {
   );
 }
 
-type WalletPreviewImages = {
-  modalSrc: string;
-  label: string;
-};
-
 type HeroWalletPreview =
   | {
       kind: 'signIn';
       sub: string;
-      transaction?: never;
     }
   | {
       kind: 'transactionConfirm';
       sub: string;
-      images: WalletPreviewImages;
     };
-
-const demoWalletPreviewImages: WalletPreviewImages = {
-  modalSrc: '/wallet-preview/tx-modal.png?v=3',
-  label: 'Transaction confirmer drawer preview: escrow release for an order',
-};
 
 const signInWalletPreview: HeroWalletPreview = {
   kind: 'signIn',
@@ -218,25 +206,22 @@ const signInWalletPreview: HeroWalletPreview = {
 const transactionWalletPreview: HeroWalletPreview = {
   kind: 'transactionConfirm',
   sub: 'Review a demo transaction before signing',
-  images: demoWalletPreviewImages,
 };
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled hero wallet preview: ${String(value)}`);
 }
 
-/* The signing drawer carries the scene, fully visible at the same optical
-   scale as the login shell; the funding prompt is a faded backdrop card
-   peeking out behind it for depth, never covering readable content. The
-   drawer is an HTML replica of the confirmer (the screenshots aren't
-   editable), showing a multi-step escrow release instead of a toy call. */
-function WalletTransactionPreview(props: { images: WalletPreviewImages }): React.JSX.Element {
-  const images = props.images;
+/* The signing drawer carries the scene as an HTML replica of the confirmer,
+   showing a multi-step escrow release. Behind it, the merchant dashboard
+   sits blurred and dimmed, the way the drawer actually overlays an app. */
+function WalletTransactionPreview(): React.JSX.Element {
   return (
-    <div className="h2-wallet-confirm h2-fadein" role="img" aria-label={images.label}>
-      <div className="h2-wallet-confirm__card h2-wallet-confirm__card--back" aria-hidden>
-        <img src={images.modalSrc} alt="" draggable={false} />
-      </div>
+    <div
+      className="h2-wallet-confirm"
+      role="img"
+      aria-label="Transaction confirmer drawer preview: escrow release for an order"
+    >
       <div className="h2-wallet-confirm__card h2-wallet-confirm__card--front h2-txmock">
         <span className="h2-txmock__handle" />
         <X className="h2-txmock__close" aria-hidden />
@@ -255,9 +240,15 @@ function WalletTransactionPreview(props: { images: WalletPreviewImages }): React
             <span className="h2-txmock__args">{'{ "trackingId": "YMT-2984-8841" }'}</span>
           </p>
           <p className="h2-txmock__step">
+            Calling <strong>swapUsdcToJpyc()</strong>
+            <span className="h2-txmock__args">
+              {'{ "rate": "155.2", "maxSlippage": "0.5%" }'}
+            </span>
+          </p>
+          <p className="h2-txmock__step">
             Calling <strong>releaseEscrow()</strong>
             <span className="h2-txmock__args">
-              {'{ "orderId": "#8841", "amount": "12,400 JPYC" }'}
+              {'{ "orderId": "#8841", "amount": 12_400, "currency": "JPYC" }'}
             </span>
           </p>
           <p className="h2-txmock__step">
@@ -278,7 +269,7 @@ function renderHeroWalletPreview(preview: HeroWalletPreview): React.JSX.Element 
     case 'signIn':
       return <WalletShellCard />;
     case 'transactionConfirm':
-      return <WalletTransactionPreview images={preview.images} />;
+      return <WalletTransactionPreview />;
     default:
       return assertNever(preview);
   }
@@ -373,7 +364,7 @@ function HomeHeroCurrent(): React.JSX.Element {
                 <p className="h2-heroscene__intro-sub">{scene.sub}</p>
               </div>
             </div>
-            <div className="h2-heroscene__frame h2-fadein" key={`frame-${scene.id}`}>
+            <div className="h2-heroscene__frame h2-fadein h2-fadein--late" key={`frame-${scene.id}`}>
               {scene.left}
             </div>
           </a>
@@ -384,7 +375,14 @@ function HomeHeroCurrent(): React.JSX.Element {
             onClick={walletProps.onClick}
             aria-label="Explore Embedded Wallet"
           >
-            <div className="h2-heroscene__intro">
+            {/* confirmer scene: the merchant app fills the panel, blurred and
+                dimmed under the drawer like a live bottom sheet */}
+            {scene.wallet.kind === 'transactionConfirm' ? (
+              <div className="h2-heroscene__aside-appback h2-fadein" aria-hidden>
+                <DashboardWindow />
+              </div>
+            ) : null}
+            <div className="h2-heroscene__intro h2-fadein" key={`aside-intro-${scene.wallet.kind}`}>
               <span className="h2-heroscene__intro-icon" aria-hidden>
                 <Wallet />
               </span>
@@ -393,7 +391,10 @@ function HomeHeroCurrent(): React.JSX.Element {
                 <p className="h2-heroscene__intro-sub">{scene.wallet.sub}</p>
               </div>
             </div>
-            <div className="h2-heroscene__aside-body" key={`wallet-${scene.wallet.kind}`}>
+            <div
+              className="h2-heroscene__aside-body h2-fadein h2-fadein--late"
+              key={`wallet-${scene.wallet.kind}`}
+            >
               {renderHeroWalletPreview(scene.wallet)}
             </div>
           </a>
