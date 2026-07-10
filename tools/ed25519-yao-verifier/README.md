@@ -28,8 +28,14 @@ The optional differential seed makes the verifier independently regenerate
 the SHA-512-expanded inputs, scalar reductions, context digest, participant
 identifiers, request-kind cycle, and exact case identifier for each index.
 Schema auto-detection also verifies the KDF continuity corpus with a standalone
-HMAC/HKDF-SHA256 implementation, frozen role/source/output tags, all eight
-contributions, and the complete joined Ed25519 trace.
+application-binding encoder, SHA-256 digest, HMAC/HKDF-SHA256 implementation,
+frozen role/source/output tags, all eight contributions, and the complete
+joined Ed25519 trace. It checks that the four immutable binding facts produce
+the digest consumed by the stable context before reproducing the KDF. The
+binding facts are wallet identity, Ed25519 signing-key identity, logical
+signing-root identity, and the immutable positive key-creation signer slot. It
+independently enforces the version-one identifier grammar of one or more visible
+ASCII bytes in `0x21..=0x7e`.
 
 All inputs are committed or generated public test vectors. The arithmetic is
 variable-time Python intended solely for host-side verification. Production

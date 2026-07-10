@@ -22,6 +22,13 @@ STABLE_CONTEXT_DOMAIN_V1 = b"seams/router-ab/ed25519-yao/stable-key-context/v1"
 STABLE_CONTEXT_BINDING_DOMAIN_V1 = (
     b"seams/router-ab/ed25519-yao/stable-key-context-binding/v1"
 )
+APPLICATION_BINDING_DOMAIN_V1 = (
+    b"seams/router-ab/ed25519-yao/application-binding/v1"
+)
+APPLICATION_BINDING_WALLET_ID_LABEL_V1 = b"walletId"
+APPLICATION_BINDING_SIGNING_KEY_ID_LABEL_V1 = b"nearEd25519SigningKeyId"
+APPLICATION_BINDING_SIGNING_ROOT_ID_LABEL_V1 = b"signingRootId"
+APPLICATION_BINDING_KEY_CREATION_SIGNER_SLOT_LABEL_V1 = b"keyCreationSignerSlot"
 DIFFERENTIAL_INPUT_DOMAIN_V1 = b"seams/router-ab/ed25519-yao/differential-input/v1"
 MAX_DIFFERENTIAL_CASES_V1 = 4_096
 CONTRIBUTION_KDF_EXTRACT_SALT_V1 = (
@@ -79,10 +86,21 @@ TRACE_KEYS = frozenset(
 KDF_CASE_KEYS = frozenset(
     {
         "case_id",
+        "application_binding",
         "synthetic_roots",
         "context",
         "contributions",
         "synthetic_clear_reference_trace",
+    }
+)
+KDF_APPLICATION_BINDING_KEYS = frozenset(
+    {
+        "wallet_id",
+        "near_ed25519_signing_key_id",
+        "signing_root_id",
+        "key_creation_signer_slot",
+        "encoded_hex",
+        "digest_sha256_hex",
     }
 )
 KDF_ROOT_KEYS = frozenset(
@@ -93,8 +111,6 @@ LOWER_HEX = re.compile(r"[0-9a-f]+\Z")
 FIELD_PRIME = (1 << 255) - 19
 SCALAR_ORDER = (1 << 252) + 27742317777372353535851937790883648493
 SEED_MODULUS_MASK = (1 << 256) - 1
-
-
 class VerificationError(ValueError):
     """A corpus or vector failed strict independent verification."""
 
@@ -274,6 +290,68 @@ def _require_expected_bytes(value: Any, expected: bytes, path: str) -> None:
     actual = _decode_hex(value, len(expected), path)
     if actual != expected:
         raise VerificationError(f"{path} does not match the independently computed value")
+
+
+def _length_prefix_u32(value: bytes) -> bytes:
+    if len(value) > 0xFFFF_FFFF:
+        raise VerificationError("application-binding value exceeds its U32 length prefix")
+    return len(value).to_bytes(4, "big") + value
+
+
+def _canonical_application_identifier(value: Any, path: str) -> bytes:
+    identifier = _require_string(value, path)
+    if not identifier:
+        raise VerificationError(f"{path} must be nonempty")
+    try:
+        encoded = identifier.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise VerificationError(f"{path} must contain valid Unicode scalar values") from error
+    if any(byte < 0x21 or byte > 0x7E for byte in encoded):
+        raise VerificationError(f"{path} must contain only visible ASCII bytes")
+    return encoded
+
+
+def _canonical_application_signer_slot(value: Any, path: str) -> bytes:
+    if type(value) is not int or not 1 <= value <= 0xFFFF_FFFF:
+        raise VerificationError(f"{path} must be a positive u32")
+    return value.to_bytes(4, "big")
+
+
+def _verify_application_binding(binding: Any, path: str) -> bytes:
+    binding_object = _require_exact_keys(binding, KDF_APPLICATION_BINDING_KEYS, path)
+    wallet_id = _canonical_application_identifier(
+        binding_object["wallet_id"], f"{path}.wallet_id"
+    )
+    signing_key_id = _canonical_application_identifier(
+        binding_object["near_ed25519_signing_key_id"],
+        f"{path}.near_ed25519_signing_key_id",
+    )
+    signing_root_id = _canonical_application_identifier(
+        binding_object["signing_root_id"], f"{path}.signing_root_id"
+    )
+    key_creation_signer_slot = _canonical_application_signer_slot(
+        binding_object["key_creation_signer_slot"],
+        f"{path}.key_creation_signer_slot",
+    )
+    encoded = b"".join(
+        (
+            _length_prefix_u32(APPLICATION_BINDING_DOMAIN_V1),
+            _length_prefix_u32(APPLICATION_BINDING_WALLET_ID_LABEL_V1),
+            _length_prefix_u32(wallet_id),
+            _length_prefix_u32(APPLICATION_BINDING_SIGNING_KEY_ID_LABEL_V1),
+            _length_prefix_u32(signing_key_id),
+            _length_prefix_u32(APPLICATION_BINDING_SIGNING_ROOT_ID_LABEL_V1),
+            _length_prefix_u32(signing_root_id),
+            _length_prefix_u32(APPLICATION_BINDING_KEY_CREATION_SIGNER_SLOT_LABEL_V1),
+            _length_prefix_u32(key_creation_signer_slot),
+        )
+    )
+    _require_expected_bytes(binding_object["encoded_hex"], encoded, f"{path}.encoded_hex")
+    digest = hashlib.sha256(encoded).digest()
+    _require_expected_bytes(
+        binding_object["digest_sha256_hex"], digest, f"{path}.digest_sha256_hex"
+    )
+    return digest
 
 
 def _encode_scalar(scalar: int) -> bytes:
@@ -544,6 +622,9 @@ def verify_kdf_corpus(corpus: Any) -> int:
     for index, case in enumerate(cases):
         case_path = f"$.cases[{index}]"
         case_object = _require_exact_keys(case, KDF_CASE_KEYS, case_path)
+        application_binding_digest = _verify_application_binding(
+            case_object["application_binding"], f"{case_path}.application_binding"
+        )
         roots_path = f"{case_path}.synthetic_roots"
         roots = _require_exact_keys(
             case_object["synthetic_roots"], KDF_ROOT_KEYS, roots_path
@@ -556,7 +637,18 @@ def verify_kdf_corpus(corpus: Any) -> int:
             roots["deriver_b_root_hex"], 32, f"{roots_path}.deriver_b_root_hex"
         )
 
-        context_binding = _verify_context(case_object["context"], f"{case_path}.context")
+        context_path = f"{case_path}.context"
+        context_binding = _verify_context(case_object["context"], context_path)
+        context_application_binding_digest = _decode_hex(
+            case_object["context"]["application_binding_digest_hex"],
+            32,
+            f"{context_path}.application_binding_digest_hex",
+        )
+        if context_application_binding_digest != application_binding_digest:
+            raise VerificationError(
+                f"{context_path}.application_binding_digest_hex does not match "
+                f"{case_path}.application_binding.digest_sha256_hex"
+            )
         client_a_y, client_a_tau = _derive_kdf_contribution(
             client_root, context_binding, 0x01, 0x01
         )

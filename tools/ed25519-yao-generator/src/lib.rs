@@ -13,11 +13,24 @@ use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha512};
 
+mod application_binding;
 mod context;
 mod fixtures;
 mod kdf;
 mod kdf_fixtures;
+mod lifecycle_reference;
 
+pub use application_binding::{
+    Ed25519YaoApplicationBindingBytesV1, Ed25519YaoApplicationBindingErrorV1,
+    Ed25519YaoApplicationBindingFactsV1, Ed25519YaoApplicationBindingFieldV1,
+    Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
+    Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
+    Ed25519YaoApplicationBindingWalletIdV1, ED25519_YAO_APPLICATION_BINDING_DOMAIN_V1,
+    ED25519_YAO_APPLICATION_BINDING_KEY_CREATION_SIGNER_SLOT_LABEL_V1,
+    ED25519_YAO_APPLICATION_BINDING_SIGNING_KEY_ID_LABEL_V1,
+    ED25519_YAO_APPLICATION_BINDING_SIGNING_ROOT_ID_LABEL_V1,
+    ED25519_YAO_APPLICATION_BINDING_WALLET_ID_LABEL_V1,
+};
 pub use context::{
     ApplicationBindingDigest, NormalizedParticipantIds, ParticipantPosition,
     StableKeyDerivationContext, StableKeyDerivationContextBindingDigest,
@@ -45,9 +58,14 @@ pub use kdf::{
     CONTRIBUTION_KDF_Y_OUTPUT_TAG_V1,
 };
 pub use kdf_fixtures::{
-    canonical_kdf_vector_corpus_v1, KdfClearReferenceTraceV1, KdfContinuityVectorCaseV1,
-    KdfContributionVectorV1, KdfStableContextVectorV1, KdfSyntheticRootsV1, KdfVectorCorpusV1,
-    KDF_VECTOR_CORPUS_SCHEMA_V1,
+    canonical_kdf_vector_corpus_v1, KdfApplicationBindingVectorV1, KdfClearReferenceTraceV1,
+    KdfContinuityVectorCaseV1, KdfContributionVectorV1, KdfStableContextVectorV1,
+    KdfSyntheticRootsV1, KdfVectorCorpusV1, KDF_VECTOR_CORPUS_SCHEMA_V1,
+};
+pub use lifecycle_reference::{
+    apply_synthetic_correlated_server_delta_v1, SyntheticContinuityDeltaErrorV1,
+    SyntheticContinuityTransitionV1, SyntheticCorrelatedServerDeltaV1, SyntheticNonZeroDeltaTauV1,
+    SyntheticNonZeroDeltaYV1,
 };
 
 /// Fallible result returned while validating raw role contributions.

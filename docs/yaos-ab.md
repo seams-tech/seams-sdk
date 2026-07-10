@@ -221,15 +221,67 @@ application binding digest is an immutable SDK-owned 32-byte value. Lifecycle,
 authorization, transport, deployment, key-epoch, ticket, and circuit metadata
 remain in `CeremonyTranscriptContext` and never enter this stable encoding.
 
-The upstream application-binding preimage and canonical encoder remain a Phase
-1 blocker. They require a new Yao-only domain and immutable wallet/key/root
-identifiers. Existing HSS binding bytes cannot be reused, and mutable values
-such as `signingRootVersion` or any deployment/root-share epoch cannot enter the
-digest. Product integration remains blocked until the exact preimage, length
-encoding, normalization, and golden vectors are frozen.
+The upstream application-binding preimage and canonical encoder are frozen as:
 
-The golden encoding with `application_binding_digest = 0x42 * 32` and
-participant identifiers `1` and `2` ends in `00010002`; its binding digest is
+```text
+LP32(x) = BE32(byte_length(x)) || x
+
+application_binding_domain =
+    ASCII("seams/router-ab/ed25519-yao/application-binding/v1")
+
+Ed25519YaoApplicationBindingV1 =
+    LP32(application_binding_domain)
+    || LP32(ASCII("walletId"))
+    || LP32(UTF8(walletId))
+    || LP32(ASCII("nearEd25519SigningKeyId"))
+    || LP32(UTF8(nearEd25519SigningKeyId))
+    || LP32(ASCII("signingRootId"))
+    || LP32(UTF8(signingRootId))
+    || LP32(ASCII("keyCreationSignerSlot"))
+    || LP32(BE32(keyCreationSignerSlot))
+
+application_binding_digest = SHA-256(Ed25519YaoApplicationBindingV1)
+```
+
+Each of the three string values contains one or more visible ASCII bytes in the
+inclusive range `0x21..=0x7e`. Spaces, control bytes, non-ASCII code points,
+trimming, and Unicode normalization are outside the version-one grammar. The
+encoder preserves the exact validated bytes, and every byte length must fit an
+unsigned 32-bit integer. SDK integration must construct these facts from
+authenticated domain records through parsers that enforce this same grammar.
+`keyCreationSignerSlot` is a positive unsigned 32-bit integer encoded as four
+big-endian bytes inside its `LP32` value.
+
+`keyCreationSignerSlot` means the signer slot fixed when this wallet key is
+created. It is immutable, key-affecting identity. Same-root recovery retains
+it. Changing it changes the application digest, `d`, and public key and is an
+explicit wallet-key creation or rekey. Adding a recipient for the same logical
+key retains the original key-creation slot; the recipient slot stays in the
+ceremony transcript and provenance statement.
+
+The binding excludes `nearAccountId` because an implicit NEAR account ID is
+derived from the final public key and would create a circular KDF input. It also
+excludes `signingRootVersion`, deployment/root/key/activation epochs,
+lifecycle/request/auth/transport/ticket data, and mutable active, default, or
+recipient signer slots. These values bind the ceremony or provenance record.
+They do not enter the stable KDF identity.
+
+The committed golden fixture uses `wallet-fixture`, `ed25519ks_fixture`,
+`project-fixture:env-fixture`, and key-creation slot `1`. Its canonical encoding
+is:
+
+```text
+000000327365616d732f726f757465722d61622f656432353531392d79616f2f6170706c69636174696f6e2d62696e64696e672f76310000000877616c6c657449640000000e77616c6c65742d66697874757265000000176e656172456432353531395369676e696e674b6579496400000011656432353531396b735f666978747572650000000d7369676e696e67526f6f7449640000001b70726f6a6563742d666978747572653a656e762d66697874757265000000156b65794372656174696f6e5369676e6572536c6f740000000400000001
+```
+
+Its application-binding digest is
+`b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121`.
+With participant identifiers `1` and `2`, the resulting stable-context binding
+is `b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655`.
+
+A separate stable-context unit vector with
+`application_binding_digest = 0x42 * 32` and participant identifiers `1` and
+`2` ends in `00010002`; its binding digest is
 `ce5305908b0c31bfe09072b549cb349b0c901f7d3fde60c63fa8e2dfb088a42d`.
 
 The version-one role-local contribution KDF is also frozen:
@@ -255,12 +307,11 @@ One stable client derivation root produces the role-separated client/A and
 client/B contributions. Deriver A's independent stable root produces only the
 server/A contribution. Deriver B's independent stable root produces only the
 server/B contribution. The KDF runs at initial provisioning or explicit wallet
-key rotation. Activation consumes committed packages. Recovery must either
-rewrap the same logical client derivation root or use a reviewed compensating
-transition, and refresh must apply a reviewed correlated zero-sum transition;
-neither operation may independently rerun the KDF under a changed root while
-claiming identity continuity. Phase 1 still has to select the exact recovery
-transition.
+key rotation. Activation consumes committed packages. Version-one recovery
+rewraps the same logical client derivation root under the replacement
+credential. Version-one refresh applies the explicit correlated zero-sum
+transition defined below. An unavailable or compromised client root requires an
+explicit wallet rekey with a new public identity.
 
 Request kind, authorization, transport, deployment, HPKE, storage, ticket,
 activation, root-share, and SigningWorker epochs never enter `info`. They bind
@@ -344,19 +395,66 @@ state transition, and avoid reconstructing either joined value.
 
 Use disjoint request and state-transition types:
 
-| Operation    | Required pre-state                                  | Persisted change                                                                       | Identity invariant                                          |
-| ------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Registration | no registered Ed25519 key                           | create roots, contributions, recipients, and registered key                            | establish one new `A_pub`                                   |
-| Activation   | registered key and inactive output shares           | activate recipient shares                                                              | preserve registered `A_pub`                                 |
-| Recovery     | registered key plus approved recovery authorization | replace the approved client credential/root binding and corresponding role-local state | `d_after = d_before` and `A_pub_after = A_pub_before`       |
-| Refresh      | registered key plus current role epochs             | replace role-local shares/epochs                                                       | joined `y`, joined `tau`, `d`, and `A_pub` remain unchanged |
-| Export       | registered key plus explicit export authorization   | audit/consume state only                                                               | reconstructed `d` derives registered `A_pub`                |
+| Operation    | Required pre-state                                  | Persisted change                                                                                 | Identity invariant                                          |
+| ------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Registration | no registered Ed25519 key                           | create roots, contributions, recipients, and registered key                                      | establish one new `A_pub`                                   |
+| Activation   | registered key and inactive output shares           | activate recipient shares                                                                        | preserve registered `A_pub`                                 |
+| Recovery     | registered key plus approved recovery authorization | rewrap the same logical client root, issue fresh activation packages, and promote the credential | `d_after = d_before` and `A_pub_after = A_pub_before`       |
+| Refresh      | registered key plus current role epochs             | apply correlated deltas, issue fresh activation packages, and advance role/worker epochs         | joined `y`, joined `tau`, `d`, and `A_pub` remain unchanged |
+| Export       | registered key plus explicit export authorization   | audit/consume state only                                                                         | reconstructed `d` derives registered `A_pub`                |
 
-Recovery is blocked until Phase 1 specifies how a new credential or client root
-preserves the seed without reconstructing it. It cannot reuse the export request
-or receive seed-output wires. Registration cannot require a pre-existing account
-public key. Current `Recovery -> Export` request mapping and registration
-preconditions must be deleted when the disjoint types land.
+Version-one recovery is a same-root rewrap. Admission suspends the old
+credential, unwraps the exact same logical 32-byte client derivation root under
+approved recovery authorization, and rewraps it for the replacement credential.
+The stable context, immutable key-creation signer slot, client contributions,
+server contributions, `d`, `a`, `tau`, scalar bases, public points, and
+registered `A_pub` remain identical. The ceremony uses fresh protocol coins,
+activation packages, ticket, and activation epoch. Successful activation
+promotes the replacement credential and tombstones the old credential binding.
+
+Recovery never exposes seed shares and has no compensating-root branch. If the
+logical client root is unavailable or suspected compromised, the wallet enters
+an explicit rekey flow that creates a new `d` and public key. Production root
+custody and proof that both role inputs came from the retained root remain
+stop-ship blockers.
+
+Version-one refresh keeps every stable root, the stable context, and both client
+contributions unchanged. It updates the effective persisted server
+contributions with explicit nonzero deltas:
+
+```text
+y_server_A'   = y_server_A + delta_y mod 2^256
+y_server_B'   = y_server_B - delta_y mod 2^256
+tau_server_A' = tau_server_A + delta_tau mod l
+tau_server_B' = tau_server_B - delta_tau mod l
+```
+
+The joined `y` and `tau`, and therefore `d`, `a`, both scalar bases, public
+points, and `A_pub`, remain unchanged. The host lifecycle is frozen as:
+
+```text
+Active(current)
+  -> Prepared(next)
+  -> OutputCommitted(next)
+  -> WorkerActivated(next)
+  -> Active(next) + RetiredTombstone(current)
+```
+
+Before `OutputCommitted`, an abort discards the prepared next epoch and leaves
+the current epoch active. At and after `OutputCommitted`, the refresh transition
+advances forward-only: the parties may redeliver the exact committed
+ciphertexts, and they may not re-evaluate with new randomness, replace either
+delta, or roll back to the prior epoch. A partial cutover freezes new derivation
+admission until the committed next epoch reaches `WorkerActivated`; activation
+rejects stale role/worker epochs and retires the previous epoch.
+
+This refresh preserves identity against static corruption. It makes no
+proactive or mobile-adversary healing claim. Joint delta generation and
+anti-bias, role-local delta custody and provenance, active output generation,
+and atomic distributed persistence remain stop-ship blockers. Registration
+cannot require a pre-existing account public key. The current
+`Recovery -> Export` request mapping and conflicting registration preconditions
+must be deleted when the disjoint product types land.
 
 ### Protocol-Generated Output Sharing
 
@@ -1651,17 +1749,22 @@ Goal: establish an exact oracle before circuit synthesis.
 - [x] Freeze evidence-backed request, pre-state, success, output-custody, and
       identity shapes for five disjoint lifecycle boundary contracts in
       `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`.
-- [ ] Close recovery preservation, refresh cutover, role-input
-      provenance/anti-bias, and active-output blockers required for five
-      executable ideal functionalities.
+- [x] Freeze same-root recovery preservation plus explicit-delta refresh and
+      forward-only cutover semantics.
+- [ ] Close role-input provenance/anti-bias, joint refresh-delta generation and
+      custody, and active-output blockers required for five executable ideal
+      functionalities.
 - [x] Freeze each operation's public pre-state class, success-state class,
       output family, and identity invariant.
-- [ ] Freeze role-private inputs/provenance, exact persisted transitions,
-      rollback/cutover semantics, and executable evaluators.
+- [x] Freeze the recovery/refresh host lifecycle and the pre-commit abort versus
+      post-commit forward-only policy.
+- [ ] Freeze complete role-private inputs/provenance, exact persisted records
+      and transactions, and executable evaluators.
 - [x] Replace the `Recovery -> Export` mapping in the isolated target contract.
 - [ ] Delete the superseded `Recovery -> Export` implementation during Router
       integration.
-- [ ] Specify recovery's non-export seed-preserving state transition.
+- [x] Specify recovery as a non-export rewrap of the same logical client root;
+      an unavailable or compromised root requires wallet rekey.
 - [x] Freeze registration with an unregistered pre-state and no pre-existing
       account public-key requirement.
 - [ ] Delete conflicting product-path registration preconditions during Router
@@ -1685,35 +1788,46 @@ Goal: establish an exact oracle before circuit synthesis.
       arithmetic wrap boundaries, and an export-only authorized seed result.
 - [x] Add exact golden `StableKeyDerivationContext` encoding and binding vectors
       for the Phase 0 policy.
-- [ ] Freeze the Yao-only application-binding digest preimage and golden vectors;
-      exclude `signingRootVersion` and every mutable epoch.
+- [x] Freeze the visible-ASCII identifier grammar, LP32 Yao-only
+      application-binding preimage, and golden vector over wallet ID, Ed25519
+      signing-key ID, logical signing-root ID, and immutable key-creation signer
+      slot; exclude circular/mutable fields.
 - [x] Bind the frozen stable context into the role-local KDF and add public-key
       continuity vectors.
-- [ ] Freeze role-local root/input provenance commitments and epoch semantics.
+- [x] Freeze the proof-system-neutral role-input provenance outer statement,
+      A/B pair invariants, evidence slots, and root/input-state epoch semantics
+      in `tools/ed25519-yao-generator/docs/input-provenance-v1.md`.
+- [ ] Select and implement hiding/binding provenance artifacts, production root
+      records/custody, proof verification, and ceremony encoders.
 - [x] Specify the registered `A_pub` as the public identity checked during
       recovery and refresh.
-- [ ] Specify registration anti-bias requirements.
+- [x] Specify registration anti-bias acceptance and retry requirements.
+- [ ] Select, review, and implement the registration anti-bias mechanism.
 
 ### July 10, 2026 Implementation Checkpoint
 
 The current isolated Phase 1 slice is implemented in
-`tools/ed25519-yao-generator`. It provides the frozen stable-context type,
-role-separated HKDF-SHA256 contribution derivation, strict request-kind-tagged
-JSON DTOs, byte-for-byte corpus generation, complete synthetic clear traces,
-RFC 8032 export/signature parity, deterministic differential generation,
-arithmetic-boundary coverage, and production dependency guards. The joined
-trace is test-only and does not model party-visible outputs. The companion
-ideal-functionality boundary freezes disjoint lifecycle shapes and value
-custody while leaving recovery, refresh, provenance, and active-output details
-explicitly blocked.
+`tools/ed25519-yao-generator`. It provides the frozen application-binding and
+stable-context encoders, role-separated HKDF-SHA256 contribution derivation,
+strict request-kind-tagged JSON DTOs, byte-for-byte corpus generation, complete
+synthetic clear traces, RFC 8032 export/signature parity, deterministic
+differential generation, arithmetic-boundary coverage, and production
+dependency guards. The joined trace is test-only and does not model
+party-visible outputs. The companion ideal-functionality boundary freezes
+disjoint lifecycle shapes, value custody, same-root recovery, and explicit-delta
+refresh with forward-only cutover.
+
+Production root/delta custody and provenance, joint delta generation and
+anti-bias, active output generation, and atomic distributed persistence remain
+blocked.
 
 The companion FV1 tree under `crates/ed25519-yao/formal-verification` now runs
 seven counted local tracks: vectors, independent Python reproduction, Rust
 parity including compile-fail doctests, anti-drift, Aeneas/Lean boundary
 extraction, the Lean model, and Verus. Its empty-cache Aeneas bootstrap remains
 open because the ambient opam package set is not yet locked. Complete lifecycle
-state transitions, role-input provenance, executable party views, and active
-protocol semantics remain Phase 1 work.
+vectors and evaluators, production provenance artifacts/proofs, executable
+party views, and active-protocol semantics remain Phase 1 work.
 
 ### Exit Gate
 
@@ -1963,6 +2077,10 @@ ownership separate.
 - [ ] Add `crates/router-ab-core/src/protocol/ed25519_yao.rs`.
 - [ ] Define disjoint registration, activation, recovery, refresh, and export
       request/state unions.
+- [ ] Add boundary parsers/builders that read the three application-binding
+      identifiers and immutable key-creation slot from authenticated domain
+      records, enforce the frozen visible-ASCII/positive-`u32` grammar, and hash
+      only the resulting typed facts.
 - [ ] Delete `Recovery -> Export` mapping and export-shaped recovery fields.
 - [ ] Make registration valid before an account public key exists.
 - [ ] Define public manifests, receipts, errors, and terminal results.

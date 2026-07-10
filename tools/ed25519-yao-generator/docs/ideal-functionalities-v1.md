@@ -9,9 +9,11 @@ lifecycle functions. The five functions below are reference contracts for
 active Yao construction, or authorize Router, Cloudflare, SigningWorker, SDK, or
 persistence integration.
 
-Phase 1 remains open. In particular, recovery preservation, refresh cutover,
-production root custody, role-input provenance, registration anti-bias, and the
-exact active protocol require separate reviewed decisions.
+Phase 1 remains open. The same-logical-root recovery transition and correlated
+refresh algebra are frozen below. Production root custody, production refresh
+delta generation, provenance artifacts and proofs, the registration anti-bias
+mechanism, active-output integration, and the exact active protocol require
+separate reviewed decisions.
 
 ## 1. Source authority and evidence baseline
 
@@ -20,24 +22,26 @@ The source precedence for this boundary is:
 1. `docs/router-a-b-SPEC.md` owns product lifecycle, routing, transcript, and
    recipient behavior. See lines 5-11 and 902-925.
 2. `docs/yaos-ab.md` owns the Ed25519 secure-computation backend, arithmetic,
-   output custody, and active-security target. See lines 79-103 and 105-161.
+   output custody, and active-security target. See **Document Authority and
+   Resolved Conflicts**, **Goal**, and **Scope**.
 3. `docs/router-a-b-sol-refactor.md` owns the wider cutover constraints and
-   deletion plan. See lines 27-102 and 117-170.
+   deletion plan. See **Goal**, **Executive Decisions**, and **Non-Negotiable
+   Invariants**.
 4. Current generator code supplies executable clear-arithmetic evidence only.
    Its README explicitly leaves lifecycle transitions, provenance, and
-   active-protocol semantics open at
-   `tools/ed25519-yao-generator/README.md:109-125`.
+   active-protocol semantics open in the `lifecycle_reference` and lifecycle
+   boundary paragraphs.
 
 Current implementation facts:
 
 - `LifecycleRequestKindV1` and `VectorCaseV1` already encode five disjoint tags
-  at `tools/ed25519-yao-generator/src/fixtures.rs:61-112`.
+  at `tools/ed25519-yao-generator/src/fixtures.rs:64-112`.
 - The existing vector union prevents an export result in a non-export branch at
-  `tools/ed25519-yao-generator/src/fixtures.rs:89-112,152-160`.
+  `tools/ed25519-yao-generator/src/fixtures.rs:101-112,152-160`.
 - `ActivationOracleOutput` has no seed field while `ExportOracleOutput` requires
-  one at `tools/ed25519-yao-generator/src/lib.rs:435-470`.
+  one at `tools/ed25519-yao-generator/src/lib.rs:453-489`.
 - The only executable functions are the shared clear-arithmetic activation and
-  export projections at `tools/ed25519-yao-generator/src/lib.rs:483-504`.
+  export projections at `tools/ed25519-yao-generator/src/lib.rs:501-522`.
 - Every current non-export vector is a lifecycle-labelled arithmetic case. The
   builder calls `evaluate_activation` before branching on the lifecycle tag at
   `tools/ed25519-yao-generator/src/fixtures.rs:423-455`. Those cases are not
@@ -66,6 +70,17 @@ The keywords **MUST**, **MUST NOT**, **REQUIRED**, and **BLOCKED** are normative
 - **Uniform abort** means one redacted terminal envelope whose contents are
   independent of protected honest-party values. Exact active-protocol timing and
   selective-failure proofs remain blocked.
+- **Same-logical-root rewrap** means recovering the exact existing 32-byte client
+  derivation root inside an authorized secret boundary and encrypting those same
+  bytes under a replacement credential binding. It never changes the stable
+  context or any KDF contribution.
+- **Output committed** means both roles have signed the complete recipient-package
+  digest set. From that point, the lifecycle advances forward or exactly
+  redelivers those ciphertexts; it never re-evaluates the circuit or restores the
+  preceding credential/share epoch.
+- **Correlated refresh delta** means one nonzero `delta_y` in `Z_(2^256)` and one
+  nonzero `delta_tau` in `Z_l`, added to A's effective role-local account
+  contribution and subtracted from B's contribution.
 
 ## 3. Frozen arithmetic relation
 
@@ -86,9 +101,10 @@ x_client_base = a + tau mod l
 x_server_base = a + 2 * tau mod l
 ```
 
-The canonical byte and scalar rules appear in `docs/yaos-ab.md:163-181`. The
-four-`y` and four-`tau` decomposition and output projection appear at lines
-272-295. The public relation is:
+The canonical byte and scalar rules and the four-`y` and four-`tau`
+decomposition appear in the **Field and Byte Conventions** and **Stable Key
+Context and Ceremony Context** sections of `docs/yaos-ab.md`. The public
+relation is:
 
 ```text
 X_client = x_client_base * B
@@ -97,8 +113,9 @@ A_pub    = a * B
 2 * X_client - X_server = A_pub
 ```
 
-Evidence: `docs/yaos-ab.md:426-451`. Export recomputes the registered identity
-from `d` as required by `docs/yaos-ab.md:456-458`.
+Evidence: the **Protocol-Generated Output Sharing** section of
+`docs/yaos-ab.md`. Export recomputes the registered identity from `d` as
+required by that section.
 
 ## 4. Frozen lifecycle dispatch
 
@@ -112,13 +129,15 @@ Exactly five lifecycle request kinds exist:
 | `refresh`      | `F_ed25519_refresh_v1`      | one activation-family evaluation                 |
 | `export`       | `F_ed25519_export_v1`       | one export-family evaluation                     |
 
-This mapping is fixed by `docs/router-a-b-SPEC.md:902-920` and
-`docs/yaos-ab.md:297-333`. A caller never supplies a circuit or ideal-function
-identifier. Router derives both from the admitted request kind.
+This mapping is fixed by `docs/router-a-b-SPEC.md:902-920` and the **Fixed
+Circuit Families** section of `docs/yaos-ab.md`. A caller never supplies a
+circuit or ideal-function identifier. Router derives both from the admitted
+request kind.
 
 Activation is an internal continuation. It consumes and verifies packages
 created by registration, recovery, or refresh and never triggers another Yao
-evaluation (`docs/router-a-b-SPEC.md:916-920`; `docs/yaos-ab.md:329-333`).
+evaluation (`docs/router-a-b-SPEC.md:916-920`; `docs/yaos-ab.md`, **Fixed
+Circuit Families**).
 
 ## 5. Common public context and leakage
 
@@ -147,7 +166,8 @@ until that encoding is frozen.
 
 The stable key context stays separate. Lifecycle, authorization, transport,
 deployment, ticket, epoch, and circuit metadata MUST NOT enter
-`StableKeyDerivationContextV1` (`docs/yaos-ab.md:183-270`).
+`StableKeyDerivationContextV1` (`docs/yaos-ab.md`, **Stable Key Context and
+Ceremony Context**).
 
 ### 5.2 Common public leakage
 
@@ -162,8 +182,8 @@ The ideal model may expose:
 - role ids, key epochs, state-transition labels, response sizes, and timing;
 - a redacted public failure code through the uniform abort envelope.
 
-Evidence: public receipt fields at `docs/yaos-ab.md:419-443`, payload boundaries
-at `docs/yaos-ab.md:498-510`, Router-held values at
+Evidence: the **Protocol-Generated Output Sharing** and **Payload Boundaries**
+sections of `docs/yaos-ab.md`, Router-held values at
 `docs/router-a-b-SPEC.md:72-92`, and observability rules at
 `docs/router-a-b-SPEC.md:2849-2857`.
 
@@ -187,8 +207,8 @@ contain:
 - labels, masks, OT state, garbling seeds, or recipient-encryption keys;
 - protocol payload plaintext or secret-bearing material handles.
 
-Evidence: `docs/router-a-b-SPEC.md:150-184,230-247,2849-2857` and
-`docs/yaos-ab.md:498-510`.
+Evidence: `docs/router-a-b-SPEC.md:150-184,230-247,2849-2857` and the **Payload
+Boundaries** section of `docs/yaos-ab.md`.
 
 ## 6. Value-custody matrix
 
@@ -204,14 +224,15 @@ The following matrix is frozen for the ideal party views.
 | Public observer  | common public leakage                                                                                            | every private input, random share, plaintext output, label, mask, OT state, seed, scalar, or decryption key    |
 | Logs/diagnostics | public ids, digests, safe state transitions, sizes, timings, redacted failure code                               | protocol payload plaintext and every secret listed for the public observer                                     |
 
-The custody rule is stated directly at `docs/yaos-ab.md:105-124` and
-`docs/router-a-b-SPEC.md:150-184`. Recipient opening is fixed at
+The custody rule is stated directly in the **Goal** section of `docs/yaos-ab.md`
+and at `docs/router-a-b-SPEC.md:150-184`. Recipient opening is fixed at
 `docs/router-a-b-SPEC.md:463-488,702-715`. Source-boundary prohibitions also
-appear at `docs/router-a-b-sol-refactor.md:1084-1102`.
+appear in the **Source And Bundle Guards** section of
+`docs/router-a-b-sol-refactor.md`.
 
 Client plus SigningWorker may reconstruct `a = 2*x_client_base -
 x_server_base mod l`. That collusion is an explicit security exclusion
-(`docs/yaos-ab.md:960-979`).
+(`docs/yaos-ab.md`, **Explicit Exclusions**).
 
 ## 7. Frozen state families
 
@@ -230,10 +251,11 @@ The normative pre-state and identity table is:
 | Refresh      | registered identity plus current role epochs             | replace role-local shares/epochs and prepare next-epoch activation packages           | joined `y`, joined `tau`, `d`, and `A_pub` stay unchanged |
 | Export       | registered identity plus explicit export authorization   | consume/audit export authorization after output release; retain registered identity   | exported `d` derives the registered `A_pub`               |
 
-The source table is `docs/yaos-ab.md:345-353`. Fresh recovery and refresh
-recipient ciphertext requirements come from `docs/router-a-b-SPEC.md:908-925`.
-Export authorization consumption after release is fixed by
-`docs/router-a-b-sol-refactor.md:160-170`.
+The source table appears in the **Fixed Circuit Families** section of
+`docs/yaos-ab.md`. Fresh recovery and refresh recipient ciphertext requirements
+come from `docs/router-a-b-SPEC.md:908-925`. Export authorization consumption
+after release is fixed by the **Ed25519 Export** section of
+`docs/router-a-b-sol-refactor.md`.
 
 ### 7.1 Rust type-shape pseudocode
 
@@ -263,6 +285,7 @@ pub struct RecoveryRequestV1 {
     pub public: CommonLifecyclePublicInputV1,
     pub authorization: ApprovedRecoveryAuthorizationV1,
     pub replacement_client: ClientRecipientV1,
+    pub replacement_credential: ReplacementCredentialBindingV1,
 }
 
 pub struct RefreshRequestV1 {
@@ -284,6 +307,9 @@ pub struct UnregisteredPreStateV1 {
 pub struct RegisteredPreStateV1 {
     pub identity: RegisteredEd25519IdentityV1,
     pub current_role_epochs: CurrentRoleEpochsV1,
+    pub active_client_root_binding: ActiveClientRootBindingV1,
+    pub current_role_commitments: CurrentRoleContributionCommitmentsV1,
+    pub active_activation_epoch: ActiveActivationEpochV1,
 }
 
 pub enum PendingActivationPreStateV1 {
@@ -398,10 +424,37 @@ pub fn evaluate_export_v1(
 ) -> ReferenceLifecycleResultV1<ExportSuccessV1>;
 ```
 
-`RecoveryReferenceInputsV1` and `RefreshReferenceInputsV1` MUST remain
-undefined until Sections 12.1 and 12.2 close. `RegistrationReferenceInputsV1`
-may wrap the current synthetic A/B contributions for arithmetic fixtures. Its
-production-provenance member remains undefined until Section 12.3 closes.
+The recovery and refresh input shapes are frozen for the host-only reference:
+
+```rust
+pub struct RecoveryReferenceInputsV1 {
+    pub current_client_root: HostOnlyClientDerivationRootV1,
+    pub recovered_client_root: HostOnlyClientDerivationRootV1,
+    pub current_deriver_a: DeriverAContribution,
+    pub current_deriver_b: DeriverBContribution,
+    pub output_sharing_coins: HostOnlyActivationOutputCoinsV1,
+}
+
+pub struct CorrelatedRefreshDeltaV1 {
+    pub delta_y: NonzeroLe256V1,
+    pub delta_tau: NonzeroCanonicalScalarV1,
+}
+
+pub struct RefreshReferenceInputsV1 {
+    pub current_deriver_a: DeriverAContribution,
+    pub current_deriver_b: DeriverBContribution,
+    pub delta: CorrelatedRefreshDeltaV1,
+    pub output_sharing_coins: HostOnlyActivationOutputCoinsV1,
+}
+```
+
+The aggregate inputs and explicit coins exist only in the reference generator
+and formal model. Production APIs expose one role-local view. The production
+same-root witness, refresh-delta generation, contribution-state commitments, and
+input-provenance proofs remain undefined until Sections 12.1 through 12.4 close
+their remaining gates. `RegistrationReferenceInputsV1` may wrap the current
+synthetic A/B contributions for arithmetic fixtures. Its production-provenance
+member remains undefined until Section 12.3 closes.
 
 ## 8. Common output sharing
 
@@ -426,8 +479,9 @@ d_A = U
 d_B = d - U mod 2^256
 ```
 
-Evidence: `docs/yaos-ab.md:361-403`. The coins belong to the ideal
-functionality. Neither Deriver supplies them as a freely chosen linear mask.
+Evidence: the **Protocol-Generated Output Sharing** section of
+`docs/yaos-ab.md`. The coins belong to the ideal functionality. Neither Deriver
+supplies them as a freely chosen linear mask.
 Synthetic fixtures may record deterministic reference coins under an explicit
 `host_only_reference_randomness` field. Party views contain only the coins or
 shares visible to that party.
@@ -469,8 +523,9 @@ Success outputs:
 - public observers see only common public leakage.
 
 Identity invariant: success establishes exactly one new `A_pub`. Registration
-has no pre-existing public-key equality precondition. Evidence:
-`docs/yaos-ab.md:345-359` and `docs/router-a-b-SPEC.md:908-920`.
+has no pre-existing public-key equality precondition. Evidence: the **Fixed
+Circuit Families** section of `docs/yaos-ab.md` and
+`docs/router-a-b-SPEC.md:908-920`.
 
 Production root custody, the provenance proof, and the anti-bias rule are
 blockers. A complete registration evaluator and lifecycle fixture cannot ship
@@ -496,8 +551,8 @@ Reference computation:
 
 The function performs zero Deriver invocations, zero contribution derivations,
 zero output-share sampling, and zero Yao evaluations. It emits no new client
-secret. Evidence: `docs/router-a-b-SPEC.md:916-920` and
-`docs/yaos-ab.md:329-333`.
+secret. Evidence: `docs/router-a-b-SPEC.md:916-920` and the **Fixed Circuit
+Families** section of `docs/yaos-ab.md`.
 
 Identity invariant: the registered `A_pub` is unchanged. SigningWorker accepts
 only its current recipient identity and activation epoch
@@ -511,24 +566,68 @@ Precondition:
 - the request kind is `recovery`;
 - approved recovery authorization names the registered identity and replacement
   client recipient;
-- the continuity mechanism proves preservation of the registered seed-derived
-  identity without seed export.
+- the authorized recovery boundary can recover the exact existing logical client
+  derivation root;
+- the existing client derivation root is not classified as unavailable or
+  compromised;
+- both current role epochs, the active credential/root binding, and the active
+  activation epoch match registered state.
+
+An unavailable or suspected-compromised client derivation root fails this
+functionality. The caller must enter an explicit wallet-rekey operation that
+establishes a new Ed25519 identity. Version-one recovery has no compensating
+root-replacement branch.
+
+Reference computation:
+
+1. Consume the one-use recovery authorization and suspend the old credential
+   binding from new signing admission.
+2. Require `recovered_client_root == current_client_root` inside the host-only
+   reference boundary, then construct a replacement credential envelope around
+   those exact root bytes.
+3. Re-derive both role-separated client contributions under the unchanged stable
+   context and require byte-for-byte equality with the current client
+   contributions. Keep both Deriver roots and all effective server/account
+   contributions unchanged.
+4. Evaluate the activation-family function with fresh output-sharing coins and a
+   fresh one-use ticket. Require byte-for-byte equality of `d`, `a`, `tau`, both
+   scalar bases, both public points, and `A_pub` with registered state.
+5. Persist the replacement credential binding, recipient packages, package
+   digest set, and next activation epoch as `RecoveryPendingActivationV1`.
+6. Let `F_ed25519_activation_v1` consume the committed SigningWorker packages.
+   After its idempotent activation receipt, promote the replacement binding and
+   next activation epoch and retain only a tombstone for the old credential
+   binding.
 
 Frozen success boundary:
 
 - produce fresh client and SigningWorker activation-family deliverables;
 - commit `RecoveryPendingActivationV1` for a fresh activation epoch;
 - reveal no seed share, joined seed, or scalar `a`;
-- preserve `d` and `A_pub` byte-for-byte.
+- preserve the logical client root, every KDF contribution, `d`, `a`, `tau`, both
+  scalar bases, both public points, and `A_pub` byte-for-byte;
+- reject the old credential and activation epoch after successful cutover.
 
-Evidence: `docs/router-a-b-SPEC.md:908-925`,
-`docs/router-a-b-sol-refactor.md:1068-1074`, and
-`docs/yaos-ab.md:345-359`.
+Crash and retry semantics:
 
-The actual recovery transition is BLOCKED. The current documents do not define
-how a replacement credential or client root preserves `d` without
-reconstruction. No recovery evaluator, success corpus entry, or continuity proof
-may claim completion before Section 12.1 closes.
+- Before the complete output-package digest set is committed by both roles, an
+  abort destroys the pending ticket and staged packages. The old credential
+  remains suspended, and retry requires fresh recovery authorization and a fresh
+  ticket.
+- `OutputCommitted` is the forward-only boundary. Delivery uncertainty permits
+  exact ciphertext redelivery from the committed package set and no
+  cryptographic re-evaluation.
+- A crash after SigningWorker activation resumes from its idempotent signed
+  receipt and completes the credential/epoch promotion. It never restores the
+  old credential or activation epoch.
+
+Evidence: `docs/router-a-b-SPEC.md:908-925`; the **Root And Key-Continuity
+Policy** and **Flow Completion Matrix** sections of
+`docs/router-a-b-sol-refactor.md`; and the **Stable Key Context and Ceremony
+Context**, **Fixed Circuit Families**, **Frame Format**, and **Incremental
+Evaluation** sections of `docs/yaos-ab.md`. The host-only arithmetic equality
+witness is frozen. Its production proof and custody realization remain Section
+12.1 and 12.3 gates.
 
 ### 9.4 `F_ed25519_refresh_v1`
 
@@ -538,7 +637,51 @@ Precondition:
 - the request kind is `refresh`;
 - both current role epochs match the registered state;
 - an approved refresh transition names the next role epochs;
-- the resharing mechanism proves preservation of joined `y` and joined `tau`.
+- both next role epochs strictly advance their corresponding current epochs;
+- the stable derivation roots, stable context, and both client contributions stay
+  unchanged;
+- the host-only reference receives one nonzero canonical correlated refresh
+  delta for each arithmetic domain.
+
+At initial provisioning, each effective server/account contribution equals its
+frozen role-local KDF output. A refresh updates that persisted effective
+contribution while retaining its KDF provenance chain:
+
+```text
+effective_y_server_A_next = effective_y_server_A + delta_y mod 2^256
+effective_y_server_B_next = effective_y_server_B - delta_y mod 2^256
+
+effective_tau_server_A_next = effective_tau_server_A + delta_tau mod l
+effective_tau_server_B_next = effective_tau_server_B - delta_tau mod l
+```
+
+The client contributions remain fixed. Therefore:
+
+```text
+y_A_next + y_B_next = y_A_current + y_B_current mod 2^256
+tau_A_next + tau_B_next = tau_A_current + tau_B_current mod l
+```
+
+Reference computation:
+
+1. Freeze new derivation ceremonies for the registered key and reserve one fresh
+   one-use ticket at each role.
+2. Apply the explicit correlated delta above and stage both next-epoch role-local
+   contribution states. Neither next state is active yet.
+3. Recompute the old and next joined reference traces and require equality of
+   joined `y`, joined `tau`, `d`, `a`, `x_client_base`, `x_server_base`,
+   `X_client`, `X_server`, and `A_pub`.
+4. Evaluate the activation-family function over the next-epoch inputs with fresh
+   output-sharing coins. Both roles prepare their recipient packages and sign the
+   complete package-digest set.
+5. Advance from `Prepared` to `OutputCommitted` only after both role prepare
+   receipts agree on the wallet/key identity, current and next role epochs,
+   circuit/transcript identity, recipient set, and complete package-digest set.
+6. Let `F_ed25519_activation_v1` consume the committed SigningWorker packages.
+   Its idempotent acknowledgement advances the cutover to `WorkerActivated`.
+7. Commit both next role epochs, retire both old role epochs, retain old-epoch
+   tombstones, and unfreeze derivation admission. Admission rejects either old
+   role epoch after this commit.
 
 Frozen success boundary:
 
@@ -549,15 +692,37 @@ Frozen success boundary:
 - reject the old epoch after successful cutover;
 - reveal no seed share, joined seed, or scalar `a`.
 
+Crash and retry semantics:
+
+- Before `OutputCommitted`, an abort destroys the pending one-use ticket and
+  staged next-epoch state; the current role epochs remain active.
+- At and after `OutputCommitted`, the transition is forward-only. Ciphertext
+  delivery uncertainty permits exact redelivery of the committed package set.
+  Circuit re-evaluation, delta replacement, and rollback to the old role epochs
+  are forbidden.
+- A partial role cutover keeps derivation admission frozen. Recovery resumes from
+  the signed prepare, output-commitment, and SigningWorker activation receipts
+  until both roles record the same active next epoch.
+- An uncertain pre-commit ticket is destroyed. A retry uses a fresh authorization,
+  delta, transcript, and ticket.
+
 Preservation of `x_client_base` and `x_server_base` follows algebraically from
 the frozen preservation of `d` and `tau`. The normative identity requirements
-are at `docs/yaos-ab.md:340-353` and
-`docs/router-a-b-sol-refactor.md:119-128,313-340`. Old-epoch rejection appears in
-`docs/router-a-b-sol-refactor.md:1068-1075`.
+are in the **Fixed Circuit Families** section of `docs/yaos-ab.md` and the
+**Canonical Ed25519 Identity** and **Root And Key-Continuity Policy** sections of
+`docs/router-a-b-sol-refactor.md`. The latter also fixes old-epoch rejection.
 
-The refresh transition is BLOCKED on the exact resharing protocol, recipient
-set, SigningWorker acknowledgement boundary, failure rollback behavior, and
-atomic old/new epoch cutover. See Section 12.2.
+These semantics target the approved static-corruption model. They make no
+proactive or mobile-adversary healing claim. Both roles can derive the correlated
+delta from their own signed update, so any sequential-compromise claim requires a
+separately reviewed corruption schedule and verified-erasure model. The current
+security target explicitly excludes that stronger claim in the **Security
+Target** section of `docs/router-a-b-sol-refactor.md` and the **Explicit
+Exclusions** section of `docs/yaos-ab.md`.
+
+Production delta generation, active proof of old/new input provenance, private
+output integration, and distributed persistence realization remain Section 12.2
+through 12.4 gates.
 
 ### 9.5 `F_ed25519_export_v1`
 
@@ -584,9 +749,10 @@ from that seed. Router receives opaque export ciphertexts and public receipt
 metadata. SigningWorker receives no export output. Each Deriver receives only
 its randomized seed share and never the joined seed.
 
-Evidence: `docs/router-a-b-sol-refactor.md:160-170`,
-`docs/router-a-b-SPEC.md:638-658,681-715`, and
-`docs/yaos-ab.md:297-333,390-403,456-458`.
+Evidence: the **Ed25519 Export** section of
+`docs/router-a-b-sol-refactor.md`, `docs/router-a-b-SPEC.md:638-658,681-715`,
+and the **Fixed Circuit Families** and **Protocol-Generated Output Sharing**
+sections of `docs/yaos-ab.md`.
 
 Export MUST NOT contain activation-family client shares, SigningWorker shares,
 or a SigningWorker recipient. Registration, activation, recovery, and refresh
@@ -617,8 +783,8 @@ Router faults such as denial, stale routing, replay, or incomplete delivery must
 be detectable (`docs/router-a-b-SPEC.md:746-759`). Malicious A or B behavior must
 produce a valid authenticated output or a uniform detectable abort
 (`docs/router-a-b-SPEC.md:761-772`). Timeout, crash, cancellation, peer
-uncertainty, malformed input, partial send, and rollback destroy one-use material
-(`docs/yaos-ab.md:789-854`).
+uncertainty, malformed input, partial send, and rollback destroy one-use
+material (`docs/yaos-ab.md`, **Frame Format** and **Incremental Evaluation**).
 
 The ideal model freezes the envelope and its forbidden contents. Exact timing,
 active-protocol abort points, selective-failure independence, and failure-code
@@ -665,10 +831,11 @@ Activation fixtures MUST set Deriver invocations and Yao evaluations to zero.
 They reference committed output digests from a registration, recovery, or refresh
 fixture. They contain no `VectorInputsV1` and no output-sharing randomness.
 
-Recovery success fixtures remain absent until recovery preservation is defined.
-Refresh success fixtures remain absent until refresh cutover is defined. Record
-the blockers in documentation rather than serializing placeholder or
-`unsupported` success variants.
+Recovery and refresh success fixtures may now implement the frozen host-only
+semantics. They use exact root equality and explicit synthetic refresh deltas;
+they carry no placeholder or `unsupported` success variant. These fixtures are
+reference evidence only. They do not satisfy the production provenance,
+delta-generation, active-output, or distributed-cutover gates.
 
 ### 11.3 Required positive fixtures
 
@@ -677,12 +844,21 @@ Once unblocked, add:
 - registration from an unregistered state through pending activation;
 - activation of a registration-origin pending package set;
 - activation of recovery-origin and refresh-origin pending package sets;
-- recovery before/after continuity with identical `d` and `A_pub`;
+- recovery rewrapping the same logical root under a different credential binding,
+  with identical KDF contributions, `d`, `a`, `tau`, scalar bases, points, and
+  `A_pub`;
+- recovery cutover suspending and then tombstoning the old credential binding;
 - refresh before/after continuity with identical joined `y`, joined `tau`, `d`,
   `a`, scalar bases, points, and `A_pub`;
+- refresh applying opposite nonzero deltas, advancing both role epochs, and
+  rejecting both old epochs after cutover;
 - export whose reconstructed `d` reproduces the registered public key and RFC
   8032 signature behavior;
-- exact encrypted-package redelivery with zero cryptographic reevaluation.
+- exact encrypted-package redelivery with zero cryptographic reevaluation after
+  recovery and refresh output commitment;
+- pre-commit recovery and refresh aborts that destroy pending one-use material;
+- post-commit recovery and refresh crashes that resume forward from signed
+  receipts.
 
 ### 11.4 Required rejection and static fixtures
 
@@ -695,8 +871,17 @@ Add serde rejection tests and compile-fail examples for:
 - wrong origin, request kind, recipient, registered identity, root epoch, role
   epoch, transcript digest, package digest set, or activation epoch;
 - recovery mapped to export;
+- recovery with a changed, unavailable, or suspected-compromised client root;
+- recovery that leaves the old credential binding sign-capable after admission;
+- recovery rollback or circuit re-evaluation after output commitment;
 - registration requiring a pre-existing public key;
 - refresh that changes joined `y`, joined `tau`, `d`, or `A_pub`;
+- refresh with a zero, noncanonical, same-sign, or mismatched-domain delta;
+- refresh that changes the stable context, a derivation root, or a client
+  contribution;
+- refresh rollback, delta replacement, or circuit re-evaluation after output
+  commitment;
+- refresh admission using either retired old role epoch;
 - export that reconstructs a public key different from the registered identity;
 - unknown JSON fields, optional secret fields, and broad generic lifecycle
   constructors.
@@ -724,55 +909,97 @@ For each complete fixture, assert:
 The final assertion becomes executable only after the active construction and
 corruption games are defined.
 
-## 12. Explicit blockers
+## 12. Frozen recovery and refresh decisions with remaining blockers
 
-### 12.1 Recovery preservation
+### 12.1 Recovery preservation proof and custody
 
-`docs/yaos-ab.md:355-359` explicitly blocks recovery until the design explains
-how a replacement credential or client root preserves `d` without
-reconstruction. Required decisions:
+The version-one semantic choice is frozen: recovery rewraps the exact same
+logical client derivation root. It changes the credential binding and activation
+epoch while preserving the stable context, client KDF contributions, effective
+server/account contributions, joined values, signing bases, and public identity.
+An unavailable or suspected-compromised client root requires explicit wallet
+rekey. Compensating client-root replacement is outside version one.
 
-- which role-local client and server contributions persist or change;
-- how a new credential binds to existing seed-preserving state;
-- how both Derivers prove continuity to the registered identity;
-- which old credential and material state becomes invalid, and when;
-- failure and rollback behavior around the later activation continuation.
+The host-only reference proves continuity through exact root and contribution
+equality. Production remains BLOCKED until review selects:
 
-No executable `RecoveryReferenceInputsV1` or successful recovery vector is
-valid before these decisions are reviewed.
+- the protected boundary that opens the old recovery envelope and creates the new
+  credential envelope around the same root bytes;
+- the proof binding the replacement credential envelope to the same logical root
+  and both frozen role-separated client KDF contributions;
+- role-local commitments proving the Deriver inputs and effective account
+  contributions match current registered state and epochs;
+- exact signed receipt bytes and persistence transactions for credential
+  suspension, output commitment, activation, promotion, and old-binding
+  tombstones.
 
-### 12.2 Refresh resharing and cutover
+Successful host-only recovery vectors and a deterministic reference evaluator
+may land before that production proof. They MUST label exact root comparison and
+all aggregate inputs as host-only evidence.
 
-The invariant is frozen. The transition mechanics remain incomplete. Required
-decisions:
+### 12.2 Refresh delta generation, proof, and distributed cutover
 
-- whether this request refreshes root shares, account contributions,
-  SigningWorker shares, or one exact combined operation;
-- exact preservation proof for joined `y` and joined `tau`;
-- whether the client always receives a next-epoch package;
-- the SigningWorker acknowledgement required before completion;
-- atomic activation of the new epoch and rejection of the old epoch;
-- retry, rollback, partial failure, and crash semantics.
+The version-one reference transform and cutover semantics are frozen in Section
+9.4. The reference takes explicit nonzero `delta_y` and `delta_tau`, applies them
+with opposite signs to the effective A/B server/account contributions, advances
+both role epochs, and models the following monotonic transition:
+
+```text
+Active(current)
+  -> Prepared(current, next)
+  -> OutputCommitted(current, next, package_digest_set)
+  -> WorkerActivated(current, next, activation_receipt)
+  -> Active(next) + RetiredTombstone(current)
+```
+
+`OutputCommitted` is the point of no return. Earlier aborts discard the pending
+next epoch and retain the current epoch. Later crashes resume forward through
+exact ciphertext redelivery and idempotent signed receipts. Derivation admission
+stays frozen during a partial cutover, and the committed transition rejects both
+old role epochs.
+
+Production remains BLOCKED until review selects and verifies:
+
+- protocol-generated joint delta generation with correctness-with-abort and no
+  client or Router control over either delta;
+- input commitments proving each old contribution belongs to the current epoch
+  and each new contribution is the exact signed-delta update;
+- active-circuit or equivalent proof that old and next joined `y` and `tau` are
+  equal without opening either joined value;
+- authenticated binding between next contribution state, recipient packages,
+  active outputs, and the complete package-digest set;
+- concrete role-local durable transactions, cutover certificates, erasure, and
+  crash recovery across independent deployments.
 
 Evidence for the current ambiguity spans the root-share flow at
-`docs/router-a-b-SPEC.md:533-553`, activation-family refresh at
-`docs/yaos-ab.md:340-353`, and recipient wording at
-`docs/router-a-b-sol-refactor.md:1068-1075`.
+`docs/router-a-b-SPEC.md:533-553`, activation-family refresh in the **Fixed
+Circuit Families** section of `docs/yaos-ab.md`, and the **Root And
+Key-Continuity Policy** of `docs/router-a-b-sol-refactor.md`.
+
+The security claim remains static corruption. This transition invalidates stale
+role-share epochs and shortens retained-state cryptoperiods. It supplies no
+mobile-adversary or sequential-compromise healing claim. Such a claim requires a
+reviewed erasure model, corruption schedule, and refresh proof beyond this
+reference functionality.
 
 ### 12.3 Role-input provenance, root custody, and registration anti-bias
 
-The stable-context and contribution-KDF bytes are frozen in the host reference
-under `docs/yaos-ab.md` **Stable Key Context and Ceremony Context**. Production
-root custody and input provenance remain open. Active 2PC alone proves a
-computation over supplied inputs; it does not prove that those inputs match the
-provisioned roots described under **Input Provenance**. Required decisions:
+The application binding, stable context, and contribution-KDF bytes are frozen
+in the host reference under `docs/yaos-ab.md` **Stable Key Context and Ceremony
+Context**. `docs/input-provenance-v1.md` freezes a proof-system-neutral outer
+statement, A/B pair invariants, root/input-state epoch meanings, lifecycle
+evidence slots, and registration anti-bias acceptance requirements. Production
+root custody and proof realization remain open. Active 2PC proves a computation
+over supplied inputs; it does not establish that those inputs match the
+provisioned roots described under **Input Provenance**. Required decisions are:
 
-- the upstream Yao-only application-binding digest preimage and normalization;
 - protected production root representations and role-local invocation APIs;
-- proof statements connecting each frozen KDF output to its provisioned root;
-- root, wallet/key, path, epoch, request, envelope, and authorization bindings;
-- registration anti-bias mechanism and acceptance rule;
-- recovery and refresh continuity proof statements.
+- hiding and binding artifact suites plus proof statements connecting each
+  frozen KDF output to its provisioned root;
+- canonical ceremony, authorization, root-record, and role-input-state bytes;
+- registration anti-bias mechanism and retry/acceptance state machine;
+- protected same-root recovery proof and joint refresh-delta proof;
+- active-protocol composition binding accepted provenance to exact input wires.
 
 Synthetic raw contributions remain valid clear-arithmetic test inputs. They are
 not production provenance evidence.
@@ -791,29 +1018,32 @@ remains blocked on selection and review of:
 - selective-failure-resistant uniform abort behavior;
 - one-use preprocessing, stream, persistence, and crash state machines.
 
-These are production capabilities at `docs/yaos-ab.md:909-959`. This reference
-boundary supplies no evidence for them.
+These are production capabilities in the **Production Capabilities** section of
+`docs/yaos-ab.md`. This reference boundary supplies no evidence for them.
 
 ## 13. Alignment and readiness
 
-| Requirement                               | Current code status                                                                    | Classification       | Confidence |
-| ----------------------------------------- | -------------------------------------------------------------------------------------- | -------------------- | ---------- |
-| Five disjoint request tags                | `fixtures.rs:61-75,89-112`                                                             | full for tags        | 1.00       |
-| Export-only seed result                   | `fixtures.rs:152-160`; `lib.rs:435-470`                                                | full for oracle DTOs | 1.00       |
-| Five disjoint prestates and transitions   | lifecycle semantics expressly excluded by `fixtures.rs:89-93` and README lines 109-115 | missing in code      | 1.00       |
-| Activation consumes committed packages    | current fixture builder evaluates arithmetic at `fixtures.rs:423-455`                  | missing in code      | 1.00       |
-| Recovery remains distinct from export     | generator tag is distinct; legacy gate maps it to export at `protocol/gate.rs:33-40`   | integration mismatch | 1.00       |
-| Recovery seed-preserving transition       | no executable input or transition type                                                 | blocked by spec      | 1.00       |
-| Refresh identity-preserving transition    | arithmetic tag exists; no paired before/after state                                    | blocked/partial      | 0.98       |
-| Complete party views and declared leakage | clear trace is explicitly host-only at `fixtures.rs:198-204`                           | missing in code      | 1.00       |
-| Uniform lifecycle abort envelope          | oracle exposes only noncanonical tau input errors at `src/lib.rs:92-102`               | missing in code      | 0.99       |
-| Active private randomized outputs         | no protocol implementation exists                                                      | intentionally absent | 1.00       |
+| Requirement                               | Current code status                                                                  | Classification        | Confidence |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ | --------------------- | ---------- |
+| Five disjoint request tags                | `fixtures.rs:64-75,101-112`                                                          | full for tags         | 1.00       |
+| Export-only seed result                   | `fixtures.rs:152-160`; `lib.rs:453-489`                                              | full for oracle DTOs  | 1.00       |
+| Five disjoint prestates and transitions   | lifecycle semantics expressly excluded by the README lifecycle-boundary paragraph    | missing in code       | 1.00       |
+| Activation consumes committed packages    | current fixture builder evaluates arithmetic at `fixtures.rs:423-455`                | missing in code       | 1.00       |
+| Recovery remains distinct from export     | generator tag is distinct; legacy gate maps it to export at `protocol/gate.rs:33-40` | integration mismatch  | 1.00       |
+| Recovery seed-preserving transition       | same-root KDF/identity continuity test in `lifecycle_reference.rs`                   | partial host evidence | 1.00       |
+| Refresh identity-preserving transition    | explicit opposite-delta continuity test in `lifecycle_reference.rs`                  | partial host evidence | 1.00       |
+| Complete party views and declared leakage | clear trace is explicitly host-only at `fixtures.rs:198-204`                         | missing in code       | 1.00       |
+| Uniform lifecycle abort envelope          | oracle exposes only noncanonical tau input errors at `src/lib.rs:112-135`            | missing in code       | 0.99       |
+| Active private randomized outputs         | no protocol implementation exists                                                    | intentionally absent  | 1.00       |
 
-The safe next implementation slice is limited to the common public/context
-types, five disjoint request/pre-state/success DTO families, the zero-evaluation
+The safe next implementation slice includes the common public/context types,
+five disjoint request/pre-state/success DTO families, the zero-evaluation
 activation continuation model, export/non-export structural rejection tests,
-the public leakage DTOs, and the uniform abort envelope. Recovery and refresh
-evaluators stop at their undefined reference-input types. Registration remains
-an arithmetic reference until provenance and anti-bias close.
+the public leakage DTOs, the uniform abort envelope, and committed recovery and
+refresh lifecycle vectors. Recovery and refresh inputs remain host-only
+synthetic evidence. Registration remains an arithmetic reference until its
+provenance and anti-bias mechanism close. No production adapter, persistence
+path, or security capability claim may land before Sections 12.1 through 12.4
+close their production gates.
 
 This document does not close Yao Phase 1 or FV0.

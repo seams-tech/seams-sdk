@@ -8,8 +8,14 @@ Ed25519 Yao that exist today. The checked surface is deliberately narrow:
 
 - frozen protocol, circuit, output-schema, and manifest identifiers;
 - draft-manifest digest roles and metric shape;
-- the frozen stable-context encoding, role-local contribution KDF, five-case
-  arithmetic corpus, and one-case KDF-continuity corpus;
+- the visible-ASCII four-field application-binding encoder, including positive
+  immutable `keyCreationSignerSlot`, stable-context encoding, role-local
+  contribution KDF, five-case arithmetic corpus, and one-case KDF-continuity
+  corpus;
+- host-only synthetic same-root client-KDF continuity and opposite-delta refresh
+  arithmetic evidence;
+- the proof-system-neutral provenance statement and epoch contract, which has
+  no proof-artifact implementation yet;
 - 128 deterministic differential cases regenerated and checked by an
   independent standard-library Python implementation;
 - the clear generator's `wrapping_add_le_256` and `clamp_rfc8032` boundaries;
@@ -30,8 +36,8 @@ does not establish Yao security.
 - [`tasks/`](tasks/Cargo.toml) owns host-only command orchestration. Production
   crates have no dependency on this task runner or on the clear oracle.
 - `tools/ed25519-yao-verifier` is a standard-library Python implementation that
-  independently reproduces stable-context binding, clear arithmetic, and
-  Edwards25519 point encodings.
+  independently reproduces the application binding, stable-context binding,
+  contribution KDF, clear arithmetic, and Edwards25519 point encodings.
 - [`docs/`](docs/) records sources, obligations, assumptions, and the current
   compliance baseline.
 
@@ -58,9 +64,12 @@ cargo yao-fv verus-check
 usable with an ordinary Rust toolchain.
 
 `cross-language-check` runs the Python mutation suite, verifies the committed
-five-case arithmetic and one-case KDF-continuity corpora, generates 128
-deterministic public-test cases, independently regenerates every input from the
-fixed seed, and verifies every output.
+five-case arithmetic and one-case KDF-continuity corpora including `walletId`,
+`nearEd25519SigningKeyId`, `signingRootId`, and positive immutable
+`keyCreationSignerSlot`, generates 128 deterministic public-test cases,
+independently regenerates every input from the fixed seed, and verifies every
+output. `nearAccountId`, mutable/current signer slots, versions, and epochs are
+absent from the application binding.
 
 The full local gate is:
 

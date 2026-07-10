@@ -78,10 +78,12 @@ The Yao corpus uses this precedence:
 2. the lifecycle and value-custody boundary in
    `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`, together with
    the frozen bit- and byte-level functionality produced by Yao Phase 1;
-3. the independently reproducible golden, KDF-continuity, and randomized vector
+3. the proof-system-neutral provenance statement and epoch contract in
+   `tools/ed25519-yao-generator/docs/input-provenance-v1.md`;
+4. the independently reproducible golden, KDF-continuity, and randomized vector
    corpora;
-4. reviewed Rust source and deterministic circuit artifacts;
-5. formal mirrors, generated Lean, handwritten models, and explanatory prose.
+5. reviewed Rust source and deterministic circuit artifacts;
+6. formal mirrors, generated Lean, handwritten models, and explanatory prose.
 
 Any disagreement between two levels becomes a recorded compliance finding.
 Proof work stops at the affected boundary until the authoritative source and
@@ -228,7 +230,7 @@ targets. The gate must verify that expected `.olean` outputs were produced.
 ### Executable oracle and vectors
 
 `tools/ed25519-yao-generator` remains the exact clear reference and vector
-owner. Its proof-facing scope will include:
+owner. Its current proof-facing scope includes:
 
 - four little-endian `y` contributions and wrapping addition modulo `2^256`;
 - four canonical `tau` contributions and addition modulo `l`;
@@ -237,9 +239,15 @@ owner. Its proof-facing scope will include:
 - `x_server_base = a + 2*tau mod l`;
 - `2*X_client - X_server = A_pub`;
 - separate seed-free activation and required-seed export outputs;
-- the frozen `StableKeyDerivationContext` once Yao Phase 1 defines it;
-- lifecycle-specific registration, activation, recovery, refresh, and export
-  vectors.
+- the frozen visible-ASCII four-fact application binding with positive
+  immutable `keyCreationSignerSlot` and no `nearAccountId`, mutable slot,
+  version, or epoch;
+- the frozen `StableKeyDerivationContext` and contribution KDF;
+- synthetic same-logical-root client-KDF continuity and opposite-delta refresh
+  arithmetic.
+
+Complete lifecycle-specific registration, activation, recovery, refresh, and
+export vectors remain Phase 1 work.
 
 The clear oracle stays host-only and synthetic. Production crates retain no
 reverse dependency on it.
@@ -434,10 +442,20 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       executable ideal functionalities.
 - [x] Freeze the exact `StableKeyDerivationContext` encoding, validation, and
       binding-digest bytes.
-- [ ] Freeze the upstream Yao-only application-binding digest preimage,
-      normalization, and golden vectors without mutable root/deployment epochs.
+- [x] Freeze the Yao-only application-binding visible-ASCII grammar, digest
+      preimage, validation, positive immutable `keyCreationSignerSlot`
+      semantics, and golden vectors.
+      Exclude circular `nearAccountId`, mutable/current signer slots, versions,
+      and every root/deployment epoch.
 - [x] Freeze role-local KDF integration and public-key continuity rules for the
       stable context.
+- [x] Freeze same-logical-root recovery and opposite-delta refresh reference
+      semantics with a static-corruption-only claim boundary.
+- [x] Freeze the proof-system-neutral provenance statement slots, outer
+      encoding, role pairing, and root/input-state epoch meanings.
+- [ ] Close production root-custody, registration anti-bias,
+      refresh-delta-generation, and distributed-realization contracts. Leave
+      commitment/proof artifact selection to Yao Phase 6 and FV6.
 - [x] Freeze output custody, ideal sharing randomness, common public leakage,
       forbidden values, and the uniform abort-envelope shape.
 - [ ] Freeze role-private inputs, complete randomness/frames, persistence views,
@@ -751,27 +769,29 @@ stream transcript, ticket lifecycle, or artifact encoding requires:
 
 ## Readiness Dashboard
 
-| Prerequisite                                                   | Current state                                                                                |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Frozen protocol, circuit-family, and output-schema identifiers | complete                                                                                     |
-| Typed draft manifest and canonical digest binding              | complete                                                                                     |
-| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                                                                   |
-| RFC 8032 reference vectors                                     | partial Phase 1 foundation                                                                   |
-| Five exact lifecycle ideal functionalities                     | partial Phase 1 boundary; recovery, refresh, provenance, and active outputs blocked          |
-| Frozen `StableKeyDerivationContext` encoding and binding       | context wrapper complete; upstream application-binding preimage missing                      |
-| Stable-context KDF integration and continuity vectors          | implemented in isolated host-only reference                                                  |
-| Complete party views, leakage, and aborts                      | partial custody/leakage boundary; executable role views and active abort equivalence missing |
-| Deterministic circuit IR, compiler, schedule, and artifacts    | missing                                                                                      |
-| Passive garbler/evaluator implementation                       | missing                                                                                      |
-| Private randomized outputs and streaming state machine         | missing                                                                                      |
-| Selected reviewed active suite                                 | missing                                                                                      |
-| One-use ticket and adapter state machines                      | missing                                                                                      |
-| Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending                                              |
+| Prerequisite                                                   | Current state                                                                                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen protocol, circuit-family, and output-schema identifiers | complete                                                                                                                                          |
+| Typed draft manifest and canonical digest binding              | complete                                                                                                                                          |
+| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                                                                                                                        |
+| RFC 8032 reference vectors                                     | partial Phase 1 foundation                                                                                                                        |
+| Five lifecycle ideal-functionality boundary contracts          | recovery/refresh reference semantics frozen; complete DTOs, provenance proofs, and active outputs missing                                         |
+| Frozen Yao application binding                                 | visible-ASCII four-field encoder with positive immutable `keyCreationSignerSlot`, golden KDF vector, and independent Python reproduction complete |
+| Frozen `StableKeyDerivationContext` encoding and binding       | application binding through stable-context binding implemented in the host reference                                                              |
+| Stable-context KDF integration and continuity vectors          | implemented in isolated host-only reference                                                                                                       |
+| Role-input provenance statement and epochs                     | proof-system-neutral outer contract frozen; parser, artifact suite, and verifier missing                                                          |
+| Complete party views, leakage, and aborts                      | partial custody/leakage boundary; executable role views and active abort equivalence missing                                                      |
+| Deterministic circuit IR, compiler, schedule, and artifacts    | missing                                                                                                                                           |
+| Passive garbler/evaluator implementation                       | missing                                                                                                                                           |
+| Private randomized outputs and streaming state machine         | missing                                                                                                                                           |
+| Selected reviewed active suite                                 | missing                                                                                                                                           |
+| One-use ticket and adapter state machines                      | missing                                                                                                                                           |
+| Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending                                                                                                   |
 
-Current verdict: continue Yao Phase 1 and the FV1 mechanical scaffold. Notify
-the maintainer to begin FV0 and FV2 when Phase 1 and the FV1 exit gate are
-satisfied. Notify again before FV3 and FV6 when their implementation gates
-close.
+Current verdict: continue Yao Phase 1 plus the FV0 traceability and FV1
+mechanical-scaffold work. Notify the maintainer to begin FV2 when Phase 1 and the
+FV1 exit gate are satisfied. Notify again before FV3 and FV6 when their
+implementation gates close.
 
 ## Definition of Done
 

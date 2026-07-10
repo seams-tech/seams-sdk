@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     derive_synthetic_client_contributions_v1, derive_synthetic_deriver_a_server_contribution_v1,
     derive_synthetic_deriver_b_server_contribution_v1, evaluate_activation, wrapping_add_le_256,
-    DeriverAContribution, DeriverBContribution, OracleMaterial, RawDeriverAContribution,
+    DeriverAContribution, DeriverBContribution, Ed25519YaoApplicationBindingFactsV1,
+    Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
+    Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
+    Ed25519YaoApplicationBindingWalletIdV1, OracleMaterial, RawDeriverAContribution,
     RawDeriverBContribution, StableKeyDerivationContext, SyntheticClientDerivationRootV1,
     SyntheticDeriverADerivationRootV1, SyntheticDeriverBDerivationRootV1,
 };
@@ -21,7 +24,10 @@ pub const KDF_VECTOR_CORPUS_SCHEMA_V1: &str =
 const SYNTHETIC_CLIENT_ROOT_V1: [u8; 32] = [0x11; 32];
 const SYNTHETIC_DERIVER_A_ROOT_V1: [u8; 32] = [0x22; 32];
 const SYNTHETIC_DERIVER_B_ROOT_V1: [u8; 32] = [0x33; 32];
-const SYNTHETIC_APPLICATION_BINDING_V1: [u8; 32] = [0x42; 32];
+const SYNTHETIC_WALLET_ID_V1: &str = "wallet-fixture";
+const SYNTHETIC_SIGNING_KEY_ID_V1: &str = "ed25519ks_fixture";
+const SYNTHETIC_SIGNING_ROOT_ID_V1: &str = "project-fixture:env-fixture";
+const SYNTHETIC_KEY_CREATION_SIGNER_SLOT_V1: u32 = 1;
 
 /// Strict portable corpus for contribution-KDF continuity evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +47,8 @@ pub struct KdfVectorCorpusV1 {
 pub struct KdfContinuityVectorCaseV1 {
     /// Stable case identifier.
     pub case_id: String,
+    /// Frozen SDK-owned application-binding preimage and digest.
+    pub application_binding: KdfApplicationBindingVectorV1,
     /// Public synthetic roots used to reproduce the KDF outputs.
     pub synthetic_roots: KdfSyntheticRootsV1,
     /// Frozen stable-context record and binding.
@@ -49,6 +57,24 @@ pub struct KdfContinuityVectorCaseV1 {
     pub contributions: KdfContributionVectorV1,
     /// Joined host-only clear trace through the Ed25519 public identity.
     pub synthetic_clear_reference_trace: KdfClearReferenceTraceV1,
+}
+
+/// Frozen Yao-only application-binding evidence for one KDF vector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KdfApplicationBindingVectorV1 {
+    /// Durable wallet identity committed by the binding.
+    pub wallet_id: String,
+    /// Stable NEAR Ed25519 signing-key identity committed by the binding.
+    pub near_ed25519_signing_key_id: String,
+    /// Stable logical signing-root identity committed by the binding.
+    pub signing_root_id: String,
+    /// Positive signer slot fixed when this wallet key was created.
+    pub key_creation_signer_slot: u32,
+    /// Exact U32BE length-delimited application-binding encoding.
+    pub encoded_hex: String,
+    /// SHA-256 digest consumed by the stable key context.
+    pub digest_sha256_hex: String,
 }
 
 /// Public synthetic roots for one KDF vector.
@@ -135,7 +161,10 @@ pub struct KdfClearReferenceTraceV1 {
 
 /// Builds the canonical version-one synthetic KDF continuity corpus.
 pub fn canonical_kdf_vector_corpus_v1() -> KdfVectorCorpusV1 {
-    let context = StableKeyDerivationContext::new(SYNTHETIC_APPLICATION_BINDING_V1, 2, 1)
+    let application_binding = canonical_application_binding_facts_v1();
+    let application_binding_encoding = application_binding.encode();
+    let application_binding_digest = application_binding.digest();
+    let context = StableKeyDerivationContext::new(*application_binding_digest.as_bytes(), 2, 1)
         .expect("fixed synthetic context is valid");
     let client_root = SyntheticClientDerivationRootV1::from_fixture_bytes(SYNTHETIC_CLIENT_ROOT_V1);
     let deriver_a_root =
@@ -176,6 +205,14 @@ pub fn canonical_kdf_vector_corpus_v1() -> KdfVectorCorpusV1 {
         protocol_id: ed25519_yao::PROTOCOL_ID_STR.to_owned(),
         cases: vec![KdfContinuityVectorCaseV1 {
             case_id: "synthetic_kdf_continuity_baseline_v1".to_owned(),
+            application_binding: KdfApplicationBindingVectorV1 {
+                wallet_id: SYNTHETIC_WALLET_ID_V1.to_owned(),
+                near_ed25519_signing_key_id: SYNTHETIC_SIGNING_KEY_ID_V1.to_owned(),
+                signing_root_id: SYNTHETIC_SIGNING_ROOT_ID_V1.to_owned(),
+                key_creation_signer_slot: SYNTHETIC_KEY_CREATION_SIGNER_SLOT_V1,
+                encoded_hex: encode_hex(application_binding_encoding.as_bytes()),
+                digest_sha256_hex: encode_hex(application_binding_digest.as_bytes()),
+            },
             synthetic_roots: KdfSyntheticRootsV1 {
                 client_root_hex: encode_hex(&SYNTHETIC_CLIENT_ROOT_V1),
                 deriver_a_root_hex: encode_hex(&SYNTHETIC_DERIVER_A_ROOT_V1),
@@ -212,6 +249,21 @@ pub fn canonical_kdf_vector_corpus_v1() -> KdfVectorCorpusV1 {
             ),
         }],
     }
+}
+
+fn canonical_application_binding_facts_v1() -> Ed25519YaoApplicationBindingFactsV1 {
+    Ed25519YaoApplicationBindingFactsV1::new(
+        Ed25519YaoApplicationBindingWalletIdV1::parse(SYNTHETIC_WALLET_ID_V1)
+            .expect("fixed synthetic wallet id is canonical"),
+        Ed25519YaoApplicationBindingSigningKeyIdV1::parse(SYNTHETIC_SIGNING_KEY_ID_V1)
+            .expect("fixed synthetic signing key id is canonical"),
+        Ed25519YaoApplicationBindingSigningRootIdV1::parse(SYNTHETIC_SIGNING_ROOT_ID_V1)
+            .expect("fixed synthetic signing root id is canonical"),
+        Ed25519YaoApplicationBindingKeyCreationSignerSlotV1::new(
+            SYNTHETIC_KEY_CREATION_SIGNER_SLOT_V1,
+        )
+        .expect("fixed synthetic key-creation signer slot is positive"),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

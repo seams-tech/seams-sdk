@@ -42,6 +42,33 @@ types keep lifecycle output states distinct without optional secret fields.
 
 ## Stable context and portable vectors
 
+`Ed25519YaoApplicationBindingFactsV1` freezes the key-affecting SDK identity
+facts as wallet ID, NEAR Ed25519 signing-key ID, logical signing-root ID, and a
+positive `u32` key-creation signer slot. Its canonical encoder is:
+
+```text
+LP32(x) = BE32(len(x)) || x
+
+LP32("seams/router-ab/ed25519-yao/application-binding/v1")
+|| LP32("walletId") || LP32(UTF8(wallet_id))
+|| LP32("nearEd25519SigningKeyId") || LP32(UTF8(signing_key_id))
+|| LP32("signingRootId") || LP32(UTF8(signing_root_id))
+|| LP32("keyCreationSignerSlot") || LP32(BE32(key_creation_signer_slot))
+```
+
+The binding digest is SHA-256 over that complete encoding. Every identifier is
+one or more visible ASCII bytes in the inclusive range `0x21..=0x7e`; the
+encoder performs no trimming or normalization. The key-creation slot is
+immutable for one logical key; active/default and new recipient slots belong to
+ceremony metadata. `nearAccountId` is excluded because an implicit account ID
+derives from the final public key. Root versions, credential versions, epochs,
+authorization, deployment, and transport values are also excluded.
+
+For the committed fixture facts `wallet-fixture`, `ed25519ks_fixture`,
+`project-fixture:env-fixture`, and key-creation slot `1`, the 213-byte preimage
+hashes to
+`b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121`.
+
 `StableKeyDerivationContext` freezes the first Yao-era context encoding as:
 
 ```text
@@ -106,13 +133,25 @@ produce only their own server contribution. The committed
 `vectors/ed25519-yao-kdf-v1.json` corpus records the three public synthetic
 roots, all eight derived contributions, and the resulting public identity.
 
+`lifecycle_reference` adds two narrow host-only continuity checks. Re-deriving
+from the same synthetic client root produces byte-identical client
+contributions. A refresh can apply a nonzero `delta_y` to A and its modular
+negative to B, plus a nonzero canonical `delta_tau` and its scalar negative,
+while preserving joined `y`, joined `tau`, `d`, `a`, both scalar bases, both
+points, and the public key. This module accepts public fixtures only. It does
+not implement credential recovery, production delta generation, commitment
+proofs, package delivery, persistence, or active security.
+
 The five-case arithmetic corpus continues to record caller-supplied synthetic
 contributions. The KDF continuity corpus connects the frozen context and roots
-to the same oracle in a separate strict schema. Role-input provenance,
-registration anti-bias, recovery/refresh transitions, executable party views,
-and active-protocol semantics remain Phase 1 work. The lifecycle boundary is
-specified in `docs/ideal-functionalities-v1.md`; its explicit blockers prevent
-the fixture corpus from being mistaken for a complete lifecycle model.
+to the same oracle in a separate strict schema. The proof-system-neutral
+provenance statement and epoch contract is specified in
+`docs/input-provenance-v1.md`. Production custody and proofs, registration
+anti-bias construction, refresh-delta generation, executable party views,
+distributed cutover, and active-protocol semantics remain Phase 1 work. The
+lifecycle boundary is specified in `docs/ideal-functionalities-v1.md`; its
+explicit blockers prevent the fixture corpus from being mistaken for a complete
+lifecycle model.
 
 This crate must never be linked into a production Worker or exposed as a
 protocol API. It contains no message formats, network handlers, persistence,

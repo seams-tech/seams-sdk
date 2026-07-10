@@ -318,6 +318,55 @@ Yao-era `StableKeyDerivationContext`. Old records are invalidated. No migration,
 address-preserving conversion, runtime compatibility flag, or retained HSS
 backend exists.
 
+The SDK-owned Ed25519 Yao application binding is frozen before the stable
+context is constructed:
+
+```text
+LP32(x) = BE32(byte_length(x)) || x
+
+application_binding_domain =
+    ASCII("seams/router-ab/ed25519-yao/application-binding/v1")
+
+Ed25519YaoApplicationBindingV1 =
+    LP32(application_binding_domain)
+    || LP32(ASCII("walletId"))
+    || LP32(UTF8(walletId))
+    || LP32(ASCII("nearEd25519SigningKeyId"))
+    || LP32(UTF8(nearEd25519SigningKeyId))
+    || LP32(ASCII("signingRootId"))
+    || LP32(UTF8(signingRootId))
+    || LP32(ASCII("keyCreationSignerSlot"))
+    || LP32(BE32(keyCreationSignerSlot))
+
+application_binding_digest = SHA-256(Ed25519YaoApplicationBindingV1)
+```
+
+The string values contain one or more visible ASCII bytes in the inclusive
+range `0x21..=0x7e`; spaces, control bytes, non-ASCII code points, trimming, and
+Unicode normalization are outside the version-one grammar. Their byte lengths
+fit unsigned 32-bit integers. SDK integration constructs them from authenticated
+domain records through matching parsers. `keyCreationSignerSlot` is a positive
+unsigned 32-bit integer. It is the immutable slot chosen when this wallet key is
+created. Same-root recovery retains it, while changing it creates a new `d` and
+public key. A new recipient for the same logical key retains the original
+key-creation slot and records the recipient slot in ceremony/provenance data.
+
+The binding excludes `nearAccountId`; the implicit-account case derives it from
+the final public key, so including it would be circular. It also excludes
+`signingRootVersion`, deployment/root/key/activation epochs,
+lifecycle/request/auth/transport/ticket values, and mutable active, default, or
+recipient signer slots.
+
+The committed fixture `{wallet-fixture, ed25519ks_fixture,
+project-fixture:env-fixture, keyCreationSignerSlot=1}` has application digest
+`b1dbafce5fd696ae4bd5611e3684a778febfdf7f716e2dfe3211ce0cff708121`.
+With participant identifiers `1` and `2`, its stable-context binding is
+`b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655`
+and its final KDF public key is
+`ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077`.
+The canonical encoding bytes are committed in
+`tools/ed25519-yao-generator/vectors/ed25519-yao-kdf-v1.json`.
+
 For newly provisioned Ed25519 wallets:
 
 - Deriver A and Deriver B each own stable, independent derivation material or
@@ -333,11 +382,47 @@ Operational rotation taxonomy:
 
 - Rotating deployment, transport, HPKE, signing, wrapping, or storage keys keeps
   wallet identity stable.
-- Rewrapping the same Deriver root keeps wallet identity stable.
+- Rewrapping an existing derivation root without changing its bytes keeps wallet
+  identity stable.
 - Refreshing correlated role-local account shares preserves their joined `y`,
   `tau`, `d`, and public key.
 - Replacing derivation roots changes wallet keys and is an explicit wallet-key
   rotation.
+
+Ed25519 recovery has one version-one identity-preserving form: rewrap the same
+logical 32-byte client derivation root under the replacement credential. It
+retains the stable application binding, including the immutable
+key-creation signer slot, and rederives identical client contributions. The
+server contributions remain unchanged. Fresh protocol coins, activation
+packages, ticket, and activation epoch yield the same `d`, `a`, `tau`, scalar
+bases, public points, and registered public key. Admission suspends the old
+credential; successful activation promotes the replacement and tombstones the
+old binding. An unavailable or compromised root requires an explicit wallet
+rekey with a new public identity. Production root custody and same-root input
+proof remain stop-ship work.
+
+Ed25519 refresh keeps all roots, stable context, and client contributions fixed.
+It applies explicit nonzero correlated deltas to the effective persisted server
+contributions:
+
+```text
+y_server_A'   = y_server_A + delta_y mod 2^256
+y_server_B'   = y_server_B - delta_y mod 2^256
+tau_server_A' = tau_server_A + delta_tau mod l
+tau_server_B' = tau_server_B - delta_tau mod l
+```
+
+The refresh lifecycle is `Active(current) -> Prepared(next) ->
+OutputCommitted(next) -> WorkerActivated(next) -> Active(next) +
+RetiredTombstone(current)`. A pre-output-commit abort discards the prepared next
+epoch. From output commit onward, the refresh transition advances forward-only
+and may redeliver only the exact committed ciphertexts. Re-evaluation with new
+randomness, delta replacement, and rollback are forbidden. Partial cutover
+freezes new derivation admission until worker activation; stale role/worker
+epochs are then rejected. This is an identity-preserving static-corruption
+transition. It carries no proactive or mobile-adversary healing claim. Joint
+delta generation and anti-bias, delta custody/provenance, active-output
+generation, and atomic distributed persistence remain stop-ship work.
 
 ECDSA key continuity is frozen separately through existing strict ECDSA public
 key and signing vectors. Moving an ECDSA lifecycle from
@@ -478,8 +563,10 @@ backend.
       unshared scalar bases, public commitments, public key, and export seed.
 - [x] Freeze stable-context fields, canonical encoding, endianness, reductions,
       participant identifiers, and domain separators.
-- [ ] Freeze the upstream Yao-only application-binding digest preimage and
-      golden vectors; exclude `signingRootVersion` and every mutable epoch.
+- [x] Freeze the visible-ASCII identifier grammar, LP32 Yao-only
+      application-binding preimage, and golden vector over wallet ID, Ed25519
+      signing-key ID, logical signing-root ID, and immutable key-creation signer
+      slot; exclude circular/mutable fields.
 - [x] Freeze role-local contribution KDF labels and bind the stable context into
       those KDFs.
 - [x] Add standard RFC 8032 seed import/export and signature-parity vectors.
@@ -498,8 +585,16 @@ backend.
 - [x] Freeze request-kind-specific pre-state, success, output-custody, and
       identity boundary contracts for Ed25519 registration, activation,
       recovery, refresh, and export.
-- [ ] Close the recovery, refresh, provenance/anti-bias, and active-output
-      blockers required for executable lifecycle ideal functionalities.
+- [x] Freeze same-root recovery plus explicit-delta refresh with pre-commit
+      abort and post-commit forward-only cutover semantics.
+- [x] Freeze the proof-system-neutral role-input provenance statement, A/B pair
+      invariants, lifecycle evidence slots, epoch meanings, and registration
+      anti-bias requirements in
+      `tools/ed25519-yao-generator/docs/input-provenance-v1.md`.
+- [ ] Close root/delta custody and provenance, joint delta generation and
+      anti-bias mechanism, active-output generation, and atomic
+      distributed-persistence blockers required for executable lifecycle ideal
+      functionalities.
 - [ ] Write corresponding ECDSA lifecycle functionality and ownership maps by
       referencing the existing strict ECDSA protocol.
 - [x] Freeze the common-leakage and output-custody boundary for Client, Router,
@@ -677,6 +772,10 @@ without importing secret-processing code into Router.
       branches there.
 - [ ] Define typed public request, Router admission, Deriver request, peer
       message, recipient output, activation receipt, and terminal result states.
+- [ ] Add boundary parsers/builders that load the three Ed25519 Yao
+      application-binding identifiers and immutable key-creation slot from
+      authenticated domain records, enforce the frozen
+      visible-ASCII/positive-`u32` grammar, and hash only typed facts.
 - [ ] Make export fields impossible in registration, recovery, refresh, and
       activation branches.
 - [ ] Make client and SigningWorker recipient packages distinct types.

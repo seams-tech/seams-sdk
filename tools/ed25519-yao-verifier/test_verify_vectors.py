@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import unittest
@@ -211,6 +212,82 @@ class IndependentVectorVerifierTests(unittest.TestCase):
                     rf"contributions\.{field_name} does not match",
                 ):
                     verify_vectors.verify_kdf_corpus(mutated)
+
+    def test_kdf_recomputes_each_application_binding_fact(self) -> None:
+        binding = self.kdf_corpus["cases"][0]["application_binding"]
+        for field_name in (
+            "wallet_id",
+            "near_ed25519_signing_key_id",
+            "signing_root_id",
+        ):
+            with self.subTest(field_name=field_name):
+                mutated = copy.deepcopy(self.kdf_corpus)
+                mutated["cases"][0]["application_binding"][field_name] = (
+                    f"{binding[field_name]}-mutated"
+                )
+                self.assert_rejected_kdf(mutated, "encoded_hex")
+
+        changed_slot = copy.deepcopy(self.kdf_corpus)
+        changed_slot["cases"][0]["application_binding"]["key_creation_signer_slot"] += 1
+        self.assert_rejected_kdf(changed_slot, "encoded_hex")
+
+    def test_kdf_rejects_application_binding_encoding_and_digest_mutations(self) -> None:
+        bad_encoding = copy.deepcopy(self.kdf_corpus)
+        bad_encoding["cases"][0]["application_binding"]["encoded_hex"] = "00"
+        self.assert_rejected_kdf(bad_encoding, "encoded_hex")
+
+        bad_digest = copy.deepcopy(self.kdf_corpus)
+        bad_digest["cases"][0]["application_binding"]["digest_sha256_hex"] = "00" * 32
+        self.assert_rejected_kdf(bad_digest, "digest_sha256_hex")
+
+    def test_kdf_rejects_noncanonical_application_binding_identifiers(self) -> None:
+        for value, pattern in (
+            ("", "nonempty"),
+            ("wallet fixture", "visible ASCII"),
+            ("wallet\x00fixture", "visible ASCII"),
+            ("wallét-fixture", "visible ASCII"),
+            ("\ud800", "valid Unicode scalar values"),
+        ):
+            with self.subTest(value=value):
+                mutated = copy.deepcopy(self.kdf_corpus)
+                mutated["cases"][0]["application_binding"]["wallet_id"] = value
+                self.assert_rejected_kdf(mutated, pattern)
+
+        for field_name in (
+            "wallet_id",
+            "near_ed25519_signing_key_id",
+            "signing_root_id",
+        ):
+            with self.subTest(field_name=field_name):
+                mutated = copy.deepcopy(self.kdf_corpus)
+                mutated["cases"][0]["application_binding"][field_name] = "invalid value"
+                self.assert_rejected_kdf(mutated, "visible ASCII")
+
+        for value in (0, -1, 0x1_0000_0000, "1", True):
+            with self.subTest(key_creation_signer_slot=value):
+                mutated = copy.deepcopy(self.kdf_corpus)
+                mutated["cases"][0]["application_binding"][
+                    "key_creation_signer_slot"
+                ] = value
+                self.assert_rejected_kdf(mutated, "positive u32")
+
+    def test_kdf_links_application_binding_digest_to_stable_context(self) -> None:
+        mutated = copy.deepcopy(self.kdf_corpus)
+        context = mutated["cases"][0]["context"]
+        application_digest = bytes.fromhex("55" * 32)
+        participants = context["participant_ids"]
+        encoded = (
+            verify_vectors.STABLE_CONTEXT_DOMAIN_V1
+            + application_digest
+            + participants[0].to_bytes(2, "big")
+            + participants[1].to_bytes(2, "big")
+        )
+        context["application_binding_digest_hex"] = application_digest.hex()
+        context["encoded_hex"] = encoded.hex()
+        context["binding_sha256_hex"] = hashlib.sha256(
+            verify_vectors.STABLE_CONTEXT_BINDING_DOMAIN_V1 + encoded
+        ).hexdigest()
+        self.assert_rejected_kdf(mutated, "does not match.*application_binding")
 
     def test_kdf_rejects_mutated_roots_context_and_joined_trace(self) -> None:
         root_fields = self.kdf_corpus["cases"][0]["synthetic_roots"]
