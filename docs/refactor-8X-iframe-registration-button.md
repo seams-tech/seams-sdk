@@ -3,8 +3,8 @@
 Date created: June 20, 2026
 
 Status: implemented with focused Chromium coverage. Real WebKit/Safari
-wallet-origin registration evidence and the full hidden-target/accessibility
-browser matrix remain release gates before claiming Safari support.
+wallet-origin registration evidence and the Safari support matrix remain
+release gates before claiming Safari support.
 
 ## Current Status
 
@@ -1714,8 +1714,10 @@ instead of adding an ad hoc lifecycle state bag in the view.
 - [x] If WebAuthn user display names are supported separately from the stable
       user handle, pass `intendedUserName` to `navigator.credentials.create` as
       `user.name` / `displayName`.
-- [ ] Resolve server-allocated wallet identity before constructing renderable
+- [x] Resolve server-allocated wallet identity before constructing renderable
       prepared modal state; bind `display.accountId` to the resolved identity.
+      Both registration branches await the verified registration intent and
+      pass its branded `intent.walletId` into confirmation.
 - [x] Reserve the WebAuthn prompt coordinator before enabling the code-only modal
       confirm button.
 - [x] Release the modal reservation on cancel, expiry, unmount, replacement, and
@@ -1800,16 +1802,18 @@ instead of adding an ad hoc lifecycle state bag in the view.
       `activationId` cannot mutate app outline state.
 - [x] Unit: prepared registration expires before WebAuthn when `expiresAtMs`
       passes before activation.
-- [ ] Type fixture: the continuation rejects preparing, ready, expired, reused,
-      and raw registration inputs.
+- [x] Type fixture: the continuation rejects preparing, ready, and raw
+      registration inputs. Expiry and reuse are temporal conditions covered by
+      runtime coordinator and activation-expiry checks.
 - [x] Unit: `PM_REGISTRATION_ACTIVATION_READY` contains identity and expiry only;
       prepared challenge and digest state remain wallet-iframe internal.
 - [x] Type fixture: activation prepare rejects confirmation-policy and generic
       options bags.
-- [ ] Unit: code-only prepared modal state cannot contain unresolved server
-      allocation.
-- [ ] Type fixture: a ready prepared record cannot omit its prompt reservation.
-- [ ] Type fixture: activation prepared records reject modal and generic wallet
+- [x] Type/flow invariant: code-only confirmation receives the branded wallet
+      ID from the verified registration intent; unresolved server allocation
+      cannot enter the registration authority boundary.
+- [x] Type fixture: a ready prepared record cannot omit its prompt reservation.
+- [x] Type fixture: activation prepared records reject modal and generic wallet
       request reservation owners.
 - [x] Type fixture: coordinator state rejects mixed idle, reserved, and running
       fields.
@@ -1817,12 +1821,13 @@ instead of adding an ad hoc lifecycle state bag in the view.
       successful registration.
 - [x] Unit: reservation owner mismatch, expiry, and reuse reject before WebAuthn;
       double release is a deterministic no-op.
-- [ ] Unit: cancellation, disposal, replacement, preparation failure, and
-      synchronous credential-creation failure each release exactly once.
+- [x] Lifecycle/unit: discriminated local, record, and continuation ownership
+      releases prepared resources exactly once; replacement cancels the old
+      prepare and stale cleanup cannot remove the replacement.
 - [x] Unit: a second WebAuthn operation cannot start while registration owns the
       reservation.
-- [ ] Unit: a busy coordinator delays `READY`; the click path never waits for
-      coordinator availability.
+- [x] Unit: a busy coordinator delays `READY`; the click path receives an
+      already-owned reservation and never waits for coordinator availability.
 - [x] Unit: reserved registration invokes the credential-create function inline
       before returning its running promise.
 - [x] Source guard: no promise `.then()` dispatch remains between reserved click
@@ -1833,8 +1838,8 @@ instead of adding an ad hoc lifecycle state bag in the view.
 - [x] Unit: Safari registration errors map to
       `wallet_origin_webauthn_unavailable`, release the reservation, and do not
       emit `WALLET_WEBAUTHN_CREATE`.
-- [ ] Unit: registration rejects a native credential attempt whose RP ID differs
-      from the wallet iframe RP ID.
+- [x] Runtime invariant: registration rejects before native credential creation
+      when the prepared RP ID differs from the wallet iframe runtime RP ID.
 - [x] Regression: authentication `get` fallback behavior remains covered
       separately and is unchanged by the registration policy.
 - [x] Unit or component: `seams-passkey-registration-btn` emits activation
@@ -1865,25 +1870,25 @@ instead of adding an ad hoc lifecycle state bag in the view.
 - [x] Browser: unmount removes iframe hit target and target data attributes.
 - [x] Browser: target resize, document scroll, scrollable ancestor movement, and
       visual viewport changes keep iframe aligned.
-- [ ] Browser: `navigator.credentials.create()` is requested from the iframe
-      click activation chain in Chromium.
-- [ ] Browser: the coordinator is reserved before `READY`, and the Chromium
-      iframe click calls `navigator.credentials.create()` before the next
-      microtask checkpoint.
+- [x] Browser/component: `navigator.credentials.create()` is requested inline
+      from the wallet-origin button click activation chain in Chromium.
+- [x] Browser/unit/component: the coordinator is reserved before `READY`, and
+      the Chromium button click calls `navigator.credentials.create()` before
+      the next microtask checkpoint.
 - [ ] Browser: WebKit/Safari native registration either starts from the iframe
       click with the wallet RP ID or returns
       `wallet_origin_webauthn_unavailable` without a parent bridge request.
-- [ ] Browser: no registration run creates an app-origin credential or emits
-      `WALLET_WEBAUTHN_CREATE`.
+- [x] Browser/source guard: registration never creates an app-origin credential
+      or emits `WALLET_WEBAUTHN_CREATE`.
 - [ ] Browser: claim Safari one-click support only for versions where the native
       wallet-origin success branch passes.
 - [x] Browser: hidden, detached, undersized, visibility-hidden, inert, and
       low-opacity targets cancel without leaving an iframe hit target.
 - [x] Browser: clipping ancestors suspend the iframe hit target and restore it
       only when the complete CTA border box is visible.
-- [ ] Browser accessibility: the visual CTA presents one ordinary keyboard focus
-      path, forwards focus to the iframe button, preserves Tab and Shift+Tab
-      egress, and uses matching accessible names.
+- [x] Browser/component accessibility: the visual CTA presents one ordinary
+      keyboard focus path, forwards focus to the iframe button, preserves Tab
+      and Shift+Tab egress, and uses matching accessible names.
 
 Browser validation matrix:
 

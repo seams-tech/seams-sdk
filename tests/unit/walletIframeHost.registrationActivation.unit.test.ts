@@ -129,6 +129,7 @@ const DEFAULT_ACTIVATION_PRESENTATION = {
 function makeDeps(args: {
   posts: ChildToParentEnvelope[];
   continuePrepared: (activated: any) => Promise<any>;
+  onDisposePrepared?: () => void;
 }) {
   const prepared = {
     kind: 'prepared_iframe_passkey_registration_v1',
@@ -152,12 +153,32 @@ function makeDeps(args: {
           const result = args.continuePrepared(activated);
           return result;
         },
-        disposePreparedIframePasskeyRegistration: () => undefined,
+        disposePreparedIframePasskeyRegistration: () => args.onDisposePrepared?.(),
       }) as any,
     post: (msg: ChildToParentEnvelope) => args.posts.push(msg),
     postProgress: () => undefined,
     isCancelled: () => false,
     respondIfCancelled: () => false,
+  };
+}
+
+function makeActivationCancelReq(
+  args: {
+    activationId?: string;
+    surfaceId?: string;
+    activationRequestId?: string;
+    cancelRequestId?: string;
+  } = {},
+): any {
+  return {
+    type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
+    requestId: args.cancelRequestId ?? 'req-cancel',
+    payload: {
+      activationId: args.activationId ?? 'activation-1',
+      surfaceId: args.surfaceId ?? 'surface-1',
+      requestId: args.activationRequestId ?? 'req-activation',
+      reason: 'disposed',
+    },
   };
 }
 
@@ -377,6 +398,116 @@ test.describe('wallet iframe host registration activation', () => {
         }),
       ]),
     );
+  });
+
+  test('replacement cancels only the old activation and releases each ready record once', async () => {
+    const document = installDomShim();
+    const posts: ChildToParentEnvelope[] = [];
+    let disposeCalls = 0;
+    let releaseCalls = 0;
+    const originalReleaseReservation =
+      webAuthnPromptCoordinator.releaseReservation.bind(webAuthnPromptCoordinator);
+    webAuthnPromptCoordinator.releaseReservation = (reservation) => {
+      releaseCalls += 1;
+      originalReleaseReservation(reservation);
+    };
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        continuePrepared: async () => ({ success: true }),
+        onDisposePrepared: () => {
+          disposeCalls += 1;
+        },
+      }),
+    );
+
+    try {
+      const firstPrepare = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(makeActivationPrepareReq());
+      const firstCancellation = expect(firstPrepare).rejects.toThrow(
+        'Registration activation cancelled',
+      );
+      await expect
+        .poll(() =>
+          posts.some(
+            (message) =>
+              message.type === 'PM_REGISTRATION_ACTIVATION_READY' &&
+              message.payload.requestId === 'req-activation',
+          ),
+        )
+        .toBe(true);
+
+      const secondRequest = makeActivationPrepareReq({
+        surfaceId: 'surface-2',
+        requestId: 'req-activation-2',
+      });
+      secondRequest.requestId = 'req-activation-2';
+      const secondPrepare = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(secondRequest);
+      const secondCancellation = expect(secondPrepare).rejects.toThrow(
+        'Registration activation cancelled',
+      );
+
+      await firstCancellation;
+      await expect
+        .poll(() =>
+          posts.some(
+            (message) =>
+              message.type === 'PM_REGISTRATION_ACTIVATION_READY' &&
+              message.payload.requestId === 'req-activation-2',
+          ),
+        )
+        .toBe(true);
+      expect(document.querySelector('[data-seams-registration-activation-id]')).not.toBeNull();
+      expect(releaseCalls).toBe(1);
+      expect(disposeCalls).toBe(1);
+
+      await handlers.PM_REGISTRATION_ACTIVATION_CANCEL!(
+        makeActivationCancelReq({
+          surfaceId: 'surface-2',
+          activationRequestId: 'req-activation-2',
+        }),
+      );
+      await secondCancellation;
+      expect(releaseCalls).toBe(2);
+      expect(disposeCalls).toBe(2);
+      expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
+    } finally {
+      webAuthnPromptCoordinator.releaseReservation = originalReleaseReservation;
+    }
+  });
+
+  test('busy coordinator delays ready and grants the reservation before activation', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    const runningOperation = createDeferred<void>();
+    const running = webAuthnPromptCoordinator.runImmediate({
+      owner: {
+        kind: 'wallet_request',
+        requestId: 'blocking-authentication',
+        operation: 'authentication',
+      },
+      operation: () => runningOperation.promise,
+    });
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        continuePrepared: async () => ({ success: true }),
+      }),
+    );
+    const prepare = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(makeActivationPrepareReq());
+    const cancellation = expect(prepare).rejects.toThrow('Registration activation cancelled');
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(posts.some((message) => message.type === 'PM_REGISTRATION_ACTIVATION_READY')).toBe(
+      false,
+    );
+
+    runningOperation.resolve();
+    await running;
+    await expect
+      .poll(() => posts.some((message) => message.type === 'PM_REGISTRATION_ACTIVATION_READY'))
+      .toBe(true);
+
+    await handlers.PM_REGISTRATION_ACTIVATION_CANCEL!(makeActivationCancelReq());
+    await cancellation;
   });
 
   test('activation cancel during async button definition rejects pending prepare', async () => {

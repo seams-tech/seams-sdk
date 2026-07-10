@@ -95,7 +95,7 @@ type RegistrationActivationRecordBase = {
   abortOperation(): void;
 };
 
-type RegistrationActivationRecord =
+export type RegistrationActivationRecord =
   | (RegistrationActivationRecordBase & {
       kind: 'preparing';
       container?: never;
@@ -149,6 +149,16 @@ type RegistrationActivationRenderResult =
 type RegistrationActivationFocusTarget =
   | { kind: 'available'; container: HTMLElement }
   | { kind: 'unavailable' };
+
+type RegistrationActivationResourceOwnership =
+  | { kind: 'unprepared' }
+  | { kind: 'locally_prepared'; prepared: PreparedIframePasskeyRegistration }
+  | {
+      kind: 'locally_reserved';
+      prepared: PreparedIframePasskeyRegistration;
+      reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
+    }
+  | { kind: 'record_or_continuation_owned' };
 
 const registrationActivationRecords = new Map<string, RegistrationActivationRecord>();
 const REGISTRATION_ACTIVATION_START_EVENT = 'seams-registration-activation-start';
@@ -327,10 +337,47 @@ function removeRegistrationActivationRecord(activationId: string): void {
   } catch {}
 }
 
+function removeRegistrationActivationRecordByIdentity(
+  identity: RegistrationActivationMessageIdentity,
+): void {
+  const record = registrationActivationRecords.get(identity.activationId);
+  if (!record || !registrationActivationIdentitiesEqual(record.identity, identity)) return;
+  removeRegistrationActivationRecord(identity.activationId);
+}
+
+function releaseLocallyOwnedRegistrationActivationResources(args: {
+  ownership: RegistrationActivationResourceOwnership;
+  disposePrepared(prepared: PreparedIframePasskeyRegistration): void;
+}): void {
+  switch (args.ownership.kind) {
+    case 'unprepared':
+    case 'record_or_continuation_owned':
+      return;
+    case 'locally_prepared':
+      args.disposePrepared(args.ownership.prepared);
+      return;
+    case 'locally_reserved':
+      webAuthnPromptCoordinator.releaseReservation(args.ownership.reservation);
+      args.disposePrepared(args.ownership.prepared);
+      return;
+    default: {
+      const exhaustive: never = args.ownership;
+      return exhaustive;
+    }
+  }
+}
+
 function registrationActivationCancelledError(): RegistrationActivationCancelError {
   const error = new Error('Registration activation cancelled') as RegistrationActivationCancelError;
   error.code = 'cancelled';
   return error;
+}
+
+function replaceRegistrationActivationRecord(activationId: string): void {
+  const record = registrationActivationRecords.get(activationId);
+  if (!record) return;
+  rejectRegistrationActivationRecord(record, registrationActivationCancelledError());
+  removeRegistrationActivationRecord(activationId);
 }
 
 function registrationActivationExpiredError(): RegistrationActivationCancelError {
@@ -571,7 +618,7 @@ function startRegistrationActivation(args: {
       return;
     case 'expired':
       rejectRegistrationActivationRecord(startResult.record, registrationActivationExpiredError());
-      removeRegistrationActivationRecord(args.payload.activationId);
+      removeRegistrationActivationRecordByIdentity(startResult.record.identity);
       return;
     case 'started': {
       args.deps.post({
@@ -623,11 +670,19 @@ function startRegistrationActivation(args: {
   }
 }
 
-function expireRegistrationActivationBeforeStart(activationId: string): void {
-  const record = registrationActivationRecords.get(activationId);
-  if (!record || record.kind === 'started') return;
+function expireRegistrationActivationBeforeStart(
+  identity: RegistrationActivationMessageIdentity,
+): void {
+  const record = registrationActivationRecords.get(identity.activationId);
+  if (
+    !record ||
+    !registrationActivationIdentitiesEqual(record.identity, identity) ||
+    record.kind === 'started'
+  ) {
+    return;
+  }
   rejectRegistrationActivationRecord(record, registrationActivationExpiredError());
-  removeRegistrationActivationRecord(activationId);
+  removeRegistrationActivationRecordByIdentity(identity);
 }
 
 export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
@@ -646,7 +701,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const wallet = parseRegistrationActivationProvidedWallet(payload);
       const presentation = normalizeRegistrationActivationPresentation(payload.presentation);
 
-      removeRegistrationActivationRecord(payload.activationId);
+      replaceRegistrationActivationRecord(payload.activationId);
       const deferred = createRegistrationActivationDeferred();
       const preparationAbortController = new AbortController();
       registrationActivationRecords.set(
@@ -660,25 +715,24 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       );
 
       const expiryTimer = window.setTimeout(
-        () => expireRegistrationActivationBeforeStart(payload.activationId),
+        expireRegistrationActivationBeforeStart.bind(null, identity),
         Math.max(1, payload.expiresAtMs - Date.now()),
       );
-      let prepared: PreparedIframePasskeyRegistration | null = null;
-      let reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner> | null =
-        null;
+      let resourceOwnership: RegistrationActivationResourceOwnership = { kind: 'unprepared' };
 
       try {
         const hooksOptions = withProgress(deps, payload.requestId, {}) as RegistrationHooksOptions;
-        prepared = await pm.prepareIframePasskeyRegistration({
+        const prepared = await pm.prepareIframePasskeyRegistration({
           wallet,
           options: hooksOptions,
           expiresAtMs: payload.expiresAtMs,
         });
+        resourceOwnership = { kind: 'locally_prepared', prepared };
         const owner: RegistrationActivationWebAuthnPromptOwner = {
           kind: 'registration_activation',
           identity,
         };
-        reservation = await webAuthnPromptCoordinator.reserveRegistrationPrompt({
+        const reservation = await webAuthnPromptCoordinator.reserveRegistrationPrompt({
           owner,
           expiresAtMs: payload.expiresAtMs,
           cancellation: {
@@ -686,6 +740,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
             signal: preparationAbortController.signal,
           },
         });
+        resourceOwnership = { kind: 'locally_reserved', prepared, reservation };
         const container = await renderRegistrationActivationButton({
           payload,
           presentation,
@@ -725,6 +780,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
           disposePrepared: pm.disposePreparedIframePasskeyRegistration.bind(pm, prepared),
         });
         if (renderResult.kind === 'ready') {
+          resourceOwnership = { kind: 'record_or_continuation_owned' };
           deps.post({
             type: 'PM_REGISTRATION_ACTIVATION_READY',
             requestId: identity.requestId,
@@ -737,12 +793,11 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         respondOkResult(deps, req.requestId, result);
       } finally {
         window.clearTimeout(expiryTimer);
-        const activeRecord = registrationActivationRecords.get(payload.activationId);
-        if (!activeRecord || activeRecord.kind === 'preparing') {
-          if (reservation) webAuthnPromptCoordinator.releaseReservation(reservation);
-          if (prepared) pm.disposePreparedIframePasskeyRegistration(prepared);
-        }
-        removeRegistrationActivationRecord(payload.activationId);
+        releaseLocallyOwnedRegistrationActivationResources({
+          ownership: resourceOwnership,
+          disposePrepared: pm.disposePreparedIframePasskeyRegistration.bind(pm),
+        });
+        removeRegistrationActivationRecordByIdentity(identity);
       }
     },
 
@@ -755,7 +810,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const record = registrationActivationRecords.get(payload.activationId);
       if (record && registrationActivationIdentitiesEqual(record.identity, identity)) {
         rejectRegistrationActivationRecord(record, registrationActivationCancelledError());
-        removeRegistrationActivationRecord(payload.activationId);
+        removeRegistrationActivationRecordByIdentity(identity);
       }
       respondOk(deps, req.requestId);
     },

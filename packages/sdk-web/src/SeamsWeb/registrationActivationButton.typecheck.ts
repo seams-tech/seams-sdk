@@ -10,6 +10,7 @@ import type {
 } from './SeamsWeb';
 import type { ReservedRegistrationWebAuthnPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type { RegistrationActivationMessageIdentity } from './publicApi/types';
+import type { RegistrationActivationRecord } from './walletIframe/host/handlers/near';
 
 export const validOutlineOverlayPresentation: RegistrationActivationButtonPresentation = {
   kind: 'outline_overlay',
@@ -62,6 +63,45 @@ declare const preparedRegistration: PreparedIframePasskeyRegistration;
 declare const activationIdentity: RegistrationActivationMessageIdentity;
 declare const activationReservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
 declare const activationCancellation: { kind: 'abort_signal'; signal: AbortSignal };
+declare const preparingRecord: Extract<RegistrationActivationRecord, { kind: 'preparing' }>;
+declare const readyRecord: Extract<RegistrationActivationRecord, { kind: 'ready' }>;
+
+// @ts-expect-error Preparing records cannot enter the activated continuation.
+const preparingAsActivatedRegistration: ActivatedPreparedIframePasskeyRegistration =
+  preparingRecord;
+void preparingAsActivatedRegistration;
+
+// @ts-expect-error Ready records cannot enter the activated continuation without the builder.
+const readyAsActivatedRegistration: ActivatedPreparedIframePasskeyRegistration = readyRecord;
+void readyAsActivatedRegistration;
+
+const { reservation: omittedReadyReservation, ...readyWithoutReservation } = readyRecord;
+void omittedReadyReservation;
+// @ts-expect-error Ready records require their WebAuthn prompt reservation.
+const invalidReadyWithoutReservation: typeof readyRecord = readyWithoutReservation;
+void invalidReadyWithoutReservation;
+
+type ActivationReservation = (typeof readyRecord)['reservation'];
+declare const reservationFields: Omit<ActivationReservation, 'owner'>;
+const modalReservation = {
+  ...reservationFields,
+  owner: { kind: 'registration_modal', requestId: activationIdentity.requestId },
+} as const;
+// @ts-expect-error Activation records reject modal prompt owners.
+const invalidModalActivationReservation: ActivationReservation = modalReservation;
+void invalidModalActivationReservation;
+
+const walletRequestReservation = {
+  ...reservationFields,
+  owner: {
+    kind: 'wallet_request',
+    requestId: activationIdentity.requestId,
+    operation: 'registration',
+  },
+} as const;
+// @ts-expect-error Activation records reject generic wallet request prompt owners.
+const invalidWalletRequestActivationReservation: ActivationReservation = walletRequestReservation;
+void invalidWalletRequestActivationReservation;
 
 // @ts-expect-error Activated registration values can only be created by the lifecycle builder.
 const rawActivatedRegistration: ActivatedPreparedIframePasskeyRegistration = {

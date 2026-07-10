@@ -534,8 +534,11 @@ Arbitration policy:
 
 ## Registration Path
 
-`docs/refactor-8X-iframe-registration-button.md` should become the first
-localized surface implementation.
+`docs/refactor-8X-iframe-registration-button.md` is the first localized surface
+reference implementation. This plan migrates that working flow into the shared
+surface reducer and renderer. It must preserve the registration protocol, UI,
+prompt reservation, activation timing, and security behavior rather than
+rebuilding them in parallel.
 
 Activation-button registration:
 
@@ -735,72 +738,61 @@ should set surface state, then let the renderer apply the resulting mode.
 - [ ] Prove anchored-suspended retains surface ownership while removing iframe
       visibility, focusability, and pointer events.
 
-### Phase 3: Convert Registration Activation
+### Phase 3: Migrate The Registration Reference Surface
 
-- [ ] Route `createPasskeyRegistrationActivationSurface()` through
-      `anchored_registration_activation`.
-- [ ] Keep `outline_overlay` as the only public registration presentation;
-      retain `iframe_button` under internal research scope.
-- [ ] Carry one `RegistrationActivationSurfaceIdentity`, provided wallet,
-      presentation, preparation receipt, and placement in the active surface.
-- [ ] Prepare registration intent digest, WebAuthn challenge, rpID, display data,
-      warmup, and no-UI confirmation before activation `READY`.
-- [ ] Store prepared registration inside the wallet iframe; make `READY` expose
-      identity and expiry only.
-- [ ] Acquire the shared WebAuthn prompt reservation before registration
-      activation reaches `READY`; bind reservation ownership to the complete
-      surface identity.
-- [ ] Add `continuePreparedIframePasskeyRegistration()` and require an activated,
-      single-use prepared state as its only input.
-- [ ] Call `navigator.credentials.create()` before the continuation's first
-      `await`.
-- [ ] Move geometry observer ownership into the active surface cleanup.
-- [ ] Implement the `44x44` CSS-pixel minimum, opacity `0.1` threshold, hidden,
-      inert, and content-visibility cancellation rules.
-- [ ] Implement clipping-ancestor suspension and recovery.
-- [ ] Ensure placement updates match the complete active surface identity.
-- [ ] Ensure duplicate clicks, expired activations, disposed activations, and
-      wrong activation IDs cannot start registration.
-- [ ] Keep WebAuthn start synchronous from the wallet-origin click handler.
-- [ ] Consume the prompt reservation inline and release it exactly once on every
-      terminal surface transition.
-- [ ] Prohibit parent-domain WebAuthn `create` fallback for registration surfaces.
-- [ ] Map unsupported WebKit/Safari wallet-iframe creation to
-      `wallet_origin_webauthn_unavailable` without creating an app-origin
-      credential.
-- [ ] Remove fullscreen fallback from activation-button registration.
+The registration-button implementation is the behavioral baseline for this
+phase. Keep its public API, host protocol, prepared-registration lifecycle,
+WebAuthn prompt coordinator, iframe button, geometry policy, focus behavior,
+and wallet-origin-only registration policy. Do not add a second registration
+surface implementation or a compatibility switch between old and new paths.
 
-Validation:
+Existing reference behavior to preserve:
 
-- [ ] Unit: reducer rejects stale registration activation geometry events.
-- [ ] Unit: disposed activation cannot move or show the iframe.
-- [ ] Unit: competing foreground surface requests return
-      `wallet_iframe_surface_busy`.
-- [ ] Unit: busy rejection preserves the active surface and installs no timers,
-      observers, focus handlers, or mirrored state.
-- [ ] Unit: expired prepared registration rejects before WebAuthn.
-- [ ] Type fixture: the registration continuation rejects preparing, ready,
-      expired, reused, and raw registration inputs.
-- [ ] Unit: `READY` cannot carry prepared challenge or digest state.
-- [ ] Unit: `READY` requires a live prompt reservation owned by the active
-      surface identity.
-- [ ] Unit: cancellation, expiry, disposal, replacement, and failure release the
-      reservation exactly once.
-- [ ] Unit: registration ancestor-origin and focus errors cannot invoke the
-      parent-domain WebAuthn create bridge.
-- [ ] Component: iframe registration button starts once from pointer and
-      keyboard activation.
-- [ ] Browser: CTA rect and iframe rect match within 1 CSS pixel.
-- [ ] Browser: hidden, undersized, detached, inert, and low-opacity targets
-      cancel.
-- [ ] Browser: clipping ancestors suspend the iframe hit target and restore it
-      after the complete CTA becomes visible.
-- [ ] Browser: WebAuthn starts without mounting transaction confirmation UI.
-- [ ] Browser: Chromium covers the native trusted activation path and proves
-      credential creation starts before the next microtask checkpoint.
-- [ ] Browser: each supported WebKit/Safari version covers the same native
-      wallet-origin path; unsupported versions return the typed wallet-origin
-      error without a parent bridge request.
+- [x] `createPasskeyRegistrationActivationSurface()` exposes only
+      `outline_overlay` with a provided wallet identity.
+- [x] The host prepares registration and acquires the activation-owned WebAuthn
+      reservation before `READY`; `READY` exposes identity and expiry only.
+- [x] The builder-only activated continuation consumes prepared state and starts
+      `navigator.credentials.create()` inline from the wallet-origin click.
+- [x] Target geometry enforces size, visibility, opacity, inert, detached, and
+      clipping rules, including suspension and recovery.
+- [x] Duplicate, expired, disposed, replaced, and stale activations cannot start
+      registration; resource ownership is identity-scoped and single-release.
+- [x] Registration never falls back to parent-domain WebAuthn creation.
+
+Migration tasks:
+
+- [ ] Represent the existing activation lifecycle as
+      `anchored_registration_activation` reducer state and typed surface events.
+- [ ] Adapt the existing registration identity, prepared state, reservation,
+      presentation, and cancellation types to the shared surface domain without
+      introducing duplicate registration-specific lifecycle types.
+- [ ] Route activation mount, readiness, geometry, focus, suspension, start,
+      completion, cancellation, expiry, replacement, and failure through the
+      shared foreground-surface arbitration and reducer.
+- [ ] Move the existing geometry observers, focus proxy, mirrored attributes,
+      timers, and message subscriptions into the active surface cleanup owner.
+- [ ] Make the shared renderer the only code that applies anchored, suspended,
+      or hidden overlay DOM state for registration activation.
+- [ ] Remove the activation-specific anchored overlay lease after equivalent
+      ownership and busy rejection are enforced by the shared surface domain.
+- [ ] Delete direct registration overlay mutations and obsolete registration
+      surface state after the reducer-backed path is complete.
+
+Migration validation:
+
+- [ ] Unit: reducer rejects stale registration geometry, focus, readiness, and
+      completion events by connection, surface, request, and activation identity.
+- [ ] Unit: competing foreground requests preserve the active registration
+      surface and install no loser-owned effects.
+- [ ] Unit: disposal and replacement clean only the matching surface and stale
+      cleanup cannot hide or move its successor.
+- [ ] Regression: all registration-button type, host, component, router,
+      geometry, accessibility, origin-policy, and Chromium activation checks pass
+      unchanged against the reducer-backed implementation.
+- [ ] Browser: each supported WebKit/Safari version covers the existing native
+      wallet-origin success path or typed unsupported branch without a parent
+      bridge request.
 
 ### Phase 4: Convert Code-Only Registration Modal
 
