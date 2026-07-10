@@ -144,12 +144,16 @@ test.describe('WarmSessionStore lifecycle', () => {
       source: 'email_otp',
       remainingUses: 0,
     });
+    let statusReads = 0;
     const store = createWarmSessionTestServices({
-      getEmailOtpWarmSessionStatus: async () => ({
-        ok: false,
-        code: 'not_found',
-        message: 'worker session missing after reload',
-      }),
+      getEmailOtpWarmSessionStatus: async () => {
+        statusReads += 1;
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'worker session missing after reload',
+        };
+      },
     });
 
     const status = await store.getEd25519SigningSessionStatusForSession({
@@ -159,10 +163,9 @@ test.describe('WarmSessionStore lifecycle', () => {
 
     expect(status).toMatchObject({
       sessionId: ed25519Record.thresholdSessionId,
-      status: 'not_found',
-      authMethod: 'email_otp',
-      retention: 'session',
+      status: 'exhausted',
     });
+    expect(statusReads).toBe(0);
   });
 
   test('uses batch warm-session status reads when the touchConfirm snapshot reader is available', async () => {

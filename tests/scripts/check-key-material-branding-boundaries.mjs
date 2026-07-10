@@ -556,7 +556,6 @@ check('valid signing-session seal key ids use explicit domain names in active de
       'tests/unit/signingSessionSeal.idempotencyRecords.unit.test.ts',
       'tests/unit/sealedSessionStore.unit.test.ts',
       'tests/unit/warmSessionReadModel.unit.test.ts',
-      'tests/unit/warmSessionRuntime.unit.test.ts',
       'tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts',
       'tests/unit/sealedRecovery.methodAdapters.unit.test.ts',
       'tests/unit/signingSessionSeal.shared.unit.test.ts',

@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+} from '@shared/utils/sessionTokens';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
@@ -7,6 +10,9 @@ const IMPORT_PATHS = {
   thresholdSessionStore:
     '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
+  availableSigningLanes:
+    '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js',
+  selectLane: '/_test-sdk/esm/core/signingEngine/session/identity/selectLane.js',
 } as const;
 
 function unsignedJwt(payload: Record<string, unknown>): string {
@@ -30,6 +36,38 @@ function thresholdEcdsaSessionJwt(args: {
     chainTarget: args.chainTarget,
     sessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
+  });
+}
+
+function thresholdEd25519SessionJwt(args: {
+  walletId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+}): string {
+  return unsignedJwt({
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    sub: args.walletId,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: 'relayer-key-ed25519-expiry-anchor',
+    rpId: 'example.localhost',
+    thresholdExpiresAtMs: Date.now() + 60_000,
+    participantIds: [1, 2],
+    runtimePolicyScope: {
+      orgId: 'org-test',
+      projectId: 'sr-test',
+      envId: 'dev',
+      signingRootVersion: 'default',
+    },
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'signing-worker-ed25519-expiry-anchor',
+    },
   });
 }
 
@@ -1191,6 +1229,232 @@ test.describe('UserConfirm worker router', () => {
     expect(result.sealedSecretB64u).toBe('sealed-ecdsa-policy-refresh');
     expect(result.hasTopLevelSigningRoot).toBe(false);
     expect(result.restoreChainId).toBe(5042002);
+  });
+
+  test('sealed mode retains expired passkey Ed25519 policy as an exact reauth anchor', async ({
+    page,
+  }) => {
+    const walletSessionJwt = thresholdEd25519SessionJwt({
+      walletId: 'alice.testnet',
+      thresholdSessionId: 'session-ed25519-expiry-anchor',
+      signingGrantId: 'wallet-session-ed25519-expiry-anchor',
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-key-expiry-anchor',
+    });
+    const result = await page.evaluate(
+      async ({ paths, walletSessionJwt }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
+        const availableLanesMod = await import(paths.availableSigningLanes);
+        const selectLaneMod = await import(paths.selectLane);
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet');
+          request.onsuccess = () => resolve();
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
+
+        const thresholdSessionId = 'session-ed25519-expiry-anchor';
+        const signingGrantId = 'wallet-session-ed25519-expiry-anchor';
+        const nowMs = Date.now();
+        const ed25519Restore = {
+          nearAccountId: 'alice.testnet',
+          nearEd25519SigningKeyId: 'near-ed25519-key-expiry-anchor',
+          rpId: 'example.localhost',
+          credentialIdB64u: 'credential-ed25519-expiry-anchor',
+          relayerKeyId: 'relayer-key-ed25519-expiry-anchor',
+          participantIds: [1, 2],
+          sessionKind: 'jwt' as const,
+          walletSessionJwt,
+          clientVerifyingShareB64u: 'client-verifying-share-ed25519-expiry-anchor',
+          ed25519WorkerMaterialBindingDigest: 'binding-digest-ed25519-expiry-anchor',
+          sealedWorkerMaterialRef: 'sealed-worker-material-ref-ed25519-expiry-anchor',
+          sealedWorkerMaterialB64u: 'sealed-worker-material-ed25519-expiry-anchor',
+          materialFormatVersion: 'ed25519_worker_material_v1',
+          materialKeyId: 'material-key-ed25519-expiry-anchor',
+          materialCreatedAtMs: nowMs - 1_000,
+          signerSlot: 1,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1' as const,
+            signingWorkerId: 'signing-worker-ed25519-expiry-anchor',
+          },
+          runtimePolicyScope: {
+            orgId: 'org-test',
+            projectId: 'sr-test',
+            envId: 'dev',
+            signingRootVersion: 'default',
+          },
+        };
+        const initialRecord = sealedStoreMod.buildCurrentSealedSessionRecord({
+          thresholdSessionId,
+          signingGrantId,
+          thresholdSessionIds: { ed25519: thresholdSessionId },
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletId: 'alice.testnet',
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-secret-ed25519-expiry-anchor',
+          keyVersion: 'signing-session-seal-kek-test-r1',
+          shamirPrimeB64u: 'prime-b64u',
+          ed25519Restore,
+          issuedAtMs: nowMs - 1_000,
+          expiresAtMs: nowMs + 60_000,
+          remainingUses: 3,
+          updatedAtMs: nowMs,
+        });
+        if (!initialRecord) throw new Error('invalid Ed25519 expiry-anchor fixture');
+        await sealedStoreMod.writeExactSealedSession(initialRecord);
+        const initialStored = await sealedStoreMod.readExactSealedSession(thresholdSessionId, {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+        if (!initialStored) throw new Error('Ed25519 expiry-anchor fixture was not persisted');
+
+        const manager = mod.createUiConfirmManager(
+          {
+            signingSessionPersistenceMode: 'sealed_refresh_v1',
+          },
+          {
+            touchIdPrompt: {},
+            nearClient: {},
+            indexedDB: {},
+            userPreferencesManager: {},
+            nearContextFixture: {},
+          } as any,
+        );
+        const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedMessages: any[] = [];
+        const fakeWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') listeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            listeners[type] = listeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: ((message: unknown) => {
+            postedMessages.push(message);
+          }) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
+        (manager as any).worker = fakeWorker;
+        (manager as any).attachWorkerRouter(fakeWorker);
+
+        const observedExpiredAtMs = Date.now();
+        const consumePromise = manager.consumeWarmSessionUses({
+          sessionId: thresholdSessionId,
+          uses: 1,
+          curve: 'ed25519',
+          chain: 'near',
+        });
+        for (let attempts = 0; !postedMessages[0] && attempts < 100; attempts += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        const consumeRequest = postedMessages[0];
+        if (!consumeRequest) throw new Error('Warm-session consume request was not posted');
+        for (const handler of [...listeners.message]) {
+          handler({
+            currentTarget: fakeWorker,
+            target: fakeWorker,
+            data: {
+              id: consumeRequest.id,
+              success: true,
+              data: {
+                ok: false,
+                code: 'expired',
+                message: 'Warm-session material expired for threshold session',
+              },
+            },
+          });
+        }
+        const consumeResult = await consumePromise;
+        const retained = await sealedStoreMod.readExactSealedSession(thresholdSessionId, {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+        const availableLanes = await availableLanesMod.readAvailableSigningLanes(
+          {
+            walletId: 'alice.testnet',
+            authMethod: 'passkey',
+            ecdsaChainTargets: [],
+          },
+          {
+            listSealedRecordsForWallet: async ({ walletId, filter }) =>
+              filter.curve === 'ed25519'
+                ? await sealedStoreMod.listExactSealedSessionsForWallet({
+                    walletId,
+                    filter: { authMethod: 'passkey', curve: 'ed25519' },
+                  })
+                : await sealedStoreMod.listExactSealedSessionsForWallet({
+                    walletId,
+                    filter: {
+                      authMethod: 'passkey',
+                      curve: 'ecdsa',
+                      chainTarget: filter.chainTarget,
+                    },
+                  }),
+            listRuntimeEcdsaLanesForWallet: async () => [],
+            listRuntimeEd25519RecordsForWallet: async () => [],
+          },
+        );
+        const selection = selectLaneMod.selectTransactionLane({
+          intent: {
+            walletId: 'alice.testnet',
+            curve: 'ed25519',
+            chain: 'near',
+            authSelectionPolicy: { kind: 'any' },
+            operationUsesNeeded: 1,
+          },
+          availableLanes,
+        });
+        return {
+          availableEd25519Candidates: availableLanes.candidates.ed25519.near,
+          consumeResult,
+          postedType: consumeRequest.type,
+          retained,
+          selection,
+          observedExpiredAtMs,
+        };
+      },
+      { paths: IMPORT_PATHS, walletSessionJwt },
+    );
+
+    expect(result.postedType).toBe('WARM_SESSION_MATERIAL_CONSUME');
+    expect(result.consumeResult).toMatchObject({ ok: false, code: 'expired' });
+    expect(result.retained).not.toBeNull();
+    expect(result.retained?.expiresAtMs).toBeLessThanOrEqual(Date.now());
+    expect(result.retained?.expiresAtMs).toBeGreaterThanOrEqual(result.observedExpiredAtMs);
+    expect(result.retained).toMatchObject({
+      curve: 'ed25519',
+      authMethod: 'passkey',
+      signingGrantId: 'wallet-session-ed25519-expiry-anchor',
+      remainingUses: 3,
+      sealedSecretB64u: 'sealed-secret-ed25519-expiry-anchor',
+      ed25519Restore: {
+        sealedWorkerMaterialRef: 'sealed-worker-material-ref-ed25519-expiry-anchor',
+        materialKeyId: 'material-key-ed25519-expiry-anchor',
+      },
+    });
+    expect(result.availableEd25519Candidates).toHaveLength(1);
+    expect(result.availableEd25519Candidates[0]).toMatchObject({
+      state: 'expired',
+      source: 'durable_sealed_record',
+      signingGrantId: 'wallet-session-ed25519-expiry-anchor',
+      thresholdSessionId: 'session-ed25519-expiry-anchor',
+      material: {
+        kind: 'sealed_worker_material',
+      },
+    });
+    expect(result.selection).toMatchObject({
+      ok: true,
+      selectionCandidate: {
+        kind: 'near_ed25519_transaction_reauth_lane',
+      },
+    });
   });
 
   test('sealed mode dedupes concurrent seal persistence requests (apply-server-seal single-flight)', async ({

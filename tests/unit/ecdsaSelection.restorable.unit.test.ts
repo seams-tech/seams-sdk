@@ -500,6 +500,29 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.committedLane.authority.factor.kind).toBe('passkey');
   });
 
+  test('requires exact restore for a durable passkey lane without runtime material', async () => {
+    const restorableCandidate = candidate('restorable');
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps: selectionDeps(),
+      walletId,
+      chain: 'evm',
+      chainTarget,
+      senderSignatureAlgorithm: 'webauthnP256',
+      authMethod: 'passkey',
+      laneCandidate: restorableCandidate,
+    });
+
+    expect(selection.kind).toBe('restore_required');
+    if (selection.kind !== 'restore_required') return;
+    expect(selection.authMethod).toBe('passkey');
+    expect(selection.candidate).toBe(restorableCandidate);
+    expect(selection.restoreChainTarget).toEqual(chainTarget);
+    expect(selection.material).toMatchObject({
+      kind: 'public_identity_unavailable',
+      hasRecord: false,
+    });
+  });
+
   test('keeps ready lanes strict when exact material is missing', async () => {
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: selectionDeps(),
@@ -585,7 +608,7 @@ test.describe('ECDSA restorable lane selection', () => {
     });
   });
 
-  test('marks shared Tempo passkey lanes missing when no committed source record is loaded', async () => {
+  test('requires source restore for a shared Tempo passkey lane without runtime material', async () => {
     const tempoCandidate = sharedTempoCandidate();
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -598,13 +621,14 @@ test.describe('ECDSA restorable lane selection', () => {
       laneCandidate: tempoCandidate,
     });
 
-    expect(selection.kind).toBe('missing_material');
-    if (selection.kind !== 'missing_material') return;
+    expect(selection.kind).toBe('restore_required');
+    if (selection.kind !== 'restore_required') return;
     expect(selection.authMethod).toBe('passkey');
     expect(selection.candidate).toMatchObject({
       source: 'evm_family_shared_key',
       sourceChainTarget: chainTarget,
     });
+    expect(selection.restoreChainTarget).toEqual(chainTarget);
     expect(selection.material).toMatchObject({
       kind: 'public_identity_unavailable',
       authMethod: 'passkey',

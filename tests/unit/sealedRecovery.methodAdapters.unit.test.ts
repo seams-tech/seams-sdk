@@ -7,11 +7,15 @@ import {
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import {
   claimPasskeyEcdsaPrfFirst,
   restorePasskeyEcdsaSealedRecordForWallet,
 } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery';
+import { restorePasskeyEd25519SealedRecordForAccount } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery';
 import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
 import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
@@ -26,6 +30,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import {
+  clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   upsertRestoredThresholdEcdsaSessionRecord,
@@ -99,6 +104,31 @@ function makeEcdsaWalletSessionJwt(args: {
     chainTarget: TEMPO_CHAIN_TARGET,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
+  });
+}
+
+function makeEd25519WalletSessionJwt(args: {
+  walletId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+}): string {
+  return unsignedJwt({
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    sub: args.walletId,
+    walletId: args.walletId,
+    nearAccountId: args.walletId,
+    nearEd25519SigningKeyId: 'near-ed25519-key-passkey',
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: 'relayer-key-passkey-ed25519',
+    rpId: 'example.com',
+    thresholdExpiresAtMs: Date.now() + 60_000,
+    participantIds: [1, 2],
+    runtimePolicyScope: PASSKEY_RUNTIME_POLICY_SCOPE,
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'signing-worker-passkey-ed25519',
+    },
   });
 }
 
@@ -307,6 +337,67 @@ function makePasskeyEcdsaSealedRecord(
   return normalized.record;
 }
 
+function makePasskeyEd25519SealedRecord() {
+  const now = Date.now();
+  const thresholdSessionId = 'tsess-passkey-ed25519-expiry';
+  const signingGrantId = 'wsess-passkey-ed25519-expiry';
+  const normalized = normalizeSealedRecoveryRecord({
+    v: 1,
+    alg: 'shamir3pass-v1',
+    storageScope: 'iframe_origin_indexeddb',
+    authMethod: 'passkey',
+    secretKind: 'signing_session_secret32',
+    storeKey: `passkey:ed25519:near:${thresholdSessionId}`,
+    signingGrantId,
+    thresholdSessionIds: { ed25519: thresholdSessionId },
+    sealedSecretB64u: 'sealed-secret-passkey-ed25519-expiry',
+    curve: 'ed25519',
+    walletId: 'alice.testnet',
+    relayerUrl: 'https://relay.example',
+    shamirPrimeB64u: 'prime-b64u',
+    keyVersion: 'signing-session-seal-kek-test-r1',
+    ed25519Restore: {
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-key-passkey',
+      rpId: 'example.com',
+      credentialIdB64u: 'passkey-credential-ed25519-expiry',
+      relayerKeyId: 'relayer-key-passkey-ed25519',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      walletSessionJwt: makeEd25519WalletSessionJwt({
+        walletId: 'alice.testnet',
+        thresholdSessionId,
+        signingGrantId,
+      }),
+      runtimePolicyScope: PASSKEY_RUNTIME_POLICY_SCOPE,
+      clientVerifyingShareB64u: 'client-verifying-share-passkey-ed25519',
+      ed25519WorkerMaterialBindingDigest: 'binding-digest-passkey-ed25519',
+      sealedWorkerMaterialRef: 'sealed-worker-material-passkey-ed25519',
+      sealedWorkerMaterialB64u: 'sealed-worker-material-blob-passkey-ed25519',
+      materialFormatVersion: 'ed25519_worker_material_v1',
+      materialKeyId: 'material-key-passkey-ed25519',
+      materialCreatedAtMs: now - 1_000,
+      signerSlot: 1,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'signing-worker-passkey-ed25519',
+      },
+    },
+    issuedAtMs: now - 1_000,
+    expiresAtMs: now + 60_000,
+    remainingUses: 3,
+    updatedAtMs: now,
+  });
+  if (
+    normalized.kind !== 'accepted' ||
+    normalized.record.authMethod !== 'passkey' ||
+    normalized.record.curve !== 'ed25519'
+  ) {
+    throw new Error('Expected accepted passkey Ed25519 recovery record fixture');
+  }
+  return normalized.record;
+}
+
 function makeEmailOtpEcdsaCurrentRecord(
   overrides?: Partial<ThresholdEcdsaSessionRecord>,
 ): ThresholdEcdsaSessionRecord {
@@ -437,11 +528,13 @@ function makePasskeyEcdsaCurrentRecord(
 
 test.describe('sealed recovery method adapters', () => {
   test.beforeEach(() => {
+    clearAllStoredThresholdEd25519SessionRecords();
     clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
     clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
   });
 
   test.afterEach(() => {
+    clearAllStoredThresholdEd25519SessionRecords();
     clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
     clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
   });
@@ -935,9 +1028,75 @@ test.describe('sealed recovery method adapters', () => {
       },
     });
     expect(classifyRouterAbEcdsaHssPersistedSigningRecord(restoredRecord)).toMatchObject({
-      kind: 'invalid',
-      reason: 'invalid_budget',
+      kind: 'exhausted',
+      reason: 'exhausted',
     });
+  });
+
+  test('keeps passkey Ed25519 sealed restores after remote worker failures', async () => {
+    const sealedRecord = makePasskeyEd25519SealedRecord();
+    const restoredStatuses: unknown[] = [];
+    const restoreResults: unknown[] = [];
+    let deleteCalls = 0;
+
+    for (const code of ['expired', 'not_found', 'invalid_response'] as const) {
+      const result = await restorePasskeyEd25519SealedRecordForAccount({
+        walletId: 'alice.testnet',
+        record: sealedRecord,
+        purpose: {
+          walletId: 'alice.testnet',
+          authMethod: 'passkey',
+          curve: 'ed25519',
+          chain: 'near',
+          signingGrantId: 'wsess-passkey-ed25519-expiry',
+          thresholdSessionId: 'tsess-passkey-ed25519-expiry',
+          reason: 'transaction',
+        },
+        transport: {
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletId: 'alice.testnet',
+          relayerUrl: 'https://relay.example',
+          signingGrantId: 'wsess-passkey-ed25519-expiry',
+          walletSessionJwt: makeEd25519WalletSessionJwt({
+            walletId: 'alice.testnet',
+            thresholdSessionId: 'tsess-passkey-ed25519-expiry',
+            signingGrantId: 'wsess-passkey-ed25519-expiry',
+          }),
+          signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
+          shamirPrimeB64u: 'prime-b64u',
+        },
+        shamirPrimeB64u: 'prime-b64u',
+        rehydrateWarmSessionMaterial: async () => ({
+          ok: false,
+          code,
+          message: `signing grant ${code}`,
+        }),
+        deletePersistedRecord: async () => {
+          deleteCalls += 1;
+        },
+        recordSessionMaterialRestored: async (status) => {
+          restoredStatuses.push(status);
+        },
+        readWarmSessionStatusFromWorker: async () => {
+          throw new Error(`${code} Ed25519 restore should not read worker status`);
+        },
+        updatePersistedPolicy: async () => undefined,
+      });
+      restoreResults.push(result);
+    }
+
+    expect(deleteCalls).toBe(0);
+    expect(restoreResults).toEqual([
+      expect.objectContaining({ ok: false, code: 'expired' }),
+      expect.objectContaining({ ok: false, code: 'not_found' }),
+      expect.objectContaining({ ok: false, code: 'invalid_response' }),
+    ]);
+    expect(restoredStatuses).toEqual([
+      expect.objectContaining({ ok: false, code: 'expired' }),
+      expect.objectContaining({ ok: false, code: 'not_found' }),
+      expect.objectContaining({ ok: false, code: 'invalid_response' }),
+    ]);
   });
 
   test('rejects Email OTP ECDSA sealed restore on signing grant mismatch', async () => {

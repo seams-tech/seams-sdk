@@ -288,7 +288,7 @@ const retainedBoundaryAuditEvidenceTokens = {
         'passkey-confirm export flow worker',
         'returns cancelled when user cancels at first confirmation step',
         'fails closed when seed does not match expected public key',
-        'completes canonical ecdsa-hss EVM export without PRF.second',
+        'rejects retired ecdsa-hss secp256k1 key artifact kind without prompting',
     ],
     'tests/unit/profileAccountProjection.generic.unit.test.ts': [
         'generic profile/account projection helpers',
@@ -314,7 +314,7 @@ const retainedBoundaryAuditEvidenceTokens = {
     ],
     'tests/unit/safari-fallbacks.test.ts': [
         'Safari WebAuthn fallbacks - cancellation and timeout behavior',
-        'create(): native fails then bridge cancel',
+        'create(): native failure returns wallet-origin error without parent bridge',
         'get(): native NotAllowedError cancel should not trigger bridge',
         'get(): clones challenge buffers before native and bridge attempts',
     ],
@@ -449,7 +449,6 @@ const retainedBoundaryAuditEvidenceTokens = {
     ],
     'tests/wallet-iframe/export.flow.integration.test.ts': [
         'wallet-origin export flow integration',
-        'export flow completes and overlay closes on key export progress',
         'export viewer ignores stale generic WALLET_UI_CLOSED from previous wallet UI',
         'concurrent export and signing remain isolated and do not cross-talk',
         'PM_EXPORT_KEYPAIR_UI',

@@ -13,7 +13,7 @@ test.describe('wallet session profile identity restore', () => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
-  test('restores wallet and NEAR identity from persisted profile when runtime session records are cold', async ({
+  test('keeps persisted wallet and NEAR identity logged out when no exact signing lane survives', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -97,15 +97,15 @@ test.describe('wallet session profile identity restore', () => {
     );
 
     expect(result).toEqual({
-      isLoggedIn: true,
+      isLoggedIn: false,
       walletId: 'refresh-wallet-profile-identity',
       nearAccountId: 'refresh-profile.testnet',
-      publicKey: 'ed25519:refresh-profile-public-key',
-      signingStatus: 'active',
+      publicKey: null,
+      signingStatus: null,
     });
   });
 
-  test('restores wallet session from last profile when refresh reads without walletId', async ({
+  test('resolves the last profile without activating a wallet that has no exact signing lane', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -197,15 +197,15 @@ test.describe('wallet session profile identity restore', () => {
       resolutionKind: 'resolved',
       resolutionWalletId: 'refresh-last-profile-wallet',
       resolutionSource: 'host_last_used_profile',
-      isLoggedIn: true,
+      isLoggedIn: false,
       walletId: 'refresh-last-profile-wallet',
       nearAccountId: 'refresh-last-profile.testnet',
-      publicKey: 'ed25519:refresh-last-profile-public-key',
-      signingStatus: 'active',
+      publicKey: null,
+      signingStatus: null,
     });
   });
 
-  test('resolves last NEAR profile to wallet session through wallet-bound signer metadata', async ({
+  test('resolves the last NEAR profile without activating it from advisory warm status alone', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -315,11 +315,11 @@ test.describe('wallet session profile identity restore', () => {
       resolutionKind: 'resolved',
       resolutionWalletId: 'refresh-near-profile-wallet',
       resolutionSource: 'host_last_used_profile',
-      isLoggedIn: true,
+      isLoggedIn: false,
       walletId: 'refresh-near-profile-wallet',
       nearAccountId: 'refresh-near-profile.testnet',
-      publicKey: 'ed25519:refresh-near-profile-public-key',
-      signingStatus: 'active',
+      publicKey: null,
+      signingStatus: null,
     });
   });
 

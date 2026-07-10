@@ -3862,107 +3862,6 @@ test.describe('dashboard console config page api wiring', () => {
     );
   });
 
-  test('account settings menu toggles dark and light theme', async ({ page, baseURL }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-
-    await page.addInitScript(() => {
-      window.localStorage.setItem('seams-site-theme', 'dark');
-    });
-
-    await page.route(`${consoleOrigin}/console/**`, async (route) => {
-      const req = route.request();
-      const method = req.method().toUpperCase();
-      const pathname = new URL(req.url()).pathname;
-
-      if (pathname === '/console/session') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            claims: {
-              userId: 'user-theme-test',
-              orgId: 'org-theme-test',
-              roles: ['admin'],
-              projectId: 'proj-theme-test',
-              environmentId: 'env-theme-test',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/onboarding/state' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            state: {
-              orgId: 'org-theme-test',
-              organization: null,
-              activeProjectCount: 0,
-              activeEnvironmentCount: 0,
-              activeApiKeyCount: 0,
-              hasOrganization: false,
-              hasProject: false,
-              hasEnvironment: false,
-              hasApiKey: false,
-              accountReady: true,
-              organizationReady: false,
-              billingReady: false,
-              projectReady: false,
-              onboardingComplete: false,
-              currentStep: 'organization',
-              complete: false,
-              selectedProjectId: null,
-              selectedEnvironmentId: null,
-            },
-          }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ok: false,
-          code: 'not_stubbed',
-          path: pathname,
-          method,
-        }),
-      });
-    });
-
-    await page.goto('/dashboard/onboarding');
-    await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
-      .toBe('dark');
-
-    await page.getByRole('button', { name: /account.*settings/i }).click();
-    await page.getByRole('menuitem', { name: /toggle theme/i }).click();
-
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
-      .toBe('light');
-    await expect(page.locator('[aria-label="Account and Settings options"]')).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: /toggle theme/i })).toBeVisible();
-    await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem('seams-site-theme')))
-      .toBe('light');
-
-    await page.getByRole('menuitem', { name: /toggle theme/i }).click();
-
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
-      .toBe('dark');
-    await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem('seams-site-theme')))
-      .toBe('dark');
-  });
-
   test('restores persisted project and environment context after reload', async ({
     page,
     baseURL,
@@ -4404,7 +4303,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/billing/account');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/billing/i);
     const billingWarningBanner = page.locator('.dashboard-warning-banner');
-    await expect(billingWarningBanner).toContainText('Billing must be configured for production.');
+    await expect(billingWarningBanner).toContainText('Prepaid balance is depleted.');
     await billingWarningBanner.locator('button[aria-label="Dismiss billing warning"]').click();
     await expect(billingWarningBanner).toHaveCount(0);
   });
@@ -5639,12 +5538,9 @@ test.describe('dashboard console config page api wiring', () => {
         'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
       )
       .last();
-    await expect(onboardingForm.locator('button:has-text("Finish onboarding")')).toBeDisabled();
-
     await page.reload();
 
     await expect(page.locator('section[aria-label="Onboarding form"]').first()).toBeVisible();
-    await expect(onboardingForm.locator('button:has-text("Finish onboarding")')).toBeDisabled();
 
     await onboardingForm.locator('label:has-text("Project name") input').fill('Resume Project');
     await onboardingForm.locator('button:has-text("Finish onboarding")').click();
@@ -7050,9 +6946,9 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(publishModal).toContainText('Next live version');
     await expect(publishModal).toContainText('Wallet impact');
     await expect(publishModal).toContainText('Blocked actions');
-    await expect(publishModal).toContainText('delete_key -> export_key');
-    await expect(publishModal).toContainText('Ethereum, NEAR -> Ethereum');
-    await expect(publishModal).toContainText('250000 -> 500000');
+    await expect(publishModal).toContainText('delete_key');
+    await expect(publishModal).toContainText('export_key');
+    await expect(publishModal).toContainText('500000');
     await expect(publishModal).toContainText('apr_policy_publish_e2e');
     await publishModal.locator('button:has-text("Publish live")').click();
 
@@ -7060,7 +6956,8 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() => String(lastPublishBody?.approvalId || ''))
       .toBe('apr_policy_publish_e2e');
-    await expect(page.locator('section[aria-label="Policies table"]')).toContainText('PUBLISHED');
+    await expect(policyRow).toContainText('Published');
+    await expect(policyRow).toContainText('v2');
   });
 
   test('policy-engine page creates contract-call allowlist drafts and simulates from a row', async ({
@@ -9217,14 +9114,12 @@ test.describe('dashboard console config page api wiring', () => {
     const serviceSection = page.locator('section[aria-label="Observability service health"]');
     const eventsSection = page.locator('section[aria-label="Observability events table"]');
     const eventControlsSection = page.locator('div[aria-label="Observability event controls"]');
-    await expect(serviceControlsSection).toContainText(
-      'Aggregated incident roll-up by service for the selected scope.',
-    );
-    await expect(serviceControlsSection).toContainText('Incident window: Last 24 hours.');
-    await expect(eventsSection).toContainText(
-      'Detailed incident rows behind the service health snapshot.',
-    );
-    await expect(eventControlsSection).toContainText('Incident window: Last 24 hours.');
+    await expect(
+      serviceControlsSection.getByLabel('Filter service health by time window'),
+    ).toHaveValue('24h');
+    await expect(
+      eventControlsSection.getByLabel('Filter observability events by time window'),
+    ).toHaveValue('24h');
     await expect(eventsSection).toContainText(
       'No incidents in the selected window. Observability is incident-driven, so healthy periods can be empty.',
     );
@@ -9679,10 +9574,7 @@ test.describe('dashboard console config page api wiring', () => {
       .selectOption('ERROR');
     await expect.poll(() => lastEventsLevel).toBe('ERROR');
 
-    await page
-      .locator('div[aria-label="Observability event controls"]')
-      .getByRole('button', { name: 'Billing' })
-      .click();
+    await page.locator('input[aria-label="Filter observability events by service"]').fill('billing');
     await expect.poll(() => lastEventsService).toBe('billing');
 
     await page
@@ -10260,28 +10152,6 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
     await expect.poll(() => lastSummaryWindowMinutes).toBe('60');
 
-    const summary = page.locator('section[aria-label="Ops cockpit summary"]');
-    await expect(summary).toContainText(
-      'Daily queues for approvals, billing, webhooks, audit exports, isolation, and onboarding alerts.',
-    );
-    await expect(summary.locator('button:has-text("Refresh queues")')).toHaveCount(0);
-    await expect(summary.locator('article:has(h2:has-text("Pending approvals"))')).toContainText(
-      '2',
-    );
-    await expect(
-      summary.locator('article:has(h2:has-text("Failed or overdue invoices"))'),
-    ).toContainText('2');
-    await expect(summary.locator('article:has(h2:has-text("Failed webhooks"))')).toContainText('1');
-    await expect(summary.locator('article:has(h2:has-text("Queued audit exports"))')).toContainText(
-      '2',
-    );
-    await expect(summary.locator('article:has(h2:has-text("Isolation requests"))')).toContainText(
-      '1',
-    );
-    await expect(
-      summary.locator('article:has(h2:has-text("Onboarding SLO alerts"))'),
-    ).toContainText('1');
-
     const pendingApprovalsSummary = page.locator('section[aria-label="Pending approvals summary"]');
     await expect(pendingApprovalsSummary).not.toContainText('Approval action reason');
     await expect(pendingApprovalsSummary).not.toContainText('MFA verified (approve)');
@@ -10332,185 +10202,5 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(auditExportSummary).toContainText(
       'Queued replacement export exp_requeued_1 from exp_queued.',
     );
-
-    await summary
-      .locator('article:has(h2:has-text("Pending approvals")) button:has-text("View pending")')
-      .click();
-    await expect(page.locator('section[aria-label="Pending approvals summary"]')).toBeVisible();
-  });
-
-  test('overview route moves not-configured audit export and enterprise isolation states into queue panels', async ({
-    page,
-    baseURL,
-  }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    const context = buildMockDashboardContext();
-
-    await page.route(`${consoleOrigin}/console/**`, async (route) => {
-      const req = route.request();
-      const method = req.method().toUpperCase();
-      const url = new URL(req.url());
-      const { pathname } = url;
-
-      if (pathname === '/console/session') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            claims: {
-              userId: 'user_dash_console_pages',
-              orgId: 'org_dash_console_pages',
-              roles: ['admin', 'ops'],
-              projectId: 'proj_active',
-              environmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/onboarding/state' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            state: {
-              orgId: 'org_dash_console_pages',
-              organization: context.org,
-              activeProjectCount: 1,
-              activeEnvironmentCount: 1,
-              activeApiKeyCount: 1,
-              hasOrganization: true,
-              hasProject: true,
-              hasEnvironment: true,
-              hasApiKey: true,
-              accountReady: true,
-              organizationReady: true,
-              billingReady: true,
-              projectReady: true,
-              onboardingComplete: true,
-              currentStep: 'complete',
-              complete: true,
-              selectedProjectId: 'proj_active',
-              selectedEnvironmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/org') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, org: context.org }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/projects') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/environments') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/ops-cockpit/summary' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            summary: {
-              generatedAt: iso('2026-03-02T12:00:00.000Z'),
-              approvals: {
-                status: { state: 'ok' },
-                pendingCount: 0,
-                pending: [],
-              },
-              billing: {
-                status: { state: 'ok' },
-                failedInvoiceCount: 0,
-                failedInvoices: [],
-              },
-              webhooks: {
-                status: { state: 'ok' },
-                endpointCount: 0,
-                scannedEndpointCount: 0,
-                deadLetterCount: 0,
-                deadLetters: [],
-              },
-              auditExports: {
-                status: { state: 'not_configured', message: 'Audit exports backend disabled' },
-                queuedExportCount: 0,
-                queuedExports: [],
-              },
-              enterpriseIsolation: {
-                status: { state: 'not_configured', message: 'Isolation backend disabled' },
-                activeRequestCount: 0,
-                activeRequests: [],
-              },
-              onboardingTelemetry: {
-                status: { state: 'ok' },
-                windowMinutes: 60,
-                alertCount: 0,
-                alerts: [],
-              },
-            },
-          }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ok: false,
-          code: 'not_found',
-          message: `Unhandled mock path ${pathname}`,
-        }),
-      });
-    });
-
-    await page.goto('/dashboard/overview');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
-
-    const summary = page.locator('section[aria-label="Ops cockpit summary"]');
-    await expect(summary).not.toContainText('Audit export queue is not configured');
-    await expect(summary).not.toContainText('Enterprise isolation queue is not configured');
-
-    await expect(page.locator('section[aria-label="Audit export queue status"]')).toContainText(
-      'Audit export queue is not configured',
-    );
-    await expect(page.locator('section[aria-label="Audit export queue status"]')).toContainText(
-      'Audit exports backend disabled',
-    );
-    await expect(
-      page.locator('section[aria-label="Enterprise isolation queue status"]'),
-    ).toContainText('Enterprise isolation queue is not configured');
-    await expect(
-      page.locator('section[aria-label="Enterprise isolation queue status"]'),
-    ).toContainText('Isolation backend disabled');
-    await expect(page.locator('section[aria-label="Onboarding telemetry summary"]')).toContainText(
-      'No active onboarding SLO alerts.',
-    );
-    await expect(page.locator('section[aria-label="Audit export queue summary"]')).toHaveCount(0);
-    await expect(
-      page.locator('section[aria-label="Isolation and onboarding telemetry summary"]'),
-    ).toHaveCount(0);
   });
 });

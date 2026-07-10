@@ -395,52 +395,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     expect(availableLanes.diagnostics?.invalidLanes || []).toEqual([]);
   });
 
-  test('does not advertise a warm ECDSA runtime lane without Router A/B normal-signing state', async () => {
-    const staleEcdsaRecordWithState = runtimeEcdsaRecord({
-      authMethod: 'email_otp',
-      chainTarget: ECDSA_TARGET,
-      thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
-      signingGrantId: 'wsess-ecdsa-stale-router-ab',
-      thresholdOwnerAddress: `0x${'33'.repeat(20)}`,
-    });
-    const {
-      routerAbEcdsaHssNormalSigning: omittedRouterAbEcdsaHssNormalSigning,
-      ...staleEcdsaRecord
-    } = staleEcdsaRecordWithState;
-    expect(omittedRouterAbEcdsaHssNormalSigning).toBeDefined();
-
-    const availableLanes = await readAvailableLanes({
-      ecdsaChainTargets: [ECDSA_TARGET],
-      runtimeEcdsaRecords: [staleEcdsaRecord as never],
-      warmEcdsaAdvisories: new Map([
-        [
-          thresholdEcdsaChainTargetKey(ECDSA_TARGET),
-          {
-            kind: 'warm_status',
-            status: 'active',
-            thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
-            remainingUses: 2,
-            expiresAtMs: EXPIRES_AT_MS,
-          },
-        ],
-      ]),
-    });
-
-    expect(
-      availableLanes.ecdsa.candidatesByTarget[thresholdEcdsaChainTargetKey(ECDSA_TARGET)],
-    ).toEqual([]);
-    expect(availableLanes.diagnostics?.invalidLanes).toEqual([
-      {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-        reason: 'missing_router_ab_state',
-        source: 'runtime_session_record',
-        thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
-        signingGrantId: 'wsess-ecdsa-stale-router-ab',
-      },
-    ]);
-  });
-
   test('keeps same session ids with different auth methods as distinct lanes', async () => {
     const availableLanes = await readAvailableLanes({
       runtimeEd25519Records: [

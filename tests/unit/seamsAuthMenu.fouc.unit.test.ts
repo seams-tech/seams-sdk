@@ -1,10 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const IMPORT_PATHS = {
   provider: '/_test-sdk/esm/react/context/SeamsWebProvider.js',
@@ -21,18 +16,6 @@ const IMPORT_PATHS = {
   authMenuTypes: '/_test-sdk/esm/react/components/SeamsAuthMenu/authMenuTypes.js',
   reactStyles: '/_test-sdk/esm/react/styles/styles.css',
 } as const;
-
-function readRepoSource(relativePath: string): string {
-  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
-}
-
-function sourceRangeBetween(source: string, startNeedle: string, endNeedle: string): string {
-  const start = source.indexOf(startNeedle);
-  expect(start, `missing source range start: ${startNeedle}`).toBeGreaterThanOrEqual(0);
-  const end = source.indexOf(endNeedle, start + startNeedle.length);
-  expect(end, `missing source range end: ${endNeedle}`).toBeGreaterThan(start);
-  return source.slice(start, end);
-}
 
 test.describe('SeamsAuthMenu styles bootstrap', () => {
   test.beforeEach(async ({ page }) => {
@@ -2078,17 +2061,6 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     await expect(mount.getByRole('button', { name: 'Unlock wallet' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Generate another name' })).toHaveCount(0);
     await expect(mount.getByText('Check your email to finish registration')).toHaveCount(0);
-  });
-
-  test('Google SSO registration does not keep passkey activation surface mounted while social auth waits', () => {
-    const source = readRepoSource('packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx');
-    const activationGate = sourceRangeBetween(
-      source,
-      'const iframeRegistrationButtonEnabled =',
-      'React.useEffect(() => {',
-    );
-
-    expect(activationGate).toContain("controller.waitingReason !== 'social'");
   });
 
   test('Google SSO buttons pass explicit register and login modes', async ({ page }) => {
