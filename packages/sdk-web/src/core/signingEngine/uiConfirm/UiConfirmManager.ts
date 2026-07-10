@@ -209,6 +209,18 @@ type PasskeySealedRecordAccountMetadata = {
   ed25519Restore?: CurrentEd25519RestoreMetadata;
 };
 
+type PasskeyEd25519ExpiryObservation =
+  | {
+      kind: 'policy';
+      expiresAtMs: number;
+      remainingUses: number;
+    }
+  | {
+      kind: 'status_code';
+      expiresAtMs?: never;
+      remainingUses?: never;
+    };
+
 type SigningSessionSealedAuthMethod = SigningSessionSealAuthMethod;
 
 function positiveInteger(value: unknown): number {
@@ -1073,6 +1085,35 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
   }
 
+  private async markPasskeyEd25519SealedRecordExpired(args: {
+    thresholdSessionId: string;
+    curve?: 'ed25519' | 'ecdsa';
+    chainTarget?: ThresholdEcdsaChainTarget;
+    observation: PasskeyEd25519ExpiryObservation;
+  }): Promise<boolean> {
+    const existing = await this.readPasskeySealedRecord(
+      args.thresholdSessionId,
+      args.curve,
+      args.chainTarget,
+    );
+    if (!existing || existing.curve !== 'ed25519') return false;
+    const observedExpiresAtMs =
+      args.observation.kind === 'policy'
+        ? args.observation.expiresAtMs
+        : existing.expiresAtMs;
+    const observedRemainingUses =
+      args.observation.kind === 'policy'
+        ? args.observation.remainingUses
+        : existing.remainingUses;
+    await this.updatePasskeySealedRecordPolicy({
+      thresholdSessionId: args.thresholdSessionId,
+      curve: 'ed25519',
+      expiresAtMs: Math.min(observedExpiresAtMs, Date.now()),
+      remainingUses: Math.max(0, observedRemainingUses),
+    });
+    return true;
+  }
+
   private async recordSessionPolicyResult(args: {
     sessionId: string;
     curve?: 'ed25519' | 'ecdsa';
@@ -1092,6 +1133,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           });
           return;
         }
+        const retainedExpiredEd25519Record =
+          await this.markPasskeyEd25519SealedRecordExpired({
+            thresholdSessionId: args.sessionId,
+            curve: args.curve,
+            chainTarget: args.chainTarget,
+            observation: {
+              kind: 'policy',
+              expiresAtMs: result.expiresAtMs,
+              remainingUses: result.remainingUses,
+            },
+          });
+        if (retainedExpiredEd25519Record) return;
         await this.deletePasskeyDurableSealedSessionRecord({
           thresholdSessionId: args.sessionId,
           curve: args.curve,
@@ -1111,6 +1164,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       return;
     }
     if (result.code === 'expired') {
+      const retainedExpiredEd25519Record =
+        await this.markPasskeyEd25519SealedRecordExpired({
+          thresholdSessionId: args.sessionId,
+          curve: args.curve,
+          chainTarget: args.chainTarget,
+          observation: { kind: 'status_code' },
+        });
+      if (retainedExpiredEd25519Record) return;
       await this.deletePasskeyDurableSealedSessionRecord({
         thresholdSessionId: args.sessionId,
         curve: args.curve,
