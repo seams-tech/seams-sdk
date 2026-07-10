@@ -6,7 +6,9 @@ Historical optimization plans live in
 [docs/plans/optimization-v3.md](docs/plans/optimization-v3.md)
 and
 [docs/plans/optimization-v4.md](docs/plans/optimization-v4.md).
-Current stretch-candidate planning lives in
+The active security-gated latency experiment plan lives in
+[docs/optimization-8.md](docs/optimization-8.md). The previous 200ms stretch
+inventory and July 6 outcomes remain in
 [docs/optimization-7.md](docs/optimization-7.md).
 The covert-security transcript design note lives in
 [docs/covert-security-spot-check.md](docs/covert-security-spot-check.md).
