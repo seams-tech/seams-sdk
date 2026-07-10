@@ -1735,7 +1735,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
             </p>
             <button
               type="button"
-              className="dashboard-pagination-button"
+              className="dashboard-pagination-button dashboard-pagination-button--primary"
               onClick={openCreateModal}
               disabled={!canMutatePolicy || mutating}
             >

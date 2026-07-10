@@ -1749,7 +1749,7 @@ export function PolicyEnginePage(): React.JSX.Element {
           <div className="dashboard-policy-setup-action">
             <button
               type="button"
-              className="dashboard-pagination-button"
+              className="dashboard-pagination-button dashboard-pagination-button--primary"
               onClick={openCreatePolicyModal}
               disabled={!canMutatePolicies}
             >

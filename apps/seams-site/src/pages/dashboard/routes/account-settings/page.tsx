@@ -647,7 +647,7 @@ export function AccountSettingsPage(): React.JSX.Element {
           </div>
           <button
             type="button"
-            className="dashboard-pagination-button"
+            className="dashboard-pagination-button dashboard-pagination-button--primary"
             onClick={onCreateOrganization}
           >
             Create an organisation

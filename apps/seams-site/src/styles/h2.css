@@ -3,9 +3,13 @@
    hardcoded so the page stays light in dark mode too. */
 
 .h2-page {
-  /* bordered content column width (~83% of a 1440 viewport, per reference) */
-  --h2-col-max: 1200px;
-  --h2-col-max-zoomed: 1080px;
+  /* bordered content column width (~86% of a 1440 viewport, per reference).
+     Shared by every .h2-page (home, /wallet, /ecommerce) so the rails line up;
+     the two-panel hero band is 1fr 1fr inside it, so +32px here = +1rem per
+     column. --…-zoomed is the rendered width (col-max × the 0.9 page zoom),
+     used to align the navbar chrome to the visible rails. */
+  --h2-col-max: 1232px;
+  --h2-col-max-zoomed: 1108.8px;
   --h2-page-zoom: 1;
   /* canvas + surfaces */
   --h2-bg: #ffffff;
@@ -853,9 +857,9 @@ body:has(.h2-page) {
   gap: 20px;
   min-width: 0;
   /* fixed so the two columns stay level: must exceed the aside's natural
-     height (~548px with the 0.8-scaled login shell) or the row stretches.
+     height (~527px with the 0.8-scaled login shell) or the row stretches.
      No bottom padding: the window mock crops at the band's bottom edge. */
-  height: 562px;
+  height: 546px;
   padding: 32px 48px 0 40px;
   transition: background-color 150ms ease;
 }
@@ -943,7 +947,9 @@ body:has(.h2-page) {
 }
 
 .h2-heroscene__aside:hover {
-  background-color: color-mix(in srgb, var(--h2-stone) 42%, var(--h2-taupe) 58%);
+  /* hover just deepens the panel's own warm tint (base is taupe 55% / bg 45%)
+     rather than mixing in stone, so it lifts without reading dark grey */
+  background-color: color-mix(in srgb, var(--h2-taupe) 88%, var(--h2-bg) 12%);
 }
 
 .h2-heroscene__aside-body {
@@ -996,7 +1002,10 @@ body:has(.h2-page) {
   pointer-events: none;
   position: relative;
   width: min(384px, 100%);
-  margin: 34px 0 0;
+  /* drawer bottom-docks via the body's place-items:end, so this top margin
+     only sets the panel's min-content floor; keep it under the stage height
+     (546px) so both paged scenes settle at the same band height */
+  margin: 16px 0 0;
 }
 
 .h2-wallet-confirm__card {

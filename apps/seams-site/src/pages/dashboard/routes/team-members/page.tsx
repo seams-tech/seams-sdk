@@ -952,7 +952,7 @@ export function TeamMembersPage(): React.JSX.Element {
           </div>
           <button
             type="button"
-            className="dashboard-pagination-button"
+            className="dashboard-pagination-button dashboard-pagination-button--primary"
             onClick={onOpenInviteModal}
             disabled={!canMutateTeam}
           >
