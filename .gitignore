@@ -30,10 +30,13 @@ packages/sdk-server-ts/.dev.vars
 packages/console-server-ts/wrangler.d1-staging-console.toml
 packages/console-server-ts/wrangler.d1-staging-router-api.toml
 sqlite/
+packages/sdk-server-ts/.wrangler/
+
 
 # Playwright artifacts
 playwright-report
 test-results
+.playwright-cli/
 
 # Benchmark artifacts
 benchmarks/ecdsa-hss-wasm/out/
