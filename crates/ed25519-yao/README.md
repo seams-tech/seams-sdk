@@ -73,6 +73,15 @@ field-specific digest type plus `GateMetrics`, `ScheduleMetrics`, and
 `CircuitMetrics`, place artifact digests into the required family-specific
 bundle, then pass only those validated types into draft manifest constructors.
 
+## Formal verification
+
+The phased scaffold and proof plan is in
+[`docs/formal-verification-plan.md`](docs/formal-verification-plan.md). Formal
+implementation remains gated on the exact Phase 1 functionality and party
+views, the Phase 2 deterministic circuit artifacts, and the Phase 6 active
+suite. The plan reuses the HSS Verus/Lean/Aeneas structure while requiring
+explicit nonempty Lean builds and real party-specific security games.
+
 ## Checks
 
 ```bash

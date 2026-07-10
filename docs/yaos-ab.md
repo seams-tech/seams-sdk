@@ -1341,6 +1341,13 @@ crates/ed25519-yao
   one-use ticket cryptographic state
   no clear joined evaluator or circuit generator in production features
 
+crates/ed25519-yao/formal-verification
+  phased Verus implementation proofs and production anti-drift tests
+  handwritten Lean functionality and conditional active-security model
+  narrow Aeneas/Charon Rust-to-Lean boundaries
+  explicit assumption ledger, spec corpus, and compliance baseline
+  no production reverse dependency or inherited HSS security claim
+
 tools/ed25519-yao-generator
   exact clear reference oracle
   circuit compiler and liveness schedule generator
@@ -1429,6 +1436,11 @@ move. `SigningWorker` remains the only signing-server role name.
   base64 tables, and legacy service calls.
 
 ## Phase Overview
+
+Formal verification is a parallel gated workstream. Its phased scaffold,
+claim-to-evidence matrix, topology assumptions, and implementation-readiness
+gates are defined in
+[`crates/ed25519-yao/docs/formal-verification-plan.md`](../crates/ed25519-yao/docs/formal-verification-plan.md).
 
 | Phase | Name                                                  | Depends on            | Exit result                                |
 | ----: | ----------------------------------------------------- | --------------------- | ------------------------------------------ |
