@@ -19,9 +19,16 @@ export function ed25519AvailableMaterialStateFromRouterAbPersistedState(
       };
     }
     case 'restore_available':
+      // Restorable-but-not-loaded material is exposed as a hint: this identity is a
+      // snapshot of the runtime record at lane-read time and can rotate before any
+      // restore actually runs (lane reads happen outside the commit queue).
       return {
         kind: 'sealed_worker_material',
-        identity: state.restorableMaterial.identity,
+        hint: {
+          bindingDigest: state.restorableMaterial.identity.bindingDigest,
+          materialKeyId: state.restorableMaterial.identity.materialKeyId,
+          source: 'runtime_snapshot',
+        },
       };
     case 'auth_ready_material_pending':
       return { kind: 'material_pending' };

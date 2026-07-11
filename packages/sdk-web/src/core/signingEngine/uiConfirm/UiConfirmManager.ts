@@ -1706,6 +1706,16 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
     signingSessionRehydrateSingleFlight.set(singleFlightKey, task);
     const result = await task;
+    if (result?.ok && curve === 'ed25519') {
+      // Write-through: a successful restore can re-seal worker material, advancing
+      // the runtime record's material generation. The durable sealed record is a
+      // cache of that identity — refresh it now so lane snapshots built from the
+      // durable store keep naming the current generation. Best-effort: a failed
+      // refresh only leaves the cache stale, which downstream consumers already
+      // treat as a hint (resolveEd25519RestoreMaterialIdentity prefers the live
+      // record).
+      await this.ensureSealedRecordPersisted(thresholdSessionId).catch(() => null);
+    }
     return result?.ok ? 'restored' : 'deferred';
   }
 

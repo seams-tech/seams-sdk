@@ -110,8 +110,8 @@ import { buildEmailOtpEd25519SigningSessionAuthority } from '../../session/email
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
-  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
 } from '../../session/routerAbSigningWalletSession';
+import { resolveEd25519RestoreMaterialIdentity } from '../../session/ed25519MaterialAuthority';
 import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   isEd25519MaterialUnsealAuthorizationRequiredError,
@@ -1366,22 +1366,15 @@ function readNearEd25519RuntimeRecordForSelectedLane(args: {
     : null;
 }
 
-function ed25519RecordMatchesTransactionMaterial(args: {
-  record: ThresholdEd25519SessionRecord;
-  material: NearEd25519TransactionMaterial;
-}): boolean {
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  const materialIdentity =
-    routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
-  if (!materialIdentity) return false;
-  return (
-    String(materialIdentity.bindingDigest) === String(args.material.identity.bindingDigest) &&
-    String(materialIdentity.materialKeyId) === String(args.material.identity.materialKeyId)
-  );
-}
-
-function assertSelectedEd25519RestoreMaterialMatchesRecord(args: {
-  material: NearEd25519TransactionMaterial;
+// Authority check only: the selected lane must denote the same signing authority
+// (wallet / account / signing key / slot / auth method / grant / session) as the
+// live record. Material identity is deliberately NOT compared here — lane snapshots
+// are read outside the per-session commit queue and legitimately go stale whenever
+// material re-seals between snapshot and restore (e.g. the tail of the previous
+// transaction). The restore binds to material via
+// resolveEd25519RestoreMaterialIdentity, which re-reads the live record at the
+// boundary instead of trusting the snapshot.
+function assertSelectedEd25519RestoreLaneMatchesRecord(args: {
   selectedLane: SelectedEd25519Lane;
   walletId: WalletId | string;
 }): void {
@@ -1397,9 +1390,6 @@ function assertSelectedEd25519RestoreMaterialMatchesRecord(args: {
     })
   ) {
     throw new Error('[SigningEngine][near] selected Ed25519 restore record identity mismatch');
-  }
-  if (!ed25519RecordMatchesTransactionMaterial({ record, material: args.material })) {
-    throw new Error('[SigningEngine][near] selected Ed25519 restore material identity mismatch');
   }
 }
 
@@ -1471,11 +1461,21 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     throw new Error('[SigningEngine][near] selected Ed25519 lane is missing material availability');
   }
   if (material.kind === 'loaded_worker_material') return;
-  assertSelectedEd25519RestoreMaterialMatchesRecord({
-    material,
+  assertSelectedEd25519RestoreLaneMatchesRecord({
     selectedLane,
     walletId,
   });
+  // Bind the restore to the live record's material identity, using the lane
+  // snapshot only as a fallback hint when no live record exists (e.g. the first
+  // restore after a page reload, where the snapshot came from the durable store
+  // that is about to be restored).
+  const materialResolution = resolveEd25519RestoreMaterialIdentity({
+    thresholdSessionId: String(selectedLane.thresholdSessionId),
+    hint: material.hint,
+  });
+  if (materialResolution.kind !== 'resolved') {
+    throw new Error('[SigningEngine][near] selected Ed25519 lane is missing material availability');
+  }
   await args.deps.restorePersistedSessionForSigning({
     walletId,
     authMethod: signingLaneAuthMethod(selectedLane.auth),
@@ -1487,8 +1487,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     materialRestoreIdentity: {
       kind: 'ed25519_worker_material_restore',
       lane: exactEd25519IdentityFromSelectedLane(selectedLane),
-      materialBindingDigest: material.identity.bindingDigest,
-      materialKeyId: material.identity.materialKeyId,
+      material: materialResolution.identity,
     },
   });
 }

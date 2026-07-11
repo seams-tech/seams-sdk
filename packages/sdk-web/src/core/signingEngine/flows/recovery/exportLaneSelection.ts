@@ -37,6 +37,7 @@ import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
 } from '../../session/sealedRecovery/sealedRecovery.types';
+import { resolveEd25519RestoreMaterialIdentity } from '../../session/ed25519MaterialAuthority';
 import type { Ed25519TransactionMaterialAvailability } from '../../session/identity/selectLane';
 import { ed25519TransactionMaterialAvailabilityFromLane } from '../../session/identity/selectLane';
 import type {
@@ -233,11 +234,25 @@ function exactEd25519IdentityForExportLane(
 }
 
 function ed25519MaterialRestoreIdentityForExportLane(lane: ExactNearEd25519ExportLane) {
+  // Export lanes carry a planning-time material observation. The restore request
+  // must bind to the live record's identity; the observation is only a fallback
+  // for when no live record exists (resolver semantics).
+  const materialResolution = resolveEd25519RestoreMaterialIdentity({
+    thresholdSessionId: String(lane.thresholdSessionId),
+    hint:
+      lane.material.kind === 'sealed_worker_material'
+        ? lane.material.hint
+        : lane.material.identity,
+  });
+  if (materialResolution.kind !== 'resolved') {
+    throw new Error(
+      '[SigningEngine][ed25519-export] export lane has no restorable material identity',
+    );
+  }
   return {
     kind: 'ed25519_worker_material_restore' as const,
     lane: lane.laneIdentity,
-    materialBindingDigest: lane.material.identity.bindingDigest,
-    materialKeyId: lane.material.identity.materialKeyId,
+    material: materialResolution.identity,
   };
 }
 

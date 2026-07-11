@@ -193,8 +193,17 @@ function listRetainedEd25519WorkerMaterialCandidateRecords(args: {
   for (const record of listStoredThresholdEd25519SessionLaneRecordsForAccount(args.nearAccountId)) {
     push(record);
   }
+  // Advance-only retention: order candidates by MATERIAL GENERATION
+  // (materialCreatedAtMs — see session/ed25519MaterialAdvance.ts), newest first,
+  // not by updatedAtMs. Policy writes bump updatedAtMs without touching material,
+  // so an updatedAtMs ordering could retain an older material generation over a
+  // newer one and regress the session's material at login. The material binding
+  // does not include the threshold session id, so the newest generation that
+  // passes the retain gates (account/relayer/participants/root/slot) is valid
+  // for any session sharing that binding context.
   return [...candidates.values()].sort(
     (left, right) =>
+      positiveInteger(right.materialCreatedAtMs) - positiveInteger(left.materialCreatedAtMs) ||
       positiveInteger(right.updatedAtMs) - positiveInteger(left.updatedAtMs),
   );
 }

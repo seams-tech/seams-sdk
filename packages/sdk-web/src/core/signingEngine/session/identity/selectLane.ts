@@ -5,6 +5,7 @@ import type {
   ConcreteAvailableEcdsaSigningLane,
   AvailableEcdsaSigningLane,
   AvailableEd25519SigningLane,
+  Ed25519AvailableMaterialHint,
   Ed25519AvailableWorkerMaterialIdentity,
 } from '../availability/availableSigningLanes';
 import {
@@ -76,8 +77,11 @@ export type Ed25519TransactionMaterialAvailability =
       identity: Ed25519TransactionMaterialIdentity;
     }
   | {
+      // Sealed material carries only a planning-time hint (see
+      // Ed25519AvailableMaterialHint); restores resolve the identity fresh at
+      // their boundary.
       kind: 'sealed_worker_material';
-      identity: Ed25519TransactionMaterialIdentity;
+      hint: Ed25519AvailableMaterialHint;
     };
 
 export type NearEd25519TransactionMaterial = Ed25519TransactionMaterialAvailability;
@@ -302,7 +306,7 @@ export function ed25519TransactionMaterialAvailabilityFromLane(
     case 'sealed_worker_material':
       return {
         kind: 'sealed_worker_material',
-        identity: lane.material.identity,
+        hint: lane.material.hint,
       };
     case 'material_pending':
       return null;

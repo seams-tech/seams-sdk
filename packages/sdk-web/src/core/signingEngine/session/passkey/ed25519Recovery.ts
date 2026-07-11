@@ -123,23 +123,6 @@ function passkeyEd25519SigningRootVersion(record: PasskeyEd25519SealedRecoveryRe
   return nonEmptyString(scope?.signingRootVersion);
 }
 
-function shouldDeletePasskeyEd25519SealedRecordAfterRestoreFailure(
-  status: WarmSessionStatusResult,
-): boolean {
-  if (status.ok) return false;
-  switch (status.code) {
-    case 'expired':
-    case 'not_found':
-    case 'invalid_args':
-    case 'invalid_response':
-      return true;
-    case 'exhausted':
-      return false;
-    default:
-      return false;
-  }
-}
-
 function readPasskeyEd25519ReconnectWorkerMaterialFacts(
   record: ThresholdEd25519SessionRecord,
 ): PasskeyEd25519ReconnectWorkerMaterialFacts | null {
@@ -239,16 +222,20 @@ function passkeyEd25519MaterialFieldsFromFacts(
 function passkeyEd25519MaterialFieldsFromSealedRecord(
   record: PasskeyEd25519SealedRecoveryRecord,
 ): ThresholdEd25519UpsertMaterialFields {
+  // Publishing the durable materialCache into the runtime record is only valid
+  // when the runtime record has no newer generation — enforced by the caller's
+  // advance-only guard in publishPasskeyEd25519SealedRecordForAccount.
+  const materialCache = record.materialCache;
   return {
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-    ed25519WorkerMaterialBindingDigest: record.ed25519WorkerMaterialBindingDigest,
-    sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
-    ...(record.sealedWorkerMaterialB64u
-      ? { sealedWorkerMaterialB64u: record.sealedWorkerMaterialB64u }
+    clientVerifyingShareB64u: materialCache.clientVerifyingShareB64u,
+    ed25519WorkerMaterialBindingDigest: materialCache.ed25519WorkerMaterialBindingDigest,
+    sealedWorkerMaterialRef: materialCache.sealedWorkerMaterialRef,
+    ...(materialCache.sealedWorkerMaterialB64u
+      ? { sealedWorkerMaterialB64u: materialCache.sealedWorkerMaterialB64u }
       : {}),
-    materialFormatVersion: record.materialFormatVersion,
-    materialKeyId: record.materialKeyId,
-    materialCreatedAtMs: record.materialCreatedAtMs,
+    materialFormatVersion: materialCache.materialFormatVersion,
+    materialKeyId: materialCache.materialKeyId,
+    materialCreatedAtMs: materialCache.materialCreatedAtMs,
   };
 }
 
@@ -428,6 +415,33 @@ function publishPasskeyEd25519SealedRecordForAccount(args: {
     currentRecord,
     sealedRecord: args.record,
   });
+  // Advance-only guard: the durable sealed record is a CACHE of material identity
+  // written at seal time; the live record is authority. When the retain gate could
+  // not carry the live material over (e.g. signing-root fields diverged), falling
+  // back to the durable record's material would regress the live record to an
+  // older generation mid-command — the exact failure previously surfaced as
+  // "selected Ed25519 restore material identity mismatch". Refuse the republish
+  // instead: keep the live record and let the durable cache catch up via the next
+  // seal write-through. (Splicing the live material into the durable record's
+  // other fields is not an option — material is bound to the record's signing-root
+  // fields, and mixing generations would fail binding re-derivation on restore.)
+  if (
+    !retainedMaterialFields &&
+    currentRecord &&
+    readPasskeyEd25519ReconnectWorkerMaterialFacts(currentRecord) &&
+    Math.floor(Number(currentRecord.materialCreatedAtMs) || 0) >
+      Math.floor(Number(args.record.materialCache.materialCreatedAtMs) || 0)
+  ) {
+    console.warn(
+      '[SigningEngine][near] skipped durable Ed25519 republish over newer runtime material',
+      {
+        thresholdSessionId: args.thresholdSessionId,
+        durableMaterialCreatedAtMs: args.record.materialCache.materialCreatedAtMs,
+        runtimeMaterialCreatedAtMs: currentRecord.materialCreatedAtMs,
+      },
+    );
+    return currentRecord;
+  }
   const currentRecordWasRuntimeValidated = retainedMaterialFields
     ? isRouterAbEd25519WorkerMaterialRuntimeValidated(currentRecord)
     : false;
@@ -631,7 +645,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
   if (!routerAbNormalSigning) return null;
 
   try {
-    publishPasskeyEd25519SealedRecordForAccount({
+    const publishedRecord = publishPasskeyEd25519SealedRecordForAccount({
       walletId: args.walletId,
       record: args.record,
       thresholdSessionId,
@@ -641,7 +655,11 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
         remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
       },
     });
+    if (!publishedRecord) {
+      throw new Error('passkey Ed25519 sealed restore record is invalid');
+    }
   } catch (error) {
+    await args.deletePersistedRecord().catch(() => undefined);
     return {
       ok: false,
       code: 'invalid_persisted_record',
@@ -673,9 +691,6 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
         },
       });
     }
-    if (shouldDeletePasskeyEd25519SealedRecordAfterRestoreFailure(rehydrated)) {
-      await args.deletePersistedRecord().catch(() => undefined);
-    }
     await args.recordSessionMaterialRestored(rehydrated);
     return rehydrated;
   }
@@ -702,9 +717,6 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
           remainingUses: 0,
         },
       });
-    }
-    if (shouldDeletePasskeyEd25519SealedRecordAfterRestoreFailure(parsed)) {
-      await args.deletePersistedRecord().catch(() => undefined);
     }
     await args.recordSessionMaterialRestored(parsed);
     return parsed;

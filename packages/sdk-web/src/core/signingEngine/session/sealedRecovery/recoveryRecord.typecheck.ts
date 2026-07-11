@@ -72,9 +72,21 @@ void invalidRecoveryRecordWithRawClientBase;
 
 const validRecoveryRecordWithClientVerifier = {
   ...currentRecord,
-  clientVerifyingShareB64u: 'client-verifier',
+  materialCache: {
+    ...currentRecord.materialCache,
+    clientVerifyingShareB64u: 'client-verifier',
+  },
 } satisfies EmailOtpEd25519SealedRecoveryRecord;
 void validRecoveryRecordWithClientVerifier;
+
+// Material fields live under materialCache — a seal-time snapshot that can be
+// generations behind the runtime record — never inline on the record identity.
+const invalidRecoveryRecordWithInlineMaterialField = {
+  ...currentRecord,
+  // @ts-expect-error material fields are grouped under materialCache, not inline.
+  materialKeyId: 'material-key',
+} satisfies EmailOtpEd25519SealedRecoveryRecord;
+void invalidRecoveryRecordWithInlineMaterialField;
 
 const invalidEmailOtpRecordWithProviderSubjectSibling = {
   ...currentRecord,

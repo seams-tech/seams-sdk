@@ -4,6 +4,7 @@ import {
   persistStoredThresholdEd25519SessionMaterialHandle,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { ed25519MaterialAdvanceFromWorkerSeal } from '@/core/signingEngine/session/ed25519MaterialAdvance';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
@@ -406,11 +407,13 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
   ) {
     throw new Error('Router A/B Ed25519 restored worker material binding mismatch');
   }
-  const persistedRecord = persistStoredThresholdEd25519SessionMaterialHandle({
-    thresholdSessionId: args.thresholdSessionId,
+  // The worker's restore outcome is the only legitimate mint of a material write
+  // token; the store refuses tokens that would regress the record's generation
+  // (e.g. this restore raced a newer mint that landed first).
+  const advance = ed25519MaterialAdvanceFromWorkerSeal({
+    clientVerifyingShareB64u: restored.clientVerifyingShareB64u,
     ed25519WorkerMaterialHandle: restored.materialHandle,
     ed25519WorkerMaterialBindingDigest: restored.materialBindingDigest,
-    clientVerifyingShareB64u: restored.clientVerifyingShareB64u,
     sealedWorkerMaterialRef: restored.sealedWorkerMaterialRef,
     sealedWorkerMaterialB64u: restored.sealedWorkerMaterialB64u,
     materialFormatVersion: restored.materialFormatVersion,
@@ -418,6 +421,12 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
     materialCreatedAtMs: material.materialBinding.createdAtMs,
     signerSlot: restored.signerSlot,
   });
+  const persistedRecord = advance
+    ? persistStoredThresholdEd25519SessionMaterialHandle({
+        thresholdSessionId: args.thresholdSessionId,
+        advance,
+      })
+    : null;
   if (!persistedRecord) {
     throw new Error('Router A/B Ed25519 restored worker material persistence failed');
   }
