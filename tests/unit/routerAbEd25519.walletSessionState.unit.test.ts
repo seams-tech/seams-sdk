@@ -728,7 +728,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           nearEd25519SigningKeyId: 'alice.testnet',
           thresholdSessionId,
           signingGrantId,
-          relayerKeyId: 'rk-1',
+          relayerKeyId: 'ed25519:group',
           rpId: 'example.localhost',
           participantIds: [1, 2],
         });
@@ -737,7 +737,11 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           signerSlot: 1,
           signingRootId: 'proj_local:dev',
           signingRootVersion: 'default',
-          relayerKeyId: 'rk-1',
+          // Threshold ed25519 canonicalizes the relayer key id to the group public
+          // key (storeThresholdEd25519KeyMaterial + canonicalThresholdEd25519RelayerKeyId),
+          // and the mocked getKeyMaterial publicKey is 'ed25519:group', so the record
+          // and material binding must use that same value.
+          relayerKeyId: 'ed25519:group',
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -784,7 +788,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
-            relayerKeyId: 'rk-1',
+            relayerKeyId: 'ed25519:group',
             participantIds: [1, 2],
             signerSlot: 1,
             keyVersion,
@@ -854,7 +858,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 	              nearEd25519SigningKeyId: 'alice.testnet',
 	              rpId: 'example.localhost',
               credentialIdB64u: 'credential-router-ab-ed25519',
-              relayerKeyId: 'rk-1',
+              relayerKeyId: 'ed25519:group',
               participantIds: [1, 2],
               walletSessionJwt: ed25519WalletSessionJwt,
               sessionKind: 'jwt',
@@ -2001,8 +2005,11 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           },
           publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
             walletId: 'alice.testnet',
+            // EVM-family wallet-key slot ids are chain-agnostic and must be exactly
+            // wallet-key:evm-family:<walletId>:<signingRootId>:<signingRootVersion>
+            // (no trailing chain-target segment).
             evmFamilySigningKeySlotId:
-              'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default:evm%3Aeip155%3A5042002',
+              'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default',
             chainTarget,
             keyHandle: 'key-handle-ecdsa',
             ecdsaThresholdKeyId: 'ecdsa-key-id',
@@ -2026,8 +2033,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const ecdsaNormalSigning = {
           kind: 'router_ab_ecdsa_hss_normal_signing_v1',
           scope: {
-            wallet_key_id:
-              'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default:evm%3Aeip155%3A5042002',
+            wallet_key_id: 'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default',
             wallet_id: 'alice.testnet',
             ecdsa_threshold_key_id: 'ecdsa-key-id',
             signing_root_id: 'proj-a:env-a',
@@ -2085,7 +2091,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             keygen: {
               ok: true,
               evmFamilySigningKeySlotId:
-                'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default:evm%3Aeip155%3A5042002',
+                'wallet-key:evm-family:alice.testnet:proj-a%3Aenv-a:default',
               ecdsaThresholdKeyId: 'ecdsa-key-id',
               clientVerifyingShareB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               relayerKeyId: 'rk-ecdsa',
