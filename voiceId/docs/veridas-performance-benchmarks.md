@@ -1,12 +1,17 @@
-# Veridas VoiceID Performance Benchmarks
+# Veridas VoiceID Public Observations And Research Hypotheses
 
-Status: public-claims benchmark note.
+Status: vendor-claims research note; no signing assurance.
 
-This document records public Veridas voice-biometric performance claims that we
-can use as competitive targets for the local VoiceID stack. These are vendor
-claims from public product/docs pages, not independently validated benchmark
-results. Treat them as target bars to reproduce, measure, and eventually beat
-with our own fixture reports.
+Normative signing requirements:
+[VoiceID Signing Security Profile](voiceId-signing-security-profile.md).
+
+This document records public Veridas voice-biometric positioning as input to
+experiments. The claims are vendor statements with potentially different data,
+channels, denominators, attack sets, and metric definitions. They are not E2
+release criteria and do not establish NIST-conformant voice authentication.
+
+Last reviewed: 2026-07-11. Recheck the primary source and record its version or
+retrieval date before quoting any number.
 
 ## Sources
 
@@ -16,89 +21,100 @@ with our own fixture reports.
 - [Veridas Voice Shield](https://veridas.com/en/voice-shield/)
 - [Veridas deepfake audio article](https://veridas.com/en/can-deepfake-audio-detected/)
 
-## Claims To Beat
+## Vendor Observations And Research Use
 
-| Area | Veridas public claim | Our benchmark target |
-| --- | --- | --- |
-| Short sample duration | das-Peak claims verification with 3 seconds minimum voice duration. Voice Authentication marketing also says enrollment can create a biometric voiceprint from as little as 3 seconds. | Accept clean owner authentication clips with <= 3 seconds of usable speech, then test whether 2.5s and 2.0s clips remain viable for low-risk wallet tasks. |
-| Speaker scoring latency | das-Peak main features claim 0.14 seconds to compare a biometric vector and an audio. | Warm verifier p95 <= 140ms for vector/template speaker scoring after decode and VAD. Track decode, VAD, embedding, scoring, ASR, and policy separately. |
-| Voice authenticity latency | Voice Shield claims an authenticity verdict in 0.14 seconds after receiving audio. | Warm authenticity p95 <= 140ms after decode/VAD, measured separately from upload and ASR. |
-| Voice Shield sample duration | Voice Shield says 3 seconds of speech is enough to analyze authenticity during a call. | Produce spoof/deepfake/replay verdicts from <= 3 seconds of usable speech, with attack-class-specific false accept and false reject rates. |
-| Speaker vector size | das-Peak main features claim a 1.1 KB biometric vector. | Keep persisted speaker templates compact. Measure ECAPA mean-template size now, then evaluate quantized/compressed template targets if storage or transmission matters. |
-| Text independence | das-Peak claims text-independent comparison across different phrases. | Keep speaker verification text-independent. Phrase and intent matching stay in ASR/policy, not speaker scoring. |
-| Language independence | das-Peak claims language-independent comparison and lists trained language coverage. | Keep wallet phrase parsing language-specific for now, while speaker matching should avoid depending on the command text. Add multilingual fixtures before making language claims. |
-| VAD and noise gates | das-Peak says it computes voice quantity and noise quantity to accept verification requests. | Require explicit speech duration, silence, clipping, SNR/noise, and decode quality branches before speaker scoring. |
-| Calibration modes | das-Peak documents calibration choices such as telephone channel and lossless audio. | Add typed calibration modes: `browser-lossless`, `mobile-lossless`, `telephone-channel`, and `robot-microphone`. Threshold reports must be channel-specific. |
-| Anti-spoof / replay | das-Peak main features claim voice authenticity detection for replay attacks through smartphone or high-fidelity speakers. Voice Shield claims detection of recorded, manipulated, and AI-generated audio. | Add separate `VoiceIdAuthenticityResult` for replay, synthetic voice, voice conversion, injected audio, and multi-speaker suspicion. Do not fold spoof detection into speaker score. |
-| Replay detection accuracy | A Veridas deepfake-audio article claims approximately 97% accuracy for low/mid-range speaker replay and 92% for high-end speaker replay after a newer version. | Build replay fixture sets by speaker class and measure attack-class accuracy. Target >97% low/mid speaker replay and >92% high-end speaker replay before claiming parity. |
-| Authentication performance | The same article claims 3-second authentication while maintaining a 99% performance rate. The article does not define the exact metric. | Define our own metric explicitly: false accept rate, false reject rate, equal error rate, and accepted-owner rate at each threshold version. Beat 99% only after the metric is precise. |
-| Challenge standing | das-Peak docs claim SdSV 2020 third award overall and second single-system placement for short-duration speaker verification. The main-features page also references NIST/SdSV evaluation. | Treat this as credibility context. Our comparable target is a reproducible fixture report with public methodology, model version, threshold version, and manifest hash. |
-| Cloud data retention | das-Peak main features say cloud audio recordings and voice credentials are immediately deleted after processing. | Keep raw audio retention disabled by default. Persist encrypted templates and typed audit events only. Diagnostics require explicit opt-in and TTL. |
+| Area                           | Public vendor observation                                                                                        | Our research use                                                                                                                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Short duration                 | das-Peak describes a 3-second minimum verification duration and marketing material describes short enrollment.   | Test 1.5, 2, 3, 4, and 5 seconds of usable verification speech. Use 3–5 seconds provisionally. Shorter captures remain E0 research until end-to-end risk gates pass.                           |
+| Speaker latency                | das-Peak describes 0.14 seconds for vector/audio comparison.                                                     | Measure warm p50/p95 decode, VAD, embedding, and scoring separately. Treat 140 ms as a model-stage latency hypothesis.                                                                         |
+| PAD latency                    | Voice Shield describes a 0.14-second authenticity verdict.                                                       | Measure PAD by attack class and capture profile after decode/VAD. Return `uncertain` outside calibrated conditions.                                                                            |
+| PAD duration                   | Voice Shield describes analysis from 3 seconds of speech.                                                        | Evaluate 3–5 second challenge responses across replay, synthesis, conversion, splicing, injection, and relay. Never infer E2 from duration alone.                                              |
+| Speaker vector size            | das-Peak describes a 1.1 KB biometric vector.                                                                    | Measure encrypted normalized-centroid size. Consider quantization only after accuracy, privacy, and rollback tests.                                                                            |
+| Text independence              | das-Peak describes text-independent speaker comparison.                                                          | Keep speaker scoring separate from phrase verification. The server-owned challenge and Router binding establish command correctness.                                                           |
+| Language coverage              | das-Peak describes language-independent comparison and trained-language coverage.                                | Report every supported language cohort separately before making a coverage claim.                                                                                                              |
+| Quality gates                  | das-Peak describes voice and noise quantity checks.                                                              | Require decoded usable speech, SNR, clipping, saturation, codec, channel, duplicate, and single-speaker gates before scoring.                                                                  |
+| Calibration                    | das-Peak describes telephone and lossless-audio calibration modes.                                               | Use concrete profiles such as `browser_experimental`, `approved_mobile_v1`, `telephone_pcmu_8khz_v1`, and `approved_robot_microphone_v1`. Ordinary browser capture remains E0 for every codec. |
+| Replay and synthetic detection | Public material describes replay, manipulated, and AI-generated audio detection.                                 | Produce separate typed PAD results and per-class reports. Speaker score cannot absorb PAD.                                                                                                     |
+| Replay accuracy                | A Veridas article describes about 97% for low/mid-range speaker replay and 92% for high-end speaker replay.      | Record these as undefined vendor observations. Report APCER/BPCER-style results, end-to-end unauthorized acceptance, uncertainty, and 95% confidence bounds on our own attack corpus.          |
+| Authentication performance     | The same article describes a 99% performance rate without a clear denominator in this note.                      | Do not create a parity target. Pre-register false-match, false-non-match, false-grant, false-denial, and clean-completion metrics first.                                                       |
+| Challenge standing             | das-Peak material describes SdSV 2020 placement and NIST/SdSV evaluation.                                        | Treat this as speaker-model credibility context. It does not imply NIST authenticator conformance or satisfy our capture/PAD/Router gates.                                                     |
+| Retention                      | das-Peak material describes immediate deletion of cloud audio recordings and voice credentials after processing. | Verify actual provider configuration and contracts. Our default deletes raw media after the terminal result and records deletion receipts.                                                     |
 
-## Measurement Rules
+## Measurement Boundaries
 
-We should not compare our full wallet flow to a narrow model-runtime claim.
-Measure each layer independently:
+Do not compare a full wallet ceremony with a narrow model-runtime number.
+Measure each stage independently:
 
-1. Browser capture duration.
-2. Upload and request parsing.
-3. Decode and resampling.
-4. VAD and quality gates.
-5. Speaker embedding extraction.
-6. Template/vector comparison.
-7. ASR transcript.
-8. Phrase and intent digest matching.
-9. Authenticity/spoof detection.
-10. Owner-presence policy.
-11. Wallet signing grant issuance.
+1. Capture duration and completion time.
+2. Upload and authenticated request parsing.
+3. Decode and native capture-profile validation.
+4. VAD, usable speech, single-speaker, and quality gates.
+5. Speaker embedding extraction and template scoring.
+6. ASR and exact phrase verification against stored challenge state.
+7. Device-proof and exact-media-hash verification.
+8. PAD by attack class and capture profile.
+9. E0/E1/E2 construction.
+10. Server R1 risk policy.
+11. Grant issuance and atomic Router reservation.
+12. Router/SigningWorker completion.
 
-The Veridas 0.14 second claim appears to refer to model-side vector/audio
-comparison or authenticity analysis. Our public comparison should use the same
-scope for parity, then separately report end-to-end wallet confirmation latency.
+The 0.14-second observations appear to describe model-side work. Report those
+stages separately, then report end-to-end owner ceremony latency.
 
-## Fixture Requirements Before Claiming Parity
+## Recording Experiment
 
-- Independent human different-speaker clips.
-- Owner clips across days, devices, rooms, and distances.
-- Clean 3-second, 2.5-second, and 2-second owner clips.
-- Wrong-phrase clips that are still the enrolled speaker.
-- Noisy clips with controlled SNR bands.
-- Smartphone speaker replay clips.
-- High-fidelity speaker replay clips.
-- TTS and voice-clone clips for the target command phrases.
-- Injected file-upload clips that bypass live microphone timing.
-- Multi-speaker and background speech clips.
+Enrollment uses one continuous, prompt-segmented ceremony. Candidate usable-
+speech targets are 3, 6, 9, 12, and 15 seconds. The provisional product target
+is 12 seconds, subject to the pre-registered risk and usability analysis.
+
+Verification uses one continuous challenge response. Candidate usable-speech
+targets are 1.5, 2, 3, 4, and 5 seconds. The provisional signing-profile target
+is 3–5 seconds with at most one quality retry under a new challenge.
+
+All internal windows from one recording stay in the same dataset split and
+count as one session.
+
+## Fixture Requirements
+
+- speaker-disjoint development and locked test cohorts;
+- independent human impostors;
+- at least three sessions per enrolled speaker across two or more days;
+- devices, microphones, codecs, rooms, distances, noise, and supported
+  languages;
+- wrong-phrase, truncation, reordering, and ambiguous-ASR captures;
+- owner illness/variation captures for claimed cohorts;
+- smartphone, laptop, and high-fidelity loudspeaker replay;
+- direct digital or virtual-microphone injection;
+- TTS, voice conversion, splicing, prompt-targeted synthesis, and live relay;
+- unseen PAD tools and held-out attack conditions;
+- overlapping speakers and background speech;
+- the exact deployed retry and rate-limit policy.
 
 ## Reporting Format
 
-Every benchmark run should write:
+Every run records:
 
-- model id and model version
-- verifier adapter version
-- threshold version
-- calibration mode
-- capture channel
-- fixture manifest hash
-- p50/p95 latency by pipeline stage
-- same-speaker score distribution
-- different-speaker score distribution
-- spoof/deepfake/replay distribution by attack class
-- false accept rate
-- false reject rate
-- equal error rate when applicable
-- accepted-owner rate for clean clips
-- uncertain rate from quality failures
+- immutable fixture manifest hash and subject/session split;
+- model, adapter, preprocessing, template aggregation, threshold, PAD,
+  calibration, prompt, and capture-profile versions;
+- p50/p95 latency by pipeline stage and complete ceremony;
+- same-speaker and independent-impostor score distributions;
+- false-match, false-non-match, equal-error, false-grant, and false-denial rates
+  with subject-level confidence intervals;
+- PAD attack-presentation and bona-fide rejection by attack class;
+- combined end-to-end unauthorized acceptance with a 95% upper bound;
+- quality uncertainty, retry, completion, and accessibility fallback rates;
+- results by capture profile, language, demographic cohort where lawful, and
+  worst supported cohort.
 
-## Current Competitive Targets
+## Research Hypotheses
 
-The first concrete targets are:
-
-1. Clean owner verification with 3 seconds usable speech.
-2. Warm speaker scoring at or below 140ms after decode/VAD.
-3. Warm authenticity scoring at or below 140ms after decode/VAD.
-4. Channel-specific threshold calibration.
-5. Separate branch-level results for quality, speaker, phrase, intent, device,
-   and authenticity.
-6. Replay detection fixture accuracy above Veridas' stated 97% low/mid-speaker
-   and 92% high-end-speaker claims.
-7. A clearly defined >99% metric before using any "99%" performance language.
+1. Three to five seconds of usable verification speech can meet the E0 usability
+   target; E2 depends on the complete calibrated system.
+2. Warm model-stage speaker scoring can approach the vendor-described 140 ms
+   range on the selected deployment hardware.
+3. PAD latency and error vary materially by attack class and capture profile.
+4. One 12-second guided enrollment ceremony can retain the statistical benefit
+   of multiple internal embeddings with less user friction than repeated clips.
+5. A channel-specific, confidence-bounded report is more actionable than an
+   undefined vendor parity percentage.

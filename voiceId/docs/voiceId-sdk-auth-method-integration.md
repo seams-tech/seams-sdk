@@ -1,432 +1,317 @@
-# VoiceID SDK Auth Method Integration Plan
+# VoiceID SDK Authorization Integration Plan
 
-Status: implementation plan.
+Status: per-operation E0 capability planned; global wallet auth method deferred.
 
-Related docs:
+Related documents:
 
+- [VoiceID signing security profile](voiceId-signing-security-profile.md)
 - [VoiceID UI/UX plan](voiceID-UI.md)
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
-- [VoiceID normal SDK transaction signing plan](voiceId-normal-sdk-transaction-signing.md)
-- [VoiceID Router policy issuer](voiceId-router-policy-issuer.md)
+- [Normal SDK transaction signing](voiceId-normal-sdk-transaction-signing.md)
+- [Router admission adapter](voiceId-router-policy-issuer.md)
 - [Router A/B signer architecture](../../docs/router-a-b-SPEC.md)
 
 ## Goal
 
-Expose VoiceID through the seams wallet SDK as a wallet auth method that follows
-the same public API, React hook, route-module, account projection, event, and
-signing-capability patterns used by passkey and email OTP flows.
+Expose VoiceID as a per-operation SDK capability with explicit evidence tiers.
+Browser VoiceID supplies spoken-intent UX and E0 research evidence. A passkey
+authorizes the exact Router transaction. A future approved embedded path may
+request server R1 admission after producing E2.
 
-The first useful integration is per-transaction owner-presence authorization for
-normal SDK signing:
-
-```text
-SDK transaction request
-  -> VoiceID transaction intent
-  -> intentDigest
-  -> VoiceID command verification
-  -> owner-presence authorization
-  -> wallet policy decision
-  -> existing normal SDK signer capability continuation
-```
-
-VoiceID is policy evidence for a specific owner command and transaction intent.
-The signing authority remains the existing SDK signing path.
+VoiceID is not added to global `WalletAuthMethod`, `AuthMethod`, account-option,
+or session-auth unions during the E0/E1 phases. Those unions describe
+authenticators with usable authority. Experimental biometric evidence has
+different semantics.
 
 ## Current Integration Stance
 
-- VoiceID should become a typed `WalletAuthMethod` only after the owner-presence
-  result, policy result, public flow types, account projection, and event
-  branches are ready together.
-- Treat VoiceID as equivalent to email OTP at the wallet auth-method layer:
-  server-verified auth that can issue a short-lived grant.
-- The MVP should treat VoiceID as a per-operation auth method for low-risk
-  transaction signing, using the accepted wallet policy decision to unlock the
-  existing signing continuation.
-- Riskier tasks should use VoiceID as the first check, then require email OTP,
-  passkey, or another step-up method before export, recovery, new device
-  enrollment, or high-risk signing.
-- VoiceID should not protect or restore signing material by itself. Passkey PRF
-  can unwrap client-side material; VoiceID issues server-side policy grants.
-- Device-bound VoiceID is the default security model. Enrollment and
-  verification should bind to an enrolled device context instead of treating
-  voice audio as a remote reusable credential.
-- Router A/B admission integration remains a later adapter phase after the
-  normal SDK auth method and signing gate work.
+- The current browser route/module and owner-presence policy paths are E0
+  research plumbing.
+- Passkey remains the cryptographic browser authorization method.
+- Voice success is never a prerequisite for passkey. Rejection, uncertainty,
+  outage, skip, or accessibility fallback may still lead to passkey under
+  ordinary account policy.
+- Email OTP may deliver notifications or recovery codes. It is not the signing
+  step-up in this plan.
+- VoiceID cannot unwrap, protect, restore, export, or enroll signing material.
+- A browser key or `deviceId` string does not prove capture provenance, endpoint
+  integrity, user verification, or physical microphone use.
+- A future E2 path remains per-operation and issues no general signing session.
 
-## Auth Method Semantics
+## SDK Semantics
 
-VoiceID should share the SDK auth-method surface with email OTP, while keeping
-its security semantics explicit.
-
-```text
-passkey
-  -> client cryptographic authenticator
-  -> optional PRF/KEK for sealed client material
-
-email OTP
-  -> server-verified channel challenge
-  -> short-lived auth/session/signing grant
-
-VoiceID
-  -> server-verified enrolled speaker + spoken intent + device context
-  -> short-lived owner-presence/signing grant
-```
-
-This makes VoiceID a wallet auth method without turning biometric data into a
-secret. The voice template is verifier material. The server-issued grant is the
-auth artifact consumed by wallet policy and signing gates.
-
-## Policy Modes
-
-VoiceID should support two policy modes.
-
-### Mode 1: Direct Signing Grant
-
-For low-risk, intent-bound work, accepted VoiceID can directly authorize the
-server side of the existing signing flow to participate in the bound operation.
-
-Required conditions:
-
-- enrolled speaker accepted
-- spoken phrase matches the displayed transaction command
-- `intentDigest` matches the transaction candidate
-- enrolled device proof is valid
-- authorization is one-use
-- authorization is expiry-bound
-- value, recipient, and session risk are within VoiceID policy
-
-Target flow:
-
-```text
-display "send 50 USDC to bob"
-  -> record voice on enrolled device
-  -> verify speaker and phrase
-  -> authorize owner presence for intentDigest
-  -> issue one-use VoiceID signing grant
-  -> call normal SDK signer continuation
-```
-
-### Mode 2: Step-Up Delivery
-
-For risky tasks, accepted VoiceID starts the step-up flow and cannot complete the
-operation by itself.
-
-Use step-up for:
-
-- key export
-- wallet recovery
-- new device enrollment
-- high-value transaction signing
-- new-recipient transaction signing
-- suspicious device or session context
-- repeated failed VoiceID attempts
-- low-confidence or noisy audio
-
-The step-up response should carry the allowed methods:
+The SDK exposes a `VoiceEvidenceCapability` beside auth capabilities:
 
 ```ts
-export type VoiceIdStepUpRequired = {
-  kind: 'step_up_required';
-  reason: VoiceIdStepUpReason;
-  methods: readonly ['email_otp' | 'passkey'];
-  voiceIdVerificationId: VoiceIdVerificationId;
-  intentDigest: VoiceIdIntentDigest;
-  expiresAtMs: number;
+export type VoiceEvidenceCapability = {
+  beginTransactionAuthorization(
+    input: VoiceIdTransactionAuthorizationInput,
+  ): Promise<VoiceIdTransactionAuthorizationStartResult>;
 };
 ```
 
-Email OTP is the delivery method for the next factor. Passkey is the
-cryptographic step-up method. VoiceID remains the owner-presence prerequisite
-that caused the server to offer that challenge.
+`VoiceIdTransactionAuthorizationInput` contains the current authenticated wallet
+session and raw transaction request. It contains no authoritative command,
+expected phrase, identity, policy, digest, challenge, or expiry.
 
-## Device Binding
-
-Device binding is required for the tenable VoiceID security model.
-
-Enrollment should bind the voice template to a device identity:
-
-- `deviceId`
-- `devicePublicKey`
-- device label and platform hints
-- enrollment timestamp
-- last verified timestamp
-- allowed wallet/account ids
-- verifier model and threshold versions
-
-Verification should require device proof:
-
-```text
-server challenge
-  -> enrolled device signs challenge
-  -> browser records voice command
-  -> server verifies device signature
-  -> server verifies speaker, phrase, and quality
-  -> server evaluates wallet policy
-```
-
-The practical assumption is that enrolled devices such as iPhones and MacBooks
-already require a password, TouchID, FaceID, or equivalent OS login before the
-browser can access the user's session. That device-access layer makes
-device-bound VoiceID materially stronger than remote phone-channel voice auth.
-VoiceID policy should still require challenge signatures, intent binding,
-expiry, replay protection, and rate limits.
-
-## Existing Patterns To Reuse
-
-Use the same seams wallet surfaces that passkey and email OTP already use.
-
-| Pattern | Existing surface | VoiceID integration |
-| --- | --- | --- |
-| Auth method domain | `packages/shared-ts/src/utils/signerDomain.ts` | Add `voice_id` to the wallet auth method unions when all consumers are ready. |
-| Public auth API | `packages/sdk-web/src/SeamsWeb/publicApi/auth.ts` and `types.ts` | Add `beginVoiceIdWalletAuth(...)` beside `beginGoogleEmailOtpWalletAuth(...)`. |
-| SDK implementation | `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts` | Wire the public method through the same domain-method dependency shape. |
-| React hook | `packages/sdk-web/src/react/hooks/useGoogleEmailOtpWalletAuth.ts` | Add `useVoiceIdWalletAuth(...)` with the same `busy`, `error`, and `start(...)` shape. |
-| Route mounting | `packages/sdk-server-ts/src/router` route modules and `RouterApiModule` | Mount VoiceID through `createVoiceIdRouterApiModule()`. |
-| Account projection | `packages/sdk-web/src/core/accountData/near/accountProjection.ts` | Recognize `voice_id` for stored account options and display routing. |
-| SDK events | `packages/sdk-web/src/core/types/sdkSentEvents.ts` | Add VoiceID phases for enrollment, verification, authorization, and signing gate results. |
-| Normal signing | `NearSignerCapability` in `packages/sdk-web/src/SeamsWeb/publicApi/types.ts` | Wrap existing signer methods with a VoiceID policy gate. |
-
-## Target Public Shape
-
-The SDK should expose VoiceID as an auth flow, then let signing proceed through
-the existing signer capability.
+The server creates and returns an opaque operation handle plus display data:
 
 ```ts
-const flowResult = await seams.auth.beginVoiceIdWalletAuth({
+export type VoiceIdTransactionAuthorizationStarted = {
+  kind: 'voice_id_transaction_authorization_started';
+  operationHandle: VoiceIdOperationHandle;
+  displaySummary: VoiceIdTransactionDisplaySummary;
+  prompt: VoiceIdPromptDisplay;
+  captureProfile: VoiceIdCaptureProfileDisplay;
+  expiresAtMs: number;
+  submitCapture(input: VoiceIdChallengeCaptureInput): Promise<VoiceIdCaptureOutcome>;
+};
+```
+
+The handle is an opaque reference to server-owned Router binding and challenge
+state. It carries no client-readable grant or mutable lifecycle fields.
+
+## Public Outcome Shape
+
+The capture outcome separates evidence observation from authorization:
+
+```ts
+export type VoiceIdCaptureOutcome =
+  | {
+      kind: 'browser_evidence_observed';
+      evidenceId: VoiceIdExperimentalEvidenceId;
+      authorizeWithPasskey(): Promise<PasskeyTransactionAuthorizationResult>;
+    }
+  | {
+      kind: 'step_up_required';
+      reason: VoiceIdStepUpReason;
+      authorizeWithPasskey(): Promise<PasskeyTransactionAuthorizationResult>;
+    }
+  | {
+      kind: 'embedded_e2_observed';
+      observationHandle: VoiceIdE2ObservationHandle;
+      requestR1Signing(): Promise<VoiceIdR1SigningResult>;
+    }
+  | {
+      kind: 'voice_unavailable';
+      reason: VoiceIdUnavailableReason;
+      authorizeWithPasskey(): Promise<PasskeyTransactionAuthorizationResult>;
+    }
+  | {
+      kind: 'rejected';
+      reason: VoiceIdRejectionReason;
+      authorizeWithPasskey(): Promise<PasskeyTransactionAuthorizationResult>;
+    }
+  | {
+      kind: 'uncertain';
+      reason: VoiceIdUncertainReason;
+      authorizeWithPasskey(): Promise<PasskeyTransactionAuthorizationResult>;
+    }
+  | { kind: 'expired' }
+  | { kind: 'cancelled' }
+  | { kind: 'failed'; reason: VoiceIdFlowFailureReason };
+```
+
+`requestR1Signing()` calls a server operation that evaluates E2 against current
+R1 policy, creates an issued grant, atomically reserves it in Router, and enters
+normal signing. The public client never receives
+`VoiceIdSigningCandidateEvidence`, `VoiceIdSigningGrant`, or
+`ReservedVoiceIdR1Grant`.
+
+The browser flow always returns a branch with `authorizeWithPasskey()` or a
+terminal lifecycle result. It never exposes `requestR1Signing()`.
+
+## Example
+
+```ts
+const started = await seams.voiceEvidence.beginTransactionAuthorization({
   walletSession,
-  intent: {
-    kind: 'voice_id_transaction_sign_v1',
-    accountId,
-    networkId,
-    command: 'send 50 USDC to bob',
-    transactionDigest,
-    expiresAtMs,
-  },
+  transaction,
 });
 
-if (!flowResult.ok) return flowResult;
+if (!started.ok) return started;
 
-const verification = await flowResult.value.verifyCommand({
-  audio: commandAudio,
-});
+const outcome = await started.value.submitCapture({ capture });
 
-switch (verification.kind) {
-  case 'accepted':
-    return await seams.near.signAndSendTransaction(transaction);
+switch (outcome.kind) {
+  case 'browser_evidence_observed':
   case 'step_up_required':
-    return verification;
+  case 'voice_unavailable':
   case 'rejected':
   case 'uncertain':
+    return outcome.authorizeWithPasskey();
+  case 'embedded_e2_observed':
+    return outcome.requestR1Signing();
   case 'expired':
   case 'cancelled':
-    return verification;
+  case 'failed':
+    return outcome;
   default:
-    return assertNever(verification);
+    return assertNever(outcome);
 }
 ```
 
-The final implementation should hide most of this ceremony behind a gate helper
-or SDK convenience API, while preserving the same typed flow boundaries.
+The convenience API may perform this orchestration internally. The domain
+branches remain available for custom UI and exhaustive handling.
 
-## Domain Model
+## Device And Capture Binding
 
-Add narrow VoiceID auth method types before widening global auth method unions:
+Signing-grade enrollment binds the template to an enrolled device key,
+approved capture profile, and assurance class. E2 verification requires a
+device signature over:
 
-```ts
-export type VoiceIdWalletAuthIntent =
-  | {
-      kind: 'voice_id_transaction_sign_v1';
-      accountId: AccountId;
-      networkId: NetworkId;
-      command: string;
-      transactionDigest: VoiceIdIntentDigest;
-      expiresAtMs: number;
-    };
+- server challenge id and nonce;
+- complete Router binding digest;
+- prompt hash;
+- exact uploaded-audio hash and any approved synchronized-video hash;
+- capture start/end times;
+- capture-profile id.
 
-export type VoiceIdWalletAuthResult<TAccepted> =
-  | { kind: 'accepted'; value: TAccepted }
-  | { kind: 'step_up_required'; reason: VoiceIdStepUpReason }
-  | { kind: 'rejected'; reason: VoiceIdRejectionReason }
-  | { kind: 'uncertain'; reason: VoiceIdUncertaintyReason }
-  | { kind: 'expired' }
-  | { kind: 'cancelled' }
-  | { kind: 'failed'; message: string };
-```
+The server recomputes the media and binding hashes, verifies the signature,
+enforces its own issue/receipt window, checks revocation, and parses the result
+once into precise domain types. Client timing and sensor labels remain advisory.
 
-The accepted branch should carry the server-issued grant instead of raw verifier
-output:
+## Existing Patterns To Reuse
 
-```ts
-export type VoiceIdSingleOperationGrant = {
-  kind: 'voice_id_single_operation_grant_v1';
-  grantId: VoiceIdGrantId;
-  walletId: WalletId;
-  accountId: AccountId;
-  deviceId: VoiceIdDeviceId;
-  enrollmentId: VoiceIdEnrollmentId;
-  verificationId: VoiceIdVerificationId;
-  intentDigest: VoiceIdIntentDigest;
-  policyVersion: VoiceIdPolicyVersion;
-  modelVersion: VoiceIdModelVersion;
-  thresholdVersion: VoiceIdThresholdVersion;
-  issuedAtMs: number;
-  expiresAtMs: number;
-  remainingUses: 1;
-};
-```
+| Pattern                     | Existing surface              | VoiceID use                                                          |
+| --------------------------- | ----------------------------- | -------------------------------------------------------------------- |
+| Result unions               | SDK public APIs               | Recoverable start, capture, passkey, and R1 outcomes                 |
+| Domain dependency injection | `SeamsWeb` capability methods | Inject `VoiceEvidenceCapability` without widening wallet auth unions |
+| React hooks                 | Existing auth hooks           | Reuse `busy`, `error`, and `start(...)` ergonomics                   |
+| Route modules               | `RouterApiModule`             | Mount VoiceID-owned authenticated routes                             |
+| SDK events                  | Typed SDK sent events         | Add enrollment, challenge, evidence, fallback, and terminal phases   |
+| Normal signing              | Existing signer capability    | Accept only passkey admission or reserved R1 grant                   |
 
-Global auth-method widening should happen in one pass:
+Account projection may display VoiceID enrollment status as a separate security
+or accessibility capability. It must not present E0/E1 as an enabled signing
+auth method.
 
-- `SIGNER_AUTH_METHODS`
-- `WALLET_AUTH_METHODS`
-- `WalletFlowAuthMethod`
-- account projection parsers
-- session/auth event unions
-- public type fixtures
+## Phase 0: Evidence Contract Cutover
 
-Every switch that consumes auth method state should be exhaustive.
+- [x] Mount experimental VoiceID routes through `RouterApiModule`.
+- [x] Exercise enrollment, verification, and owner-presence policy simulation
+      through the normal SDK host.
+- [x] Preserve rejected, uncertain, expired, mismatch, and sequential duplicate
+      branches as non-signing outcomes.
+- [ ] Introduce E0/E1/E2 evidence and delete broad signing-facing
+      owner-presence/liveness acceptance.
+- [ ] Rename client liveness and device claims to untrusted capture telemetry.
+- [ ] Add static fixtures proving E0/E1 cannot construct grants, reserved
+      admission, or signing continuations.
+- [ ] Mark the current caller-owned command/digest path E0 and delete it after
+      the server-owned binding path lands.
 
-## Phase 0: Keep The Voice Loop Stable
+## Phase 1: Per-Operation Public Capability
 
-- [x] Enroll owner voice through the VoiceID demo.
-- [x] Verify the spoken command `send 50 USDC to bob`.
-- [x] Bind the verification to the same `intentDigest` used by owner-presence
-      authorization.
-- [x] Consume accepted owner-presence through wallet policy.
-- [x] Return rejected, uncertain, expired, replayed, and mismatch branches as
-      non-signing policy decisions.
-- [ ] Manually run the live browser microphone enrollment and command
-      verification loop.
+- [ ] Add `VoiceEvidenceCapability` and the branch-specific types above.
+- [ ] Add `beginTransactionAuthorization(...)` to the public SDK capability
+      dependency shape.
+- [ ] Implement it in `SeamsWeb` without changing global wallet auth unions.
+- [ ] Return Result-style unions for boundary and recoverable failures.
+- [ ] Keep enrollment, verification, passkey, and R1 methods available only on
+      their valid lifecycle branches.
+- [ ] Add exhaustive public type fixtures and source checks.
+- [ ] Emit typed events without raw audio, transcript, embedding, or model
+      payload data.
 
-## Phase 1: Add SDK Auth Method Types
+## Phase 2: Recorder And React Adapter
 
-- [ ] Add `voice_id` as a narrow VoiceID auth method constant in shared domain
-      code.
-- [ ] Model VoiceID as a server-verified wallet auth method equivalent to email
-      OTP, not as a passkey-style KEK or signer material source.
-- [ ] Add VoiceID-specific public flow types in
-      `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`.
-- [ ] Add `VoiceIdSingleOperationGrant`, `VoiceIdStepUpRequired`, and
-      device-bound verification types.
-- [ ] Add type fixtures proving invalid VoiceID flow states cannot be
-      constructed.
-- [ ] Add source or type checks for global auth method switch exhaustiveness.
-- [ ] Widen `WalletAuthMethod`, `AuthMethod`, and `WalletFlowAuthMethod` only
-      after all consumers have VoiceID branches.
+- [ ] Add `useVoiceIdTransactionAuthorization(...)` with `start`, `busy`, and
+      `error` ergonomics.
+- [ ] Accept a recorder adapter; keep microphone UI outside core domain logic.
+- [ ] Implement one guided enrollment recording with internal progress and one
+      verification recording per challenge.
+- [ ] Stop media tracks on every terminal branch and keep raw blobs only in
+      active capture state.
+- [ ] Offer passkey immediately when microphone permission is denied, capture is
+      unsupported, or the user skips voice.
+- [ ] Export the hook and public evidence types from the React entrypoint.
 
-## Phase 2: Add Public SDK Auth Flow
+## Phase 3: Authenticated Server Operation
 
-- [ ] Add `beginVoiceIdWalletAuth(...)` to `AuthCapability`.
-- [ ] Add the matching `AuthCapabilityDomainMethods` dependency in
-      `packages/sdk-web/src/SeamsWeb/publicApi/auth.ts`.
-- [ ] Implement the method in `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts`
-      beside `beginGoogleEmailOtpWalletAuth(...)`.
-- [ ] Keep enrollment and verification lifecycle operations branch-specific:
-      enrollment flows cannot verify commands, and verification flows cannot
-      finalize enrollment.
-- [ ] Return Result-style unions for recoverable failures.
-- [ ] Return `accepted` with a one-use grant only when wallet policy accepts the
-      operation for VoiceID.
-- [ ] Return `step_up_required` with allowed delivery methods for key export,
-      recovery, high-value signing, new-recipient signing, new-device
-      enrollment, and suspicious context.
-- [ ] Emit typed SDK events for enrollment started, sample accepted,
-      enrollment finalized, verification issued, verification completed,
-      owner-presence authorized, and policy consumed.
+- [ ] Replace request-body identity, challenge, policy, expected phrase, and
+      device context with authenticated server-derived state.
+- [ ] Build and persist `RouterVoiceIntentBinding` before challenge creation.
+- [ ] Issue the prompt, nonce, expiry, and capture profile server-side.
+- [ ] Validate original capture bytes and exact-media hash at the route boundary.
+- [ ] Keep concrete stores, verifier adapters, transcript providers, and PAD
+      construction inside VoiceID-owned server setup.
+- [ ] Add enrollment assurance, device registration, revocation, and deletion
+      records.
 
-## Phase 3: Add React Hook And UI Adapter
+## Phase 4: Browser Passkey Path
 
-- [ ] Add `packages/sdk-web/src/react/hooks/useVoiceIdWalletAuth.ts`.
-- [ ] Match the email OTP hook shape: `start(...)`, `busy`, and `error`.
-- [ ] Accept microphone capture callbacks or a recorder adapter instead of
-      hardwiring demo UI into the hook.
-- [ ] Export the hook and public types from `packages/sdk-web/src/react/index.ts`.
-- [ ] Keep UI prompt copy and display data outside core domain logic.
+- [ ] Bind WebAuthn user verification to the same Router operation and session.
+- [ ] Return `authorizeWithPasskey()` for E0, E1, unavailable, rejected, and
+      uncertain browser outcomes.
+- [ ] Permit direct passkey selection before or instead of voice capture.
+- [ ] Call normal signing only with `PasskeyAdmittedTransaction`.
+- [ ] Prove voice evidence cannot influence passkey assertion validation or
+      widen the admitted operation.
 
-## Phase 4: Mount VoiceID Through Existing Server Adapters
+## Phase 5: Embedded E2 Observation
 
-- [ ] Register VoiceID routes through `RouterApiModule`.
-- [ ] Use `createVoiceIdRouterApiModule()` as the VoiceID-owned module
-      factory.
-- [ ] Keep concrete VoiceID stores, verifier mode, and transcript provider
-      construction inside VoiceID-owned server setup code.
-- [ ] Add device registration and challenge verification at the VoiceID route
-      boundary.
-- [ ] Bind enrollment and verification records to `deviceId` and
-      `devicePublicKey`.
-- [ ] Add SDK server tests proving the generic route-module path can enroll,
-      verify, and authorize owner presence.
-- [ ] Keep raw audio inside typed route/verifier boundaries.
+- [ ] Add approved-device capture, exact-media proof, PAD, calibration, and
+      capture-profile builders.
+- [ ] Add a server-only E2 builder and opaque `VoiceIdE2ObservationHandle`.
+- [ ] Keep the handle scoped to one subject, wallet, session, device, Router
+      operation, challenge, policy version, and short expiry.
+- [ ] Make uncertainty or unsupported profiles return passkey-required.
+- [ ] Keep E2 unavailable in browser and fake-verifier production routes.
 
-## Phase 5: Add Account Projection And Auth Method Display
+## Phase 6: R1 Signing Boundary
 
-- [ ] Update account projection parsing to recognize `voice_id`.
-- [ ] Update account option grouping so passkey, email OTP, and VoiceID account
-      options remain distinct.
-- [ ] Update any display labels through existing account/auth display helpers.
-- [ ] Add fixtures for unknown auth methods, passkey, email OTP, and VoiceID.
+- [ ] Evaluate the observation handle against current server R1 policy.
+- [ ] Store an issued one-use grant and return no mutable grant state to the
+      client.
+- [ ] Atomically reserve the exact Router request before any SigningWorker call.
+- [ ] Make normal signing accept only `PasskeyAdmittedTransaction` or
+      `ReservedVoiceIdR1Grant`.
+- [ ] Permanently fail-close timeout, cancellation, worker failure, and response
+      loss after reservation.
+- [ ] Add concurrency, mutation, revocation, expiry, and kill-switch tests.
 
-## Phase 6: Add The Normal SDK Signing Gate
+## Phase 7: Router A/B Adapter
 
-- [ ] Implement `VoiceIdTransactionSigningGate` as the narrow boundary between
-      VoiceID policy and existing signer methods.
-- [ ] Make the gate accept a signing continuation:
-      `signAfterVoiceIdAccepted(...)`.
-- [ ] Pass only accepted one-use grants, the candidate transaction, and the
-      matching `intentDigest` into the continuation.
-- [ ] Spend the one-use grant before or atomically with signing continuation
-      execution.
-- [ ] Prove the continuation is never called for rejected, uncertain, expired,
-      replayed, mismatched, cancelled, failed, or step-up-required outcomes.
-- [ ] Use the existing `NearSignerCapability` methods as the first continuation
-      target.
+- [ ] Implement the
+      [Router admission adapter](voiceId-router-policy-issuer.md).
+- [ ] Carry the server-created Router binding unchanged through evidence,
+      policy, grant, reservation, and admission.
+- [ ] Derive Router admission material inside Router with existing typed
+      builders.
+- [ ] Add an end-to-end E2 test through Router, active SigningWorker, and
+      signature.
+- [ ] Delete duplicate VoiceID-specific signing request and digest shapes.
 
-## Phase 7: Persisted Session Decision
+## Phase 8: Global Auth Method Decision
 
-Start this phase after the per-operation signing gate passes.
+Defer this phase until an E2 pilot exists and product requirements demonstrate
+that VoiceID must appear in account-level auth-method selection.
 
-- [ ] Decide whether VoiceID is only a per-operation owner-presence method or
-      also a signing-session method.
-- [ ] If VoiceID becomes a session method, define how it authorizes or refreshes
-      signing material without treating a biometric match as a signing secret.
-- [ ] Keep key export, wallet recovery, and new-device enrollment behind
-      step-up even when VoiceID verification accepts.
-- [ ] Add sealed-recovery or session persistence branches only after the domain
-      model can make invalid states unrepresentable.
-- [ ] Add persistence parsers at the boundary and keep core logic on precise
-      internal types.
-- [ ] Add migration or compatibility handling only at persistence/request
-      boundaries.
-
-## Phase 8: Router A/B Adapter
-
-Start this phase after the normal SDK auth method works.
-
-- [ ] Add one adapter from accepted VoiceID wallet policy to the active Router
-      A/B normal-signing admission shape.
-- [ ] Bind VoiceID `intentDigest` to the Router A/B operation fingerprint and
-      normal-signing digest tuple.
-- [ ] Keep Router helper churn behind the adapter.
-- [ ] Add an end-to-end test from accepted VoiceID policy decision to Router
-      admission, SigningWorker prepare/finalize, and signature.
+- [ ] Decide whether VoiceID enrollment is an account capability or a true
+      `WalletAuthMethod`.
+- [ ] If it is a wallet auth method, widen `SIGNER_AUTH_METHODS`,
+      `WALLET_AUTH_METHODS`, `WalletFlowAuthMethod`, account projection, persistence
+      parsers, events, and every exhaustive switch in one change.
+- [ ] Keep E0/E1 out of enabled-authenticator projections.
+- [ ] Add persistence-boundary migration only if stored account records require
+      it, then delete the migration after the rewrite completes.
 
 ## Acceptance Criteria
 
-- VoiceID is available through the same SDK auth capability surface as passkey
-  and email OTP.
-- VoiceID is treated as server-verified auth equivalent to email OTP, with
-  one-use grants and step-up delivery for risky operations.
-- React users can start VoiceID auth through a hook that follows the email OTP
-  hook shape.
-- SDK server users can mount VoiceID through the same route-module abstraction.
-- Enrolled VoiceID is bound to a device identity, and verification requires a
-  fresh device challenge response.
-- Account projection can display and select VoiceID auth method entries.
-- Accepted VoiceID owner-presence can authorize the normal SDK signing
-  continuation for the bound transaction.
-- Rejected, uncertain, expired, replayed, mismatched, cancelled, failed, and
-  step-up-required outcomes cannot call signing.
-- High-risk transactions route to step-up instead of signing through VoiceID
-  alone.
-- The first integrated path stays on the normal SDK signer capability before
-  Router A/B adapter work.
+- Browser VoiceID appears as per-operation evidence and always signs through a
+  user-verified passkey for the exact Router operation.
+- Voice failure, uncertainty, outage, skip, or accessibility fallback does not
+  block independent passkey selection.
+- E0/E1 cannot carry an authorization handle, grant, reserved state, or signing
+  continuation.
+- The server owns identity, policy, Router binding, challenge, expected phrase,
+  expiry, and evidence-to-grant decisions.
+- A future embedded path exposes only an opaque E2 observation handle and enters
+  signing through server R1 policy plus atomic Router reservation.
+- React and non-React consumers can handle every result exhaustively.
+- Global wallet auth unions remain unchanged until a separate account-level
+  product decision and complete consumer cutover.
+- Raw media, embeddings, templates, full transcripts, private keys, shares, and
+  raw model responses never enter SDK events, account projection, grants, or
+  signing inputs.

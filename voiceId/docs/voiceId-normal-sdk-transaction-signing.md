@@ -1,307 +1,260 @@
 # VoiceID Normal SDK Transaction Signing Plan
 
-Status: implementation TODO list.
+Status: E0 research integration exists; passkey and E2 admission work pending.
 
-Related docs:
+Normative security requirements:
+[VoiceID Signing Security Profile](voiceId-signing-security-profile.md).
+
+Related documents:
 
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
-- [VoiceID SDK auth method integration](voiceId-sdk-auth-method-integration.md)
+- [VoiceID SDK auth integration](voiceId-sdk-auth-method-integration.md)
 - [VoiceID MVP 2](voiceId-mvp-2.md)
+- [Router admission adapter](voiceId-router-policy-issuer.md)
 - [Router A/B signer architecture](../../docs/router-a-b-SPEC.md)
 
 ## Goal
 
-Use VoiceID as an owner-presence policy input for transaction signing through
-the normal SDK path first.
+Use browser VoiceID for spoken transaction confirmation and E0 research
+evidence. A user-verified passkey authorizes every browser transaction for the
+exact Router operation.
 
-Target flow:
+A future approved embedded path may authorize a capped R1 transaction only
+after it produces E2, server risk policy issues a one-use grant, and Router
+reserves that grant atomically.
 
 ```text
-SDK transaction request
-  -> canonical VoiceID transaction intent
-  -> intentDigest
-  -> VoiceID verification
-  -> owner-presence authorization
-  -> wallet policy decision
-  -> normal SDK signing path only when policy accepts
+browser
+  -> server-canonical Router operation and challenge
+  -> E0 voice evidence
+  -> passkey for the same Router operation
+  -> ordinary Router admission
+  -> active SigningWorker
+
+approved embedded device
+  -> server-canonical Router operation and challenge
+  -> E2 signing-candidate evidence
+  -> server R1 policy
+  -> issued one-use grant
+  -> atomic Router reservation
+  -> active SigningWorker
 ```
 
-Router A/B signing integration now targets the signer architecture in
-`docs/router-a-b-SPEC.md`: Router owns the public admission boundary, normal
-signing flows through the active `SigningWorker`, and Deriver A/B stay out of
-the hot signing path. VoiceID should depend on a narrow signing-gate adapter
-around typed normal-signing prepare/finalize requests while avoiding concrete
-Cloudflare role helpers.
+Deriver A and Deriver B remain outside normal signing. VoiceID never imports or
+calls role-specific signing internals.
+
+## Current Implementation Boundary
+
+The repository currently has:
+
+- [x] VoiceID route mounting through the normal SDK module boundary.
+- [x] Enrollment, verification, and owner-presence policy simulation.
+- [x] A caller-owned command parser and digest-equality prototype.
+- [x] Fake-verifier accepted, rejected, and uncertain branches.
+- [x] Sequential expiry, mismatch, and duplicate-use coverage for the
+      experimental authorization record.
+- [x] Audit events that exclude raw audio.
+
+Every item above is E0 research plumbing. The current path has no server-owned
+Router challenge, passkey admission integration, E2 builder, signing-grade PAD,
+atomic grant store, concrete Router adapter, or SigningWorker end-to-end test.
+Sequential duplicate-use coverage does not prove concurrent one-use admission.
 
 ## Guardrails
 
-- VoiceID is owner-presence evidence. It never directly signs.
-- The signing gate must require a matching `intentDigest`.
-- Accepted VoiceID evidence is one-use and expiry-bound.
-- Rejected, uncertain, expired, replayed, or mismatched VoiceID results cannot
-  call the signing continuation.
-- Step-up-required policy decisions cannot sign through VoiceID alone.
-- The first implementation uses the normal SDK route/module path.
-- Router A/B admission integration stays deferred until the normal SDK policy
-  gate works.
-- VoiceID must not call Deriver A, Deriver B, SigningWorker, or Cloudflare role
-  internals directly.
-- The VoiceID code should not duplicate Router A/B canonicalization. For signing
-  integration, use the Router A/B v2 typed builders and vectors for
-  `RouterAbEd25519NormalSigningIntentV2`,
-  `RouterAbEd25519SigningPayloadV2`, and
-  `RouterAbEd25519NormalSigningAdmissionMaterialV2`.
+- Browser capture always constructs E0.
+- E0 and E1 cannot carry a signing candidate, grant, reserved admission, or
+  signing continuation.
+- The server authenticates identity and tenant scope before constructing the
+  Router operation and challenge.
+- The existing Router A/B typed intent and signing payload are the only
+  authoritative transaction representation.
+- A voice challenge digest is a domain-separated derivative of the Router
+  digest tuple. VoiceID has no parallel authoritative transaction digest.
+- Client timestamps, source labels, device ids, transcripts, policy labels,
+  replay flags, and capture metadata are untrusted inputs.
+- Fake verifier output cannot authorize a real Router or SigningWorker call.
+- E2 requires accepted speaker, phrase, quality, freshness, PAD, device proof,
+  capture profile, calibration, and Router binding.
+- E2 remains evidence until server R1 policy issues a grant.
+- Router reserves the grant before the first SigningWorker call.
+- Terminal failure after reservation closes the grant permanently.
+- R2 requires passkey. R3 prohibits VoiceID.
 
-## Digest Boundary
+## Target Signing Boundary
 
-The standalone voice loop can continue to use `VoiceIdIntentDigest` for spoken
-command verification. The signing adapter must additionally bind the accepted
-VoiceID evidence to the Router A/B normal-signing digest tuple:
+Core signing accepts one of two admitted states:
 
-- Router A/B `intent_digest`
-- Router A/B `signing_payload_digest`
-- Router A/B `admitted_signing_digest`
+```ts
+export type VoiceIdTransactionAdmission = PasskeyAdmittedTransaction | ReservedVoiceIdR1Grant;
 
-If VoiceID keeps a separate `voice_id_intent_digest`, the adapter must carry
-both digests and prove they describe the same displayed transaction before
-Router admission runs.
+export type VoiceIdTransactionSigningResult =
+  | { kind: 'signed'; receipt: NormalSigningReceipt }
+  | { kind: 'passkey_required'; reason: VoiceIdStepUpReason }
+  | { kind: 'rejected'; reason: VoiceIdRejectionReason }
+  | { kind: 'uncertain'; reason: VoiceIdUncertainReason }
+  | { kind: 'cancelled' }
+  | { kind: 'failed'; reason: VoiceIdSigningFailureReason };
 
-## Intermediate Phase: Prove The Voice Loop
-
-Before integrating VoiceID into transaction signing, prove the standalone
-VoiceID loop end to end:
-
-```text
-enroll owner voice with enrollment prompt samples
-  -> build spoken command intent: "send 50 USDC to bob"
-  -> record the spoken command
-  -> verify phrase + speaker
-  -> authorize owner presence for the intentDigest
-  -> log accepted, rejected, or uncertain result
+declare function signAfterAdmissionAccepted(
+  admission: VoiceIdTransactionAdmission,
+): Promise<VoiceIdTransactionSigningResult>;
 ```
 
-Enrollment and transaction verification are separate steps. Enrollment creates
-the owner speaker template from enrollment-prompt samples. Transaction
-verification uses the spoken transaction command as the expected phrase, checks
-that the captured voice matches the enrolled speaker, then authorizes owner
-presence for the matching `intentDigest`.
+The public flow cannot receive `ReservedVoiceIdR1Grant`. Router creates that
+type only after the atomic server-side transition. All result switches are
+exhaustive.
 
-What already exists:
+## Phase 0: Contract Cutover
 
-- [x] Enrollment lifecycle:
-      start enrollment, record samples, require accepted samples, and finalize
-      an enrolled template.
-- [x] Verification lifecycle:
-      start verification, bind it to `intentDigest`, record a sample, and
-      produce accepted/rejected/uncertain verification results.
-- [x] Spoken command parsing for token transfers such as
-      `send 50 USDC to bob`.
-- [x] Canonical `intentDigest` generation for spoken token-transfer commands.
-- [x] Owner-presence authorization for completed verification records.
-- [x] One-use owner-presence evidence after successful authorization.
-- [x] Audit events for enrollment, verification, and owner-presence
-      authorization.
+- [ ] Add `VoiceIdExperimentalBrowserEvidence`,
+      `VoiceIdStepUpOnlyEvidence`, and `VoiceIdSigningCandidateEvidence`.
+- [ ] Add separate passkey and reserved-R1 admission builders.
+- [ ] Replace broad owner-presence and liveness acceptance in signing-facing
+      code with the tiered evidence union.
+- [ ] Delete `liveness_not_required`, caller policy, and independent VoiceID
+      transaction-digest inputs from the signing boundary.
+- [ ] Add `@ts-expect-error` fixtures for direct E2/reserved-grant literals,
+      broad spreads, optional security fields, unsafe casts, raw verifier results,
+      and E0/E1 signing calls.
+- [ ] Add exhaustive switches with `assertNever` for evidence, policy,
+      admission, grant, and signing results.
 
-What is still needed for the test loop:
+Exit gate: no browser or fake-verifier value can call
+`signAfterAdmissionAccepted`.
 
-- [x] Add a dedicated developer test path for this exact flow, using
-      `send 50 USDC to bob` as the default spoken transaction command.
-- [x] Show or persist a compact event log for:
-      enrollment started, enrollment sample recorded, enrollment finalized,
-      verification issued, verification completed, and owner-presence
-      authorized.
-- [x] Make accepted/rejected/uncertain verification outcomes easy to trigger in
-      the fake-verifier path.
-- [x] Add a route or harness assertion that the command phrase maps to the same
-      `intentDigest` used by owner-presence authorization.
-- [x] Add mismatch coverage proving completed VoiceID verification cannot
-      authorize a different digest.
-- [x] Add replay coverage proving accepted owner-presence evidence is one-use.
-- [x] Keep this loop independent from normal SDK signing and Router A/B.
+## Phase 1: Server-Owned Transaction And Challenge
 
-Acceptance for this intermediate phase:
+- [ ] Authenticate the normal SDK request before VoiceID challenge creation.
+- [ ] Build and persist `RouterVoiceIntentBinding` with the existing Router A/B
+      typed builders.
+- [ ] Derive the displayed summary from the same resolved operation.
+- [ ] Issue a short-lived unpredictable prompt after the binding is fixed.
+- [ ] Bind challenge id, prompt hash, expiry, identity scope, capture profile,
+      and Router digest tuple in server state.
+- [ ] Accept one challenge-response recording and at most one quality retry
+      under a new challenge.
+- [ ] Invalidate the challenge on submission, expiry, cancellation, or
+      transaction mutation.
+- [ ] Delete the caller-owned expected-phrase and authoritative digest path
+      after migration.
 
-- A developer can enroll a voice.
-- A developer can speak or simulate `send 50 USDC to bob`.
-- The system reports accepted, rejected, or uncertain.
-- The system logs the result without raw audio or template material.
-- The loop does not call any signing API.
+Validation mutates amount, recipient, asset, account, network, operation,
+payload, prompt, challenge, device, media hash, session, tenant, and expiry.
+Every mutation must reject.
 
-## Phase 0: Freeze The Local Contract
+## Phase 2: Browser Passkey Signing
 
-- [ ] Define the local transaction-signing boundary as
-      `VoiceIdTransactionSigningGate`.
-- [ ] Make the gate accept an abstract transaction candidate instead of a
-      concrete Router A/B request helper type.
-- [ ] Make the gate receive a signing continuation callback:
-      `signAfterVoiceIdAccepted(...)`.
-- [ ] Return a discriminated result union:
-      `signed`, `rejected`, `step_up_required`, `voice_id_required`,
-      `cancelled`, and `failed`.
-- [ ] Keep Router A/B signer API details contained to one adapter module.
-- [ ] Add type fixtures proving rejected, uncertain, and step-up branches cannot
-      carry a signing continuation result.
+- [ ] Add browser orchestration that records E0 voice evidence, then offers
+      passkey for the exact stored Router binding.
+- [ ] Permit passkey selection even when voice is rejected, uncertain,
+      unavailable, or skipped, subject to ordinary account policy.
+- [ ] Build `PasskeyAdmittedTransaction` only after WebAuthn user verification
+      succeeds and the assertion matches the Router challenge and scope.
+- [ ] Route the admitted transaction through ordinary Router A/B signing.
+- [ ] Keep the E0 result in audit/shadow telemetry and out of passkey authority.
+- [ ] Add cancellation, passkey failure, challenge expiry, and transaction-
+      mutation UX states.
 
-## Phase 1: Specify Transaction Intent Mapping
+The fake-verifier test flow uses fake voice plus a fake passkey admission
+adapter. It never simulates real signing authority from fake voice.
 
-- [ ] Add a VoiceID transaction intent branch or a dedicated transaction-intent
-      wrapper for normal SDK signing.
-- [ ] Include required identity and signing fields:
-      account id, network id, operation id, operation fingerprint, expiry,
-      nonce, and transaction display summary.
-- [ ] Include transaction-specific policy fields:
-      recipient, token or asset, amount, chain/network, method/action kind,
-      known-recipient status, and risk tier input.
-- [ ] Include payload binding fields that can survive SDK signing refactors:
-      Router A/B operation fingerprint, Router normal-signing `intent_digest`,
-      `signing_payload_digest`, and `admitted_signing_digest` when available.
-- [ ] Bind the VoiceID transaction intent to the same Router A/B typed normal
-      signing intent used for admission.
-- [ ] Build `intentDigest` from the canonical VoiceID transaction intent.
-- [ ] Add fixtures showing amount, recipient, account, network, nonce, expiry,
-      and payload changes all alter the digest.
-- [ ] Add mismatch fixtures proving a spoken command for transaction A cannot
-      authorize transaction B.
+## Phase 3: Embedded E2 Foundation
 
-## Phase 2: Consume Owner-Presence In Wallet Policy
+- [ ] Implement an approved capture agent with a protected enrolled device key.
+- [ ] Sign the challenge, Router binding, prompt hash, exact uploaded-media hash,
+      capture interval, and capture profile.
+- [ ] Add calibrated audio PAD for replay, synthesis, conversion, splicing,
+      injection, and relay classes.
+- [ ] Add optional audio-visual PAD only through an approved profile.
+- [ ] Construct E2 through a server-only branch-specific builder.
+- [ ] Keep unsupported devices, profiles, models, languages, and uncertain
+      checks in E1/passkey.
+- [ ] Add revocation for enrollment, device, model, threshold, calibration, and
+      capture profile.
 
-- [x] Extend normal SDK test coverage after
-      `/voice-id/owner-presence/authorize`.
-- [x] Convert the accepted owner-presence result into
-      `VoiceIdWalletPolicyInput`.
-- [x] Evaluate low-value known-recipient transactions as accepted.
-- [x] Evaluate new-recipient transactions as `step_up_required`.
-- [x] Evaluate high-value or anomalous transactions as `step_up_required`.
-- [x] Preserve rejected, uncertain, expired, and intent-mismatch branches as
-      non-signing policy decisions.
-- [x] Add assertions that policy version, model version, threshold version,
-      liveness evidence, device id, sidecar id, and `intentDigest` survive the
-      adapter boundary.
-- [ ] Add assertions that accepted wallet policy carries the Router A/B
-      operation fingerprint and normal-signing digest tuple unchanged.
+Exit gate: the exact embedded profile passes the signing security profile’s
+calibration, attack, privacy, shadow, and operational gates.
 
-## Phase 3: Add The Normal SDK Signing Gate
+## Phase 4: R1 Policy And Atomic Grant
 
-- [ ] Implement the gate with this internal sequence:
+- [ ] Define explicit per-operation and rolling value caps, established-
+      recipient age, allowlist, anomaly, rate-limit, retry, and grant-expiry rules.
+- [ ] Evaluate only E2 with server-owned R1 policy.
+- [ ] Store an `issued` grant containing the complete Router binding and all
+      evidence/policy versions.
+- [ ] Return only an authenticated opaque grant reference to the client.
+- [ ] Implement `issued -> reserved -> consumed | failed_closed` plus
+      `issued -> expired | revoked`.
+- [ ] Compare-and-set `issued` to `reserved` for the exact Router request digest
+      before any SigningWorker call.
+- [ ] Make response loss, timeout, cancellation, and worker failure permanently
+      `failed_closed`.
+- [ ] Add a kill switch that routes every transaction to passkey.
 
-```text
-transaction candidate
-  -> VoiceID transaction intent
-  -> intentDigest
-  -> start verification
-  -> submit verification sample
-  -> authorize owner presence
-  -> evaluate wallet policy
-  -> call signing continuation only for accepted policy
-```
+## Phase 5: Router A/B Adapter
 
-- [ ] Keep the signing continuation narrow: it receives the transaction
-      candidate, the accepted wallet policy decision, and the matching
-      `intentDigest`.
-- [ ] Reject before signing when owner-presence authorization returns rejected,
-      uncertain, expired, replayed, or mismatched evidence.
-- [ ] Return `step_up_required` before signing when policy requires step-up.
-- [ ] Add tests proving the continuation is never called for non-accepted
-      branches.
-- [ ] Add a source guard that the gate does not import Deriver A, Deriver B,
-      SigningWorker, or Cloudflare role-specific code.
+- [ ] Implement the contract in
+      [Router admission adapter](voiceId-router-policy-issuer.md).
+- [ ] Build `RouterAbEd25519NormalSigningPrepareRequestV2` with current branch-
+      specific Router builders.
+- [ ] Derive `RouterAbEd25519NormalSigningAdmissionMaterialV2` inside Router.
+- [ ] Compare the derived intent, signing-payload, admitted-signing, operation,
+      identity, tenant, policy, and expiry fields with the grant.
+- [ ] Give only the reservation holder access to the active SigningWorker
+      prepare/finalize path.
+- [ ] Transition the grant durably before returning externally reusable success.
+- [ ] Delete any temporary or duplicate VoiceID-specific Router request shape.
 
-## Phase 4: Wire The Current Normal SDK Signing Path
+## Phase 6: Test And Developer Harness
 
-- [ ] Add one adapter from `VoiceIdTransactionSigningGate` to the current Router
-      A/B normal-signing v2 path.
-- [ ] Build `RouterAbEd25519NormalSigningPrepareRequestV2` from the transaction
-      candidate, active `NormalSigningScopeV1`, typed normal-signing intent, and
-      typed signing payload.
-- [ ] Derive `RouterAbEd25519NormalSigningAdmissionMaterialV2` and assert the
-      wallet policy decision binds to the same `intent_digest`.
-- [ ] Route accepted policy decisions through Router admission and the active
-      `SigningWorker` prepare/finalize flow.
-- [ ] Use the current branch-specific Router A/B builders for NEAR transaction,
-      NEP-413, or delegate-action signing.
-- [ ] Keep the adapter small so it can be replaced if public SDK helper names
-      change.
-- [ ] Delete any temporary adapter branch that exists only for a superseded
-      signing request shape.
+- [ ] Update the normal SDK demo to use one guided enrollment recording and one
+      challenge-bound verification recording.
+- [ ] Show the canonical transaction summary and random prompt fragment.
+- [ ] Label browser voice as experimental and show passkey as the authorizing
+      action.
+- [ ] Use a test-only synthetic E2 builder for isolated policy/grant tests. Keep
+      it unreachable from production routes and bundles.
+- [ ] Add an E2 Router end-to-end test through prepare, finalize, and signature.
+- [ ] Add a test proving E0 success plus passkey signs through the passkey branch.
+- [ ] Add a test proving passkey works after voice failure or skip.
+- [ ] Add concurrent reservation tests with barriers, not sequential requests.
+- [ ] Add mutation, expiry, revocation, duplicate delivery, response-loss,
+      worker-failure, and kill-switch tests.
+- [ ] Assert at most one SigningWorker call for every grant id.
+- [ ] Delete fixtures and tests that treat broad accepted owner presence as
+      signing authority.
 
-## Phase 5: Add SDK-Only End-To-End Coverage
+## Phase 7: Calibration, Privacy, And Release
 
-- [ ] Add a normal SDK test harness that mounts VoiceID through
-      `RouterApiModule`.
-- [ ] Run a fake-verifier flow:
-      enroll, verify, authorize owner presence, evaluate wallet policy, and call
-      a test signing continuation.
-- [ ] Add an accepted low-value known-recipient transaction test.
-- [ ] Add a step-up-required new-recipient transaction test.
-- [ ] Add a high-value transaction test that blocks signing.
-- [ ] Add an intent mismatch test where verification for transaction A attempts
-      to sign transaction B.
-- [ ] Add a replay test where the same owner-presence evidence is used twice.
-- [ ] Add an expired-intent test.
-- [ ] Add rejected and uncertain VoiceID tests.
-
-## Phase 6: Add Demo Or Developer Harness
-
-- [ ] Add a normal SDK transaction-signing demo path or scripted harness.
-- [ ] Show transaction details before VoiceID capture:
-      recipient, amount, token/network, account, expiry, and risk tier.
-- [ ] Ask the user to speak the command derived from the displayed transaction.
-- [ ] Show policy result:
-      accepted, rejected, uncertain, or step-up required.
-- [ ] Call a fake signing continuation first.
-- [ ] Swap the fake continuation for the current Router A/B normal-signing
-      adapter after the normal SDK policy gate passes.
-- [ ] Keep fixture capture separate from transaction signing UX.
-
-## Phase 7: Fixture And Threshold Readiness
-
-- [ ] Collect true independent human different-speaker clips.
-- [ ] Rerun the ECAPA fixture evaluation after those clips land.
-- [ ] Recalibrate threshold only after the independent-speaker pass.
-- [ ] Keep owner voice-variant refresh optional unless calibration remains
-      ambiguous.
-- [ ] Preserve raw-audio retention defaults and local fixture warnings.
-
-## Phase 8: Router A/B Signing Integration
-
-Start this phase after the normal SDK gate works.
-
-- [ ] Map the accepted VoiceID wallet policy decision into Router A/B v2 normal
-      signing admission for `RouterAbEd25519NormalSigningPrepareRequestV2`.
-- [ ] Ensure Router A/B typed intent, signing payload, and VoiceID transaction
-      intent bind to the same operation fingerprint, `intent_digest`,
-      `signing_payload_digest`, and `admitted_signing_digest`.
-- [ ] Add Router A/B E2E coverage from accepted VoiceID policy decision to
-      Router admission, SigningWorker prepare/finalize, and signature.
-- [ ] Keep Deriver A and Deriver B out of the normal signing hot path.
-- [ ] Treat any signed VoiceID policy evidence as an input to Router admission,
-      not as a replacement for Router-derived admission material.
-- [ ] Delete any VoiceID-specific Router A/B compatibility path once the v2
-      normal-signing path covers the active signing flow.
-
-## Phase 9: Production Hardening
-
-- [ ] Add audit events for transaction policy decisions with policy version,
-      risk tier, result kind, and coarse score bands.
-- [ ] Ensure audit events never include raw audio, raw templates, private keys,
-      or full transaction secrets.
-- [ ] Add rate limits for repeated VoiceID signing attempts.
-- [ ] Add source guards proving VoiceID cannot call signing without an accepted
-      wallet policy decision.
-- [ ] Add source guards proving step-up-required policy decisions are
-      non-signing.
-- [ ] Document the supported transaction types and known non-goals.
+- [ ] Run the evidence-duration experiment with speaker-disjoint, cross-day,
+      cross-device, language, noise, distance, and independent-human cohorts.
+- [ ] Report speaker false-match/non-match and end-to-end false-grant rates with
+      confidence intervals by capture profile and worst cohort.
+- [ ] Report PAD attack-presentation and bona-fide rejection by attack class.
+- [ ] Preserve original capture bytes only through verification, then delete
+      them and record deletion receipts.
+- [ ] Add template disable/delete, device revocation, diagnostic TTL, vendor
+      deletion, backup expiry, and audit-minimization tests.
+- [ ] Run a passkey-authorized shadow phase before an allowlisted capped R1
+      pilot.
+- [ ] Require independent security, privacy, product, and legal approval before
+      production biometric enrollment.
 
 ## Acceptance Criteria
 
-- A normal SDK transaction can be signed after accepted VoiceID owner presence
-  and accepted wallet policy.
-- A mismatched `intentDigest` cannot sign.
-- Replayed owner-presence evidence cannot sign.
-- Expired owner-presence evidence cannot sign.
-- Rejected or uncertain VoiceID cannot sign.
-- Step-up-required policy cannot sign through VoiceID alone.
-- The first working path does not require VoiceID to bypass Router admission or
-  call SigningWorker directly.
-- The signing adapter can absorb Router A/B normal-signing SDK helper churn
-  without changing VoiceID policy types.
+- Browser transactions require a user-verified passkey for the exact Router
+  operation.
+- Browser E0/E1, fake verifier output, and raw model output cannot construct a
+  signing admission.
+- The server owns the canonical Router binding and challenge.
+- A future embedded transaction reaches signing only through E2, server R1
+  policy, an issued grant, and atomic Router reservation.
+- Router and SigningWorker reject every identity, tenant, operation, payload,
+  challenge, device, media, version, policy, risk, and expiry mismatch.
+- Two concurrent requests produce at most one reservation and one SigningWorker
+  call.
+- Every terminal failure after reservation closes the grant.
+- R2 requires passkey and R3 prohibits VoiceID.
+- Raw media, embeddings, templates, full transcripts, shares, and raw model
+  responses never enter grants, Router state, SigningWorker input, or logs.

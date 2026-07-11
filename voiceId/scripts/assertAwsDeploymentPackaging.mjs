@@ -5,7 +5,10 @@ const checks = [
     filePath: 'deploy/aws/verifier-service/README.md',
     required: [
       { name: 'ordinary-server scope', pattern: /ordinary-server/i },
-      { name: 'same verifier image', pattern: /deploy\/cloudflare\/verifier-container\/Dockerfile/ },
+      {
+        name: 'same verifier image',
+        pattern: /deploy\/cloudflare\/verifier-container\/Dockerfile/,
+      },
       { name: 'python-http transport', pattern: /python-http/ },
       { name: 'verifier URL env', pattern: /VOICEID_PYTHON_VERIFIER_URL/ },
       { name: 'ECAPA backend env', pattern: /VOICEID_VERIFIER_BACKEND=ecapa/ },
@@ -17,6 +20,17 @@ const checks = [
       { name: 'Nitro Enclave separation', pattern: /Nitro Enclave/ },
       { name: 'Router A/B signer boundary', pattern: /Router A\/B/ },
       { name: 'SigningWorker boundary', pattern: /SigningWorker/ },
+      {
+        name: 'component-only verifier boundary',
+        pattern: /does not establish[\s\S]*E2[\s\S]*signing grant/i,
+      },
+      {
+        name: 'authenticated service transport',
+        pattern: /requires authenticated and integrity-[\s\S]*protected transport/,
+      },
+      { name: 'atomic grant transition', pattern: /issued -> reserved/ },
+      { name: 'diagnostic retention cap', pattern: /maximum[\s\S]*seven-day TTL/ },
+      { name: 'versioned template AAD', pattern: /versioned AAD/ },
     ],
   },
   {

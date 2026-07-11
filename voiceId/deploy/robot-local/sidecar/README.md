@@ -1,40 +1,51 @@
 # VoiceID Robot-Local Sidecar
 
-This is the robot-local sidecar shape for VoiceID. The concrete MVP target is a
-Reachy-style robot, where `reachy_app.py` captures microphone input, then calls
-a local VoiceID sidecar before allowing owner-only robot commands or wallet
-actions.
+Status: experimental embedded deployment; E2 disabled until calibration gates
+pass.
 
-Cloudflare is the primary hosted deployment target. The robot-local sidecar is
-the embedded edge piece: it keeps capture and liveness close to the robot while
-Cloudflare Workers, Containers, and the existing Router A/B SigningWorker path
-handle hosted policy and signing flows.
+Normative security requirements:
+[VoiceID Signing Security Profile](../../../docs/voiceId-signing-security-profile.md).
+
+This is the robot-local sidecar shape for a Reachy-style device. It keeps media
+capture and low-latency verifier work near the robot. Cloudflare remains the
+hosted Router A/B, policy, grant-state, and SigningWorker boundary.
+
+Local execution alone does not make evidence signing-grade. The robot profile
+must supply protected device proof, exact-media binding, calibrated PAD, an
+approved capture profile, and the complete server-owned challenge flow before
+it can construct E2. Until then, wallet operations require passkey.
 
 ## Processes
 
 ```text
 reachy_app.py
-  -> microphone capture
-  -> local VoiceID client
-  -> voiceid_sidecar over localhost
-  -> ownerPresence + liveness + intentDigest evidence
-  -> wallet_sidecar or Cloudflare Worker API
-  -> Router A/B admission
-  -> SigningWorker
+  -> authenticated raw command request to Cloudflare
+  -> server-canonical Router or robot-command binding
+  -> server challenge and prompt
+  -> one synchronized capture
+  -> local quality/speaker/PAD components
+  -> device signature over exact media hashes and binding
+  -> E1 or future E2 evidence at the server boundary
+  -> passkey or server R1 policy
+  -> atomic Router grant reservation
+  -> active SigningWorker
 ```
 
 Recommended process boundaries:
 
-- `reachy_app.py`: owns robot interaction, wake/listen behavior, command UX,
-  and robot actuation.
+- `reachy_app.py`: owns robot interaction, explicit listen behavior, prompt UI,
+  synchronized microphone/camera capture, and robot actuation requests.
 - `voiceid_sidecar`: owns audio decode, quality gates, ECAPA speaker matching,
-  template building, and the same Python HTTP verifier API used by server
-  deployments.
-- `wallet_sidecar`: owns robot-local wallet client state, local MPC client-share
-  access, payment client calls, and calls to the Cloudflare-hosted wallet API.
-- Cloudflare Worker API: owns hosted route parsing, durable state, optional ASR,
-  policy assembly, x402/payment policy, Router A/B admission, and the normal
-  SigningWorker path.
+  template building, and the same Python HTTP verifier API used by hosted
+  deployments. Approved PAD may run behind a separate versioned adapter.
+- `wallet_sidecar`: owns robot-local wallet client state, protected device key,
+  local MPC client-share access, capture-statement signing, and authenticated
+  calls to the Cloudflare API.
+- Cloudflare Worker API: owns authentication, Router canonicalization,
+  challenge creation, durable evidence/grant state, risk policy, x402/payment
+  policy, Router admission, and the normal SigningWorker path.
+- robot safety controller: independently admits or rejects motion, heat,
+  pressure, cutting, force, tool, and workspace actions.
 
 ## Verifier API
 
@@ -63,101 +74,118 @@ VOICEID_VERIFIER_TIMEOUT_MS=10000
 VOICEID_SPEAKER_SCORE_THRESHOLD=0.6352
 ```
 
-For embedded Linux, run the sidecar as a supervised process and expose it only
-on localhost. Browser, mobile, and remote users should call Cloudflare, not the
-robot-local verifier port.
+Run the sidecar as a supervised process and expose it only on localhost. Remote
+clients call the authenticated Cloudflare API. The ECAPA threshold above is a
+local-development value and cannot construct E2.
+
+## Enrollment
+
+Signing-grade enrollment requires recent passkey or owner-admin authentication,
+an enrolled protected device key, the approved robot capture profile, and
+accepted enrollment PAD.
+
+The user completes one continuous guided recording with three to five random
+prompt fragments and a provisional 12-second usable-speech target. VAD creates
+internal windows. The verifier rejects poor-quality, duplicate, multi-speaker,
+prompt-incomplete, and embedding-incoherent windows, then builds a normalized,
+quality-weighted template. Raw media is deleted after verified template
+persistence.
 
 ## Owner Command Flow
 
 ```text
-owner says: "send 1 USDC to Bob"
-  -> reachy_app.py captures audio
-  -> local transcript or Cloudflare ASR produces canonical command
-  -> intent canonicalizer builds intentDigest
-  -> local VoiceID verifier checks quality and speaker
-  -> local liveness policy checks microphone source, freshness, and replay risk
-  -> ownerPresence evidence is assembled
-  -> wallet_sidecar calls Cloudflare Worker API with intentDigest evidence
-  -> Router A/B admits the request
-  -> SigningWorker participates only for the admitted intent
+owner requests: "send 1 USDC to Bob"
+  -> wallet_sidecar sends authenticated raw transaction fields
+  -> Cloudflare resolves Bob and persists RouterVoiceIntentBinding
+  -> Cloudflare returns one-use random prompt and capture profile
+  -> reachy_app.py captures one response
+  -> wallet_sidecar hashes exact uploaded bytes and signs capture statement
+  -> local/hosted verifier returns separate phrase, speaker, quality, and PAD
+  -> server verifies freshness, device proof, capture profile, and calibration
+  -> unapproved profile returns E1 and passkey
+  -> approved E2 enters server R1 policy
+  -> Router atomically reserves an issued grant for the exact request digest
+  -> reservation holder reaches SigningWorker
 ```
 
-VoiceID supplies ownerPresence evidence. It does not sign directly and it is not
-a bearer secret.
+Speech never constructs or mutates the transaction. A changed transaction,
+challenge, prompt, device, media hash, capture profile, identity, or expiry
+requires a new attempt.
 
 ## Non-Owner Command Flow
 
-For other speakers, the local policy can reject owner-only commands or return a
-payment-required path. The x402/payment flow belongs in the Cloudflare Worker
-policy layer so payment settlement, replay protection, and task authorization
-share the hosted durable-state boundary.
-
-Example:
+For other speakers, policy rejects owner-only commands or returns a payment-
+required path for explicitly public, low-risk actions. The x402/payment flow
+belongs in the Cloudflare durable-state boundary.
 
 ```text
-Alice asks Reachy to perform a paid task
-  -> local VoiceID says speaker is not owner
-  -> Cloudflare Worker returns payment-required policy
-  -> Alice scans a QR code or opens a payment link
-  -> Worker verifies settlement
+guest asks Reachy to perform a paid public task
+  -> owner policy does not match the speaker
+  -> Cloudflare returns payment requirements for exact RobotCommandDigest
+  -> guest completes payment
+  -> Worker verifies settlement and command scope
+  -> independent safety controller evaluates the action
   -> Reachy receives a short-lived task authorization
 ```
 
-## Data Rules
+Payment cannot buy privileged, owner-only, or unsafe robot commands. Protective
+stop, pause, and freeze remain available without identity or payment.
 
-Raw audio stays local by default. Upload diagnostics only when explicitly
-enabled with a retention window.
+## Capture Freshness And PAD
+
+Keep these results independent:
+
+- server challenge issue, receipt, expiry, and one-use state;
+- exact original audio/video hashes;
+- protected device-key signature and revocation state;
+- approved microphone/camera capture profile;
+- decoded usable-speech and single-speaker quality;
+- phrase and speaker verification;
+- calibrated audio PAD and, when required, audio-visual PAD.
+
+Browser timestamps, microphone labels, source ids, local replay-risk flags, and
+sidecar timestamps are telemetry. They cannot construct accepted freshness,
+device proof, PAD, or E2.
+
+Camera, face, mouth, active-speaker, and lip-sync work is specified in the
+[Audio-Visual PAD Future Plan](../../../docs/voiceId-camera-liveness-future.md).
+
+## Data Rules
 
 Persist by default:
 
-- encrypted owner template
-- model version
-- threshold version
-- policy version
-- enrollment id
-- verification id
-- ownerPresence result
-- liveness result
-- intentDigest
-- audit result kind
+- encrypted template and enrollment assurance;
+- model, threshold, aggregation, PAD, capture-profile, calibration, and policy
+  versions;
+- Router or robot-command binding;
+- challenge, evidence tier, grant, reservation, and terminal state;
+- device key id and revocation state;
+- coarse audit result kinds and deletion receipts.
 
 Do not persist by default:
 
-- raw enrollment audio
-- raw verification audio
-- full unredacted transcripts beyond the canonical command
+- raw enrollment or verification media;
+- embeddings outside the encrypted template store;
+- full transcripts beyond the expected prompt;
+- raw model responses, private keys, or signing shares.
 
-## Liveness
-
-Robot liveness is a policy input separate from speaker matching:
-
-- microphone capture timestamp
-- speech duration and freshness
-- microphone source attestation
-- replay risk
-- robot device id
-- local sidecar id
-
-Missing liveness should return `uncertain` for signing flows unless policy
-explicitly allows voice-only demo mode.
-
-Camera, face, mouth, and lip-sync liveness are deferred to
-`voiceId/docs/voiceId-camera-liveness-future.md`.
+Raw audio stays local when the approved verifier and PAD profile run locally.
+Server-backed mode uploads exact capture bytes through the authenticated API.
+Diagnostic upload always requires explicit consent, encryption, a short TTL,
+and deletion enforcement.
 
 ## Cloudflare Primary Deployment
 
-The robot sidecar should assume Cloudflare is the hosted control plane:
+- Workers: authenticated API, Router binding, challenge creation, evidence
+  assembly, R1 policy, x402/payment policy, and Router admission.
+- Containers: hosted Python verifier and approved PAD adapters.
+- D1 or Durable Objects: enrollment, verification, immutable binding,
+  challenge, revocation, grant, reservation, terminal, and audit state.
+- R2: opt-in diagnostic artifacts with explicit TTL and deletion receipts.
 
-- Workers: capture-facing API, policy assembly, x402/payment policy, intent
-  binding, and Router A/B admission.
-- Containers: hosted Python ECAPA verifier for server-backed verification.
-- D1 or Durable Objects: enrollment, verification, nonce, pending intent,
-  consumed intent, and audit records.
-- R2: opt-in diagnostic artifacts with explicit deletion policy.
-
-Robot-local mode can verify owner presence locally for low-latency UX, then send
-typed evidence to Cloudflare for hosted policy and signing. Server-backed mode
-can upload typed captures to Cloudflare and use the hosted verifier Container.
+Robot-local components may compute low-latency evidence parts. The server parses
+them once, verifies the device capture statement, assigns E0/E1/E2, and controls
+all wallet admission.
 
 ## Validation
 
@@ -172,3 +200,7 @@ Run the shared HTTP verifier smoke:
 ```sh
 pnpm -C voiceId smoke:python-http
 ```
+
+The security test plan adds challenge mutation, exact-media mismatch, device
+revocation, injected audio, PAD attack classes, concurrent grant reservation,
+terminal failure, and safety-state mutation coverage.

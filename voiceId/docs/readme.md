@@ -2,6 +2,9 @@
 
 Status: security positioning note.
 
+Normative security requirements:
+[VoiceID Signing Security Profile](voiceId-signing-security-profile.md).
+
 This note explains how VoiceID should be framed for embedded devices, robotics,
 and wallet transaction signing. It responds to common criticism of bank-style
 voice authentication and clarifies the security role VoiceID plays in this
@@ -9,10 +12,16 @@ system.
 
 ## Core Position
 
-VoiceID is a local biometric owner-presence signal for an embedded device. It
-belongs in the same product category as TouchID or FaceID: a liveness and
-presence check that gates access to device-bound key material and policy-bound
-signing flows.
+VoiceID is a probabilistic speaker and spoken-intent signal. Browser capture can
+support product experiments, accessibility, and risk policy. It cannot establish
+trusted local presence because web microphone input and capture metadata are not
+attested.
+
+A future embedded VoiceID path may contribute E2 signing-candidate evidence only
+after it satisfies the signing security profile: authenticated device proof,
+trusted capture provenance, independent presentation-attack detection, a
+server-generated challenge, exact transaction binding, and atomic one-use
+admission.
 
 VoiceID should never directly produce a wallet signature.
 
@@ -20,16 +29,17 @@ The signing authority remains cryptographic:
 
 ```text
 owner speaks near embedded device
-  -> device captures local voice and device context
-  -> device derives or receives a bounded intent
-  -> VoiceID checks local owner presence
-  -> server policy checks risk and session constraints
-  -> MPC signs only the bound intent
+  -> server fixes the Router operation and issues a challenge
+  -> approved device binds the exact capture to that challenge
+  -> VoiceID verifies independent E2 checks
+  -> server R1 policy issues one exact-operation grant
+  -> Router reserves the grant atomically
+  -> MPC signs only the admitted operation
 ```
 
-The voice signal helps decide whether the embedded client share may participate
-in a signing session. The MPC flow, device-bound key material, server policy,
-and intent digest define the actual authorization boundary.
+Voice evidence enters a narrow admission policy. The device proof, server-owned
+Router binding, one-use grant, MPC flow, and Router state transition define the
+authorization boundary.
 
 ## Why Bank Voice ID Criticism Is Valid
 
@@ -47,40 +57,42 @@ Common failure patterns:
    access.
 5. Synthetic audio can be injected into the phone path.
 
-Those critiques should shape our threat model. They do not rule out VoiceID as
-a local presence factor for embedded devices.
+Those critiques shape this threat model. An embedded VoiceID path is eligible
+for study only when its device and capture guarantees are independently
+specified and measured.
 
-## Rebuttal: VoiceID Is Like TouchID Or FaceID
+## Comparison With Platform Biometrics
 
-Biometrics are presence signals. They are not secrets.
+Biometrics are probabilistic measurements and are not secrets.
 
 Fingerprints can be lifted. Face scans can be spoofed. Voices can be cloned.
 Those facts do not make biometrics useless. They mean biometric checks must be
-bound to local device context, sensor liveness, rate limits, and cryptographic
+bound to local device context, calibrated PAD, rate limits, and cryptographic
 authorization.
 
-The right comparison is:
+TouchID and FaceID combine local comparison, protected sensors, platform rate
+limits, trusted user interaction, and a hardware-backed key boundary. The
+browser VoiceID MVP has a different assurance profile:
 
 ```text
-TouchID
-  -> checks local finger presence
-  -> unlocks device-bound key access
-  -> secure enclave / OS policy gates use
+platform biometric authenticator
+  -> performs biometric comparison inside a protected authenticator boundary
+  -> authorizes use of a device-bound private key
+  -> returns a signed assertion without disclosing the biometric
 
-FaceID
-  -> checks local face presence
-  -> evaluates liveness and attention
-  -> device policy gates key use
+browser VoiceID MVP
+  -> records caller-controlled web audio
+  -> measures phrase, quality, and speaker similarity
+  -> returns experimental risk evidence that cannot authorize signing
 
-Embedded VoiceID
-  -> checks local owner voice presence
-  -> pairs with command context, device policy, and optional step-up
-  -> device + server policy gates MPC signing
+future embedded VoiceID
+  -> authenticates the device and capture session
+  -> measures speaker, phrase, PAD, and optional audio-visual evidence
+  -> contributes one input to tightly bounded policy
 ```
 
-The biometric match is one input into a larger policy decision. A cloned
-fingerprint should not drain a wallet. A printed face should not drain a
-wallet. A cloned voice should not drain a wallet.
+The biometric match is one input into a larger policy decision. A cloned voice
+must not create signing authority.
 
 ## Rebuttal: Voice Cloning Alone Should Be Insufficient
 
@@ -91,21 +103,25 @@ Required controls:
 
 1. **Intent binding**: the spoken phrase or recognized command is bound to the
    exact action, recipient, amount, device, and expiry.
-2. **Local freshness and replay resistance**: the robot or embedded device
-   checks that speech is fresh, captured locally, and bound to the current
-   command window. Camera-backed liveness is a separate future plan in
-   `voiceId/docs/voiceId-camera-liveness-future.md`.
-3. **Device-bound key material**: the client signing share remains on the
+2. **Server challenge and capture binding**: the server issues the prompt only
+   after the exact intent is fixed. An authenticated device signs the challenge,
+   prompt hash, complete Router-binding digest, exact audio hash, capture
+   interval, capture profile, and expiry.
+3. **Presentation-attack detection**: an independently evaluated PAD path
+   measures replay, synthesis, voice conversion, and injection risk. Challenge
+   freshness alone is insufficient.
+4. **Device-bound key material**: the client signing share remains on the
    embedded device or its sidecar.
-4. **Server policy**: the server co-signer checks risk, rate limits, device
-   identity, allowed recipients, value limits, and session freshness.
-5. **MPC signing**: a valid transaction signature requires participation from
+5. **Server policy**: Router risk policy checks rate limits, device identity,
+   allowed recipients, value limits, session freshness, and evidence versions.
+6. **MPC signing**: a valid transaction signature requires participation from
    the device and server shares.
-6. **Step-up policy**: high-value, new-recipient, anomalous, or risky actions
-   require phone, watch, passkey, or another explicit factor.
+7. **Step-up policy**: high-value, new-recipient, anomalous, browser, or
+   unsupported actions require passkey. A future phone/watch flow must return a
+   device-bound cryptographic assertion before it can serve the same role.
 
-The attacker needs to satisfy a live local environment and policy stack. A
-voice clone file alone should fail.
+The signing profile requires each layer to fail closed. The current browser MVP
+does not satisfy this profile.
 
 ## Rebuttal: Prior Bank Bypasses Are Warnings, Not A Direct Match
 
@@ -126,26 +142,27 @@ Embedded wallet flow:
 
 ```text
 nearby owner command
-  -> local microphone + device context
-  -> owner presence check
-  -> intent digest
-  -> device-bound client share
-  -> server co-signer policy
-  -> MPC signature for that intent only
+  -> server-owned Router binding + challenge
+  -> approved capture + exact-media device proof
+  -> speaker + phrase + quality + freshness + PAD
+  -> server R1 policy + one-use grant
+  -> atomic Router reservation
+  -> MPC signature for that operation only
 ```
 
-The security boundary is narrower. The session is short-lived. The command is
-scoped. The signing flow is tied to a specific intent.
+The target boundary is narrow and one-use. Proximity itself is not trusted; the
+approved capture profile and calibration must establish every claimed signal.
 
 ## Rebuttal: Cryptographic MFA Still Exists
 
-MPC is the cryptographic control.
-
-VoiceID is a policy input. MPC is the signing mechanism.
+MPC protects key custody and produces the signature. VoiceID supplies policy
+evidence about the person and command. MPC does not improve the accuracy or
+liveness of that evidence.
 
 The embedded device should never treat a voiceprint as a private key, password,
-seed phrase, or bearer token. VoiceID authorizes the device to attempt a
-policy-bound signing flow. The signature still requires cryptographic shares.
+seed phrase, or bearer token. VoiceID may supply E2 evidence to server policy.
+Router admission still requires a reserved one-use grant, and the signature
+still requires cryptographic shares.
 
 ## Embedded Device UX
 
@@ -165,20 +182,20 @@ Voice is the natural command interface:
 ```
 
 For this class of device, the product goal is natural owner-command execution
-with bounded risk. VoiceID gives the device a local owner-presence signal while
-MPC and policy enforce the transaction boundary.
+within bounded risk. VoiceID supplies measured evidence while Router, MPC, and
+robot safety policy enforce their separate boundaries.
 
 ## Policy Tiers
 
 Use VoiceID differently based on risk.
 
-| Action type | Required policy |
-| --- | --- |
-| Low-risk robot command | Voice match + local freshness |
-| Owner-only robot action | Voice match + basic liveness |
-| Low-value known-recipient payment | Voice match + intent binding + server policy + MPC |
-| New recipient or medium-value payment | Voice + intent binding + MPC + tighter policy or step-up |
-| High-value or anomalous payment | Voice + liveness + MPC + phone/watch/passkey step-up |
+| Action type                                                       | Required policy                                                             |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Browser wallet action                                             | Voice intent UX + user-verified passkey + exact intent binding              |
+| Protective robot command                                          | No identity gate; safety controller handles execution                       |
+| Low-risk owner robot action                                       | Authenticated device + speaker + challenge + calibrated PAD + safety policy |
+| Low-value known-recipient embedded payment                        | Signing-grade voice evidence + strict caps/allowlist + exact intent + MPC   |
+| New recipient, elevated value, export, recovery, or policy change | Passkey or equivalent cryptographic step-up                                 |
 
 This keeps the happy path natural while preserving a clear escalation path.
 
@@ -186,59 +203,70 @@ This keeps the happy path natural while preserving a clear escalation path.
 
 Use this framing in product and security docs:
 
-> VoiceID is a biometric owner-presence check for embedded devices. It gates
-> whether a device-bound signing share may participate in an MPC signing flow
-> for a specific, short-lived intent. VoiceID does not replace cryptographic
-> signing, server policy, or step-up authentication for risky transactions.
+> VoiceID supplies probabilistic speaker, spoken-command, and presentation-risk
+> evidence for a specific, short-lived intent. Browser VoiceID is experimental
+> and cannot authorize signing. An embedded deployment may construct E2 evidence
+> only after authenticated capture, calibrated PAD, exact intent binding, and
+> one-use policy admission succeed.
 
 Short version:
 
-> VoiceID is the presence signal. MPC is the signing control.
+> VoiceID supplies human evidence. A device-bound key and policy authorize the
+> signature.
 
 ## Design Requirements
 
-Before VoiceID can authorize embedded transaction signing:
+Before an embedded VoiceID flow can enter R1 signing policy:
 
-1. Every signing request must have an `intentDigest`.
-2. The spoken phrase or parsed command must bind to that `intentDigest`.
-3. Voice matching must be separated from phrase or intent transcription.
-4. Camera-backed liveness belongs to
-   `voiceId/docs/voiceId-camera-liveness-future.md`.
-5. The embedded device should keep its signing share device-bound.
-6. The server co-signer should enforce risk policy before participating.
-7. Raw audio and diagnostic media should have explicit retention rules.
-8. High-risk transactions should require step-up authentication.
+1. The host derives identity and device scope from authenticated context rather
+   than request-body identifiers.
+2. Router typed transaction data is the source of truth for every signing
+   digest and human-readable prompt.
+3. The server issues a fresh challenge after fixing the exact intent.
+4. The authenticated device binds the challenge, prompt, intent, audio hash,
+   capture interval, and expiry in one signed proof.
+5. Speaker, phrase, quality, capture freshness, PAD, device proof, and intent
+   binding remain separate results.
+6. Signing-eligible types require all mandatory results. Experimental and
+   `not_required` branches cannot enter signing policy.
+7. A storage transaction or compare-and-set operation reserves and consumes
+   one-use authorization atomically with Router admission.
+8. Raw audio and diagnostic media follow explicit retention and deletion rules.
+9. High-risk transactions always require cryptographic step-up.
 
 ## What This Means For The MVP
 
-The browser VoiceID MVP now proves enrollment, verification, phrase-match,
-verifier-boundary mechanics, intent binding, liveness-aware owner-presence
-policy, and wallet policy handoff.
+The browser VoiceID MVP proves enrollment, speaker and phrase verification,
+quality gates, verifier-boundary mechanics, intent-associated policy plumbing,
+and experimental accepted/rejected/uncertain branches.
 
-Completed embedded transaction-signing prerequisites:
+Completed research prerequisites:
 
-1. Intent-digest binding.
-2. Owner-presence policy and replay resistance.
-3. Device and sidecar policy context.
+1. Client/shared digest canonicalization and caller-supplied equality checks,
+   classified as E0 prototype behavior.
+2. Typed client-reported freshness and replay-risk policy inputs.
+3. Client-reported device and sidecar context.
 4. Wallet policy tiers and step-up results.
-5. Router A/B normal-signing admission with matching VoiceID evidence and
-   Router `intent_digest`.
-6. SigningWorker admission checks for admitted intent-bound requests.
+5. A deferred Router A/B adapter contract.
 
 Remaining implementation work:
 
-1. Add normal SDK coverage for typed wallet policy consumption after
-   owner-presence authorization.
-2. Expand normal SDK demo or fixture coverage around that policy consumption.
-3. Implement the concrete Router A/B admission adapter in
-   `voiceId/docs/voiceId-router-policy-issuer.md`.
-4. Add an end-to-end test from accepted VoiceID wallet policy decision to Router
+1. Replace fixed multi-sample enrollment with one guided continuous recording,
+   internal VAD windows, and calibrated usable-speech evidence.
+2. Replace client-asserted liveness with signing-profile evidence types.
+3. Add authenticated subject and device proof to enrollment and verification.
+4. Generate challenges and policy server-side and bind them to the exact Router
+   digest tuple and captured-audio hash.
+5. Implement and calibrate independent replay, synthesis, voice-conversion, and
+   injection PAD.
+6. Implement atomic authorization reservation and consumption.
+7. Implement the concrete Router A/B admission adapter in
+   [Router policy issuer](voiceId-router-policy-issuer.md).
+8. Add an end-to-end test from an E2 policy-issued grant to Router
    admission, SigningWorker prepare/finalize, and signature after the normal SDK
    path works.
-5. Re-run fixture evaluation after verifier, threshold, or liveness-policy
-   changes.
-6. Collect true independent human different-speaker clips before tightening
-   speaker thresholds.
+9. Calibrate speaker and PAD decisions with subject-disjoint human and attack
+   fixtures across supported capture channels.
 
 Camera, face, mouth, and lip-sync work is tracked separately in
-`voiceId/docs/voiceId-camera-liveness-future.md`.
+[Audio-Visual PAD Future Plan](voiceId-camera-liveness-future.md).
