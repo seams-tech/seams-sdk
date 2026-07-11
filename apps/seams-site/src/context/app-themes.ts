@@ -1,4 +1,5 @@
-import type { ThemeProps, SeamsConfigsInput } from '@seams/sdk/react';
+import { SHAPE_PRESETS } from '@seams/sdk/react';
+import type { ThemeProps, SeamsConfigsInput, WalletShapeId } from '@seams/sdk/react';
 
 export type AppThemePreset = 'rose-pine-dark' | 'rose-pine-light';
 
@@ -84,7 +85,9 @@ export const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
 
   colorBackground: '#faf4ed',
   surface: '#fffaf3',
-  surface2: '#f2e9de',
+  // lighter than Rose Pine's stock overlay so the seg track / readout
+  // surfaces stay airy on the cream card
+  surface2: '#f7f0e6',
   txDetailsBackground: '#fffaf3',
   surface3: '#eee6dc',
   surface4: '#e5dcd2',
@@ -149,11 +152,12 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
 
   buttonBackground: '#000000',
   buttonHoverBackground: '#262626',
-  // black secondary accent (Google SSO) button
-  secondaryButtonBackground: '#000000',
-  secondaryButtonHoverBackground: '#262626',
-  secondaryButtonBorder: 'transparent',
-  secondaryButtonText: '#fdfcfc',
+  // quiet bordered-white secondary (Google SSO): one black CTA per card,
+  // like the ElevenLabs button hierarchy
+  secondaryButtonBackground: '#ffffff',
+  secondaryButtonHoverBackground: '#f5f3f1',
+  secondaryButtonBorder: '#dcd6cd',
+  secondaryButtonText: '#000000',
 
   // white menu card; the reference's eggshell #fdfcfc read too warm here
   colorBackground: '#ffffff',
@@ -179,9 +183,11 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
   highlightPrimary: '#6f9fd8',
   highlightRow: 'rgba(111, 159, 216, 0.12)',
   highlightHalo: '#c7dcf4',
-  highlightReceiver: '#6f9fd8',
-  highlightMethodName: '#6f9fd8',
-  highlightAmount: '#6f9fd8',
+  // one accent in the tx tree: the receiver/contract address. Method names
+  // and amounts read in ink (ElevenLabs accent discipline).
+  highlightReceiver: '#4a6fa5',
+  highlightMethodName: '#000000',
+  highlightAmount: '#000000',
 };
 
 // "Midnight" — deep navy surfaces with a soft mint accent.
@@ -412,6 +418,8 @@ export interface DemoThemePreset {
   swatch: string;
   /** The active mode's color token map (source of truth for both consumers below). */
   colors: Record<string, string>;
+  /** Component geometry: 'square' (EL-style rects, default) or 'rounded' (soft pills). */
+  shape?: WalletShapeId;
 }
 
 export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
@@ -444,6 +452,9 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     // lavender reads most distinctly "pastel" next to the other swatches
     swatch: '#DBCDF0',
     colors: PASTEL_LIGHT_COLORS,
+    // the soft pill geometry suits the pastel personality — and demos that
+    // shape is themable alongside color
+    shape: 'rounded',
   },
   {
     id: 'pastel-dark',
@@ -451,6 +462,7 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     mode: 'dark',
     swatch: '#1e1d22',
     colors: PASTEL_DARK_COLORS,
+    shape: 'rounded',
   },
   {
     id: 'midnight',
@@ -464,18 +476,22 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
 /** Build the React `<Theme tokens={...}>` value for a preset (includes a contained shadow). */
 export function demoReactTokens(preset: DemoThemePreset): ThemeProps['tokens'] {
   const shadows = { lg: preset.mode === 'dark' ? CONTAINED_SHADOW_DARK : CONTAINED_SHADOW_LIGHT };
+  const shape = SHAPE_PRESETS[preset.shape ?? 'square'];
   return preset.mode === 'dark'
-    ? { dark: { colors: preset.colors, shadows } }
-    : { light: { colors: preset.colors, shadows } };
+    ? { dark: { colors: preset.colors, shadows, shape } }
+    : { light: { colors: preset.colors, shadows, shape } };
 }
 
-/** Build the wallet-iframe appearance (colors only) for a preset — fed to seams.setAppearance. */
+/** Build the wallet-iframe appearance (colors + shape) for a preset — fed to seams.setAppearance. */
 export function demoIframeAppearance(preset: DemoThemePreset): SdkAppearance {
   return {
     theme: {
       id: preset.id,
       mode: preset.mode,
       colors: preset.colors,
+      /* always send the full shape record so switching rounded → square
+         overwrites every key (the host merges appearance updates) */
+      shape: { ...SHAPE_PRESETS[preset.shape ?? 'square'] },
     },
     palette: 'default',
   };

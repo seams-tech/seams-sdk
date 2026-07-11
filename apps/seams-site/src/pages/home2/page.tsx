@@ -13,7 +13,6 @@ import {
   Slack,
   Store,
   Wallet,
-  X,
 } from 'lucide-react';
 import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
 import { DEMO_THEME_PRESETS } from '@/context/app-themes';
@@ -224,7 +223,6 @@ function WalletTransactionPreview(): React.JSX.Element {
     >
       <div className="h2-wallet-confirm__card h2-wallet-confirm__card--front h2-txmock">
         <span className="h2-txmock__handle" />
-        <X className="h2-txmock__close" aria-hidden />
         <p className="h2-txmock__title">Review transaction</p>
         <p className="h2-txmock__meta">
           <Lock aria-hidden /> localhost
@@ -233,7 +231,7 @@ function WalletTransactionPreview(): React.JSX.Element {
         <p className="h2-txmock__desc">Release escrow for order #8841: delivery confirmed.</p>
         <div className="h2-txmock__tree">
           <p>
-            Transaction to contract <strong>0xE5C7...F204</strong>
+            Transaction to contract <strong className="h2-txmock__addr">0xE5C7...F204</strong>
           </p>
           <p className="h2-txmock__step">
             Calling <strong>verifyDelivery()</strong>

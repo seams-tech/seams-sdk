@@ -118,6 +118,10 @@ export default defineConfig({
                 link: '/concepts/threshold-signing/streaming-yao-ab',
               },
               {
+                text: 'Blind Deterministic Derivation',
+                link: '/concepts/threshold-signing/blind-deterministic-derivation',
+              },
+              {
                 text: 'Serverless Threshold Signing',
                 link: '/concepts/threshold-signing/serverless-threshold-signing',
               },
