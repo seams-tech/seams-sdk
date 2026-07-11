@@ -66,8 +66,10 @@ w3a-drawer .drawer,
   border-radius: var(--w3a-drawer__sheet-radius) var(--w3a-drawer__sheet-radius) 0 0;
   border: none;
   transform: translateY(100%);
-  transition: transform var(--w3a-drawer__transition-duration, 100ms)
-    var(--w3a-drawer__transition-easing, cubic-bezier(0.2, 0.6, 0.2, 1));
+  transition:
+    transform var(--w3a-drawer__transition-duration, 100ms)
+      var(--w3a-drawer__transition-easing, cubic-bezier(0.2, 0.6, 0.2, 1)),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
   box-shadow: 0 0px 8px rgba(0, 0, 0, 0.2);
   padding: 0.5rem;
