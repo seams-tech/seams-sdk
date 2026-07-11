@@ -1,5 +1,9 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
+  ed25519MaterialAdvanceWouldRegress,
+  type Ed25519MaterialAdvance,
+} from '../ed25519MaterialAdvance';
+import {
   normalizeInteger,
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
@@ -4233,47 +4237,51 @@ export function upsertThresholdEd25519SessionFact(
   });
 }
 
+// Material fields are written advance-only: callers must present an
+// Ed25519MaterialAdvance token, mintable solely from a worker seal outcome
+// (see session/ed25519MaterialAdvance.ts) — the one place a new material
+// generation legitimately originates. On top of the token requirement, this
+// function refuses writes that would move the record's material generation
+// backward: a stale generation landing here (an out-of-order async writer, a
+// republished durable cache) must never overwrite newer material, because every
+// consumer that already resolved the newer identity would silently desynchronize.
 export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
   thresholdSessionId: string;
-  ed25519WorkerMaterialHandle: string;
-  ed25519WorkerMaterialBindingDigest: string;
-  clientVerifyingShareB64u: string;
-  sealedWorkerMaterialRef: string;
-  sealedWorkerMaterialB64u: string;
-  materialFormatVersion: string;
-  materialKeyId: string;
-  materialCreatedAtMs: number;
-  signerSlot: number;
+  advance: Ed25519MaterialAdvance;
   updatedAtMs?: number;
 }): ThresholdEd25519SessionRecord | null {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const ed25519WorkerMaterialHandle = String(args.ed25519WorkerMaterialHandle || '').trim();
-  const ed25519WorkerMaterialBindingDigest = String(
-    args.ed25519WorkerMaterialBindingDigest || '',
-  ).trim();
-  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
-  const sealedWorkerMaterialRef = String(args.sealedWorkerMaterialRef || '').trim();
-  const sealedWorkerMaterialB64u = String(args.sealedWorkerMaterialB64u || '').trim();
-  const materialFormatVersion = String(args.materialFormatVersion || '').trim();
-  const materialKeyId = String(args.materialKeyId || '').trim();
-  const materialCreatedAtMs = Math.floor(Number(args.materialCreatedAtMs) || 0);
-  const signerSlot = Math.floor(Number(args.signerSlot) || 0);
-  if (
-    !thresholdSessionId ||
-    !ed25519WorkerMaterialHandle ||
-    !ed25519WorkerMaterialBindingDigest ||
-    !clientVerifyingShareB64u ||
-    !sealedWorkerMaterialRef ||
-    !sealedWorkerMaterialB64u ||
-    !materialFormatVersion ||
-    !materialKeyId ||
-    materialCreatedAtMs <= 0 ||
-    signerSlot <= 0
-  ) {
-    return null;
-  }
+  if (!thresholdSessionId) return null;
+  const {
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle,
+    ed25519WorkerMaterialBindingDigest,
+    sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u,
+    materialFormatVersion,
+    materialKeyId,
+    materialCreatedAtMs,
+    signerSlot,
+  } = args.advance;
   const existing = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
   if (!existing) return null;
+  if (
+    ed25519MaterialAdvanceWouldRegress({
+      advance: args.advance,
+      existingMaterialKeyId: existing.materialKeyId,
+      existingMaterialCreatedAtMs: existing.materialCreatedAtMs,
+    })
+  ) {
+    console.warn(
+      '[SigningSession] refused Ed25519 material write that would regress the record generation',
+      {
+        thresholdSessionId,
+        existingMaterialCreatedAtMs: existing.materialCreatedAtMs,
+        incomingMaterialCreatedAtMs: materialCreatedAtMs,
+      },
+    );
+    return null;
+  }
   const upserted = upsertThresholdEd25519SessionFact({
     walletId: existing.walletId,
     nearAccountId: existing.nearAccountId,

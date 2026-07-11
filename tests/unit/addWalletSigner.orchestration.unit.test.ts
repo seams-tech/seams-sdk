@@ -14,6 +14,7 @@ import {
   clearAllThresholdEcdsaSessionRecords,
   persistStoredThresholdEd25519SessionMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { ed25519MaterialAdvanceFromWorkerSeal } from '../../packages/sdk-web/src/core/signingEngine/session/ed25519MaterialAdvance';
 import { emailOtpRecoveryCodeBackupRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import {
@@ -589,8 +590,7 @@ function createContext(captures: Record<string, unknown>): any {
     captures.hydratedSession = input;
     const transport = input.transport as Record<string, unknown> | undefined;
     if (transport?.curve !== 'ed25519') return;
-    const record = persistStoredThresholdEd25519SessionMaterialHandle({
-      thresholdSessionId: String(input.sessionId || ''),
+    const advance = ed25519MaterialAdvanceFromWorkerSeal({
       ed25519WorkerMaterialHandle: 'registration-ed25519-worker-material',
       materialKeyId: 'registration-ed25519-material-key',
       ed25519WorkerMaterialBindingDigest: 'registration-ed25519-worker-binding',
@@ -600,8 +600,13 @@ function createContext(captures: Record<string, unknown>): any {
       materialFormatVersion: 'ed25519_worker_material_v1',
       materialCreatedAtMs: 1_700_000_000_000,
       signerSlot: 1,
-      keyVersion: 'threshold-ed25519-hss-v1',
     });
+    const record = advance
+      ? persistStoredThresholdEd25519SessionMaterialHandle({
+          thresholdSessionId: String(input.sessionId || ''),
+          advance,
+        })
+      : null;
     if (record) {
       markRouterAbEd25519WorkerMaterialRuntimeValidated(record);
     }

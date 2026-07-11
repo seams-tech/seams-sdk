@@ -56,8 +56,8 @@ import type {
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
-  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { resolveEd25519RestoreMaterialIdentity } from '@/core/signingEngine/session/ed25519MaterialAuthority';
 import type { SigningSessionStatus } from '@/core/types/seams';
 
 export type NearSigningSessionAuthPlan = {
@@ -1200,13 +1200,19 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();
   const candidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
-  const materialIdentity = routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
+  // This pre-planning restore has no lane snapshot to offer as a hint; it acts
+  // purely on the live record's material identity (hint: null), so an
+  // 'unavailable' resolution means the record currently holds no restorable
+  // material and the sealed restore cannot be planned.
+  const materialResolution = resolveEd25519RestoreMaterialIdentity({
+    thresholdSessionId,
+    hint: null,
+  });
   if (
     !signingGrantId ||
     !thresholdSessionId ||
     !candidate ||
-    !materialIdentity
+    materialResolution.kind !== 'resolved'
   ) {
     return {
       kind: 'missing_sealed_material',
@@ -1236,8 +1242,7 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
           signingGrantId,
           thresholdSessionId,
         }),
-        materialBindingDigest: materialIdentity.bindingDigest,
-        materialKeyId: materialIdentity.materialKeyId,
+        material: materialResolution.identity,
       },
     });
     if (result.deferred > 0) {

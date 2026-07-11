@@ -241,16 +241,19 @@ function exactPurposeForAcceptedRecord(
     if (!ed25519RestoreRecordMatchesLaneIdentity(exactRecord, input.materialRestoreIdentity.lane)) {
       return null;
     }
+    // The request's material identity was resolved at the restore boundary
+    // (live record first, caller hint as fallback). A durable record that names
+    // a different material generation is not the seal this restore is for.
     const materialIdentity = ed25519SealedRecoveryMaterialIdentity(exactRecord);
     if (
       String(materialIdentity.bindingDigest).trim() !==
-      String(input.materialRestoreIdentity.materialBindingDigest)
+      String(input.materialRestoreIdentity.material.bindingDigest)
     ) {
       return null;
     }
     if (
       String(materialIdentity.materialKeyId).trim() !==
-      String(input.materialRestoreIdentity.materialKeyId)
+      String(input.materialRestoreIdentity.material.materialKeyId)
     ) {
       return null;
     }

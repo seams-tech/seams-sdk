@@ -9,6 +9,7 @@ const IMPORT_PATHS = {
   warmSessionCapabilityReader:
     '/_test-sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
   thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
+  ed25519MaterialAdvance: '/_test-sdk/esm/core/signingEngine/session/ed25519MaterialAdvance.js',
   routerAbSigningWalletSession:
     '/_test-sdk/esm/core/signingEngine/session/routerAbSigningWalletSession.js',
   ed25519SigningMaterialReadiness:
@@ -2201,16 +2202,17 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
           const persisted = storeMod.persistStoredThresholdEd25519SessionMaterialHandle({
             thresholdSessionId: 'threshold-session',
-            ed25519WorkerMaterialHandle: 'ed25519-worker-material:threshold-session:new-binding',
-            materialKeyId: 'material-key-threshold-session',
-            ed25519WorkerMaterialBindingDigest: 'new-binding',
-            clientVerifyingShareB64u: 'new-client-verifying-share',
-            sealedWorkerMaterialRef: 'sealed-worker-material-ref',
-            sealedWorkerMaterialB64u: 'sealed-worker-material-blob',
-            materialFormatVersion: 'ed25519_worker_material_v1',
-            materialCreatedAtMs: 1_700_000_000_000,
-            signerSlot: 1,
-            keyVersion: 'threshold-ed25519-hss-v1',
+            advance: (await import(paths.ed25519MaterialAdvance)).ed25519MaterialAdvanceFromWorkerSeal({
+              ed25519WorkerMaterialHandle: 'ed25519-worker-material:threshold-session:new-binding',
+              materialKeyId: 'material-key-threshold-session',
+              ed25519WorkerMaterialBindingDigest: 'new-binding',
+              clientVerifyingShareB64u: 'new-client-verifying-share',
+              sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+              sealedWorkerMaterialB64u: 'sealed-worker-material-blob',
+              materialFormatVersion: 'ed25519_worker_material_v1',
+              materialCreatedAtMs: 1_700_000_000_000,
+              signerSlot: 1,
+            }),
           });
           const readback =
             storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
@@ -2308,16 +2310,18 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             signingSessionMod.classifyRouterAbEd25519PersistedSigningRecord(pendingRecord);
           const persisted = storeMod.persistStoredThresholdEd25519SessionMaterialHandle({
             thresholdSessionId: 'pending-threshold-session',
-            ed25519WorkerMaterialHandle: 'ed25519-worker-material:pending-threshold-session:new-binding',
-            materialKeyId: 'material-key-pending-session',
-            ed25519WorkerMaterialBindingDigest: 'new-binding',
-            clientVerifyingShareB64u: 'new-client-verifying-share',
-            sealedWorkerMaterialRef: 'pending-sealed-worker-material-ref',
-            sealedWorkerMaterialB64u: 'pending-sealed-worker-material-blob',
-            materialFormatVersion: 'ed25519_worker_material_v1',
-            materialCreatedAtMs: 1_700_000_000_000,
-            signerSlot: 1,
-            keyVersion: 'threshold-ed25519-hss-v1',
+            advance: (await import(paths.ed25519MaterialAdvance)).ed25519MaterialAdvanceFromWorkerSeal({
+              ed25519WorkerMaterialHandle:
+                'ed25519-worker-material:pending-threshold-session:new-binding',
+              materialKeyId: 'material-key-pending-session',
+              ed25519WorkerMaterialBindingDigest: 'new-binding',
+              clientVerifyingShareB64u: 'new-client-verifying-share',
+              sealedWorkerMaterialRef: 'pending-sealed-worker-material-ref',
+              sealedWorkerMaterialB64u: 'pending-sealed-worker-material-blob',
+              materialFormatVersion: 'ed25519_worker_material_v1',
+              materialCreatedAtMs: 1_700_000_000_000,
+              signerSlot: 1,
+            }),
           });
           const repairedRecord =
             storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
@@ -2565,17 +2569,18 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             );
           const persisted = storeMod.persistStoredThresholdEd25519SessionMaterialHandle({
             thresholdSessionId: 'slot-shift-threshold-session',
-            ed25519WorkerMaterialHandle:
-              'ed25519-worker-material:slot-shift-threshold-session:new-binding',
-            materialKeyId: 'material-key-slot-shift',
-            ed25519WorkerMaterialBindingDigest: 'slot-shift-binding',
-            clientVerifyingShareB64u: 'slot-shift-client-verifying-share',
-            sealedWorkerMaterialRef: 'slot-shift-sealed-worker-material-ref',
-            sealedWorkerMaterialB64u: 'slot-shift-sealed-worker-material-blob',
-            materialFormatVersion: 'ed25519_worker_material_v1',
-            materialCreatedAtMs: 1_700_000_000_000,
-            signerSlot: 2,
-            keyVersion: 'threshold-ed25519-hss-v1',
+            advance: (await import(paths.ed25519MaterialAdvance)).ed25519MaterialAdvanceFromWorkerSeal({
+              ed25519WorkerMaterialHandle:
+                'ed25519-worker-material:slot-shift-threshold-session:new-binding',
+              materialKeyId: 'material-key-slot-shift',
+              ed25519WorkerMaterialBindingDigest: 'slot-shift-binding',
+              clientVerifyingShareB64u: 'slot-shift-client-verifying-share',
+              sealedWorkerMaterialRef: 'slot-shift-sealed-worker-material-ref',
+              sealedWorkerMaterialB64u: 'slot-shift-sealed-worker-material-blob',
+              materialFormatVersion: 'ed25519_worker_material_v1',
+              materialCreatedAtMs: 1_700_000_000_000,
+              signerSlot: 2,
+            }),
           });
           const after = storeMod
             .listStoredThresholdEd25519SessionLaneRecordsForWallet(nearAccountId)

@@ -4,6 +4,7 @@ import {
   thresholdEd25519LaneCandidateFromSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { ed25519MaterialAdvanceFromWorkerSeal } from '@/core/signingEngine/session/ed25519MaterialAdvance';
 import {
   emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
@@ -128,19 +129,25 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
     runtimePolicyScope: args.signingWalletSession.runtimePolicyScope,
     relayerUrl: String(record.relayerUrl || '').trim(),
     persistSigningMaterial: (material: NearEd25519PersistableSigningMaterial) => {
+      // The persistable material originates from the worker; mint the advance-only
+      // write token from it. The store refuses generation regressions.
+      const advance = ed25519MaterialAdvanceFromWorkerSeal({
+        clientVerifyingShareB64u: material.clientVerifyingShareB64u,
+        ed25519WorkerMaterialHandle: material.materialHandle,
+        ed25519WorkerMaterialBindingDigest: material.bindingDigest,
+        sealedWorkerMaterialRef: material.sealedWorkerMaterialRef,
+        sealedWorkerMaterialB64u: material.sealedWorkerMaterialB64u,
+        materialFormatVersion: material.materialFormatVersion,
+        materialKeyId: material.materialKeyId,
+        materialCreatedAtMs: material.materialCreatedAtMs,
+        signerSlot: material.signerSlot,
+      });
       const persisted = Boolean(
-        persistStoredThresholdEd25519SessionMaterialHandle({
-          thresholdSessionId,
-          ed25519WorkerMaterialHandle: material.materialHandle,
-          ed25519WorkerMaterialBindingDigest: material.bindingDigest,
-          clientVerifyingShareB64u: material.clientVerifyingShareB64u,
-          sealedWorkerMaterialRef: material.sealedWorkerMaterialRef,
-          sealedWorkerMaterialB64u: material.sealedWorkerMaterialB64u,
-          materialFormatVersion: material.materialFormatVersion,
-          materialKeyId: material.materialKeyId,
-          materialCreatedAtMs: material.materialCreatedAtMs,
-          signerSlot: material.signerSlot,
-        }),
+        advance &&
+          persistStoredThresholdEd25519SessionMaterialHandle({
+            thresholdSessionId,
+            advance,
+          }),
       );
       if (persisted) {
         markRouterAbEd25519WorkerMaterialRuntimeValidated(

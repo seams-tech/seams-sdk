@@ -24,6 +24,7 @@ import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
+import { resolveEd25519RestoreMaterialIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/ed25519MaterialAuthority';
 import {
   nearEd25519SigningKeyIdFromString,
   walletIdFromString,
@@ -192,12 +193,28 @@ function ed25519RestoreInput(
         signingGrantId,
         thresholdSessionId,
       }),
-      materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      material: requireTestEd25519RestoreMaterial(thresholdSessionId),
+    },
+  };
+}
+
+// Restore material identities are only constructible via the boundary resolver
+// (session/ed25519MaterialAuthority.ts). With no live record in the store the
+// resolution falls back to the supplied hint, mirroring production behavior.
+function requireTestEd25519RestoreMaterial(thresholdSessionId: string) {
+  const resolution = resolveEd25519RestoreMaterialIdentity({
+    thresholdSessionId,
+    hint: {
+      bindingDigest: parseEd25519WorkerMaterialBindingDigest(
         TEST_ED25519_MATERIAL_BINDING_DIGEST,
       ),
       materialKeyId: parseEd25519WorkerMaterialKeyId(TEST_ED25519_MATERIAL_KEY_ID),
     },
-  };
+  });
+  if (resolution.kind !== 'resolved') {
+    throw new Error('expected test Ed25519 restore material to resolve');
+  }
+  return resolution.identity;
 }
 
 function makeSealedRecord(args: {
@@ -856,8 +873,10 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       curve: 'ed25519',
       signingGrantId: 'wsess-ecdsa-primary',
       thresholdSessionId: 'tsess-ed25519-companion',
-      ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
-      materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
+      materialCache: {
+        ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
+        materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
+      },
     });
   });
 });

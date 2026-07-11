@@ -150,22 +150,37 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 };
 
-type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
-  curve: 'ed25519';
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  relayerUrl: string;
-  relayerKeyId: string;
-  participantIds: readonly number[];
+// The durable record's material fields are a CACHE of the runtime session
+// record's material, written at seal time. Material rotates in generations
+// (materialCreatedAtMs is baked into materialKeyId), so this cache can be
+// generations behind the live record. Grouping the fields under `materialCache`
+// keeps that epistemic status visible at every consumer: cache data plans
+// restores and feeds lane hints; it must never overwrite newer runtime material
+// (see session/ed25519MaterialAdvance.ts) and must never be compared against the
+// live record as a hard equality (see session/ed25519MaterialAuthority.ts).
+export type Ed25519SealedMaterialCache = {
   clientVerifyingShareB64u: string;
   ed25519WorkerMaterialBindingDigest: string;
   sealedWorkerMaterialRef: string;
   sealedWorkerMaterialB64u?: string;
   materialFormatVersion: string;
   materialKeyId: string;
+  /** Material generation (binding createdAtMs); orders this cache vs the runtime record. */
   materialCreatedAtMs: number;
+};
+
+type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
+  curve: 'ed25519';
+  // Identity fields: long-lived truth about the lane this record can restore.
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+  participantIds: readonly number[];
   signerSlot: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  // Cache fields: refreshable snapshot of the material generation sealed here.
+  materialCache: Ed25519SealedMaterialCache;
 };
 
 export type SealedRecoveryWalletSessionAuth = {
@@ -265,8 +280,8 @@ export function ed25519SealedRecoveryMaterialIdentity(
   record: Ed25519SealedRecoveryMaterialIdentityRecord,
 ): Ed25519SealedRecoveryMaterialIdentity {
   return {
-    bindingDigest: record.ed25519WorkerMaterialBindingDigest,
-    materialKeyId: record.materialKeyId,
+    bindingDigest: record.materialCache.ed25519WorkerMaterialBindingDigest,
+    materialKeyId: record.materialCache.materialKeyId,
   };
 }
 
@@ -320,20 +335,9 @@ function normalizePasskeyEcdsaRestoreSource(
   return source && source !== 'email_otp' ? source : null;
 }
 
-type Ed25519SealedWorkerMaterialFields = Pick<
-  Ed25519SealedRecoveryRecordBase,
-  | 'clientVerifyingShareB64u'
-  | 'ed25519WorkerMaterialBindingDigest'
-  | 'sealedWorkerMaterialRef'
-  | 'sealedWorkerMaterialB64u'
-  | 'materialFormatVersion'
-  | 'materialKeyId'
-  | 'materialCreatedAtMs'
->;
-
 function normalizedEd25519WorkerMaterialFields(
   restore: RawEd25519RestoreMetadata,
-): Ed25519SealedWorkerMaterialFields | null {
+): Ed25519SealedMaterialCache | null {
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore.clientVerifyingShareB64u);
   const ed25519WorkerMaterialBindingDigest = normalizeNonEmptyString(
     restore.ed25519WorkerMaterialBindingDigest,
@@ -781,7 +785,7 @@ export function normalizeSealedRecoveryRecord(
 	          relayerUrl,
 	          nearAccountId: companionNearAccountId,
 	          nearEd25519SigningKeyId: companionNearEd25519SigningKeyId,
-	          ...companionEd25519WorkerMaterial,
+	          materialCache: companionEd25519WorkerMaterial,
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
           signerSlot: companionSignerSlot,
@@ -1090,7 +1094,7 @@ export function normalizeSealedRecoveryRecord(
 	          relayerUrl,
 		          nearAccountId,
 		          nearEd25519SigningKeyId,
-		          ...ed25519WorkerMaterial,
+		          materialCache: ed25519WorkerMaterial,
           relayerKeyId,
           participantIds,
           signerSlot,
@@ -1120,7 +1124,7 @@ export function normalizeSealedRecoveryRecord(
 	          relayerUrl,
 		          nearAccountId,
 		          nearEd25519SigningKeyId,
-		          ...ed25519WorkerMaterial,
+		          materialCache: ed25519WorkerMaterial,
           relayerKeyId,
           participantIds,
           signerSlot,

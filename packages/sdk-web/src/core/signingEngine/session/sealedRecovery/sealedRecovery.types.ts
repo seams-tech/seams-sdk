@@ -3,11 +3,8 @@ import type {
   ExactEcdsaSigningLaneIdentity,
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import type {
-  EcdsaThresholdKeyId,
-  Ed25519WorkerMaterialBindingDigest,
-  Ed25519WorkerMaterialKeyId,
-} from '../keyMaterialBrands';
+import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
+import type { Ed25519RestoreMaterialIdentity } from '../ed25519MaterialAuthority';
 import type {
   RawSigningSessionSealedStoreRecord,
   RejectedSealedRecoveryRecord,
@@ -46,8 +43,12 @@ export type RestorePersistedSessionForSigningInput =
       materialRestoreIdentity: {
         kind: 'ed25519_worker_material_restore';
         lane: ExactEd25519SigningLaneIdentity;
-        materialBindingDigest: Ed25519WorkerMaterialBindingDigest;
-        materialKeyId: Ed25519WorkerMaterialKeyId;
+        // Resolved at the restore boundary against the live session record —
+        // resolveEd25519RestoreMaterialIdentity is the only constructor. Raw lane
+        // snapshots and durable-cache identities are planning data and deliberately
+        // do not typecheck here; they must pass through the resolver, which prefers
+        // the live record and only falls back to a hint when no authority exists.
+        material: Ed25519RestoreMaterialIdentity;
         ecdsaThresholdKeyId?: never;
       };
     })
@@ -58,8 +59,7 @@ export type RestorePersistedSessionForSigningInput =
         kind: 'ecdsa_role_local_restore';
         lane: ExactEcdsaSigningLaneIdentity;
         ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-        materialBindingDigest?: never;
-        materialKeyId?: never;
+        material?: never;
       };
     });
 

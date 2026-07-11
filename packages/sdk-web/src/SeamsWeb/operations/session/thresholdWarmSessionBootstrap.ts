@@ -42,6 +42,7 @@ import {
   type ThresholdEd25519SessionRecord,
   upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
+import { ed25519MaterialAdvanceFromWorkerSeal } from '@/core/signingEngine/session/ed25519MaterialAdvance';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
@@ -2256,8 +2257,9 @@ function persistCompletedThresholdEd25519WorkerSigningMaterial(args: {
   if (!clientVerifyingShareB64u) {
     throw new Error(`${args.errorContext} worker material missing verifying share`);
   }
-  const persisted = persistStoredThresholdEd25519SessionMaterialHandle({
-    thresholdSessionId: args.sessionId,
+  // Registration mints a brand-new material generation from the worker outcome;
+  // the advance-only store API enforces that it can only move the record forward.
+  const advance = ed25519MaterialAdvanceFromWorkerSeal({
     clientVerifyingShareB64u,
     ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
     ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
@@ -2268,6 +2270,12 @@ function persistCompletedThresholdEd25519WorkerSigningMaterial(args: {
     materialCreatedAtMs: args.materialCreatedAtMs,
     signerSlot: signingMaterial.signerSlot,
   });
+  const persisted = advance
+    ? persistStoredThresholdEd25519SessionMaterialHandle({
+        thresholdSessionId: args.sessionId,
+        advance,
+      })
+    : null;
   if (!persisted) {
     throw new Error(`${args.errorContext} worker material record was not persisted`);
   }
@@ -3024,8 +3032,10 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   if (!clientVerifyingShareB64u) {
     throw new Error('Failed to store threshold Ed25519 worker signing material');
   }
-  const persisted = persistStoredThresholdEd25519SessionMaterialHandle({
-    thresholdSessionId,
+  // Reconstruct mints a brand-new material generation (fresh binding createdAtMs)
+  // from the worker outcome; the advance-only store API enforces that it can only
+  // move the record forward.
+  const advance = ed25519MaterialAdvanceFromWorkerSeal({
     clientVerifyingShareB64u,
     ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
     ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
@@ -3036,6 +3046,12 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
     materialCreatedAtMs: materialBinding.createdAtMs,
     signerSlot: signingMaterial.signerSlot,
   });
+  const persisted = advance
+    ? persistStoredThresholdEd25519SessionMaterialHandle({
+        thresholdSessionId,
+        advance,
+      })
+    : null;
   if (!persisted) {
     throw new Error('Failed to persist HSS client output to the threshold session store');
   }

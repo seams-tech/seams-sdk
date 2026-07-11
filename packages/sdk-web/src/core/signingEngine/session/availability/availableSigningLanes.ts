@@ -248,18 +248,34 @@ export type Ed25519AvailableWorkerMaterialIdentity = {
   materialKeyId: Ed25519WorkerMaterialKeyId;
 };
 
+// A sealed lane's material identity is an OBSERVATION, not authority: available-lane
+// reads run outside the per-session commit queue, and material re-seals rotate the
+// identity underneath any snapshot (every mint bakes a fresh createdAtMs into
+// materialKeyId). The field is named `hint` — with its origin store attached — so
+// consumers cannot mistake it for the live record's identity. Effects (restores)
+// must resolve the identity at their own boundary via
+// resolveEd25519RestoreMaterialIdentity, passing the hint only as a fallback.
+export type Ed25519AvailableMaterialHint = Ed25519AvailableWorkerMaterialIdentity & {
+  source: 'runtime_snapshot' | 'durable_seal';
+};
+
 export type Ed25519AvailableWorkerMaterialState =
   | {
       kind: 'material_pending';
       identity?: never;
+      hint?: never;
     }
   | {
+      // Loaded material was validated against the live worker within the same
+      // read; it is the one lane state allowed to claim a concrete identity.
       kind: 'loaded_worker_material';
       identity: Ed25519AvailableWorkerMaterialIdentity;
+      hint?: never;
     }
   | {
       kind: 'sealed_worker_material';
-      identity: Ed25519AvailableWorkerMaterialIdentity;
+      hint: Ed25519AvailableMaterialHint;
+      identity?: never;
     };
 
 export type ConcreteAvailableEd25519SigningLane = {
@@ -650,18 +666,20 @@ export function ed25519AvailableMaterialStateFromBoundaryFields(args: {
   bindingDigest: unknown;
   materialKeyId: unknown;
   kind: 'loaded_worker_material' | 'sealed_worker_material';
+  /** Which store the boundary fields came from; recorded on sealed hints. */
+  source: 'runtime_snapshot' | 'durable_seal';
 }): Ed25519AvailableWorkerMaterialState | null {
   const bindingDigest = String(args.bindingDigest || '').trim();
   const materialKeyId = String(args.materialKeyId || '').trim();
   if (!bindingDigest && !materialKeyId) return { kind: 'material_pending' };
   if (!bindingDigest || !materialKeyId) return null;
-  return {
-    kind: args.kind,
-    identity: {
-      bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
-      materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
-    },
+  const identity = {
+    bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
+    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
   };
+  return args.kind === 'loaded_worker_material'
+    ? { kind: 'loaded_worker_material', identity }
+    : { kind: 'sealed_worker_material', hint: { ...identity, source: args.source } };
 }
 
 function isEd25519AvailableWorkerMaterialState(
@@ -671,13 +689,19 @@ function isEd25519AvailableWorkerMaterialState(
   const material = value as Partial<Ed25519AvailableWorkerMaterialState>;
   switch (material.kind) {
     case 'material_pending':
-      return !('identity' in material);
+      return !('identity' in material) && !('hint' in material);
     case 'loaded_worker_material':
-    case 'sealed_worker_material':
       return Boolean(
         material.identity &&
         String(material.identity.bindingDigest || '').trim() &&
         String(material.identity.materialKeyId || '').trim(),
+      );
+    case 'sealed_worker_material':
+      return Boolean(
+        material.hint &&
+        String(material.hint.bindingDigest || '').trim() &&
+        String(material.hint.materialKeyId || '').trim() &&
+        (material.hint.source === 'runtime_snapshot' || material.hint.source === 'durable_seal'),
       );
     default:
       return false;
@@ -1451,10 +1475,14 @@ function recordToEd25519Lane(args: {
   const signerSlot = parseSignerSlot(recoveryRecord.signerSlot);
   if (signerSlot == null) return null;
   const materialIdentity = ed25519SealedRecoveryMaterialIdentity(recoveryRecord);
+  // The durable record's material identity is seal-time data — a cache that can be
+  // generations behind the live record. Mark its origin so downstream consumers see
+  // it as a hint, never as authority.
   const material = ed25519AvailableMaterialStateFromBoundaryFields({
     bindingDigest: materialIdentity.bindingDigest,
     materialKeyId: materialIdentity.materialKeyId,
     kind: 'sealed_worker_material',
+    source: 'durable_seal',
   });
   if (!material) return null;
 
