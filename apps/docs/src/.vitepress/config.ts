@@ -50,6 +50,7 @@ export default defineConfig({
             text: 'Delegate Or Rotate',
             link: '/getting-started/delegate-or-rotate',
           },
+          { text: 'Theming', link: '/getting-started/theming' },
           {
             text: 'Other Applications',
             collapsed: false,
