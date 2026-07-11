@@ -1,5 +1,11 @@
 # VoiceID AWS Verifier Service
 
+Status: optional ordinary-server verifier deployment; verifier output has no
+signing authority.
+
+Normative security requirements:
+[VoiceID Signing Security Profile](../../../docs/voiceId-signing-security-profile.md).
+
 This is the ordinary-server AWS deployment shape for the VoiceID Python verifier.
 It uses the same HTTP sidecar contract as local development and Cloudflare
 Containers.
@@ -9,15 +15,20 @@ Containers.
 ```text
 browser, mobile, or robot
   -> VoiceID API service
+  -> server-owned Router binding and challenge
   -> Python ECAPA verifier service
   -> VoiceID API service
-  -> Router A/B admission
+  -> E0/E1/E2 evidence builder
+  -> browser passkey or server R1 policy
+  -> atomic Router A/B admission
   -> SigningWorker
 ```
 
 The verifier does not own wallet signing. It returns quality, speaker, and
-template results to the VoiceID API. Router A/B admission and SigningWorker
-policy remain responsible for intent-bound MPC signing decisions.
+template results to the VoiceID API. It does not establish phrase correctness,
+freshness, PAD, device proof, capture provenance, E2, or a signing grant. Router
+A/B admission and SigningWorker remain responsible for the existing
+normal-signing boundary.
 
 ## Image
 
@@ -31,7 +42,9 @@ docker build \
 ```
 
 Use `PRELOAD_ECAPA_MODEL=1` for production-style images that should avoid a slow
-first ECAPA request.
+first ECAPA request. Preload proves availability only. E2 requires an immutable
+approved record for the exact image digest, model weights, preprocessing,
+threshold, capture profile, and calibration.
 
 ## Service Options
 
@@ -47,6 +60,12 @@ Use one of these ordinary-server placements:
 
 Keep the browser and mobile clients on the VoiceID API. They should never call
 the verifier service directly.
+
+Cross-host API-to-verifier traffic requires authenticated and integrity-
+protected transport, such as mTLS or a platform service binding with equivalent
+workload identity. Enforce request-size, decoded-duration, media-container,
+timeout, concurrency, and rate limits before inference. Verifier and proxy logs
+must exclude raw media, embeddings, full transcripts, and raw model payloads.
 
 ## Environment
 
@@ -77,17 +96,24 @@ curl http://<verifier-host>:8797/health
 
 The verifier should receive only the data needed for the active verification
 operation. Enrollment templates, threshold versions, verification state,
-pending intents, consumed intent nonces, and audit records belong to the
-VoiceID API storage boundary.
+immutable Router bindings, server challenges, device and calibration versions,
+grant/reservation state, revocation, deletion receipts, and audit records belong
+to the VoiceID API and Router storage boundaries.
 
 For ordinary AWS deployments:
 
 - Store typed records in DynamoDB, Postgres/RDS, or the existing application
   database.
-- Store opt-in diagnostic audio/video in S3 with an explicit deletion policy.
-- Encrypt ECAPA templates with KMS-backed envelope encryption before storage.
+- Store opt-in diagnostic audio/video in S3 only with per-capture consent,
+  encryption, separate access control, object-level expiry, and a maximum
+  seven-day TTL.
+- Encrypt ECAPA templates with KMS-backed envelope encryption and versioned AAD
+  over subject, enrollment, template, model, threshold, key id, and key-rotation
+  identities.
 - Keep raw biometric clips out of persistent storage unless diagnostics are
   explicitly enabled.
+- Use a conditional write or transaction for `issued -> reserved`; ordinary
+  sequential request handling is insufficient for one-use grants.
 
 ## Nitro Enclave Boundary
 
@@ -99,6 +125,9 @@ is required.
 The enclave boundary should receive typed policy or signing requests over the
 parent-instance bridge. It should not require direct public network access, and
 it should not become the capture-facing VoiceID API.
+
+Moving policy or custody into an enclave does not upgrade browser evidence or
+replace device-proof and PAD calibration requirements.
 
 ## Validation
 

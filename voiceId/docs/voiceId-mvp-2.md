@@ -2,10 +2,13 @@
 
 Status: exploratory implementation spec.
 
+Normative signing requirements and evidence tiers:
+[VoiceID Signing Security Profile](voiceId-signing-security-profile.md).
+
 This document scopes the second VoiceID MVP. MVP 1 proves browser capture,
 typed lifecycle state, fake verification, fixture collection, and the model
-spike. MVP 2 turns that scaffold into a real owner-presence signal that can feed
-wallet, robot, and MPC policy.
+spike. MVP 2 turns that scaffold into typed speaker, phrase, quality, capture-
+freshness, and experimental authenticity evidence for policy research.
 
 ## Purpose
 
@@ -15,16 +18,18 @@ Build a production-shaped VoiceID policy signal that can:
 2. Gate low-quality audio before speaker scoring.
 3. Verify spoken phrases or commands through a transcript boundary.
 4. Bind accepted speech to a canonical intent digest.
-5. Feed a typed owner-presence result into wallet/MPC policy.
+5. Feed E0 experimental or E1 step-up-only evidence into wallet/robot policy
+   simulations.
 
-VoiceID remains a recoverable owner-presence and liveness signal. The actual
-cryptographic operation uses the existing Router A/B signer architecture in
-`docs/router-a-b-SPEC.md`: Router owns public admission and policy, normal
+MVP 2 cannot create E2 signing-candidate evidence or a signing grant. The actual
+cryptographic operation uses the existing
+[Router A/B signer architecture](../../docs/router-a-b-SPEC.md): Router owns
+public admission and policy, normal
 signing flows through the dedicated SigningWorker, and Deriver A/B remain off
 the hot signing path except for setup/export/recovery/SigningWorker refresh.
 
 Camera, face, mouth, and lip-sync extraction are outside MVP 2. They are tracked
-in `voiceId/docs/voiceId-camera-liveness-future.md`.
+in the [Audio-Visual PAD Future Plan](voiceId-camera-liveness-future.md).
 
 ## Scope Boundary
 
@@ -36,31 +41,36 @@ MVP 2 includes:
 4. Transcript provider integration for phrase and command checks.
 5. Intent digest binding for wallet sessions, token transfers, and robot
    commands.
-6. Typed policy output for wallet/MPC signing session decisions.
+6. E0/E1 policy output for wallet and robot experiments.
 
 MVP 2 does not include:
 
 1. Training a custom speaker-verification model.
 2. Treating voice as a cryptographic signature.
-3. Full spoof-proof guarantees.
+3. An approved PAD model or signing-grade capture profile.
 4. A final production storage/backend choice.
 5. Camera, face, mouth, or lip-sync extraction.
-6. Requiring phone OTP when policy accepts the risk without step-up.
+6. Direct VoiceID authorization of wallet signing.
 
 ## Architecture
 
 ```text
-Browser or embedded device
-  -> audio capture
-  -> VoiceID client/module
-  -> VoiceID server routes or local robot sidecar
-  -> quality gate
-  -> transcript provider
-  -> ECAPA speaker verifier
-  -> intent canonicalizer
-  -> owner-presence policy result
-  -> wallet/MPC/robot policy
+authenticated transaction request
+  -> server-canonical Router intent and signing payload
+  -> server challenge
+  -> one continuous browser or approved-device capture
+  -> capture-boundary validation
+  -> quality + phrase + speaker + freshness + PAD + device-proof results
+  -> E0/E1/E2 evidence builder
+  -> passkey step-up or server R1 policy
+  -> one-use Router grant reservation
+  -> existing Router A/B and SigningWorker flow
 ```
+
+Browser capture stops at E0. The grant branch exists only for a future approved
+embedded capture profile that satisfies the signing security profile. Robot
+commands use the same independent evidence checks, followed by a separate robot
+safety policy rather than wallet admission.
 
 Ownership boundaries:
 
@@ -72,10 +82,11 @@ Ownership boundaries:
 - `voiceId/verifier-spike`: offline model comparison and calibration reports.
 - `voiceId/research`: source PDFs and brief literature review.
 - robot-local sidecar: local process on the robot that hosts capture, local
-  owner-presence policy, liveness, and optional wallet sidecar integration. The
-  current runbook lives at `voiceId/deploy/robot-local/sidecar/README.md`, with
-  `pnpm -C voiceId robot:guard` covering the shared Python HTTP verifier API
-  and Cloudflare-hosted policy boundary.
+  evidence policy, PAD integration, device proof, and optional wallet sidecar
+  integration. The current runbook lives at
+  `voiceId/deploy/robot-local/sidecar/README.md`, with
+  `pnpm -C voiceId robot:guard` covering the shared Python HTTP verifier API and
+  Cloudflare-hosted policy boundary.
 - Cloudflare deployment: Workers/Pages host capture-facing API and static demo,
   Workers AI handles ASR where possible, D1/Durable Objects store typed state
   and Router A/B signer state, R2 stores opt-in diagnostics, Cloudflare
@@ -90,8 +101,8 @@ Ownership boundaries:
   branches. `createVoiceIdRouterApiRouteExtension()` converts a VoiceID server
   capability into a universal router API route extension, and
   `createVoiceIdRouterApiModule()` wraps that extension in the SDK module shape.
-  Concrete VoiceID stores, verifiers, transcript providers, and liveness policy
-  remain owned by `voiceId/`.
+  Concrete VoiceID stores, verifiers, transcript providers, evidence builders,
+  and PAD policy remain owned by `voiceId/`.
 - Optional SDK portability: API Gateway/ALB plus ECS/EKS/EC2 can host the same
   API and Python verifier sidecar on ordinary servers. High-assurance
   SigningWorker custody or template-key custody can also move into AWS Nitro
@@ -120,11 +131,12 @@ runs behind the VoiceID service boundary:
   VoiceID server, which calls the Python verifier sidecar.
 - Cloudflare-backed deployment: browser, mobile, or robot clients call a
   Cloudflare Worker API. The Worker performs request parsing, policy assembly,
-  ASR calls, state writes, and intent binding, then calls a Python verifier
-  running in a Cloudflare Container over the same HTTP sidecar interface. If the
-  policy accepts the owner-presence result, the Worker admits the request into
-  the existing Router A/B normal-signing path; SigningWorker performs the MPC
-  server-share operation.
+  Router canonicalization, challenge creation, ASR calls, and state writes,
+  then calls a Python verifier running in a Cloudflare Container over the same
+  HTTP sidecar interface. Current browser results remain E0 and require passkey
+  admission. A future E2 result may reach the existing Router A/B path only
+  after server R1 policy issues a one-use grant and Router admission reserves it
+  atomically. SigningWorker then performs the MPC server-share operation.
 - Optional AWS-backed SDK portability: browser, mobile, or robot clients can
   call the API running on ordinary AWS infrastructure. The Python verifier can
   run as a normal HTTP sidecar or service. TEE-sensitive SigningWorker material,
@@ -176,6 +188,34 @@ it, evaluate ONNX/Core ML/WASM/Rust verifier targets after the Python sidecar
 proves the policy and model behavior. Do not make the MVP client bundle carry
 PyTorch, SpeechBrain, or model weights.
 
+#### Capture Format And Calibration Profile
+
+The client uploads the original bytes emitted by its capture API. The route
+boundary validates the container, and the server records the codec discovered
+during decode. Client MIME, duration, timestamps, device labels, and DSP metadata
+are advisory.
+
+Preferred browser negotiation uses the first supported platform format, such as
+Opus in WebM/Ogg or platform AAC. Browser `MediaRecorder` output must not be
+described as lossless. Native PCM or verified lossless encoding uses a distinct
+capture profile.
+
+```text
+original bytes + original-byte hash
+  -> decode while preserving native sample rate and channels
+  -> PAD/fingerprint derivative under the native capture profile
+  -> 16 kHz mono derivative for ECAPA
+  -> ASR-specific derivative
+  -> original multichannel timing for robot direction-of-arrival
+```
+
+Irreversible trimming, denoising, beamforming, resampling, or compression must
+not destroy evidence required by PAD. Raw bytes remain ephemeral. Capture
+profiles are concrete and versioned, for example
+`web_mediarecorder_opus_v1`, `ios_native_pcm_v1`, and
+`robot_array_pcm_v1`. An unvalidated enrollment/verification profile pair
+returns `uncertain`.
+
 ### 2. Quality Gate Semantics
 
 Speaker scoring runs only after audio quality accepts the capture.
@@ -187,6 +227,9 @@ Recommended outcomes:
 - low speech duration -> `uncertain`
 - low SNR or excessive background noise -> `uncertain`
 - clipped or saturated audio -> `uncertain`
+- multiple speakers or inconsistent enrollment windows -> `uncertain`
+- unsupported enrollment/verification capture-profile pair -> `uncertain`
+- duplicate enrollment or verification audio fingerprint -> `rejected`
 - phrase mismatch -> `rejected`
 - speaker mismatch after quality acceptance -> `rejected`
 - verifier unavailable -> service-level `verifier_unavailable` error
@@ -198,17 +241,25 @@ route to another sidecar without recording a false identity outcome.
 
 ### 3. Template Format
 
-Use the mean of accepted ECAPA enrollment embeddings as the MVP owner template.
+Use one continuous, prompt-segmented enrollment session. VAD produces
+non-overlapping speech windows, and the verifier rejects poor-quality,
+duplicate, multi-speaker, or embedding-incoherent windows before template
+construction. L2-normalize each accepted embedding, compute a versioned
+quality-weighted centroid, then normalize the centroid again.
 
 Store with each enrolled template:
 
-- encrypted mean embedding
+- encrypted normalized centroid
 - model id: `speechbrain/spkrec-ecapa-voxceleb`
 - adapter id
 - embedding dimension
 - template version
 - threshold version
-- enrollment sample count
+- aggregation-policy version
+- enrollment session id and assurance class
+- accepted and rejected window counts
+- aggregate usable-speech duration
+- capture-profile id
 - prompt set id
 - created-at timestamp
 
@@ -228,23 +279,42 @@ Rules:
 - Keep noisy/low-quality fixtures out of hard false-accept/false-reject counts
   unless the quality policy accepts them.
 
-### 5. Fixture Targets
+### 5. Evidence-Duration And Capture-Profile Experiment
 
-Minimum fixture target before hardening thresholds:
+The number of UI recordings is not a calibration parameter. The experiment
+selects the shortest usable-speech requirement that meets a pre-registered risk
+and usability target for each capture-profile pair.
 
-- 3-5 owner enrollment clips
-- 5 or more owner verification clips
-- 5 or more independent human different-speaker clips
-- 3 or more wrong-phrase clips
-- 3 or more noisy clips
-- 3 or more too-short or corrupt clips
+Candidate enrollment durations:
 
-Next fixture target before spoof-resistance claims:
+- 3, 6, 9, 12, and 15 seconds of aggregate usable speech;
+- one continuous prompt-segmented session;
+- one later strongly authenticated session on another day.
 
-- speaker-playback replay clips
-- TTS or voice-clone clips
-- robot microphone clips
-- owner clips across multiple days, distances, and background conditions
+Candidate verification durations:
+
+- 1.5, 2, 3, 4, and 5 seconds of usable speech;
+- one challenge-bound capture per attempt;
+- at most one quality retry with a new challenge.
+
+Data rules:
+
+- speaker-disjoint development and locked test cohorts;
+- at least three sessions per enrolled speaker across two or more days;
+- independent human impostors;
+- all segments from one capture remain in the same split and count as one
+  session;
+- same-profile and calibrated cross-profile trials;
+- replay, TTS, voice conversion, splicing, digital injection, and multi-speaker
+  trials reported separately;
+- thresholds, durations, and aggregation rules selected on development data
+  once.
+
+Reports include speaker FMR/FNMR and EER, end-to-end false-grant and false-
+denial rates, quality uncertainty and retry rates, PAD attack-presentation and
+bona-fide error by class, exact-challenge accuracy, p50/p95 latency, completion
+time, and subject-level confidence intervals. MVP-sized fixtures can rank
+configurations and cannot establish a signing-grade error rate.
 
 ### 6. Transcript Provider
 
@@ -267,51 +337,40 @@ to track for voice-agent UX, but they are not the speaker-verification
 foundation.
 
 Transcript results stay separate from speaker results. ASR decides what the user
-said; ECAPA decides whether the voice sounds like the enrolled owner.
+said; ECAPA decides whether the voice sounds like the enrolled owner. The ASR
+adapter receives the expected phrase from stored server challenge state. A
+caller-provided `spokenPhrase`, transcript, or expected phrase is diagnostic
+input only and cannot become core policy state.
 
 ### 7. Intent Digest Schema
 
-Define a canonical intent before wallet/MPC policy integration.
+For wallet signing, the existing Router A/B typed normal-signing intent and
+signing payload are the only authoritative transaction representation. The
+server builds and persists `RouterVoiceIntentBinding` before issuing a voice
+challenge. Clients cannot supply an authoritative digest or canonicalization
+version.
 
-Required fields:
-
-- intent kind
-- action verb
-- asset
-- amount
-- recipient
-- source account or wallet id
-- chain/network
-- device id
-- issued-at timestamp
-- expiry timestamp
-- nonce
-
-Optional fields by intent kind:
-
-- robot command id
-- wallet session id
-- spending limit
-- memo or reference id
-
-Any change to amount, recipient, device, chain, expiry, nonce, or command
-changes the `intentDigest`.
+Any VoiceID challenge digest is a domain-separated derivative of the Router
+operation id, operation fingerprint, `intent_digest`,
+`signing_payload_digest`, `admitted_signing_digest`, challenge id, prompt hash,
+device key, and expiry. Robot-only commands use an equivalent server-owned typed
+command binding.
 
 ### 8. Policy Result Shape
 
-Use `VoiceIdOwnerPresenceResult` as the only wallet/robot-facing result.
-
-Browser-only experiments may set liveness to `not_required` through explicit
-policy config. Embedded privileged actions require liveness; missing liveness
-returns `uncertain` or triggers step-up.
+Use the E0/E1/E2 `VoiceIdEvidence` union from the signing security profile.
+Browser capture always produces E0. Missing or client-reported PAD/device proof
+produces E0, E1, rejection, or uncertainty. `liveness_not_required` cannot
+construct E2 evidence.
 
 ### 9. Storage Boundary
 
 Use in-memory storage for local MVP tests. Durable storage must encrypt
 templates and store model/threshold metadata. Cloudflare deployments should use
-D1 or Durable Objects for enrollment, verification, pending intent, consumed
-intent, and audit records. Use R2 only for explicit diagnostic media
-retention with a deletion policy.
+D1 or Durable Objects for enrollment, verification, immutable Router bindings,
+server challenges, device-capture statements, evidence tiers, grant state,
+atomic Router reservations, revocation, deletion receipts, and audit records.
+Use R2 only for explicit diagnostic media retention with a deletion policy.
 AWS deployments should use DynamoDB or Postgres/RDS for typed records, S3 for
 explicit diagnostic retention, and KMS-backed envelope encryption for templates
 and policy secrets.
@@ -385,7 +444,8 @@ Recommended storage rule:
 
 - persistence stores encrypted templates and typed audit events
 - persistence does not store raw audio by default
-- request compatibility handling belongs at route/storage boundaries only
+- any required persisted-data migration belongs at the storage boundary and is
+  deleted after the rewrite completes
 - core verifier and policy code receives typed internal records
 
 VoiceID audit events now include typed result kinds and coarse score bands.
@@ -406,20 +466,23 @@ For Nitro Enclave mode, bind KMS decrypt/use to enclave attestation and keep
 plaintext template keys or MPC share material inside the enclave for the
 shortest possible operation window.
 
-### 10. Liveness Boundary
+### 10. Challenge Freshness And PAD Boundaries
 
-MVP 2 keeps a typed liveness/owner-presence result boundary so wallet, robot,
-and Router A/B policy can distinguish accepted, rejected, and uncertain
-branches. Camera-backed liveness timing is deferred to
-`voiceId/docs/voiceId-camera-liveness-future.md`.
+MVP 2 represents challenge freshness and PAD separately:
 
-The current MVP liveness boundary should focus on:
+- server issue/receipt time, nonce, expiry, prompt hash, original-audio hash, and
+  device signature establish protocol freshness and byte binding;
+- browser timestamps, device labels, source labels, and replay-risk flags are
+  untrusted telemetry;
+- duplicate fingerprints and channel heuristics are research signals;
+- PAD is a separate model-backed result for measured replay, synthesis,
+  conversion, splicing, and injection classes;
+- `not_required` cannot satisfy E2 construction;
+- until PAD and an approved capture profile exist, every accepted browser result
+  remains E0 and cannot issue a grant.
 
-- audio capture time window
-- speech freshness
-- microphone/source attestation when available
-- replay-risk heuristics
-- explicit `not_required` policy branches for browser-only experiments
+Audio-visual PAD is deferred to the
+[Audio-Visual PAD Future Plan](voiceId-camera-liveness-future.md).
 
 ### 11. Fallback Models
 
@@ -461,7 +524,7 @@ to implement the same feature classes, measure them honestly against our
 fixtures, and tighten model, threshold, and capture quality until the local
 system is fast and accurate enough for wallet policy experiments.
 
-### Feature 1: Short-Sample Enrollment And Authentication
+### Feature 1: Guided Enrollment And Short Authentication
 
 User outcome: enroll this browser or device once, then authenticate the enrolled
 speaker from a short fresh sample.
@@ -471,28 +534,29 @@ Implementation requirements:
 1. Keep enrollment and verification text-independent at the speaker layer.
    The speaker verifier decides whether the voice matches the enrolled template;
    the ASR and intent parser decide what the user said.
-2. Accept clean short clips once VAD confirms enough speech. The product target
-   is 3 seconds of usable speech; the verifier must report actual speech
-   duration separately from container duration.
-3. Keep the current 3-sample enrollment UX for template quality, then support a
-   provider-grade fast enrollment mode once calibration proves one short sample
-   is reliable for the selected capture channel.
-4. Build templates from normalized speaker embeddings with model id, adapter
+2. Enrollment uses one continuous guided capture with three to five randomized
+   prompt fragments and a provisional 10-15 second usable-speech target.
+3. VAD creates non-overlapping prompt-aligned windows internally. The UI does not
+   present those windows as separate recordings.
+4. Reject prompt mismatch, low quality, duplicate windows, multiple speakers,
+   PAD failures, embedding outliers, and incoherent enrollment clusters.
+5. L2-normalize accepted embeddings, compute a quality-weighted centroid, and
+   normalize the centroid again.
+6. Verification uses one challenge-bound capture with a provisional 3-5 second
+   usable-speech target and at most one quality retry under a new challenge.
+7. Build templates with model id, adapter
    id, threshold version, calibration mode, prompt policy, device id, and
    fixture-manifest hash.
-5. Store encrypted templates and typed audit events. Raw enrollment audio stays
+8. Store encrypted templates and typed audit events. Raw enrollment audio stays
    disabled by default, with explicit diagnostic retention windows only.
-6. Bind every authentication attempt to an enrolled device proof and a fresh
-   capture session. Browser experiments can use the demo device id; wallet use
-   requires the same device-binding pattern as email OTP or passkey-adjacent
-   auth method flows.
-7. Return separate quality, speaker, phrase, liveness/authenticity, device, and
-   policy branches. A failure in one branch must remain visible to callers.
+9. Bind every signing-grade attempt to verified device proof and a fresh capture
+   session. Browser experiments remain E0 regardless of a demo device id.
+10. Return separate quality, speaker, phrase, freshness, PAD, device-proof,
+    capture-profile, and policy branches.
 
 Provider-grade acceptance:
 
-1. Clean 3-second clips from the enrolled user authenticate reliably on the
-   primary browser microphone profile.
+1. The duration experiment selects requirements for each capture-profile pair.
 2. Same-speaker and different-speaker distributions are calibrated from real
    independent human fixtures.
 3. Threshold versions include FPR, FNR, false-accept, false-reject, fixture
@@ -533,7 +597,8 @@ Implementation requirements:
 4. Keep phrase transcript, wallet intent, enrollment id, and signing authority
    out of the clip-comparison result.
 5. Add route and test coverage behind the VoiceID module boundary. SDK wallet
-   code should consume owner-presence grants, not raw clip-comparison output.
+   code consumes only passkey admission or a server-side reserved R1 grant, never
+   raw clip-comparison output.
 6. Reuse the same model runtime and calibration reports as enrollment
    verification so the feature does not fork into a second verifier stack.
 
@@ -559,11 +624,11 @@ freshness, rate limits, and policy.
 
 Implementation requirements:
 
-1. Add a `VoiceIdAuthenticityResult` union:
+1. Add a `VoiceIdAudioPadResult` union:
 
    ```ts
-   type VoiceIdAuthenticityResult =
-     | { kind: 'accepted'; modelVersion: VoiceIdModelVersion; score: number }
+   type VoiceIdAudioPadResult =
+     | { kind: 'accepted'; pad: VoiceIdAcceptedPad }
      | {
          kind: 'rejected';
          reason:
@@ -577,10 +642,7 @@ Implementation requirements:
        }
      | {
          kind: 'uncertain';
-         reason:
-           | 'insufficient_speech'
-           | 'low_audio_quality'
-           | 'model_low_confidence';
+         reason: 'insufficient_speech' | 'low_audio_quality' | 'model_low_confidence';
          modelVersion: VoiceIdModelVersion;
          score: number;
        }
@@ -600,6 +662,8 @@ Implementation requirements:
    - suspicious channel metadata or missing browser capture timing
    - speech starting before the prompt window
    - implausible duration for the requested phrase
+     These signals may reject or raise risk. They cannot construct accepted PAD
+     evidence or upgrade browser capture beyond E0.
 4. Add a model-backed countermeasure track after fixtures exist. Candidate
    classes include ASVspoof-trained AASIST, RawNet-style models, SSL/Wav2Vec2
    spoof detectors, and vendor-style replay classifiers. Pick one model after a
@@ -611,13 +675,12 @@ Implementation requirements:
    - voice-clone samples when we can generate or source them lawfully
    - injected file uploads that bypass live microphone capture
    - multi-speaker and background speech clips
-6. Bind verification to a dynamic transaction phrase or intent digest. A replay
-   of an older accepted command should fail because the phrase, nonce, expiry,
-   device id, and intent digest changed.
-7. Use step-up for high-risk or uncertain authenticity outcomes. VoiceID can
-   authorize low-risk tasks when all branches accept; risky wallet work should
-   require passkey, email OTP, phone, or another factor when authenticity is
-   uncertain.
+6. Bind verification to the stored server challenge and canonical Router
+   binding. This blocks stale fixed-phrase reuse. Prompt-targeted synthesis and
+   live relay remain PAD attack classes and require measured coverage.
+7. Use passkey step-up for browser, high-risk, unsupported, or uncertain wallet
+   outcomes. A future approved embedded capture may authorize only explicit R1
+   operations after every E2 branch and Router grant check accepts.
 
 Provider-grade acceptance:
 
@@ -625,9 +688,9 @@ Provider-grade acceptance:
    calibration report with separate false-accept and false-reject numbers.
 2. The service records spoof-model version, threshold version, calibration mode,
    capture channel, and timing for every authenticity result.
-3. Accepted wallet policy requires accepted quality, phrase/intent,
-   speaker, device, and authenticity branches for flows that enable
-   spoof-resistance policy.
+3. E2 construction requires accepted quality, phrase, speaker, freshness, PAD,
+   device proof, capture profile, calibration, and Router binding. Browser
+   capture remains E0 regardless of heuristic outcome.
 4. The UI shows a single user-facing decision while preserving branch-level
    diagnostics for audit and development.
 5. No production claim says "deepfake-proof". Claims must reference measured
@@ -635,18 +698,20 @@ Provider-grade acceptance:
 
 ### Provider-Grade Phased TODO
 
-Phase A: tighten the local short-sample auth loop.
+Phase A: tighten the local short-capture research loop.
 
 - [x] ECAPA verifier path behind the Python sidecar.
 - [x] Quality-first gates before speaker scoring.
 - [x] Encrypted template storage boundary.
-- [x] Dynamic command phrase and intent digest binding in the demo.
+- [x] The demo contains a caller-owned command phrase and digest-equality
+      prototype; it is E0-only and scheduled for replacement.
 - [ ] Require and report speech duration independently from recording duration.
-- [ ] Add capture-channel calibration modes: `browser-lossless`,
-  `mobile-lossless`, `telephone-channel`, and `robot-microphone`.
+- [ ] Add concrete capture profiles such as `web_mediarecorder_opus_v1`,
+      `ios_native_pcm_v1`, `telephone_pcmu_8khz_v1`, and
+      `robot_array_pcm_v1`.
 - [ ] Add timing breakdowns to verifier, ASR, and policy responses.
 - [ ] Add fixture reports that summarize FPR/FNR by capture channel and
-  threshold version.
+      threshold version.
 
 Phase B: add first-class clip comparison.
 
@@ -656,12 +721,12 @@ Phase B: add first-class clip comparison.
 - [ ] Add a server route for development and fixture tooling.
 - [ ] Add fixture report output for clip-pair score distributions.
 
-Phase C: build the authenticity layer.
+Phase C: build the audio PAD layer.
 
-- [ ] Define `VoiceIdAuthenticityResult` and thread it through verifier,
-  policy, auth-policy adapter, and audit events.
-- [ ] Add cheap replay heuristics: duplicate audio fingerprint, stale prompt
-  timing, repeated command audio, and channel metadata checks.
+- [ ] Define `VoiceIdAudioPadResult` and thread it through verifier,
+      policy, auth-policy adapter, and audit events.
+- [ ] Add research-only replay heuristics: duplicate audio fingerprint, stale
+      prompt timing, repeated command audio, and channel metadata checks.
 - [ ] Add replay and injected-audio fixture capture scripts.
 - [ ] Spike one ASVspoof-style model behind the Python HTTP verifier boundary.
 - [ ] Calibrate authenticity thresholds with attack-class-specific reports.
@@ -671,88 +736,41 @@ Phase D: optimize for provider-grade latency and quality.
 - [ ] Preload model weights and expose sidecar warmup health.
 - [ ] Cache enrollment embeddings/templates without caching raw audio.
 - [ ] Measure p50/p95 decode, VAD, embedding, scoring, ASR, spoof detection,
-  and policy time.
+      and policy time.
 - [ ] Reduce payload size and normalize browser recording format before upload.
 - [ ] Add regression fixtures that fail CI when latency or score separation
-  moves outside configured bounds.
+      moves outside configured bounds.
 
 Phase E: integrate as wallet auth evidence.
 
-- [ ] Keep VoiceID equivalent to email OTP: server-verified, device-bound,
-  grant-issuing, and short-lived.
-- [ ] Require accepted speaker, phrase/intent, authenticity, quality, and
-  device branches before issuing a low-risk signing grant.
-- [ ] Route uncertain authenticity to step-up.
+- [ ] Replace the broad owner-presence result with E0/E1/E2 evidence types.
+- [ ] Make browser E0 and E1 results require passkey for signing.
+- [ ] Require authenticated routes, server challenge ownership, accepted
+      speaker, phrase, quality, freshness, PAD, device proof, approved capture
+      profile, and Router binding before E2 construction.
+- [ ] Issue a one-use grant only after server R1 risk policy accepts E2.
+- [ ] Reserve and consume grants atomically at Router admission.
+- [ ] Route uncertain authenticity or unsupported profiles to passkey.
 - [ ] Keep clip comparison as tooling; wallet code consumes only
-  owner-presence/auth-policy grants.
+      tiered evidence and server-side grant references.
 
 ## Core Result Shape
 
-MVP 2 should expose one policy result to wallet or robot code:
+MVP 2 targets the `VoiceIdEvidence` union defined in the signing security
+profile:
 
-```ts
-type VoiceIdOwnerPresenceResult =
-  | {
-      kind: 'accepted';
-      userId: UserId;
-      enrollmentId: VoiceIdEnrollmentId;
-      verificationId: VoiceIdVerificationId;
-      intentDigest: IntentDigest;
-      speaker: VoiceIdSpeakerMatchResult;
-      phrase: VoiceIdPhraseMatchResult;
-      quality: VoiceIdAudioQualityResult;
-      liveness: VoiceIdLivenessResult;
-      modelVersion: VoiceIdModelVersion;
-      thresholdVersion: VoiceIdThresholdVersion;
-      expiresAt: IsoDateTime;
-    }
-  | {
-      kind: 'rejected';
-      verificationId: VoiceIdVerificationId;
-      reason:
-        | 'phrase_mismatch'
-        | 'speaker_mismatch'
-        | 'liveness_mismatch'
-        | 'intent_mismatch'
-        | 'expired'
-        | 'too_many_attempts';
-      intentDigest?: IntentDigest;
-      modelVersion?: VoiceIdModelVersion;
-      thresholdVersion?: VoiceIdThresholdVersion;
-    }
-  | {
-      kind: 'uncertain';
-      verificationId: VoiceIdVerificationId;
-      reason:
-        | 'low_audio_quality'
-        | 'no_speech_detected'
-        | 'low_snr'
-        | 'clipped_audio'
-        | 'model_low_confidence'
-        | 'transcript_unavailable'
-        | 'liveness_unavailable'
-        | 'verifier_unavailable';
-      intentDigest?: IntentDigest;
-      modelVersion?: VoiceIdModelVersion;
-      thresholdVersion?: VoiceIdThresholdVersion;
-    };
-```
+- E0 `VoiceIdExperimentalBrowserEvidence` for ordinary browser capture and
+  caller-controlled telemetry;
+- E1 `VoiceIdStepUpOnlyEvidence` when useful evidence exists and a signing gate
+  remains absent or uncertain;
+- E2 `VoiceIdSigningCandidateEvidence` only when every independent check is
+  server-verified under an approved capture and calibration profile.
 
-Accepted results require accepted phrase, speaker, quality, and intent checks.
-Browser-only policy experiments may configure liveness as `not_required` only
-when the policy explicitly allows it. Camera-backed liveness requirements belong
-to `voiceId/docs/voiceId-camera-liveness-future.md`.
-
-The implemented policy surface lives in `voiceId/shared/src/policy.ts` and is
-exported through the VoiceID server index. `VoiceIdIntentDigest` is an unpadded
-base64url 32-byte digest. `buildVoiceIdOwnerPresenceResult()` converts completed
-verification records into accepted/rejected/uncertain owner-presence evidence,
-and `evaluateVoiceIdOwnerPresenceForIntent()` rejects otherwise accepted
-evidence when the requested intent digest differs.
-The SDK-facing adapter now lives in `voiceId/shared/src/authPolicy.ts`.
-`authorizeVoiceIdOwnerPresence()` maps owner-presence results into wallet,
-signing-session, or robot-command policy decisions and keeps rejected,
-uncertain, expired, and intent-mismatch branches outside signing authority.
+The current `VoiceIdOwnerPresenceResult`, `VoiceIdLivenessResult`, and SDK auth-
+policy adapter are experimental plumbing scheduled for replacement. Their
+accepted and `not_required` branches cannot issue a grant or reach a signing
+continuation. The cutover deletes those signing-facing paths rather than
+maintaining parallel compatibility types.
 
 ## Workstream 1: ECAPA Verifier Integration
 
@@ -796,6 +814,8 @@ Quality signals:
 6. Silence percentage.
 7. Unsupported sample rate or channel layout after decode.
 8. Header-only or truncated recording detection.
+9. Single-speaker consistency across enrollment windows.
+10. Duplicate and near-duplicate capture fingerprints.
 
 Decision rules:
 
@@ -814,13 +834,14 @@ Validation:
 
 ## Workstream 3: Fixtures And Calibration
 
-Goal: build enough evidence to choose a reasonable operating threshold.
+Goal: run the evidence-duration and capture-profile experiment before choosing
+an operating threshold.
 
 Fixture additions:
 
 1. Independent human different-speaker clips.
-2. More owner verification clips across days and distances.
-3. More owner enrollment clips across stable microphone setups.
+2. Owner verification sessions across days, distances, and capture profiles.
+3. Owner enrollment sessions across at least two days.
 4. Replay clips from a speaker.
 5. TTS or voice-clone style clips when available.
 6. Noisy clips with controlled background noise levels.
@@ -835,6 +856,8 @@ Calibration outputs:
 4. Noisy/low-quality score distribution.
 5. False accepts and false rejects at candidate thresholds.
 6. Recommended threshold version and fixture manifest hash.
+7. Duration, retry, and capture-profile recommendation with subject-level
+   confidence intervals.
 
 Validation:
 
@@ -844,98 +867,82 @@ Validation:
 
 ## Workstream 4: Transcript And Intent Binding
 
-Goal: bind speech to the concrete action being authorized.
+Goal: compare speech with a challenge for an already-fixed authoritative intent.
 
 Transcript provider boundary:
 
 ```text
-audio clip
-  -> ASR/transcript provider
-  -> transcript result
-  -> command parser
-  -> canonical intent
-  -> intent digest
+authenticated transaction request
+  -> Router canonical intent and signing payload
+  -> persisted RouterVoiceIntentBinding
+  -> server prompt and challenge
+  -> audio capture
+  -> ASR transcript
+  -> exact phrase comparison for the persisted binding
 ```
-
-Canonical intents:
-
-1. `send 1 USDC to Bob`
-2. `send 50 USDC to bob.near`
-3. `authorize wallet session for device X`
-4. `run robot command Y until time T`
 
 Rules:
 
 1. Speaker verification does not decide command correctness.
 2. Transcript confidence below threshold returns `uncertain`.
 3. Ambiguous command parses return `uncertain`.
-4. Amount, asset, recipient, device id, expiry, and nonce are included in the
-   canonical intent.
-5. Any change to amount, recipient, device, expiry, or nonce changes
-   `intentDigest`.
-6. Verification acceptance is scoped to exactly one `intentDigest`.
+4. The expected phrase comes from stored server challenge state.
+5. Wallet speech never constructs or mutates the authoritative transaction.
+6. A transaction, challenge, prompt, device, or expiry change requires a new
+   capture.
 
 Validation:
 
-1. Same command and parameters produce the same digest.
-2. Different command parameters produce different digests.
-3. A VoiceID result cannot authorize a different intent.
-4. Expired intents cannot be accepted.
+1. Router builders deterministically reproduce the persisted digest tuple.
+2. Mutating any Router, challenge, prompt, device, audio-hash, or expiry field
+   invalidates the capture statement.
+3. Caller-supplied phrase, digest, nonce, expiry, policy, or identity cannot
+   become authoritative core state.
 
-## Workstream 5: Owner-Presence Policy Boundary
+## Workstream 5: Evidence-Tier Boundary
 
-Goal: keep liveness and owner-presence decisions typed without adding camera
-work to this MVP.
+Goal: replace the broad owner-presence/liveness result with E0/E1/E2 evidence.
 
-Audio and device signals:
+1. Rename caller-reported timestamps, microphone ids, source labels, and replay
+   flags to capture telemetry.
+2. Add server-owned challenge freshness, device proof, PAD, capture profile,
+   and Router binding as separate results.
+3. Make browser capture construct E0 only.
+4. Make missing, unapproved, or uncertain signing checks construct E1,
+   rejection, or uncertainty.
+5. Permit E2 construction only through the branch-specific builder in the
+   signing security profile.
+6. Delete `liveness_not_required` from signing-facing policy.
 
-1. Fresh microphone capture.
-2. Speech starts after the prompt or command window opens.
-3. Speech duration is plausible for the command.
-4. Replay-risk heuristics from audio quality and channel artifacts.
-5. Local device or sidecar context.
-
-Policy:
-
-1. Embedded privileged actions can require liveness or step-up once risk policy
-   is defined.
-2. Phone/watch OTP remains an optional step-up factor for high-value or
-   uncertain flows.
-3. Current browser-first policy experiments use voice, phrase, intent binding,
-   device/session policy, and step-up rules without claiming camera liveness.
-4. Camera-backed liveness policy is tracked separately in
-   `voiceId/docs/voiceId-camera-liveness-future.md`.
-
-Validation:
-
-1. Accepted owner presence requires accepted speaker, phrase, quality, and
-   matching intent.
-2. Replay-risk audio returns rejected or uncertain policy branches.
-3. Missing liveness does not silently downgrade into accepted policy when policy
-   requires liveness.
-4. Camera-specific validation lives in
-   `voiceId/docs/voiceId-camera-liveness-future.md`.
+Validation uses type fixtures for direct object literals, broad spreads, raw
+client context, unsafe casts, and invalid cross-tier combinations. Camera-
+specific work remains in the
+[Audio-Visual PAD Future Plan](voiceId-camera-liveness-future.md).
 
 ## Workstream 6: Wallet, MPC, And Robot Policy
 
-Goal: consume VoiceID as owner presence for policy decisions.
+Goal: keep browser signing passkey-backed and defer embedded VoiceID admission
+to a future capped R1 pilot.
 
 Wallet/MPC policy flow:
 
 ```text
-VoiceID accepted owner presence
-  + intentDigest
-  + device/session policy
-  -> Router admission policy decision
-  -> Router A/B normal-signing request or rejection
-  -> SigningWorker MPC server-share participation
+browser E0/E1
+  -> passkey user verification for exact Router binding
+  -> ordinary Router admission
+
+embedded E2
+  -> server R1 risk policy
+  -> issue one-use grant
+  -> Router atomically reserves grant for exact operation
+  -> SigningWorker receives admitted request
 ```
 
-The signing architecture is the existing Router A/B signer design in
-`docs/router-a-b-SPEC.md`. VoiceID supplies typed owner-presence evidence and
-the bound VoiceID `intentDigest` plus Router normal-signing digest tuple. Router
-admission checks policy, quota, replay, session, and risk. Normal signing
-remains:
+The signing architecture is the existing
+[Router A/B signer design](../../docs/router-a-b-SPEC.md). The Router binding is
+created before the challenge
+and carried unchanged through evidence, grant, reservation, and admission.
+Normal signing remains:
 
 ```text
 Client -> Router -> SigningWorker -> Router -> Client
@@ -951,32 +958,37 @@ The concrete signer adapter should bind VoiceID policy evidence to
 Robot policy flow:
 
 ```text
-owner voice + policy-approved owner presence
-  -> accepted owner command
-  -> robot performs allowed command
+approved evidence + command policy
+  -> admitted owner command
+  -> independent robot safety controller
+  -> robot performs an allowed command
 
 non-owner voice
   -> optional x402/payment flow
-  -> robot performs paid public command if payment settles
+  -> independent robot safety controller
+  -> robot performs a paid public command if payment settles
 ```
 
 Rules:
 
 1. VoiceID never directly signs.
 2. VoiceID outputs typed policy evidence.
-3. Router admission decides whether an owner-presence result can be forwarded to
-   the active SigningWorker.
+3. Router admission accepts a passkey-admitted transaction or an atomically
+   reserved R1 VoiceID grant.
 4. SigningWorker participation binds to Router `intent_digest`,
    `signing_payload_digest`, `admitted_signing_digest`, expiry, device id,
    nonce, request digest, and the existing Router A/B signer transcript fields.
-5. High-value actions can require additional factors.
+5. New recipients, elevated value, security changes, export, recovery, and
+   safety-critical actions require passkey or prohibit voice.
 
 Validation:
 
-1. Accepted owner presence can authorize only the matching intent.
-2. Rejected or uncertain VoiceID cannot create a signing session.
-3. Router A/B signing refuses stale or mismatched intent digests.
-4. Audit events include result kinds and score bands, not raw audio.
+1. E0/E1 cannot issue a grant or call a signing continuation.
+2. VoiceID cannot create or widen a signing session.
+3. Concurrent requests cannot reserve one grant for different operations.
+4. Router A/B signing refuses stale or mismatched bindings.
+5. Audit events include evidence tier, versions, result kinds, and coarse bands
+   without raw audio.
 
 ## Deployment Shape
 
@@ -1011,75 +1023,69 @@ browser or robot
 ```
 
 The same typed result boundaries should support all deployment shapes. The
-Cloudflare production path should reuse `docs/router-a-b-SPEC.md`; AWS
+Cloudflare production path should reuse the
+[Router A/B specification](../../docs/router-a-b-SPEC.md); AWS
 ordinary-server and Nitro deployments should preserve the same Router,
 SigningWorker, and intent-binding semantics.
 
 ## Acceptance Criteria
 
-MVP 2 is ready for policy experiments when:
+MVP 2 is ready for an E0 research deployment when:
 
-1. ECAPA verifier works through the existing TypeScript verifier interface.
-2. Quality-first gating prevents bad clips from reaching accepted speaker
-   results.
-3. Expanded fixture report includes independent human different-speaker clips.
-4. Threshold version and model version are stored with templates.
-5. Transcript/phrase verification is separate from speaker scoring.
-6. Intent digest binding prevents reuse across commands.
-7. Owner-presence policy can distinguish accepted, rejected, and uncertain
-   liveness branches without requiring camera extraction in this MVP.
-8. Wallet/MPC policy consumes VoiceID as owner presence only.
-9. Raw audio retention remains disabled by default.
-10. Short-sample enrollment/authentication reports speech duration, score,
-    threshold, calibration mode, model version, and timing.
-11. Clip-to-clip speaker comparison exists as a typed VoiceID capability outside
-    wallet signing authority.
-12. Spoof, deepfake, replay, injected-audio, and multi-speaker checks produce a
-    separate authenticity result branch.
-13. Calibration reports include independent human different-speaker clips and
-    attack-class fixtures before any provider-grade claims.
+1. ECAPA works through the TypeScript verifier interface and quality gating
+   prevents invalid captures from reaching speaker scoring.
+2. Enrollment uses one continuous guided recording, internal VAD windows, a
+   normalized quality-weighted template, and explicit usable-speech evidence.
+3. Verification uses one challenge-bound recording and at most one quality
+   retry under a new challenge.
+4. Speaker, phrase, quality, freshness, PAD, device proof, capture profile, and
+   Router binding remain independent typed results.
+5. The server owns the expected prompt and, for transaction experiments, builds
+   the immutable Router binding before challenge creation.
+6. Every browser result is structurally E0 and cannot issue a grant, call a
+   signing continuation, or widen a wallet session.
+7. Browser transaction demos complete through passkey admission for the exact
+   Router operation.
+8. Templates carry model, threshold, aggregation, capture-profile, and
+   assurance versions; raw media retention remains disabled by default.
+9. Duration and threshold reports use subject-disjoint cohorts, independent
+   human impostors, session-level splits, confidence intervals, and separate
+   attack-class results.
+10. Replay heuristics remain research signals; accepted PAD requires a measured
+    model and approved calibration record.
+11. Clip comparison is a typed tooling capability with no signing authority.
+12. Audit and deletion tests prove that audio, embeddings, full transcripts,
+    and client diagnostics do not cross into Router, SigningWorker, or logs.
 
 ## Implementation Order
 
-Current completed pieces:
+The repository currently has an experimental ECAPA path, quality-first scoring,
+model and threshold metadata, encrypted template storage, route registration,
+an ASR boundary, and broad owner-presence policy plumbing. The caller-owned
+phrase/digest and `not_required` liveness branches are prototype behavior. They
+are E0-only and do not establish Router admission.
 
-- [x] ECAPA runtime path is available behind the Python verifier boundary.
-- [x] Quality-first gates run before speaker scoring.
-- [x] ECAPA model and threshold metadata roundtrip through TypeScript adapter
-  responses.
-- [x] Canonical `VoiceIdIntentDigest` typing and intent-binding checks exist.
-- [x] Wallet/robot auth-policy adapter maps owner-presence into typed accepted
-  or rejected policy decisions.
-- [x] SDK relay module registration can mount VoiceID routes while the SDK still
-  runs without VoiceID registered.
-- [x] Cloudflare Workers AI ASR provider can verify spoken phrase text behind
-  the transcript-provider boundary.
-- [x] Liveness policy can feed typed accepted/rejected/uncertain branches into
-  owner-presence authorization.
-- [x] Owner-presence authorization route combines completed verification,
-  `intentDigest`, use case, and liveness evidence into an accepted or rejected
-  auth-policy decision.
-- [x] Cloudflare deployment boundaries keep browser/mobile clients free of
-  Python, PyTorch, SpeechBrain, and model weights.
+Execute the replacement in this order:
 
-Remaining order:
-
-1. Add normal SDK coverage for typed wallet policy consumption after
-   owner-presence authorization.
-2. Expand normal SDK demo or fixture coverage around that policy consumption.
-3. Tighten short-sample enrollment/authentication with speech-duration reporting,
-   capture-channel calibration modes, timing breakdowns, and updated fixture
-   reports.
-4. Add the first-class clip-to-clip speaker comparison capability.
-5. Add the spoof, deepfake, replay, injected-audio, and multi-speaker
-   authenticity layer.
-6. Expand fixtures and rerun calibration reports across speaker, phrase,
-   quality, and authenticity branches.
-7. Add embedded/robot sidecar architecture proof of concept.
-8. Defer Router A/B admission-adapter and signing tests until the normal SDK
-   path works.
-9. Future camera, face, mouth, and lip-sync work lives in
-   `voiceId/docs/voiceId-camera-liveness-future.md`.
+1. Implement one guided enrollment session, one verification recording, usable-
+   speech measurement, window coherence, and the versioned template aggregator.
+2. Introduce E0/E1/E2 builders and static rejection fixtures. Delete the broad
+   signing-facing owner-presence and `liveness_not_required` branches.
+3. Authenticate routes, construct the typed Router intent server-side, persist
+   it, and issue the challenge from server-owned state.
+4. Add exact-audio hashing, typed capture profiles, short-lived challenge state,
+   revocation, deletion receipts, and mutation/replay tests.
+5. Run the evidence-duration experiment and expand subject-disjoint speaker,
+   phrase, channel, and attack fixtures before selecting thresholds.
+6. Keep every browser wallet demo passkey-backed while collecting E0 shadow
+   evidence. Rewrite tests that currently treat broad accepted evidence as
+   signing authority.
+7. Add an approved embedded capture agent, device proof, and calibrated PAD.
+   Keep E2 disabled until the profile release gates pass.
+8. Implement server R1 policy, one-use grant storage, atomic Router reservation,
+   and concurrent race tests before any capped E2 pilot.
+9. Add clip comparison as independent tooling and evaluate audio-visual PAD
+   through [Audio-Visual PAD Future Plan](voiceId-camera-liveness-future.md).
 
 ## Research Basis
 
@@ -1088,7 +1094,8 @@ The short literature review in `voiceId/research/README.md` supports this plan:
 1. ECAPA/x-vector style embeddings are standard speaker-verification practice.
 2. ASVspoof and speech deepfake literature treat spoof detection as a separate
    countermeasure layer.
-3. Audio-visual spoofing work supports the separate future camera-liveness
-   plan.
-4. The product architecture should keep speaker, phrase, quality, liveness, and
-   policy as separate typed branches.
+3. Audio-visual spoofing work supports a separate future PAD plan with measured
+   attack-class coverage.
+4. The product architecture keeps speaker, phrase, quality, freshness, PAD,
+   device proof, capture profile, Router binding, and policy as separate typed
+   branches.

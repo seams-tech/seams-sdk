@@ -21,6 +21,10 @@ domestic receiving, inspection, consolidation, and international forwarding.
 Voice is an input mode. The core product is delegated execution with constrained
 payment authority.
 
+Voice creates and edits a draft. Browser voice supplies no biometric signing
+authority. The user visually reviews the exact quote and spending mandate, then
+approves the final commitment with passkey.
+
 Positioning:
 
 ```text
@@ -115,9 +119,9 @@ Relevant market signals:
 - Japan had 42,683,600 inbound visitors in 2025, according to JNTO.
 - Japan's foreign resident population reached about 4.125 million at the end of
   2025, according to Immigration Services Agency figures reported by Nippon.com.
-- LLMs and browser agents are now good enough to complete multi-step commerce
-  workflows with human review, especially when the merchant set and task
-  categories are narrow.
+- Narrow LLM/browser-agent workflows are a concierge-validation hypothesis.
+  Measure completion, correction, and human-intervention rates before claiming
+  autonomous readiness.
 - JPYC EX is live as an official yen stablecoin service. User onboarding still
   requires account opening, My Number/JPKI identity verification, wallet
   address registration, bank-transfer funding, and minimum issuance/redemption
@@ -163,12 +167,12 @@ Example mandate:
 
 ```ts
 type PurchaseCategory =
-  | "pet_supplies"
-  | "household"
-  | "tools"
-  | "furniture"
-  | "service_booking"
-  | "japanese_goods";
+  | 'pet_supplies'
+  | 'household'
+  | 'tools'
+  | 'furniture'
+  | 'service_booking'
+  | 'japanese_goods';
 
 type MandateBase = {
   mandateId: string;
@@ -179,29 +183,32 @@ type MandateBase = {
   maxSpendJpy: number;
   allowedMerchants: readonly string[];
   expiresAt: string;
-  approvalMode: "single_purchase" | "auto_under_budget_with_step_up";
+  approvalMode: 'single_purchase' | 'auto_under_budget_with_step_up';
   forbiddenTerms: readonly string[];
 };
 
 type LocalJapanPurchaseMandate = MandateBase & {
-  purchaseMode: "local_japan";
+  purchaseMode: 'local_japan';
   deliveryAddressId: string;
   forwardingAddressId?: never;
   inspectionRequired: false;
 };
 
 type OverseasProxyPurchaseMandate = MandateBase & {
-  purchaseMode: "overseas_proxy";
+  purchaseMode: 'overseas_proxy';
   warehouseAddressId: string;
   forwardingAddressId: string;
   inspectionRequired: boolean;
   deliveryAddressId?: never;
 };
 
-type AgentPurchaseMandate =
-  | LocalJapanPurchaseMandate
-  | OverseasProxyPurchaseMandate;
+type AgentPurchaseMandate = LocalJapanPurchaseMandate | OverseasProxyPurchaseMandate;
 ```
+
+`auto_under_budget_with_step_up` operates only inside a mandate the user already
+reviewed and signed with passkey. A spoken or typed change creates a new draft.
+It cannot raise the cap, widen merchants/categories, change delivery scope, or
+extend expiry without a new visual review and passkey signature.
 
 ## First User Flow
 
@@ -457,8 +464,9 @@ The wallet SDK should provide:
 
 Relevant existing architecture fit:
 
-- origin-isolated wallet runtime protects the user from app-origin compromise
-- threshold signing supports higher-value delegated authority
+- origin-isolated wallet runtime reduces app-origin exposure
+- threshold signing protects key custody for delegated authority; it cannot
+  validate a bad mandate or authorization decision
 - exact signing lanes map to user, agent, merchant, budget, and task identity
 - wallet signing-session budgets map to task budgets and recurring mandates
 - intent-digest binding maps to cart, price, merchant, delivery, and terms
@@ -472,41 +480,41 @@ Suggested internal types:
 
 ```ts
 type AgentWallet =
-  | { kind: "unfunded"; walletId: string; userId: string }
-  | { kind: "funded"; walletId: string; userId: string; activeBudgetId: string };
+  | { kind: 'unfunded'; walletId: string; userId: string }
+  | { kind: 'funded'; walletId: string; userId: string; activeBudgetId: string };
 
 type TaskBudget =
-  | { kind: "single_use"; budgetId: string; maxSpendJpy: number; expiresAt: string }
+  | { kind: 'single_use'; budgetId: string; maxSpendJpy: number; expiresAt: string }
   | {
-      kind: "recurring";
+      kind: 'recurring';
       budgetId: string;
       maxSpendJpy: number;
-      period: "weekly" | "monthly";
+      period: 'weekly' | 'monthly';
       expiresAt: string;
     };
 
 type PurchaseIntent =
-  | { kind: "quote_requested"; taskId: string; normalizedRequest: string }
-  | { kind: "quote_selected"; taskId: string; quoteId: string; cartDigest: string }
-  | { kind: "approved"; taskId: string; mandateId: string; signedIntentDigest: string }
-  | { kind: "purchased"; taskId: string; orderId: string; receiptDigest: string }
-  | { kind: "received"; taskId: string; warehouseReceiptId: string; inspectionDigest: string }
-  | { kind: "forwarded"; taskId: string; shipmentId: string; customsDigest: string };
+  | { kind: 'quote_requested'; taskId: string; normalizedRequest: string }
+  | { kind: 'quote_selected'; taskId: string; quoteId: string; cartDigest: string }
+  | { kind: 'approved'; taskId: string; mandateId: string; signedIntentDigest: string }
+  | { kind: 'purchased'; taskId: string; orderId: string; receiptDigest: string }
+  | { kind: 'received'; taskId: string; warehouseReceiptId: string; inspectionDigest: string }
+  | { kind: 'forwarded'; taskId: string; shipmentId: string; customsDigest: string };
 
 type PurchasingCredential =
   | {
-      kind: "company_virtual_card";
+      kind: 'company_virtual_card';
       cardPolicyId: string;
       mandateId: string;
       maxSpendJpy: number;
       expiresAt: string;
     }
   | {
-      kind: "human_shopper_task";
+      kind: 'human_shopper_task';
       operatorTaskId: string;
       mandateId: string;
       maxSpendJpy: number;
-      requiredEvidence: readonly ("receipt" | "item_photo" | "pickup_photo")[];
+      requiredEvidence: readonly ('receipt' | 'item_photo' | 'pickup_photo')[];
       expiresAt: string;
     };
 ```
@@ -697,7 +705,7 @@ Todo:
 Exit criteria:
 
 - 80 percent or higher task completion in the top 3 categories
-- median time from voice request to approved order under 5 minutes
+- median time from voice/text intake to passkey-approved order under 5 minutes
 - refund/cancellation rate is stable and explainable
 - proxy-shopping order margin stays positive after human and forwarding costs
 
@@ -852,7 +860,8 @@ Product liability:
 
 Trust and safety:
 
-- voice recognition errors can create wrong orders
+- voice recognition output remains a draft until visual confirmation and
+  passkey approval; recognition errors can still create misleading drafts
 - translation mistakes can create bad product matches
 - address mistakes are expensive in hotels and apartment buildings
 - users need visible control over agent spend and cancellation

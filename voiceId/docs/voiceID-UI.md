@@ -4,6 +4,7 @@ Status: product and implementation requirements.
 
 Related docs:
 
+- [VoiceID signing security profile](voiceId-signing-security-profile.md)
 - [VoiceID SDK auth method integration](voiceId-sdk-auth-method-integration.md)
 - [VoiceID normal SDK transaction signing plan](voiceId-normal-sdk-transaction-signing.md)
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
@@ -18,11 +19,13 @@ The UI should make three things obvious:
 
 1. Which device is enrolled.
 2. Which phrase the user must say.
-3. Which action the voice sample will authorize.
+3. Which action the recording is bound to and which factor will authorize it.
 
-The first production UX target is device-bound VoiceID as an email-OTP-equivalent
-wallet auth method. VoiceID can issue a one-use grant for low-risk, intent-bound
-signing. Riskier tasks route to email OTP or passkey step-up.
+The browser UX is an experimental speaker and spoken-intent flow. Browser voice
+evidence cannot issue a signing grant. Browser transaction signing uses a
+user-verified passkey bound to the exact transaction. A future embedded flow may
+issue one-use low-risk grants only after every gate in the signing security
+profile is implemented and calibrated.
 
 ## UX Principles
 
@@ -30,7 +33,7 @@ signing. Riskier tasks route to email OTP or passkey step-up.
 - Use press-and-hold recording for transaction confirmation.
 - Provide tap-to-start/tap-to-stop and keyboard alternatives.
 - Keep enrollment guided and linear.
-- Make progress visible with accepted sample segments.
+- Make progress visible with accepted speech segments inside one guided capture.
 - Show user-facing quality feedback, then keep model details behind a developer
   diagnostics toggle.
 - Keep fixture capture and model-evaluation tools separate from user-facing
@@ -43,13 +46,13 @@ signing. Riskier tasks route to email OTP or passkey step-up.
 Use voice-dictation products as interaction references, then adapt them for
 wallet security.
 
-| Reference | Useful pattern | VoiceID adaptation |
-| --- | --- | --- |
-| [Wispr Flow](https://wisprflow.ai/) | Lightweight voice entry across apps, visible listening state, mobile keyboard/start-flow model. | Keep recording entry simple and obvious. Show one active listening state and a clear completion action. |
-| [Wispr Flow via Zapier](https://zapier.com/blog/wispr-flow/) | Desktop hotkey starts recording, recorder animation appears while active, mobile flow uses a microphone button. | Use hold-to-record as the default wallet confirmation control, with tap and keyboard fallbacks. |
-| [Wispr Flow iOS review](https://9to5mac.com/2025/06/30/wispr-flow-is-an-ai-that-transcribes-what-you-say-right-from-the-iphone-keyboard/) | Flow sessions have explicit start and end controls, including a check mark to finish. | VoiceID should make recording boundaries explicit: hold starts, release submits, cancel discards. |
-| [Aqua Voice](https://aquavoice.com/) | Prominent `Hold Space` affordance, compact voice pill, waveform feedback. | Use a compact hold button with waveform/level feedback in the transaction modal. |
-| [Superwhisper assets](https://superwhisper.com/assets) | Simple recording button, processing state, and mode-specific voice workflows. | Keep enrollment, transaction confirmation, and diagnostics as separate modes with distinct UI states. |
+| Reference                                                                                                                                 | Useful pattern                                                                                                  | VoiceID adaptation                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [Wispr Flow](https://wisprflow.ai/)                                                                                                       | Lightweight voice entry across apps, visible listening state, mobile keyboard/start-flow model.                 | Keep recording entry simple and obvious. Show one active listening state and a clear completion action. |
+| [Wispr Flow via Zapier](https://zapier.com/blog/wispr-flow/)                                                                              | Desktop hotkey starts recording, recorder animation appears while active, mobile flow uses a microphone button. | Use hold-to-record as the default wallet confirmation control, with tap and keyboard fallbacks.         |
+| [Wispr Flow iOS review](https://9to5mac.com/2025/06/30/wispr-flow-is-an-ai-that-transcribes-what-you-say-right-from-the-iphone-keyboard/) | Flow sessions have explicit start and end controls, including a check mark to finish.                           | VoiceID should make recording boundaries explicit: hold starts, release submits, cancel discards.       |
+| [Aqua Voice](https://aquavoice.com/)                                                                                                      | Prominent `Hold Space` affordance, compact voice pill, waveform feedback.                                       | Use a compact hold button with waveform/level feedback in the transaction modal.                        |
+| [Superwhisper assets](https://superwhisper.com/assets)                                                                                    | Simple recording button, processing state, and mode-specific voice workflows.                                   | Keep enrollment, transaction confirmation, and diagnostics as separate modes with distinct UI states.   |
 
 Do not copy long-running dictation flows directly. VoiceID is a bounded auth
 ceremony, so the UI should emphasize scope, consent, and completion rather than
@@ -59,12 +62,12 @@ continuous transcription.
 
 VoiceID should have four UI surfaces.
 
-| Surface | Purpose | Shape |
-| --- | --- | --- |
-| Setup screen | Enroll VoiceID on the current device | Full-page or settings-panel flow |
-| Transaction confirmation | Verify a spoken command for a specific transaction | Modal or mobile sheet |
-| Step-up handoff | Continue risky tasks through email OTP or passkey | Inline branch from the confirmation modal |
-| Developer diagnostics | Debug verifier behavior and fixture quality | Hidden panel or dev-only route |
+| Surface                  | Purpose                                                       | Shape                                     |
+| ------------------------ | ------------------------------------------------------------- | ----------------------------------------- |
+| Setup screen             | Enroll VoiceID on the current device                          | Full-page or settings-panel flow          |
+| Transaction confirmation | Verify a spoken command for a specific transaction            | Modal or mobile sheet                     |
+| Step-up handoff          | Continue browser, risky, or unsupported tasks through passkey | Inline branch from the confirmation modal |
+| Developer diagnostics    | Debug verifier behavior and fixture quality                   | Hidden panel or dev-only route            |
 
 The user-facing app should default to setup and transaction confirmation. The
 developer route can expose scores, thresholds, fixture capture, and raw
@@ -76,85 +79,88 @@ Enrollment should feel like setting up a device-bound auth method.
 
 ```text
 Start VoiceID setup
-  -> confirm current device
+  -> authenticate with passkey or owner-admin method
+  -> confirm current device and consent
   -> request microphone permission
-  -> record accepted sample 1
-  -> record accepted sample 2
-  -> record accepted sample 3
-  -> record accepted sample 4
-  -> record accepted sample 5
+  -> start one guided recording
+  -> read several short prompted fragments
+  -> recorder segments and quality-checks speech automatically
+  -> submit one complete capture
+  -> retry the complete capture once only if evidence is insufficient
   -> finalize enrollment
 ```
 
-Recommended sample policy:
+Recommended evidence policy:
 
-- Production default: 5 accepted samples.
-- Developer/demo default: 3 accepted samples.
-- Maximum attempts: 8 before suggesting a quieter room or different microphone.
-- Sample duration: 2-5 seconds of detected speech.
-- Reject silence, clipping, saturation, too-short speech, and excessive noise.
+- One microphone-open and one start/finish interaction.
+- Provisional experiment target: 12 seconds of usable speech.
+- At least three coherent, non-duplicate prompt segments.
+- Retry budget: one full-capture quality retry under a new enrollment challenge
+  before suggesting a quieter room, another microphone, or a non-voice method.
+- Reject silence, clipping, saturation, low speech, prompt mismatch,
+  multi-speaker audio, duplicates, spoof risk, and embedding outliers.
 
-The sample count should be server-configured and surfaced to the UI through the
-enrollment record. The UI should render progress from the record instead of
-hardcoding the production count.
+The server configures minimum usable speech, segment count, prompt coverage,
+quality, and coherence. The UI renders progress from those requirements. A fixed
+number of recording button presses is not part of the security policy.
 
 ### Enrollment Screen
 
 Layout:
 
 ```text
-VoiceID Setup
+VoiceID setup
 
 This device
 MacBook Pro - Safari
 
-Sample 2 of 5
-[ accepted ][ current ][ empty ][ empty ][ empty ]
+Usable speech 6.4 of 12 seconds
+[ accepted ][ speaking ][ waiting ]
 
 Read aloud
-"My voice confirms this wallet on this device"
+"Silver boats cross quiet water"
 
-[ Hold to record ]
+[ Start guided recording ]
 
-Last sample
-[ Playback ] [ Retake ]
+Current fragment
+"Seven green lanterns glow nearby"
 
 Status
-Accepted
+Good quality - continue
 ```
 
 Required controls:
 
 - `Start setup`
-- `Hold to record`
-- `Playback last sample`
-- `Retake last sample`
+- `Start guided recording`
+- `Stop and discard`
+- `Discard and try again`
 - `Cancel setup`
 - `Finalize VoiceID`
 
-`Finalize VoiceID` is enabled only after the configured accepted sample count is
-met.
+`Finalize VoiceID` is enabled only after the server reports sufficient usable
+speech, prompt coverage, quality, and template coherence.
 
 ### Enrollment Prompts
 
-Use short stable prompts for enrollment. They should sound natural and avoid
-pretending to authorize a real payment.
+Use short, randomized, phonetically varied prompt fragments. They should sound
+natural and avoid pretending to authorize a real payment. Static prompt sets
+must not become reusable authentication phrases.
 
 Example prompt set:
 
-1. `My voice confirms this wallet on this device`
-2. `This device can recognize my voice`
-3. `I am setting up VoiceID for my wallet`
-4. `VoiceID will ask before signing`
-5. `Only my enrolled voice should pass`
+1. `Silver boats cross quiet water`
+2. `Seven green lanterns glow nearby`
+3. `Morning clouds drift beyond the station`
 
-The prompt set should be versioned. Store the prompt set id with the enrollment
-record and template metadata.
+The prompt generator and phonetic-coverage policy should be versioned. Store the
+prompt policy id with enrollment and template metadata. The server verifies each
+segment transcript before including its embedding.
 
 ## Transaction Confirmation Flow
 
 Transaction confirmation should use a modal on desktop and a sheet on mobile.
-It should present the action first, then ask for a voice sample.
+It should present the action first, then ask for one voice recording.
 
 ```text
 VoiceID Confirmation
@@ -169,19 +175,18 @@ From
 pta.near
 
 Say this phrase
-"send 50 USDC to bob"
+"Send 50 USDC to Bob. River seven."
 
 [ Hold to record ]
 
-[ Use email OTP ] [ Use passkey ]
+[ Use passkey instead ]
 ```
 
 The hold control should be disabled until:
 
 - transaction details are rendered
-- `intentDigest` has been computed
+- the server has persisted the canonical Router binding
 - the server challenge is ready
-- the enrolled device proof is available
 - microphone permission is available or can be requested
 
 ## Hold-To-Record Behavior
@@ -194,20 +199,24 @@ press and hold
   -> level meter and countdown animate
 release
   -> recording stops
-  -> sample submits
+  -> capture submits
 ```
 
 Requirements:
 
 - Minimum hold duration: 1.5 seconds.
-- Preferred capture duration: 2-5 seconds.
+- Preferred usable-speech duration: 3–5 seconds.
 - Maximum capture duration: 6 seconds before auto-stop.
-- Release before minimum duration discards the sample.
-- Escape or cancel stops recording and discards the sample.
+- Release before minimum duration discards the capture.
+- Escape or cancel stops recording and discards the capture.
 - Spacebar should work for keyboard users.
 - Tap-to-start/tap-to-stop should be available as an accessibility fallback and
   for devices where press-and-hold is unreliable.
 - The UI must stop media tracks after recording.
+- A short ready cue and bounded pre-roll/trailing buffer should prevent clipped
+  initial and final phonemes.
+- One accepted capture completes verification. One quality retry is available
+  only under a new challenge.
 
 Recording feedback:
 
@@ -227,25 +236,37 @@ export type VoiceIdConfirmationUiState =
   | { kind: 'idle' }
   | { kind: 'preparing_challenge' }
   | { kind: 'ready_to_record'; phrase: string }
-  | { kind: 'recording'; startedAtMs: number; minDurationMs: number; maxDurationMs: number }
-  | { kind: 'submitting_sample' }
-  | { kind: 'accepted'; grantId: string }
-  | { kind: 'step_up_required'; methods: readonly ['email_otp' | 'passkey'] }
-  | { kind: 'rejected'; reason: string }
-  | { kind: 'uncertain'; reason: string }
+  | {
+      kind: 'recording';
+      startedAtMs: number;
+      minDurationMs: number;
+      maxDurationMs: number;
+    }
+  | { kind: 'submitting_capture' }
+  | { kind: 'browser_evidence_observed'; next: 'passkey_required' }
+  | { kind: 'passkey_in_progress' }
+  | { kind: 'embedded_e2_observed'; next: 'server_r1_policy' }
+  | { kind: 'signing' }
+  | { kind: 'signed'; receipt: VoiceIdSigningReceiptDisplay }
+  | { kind: 'step_up_required'; methods: readonly ['passkey'] }
+  | { kind: 'rejected'; reason: VoiceIdUiRejectionReason }
+  | { kind: 'uncertain'; reason: VoiceIdUiUncertainReason }
   | { kind: 'expired' }
   | { kind: 'device_mismatch' }
-  | { kind: 'failed'; message: string };
+  | { kind: 'failed'; message: VoiceIdUiFailureMessage };
 ```
 
 User-facing result handling:
 
-- `accepted`: close modal and continue signing.
-- `step_up_required`: show email OTP/passkey handoff in the same modal.
-- `rejected`: allow retry and keep the transaction visible.
-- `uncertain`: suggest a quieter room, retake, email OTP, or passkey.
+- `browser_evidence_observed`: show passkey as the authorizing action.
+- `embedded_e2_observed`: request server R1 policy and keep the modal open until
+  signing succeeds or a terminal result returns.
+- `step_up_required`: show passkey handoff in the same modal.
+- `rejected`: keep the transaction visible and offer passkey; a new VoiceID
+  attempt remains subject to rate limits.
+- `uncertain`: suggest a quieter room, one quality retake, or passkey.
 - `expired`: regenerate challenge and phrase binding.
-- `device_mismatch`: require passkey/email OTP or enroll VoiceID on this device.
+- `device_mismatch`: require passkey or enroll VoiceID on this device.
 - `failed`: show a recoverable error and retain fallback methods.
 
 ## Step-Up Handoff
@@ -255,9 +276,8 @@ Step-up should stay inside the same confirmation surface.
 ```text
 VoiceID needs another check
 
-This transaction requires email OTP or passkey.
+This transaction requires passkey confirmation.
 
-[ Continue with email OTP ]
 [ Continue with passkey ]
 ```
 
@@ -296,7 +316,6 @@ If device proof fails during verification, the modal should show:
 ```text
 VoiceID is not active on this device.
 
-[ Use email OTP ]
 [ Use passkey ]
 [ Set up VoiceID on this device ]
 ```
@@ -308,15 +327,18 @@ during transaction confirmation.
 
 Enrollment:
 
-- show playback for the last sample
-- allow retake before finalization
-- auto-advance after accepted samples
+- keep playback disabled by default to avoid creating a convenient replay asset
+- allow the user to discard the full ceremony before finalization
+- retry the complete ceremony once when the server reports insufficient
+  quality, prompt coverage, or coherence
+- auto-advance between server-provided prompt fragments
 
 Transaction confirmation:
 
 - submit automatically after release
 - show playback only after rejection, uncertainty, or developer diagnostics
-- avoid extra confirmation clicks after an accepted sample
+- avoid extra confirmation clicks after an accepted capture; browser signing
+  still performs the explicit passkey ceremony
 
 ## Privacy And Retention
 
@@ -370,10 +392,14 @@ Suggested recorder adapter:
 ```ts
 export type VoiceIdRecorderAdapter = {
   requestPermission(): Promise<VoiceIdRecorderPermissionResult>;
-  recordClip(args: {
+  recordGuidedEnrollment(args: {
+    prompts: readonly string[];
+    minUsableSpeechMs: number;
+    maxDurationMs: number;
+  }): Promise<VoiceIdGuidedEnrollmentRecordingResult>;
+  recordVerification(args: {
     minDurationMs: number;
     maxDurationMs: number;
-    expectedPhrase: string;
   }): Promise<VoiceIdRecordedClipResult>;
   stop(): Promise<void>;
 };
@@ -453,23 +479,27 @@ Candidate surfaces:
 Tasks:
 
 - [ ] Render current device label and enrollment scope.
-- [ ] Render server-provided required accepted sample count.
-- [ ] Use 5 accepted samples for production config and 3 for demo/dev config.
-- [ ] Render segmented sample progress.
-- [ ] Show one enrollment prompt at a time.
-- [ ] Add playback for the last sample.
-- [ ] Add retake for the last sample before finalization.
-- [ ] Auto-advance after accepted samples.
+- [ ] Require recent passkey or owner-admin authentication before capture.
+- [ ] Render server-provided usable-speech, segment, prompt-coverage, and
+      coherence requirements.
+- [ ] Open the microphone once for one guided enrollment recording.
+- [ ] Render segmented prompt and usable-speech progress.
+- [ ] Show one randomized enrollment prompt fragment at a time.
+- [ ] Submit one complete recording; offer one complete quality retry under a
+      new challenge when evidence is insufficient.
+- [ ] Auto-advance after accepted segments.
 - [ ] Show clear retry guidance for silence, clipping, noisy audio, too-short
-      speech, and verifier uncertainty.
-- [ ] Enable finalize only when the accepted sample count reaches the configured
-      minimum.
+      speech, prompt mismatch, multiple speakers, duplicate audio, spoof risk,
+      outlier embeddings, and verifier uncertainty.
+- [ ] Enable finalize only when the server accepts all configured evidence
+      requirements.
 
 Validation:
 
-- [ ] Enrollment cannot finalize below the configured accepted sample count.
-- [ ] Rejected samples do not advance progress.
-- [ ] Playback is local UI only and does not imply raw-audio persistence.
+- [ ] Enrollment cannot finalize below the configured evidence requirements.
+- [ ] Rejected internal windows do not advance progress or become template
+      input.
+- [ ] One guided recording produces several independently checked segments.
 - [ ] Mobile layout keeps prompt, progress, and hold button visible without
       overlap.
 
@@ -487,21 +517,31 @@ Candidate surfaces:
 Tasks:
 
 - [ ] Render transaction summary before enabling recording.
-- [ ] Render exact spoken phrase derived from the transaction intent.
-- [ ] Disable recording until `intentDigest`, server challenge, device proof,
-      and transaction display are ready.
-- [ ] Submit the sample on release.
-- [ ] Show `submitting_sample` and `processing` states.
-- [ ] Handle accepted, rejected, uncertain, expired, device mismatch, failed,
-      and step-up-required states.
-- [ ] Keep email OTP and passkey fallback buttons available.
-- [ ] Close the modal and call the signing continuation only after an accepted
-      one-use grant.
+- [ ] Render a short unpredictable phrase derived from the server challenge and
+      bound to the full Router transaction digest tuple.
+- [ ] Disable recording until the canonical Router transaction, server
+      challenge, approved capture profile display, and transaction display are
+      ready.
+- [ ] Submit the capture on release.
+- [ ] Show `submitting_capture` and `processing` states.
+- [ ] Handle browser evidence, embedded E2 observation, passkey, signing,
+      signed, rejected, uncertain, expired, device mismatch, failed, and
+      step-up-required states.
+- [ ] Keep passkey available before capture and on every eligible fallback
+      branch.
+- [ ] In browser mode, complete passkey user verification before calling the
+      signing continuation.
+- [ ] In an eligible embedded mode, call the signing continuation only after an
+      E2 observation, server R1 policy, and atomic grant reservation.
 
 Validation:
 
 - [ ] Recording cannot start before transaction details are visible.
-- [ ] Accepted grant path calls the fake signing continuation in demo mode.
+- [ ] Experimental browser evidence cannot call the signing continuation.
+- [ ] A fake passkey admission can call a fake signing continuation in browser
+      tests; fake voice cannot.
+- [ ] A test-only synthetic E2 builder can exercise server policy and grant
+      tests without appearing in production routes or bundles.
 - [ ] Rejected, uncertain, expired, failed, and step-up-required branches do not
       call the signing continuation.
 - [ ] The modal can be dismissed without submitting a sample.
@@ -527,8 +567,7 @@ Tasks:
 
 Validation:
 
-- [ ] Device mismatch routes to email OTP, passkey, or setup on the current
-      device.
+- [ ] Device mismatch routes to passkey or setup on the current device.
 - [ ] Disable flow prevents future VoiceID verification on that device.
 - [ ] Re-enroll flow creates a fresh enrollment lifecycle.
 
@@ -538,13 +577,14 @@ Goal: move the UI primitives behind SDK-friendly hooks and adapters.
 
 Candidate surfaces:
 
-- `packages/sdk-web/src/react/hooks/useVoiceIdWalletAuth.ts`
+- `packages/sdk-web/src/react/hooks/useVoiceIdTransactionAuthorization.ts`
 - `packages/sdk-web/src/react/index.ts`
 - `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`
 
 Tasks:
 
-- [ ] Add `useVoiceIdWalletAuth(...)` with `start(...)`, `busy`, and `error`.
+- [ ] Add `useVoiceIdTransactionAuthorization(...)` with `start(...)`, `busy`,
+      and `error`.
 - [ ] Accept a recorder adapter or capture callbacks.
 - [ ] Return enrollment and confirmation flow objects with narrow lifecycle
       branches.
@@ -608,15 +648,20 @@ Validation:
 
 ## Acceptance Criteria
 
-- A user can enroll VoiceID on the current device with the configured number of
-  accepted samples.
-- Enrollment rejects poor samples with clear retry guidance.
+- A user can enroll VoiceID through one guided continuous capture with
+  server-configured usable-speech and coherence requirements.
+- Enrollment rejects poor, duplicate, incoherent, multi-speaker, or spoof-risk
+  internal windows and offers at most one complete-capture quality retry.
 - A user can confirm `send 50 USDC to bob` through a transaction modal.
 - The modal shows transaction details before recording starts.
 - Press-and-hold recording works on desktop and mobile.
 - Keyboard and tap fallbacks work.
-- Accepted VoiceID closes the modal and continues the existing signing path.
+- Experimental browser VoiceID never continues the signing path by itself.
+- Browser signing continues only after passkey user verification for the exact
+  transaction.
+- Eligible embedded signing continues only after E2, server R1 policy, and
+  atomic one-use grant reservation.
 - Step-up keeps the user in the same confirmation surface.
-- Device mismatch routes to email OTP, passkey, or setup on the current device.
+- Device mismatch routes to passkey or setup on the current device.
 - The default UI hides verifier internals and raw diagnostic details.
 - Developer diagnostics stay separate from the user-facing auth flow.

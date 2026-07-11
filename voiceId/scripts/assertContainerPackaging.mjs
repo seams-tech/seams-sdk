@@ -50,6 +50,17 @@ const checks = [
       { name: 'python-http transport reference', pattern: /python-http/ },
       { name: 'container verifier URL env', pattern: /VOICEID_PYTHON_VERIFIER_URL/ },
       { name: 'preload build arg docs', pattern: /PRELOAD_ECAPA_MODEL=1/ },
+      {
+        name: 'component-only authority boundary',
+        pattern: /no E2 or grant authority|cannot establish[\s\S]*E2[\s\S]*signing grant/i,
+      },
+      { name: 'E0 threshold label', pattern: /E0 local-development value/ },
+      { name: 'authenticated Worker transport', pattern: /transport must authenticate/ },
+      { name: 'transient raw media deletion', pattern: /Raw media remains[\s\S]*deleted/ },
+      {
+        name: 'model and image digest pinning',
+        pattern: /image and model artifacts by digest\/checksum/,
+      },
     ],
   },
 ];

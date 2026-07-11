@@ -1,10 +1,36 @@
 # VoiceID MVP
 
-Standalone browser-captured, server-verified speaker verification MVP.
+Standalone browser-captured, server-scored speaker verification MVP.
 
 Phase 1 keeps VoiceID isolated from wallet/auth code. The server accepts typed
-audio samples, runs phrase, quality, and speaker checks through a verifier
+audio captures, runs phrase, quality, and speaker checks through a verifier
 boundary, and stores enrollment/verification state without persisting raw audio.
+
+## Security Status
+
+The active browser implementation is an experimental speaker-verification and
+phrase-matching scaffold. Its capture timestamps, microphone classification,
+replay-risk classification, device context, and liveness policy are supplied by
+the client. Those values are useful for exercising typed policy branches and do
+not establish signing-grade liveness, presentation-attack resistance, trusted
+sensor provenance, or device-bound user verification.
+
+Current VoiceID results must not authorize wallet signing. The authoritative
+requirements for any future signing integration live in
+[VoiceID Signing Security Profile](docs/voiceId-signing-security-profile.md).
+Browser signing requires a user-verified cryptographic authenticator such as a
+passkey. A future embedded hands-free path additionally requires authenticated
+capture, independently measured presentation-attack detection, exact Router
+intent binding, and atomic one-use admission.
+
+## Recording Target
+
+The replacement capture flow uses one guided enrollment recording with a
+provisional 12-second usable-speech target and internal VAD windows. Verification
+uses one 3–5 second challenge response and permits at most one quality retry
+under a new challenge. Fixed accepted-sample counts, per-sample upload routes,
+and repeated record-button ceremonies are scheduled for deletion after the
+capture-flow migration.
 
 Commands:
 
@@ -58,7 +84,7 @@ python3 -m pip install "speechbrain>=1.0.0" "torchaudio==2.6.*"
 The first pretrained-model report is
 `voiceId/verifier-spike/reports/speechbrain-ecapa-2026-06-11.md`.
 
-The production-shaped Python verifier runs with the ECAPA backend by default
+The deployment-shaped research verifier runs with the ECAPA backend by default
 through:
 
 ```sh
@@ -70,7 +96,8 @@ The current local ECAPA threshold from the browser fixture set is `0.6352`
 API process to override the speaker threshold. `dev:all:verifier` sets this
 threshold automatically for the default ECAPA backend. Use
 `VOICEID_VERIFIER_BACKEND=placeholder pnpm -C voiceId dev:all:verifier` only for
-fast placeholder checks.
+fast placeholder checks. `ecapa-local-dev-v1` is E0 research configuration and
+is prohibited from E2 construction.
 
 TypeScript server code can call the Python app through
 `PythonSubprocessVoiceIdVerifierTransport` for local dev. It can call a
@@ -198,27 +225,30 @@ extension in the SDK module shape. Cloudflare calls the capability fetch handler
 directly, and Express request/response conversion stays isolated at the adapter
 boundary.
 
-The owner-presence policy surface lives in `voiceId/shared/src/policy.ts`.
-`buildVoiceIdOwnerPresenceResult()` converts completed verification records into
-intent-bound owner-presence evidence, and
+The experimental owner-presence policy surface lives in
+`voiceId/shared/src/policy.ts`. `buildVoiceIdOwnerPresenceResult()` converts
+completed verification records into intent-associated policy evidence, and
 `evaluateVoiceIdOwnerPresenceForIntent()` rejects mismatched intent digests.
-`voiceId/shared/src/authPolicy.ts` adds the SDK-facing policy adapter:
-`authorizeVoiceIdOwnerPresence()` returns typed accepted evidence for wallet
-sessions, wallet MPC signing, or robot commands, and returns rejected decisions
-for intent mismatches, rejected owner presence, uncertain owner presence, and
-expired evidence.
+`voiceId/shared/src/authPolicy.ts` exercises SDK-facing policy branches for
+wallet sessions, wallet MPC signing, and robot commands. Its accepted branch is
+not E2 signing-candidate evidence because the current capture context and
+liveness inputs are caller-controlled.
 
 `POST /voice-id/owner-presence/authorize` is the server route for that policy
 surface. It accepts a completed `verificationId`, `intentDigest`, use case, and
-typed audio liveness and local device context signals. The route returns the
-liveness result, the derived owner-presence result, and the final auth-policy
-decision. Issued verifications that have not submitted an audio sample yet
-return `invalid_state`.
+typed client-reported capture and local device context signals. The route
+returns the experimental capture-freshness result, derived owner-presence
+result, and auth-policy simulation decision. Issued verifications that have not
+submitted an audio capture yet return `invalid_state`. This caller-owned E0
+prototype is replaced by authenticated server-owned Router challenge state in
+the signing plan.
 
 Camera, face, mouth, and lip-sync work is not part of the current MVP. That
 future track lives in
-`voiceId/docs/voiceId-camera-liveness-future.md`. The current MVP keeps only the
-audio/device liveness boundary in active code.
+[Audio-Visual PAD Future Plan](docs/voiceId-camera-liveness-future.md). The
+current MVP keeps a typed client-reported capture-context boundary in active
+code. It must not be described as measured liveness or presentation-attack
+detection.
 
 D1-compatible durable stores live in
 `voiceId/server/src/store/CloudflareVoiceIdD1Stores.ts`. Use
@@ -290,6 +320,11 @@ intent, and returns an unpadded base64url SHA-256 `intentDigest`. The digest
 includes the intent kind, required fields, expiry, and nonce, so changing amount,
 recipient, device, expiry, or nonce changes the digest.
 
+This helper is E0 prototype canonicalization. It is not the authoritative
+wallet signing intent. The target signing flow builds `RouterVoiceIntentBinding`
+server-side with the existing Router A/B typed builders and derives any voice
+challenge digest from that binding.
+
 Client capability constructors live in `voiceId/client/src/VoiceIdCapability.ts`.
 Use `createVoiceIdApiOnlyCapability()` when a host app only needs the route
 client. Use `createVoiceIdBrowserCaptureCapability()` when browser recording is
@@ -302,8 +337,8 @@ behind the HTTP sidecar boundary in Cloudflare Containers or a robot-local
 sidecar. AWS ordinary-server and Nitro Enclave notes are optional SDK
 portability references.
 
-Cloudflare MPC signing is not a new VoiceID subsystem. VoiceID owner-presence
-results should feed the existing Router A/B signer architecture in
-`docs/router-A-B-signer.md`: Router admits an intent-bound request, normal
-signing goes through the dedicated SigningWorker, and Deriver A/B stay off the
-normal signing path.
+Cloudflare MPC signing is an existing Router subsystem. Browser VoiceID reaches
+it only through passkey admission. A future embedded E2 result reaches it only
+after server R1 policy and atomic grant reservation. The architecture is
+[Router A/B signer](../docs/router-a-b-SPEC.md): normal signing goes through the
+active SigningWorker, and Deriver A/B stay off the normal signing path.
