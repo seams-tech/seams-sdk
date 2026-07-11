@@ -122,6 +122,7 @@ export function resolveAppearanceTheme(args: {
   legacyTokens?: unknown;
 }): AppearanceTheme {
   const fallbackMode = args.fallback.mode;
+  const fallbackShape = args.fallback.shape;
   const legacyMode = coerceThemeMode(args.value);
   if (legacyMode) {
     return {
@@ -131,6 +132,7 @@ export function resolveAppearanceTheme(args: {
         ...args.fallback.colors,
         ...readLegacyTokenColors(args.legacyTokens, legacyMode),
       },
+      ...(fallbackShape ? { shape: fallbackShape } : {}),
     };
   }
 
@@ -157,6 +159,13 @@ export function resolveAppearanceTheme(args: {
     throw new Error("[configPresets] Invalid config: appearance.theme.mode must be 'light' or 'dark'");
   }
 
+  /* shape merges like colors (incoming keys win); toColorTokenRecord is a
+     generic string-record filter despite the name */
+  const shape = {
+    ...(fallbackShape || {}),
+    ...toColorTokenRecord(record.shape),
+  };
+
   return {
     id: resolveAppearanceThemeId({ value: record.id, fallback: args.fallback.id }),
     mode,
@@ -165,6 +174,7 @@ export function resolveAppearanceTheme(args: {
       ...readLegacyTokenColors(args.legacyTokens, mode),
       ...toColorTokenRecord(record.colors),
     },
+    ...(Object.keys(shape).length > 0 ? { shape } : {}),
   };
 }
 

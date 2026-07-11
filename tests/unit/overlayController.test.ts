@@ -140,7 +140,9 @@ test.describe('OverlayController', () => {
     expect(res.afterForceHide.height).toBe('0px');
   });
 
-  test('anchored lease rejects unrelated fullscreen and hide mutations', async ({ page }) => {
+  test('surface render writes derive title, focusability, and suspended hit testing', async ({
+    page,
+  }) => {
     const res = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.overlay);
@@ -148,54 +150,49 @@ test.describe('OverlayController', () => {
         const iframe = document.createElement('iframe');
         document.body.appendChild(iframe);
         const overlay = new OverlayController({ ensureIframe: () => iframe });
-        const lease = overlay.acquireAnchoredLease();
-        if (!lease) throw new Error('Expected anchored overlay lease');
-        overlay.showAnchoredForLease(lease, { top: 10, left: 12, width: 123, height: 45 });
-
-        overlay.showFullscreen();
-        overlay.forceHide();
-        overlay.showAnchored({ top: 0, left: 0, width: 500, height: 500 });
-        const whileLeased = {
+        overlay.applyAnchored(
+          { top: 10, left: 12, width: 123, height: 45 },
+          { title: 'Create passkey' },
+        );
+        const interactive = {
           ...overlay.getState(),
-          top: getComputedStyle(iframe).top,
-          left: getComputedStyle(iframe).left,
-          width: getComputedStyle(iframe).width,
-          height: getComputedStyle(iframe).height,
+          title: iframe.getAttribute('title'),
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
         };
-
-        const released = overlay.releaseAnchoredLease(lease);
-        const afterRelease = overlay.getState();
-        return { whileLeased, released, afterRelease };
+        overlay.applyAnchoredSuspended({ title: 'Create passkey' });
+        const suspended = {
+          ...overlay.getState(),
+          title: iframe.getAttribute('title'),
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          tabindex: iframe.getAttribute('tabindex'),
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
+        };
+        overlay.applyHidden();
+        const hidden = {
+          ...overlay.getState(),
+          title: iframe.getAttribute('title'),
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
+        };
+        return { interactive, suspended, hidden };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(res.whileLeased.mode).toBe('anchored');
-    expect(res.whileLeased.visible).toBe(true);
-    expect(res.whileLeased.ownership).toBe('anchored_lease');
-    expect(res.whileLeased.top).toBe('10px');
-    expect(res.whileLeased.left).toBe('12px');
-    expect(res.whileLeased.width).toBe('123px');
-    expect(res.whileLeased.height).toBe('45px');
-    expect(res.released).toBe(true);
-    expect(res.afterRelease.visible).toBe(false);
-    expect(res.afterRelease.ownership).toBe('unowned');
-  });
-
-  test('does not acquire an anchored lease over an existing visible surface', async ({ page }) => {
-    const acquired = await page.evaluate(
-      async ({ paths }) => {
-        const mod = await import(paths.overlay);
-        const OverlayController = (mod as any).OverlayController || (mod as any).default;
-        const iframe = document.createElement('iframe');
-        document.body.appendChild(iframe);
-        const overlay = new OverlayController({ ensureIframe: () => iframe });
-        overlay.showFullscreen();
-        return overlay.acquireAnchoredLease() !== null;
-      },
-      { paths: IMPORT_PATHS },
-    );
-
-    expect(acquired).toBe(false);
+    expect(res.interactive.visible).toBe(true);
+    expect(res.interactive.title).toBe('Create passkey');
+    expect(res.interactive.ariaHidden).toBe('false');
+    expect(res.interactive.pointerEvents).toBe('auto');
+    expect(res.suspended.mode).toBe('anchored');
+    expect(res.suspended.suspended).toBe(true);
+    expect(res.suspended.title).toBe('Create passkey');
+    expect(res.suspended.ariaHidden).toBe('true');
+    expect(res.suspended.tabindex).toBe('-1');
+    expect(res.suspended.pointerEvents).toBe('none');
+    expect(res.hidden.mode).toBe('hidden');
+    expect(res.hidden.title).toBeNull();
+    expect(res.hidden.ariaHidden).toBe('true');
+    expect(res.hidden.pointerEvents).toBe('none');
   });
 });

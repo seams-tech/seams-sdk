@@ -38,6 +38,7 @@ import {
   summarizeVisibleEcdsaMaterial,
   type EcdsaMaterialState,
   type EcdsaMaterialSummary,
+  type MissingEcdsaMaterial,
   type ReadyEcdsaMaterial,
 } from './ecdsaMaterialState';
 import {
@@ -243,10 +244,27 @@ export type MissingMaterialEvmFamilyEcdsaSigningSelection = {
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
+type RestoreRequiredPasskeyEcdsaLaneCandidate = EcdsaLaneCandidate & {
+  auth: Extract<EcdsaLaneCandidate['auth'], { kind: 'passkey' }>;
+  state: 'restorable' | 'deferred';
+};
+
+export type RestoreRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'restore_required';
+  accountAuth: AccountAuthMetadata;
+  authMethod: 'passkey';
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  candidate: RestoreRequiredPasskeyEcdsaLaneCandidate;
+  material: MissingEcdsaMaterial & { authMethod: 'passkey' };
+  restoreChainTarget: ThresholdEcdsaChainTarget;
+  diagnostics: EcdsaSelectionDiagnostics;
+};
+
 export type EvmFamilyEcdsaSigningSelectionResult =
   | ReadyEvmFamilyEcdsaSigningSelection
   | ReauthRequiredEvmFamilyEcdsaSigningSelection
   | BudgetBlockedEvmFamilyEcdsaSigningSelection
+  | RestoreRequiredEvmFamilyEcdsaSigningSelection
   | MissingMaterialEvmFamilyEcdsaSigningSelection;
 
 export type EmailOtpEcdsaCommittedLaneStateFailure =
@@ -415,6 +433,44 @@ function emailOtpReauthRequiredSelection(args: {
     ...common,
     reason: args.reason,
   };
+}
+
+function passkeyRestoreRequiredSelection(args: {
+  accountAuth: AccountAuthMetadata;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  candidate: RestoreRequiredPasskeyEcdsaLaneCandidate;
+  material: MissingEcdsaMaterial & { authMethod: 'passkey' };
+  restoreChainTarget: ThresholdEcdsaChainTarget;
+  diagnostics: EcdsaSelectionDiagnostics;
+}): RestoreRequiredEvmFamilyEcdsaSigningSelection {
+  return {
+    kind: 'restore_required',
+    accountAuth: args.accountAuth,
+    authMethod: SIGNER_AUTH_METHODS.passkey,
+    lane: args.lane,
+    candidate: args.candidate,
+    material: args.material,
+    restoreChainTarget: args.restoreChainTarget,
+    diagnostics: args.diagnostics,
+  };
+}
+
+function isRestoreRequiredPasskeyEcdsaLaneCandidate(
+  candidate: EcdsaLaneCandidate,
+): candidate is RestoreRequiredPasskeyEcdsaLaneCandidate {
+  return (
+    candidate.auth.kind === SIGNER_AUTH_METHODS.passkey &&
+    (candidate.state === 'restorable' || candidate.state === 'deferred')
+  );
+}
+
+function isMissingPasskeyEcdsaMaterial(
+  material: EcdsaMaterialState,
+): material is MissingEcdsaMaterial & { authMethod: 'passkey' } {
+  return (
+    material.kind === 'public_identity_unavailable' &&
+    material.authMethod === SIGNER_AUTH_METHODS.passkey
+  );
 }
 
 export function resolvedEvmFamilyEcdsaSigningLaneFromCandidate(
@@ -1608,7 +1664,20 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       });
     }
     if (!committedPasskeyLane) {
-      logEvmFamilyEcdsaLaneDiagnostic('Passkey ECDSA material requires restore before reauth', {
+      if (
+        isRestoreRequiredPasskeyEcdsaLaneCandidate(args.laneCandidate) &&
+        isMissingPasskeyEcdsaMaterial(exactCandidateMaterial)
+      ) {
+        return passkeyRestoreRequiredSelection({
+          accountAuth: selectedAccountAuth,
+          lane,
+          candidate: args.laneCandidate,
+          material: exactCandidateMaterial,
+          restoreChainTarget: materialChainTarget,
+          diagnostics,
+        });
+      }
+      logEvmFamilyEcdsaLaneDiagnostic('Passkey ECDSA material is unavailable', {
         lane: summarizeEvmFamilyEcdsaLane(lane),
         candidate: summarizeLaneCandidate(args.laneCandidate),
         material: summarizeEcdsaMaterialState(exactCandidateMaterial),

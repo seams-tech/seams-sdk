@@ -437,6 +437,18 @@ function readinessFromSelection(
           kind: 'no_trusted_budget_status_auth',
         },
       };
+    case 'restore_required':
+      return {
+        readiness: {
+          status: 'missing_session',
+          thresholdSessionId: selection.lane.thresholdSessionId,
+        },
+        expiresAtMs: 0,
+        remainingUses: 0,
+        trustedBudgetStatusAuth: {
+          kind: 'no_trusted_budget_status_auth',
+        },
+      };
   }
 }
 
@@ -767,20 +779,34 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             allowMissingHotMaterial: args.forceFreshAuth === true,
           });
         let selection = await resolveSelectedEcdsaMaterial();
+        if (selection.kind === 'missing_material') {
+          emitSigningSessionFlowFailure('evm-family', {
+            stage: 'ecdsa_selection.exact_material_unavailable_before_restore',
+            walletId,
+            chain,
+            chainTarget,
+            authMethod: selection.authMethod,
+            candidate: selection.diagnostics.selectedLaneCandidate,
+            material: summarizeEcdsaMaterialState(selection.material),
+          });
+          throw new Error(
+            '[SigningEngine][ecdsa] exact available lane has no restorable material',
+          );
+        }
         const hasSelectedHotMaterial = selection.kind === 'ready';
         // Material selection understands shared EVM-family source targets. Only
         // restore after selection proves the selected lane lacks usable material.
         const shouldRestoreAvailableLane =
           !laneRequiresFreshAuth &&
           !hasSelectedHotMaterial &&
-          (laneCandidate.state === 'restorable' ||
-            laneCandidate.state === 'deferred' ||
-            selection.kind === 'missing_material' ||
+          (selection.kind === 'restore_required' ||
             (selection.kind === 'reauth_required' && selection.reason === 'missing_hot_material'));
         const restoreChainTarget =
-          selectedAvailableLane.source === 'evm_family_shared_key'
-            ? selectedAvailableLane.sourceChainTarget
-            : chainTarget;
+          selection.kind === 'restore_required'
+            ? selection.restoreChainTarget
+            : selectedAvailableLane.source === 'evm_family_shared_key'
+              ? selectedAvailableLane.sourceChainTarget
+              : chainTarget;
         if (shouldRestoreAvailableLane) {
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_start',
@@ -887,16 +913,21 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           material: summarizeEcdsaMaterialState(selection.material),
           diagnostics: selection.diagnostics,
         });
-        if (selection.kind === 'missing_material') {
-          emitSigningSessionFlowFailure('evm-family', {
-            stage: 'ecdsa_selection.exact_material_missing',
+        if (selection.kind === 'missing_material' || selection.kind === 'restore_required') {
+          const unavailableAfterRestore = {
+            stage: 'ecdsa_selection.exact_material_unavailable_after_restore',
             walletId,
             chain,
             chainTarget,
             authMethod: selection.authMethod,
             candidate: selection.diagnostics.selectedLaneCandidate,
             material: summarizeEcdsaMaterialState(selection.material),
-          });
+          };
+          emitVisibleEcdsaLaneDiagnostic(
+            '[ECDSA_RESTORE_MATERIAL_UNAVAILABLE]',
+            unavailableAfterRestore,
+          );
+          emitSigningSessionFlowFailure('evm-family', unavailableAfterRestore);
           throw new Error(
             '[SigningEngine][ecdsa] exact available lane is unavailable after restore',
           );

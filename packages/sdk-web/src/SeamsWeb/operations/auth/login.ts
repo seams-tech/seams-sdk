@@ -3359,7 +3359,7 @@ export async function getWalletSession(
     );
   });
   const login = await getLoginStateInternal(context, readResolution);
-  const signingSession = login.walletId
+  const signingSession = login.isLoggedIn && login.walletId
     ? await resolveSigningSessionStatusForUi(
         context,
         {
@@ -4248,8 +4248,7 @@ async function getLoginStateInternal(
       snapshotToEd25519SigningSessionStatusForUi(availableLanesForLogin);
     const shouldGateNearPublicKey =
       requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin;
-    const hasThresholdEd25519SigningCapability =
-      isSessionDisplayActive(ed25519WarmStatus) || ed25519SnapshotStatusForLogin !== null;
+    const hasThresholdEd25519SigningCapability = ed25519SnapshotStatusForLogin !== null;
     const publicKey =
       userData?.operationalPublicKey &&
       (!shouldGateNearPublicKey || hasThresholdEd25519SigningCapability)
@@ -4264,7 +4263,7 @@ async function getLoginStateInternal(
           snapshot: snapshotStatusForLogin,
         }).catch(() => null)
       : null;
-    const hasActiveWarmSigningSession = isSessionDisplayActive(warmStatusForLogin);
+    const hasActiveWarmSigningSession = isSessionDisplayActive(snapshotStatusForLogin);
     const isLoggedIn =
       hasNearOperationalLogin || hasThresholdEcdsaLogin || hasActiveWarmSigningSession;
 

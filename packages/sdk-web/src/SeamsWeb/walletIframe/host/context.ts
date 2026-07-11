@@ -117,16 +117,19 @@ function sanitizeTokenValue(value: string): string | null {
   return trimmed;
 }
 
-function serializeColorOverrides(colors: Record<string, string>): string[] {
+function serializeTokenOverrides(
+  record: Record<string, string>,
+  group: 'colors' | 'shape',
+): string[] {
   const lines: string[] = [];
-  for (const [rawName, rawValue] of Object.entries(colors)) {
+  for (const [rawName, rawValue] of Object.entries(record)) {
     const tokenName = sanitizeTokenName(rawName);
     if (!tokenName) continue;
     const tokenValue = sanitizeTokenValue(rawValue);
     if (!tokenValue) continue;
     // Use !important so app-provided token overrides keep precedence even if
     // generated w3a-components.css is loaded/reloaded later.
-    lines.push(`  --w3a-colors-${tokenName}: ${tokenValue} !important;`);
+    lines.push(`  --w3a-${group}-${tokenName}: ${tokenValue} !important;`);
   }
   return lines;
 }
@@ -164,6 +167,11 @@ function appearanceColors(appearance: unknown, mode: ThemeMode): Record<string, 
   };
 }
 
+function appearanceShape(appearance: unknown): Record<string, string> {
+  const theme = objectRecord(objectRecord(appearance)?.theme);
+  return toStringRecord(theme?.shape);
+}
+
 function normalizeWalletHostAppearance(args: {
   previous?: AppearanceConfigInput;
   incoming?: AppearanceConfigInput;
@@ -176,11 +184,16 @@ function normalizeWalletHostAppearance(args: {
     ...appearanceColors(args.previous, mode),
     ...appearanceColors(args.incoming, mode),
   };
+  const shape = {
+    ...appearanceShape(args.previous),
+    ...appearanceShape(args.incoming),
+  };
   return {
     theme: {
       id,
       mode,
       colors,
+      ...(Object.keys(shape).length > 0 ? { shape } : {}),
     },
     palette: 'default',
   };
@@ -189,7 +202,10 @@ function normalizeWalletHostAppearance(args: {
 function upsertLitThemeOverrideStyle(appearance?: AppearanceConfigInput): void {
   const mode = appearanceMode(appearance);
   const colors = mode ? appearanceColors(appearance, mode) : {};
-  const lines = serializeColorOverrides(colors);
+  const lines = [
+    ...serializeTokenOverrides(colors, 'colors'),
+    ...serializeTokenOverrides(appearanceShape(appearance), 'shape'),
+  ];
   const cssBlocks: string[] = [];
 
   if (mode && lines.length > 0) {

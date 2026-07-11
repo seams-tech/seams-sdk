@@ -188,10 +188,26 @@ import type {
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
-import OverlayController, {
-  type AnchoredOverlayLease,
-  type DOMRectLike,
-} from './overlay/overlay-controller';
+import OverlayController, { type DOMRectLike } from './overlay/overlay-controller';
+import {
+  hiddenWalletIframeSurface,
+  interactiveRegistrationPlacement,
+  passkeyRegistrationPreparationReceipt,
+  parseRegistrationActivationSurfaceIdentity,
+  reduceWalletIframeSurface,
+  registrationActivationSurfaceIdentitiesEqual,
+  registrationActivationSurfaceIdentity,
+  suspendedRegistrationPlacement,
+  walletIframeConnectionIdFromBoundary,
+  type AnchoredRegistrationPlacement,
+  type ReduceWalletIframeSurfaceResult,
+  type RegistrationActivationSurfaceIdentity,
+  type WalletIframeConnectionId,
+  type WalletIframeSurface,
+  type WalletIframeSurfaceBusyError,
+  type WalletIframeSurfaceEvent,
+} from './surface/domain';
+import { WalletIframeSurfaceRenderer } from './surface/renderer';
 import {
   isObject,
   isPlainSignedTransactionLike,
@@ -388,11 +404,17 @@ function getErrorCode(error: Error): string {
   return typeof code === 'string' ? code : '';
 }
 
-function walletIframeSurfaceBusyError(): Error & { code: 'wallet_iframe_surface_busy' } {
+function walletIframeSurfaceBusyError(
+  detail?: WalletIframeSurfaceBusyError,
+): Error & { code: 'wallet_iframe_surface_busy'; detail?: WalletIframeSurfaceBusyError } {
   const error = new Error(
-    'The wallet iframe is reserved by an active registration surface',
-  ) as Error & { code: 'wallet_iframe_surface_busy' };
+    'The wallet iframe is reserved by an active foreground surface',
+  ) as Error & {
+    code: 'wallet_iframe_surface_busy';
+    detail?: WalletIframeSurfaceBusyError;
+  };
   error.code = 'wallet_iframe_surface_busy';
+  if (detail) error.detail = detail;
   return error;
 }
 
@@ -768,6 +790,20 @@ function registrationActivationTargetGeometry(
   return partiallyClipped ? { kind: 'suspended', rect } : { kind: 'interactive', rect };
 }
 
+function registrationActivationPlacementFromTarget(
+  target: HTMLElement,
+): AnchoredRegistrationPlacement | null {
+  const geometry = registrationActivationTargetGeometry(target);
+  switch (geometry.kind) {
+    case 'interactive':
+      return interactiveRegistrationPlacement(geometry.rect);
+    case 'suspended':
+      return suspendedRegistrationPlacement(geometry.rect);
+    case 'unavailable':
+      return null;
+  }
+}
+
 function installRegistrationActivationTargetProxy(args: {
   target: HTMLElement;
   accessibleLabel: string;
@@ -829,19 +865,6 @@ function restoreNullableAttribute(target: HTMLElement, name: string, value: stri
   target.setAttribute(name, value);
 }
 
-function installRegistrationActivationIframeAccessibility(args: {
-  iframe: HTMLIFrameElement;
-  accessibleLabel: string;
-}): RegistrationActivationMountCleanup {
-  const title = args.iframe.getAttribute('title');
-  args.iframe.setAttribute('title', args.accessibleLabel);
-  return {
-    dispose: (): void => {
-      restoreNullableAttribute(args.iframe, 'title', title);
-    },
-  };
-}
-
 function nextRegistrationActivationLayoutFrame(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame === 'function') {
@@ -885,8 +908,7 @@ function collectRegistrationActivationGeometryTargets(target: HTMLElement): Even
 
 function installRegistrationActivationOverlayGeometry(args: {
   target: HTMLElement;
-  overlayState: WalletIframeOverlayState;
-  lease: AnchoredOverlayLease;
+  onPlacementChanged(placement: AnchoredRegistrationPlacement): void;
   onTargetUnavailable(): void;
 }): RegistrationActivationMountCleanup | null {
   const applyRect = (): boolean => {
@@ -895,12 +917,11 @@ function installRegistrationActivationOverlayGeometry(args: {
       case 'unavailable':
         return false;
       case 'suspended':
-        args.overlayState.controller.suspendAnchoredForLease(args.lease);
+        args.onPlacementChanged(suspendedRegistrationPlacement(geometry.rect));
         return true;
       case 'interactive':
-        args.overlayState.forceFullscreen = false;
-        args.overlayState.controller.setSticky(true);
-        return args.overlayState.controller.showAnchoredForLease(args.lease, geometry.rect);
+        args.onPlacementChanged(interactiveRegistrationPlacement(geometry.rect));
+        return true;
     }
   };
   if (!applyRect()) return null;
@@ -948,7 +969,6 @@ function installRegistrationActivationOverlayGeometry(args: {
         eventTarget.removeEventListener('scroll', onGeometryChanged, true);
         eventTarget.removeEventListener('resize', onGeometryChanged);
       }
-      args.overlayState.controller.clearAnchoredRect();
     },
   };
 }
@@ -987,6 +1007,7 @@ export class WalletIframeRouter {
   private transport: IframeTransport;
   private state = {
     port: null as MessagePort | null,
+    connectionId: null as WalletIframeConnectionId | null,
     ready: false,
     // Deduplicate concurrent init() calls and avoid race conditions
     initInFlight: null as Promise<void> | null,
@@ -1009,7 +1030,7 @@ export class WalletIframeRouter {
   };
   private readonly registrationActivationListeners = new Map<
     string,
-    Set<(event: ChildToParentEnvelope) => void>
+    Set<(event: ChildToParentEnvelope, connectionId: WalletIframeConnectionId) => void>
   >();
   private lastPreferencesChangedPayload: PreferencesChangedPayload | null = null;
   private progressBus: OnEventsProgressBus;
@@ -1019,6 +1040,8 @@ export class WalletIframeRouter {
   // Force the overlay to remain fullscreen during critical flows (e.g., registration)
   // and ignore anchored rect updates from helper hooks.
   private overlayState: WalletIframeOverlayState;
+  private walletIframeSurface: WalletIframeSurface = hiddenWalletIframeSurface();
+  private surfaceRenderer: WalletIframeSurfaceRenderer;
   private windowMsgHandlerBound?: (ev: MessageEvent) => void;
 
   constructor(options: WalletIframeRouterOptions) {
@@ -1100,6 +1123,7 @@ export class WalletIframeRouter {
     )({
       ensureIframe: () => this.transport.ensureIframeMounted(),
     });
+    this.surfaceRenderer = new WalletIframeSurfaceRenderer(this.overlayState.controller);
 
     // Initialize progress router with overlay control and v2 overlay intents.
     // OnEventsProgressBus only decides *when* to show/hide based on events; it calls
@@ -1124,7 +1148,7 @@ export class WalletIframeRouter {
       if (!data || typeof data !== 'object') return;
       const type = (data as { type?: unknown }).type;
       if (type === 'REGISTER_BUTTON_SUBMIT') {
-        if (this.overlayState.controller.getState().ownership === 'anchored_lease') return;
+        if (this.walletIframeSurface.kind !== 'hidden') return;
         // User clicked the register arrow inside the wallet-anchored UI
         // Force the overlay to fullscreen immediately so the TxConfirmer
         // can mount and capture activation in Safari/iOS/mobile.
@@ -1166,6 +1190,28 @@ export class WalletIframeRouter {
     return this.opts.getAppearance() ?? this.opts.appearance;
   }
 
+  private transitionWalletIframeSurface(
+    event: WalletIframeSurfaceEvent,
+  ): ReduceWalletIframeSurfaceResult {
+    const result = reduceWalletIframeSurface(this.walletIframeSurface, event);
+    if (result.kind === 'applied') {
+      this.walletIframeSurface = result.surface;
+      this.surfaceRenderer.render(result.surface);
+    }
+    return result;
+  }
+
+  private ownsRegistrationActivationSurface(
+    connectionId: WalletIframeConnectionId,
+    identity: RegistrationActivationSurfaceIdentity,
+  ): boolean {
+    return (
+      this.walletIframeSurface.kind === 'anchored_registration_activation' &&
+      this.walletIframeSurface.connectionId === connectionId &&
+      registrationActivationSurfaceIdentitiesEqual(this.walletIframeSurface.identity, identity)
+    );
+  }
+
   /**
    * Subscribe to service-ready event. Returns an unsubscribe function.
    * If already ready, the listener is invoked on next microtask.
@@ -1204,7 +1250,11 @@ export class WalletIframeRouter {
       // Respect autoMount=false by deferring connect until first use
       if (this.opts.testOptions.autoMount !== false) {
         this.state.port = await this.transport.connect();
-        this.state.port.onmessage = (ev) => this.onPortMessage(ev);
+        const connectionId = walletIframeConnectionIdFromBoundary(
+          `wallet-iframe-connection-${secureRandomBase36(16, 'wallet iframe connection IDs')}`,
+        );
+        this.state.connectionId = connectionId;
+        this.state.port.onmessage = (ev) => this.onPortMessage(ev, connectionId);
         this.state.port.start?.();
         this.state.ready = true;
       }
@@ -1465,14 +1515,14 @@ export class WalletIframeRouter {
       requestId: this.allocateRequestId(),
     };
     const expiresAtMs = Date.now() + 5 * 60 * 1000;
+    const surfaceIdentity = registrationActivationSurfaceIdentity(identity);
     let currentState: RegistrationActivationSurfaceState = { kind: 'idle' };
     let mounted = false;
     let disposed = false;
     let target: HTMLElement | null = null;
     let targetCleanup: RegistrationActivationMountCleanup | null = null;
     let geometryCleanup: RegistrationActivationMountCleanup | null = null;
-    let iframeTitleCleanup: RegistrationActivationMountCleanup | null = null;
-    let overlayLease: AnchoredOverlayLease | null = null;
+    let owningConnectionId: WalletIframeConnectionId | null = null;
     const listeners = new Set<(state: RegistrationActivationSurfaceState) => void>();
     const setState = (next: RegistrationActivationSurfaceState): void => {
       currentState = next;
@@ -1485,20 +1535,20 @@ export class WalletIframeRouter {
     const cleanupActivationMount = (): void => {
       geometryCleanup?.dispose();
       geometryCleanup = null;
-      iframeTitleCleanup?.dispose();
-      iframeTitleCleanup = null;
       targetCleanup?.dispose();
       targetCleanup = null;
       clearRegistrationActivationButtonState(target);
       target = null;
     };
-    const releaseActivationOverlay = (): void => {
+    const releaseActivationSurface = (): void => {
       cleanupActivationMount();
-      if (overlayLease) {
-        this.overlayState.controller.releaseAnchoredLease(overlayLease);
-        overlayLease = null;
+      if (owningConnectionId) {
+        this.transitionWalletIframeSurface({
+          kind: 'registration_activation_finished',
+          connectionId: owningConnectionId,
+          identity: surfaceIdentity,
+        });
       }
-      this.releaseOverlayLockAndHideWhenIdle();
     };
     const postActivationCancel = (reason: RegistrationActivationCancelReason): void => {
       void this.post({
@@ -1512,7 +1562,15 @@ export class WalletIframeRouter {
       this.registrationActivationListeners.delete(identity.activationId);
       postActivationCancel(reason);
       setState({ kind: 'cancelled', identity, reason });
-      releaseActivationOverlay();
+      if (owningConnectionId) {
+        this.transitionWalletIframeSurface({
+          kind: 'registration_activation_cancelled',
+          connectionId: owningConnectionId,
+          identity: surfaceIdentity,
+          reason,
+        });
+      }
+      cleanupActivationMount();
     };
     const failActivation = (error: string): void => {
       if (disposed) return;
@@ -1520,32 +1578,78 @@ export class WalletIframeRouter {
       this.registrationActivationListeners.delete(identity.activationId);
       postActivationCancel('disposed');
       setState({ kind: 'failed', identity, error });
-      releaseActivationOverlay();
+      if (owningConnectionId) {
+        this.transitionWalletIframeSurface({
+          kind: 'registration_activation_cancelled',
+          connectionId: owningConnectionId,
+          identity: surfaceIdentity,
+          reason: 'disposed',
+        });
+      }
+      cleanupActivationMount();
     };
-    const activationEventListener = (event: ChildToParentEnvelope): void => {
+    const activationEventListener = (
+      event: ChildToParentEnvelope,
+      connectionId: WalletIframeConnectionId,
+    ): void => {
       const parsed = parseRegistrationActivationChildMessage(event);
       if (!parsed || !registrationActivationIdentitiesEqual(parsed.payload, identity)) return;
+      const inboundIdentity = parseRegistrationActivationSurfaceIdentity(parsed.payload);
+      if (!inboundIdentity) return;
+      if (!registrationActivationSurfaceIdentitiesEqual(inboundIdentity, surfaceIdentity)) return;
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_READY') {
+        if (parsed.payload.expiresAtMs <= Date.now()) {
+          cancelActivation('expired');
+          return;
+        }
         if (!target) {
           cancelActivation('target_unavailable');
           return;
         }
         if (!geometryCleanup) {
-          if (this.progressBus.wantsVisible()) {
+          const placement = registrationActivationPlacementFromTarget(target);
+          if (!placement) {
+            cancelActivation('target_unavailable');
+            return;
+          }
+          if (this.progressBus.wantsVisible() || this.overlayState.controller.getState().visible) {
             failActivation('wallet_iframe_surface_busy');
             return;
           }
-          overlayLease = this.overlayState.controller.acquireAnchoredLease();
-          if (!overlayLease) {
-            failActivation('wallet_iframe_surface_busy');
+          const prepared = this.transitionWalletIframeSurface({
+            kind: 'registration_activation_prepared',
+            connectionId,
+            identity: surfaceIdentity,
+            wallet: payload.wallet,
+            preparation: passkeyRegistrationPreparationReceipt(parsed.payload.expiresAtMs),
+            presentation: payload.presentation,
+            placement,
+          });
+          if (prepared.kind === 'rejected') {
+            failActivation(walletIframeSurfaceBusyError(prepared.error).message);
             return;
           }
+          owningConnectionId = connectionId;
           geometryCleanup = installRegistrationActivationOverlayGeometry({
             target,
-            overlayState: this.overlayState,
-            lease: overlayLease,
+            onPlacementChanged: (nextPlacement): void => {
+              this.transitionWalletIframeSurface({
+                kind: 'registration_activation_placement_changed',
+                connectionId,
+                identity: surfaceIdentity,
+                placement: nextPlacement,
+              });
+            },
             onTargetUnavailable: () => cancelActivation('target_unavailable'),
           });
+          if (!geometryCleanup) {
+            cancelActivation('target_unavailable');
+            return;
+          }
+          if (!this.ownsRegistrationActivationSurface(connectionId, surfaceIdentity)) {
+            failActivation('wallet_iframe_surface_busy');
+            return;
+          }
         }
         if (!geometryCleanup) {
           cancelActivation('target_unavailable');
@@ -1565,16 +1669,28 @@ export class WalletIframeRouter {
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
         if (currentState.kind !== 'ready') return;
         setState({ kind: 'starting', identity });
-        releaseActivationOverlay();
+        releaseActivationSurface();
         return;
       }
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
         if (!canApplyRegistrationActivationButtonState(currentState)) return;
         applyRegistrationActivationButtonState({ target, state: parsed.payload.state });
+        this.transitionWalletIframeSurface({
+          kind: 'registration_activation_focus_owner_changed',
+          connectionId,
+          identity: surfaceIdentity,
+          focusOwner: parsed.payload.state.focused ? { kind: 'iframe_button' } : { kind: 'outside' },
+        });
         return;
       }
       if (parsed.type === 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT') {
         if (!target || !canApplyRegistrationActivationButtonState(currentState)) return;
+        this.transitionWalletIframeSurface({
+          kind: 'registration_activation_focus_owner_changed',
+          connectionId,
+          identity: surfaceIdentity,
+          focusOwner: { kind: 'outside' },
+        });
         focusRegistrationActivationSibling(target, parsed.payload.direction);
       }
     };
@@ -1584,14 +1700,18 @@ export class WalletIframeRouter {
       mount: (mountTarget: HTMLElement): void => {
         if (mounted || disposed) return;
         target = mountTarget;
-        iframeTitleCleanup = installRegistrationActivationIframeAccessibility({
-          iframe: this.transport.ensureIframeMounted(),
-          accessibleLabel: payload.presentation.accessibleLabel,
-        });
         targetCleanup = installRegistrationActivationTargetProxy({
           target: mountTarget,
           accessibleLabel: payload.presentation.accessibleLabel,
           onFocusRequest: () => {
+            if (owningConnectionId) {
+              this.transitionWalletIframeSurface({
+                kind: 'registration_activation_focus_owner_changed',
+                connectionId: owningConnectionId,
+                identity: surfaceIdentity,
+                focusOwner: { kind: 'proxy' },
+              });
+            }
             void this.post({
               type: 'PM_REGISTRATION_ACTIVATION_FOCUS',
               payload: identity,
@@ -1659,7 +1779,7 @@ export class WalletIframeRouter {
             }
           } finally {
             this.registrationActivationListeners.delete(identity.activationId);
-            releaseActivationOverlay();
+            releaseActivationSurface();
           }
         })();
       },
@@ -1671,7 +1791,7 @@ export class WalletIframeRouter {
           postActivationCancel('disposed');
           setState({ kind: 'cancelled', identity, reason: 'disposed' });
         }
-        releaseActivationOverlay();
+        releaseActivationSurface();
       },
       state: (): RegistrationActivationSurfaceState => currentState,
       onStateChange: (
@@ -2909,7 +3029,11 @@ export class WalletIframeRouter {
     this.releaseOverlayLockAndHideWhenIdle();
   }
 
-  private onPortMessage(e: MessageEvent<ChildToParentEnvelope>) {
+  private onPortMessage(
+    e: MessageEvent<ChildToParentEnvelope>,
+    connectionId: WalletIframeConnectionId,
+  ): void {
+    if (this.state.connectionId !== connectionId) return;
     const msg = e.data as ChildToParentEnvelope;
     // Some wallet-host messages are push-style and are not correlated to a requestId.
     if (msg.type === 'PREFERENCES_CHANGED') {
@@ -2929,7 +3053,7 @@ export class WalletIframeRouter {
         if (!listeners) return;
         for (const listener of listeners) {
           try {
-            listener(msg);
+            listener(msg, connectionId);
           } catch {}
         }
       }
@@ -3056,10 +3180,7 @@ export class WalletIframeRouter {
     const full: ParentToChildEnvelope = { ...(envelope as ParentToChildEnvelope), requestId };
     const { options } = full;
     const overlayIntent = this.computeOverlayIntent(envelope.type);
-    if (
-      overlayIntent.mode === 'fullscreen' &&
-      this.overlayState.controller.getState().ownership === 'anchored_lease'
-    ) {
+    if (overlayIntent.mode === 'fullscreen' && this.walletIframeSurface.kind !== 'hidden') {
       throw walletIframeSurfaceBusyError();
     }
     const timeoutMs = postOpts?.timeoutMs ?? this.opts.requestTimeoutMs;
@@ -3125,7 +3246,10 @@ export class WalletIframeRouter {
           : { ...full, options: undefined };
 
         // Step 7: Apply overlay intent (conservative) if not already visible, then post
-        if (!this.overlayState.controller.getState().visible) {
+        if (
+          this.walletIframeSurface.kind === 'hidden' &&
+          !this.overlayState.controller.getState().visible
+        ) {
           if (overlayIntent.mode === 'fullscreen') {
             this.overlayState.controller.showFullscreen();
           }
@@ -3149,7 +3273,7 @@ export class WalletIframeRouter {
   }
 
   private assertOverlaySurfaceAvailable(): void {
-    if (this.overlayState.controller.getState().ownership === 'anchored_lease') {
+    if (this.walletIframeSurface.kind !== 'hidden') {
       throw walletIframeSurfaceBusyError();
     }
   }
@@ -3188,6 +3312,7 @@ export class WalletIframeRouter {
 
   // Temporarily show the service iframe to capture user activation
   private showFrameForActivation(): void {
+    if (this.walletIframeSurface.kind !== 'hidden') return;
     // Ensure iframe exists so overlay can be applied immediately
     this.transport.ensureIframeMounted();
     if (this.overlayState.forceFullscreen) {
@@ -3199,18 +3324,21 @@ export class WalletIframeRouter {
   }
 
   private hideFrameForActivation(): void {
+    if (this.walletIframeSurface.kind !== 'hidden') return;
     if (!this.overlayState.controller.getState().visible) return;
     if (this.progressBus.wantsVisible()) return;
     this.overlayState.controller.hide();
   }
 
   private hideFrameAfterProgressDemandCleared(): void {
+    if (this.walletIframeSurface.kind !== 'hidden') return;
     if (this.progressBus.wantsVisible()) return;
     this.overlayState.forceFullscreen = false;
     this.overlayState.controller.forceHide();
   }
 
   private releaseOverlayLockAndHideWhenIdle(): void {
+    if (this.walletIframeSurface.kind !== 'hidden') return;
     this.overlayState.forceFullscreen = false;
     this.overlayState.controller.setSticky(false);
     if (this.progressBus.wantsVisible()) return;
@@ -3233,6 +3361,7 @@ export class WalletIframeRouter {
    * Useful when mounting inline UI components that require direct user clicks.
    */
   setOverlayVisible(visible: boolean): void {
+    if (this.walletIframeSurface.kind !== 'hidden') return;
     if (visible) {
       // Respect fullscreen lock when present
       if (this.overlayState.forceFullscreen) {
@@ -3270,6 +3399,7 @@ export class WalletIframeRouter {
    * overlay using absolute positioning in document coordinates.
    */
   setOverlayBounds(rect: DOMRectLike): void {
+    if (this.walletIframeSurface.kind !== 'hidden') return;
     if (this.overlayState.forceFullscreen) return; // ignore anchored bounds while locked to fullscreen
     this.transport.ensureIframeMounted();
     this.overlayState.controller.showAnchored(rect);

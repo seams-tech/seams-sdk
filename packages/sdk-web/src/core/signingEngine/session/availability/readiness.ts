@@ -1422,6 +1422,19 @@ export async function clearSigningGrant(args: {
   }
 }
 
+function expiredEd25519SealedPolicyExpiresAtMs(args: {
+  lane: DiscoveredSigningSessionLane;
+  statusExpiresAtMs: number;
+  nowMs: number;
+}): number {
+  const laneExpiresAtMs = Math.floor(Number(args.lane.record.expiresAtMs) || 0);
+  return Math.min(
+    args.nowMs,
+    args.statusExpiresAtMs > 0 ? args.statusExpiresAtMs : args.nowMs,
+    laneExpiresAtMs > 0 ? laneExpiresAtMs : args.nowMs,
+  );
+}
+
 export async function syncSealedRefreshPolicyForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
@@ -1472,11 +1485,25 @@ export async function syncSealedRefreshPolicyForLanes(args: {
         : 0;
   if (args.status.status === 'expired' || (expiresAtMs > 0 && expiresAtMs <= nowMs)) {
     await Promise.all(
-      sealedLanes.map((lane) =>
-        deleteRecord(lane.thresholdSessionId, filterForLane(lane)!, {
+      sealedLanes.map((lane) => {
+        if (lane.curve === 'ed25519') {
+          // Expired Ed25519 material remains the exact passkey/email lane for reauthentication.
+          return updatePolicy({
+            thresholdSessionId: lane.thresholdSessionId,
+            filter: filterForLane(lane)!,
+            remainingUses,
+            expiresAtMs: expiredEd25519SealedPolicyExpiresAtMs({
+              lane,
+              statusExpiresAtMs: expiresAtMs,
+              nowMs,
+            }),
+            updatedAtMs: nowMs,
+          }).catch(() => undefined);
+        }
+        return deleteRecord(lane.thresholdSessionId, filterForLane(lane)!, {
           deleteResolvedIdentity: false,
-        }).catch(() => undefined),
-      ),
+        }).catch(() => undefined);
+      }),
     );
     return;
   }

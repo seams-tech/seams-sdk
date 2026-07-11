@@ -2,6 +2,7 @@
 
 Date created: June 28, 2026
 Architecture hardening: July 10, 2026
+MPC preparation generalization: July 10, 2026
 
 Status: planning.
 
@@ -2181,6 +2182,344 @@ must explicitly support non-interactive use. Diagnostics and raw arrays of
 `CapabilityGrantRequest` is built only after the active capability binding,
 operation envelope, and verified evidence set agree on tenant, principal,
 capability kind, operation kind, and operation digests.
+
+### Auth-Agnostic EVM ECDSA Preparation
+
+Auth factors do not define ECDSA transaction lanes or signer-material lifecycle
+states. Passkey, Email OTP, and future factors resolve to distinct
+`WalletAuthAuthorityRef` values and produce grant evidence through factor
+adapters. The EVM ECDSA capability consumes those normalized references and
+grants without branching on factor kind.
+
+Transaction targeting and signer-material ownership are separate identities.
+This is required because EVM and Tempo transaction lanes can use the same
+EVM-family signer material while retaining distinct operation targets.
+`ExactEcdsaMaterialIdentity` composes the final canonical material identity from
+Phase 5; it does not revive provisioning-only key-slot IDs or duplicate wallet
+identity already carried by `WalletAuthAuthorityRef`.
+
+```ts
+type MpcMaterialUseState =
+  | { kind: "session_retained" }
+  | {
+      kind: "single_use_pending";
+      operationFingerprintDigest: CapabilityOperationFingerprintDigest;
+    }
+  | { kind: "single_use_consumed"; consumedAt: IsoTimestamp };
+
+type SignableMpcMaterialUseState = Extract<
+  MpcMaterialUseState,
+  { kind: "session_retained" | "single_use_pending" }
+>;
+
+type RecoverableMpcMaterialUseState = Extract<
+  MpcMaterialUseState,
+  { kind: "session_retained" }
+>;
+
+type MpcMaterialRecoveryId = Brand<string, "MpcMaterialRecoveryId">;
+
+type WalletAuthoritySelectionPolicy =
+  | { kind: "any_authority" }
+  | {
+      kind: "exact_authority";
+      authorityRef: WalletAuthAuthorityRef;
+    };
+
+type ExactEcdsaMaterialIdentity = {
+  kind: "exact_ecdsa_material";
+  authorityRef: WalletAuthAuthorityRef;
+  materialBinding: EcdsaRoleLocalMaterialBinding;
+};
+
+type EvmEcdsaTransactionOperationEnvelope = CapabilityOperationEnvelope & {
+  operation: {
+    capabilityKind: "evm_ecdsa_mpc_signing";
+    operationKind: "evm.sign_transaction";
+  };
+};
+
+declare const evmEcdsaTransactionSelectionRequestBrand: unique symbol;
+
+type EvmEcdsaTransactionSelectionRequest = {
+  readonly [evmEcdsaTransactionSelectionRequestBrand]: true;
+  operation: EvmEcdsaTransactionOperationEnvelope;
+  transactionTarget: ThresholdEcdsaChainTarget;
+};
+
+type EvmEcdsaTransactionLane<
+  Use extends MpcMaterialUseState = MpcMaterialUseState,
+> = {
+  kind: "evm_ecdsa_transaction_lane";
+  operation: EvmEcdsaTransactionOperationEnvelope;
+  transactionTarget: ThresholdEcdsaChainTarget;
+  materialOwner: ExactEcdsaMaterialIdentity;
+  materialUse: Use;
+};
+
+declare const authorizedEvmEcdsaOperationBrand: unique symbol;
+
+type AuthorizedEvmEcdsaOperation = {
+  readonly [authorizedEvmEcdsaOperationBrand]: true;
+  operation: EvmEcdsaTransactionOperationEnvelope;
+  grant: Extract<CapabilityGrant, { kind: "active" }>;
+};
+
+declare const claimedEvmEcdsaOperationBrand: unique symbol;
+
+type ClaimedEvmEcdsaOperation = {
+  readonly [claimedEvmEcdsaOperationBrand]: true;
+  authorization: AuthorizedEvmEcdsaOperation;
+  grantUse: Extract<CapabilityGrantUse, { kind: "claimed" }>;
+};
+
+declare const boundReadyEcdsaMaterialBrand: unique symbol;
+
+type BoundReadyEcdsaSigningMaterial<
+  Use extends SignableMpcMaterialUseState = SignableMpcMaterialUseState,
+> = {
+  readonly [boundReadyEcdsaMaterialBrand]: true;
+  materialOwner: ExactEcdsaMaterialIdentity;
+  materialUse: Use;
+  materialHandle: EcdsaRoleLocalMaterialHandle;
+};
+
+declare const committedEvmEcdsaCapabilityBrand: unique symbol;
+
+type CommittedEvmEcdsaSigningCapability = {
+  readonly [committedEvmEcdsaCapabilityBrand]: true;
+  lane: EvmEcdsaTransactionLane<SignableMpcMaterialUseState>;
+  authorization: AuthorizedEvmEcdsaOperation;
+  material: BoundReadyEcdsaSigningMaterial<SignableMpcMaterialUseState>;
+};
+
+declare const verifiedExactEcdsaRecoveryBrand: unique symbol;
+
+type VerifiedExactEcdsaMaterialRecovery = {
+  readonly [verifiedExactEcdsaRecoveryBrand]: true;
+  materialOwner: ExactEcdsaMaterialIdentity;
+  materialUse: RecoverableMpcMaterialUseState;
+  authorization: AuthorizedEvmEcdsaOperation;
+  recoveryId: MpcMaterialRecoveryId;
+  recoveryBindingDigest: DigestB64u;
+};
+
+type MpcMaterialUnlockAuthorizationRequirement = {
+  kind: "material_unlock";
+  recovery: VerifiedExactEcdsaMaterialRecovery;
+};
+
+declare const verifiedMpcMaterialUnlockBrand: unique symbol;
+
+type VerifiedMpcMaterialUnlockAuthorization = {
+  readonly [verifiedMpcMaterialUnlockBrand]: true;
+  recoveryId: MpcMaterialRecoveryId;
+  recoveryBindingDigest: DigestB64u;
+};
+
+type ExactEcdsaMaterialRecoveryAttempt =
+  | {
+      kind: "session_authorized_recovery";
+      recovery: VerifiedExactEcdsaMaterialRecovery;
+    }
+  | {
+      kind: "material_unlock_authorized_recovery";
+      recovery: VerifiedExactEcdsaMaterialRecovery;
+      unlockAuthorization: VerifiedMpcMaterialUnlockAuthorization;
+    };
+
+declare const replacementEvmEcdsaLaneBrand: unique symbol;
+
+type ReplacementEvmEcdsaLane = {
+  readonly [replacementEvmEcdsaLaneBrand]: true;
+  anchor: EvmEcdsaReauthorizationAnchor;
+  lane: EvmEcdsaTransactionLane;
+};
+
+declare const evmEcdsaReauthorizationAnchorBrand: unique symbol;
+
+type EvmEcdsaReauthorizationAnchor = {
+  readonly [evmEcdsaReauthorizationAnchorBrand]: true;
+  kind: "evm_ecdsa_reauthorization_anchor";
+  previousLane: EvmEcdsaTransactionLane;
+};
+
+declare const evmEcdsaOperationGrantRequirementBrand: unique symbol;
+
+type EvmEcdsaOperationGrantRequirement = {
+  readonly [evmEcdsaOperationGrantRequirementBrand]: true;
+  kind: "operation_grant";
+  operation: EvmEcdsaTransactionOperationEnvelope;
+  plan: Extract<CapabilityGrantPlan, { kind: "grant_evidence_required" }>;
+};
+
+type EvmEcdsaAuthorizationRequirement =
+  | EvmEcdsaOperationGrantRequirement
+  | MpcMaterialUnlockAuthorizationRequirement
+  | {
+      kind: "threshold_session_replacement";
+      anchor: EvmEcdsaReauthorizationAnchor;
+    };
+
+type EvmEcdsaAuthorizationSuccessFor<
+  Requirement extends EvmEcdsaAuthorizationRequirement,
+> = Requirement extends { kind: "operation_grant" }
+  ? { kind: "operation_authorized"; authorization: AuthorizedEvmEcdsaOperation }
+  : Requirement extends { kind: "material_unlock" }
+    ? {
+        kind: "material_unlock_authorized";
+        recovery: Extract<
+          ExactEcdsaMaterialRecoveryAttempt,
+          { kind: "material_unlock_authorized_recovery" }
+        >;
+      }
+    : Requirement extends { kind: "threshold_session_replacement" }
+      ? { kind: "replacement_lane"; replacement: ReplacementEvmEcdsaLane }
+      : never;
+
+type EvmEcdsaAuthorizationResultFor<
+  Requirement extends EvmEcdsaAuthorizationRequirement,
+> =
+  | EvmEcdsaAuthorizationSuccessFor<Requirement>
+  | { kind: "denied"; failure: EvmEcdsaPreparationFailure };
+
+type EvmEcdsaPreparationFailure =
+  | { kind: "material_missing" }
+  | { kind: "material_identity_mismatch" }
+  | { kind: "material_ambiguous" }
+  | { kind: "material_corrupt" }
+  | { kind: "authority_inactive" }
+  | { kind: "authorization_denied" }
+  | { kind: "no_progress_after_action" };
+
+type EvmEcdsaLaneSelectionFailure =
+  | { kind: "lane_missing" }
+  | { kind: "authority_ambiguous" }
+  | { kind: "lane_identity_conflict" };
+
+type EvmEcdsaLaneSelectionResult =
+  | { kind: "selected"; lane: EvmEcdsaTransactionLane }
+  | { kind: "blocked"; failure: EvmEcdsaLaneSelectionFailure };
+
+type EvmEcdsaSigningPreparation =
+  | {
+      kind: "ready";
+      committed: CommittedEvmEcdsaSigningCapability;
+    }
+  | {
+      kind: "recovery_required";
+      lane: EvmEcdsaTransactionLane<RecoverableMpcMaterialUseState>;
+      recovery: ExactEcdsaMaterialRecoveryAttempt;
+    }
+  | {
+      kind: "authorization_required";
+      lane: EvmEcdsaTransactionLane;
+      requirement: EvmEcdsaAuthorizationRequirement;
+    }
+  | {
+      kind: "blocked";
+      lane: EvmEcdsaTransactionLane;
+      failure: EvmEcdsaPreparationFailure;
+    };
+
+type ExactEcdsaMaterialRecoveryResult =
+  | {
+      kind: "recovered";
+      material: BoundReadyEcdsaSigningMaterial<RecoverableMpcMaterialUseState>;
+    }
+  | {
+      kind: "already_ready";
+      material: BoundReadyEcdsaSigningMaterial<RecoverableMpcMaterialUseState>;
+    }
+  | {
+      kind: "requires_authorization";
+      requirement: MpcMaterialUnlockAuthorizationRequirement;
+    }
+  | { kind: "unavailable" }
+  | { kind: "rejected"; failure: EvmEcdsaPreparationFailure };
+
+type EvmEcdsaPreparationPort = {
+  selectExact(args: {
+    request: EvmEcdsaTransactionSelectionRequest;
+    authorityPolicy: WalletAuthoritySelectionPolicy;
+  }): Promise<EvmEcdsaLaneSelectionResult>;
+  resolveExact(
+    lane: EvmEcdsaTransactionLane,
+  ): Promise<EvmEcdsaSigningPreparation>;
+  recoverExact(
+    recovery: ExactEcdsaMaterialRecoveryAttempt,
+  ): Promise<ExactEcdsaMaterialRecoveryResult>;
+  authorize<Requirement extends EvmEcdsaAuthorizationRequirement>(
+    requirement: Requirement,
+  ): Promise<EvmEcdsaAuthorizationResultFor<Requirement>>;
+};
+```
+
+Only boundary builders can create the branded authorization, claimed-use,
+ready-material, committed-capability, unlock-authorization, recovery, and
+replacement-lane types, as well as transaction-selection and operation-grant
+requirements. They compare canonical material-owner keys, authority digests,
+parsed transaction targets and intents, transaction envelopes, operation
+digests, fingerprints, use state, and grant facts before construction. The EVM
+operation-grant requirement proves its evidence plan names the same EVM
+transaction operation and digest set as its envelope. `any_authority` with more
+than one eligible exact authority returns a lane-selection
+`authority_ambiguous` failure before an exact lane exists; selection never uses
+diagnostics or factor-kind priority to break the tie.
+
+Resolution first proves an active wallet authority and an authorized,
+operation-bound active capability grant. It inspects signer material only after
+those checks. `recovery_required` therefore contains a branded recovery
+capability bound to the exact material owner, active authorization,
+session-retained use state, and recovery binding digest. Inventory labels such
+as `restorable` or `deferred` cannot construct it. Grant-use claim occurs after
+preparation reaches `ready` and immediately before signing; failed material
+recovery does not consume an operation use.
+
+The recovery binding digest covers the exact material owner, authority ref,
+canonical Phase 5 material binding, recovery ID, and authorized capability
+operation. A transaction target is authorized by its own operation envelope;
+recovery remains material-owner scoped so multiple authorized EVM-family targets
+can share one restore safely.
+
+Session-retained sealed material can recover. Pending single-use material is
+ready only while hot and only for its bound operation fingerprint. Cold pending
+single-use material requires threshold-session replacement; consumed
+single-use material cannot become ready or recoverable. Recovery results never
+construct authorization policy. They return a typed authorization requirement,
+and the authorization boundary constructs any challenge or grant-evidence plan.
+Successful material-unlock authorization returns an upgraded recovery attempt
+bound to the original recovery ID and binding digest; the coordinator supplies
+that attempt to `recoverExact`. Recovery can return only session-retained ready
+material.
+
+Operation authorization and material-unlock authorization are distinct. The
+operation grant follows capability policy and may use any evidence set that
+policy accepts. Material unlock is bound to the exact
+`WalletAuthAuthorityRef`. Threshold-session replacement uses a reauthorization
+anchor and returns a branded replacement lane correlated to that anchor; the
+coordinator does not re-resolve an obsolete lane whose threshold-session
+identity changed. The generic authorization result is conditional on requirement
+kind, so an operation-grant request cannot return a replacement lane and a
+material-unlock request cannot return an unrelated operation authorization.
+
+The preparation coordinator executes each operation-bound authorization action
+at most once per operation fingerprint and returns `no_progress_after_action`
+if the same action repeats. Exact recovery is idempotent and singleflight by
+material-owner identity key plus recovery ID, because EVM and Tempo operations
+can concurrently reference the same material owner.
+
+Factor-specific interaction and material-unlock protocols stay behind auth
+factor and material adapters. WebAuthn assertion belongs to the Passkey factor
+adapter; OTP challenge, resend, and code completion belong to the Email OTP
+factor adapter. PRF-derived unlock, worker material, sealed restore, and
+consumption belong to material adapters. Generic material and persistence types
+own retention and use state. Persistence boundaries normalize current
+cross-curve companion envelopes into separate exact Ed25519 and ECDSA recovery
+references; one capability recovery cannot restore or commit the companion
+capability as a hidden side effect. Generic EVM ECDSA selection, preparation,
+restore coordination, and committed-lane construction contain no factor-kind
+control flow.
 
 `GrantEvidenceExpression` has recursive semantics: an `evidence` leaf requires
 one verified evidence kind, `any_of` requires at least one child, and `all_of`

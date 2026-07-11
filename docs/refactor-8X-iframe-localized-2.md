@@ -2,7 +2,7 @@
 
 Date created: July 10, 2026
 
-Status: planning.
+Status: Phases 0-3 implemented. Cross-browser validation remains open.
 
 ## Goal
 
@@ -674,36 +674,65 @@ should set surface state, then let the renderer apply the resulting mode.
 
 ## Implementation Phases
 
+### Phase 0 Inventory
+
+Direct overlay mutation is currently confined to the legacy paths in
+`walletIframe/client/router.ts` and the low-level writes in
+`walletIframe/client/overlay/overlay-controller.ts`. The surface renderer owns
+all registration activation writes. A source guard caps the remaining router
+calls so later work can remove them without allowing new imperative call sites.
+
+| Current call site | Classification | Phase |
+| --- | --- | --- |
+| `REGISTER_BUTTON_SUBMIT` window-message handler | legacy registration modal submit | 4 |
+| `registerWallet()` and `addWalletSigner()` | registration modal | 4 |
+| `post()` fullscreen preflight | transaction, signing, key export, unlock, and device link | 5 |
+| progress-bus show/hide adapters | foreground request progress | 5 |
+| `setOverlayVisible()` and `setOverlayBounds()` | public diagnostics/tools | 7 |
+| registration activation renderer | anchored registration activation | complete in Phase 3 |
+
+Current request types requiring wallet-origin user activation are
+`PM_EXPORT_KEYPAIR_UI`, `PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI`,
+`PM_UNLOCK`, `PM_SIGN_AND_SEND_TX`, `PM_EXECUTE_ACTION`, `PM_SEND_TRANSACTION`,
+`PM_SIGN_TX_WITH_ACTIONS`, `PM_SIGN_DELEGATE_ACTION`, `PM_SIGN_NEP413`,
+`PM_SIGN_TEMPO`, `PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION`,
+`PM_LINK_DEVICE_WITH_SCANNED_QR_DATA`, `PM_SHOW_EMAIL_OTP_RECOVERY_CODES`, and
+`PM_ROTATE_EMAIL_OTP_RECOVERY_CODES`. They remain legacy foreground requests
+until Phase 5. Registration activation is the first reducer-owned foreground
+surface. Other request types remain background/read-only unless a future phase
+gives them an explicit foreground surface event; their progress cannot mutate
+the reducer-owned registration surface.
+
 ### Phase 0: Inventory And Guardrails
 
-- [ ] List all direct calls to `showFullscreen()`, `showAnchored()`,
+- [x] List all direct calls to `showFullscreen()`, `showAnchored()`,
       `setOverlayVisible()`, `setOverlayBounds()`, `setSticky()`, and
       `forceFullscreen`.
-- [ ] Classify each call site as registration activation, registration modal,
+- [x] Classify each call site as registration activation, registration modal,
       transaction confirm, key export, unlock, device link, or diagnostics.
-- [ ] Add source-guard coverage preventing new direct fullscreen calls outside
+- [x] Add source-guard coverage preventing new direct fullscreen calls outside
       the surface renderer.
-- [ ] Document current request types that require wallet-origin user activation.
-- [ ] Document which current requests are foreground surfaces and which remain
+- [x] Document current request types that require wallet-origin user activation.
+- [x] Document which current requests are foreground surfaces and which remain
       background/read-only while a surface is active.
-- [ ] Delete obsolete comments that describe fullscreen as the default
+- [x] Delete obsolete comments that describe fullscreen as the default
       activation mechanism after a call site moves to surfaces.
 
 ### Phase 1: Introduce Surface Domain Types
 
-- [ ] Add `WalletIframeSurface` and `WalletIframeSurfaceEvent` unions.
-- [ ] Add branded `WalletIframeSurfaceId`, `WalletIframeConnectionId`,
+- [x] Add `WalletIframeSurface` and `WalletIframeSurfaceEvent` unions.
+- [x] Add branded `WalletIframeSurfaceId`, `WalletIframeConnectionId`,
       `RequestId`, and `RegistrationActivationId` boundary parsers.
-- [ ] Add branch-specific builders for each surface.
-- [ ] Add an exhaustive reducer that applies transition events.
-- [ ] Add foreground surface arbitration with a typed
+- [x] Add branch-specific builders for each surface.
+- [x] Add an exhaustive reducer that applies transition events.
+- [x] Add foreground surface arbitration with a typed
       `wallet_iframe_surface_busy` rejection.
-- [ ] Return `started`, `idempotent`, and `rejected` arbitration branches; busy
+- [x] Return `started`, `idempotent`, and `rejected` arbitration branches; busy
       rejection must install no resources and preserve the active owner.
-- [ ] Split serialized wire identity from trusted inbound identity and attach
+- [x] Split serialized wire identity from trusted inbound identity and attach
       `connectionId` from the authenticated `MessagePort` at the boundary.
-- [ ] Add `assertNever` coverage for surface and event switches.
-- [ ] Add type fixtures rejecting invalid states:
+- [x] Add `assertNever` coverage for surface and event switches.
+- [x] Add type fixtures rejecting invalid states:
       - hidden with request ID
       - anchored registration without activation ID
       - anchored registration with `server_allocated_resolved` wallet
@@ -717,25 +746,25 @@ should set surface state, then let the renderer apply the resulting mode.
       - modal transaction without request ID
       - broad object-spread construction that smuggles incompatible branch
         fields
-- [ ] Keep raw postMessage payload parsing at router and host boundaries.
-- [ ] Convert parsed payloads into precise internal surface events immediately.
-- [ ] Add stale-message tests for mismatched `connectionId`, `surfaceId`,
+- [x] Keep raw postMessage payload parsing at router and host boundaries.
+- [x] Convert parsed payloads into precise internal surface events immediately.
+- [x] Add stale-message tests for mismatched `connectionId`, `surfaceId`,
       `requestId`, and `activationId`.
-- [ ] Add parser tests proving serialized payloads cannot supply
+- [x] Add parser tests proving serialized payloads cannot supply
       `connectionId`.
 
 ### Phase 2: Surface Renderer
 
-- [ ] Add a renderer that maps `WalletIframeSurface` to hidden,
+- [x] Add a renderer that maps `WalletIframeSurface` to hidden,
       anchored-interactive, anchored-suspended, or viewport-modal render modes.
-- [ ] Restrict `OverlayController` to low-level DOM writes derived from render
+- [x] Restrict `OverlayController` to low-level DOM writes derived from render
       modes.
-- [ ] Remove router-level `forceFullscreen` from new surface paths.
-- [ ] Make focusability, `aria-hidden`, iframe title, pointer events, and
+- [x] Remove router-level `forceFullscreen` from new surface paths.
+- [x] Make focusability, `aria-hidden`, iframe title, pointer events, and
       geometry derived from the render mode.
-- [ ] Add unit tests proving each surface renders the expected overlay mode.
-- [ ] Add cleanup tests proving stale render modes cannot revive an old surface.
-- [ ] Prove anchored-suspended retains surface ownership while removing iframe
+- [x] Add unit tests proving each surface renders the expected overlay mode.
+- [x] Add cleanup tests proving stale render modes cannot revive an old surface.
+- [x] Prove anchored-suspended retains surface ownership while removing iframe
       visibility, focusability, and pointer events.
 
 ### Phase 3: Migrate The Registration Reference Surface
@@ -762,30 +791,30 @@ Existing reference behavior to preserve:
 
 Migration tasks:
 
-- [ ] Represent the existing activation lifecycle as
+- [x] Represent the existing activation lifecycle as
       `anchored_registration_activation` reducer state and typed surface events.
-- [ ] Adapt the existing registration identity, prepared state, reservation,
+- [x] Adapt the existing registration identity, prepared state, reservation,
       presentation, and cancellation types to the shared surface domain without
       introducing duplicate registration-specific lifecycle types.
-- [ ] Route activation mount, readiness, geometry, focus, suspension, start,
+- [x] Route activation mount, readiness, geometry, focus, suspension, start,
       completion, cancellation, expiry, replacement, and failure through the
       shared foreground-surface arbitration and reducer.
-- [ ] Move the existing geometry observers, focus proxy, mirrored attributes,
+- [x] Move the existing geometry observers, focus proxy, mirrored attributes,
       timers, and message subscriptions into the active surface cleanup owner.
-- [ ] Make the shared renderer the only code that applies anchored, suspended,
+- [x] Make the shared renderer the only code that applies anchored, suspended,
       or hidden overlay DOM state for registration activation.
-- [ ] Remove the activation-specific anchored overlay lease after equivalent
+- [x] Remove the activation-specific anchored overlay lease after equivalent
       ownership and busy rejection are enforced by the shared surface domain.
-- [ ] Delete direct registration overlay mutations and obsolete registration
+- [x] Delete direct registration overlay mutations and obsolete registration
       surface state after the reducer-backed path is complete.
 
 Migration validation:
 
-- [ ] Unit: reducer rejects stale registration geometry, focus, readiness, and
+- [x] Unit: reducer rejects stale registration geometry, focus, readiness, and
       completion events by connection, surface, request, and activation identity.
-- [ ] Unit: competing foreground requests preserve the active registration
+- [x] Unit: competing foreground requests preserve the active registration
       surface and install no loser-owned effects.
-- [ ] Unit: disposal and replacement clean only the matching surface and stale
+- [x] Unit: disposal and replacement clean only the matching surface and stale
       cleanup cannot hide or move its successor.
 - [ ] Regression: all registration-button type, host, component, router,
       geometry, accessibility, origin-policy, and Chromium activation checks pass
