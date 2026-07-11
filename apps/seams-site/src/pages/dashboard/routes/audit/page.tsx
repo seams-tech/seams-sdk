@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -58,13 +59,20 @@ const CATEGORY_OPTIONS: readonly DashboardConsoleAuditCategory[] = [
 ];
 
 const OUTCOME_OPTIONS: readonly DashboardConsoleAuditOutcome[] = ['SUCCESS', 'FAILURE', 'PENDING'];
+
+function formatAuditCategoryLabel(category: DashboardConsoleAuditCategory): string {
+  if (category === 'API_KEY') return 'API keys';
+  if (category === 'ORG_PROJECT_ENV') return 'Org / project / env';
+  if (category === 'KEY_EXPORT') return 'Key export';
+  if (category === 'RUNTIME_SNAPSHOT') return 'Runtime snapshot';
+  const spaced = category.replaceAll('_', ' ').toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
 const AUDIT_EVENTS_TABLE_COLUMNS = dashboardTableColumns(1.05, 2.1, 0.95, 1.1, 0.8, 0.75);
 const AUDIT_EVENTS_LIMIT = 100;
 
 function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function toIsoTimestamp(value: string): string | undefined {
@@ -914,73 +922,67 @@ export function AuditLogsPage(): React.JSX.Element {
         className="dashboard-view__section dashboard-audit-section--plain"
         aria-label="Audit event filters"
       >
-        <section className="dashboard-audit-filter-group" aria-label="Event filters">
-          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-audit-controls-grid">
-            <div className="dashboard-form-field dashboard-form-field--full">
-              <input
-                className="dashboard-input dashboard-input--audit"
-                aria-label="Search events"
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search user id, action, summary, event id, approval id, API key id, metadata"
-              />
-            </div>
-            <label className="dashboard-form-field dashboard-form-field--audit-inline dashboard-form-field--full">
-              <span>Category</span>
-              <select
-                className="dashboard-select dashboard-select--audit"
-                value={eventCategoryFilter}
-                onChange={(event) => setEventCategoryFilter(event.target.value)}
-              >
-                <option value="">All categories</option>
-                {CATEGORY_OPTIONS.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {entry}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="dashboard-form-field dashboard-form-field--audit-inline dashboard-form-field--full">
-              <span>Outcome</span>
-              <select
-                className="dashboard-select dashboard-select--audit"
-                value={eventOutcomeFilter}
-                onChange={(event) => setEventOutcomeFilter(event.target.value)}
-              >
-                <option value="">All outcomes</option>
-                {OUTCOME_OPTIONS.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {entry}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="dashboard-form-field dashboard-form-field--audit-inline dashboard-form-field--audit-period dashboard-form-field--full">
-              <span>Period</span>
-              <div className="dashboard-audit-period-inputs">
-                <input
-                  className="dashboard-input dashboard-input--audit"
-                  type="datetime-local"
-                  aria-label="Period start"
-                  value={fromInput}
-                  onChange={(event) => setFromInput(event.target.value)}
-                />
-                <span className="dashboard-audit-period-separator" aria-hidden="true">
-                  to
-                </span>
-                <input
-                  className="dashboard-input dashboard-input--audit"
-                  type="datetime-local"
-                  aria-label="Period end"
-                  value={toInput}
-                  onChange={(event) => setToInput(event.target.value)}
-                />
-              </div>
-            </label>
+        <div className="dashboard-filters" aria-label="Event filters">
+          <label className="dashboard-search-control dashboard-search-control--compact">
+            <span className="dashboard-search-icon" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search events"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search events"
+            />
+          </label>
+          <label className="dashboard-form-field">
+            <select
+              className="dashboard-input"
+              aria-label="Filter events by category"
+              value={eventCategoryFilter}
+              onChange={(event) => setEventCategoryFilter(event.target.value)}
+            >
+              <option value="">Category: All</option>
+              {CATEGORY_OPTIONS.map((entry) => (
+                <option key={entry} value={entry}>
+                  Category: {formatAuditCategoryLabel(entry)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="dashboard-form-field">
+            <select
+              className="dashboard-input"
+              aria-label="Filter events by outcome"
+              value={eventOutcomeFilter}
+              onChange={(event) => setEventOutcomeFilter(event.target.value)}
+            >
+              <option value="">Outcome: All</option>
+              {OUTCOME_OPTIONS.map((entry) => (
+                <option key={entry} value={entry}>
+                  Outcome: {entry.charAt(0) + entry.slice(1).toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="dashboard-audit-period-inputs">
+            <input
+              className="dashboard-input"
+              type="datetime-local"
+              aria-label="Period start"
+              value={fromInput}
+              onChange={(event) => setFromInput(event.target.value)}
+            />
+            <span className="dashboard-audit-period-separator" aria-hidden="true">
+              to
+            </span>
+            <input
+              className="dashboard-input"
+              type="datetime-local"
+              aria-label="Period end"
+              value={toInput}
+              onChange={(event) => setToInput(event.target.value)}
+            />
           </div>
-        </section>
+        </div>
 
         {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
       </section>
@@ -1370,9 +1372,14 @@ export function AuditLogsPage(): React.JSX.Element {
                           {copyNotice}
                         </p>
                       ) : null}
-                      <pre className="dashboard-data-table__metadata-json">
-                        {JSON.stringify(row.metadata, null, 2)}
-                      </pre>
+                      {row.metadata && Object.keys(row.metadata).length > 0 ? (
+                        <details className="dashboard-audit-events__raw-metadata">
+                          <summary>Raw JSON</summary>
+                          <pre className="dashboard-data-table__metadata-json">
+                            {JSON.stringify(row.metadata, null, 2)}
+                          </pre>
+                        </details>
+                      ) : null}
                     </div>
                   </DashboardTableDetailsPanel>
                 </React.Fragment>

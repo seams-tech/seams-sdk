@@ -1,10 +1,12 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import { toast } from 'sonner';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
+  DashboardTableActionMenu,
   DashboardTableBadge,
   DashboardTableCell,
   DashboardTableDetailsGrid,
@@ -125,10 +127,16 @@ const EMPTY_ASSIGNMENTS: Record<PolicyScopeType, DashboardConsolePolicyAssignmen
 };
 
 function formatTimestamp(value: string | null | undefined): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
+}
+
+/* Human labels for the raw policy action identifiers; the API values are
+   snake_case and must not leak into the UI. */
+function formatPolicyActionLabel(action: string): string {
+  const normalized = String(action || '').trim();
+  if (!normalized) return action;
+  const spaced = normalized.replaceAll('_', ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 function formatPolicyStatusLabel(status: DashboardConsolePolicy['status']): string {
@@ -1736,30 +1744,16 @@ export function PolicyEnginePage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Policy engine page">
-      <section className="dashboard-view__section" aria-label="Policy setup">
-        <h2>Create policy</h2>
-        <p className="dashboard-pagination-note">
-          Create draft policies that stay attached to the current dashboard context, then manage
-          them from the policy table.
-        </p>
-        <p className="dashboard-pagination-note">
-          A wallet-specific override wins over inherited defaults, including environment policies.
-        </p>
-        <div className="dashboard-policy-setup-actions">
-          <div className="dashboard-policy-setup-action">
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--primary"
-              onClick={openCreatePolicyModal}
-              disabled={!canMutatePolicies}
-            >
-              Create policy
-            </button>
+      <section className="dashboard-policy-section--plain" aria-label="Policies table">
+        <div className="dashboard-section-toolbar">
+          <div className="dashboard-section-toolbar__copy">
+            <h2>Current Policies</h2>
             <p className="dashboard-pagination-note">
-              Create a policy for all wallets in the current dashboard context.
+              A wallet-specific override wins over inherited defaults, including environment
+              policies.
             </p>
           </div>
-          <div className="dashboard-policy-setup-action">
+          <div className="dashboard-form-actions">
             <button
               type="button"
               className="dashboard-pagination-button dashboard-pagination-button--secondary"
@@ -1768,15 +1762,16 @@ export function PolicyEnginePage(): React.JSX.Element {
             >
               Create wallet override
             </button>
-            <p className="dashboard-pagination-note">
-              Create a wallet-specific override for one wallet in the current dashboard context.
-            </p>
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--primary"
+              onClick={openCreatePolicyModal}
+              disabled={!canMutatePolicies}
+            >
+              Create policy
+            </button>
           </div>
         </div>
-      </section>
-
-      <section className="dashboard-policy-section--plain" aria-label="Policies table">
-        <h2>Current Policies</h2>
         {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
         {!policyEditorModalOpen && mutationErrorMessage ? (
           <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
@@ -1895,35 +1890,34 @@ export function PolicyEnginePage(): React.JSX.Element {
                           >
                             Details
                           </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            onClick={() => setPolicyModalState('edit', policy.id)}
-                            disabled={!canMutatePolicies}
-                          >
-                            Edit
-                          </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            onClick={() => setPolicyModalState('simulate', policy.id)}
-                          >
-                            Simulate
-                          </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            onClick={() => setPolicyModalState('publish', policy.id)}
-                            disabled={!canMutatePolicies}
-                          >
-                            Go live
-                          </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            tone="danger"
-                            onClick={() => setPolicyModalState('delete', policy.id)}
-                            disabled={!canMutatePolicies || isDefaultPolicy}
-                            title={
-                              isDefaultPolicy
-                                ? 'The organization default policy cannot be deleted.'
-                                : ''
-                            }
-                          >
-                            Delete
-                          </DashboardTableActionButton>
+                          <DashboardTableActionMenu
+                            ariaLabel={`More actions for ${policy.name || policy.id}`}
+                            items={[
+                              {
+                                label: 'Edit',
+                                onSelect: () => setPolicyModalState('edit', policy.id),
+                                disabled: !canMutatePolicies,
+                              },
+                              {
+                                label: 'Simulate',
+                                onSelect: () => setPolicyModalState('simulate', policy.id),
+                              },
+                              {
+                                label: 'Go live',
+                                onSelect: () => setPolicyModalState('publish', policy.id),
+                                disabled: !canMutatePolicies,
+                              },
+                              {
+                                label: 'Delete',
+                                onSelect: () => setPolicyModalState('delete', policy.id),
+                                tone: 'danger' as const,
+                                disabled: !canMutatePolicies || isDefaultPolicy,
+                                title: isDefaultPolicy
+                                  ? 'The organization default policy cannot be deleted.'
+                                  : undefined,
+                              },
+                            ]}
+                          />
                         </DashboardTableActionGroup>
                       </DashboardTableCell>
                     </DashboardTableRow>
@@ -2041,7 +2035,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                           }
                           disabled={!canMutatePolicies || mutationBusy === 'save'}
                         >
-                          {action}
+                          {formatPolicyActionLabel(action)}
                         </button>
                       );
                     })}
@@ -2241,19 +2235,11 @@ export function PolicyEnginePage(): React.JSX.Element {
                     onClick={discardPolicyEditorDraft}
                     disabled={mutationBusy === 'save'}
                   >
-                    Discard draft
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                    onClick={closePolicyModal}
-                    disabled={mutationBusy === 'save'}
-                  >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="dashboard-pagination-button"
+                    className="dashboard-pagination-button dashboard-pagination-button--primary"
                     disabled={!canMutatePolicies || mutationBusy === 'save'}
                   >
                     {mutationBusy === 'save'
@@ -2432,7 +2418,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                     >
                       {POLICY_ACTIONS.map((action) => (
                         <option key={action} value={action}>
-                          {action}
+                          {formatPolicyActionLabel(action)}
                         </option>
                       ))}
                     </select>

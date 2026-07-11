@@ -690,9 +690,9 @@ export function PlatformBillingView(): React.JSX.Element {
               : 'Live environments enabled',
       },
       {
-        label: 'Current MAW',
+        label: 'Monthly active wallets',
         value: String(overview.monthlyActiveWallets || 0),
-        hint: `${overview.currentMonthUtc} (${overview.usageMetricVersion})`,
+        hint: `Billing month ${overview.currentMonthUtc}`,
       },
       {
         label: 'Recent usage',
@@ -783,9 +783,10 @@ export function PlatformBillingView(): React.JSX.Element {
     <>
       <section className="dashboard-view__section dashboard-billing-filters-panel dashboard-platform-billing-search-card">
         <div className="dashboard-billing-table__intro">
-          <h3 className="dashboard-billing-table__title">
-            Find Customer Organisation Billing Account
-          </h3>
+          <p className="dashboard-pagination-note">
+            Search by customer organization name or ID to review account activity and apply bill
+            adjustments.
+          </p>
           <div className="dashboard-billing-filters dashboard-platform-billing-search-form">
             <div
               className="dashboard-platform-billing-search-combobox"
@@ -831,7 +832,7 @@ export function PlatformBillingView(): React.JSX.Element {
                   ) : searchResults.length === 0 ? (
                     <p className="dashboard-platform-billing-search-dropdown__state">
                       {searchResultsMode === 'recent' ? (
-                        'No organisations have been created yet.'
+                        'No organizations have been created yet.'
                       ) : (
                         <>
                           No customer accounts matched <code>{normalizedSearchInput || '-'}</code>.
@@ -889,9 +890,9 @@ export function PlatformBillingView(): React.JSX.Element {
               thirdValue:
                 lookupResult.resolvedBy === 'project_id' ? 'Project ID' : 'Organization ID',
             }}
-            title="Customer Organisation Account"
-            description="Reviewing customer organisation's billing account as a platform admin"
-            ariaLabel="Customer organisation account summary"
+            title="Customer Organization Account"
+            description="Reviewing customer organization's billing account as a platform admin"
+            ariaLabel="Customer organization account summary"
             members={lookupResult.teamMembers}
             metrics={summaryMetrics}
           />
@@ -1042,14 +1043,7 @@ export function PlatformBillingView(): React.JSX.Element {
               </form>
           </DashboardInlineModal>
         </>
-      ) : (
-        <section className="dashboard-view__section">
-          <p>
-            Search for a customer organisation name or organisation ID to review account activity
-            and apply bill adjustments.
-          </p>
-        </section>
-      )}
+      ) : null}
     </>
   );
 }

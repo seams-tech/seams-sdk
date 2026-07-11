@@ -113,7 +113,7 @@ const sidebarGroups: SidebarGroup[] = [
       },
       {
         key: 'team-members',
-        label: 'Team members and roles',
+        label: 'Team members',
         path: '/dashboard/team-members',
         icon: UserCogIcon,
         component: TeamMembersPage,
@@ -125,11 +125,18 @@ const sidebarGroups: SidebarGroup[] = [
         icon: KeyRoundIcon,
         component: ApiKeyManagementPage,
       },
+      {
+        key: 'webhooks',
+        label: 'Webhooks',
+        path: '/dashboard/webhooks',
+        icon: WebhookIcon,
+        component: WebhooksPage,
+      },
     ],
   },
   {
     key: 'operationsSecurity',
-    label: 'Wallet Operations',
+    label: 'Wallet operations',
     items: operationsSecurityItems,
   },
   {
@@ -149,19 +156,6 @@ const sidebarGroups: SidebarGroup[] = [
         path: '/dashboard/invoices',
         icon: FileTextIcon,
         component: InvoicesPage,
-      },
-    ],
-  },
-  {
-    key: 'integrations',
-    label: 'Integrations',
-    items: [
-      {
-        key: 'webhooks',
-        label: 'Webhooks',
-        path: '/dashboard/webhooks',
-        icon: WebhookIcon,
-        component: WebhooksPage,
       },
     ],
   },
@@ -198,7 +192,6 @@ export const DEFAULT_EXPANDED_SIDEBAR_GROUPS: ExpandedSidebarGroupsState = {
   administration: true,
   operationsSecurity: true,
   billing: true,
-  integrations: true,
   platform: true,
 };
 

@@ -1,4 +1,17 @@
 import React from 'react';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
+import {
+  ActivityIcon,
+  CreditCardIcon,
+  FuelIcon,
+  KeyRoundIcon,
+  ScaleIcon,
+  ScrollTextIcon,
+  UserCogIcon,
+  WalletCardsIcon,
+  WebhookIcon,
+} from '../../icons/SidebarIcons';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
   getDashboardOpsCockpitSummary,
@@ -23,11 +36,7 @@ const OPS_COCKPIT_APPROVE_REASON = 'Approved from Ops Cockpit';
 const OPS_COCKPIT_REJECT_REASON = 'Rejected from Ops Cockpit';
 
 function formatTimestamp(value: string | null | undefined): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '-';
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function formatApprovalLabel(value: string | null | undefined): string {
@@ -50,11 +59,46 @@ function toErrorMessage(error: unknown): string {
 
 function toSectionWarning(label: string, status: DashboardOpsCockpitSectionStatus): string | null {
   if (status.state === 'ok') return null;
+  /* Unconfigured queues hide their panels entirely; a warning would just
+     re-surface the noise the hidden panel avoids. */
+  if (status.state === 'not_configured') return null;
   const detail = status.message ? `: ${status.message}` : '';
-  if (status.state === 'not_configured') return `${label} is not configured${detail}`;
   if (status.state === 'forbidden') return `${label} is not available for this role${detail}`;
   return `${label} failed${detail}`;
 }
+
+const OVERVIEW_HERO_ACTIONS = [
+  {
+    title: 'Create a policy',
+    description: 'Set signing rules and spend caps for your wallets.',
+    path: '/dashboard/policy-engine',
+    icon: ScaleIcon,
+    tone: 'green',
+  },
+  {
+    title: 'Create an API key',
+    description: 'Issue secret or publishable credentials for this environment.',
+    path: '/dashboard/api-keys',
+    icon: KeyRoundIcon,
+    tone: 'amber',
+  },
+  {
+    title: 'Top up credits',
+    description: 'Add prepaid balance for sponsored usage.',
+    path: '/dashboard/billing/account',
+    icon: CreditCardIcon,
+    tone: 'violet',
+  },
+] as const;
+
+const OVERVIEW_HERO_TOOLS = [
+  { label: 'User wallets', path: '/dashboard/wallets-list', icon: WalletCardsIcon },
+  { label: 'Gas sponsorship', path: '/dashboard/gas-sponsorship', icon: FuelIcon },
+  { label: 'Observability', path: '/dashboard/observability', icon: ActivityIcon },
+  { label: 'Audit logs', path: '/dashboard/audit', icon: ScrollTextIcon },
+  { label: 'Webhooks', path: '/dashboard/webhooks', icon: WebhookIcon },
+  { label: 'Team members', path: '/dashboard/team-members', icon: UserCogIcon },
+] as const;
 
 function OpsCockpitQueuePanel(props: {
   ariaLabel: string;
@@ -76,6 +120,7 @@ function OpsCockpitQueuePanel(props: {
 
 export function OpsCockpitPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
+  const { linkProps } = useSiteRouter();
 
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -301,12 +346,71 @@ export function OpsCockpitPage(): React.JSX.Element {
   const failedWebhooks = summary?.webhooks.deadLetters || [];
   const queuedAuditExports = summary?.auditExports.queuedExports || [];
   const showAuditExportQueue = summary?.auditExports.status.state !== 'not_configured';
-  const summaryWarnings = data.warnings.filter(
-    (warning) => !warning.startsWith('Audit export queue is not configured'),
-  );
+  const showWebhookQueue = summary?.webhooks.status.state !== 'not_configured';
+  const showBillingQueue = summary?.billing.status.state !== 'not_configured';
+  const summaryWarnings = data.warnings;
 
   return (
     <div className="dashboard-view dashboard-ops-cockpit-view" aria-label="Ops cockpit page">
+      <section className="dashboard-hero" aria-label="Quick actions">
+        <h2 className="dashboard-hero__title">What would you like to do?</h2>
+        <div className="dashboard-hero__cards">
+          {OVERVIEW_HERO_ACTIONS.map((action) => {
+            const ActionIcon = action.icon;
+            const navProps = linkProps(action.path);
+            return (
+              <a
+                key={action.path}
+                className="dashboard-hero__card"
+                href={navProps.href}
+                onClick={navProps.onClick}
+              >
+                <span
+                  className={`dashboard-hero__card-icon dashboard-hero__card-icon--${action.tone}`}
+                  aria-hidden="true"
+                >
+                  <ActionIcon size={20} />
+                </span>
+                <span className="dashboard-hero__card-title">{action.title}</span>
+                <span className="dashboard-hero__card-description">{action.description}</span>
+              </a>
+            );
+          })}
+        </div>
+        <div className="dashboard-hero__chips">
+          {OVERVIEW_HERO_TOOLS.map((tool) => {
+            const ToolIcon = tool.icon;
+            const navProps = linkProps(tool.path);
+            return (
+              <a
+                key={tool.path}
+                className="dashboard-hero__chip"
+                href={navProps.href}
+                onClick={navProps.onClick}
+              >
+                <ToolIcon size={16} />
+                <span>{tool.label}</span>
+              </a>
+            );
+          })}
+        </div>
+        <a
+          className="dashboard-hero__promo"
+          href={linkProps('/dashboard/gas-sponsorship').href}
+          onClick={linkProps('/dashboard/gas-sponsorship').onClick}
+        >
+          <span className="dashboard-hero__promo-copy">
+            <span className="dashboard-hero__promo-title">Sponsor gas for your users</span>
+            <span className="dashboard-hero__promo-description">
+              Cover transaction fees with policies and spend caps — no user top-ups required.
+            </span>
+          </span>
+          <span className="dashboard-pagination-button dashboard-pagination-button--primary">
+            Set up sponsorship
+          </span>
+        </a>
+      </section>
+
       <section
         className="dashboard-view__section dashboard-ops-cockpit-summary--plain"
         aria-label="Ops cockpit summary"
@@ -392,6 +496,7 @@ export function OpsCockpitPage(): React.JSX.Element {
       </section>
 
       <div className="dashboard-ops-cockpit-grid" aria-label="Ops cockpit queues">
+        {showWebhookQueue ? (
         <OpsCockpitQueuePanel
           ariaLabel="Failed webhook summary"
           title="Failed webhooks (dead letters)"
@@ -428,7 +533,9 @@ export function OpsCockpitPage(): React.JSX.Element {
             </ul>
           )}
         </OpsCockpitQueuePanel>
+        ) : null}
 
+        {showBillingQueue ? (
         <OpsCockpitQueuePanel
           ariaLabel="Billing failure summary"
           title="Failed or overdue invoices"
@@ -447,6 +554,7 @@ export function OpsCockpitPage(): React.JSX.Element {
             </ul>
           )}
         </OpsCockpitQueuePanel>
+        ) : null}
 
         {showAuditExportQueue ? (
           <OpsCockpitQueuePanel

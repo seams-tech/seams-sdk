@@ -6,7 +6,6 @@ import type {
 } from './consoleBillingApi';
 import { formatUsdMinor } from './consoleBillingApi';
 import { BillingMetricsGrid, type BillingMetric } from './billingShared';
-import { BillingContextSummarySection } from './billingSections';
 
 const PRESET_CREDIT_PACK_OPTIONS = [
   { id: 'usd_10', label: '$10', detail: 'Quick prepaid top-up for test traffic.' },
@@ -35,13 +34,11 @@ export interface BillingAccountViewProps {
 }
 
 export function BillingAccountView(props: BillingAccountViewProps): React.JSX.Element {
-  const {
-    selectedContext,
-    summaryMetrics,
-    checkoutActionError,
-    startingCheckoutPackId,
-    onStartStripeCheckout,
-  } = props;
+  const { summaryMetrics, checkoutActionError, startingCheckoutPackId, onStartStripeCheckout } =
+    props;
+  const [selectedPackId, setSelectedPackId] = React.useState<DashboardBillingCreditPackId>(
+    PRESET_CREDIT_PACK_OPTIONS[0].id,
+  );
   const [customAmountInput, setCustomAmountInput] = React.useState<string>('');
   const customAmountMinor = React.useMemo(
     () => parseUsdAmountInputToMinor(customAmountInput),
@@ -68,62 +65,72 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
       ? `Buy ${formatUsdMinor(customAmountMinor)}`
       : 'Buy custom amount';
 
+  const selectedPreset = PRESET_CREDIT_PACK_OPTIONS.find((pack) => pack.id === selectedPackId);
+  const isCustomSelected = selectedPackId === CUSTOM_CREDIT_PACK_ID;
+  const buyDisabled =
+    Boolean(startingCheckoutPackId) || (isCustomSelected && !isCustomAmountValid);
+  const buyLabel = startingCheckoutPackId
+    ? 'Starting checkout...'
+    : isCustomSelected
+      ? customAmountButtonLabel
+      : `Buy ${selectedPreset?.label || ''}`;
+
   return (
     <>
-      <BillingContextSummarySection
-        context={{
-          organization: selectedContext.organization || '-',
-          project: selectedContext.project || '-',
-          thirdValue: selectedContext.environment || '-',
-        }}
-        title="Billing account"
-        description="Billing is organization-scoped. Use prepaid balance for usage and top up credits with one-time checkout."
-        ariaLabel="Billing scope and actions"
-      />
+      <p className="dashboard-pagination-note">
+        Billing is organization-scoped. Use prepaid balance for usage and top up credits with
+        one-time checkout.
+      </p>
 
       <BillingMetricsGrid metrics={summaryMetrics} ariaLabel="Billing account summary metrics" />
 
-      <section className="dashboard-table-wrapper" aria-label="Prepaid top-up actions">
-        <div className="dashboard-table-limit dashboard-billing-table__intro">
-          <h3 className="dashboard-billing-table__title">Top up credits</h3>
-          <p className="dashboard-billing-table__description">
-            Start a one-time Stripe checkout to add prepaid balance. Settled purchases appear in
-            billing documents as purchase receipts.
-          </p>
-          {checkoutActionError ? (
-            <p className="dashboard-pagination-note">{checkoutActionError}</p>
-          ) : null}
+      <section className="dashboard-view__section" aria-label="Prepaid top-up actions">
+        <h2>Top up credits</h2>
+        <p className="dashboard-pagination-note">
+          Start a one-time Stripe checkout to add prepaid balance. Settled purchases appear in
+          billing documents as purchase receipts.
+        </p>
+        {checkoutActionError ? (
+          <p className="dashboard-pagination-note">{checkoutActionError}</p>
+        ) : null}
+        <div
+          className="dashboard-policy-toggle-grid dashboard-billing-top-up-options"
+          role="group"
+          aria-label="Top-up amount"
+        >
+          {PRESET_CREDIT_PACK_OPTIONS.map((pack) => (
+            <button
+              key={pack.id}
+              type="button"
+              aria-pressed={selectedPackId === pack.id}
+              className={[
+                'dashboard-policy-segment',
+                selectedPackId === pack.id ? 'dashboard-policy-segment--active' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => setSelectedPackId(pack.id)}
+            >
+              {pack.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-pressed={isCustomSelected}
+            className={[
+              'dashboard-policy-segment',
+              isCustomSelected ? 'dashboard-policy-segment--active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onClick={() => setSelectedPackId(CUSTOM_CREDIT_PACK_ID)}
+          >
+            Custom
+          </button>
         </div>
-        <div className="dashboard-billing-top-up-grid">
-          <div className="dashboard-billing-top-up-presets">
-            {PRESET_CREDIT_PACK_OPTIONS.map((pack) => (
-              <article
-                className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card"
-                key={pack.id}
-              >
-                <h2>{pack.label}</h2>
-                <p className="dashboard-pagination-note">{pack.detail}</p>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={() => onStartStripeCheckout({ creditPackId: pack.id })}
-                    disabled={startingCheckoutPackId === pack.id}
-                  >
-                    {startingCheckoutPackId === pack.id
-                      ? 'Starting checkout...'
-                      : `Buy ${pack.label}`}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-          <article className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card dashboard-billing-top-up-card--custom">
-            <h2>Custom</h2>
-            <p className="dashboard-pagination-note">
-              Choose any prepaid balance top-up starting at $10.00.
-            </p>
-            <label className="dashboard-form-field">
+        {isCustomSelected ? (
+          <>
+            <label className="dashboard-form-field dashboard-billing-top-up-custom">
               <span>Amount (USD)</span>
               <input
                 className="dashboard-input"
@@ -137,24 +144,28 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
               />
             </label>
             <p className={customAmountHintClassName}>{customAmountHint}</p>
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={() =>
-                  onStartStripeCheckout({
-                    creditPackId: CUSTOM_CREDIT_PACK_ID,
-                    ...(customAmountMinor == null ? {} : { customAmountMinor }),
-                  })
-                }
-                disabled={!isCustomAmountValid || startingCheckoutPackId === CUSTOM_CREDIT_PACK_ID}
-              >
-                {startingCheckoutPackId === CUSTOM_CREDIT_PACK_ID
-                  ? 'Starting checkout...'
-                  : customAmountButtonLabel}
-              </button>
-            </div>
-          </article>
+          </>
+        ) : (
+          <p className="dashboard-pagination-note">{selectedPreset?.detail}</p>
+        )}
+        <div className="dashboard-form-actions">
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--primary"
+            onClick={() =>
+              onStartStripeCheckout(
+                isCustomSelected
+                  ? {
+                      creditPackId: CUSTOM_CREDIT_PACK_ID,
+                      ...(customAmountMinor == null ? {} : { customAmountMinor }),
+                    }
+                  : { creditPackId: selectedPackId },
+              )
+            }
+            disabled={buyDisabled}
+          >
+            {buyLabel}
+          </button>
         </div>
       </section>
     </>

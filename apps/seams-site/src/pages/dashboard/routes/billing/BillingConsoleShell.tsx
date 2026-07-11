@@ -516,14 +516,18 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const invoiceSummaryMetrics = React.useMemo<BillingMetric[]>(() => {
     return [
       {
-        label: 'Matched documents',
+        label: 'Documents',
         value: String(filteredInvoiceSummary.totalCount),
-        hint: `${filteredInvoiceSummary.statementCount} statements`,
+        hint: `${filteredInvoiceSummary.statementCount} statement${
+          filteredInvoiceSummary.statementCount === 1 ? '' : 's'
+        }`,
       },
       {
         label: 'Purchase receipts',
         value: String(filteredInvoiceSummary.receiptCount),
-        hint: `${filteredInvoiceSummary.paidCount} paid documents`,
+        hint: `${filteredInvoiceSummary.paidCount} paid document${
+          filteredInvoiceSummary.paidCount === 1 ? '' : 's'
+        }`,
       },
       {
         label: 'Outstanding',
@@ -533,7 +537,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       {
         label: 'Latest period',
         value: filteredInvoiceSummary.latestPeriodMonthUtc || '-',
-        hint: 'Loaded billing documents',
+        hint: 'Most recent billing month',
       },
     ];
   }, [filteredInvoiceSummary]);
@@ -549,6 +553,12 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
             : overview?.liveEnvironmentState === 'LOW_BALANCE'
               ? `Warning at ${formatUsdMinor(overview?.lowBalanceThresholdMinor || 0)}`
               : 'Live environments enabled',
+        tone:
+          overview?.liveEnvironmentState === 'BLOCKED'
+            ? ('danger' as const)
+            : overview?.liveEnvironmentState === 'LOW_BALANCE'
+              ? ('warning' as const)
+              : ('success' as const),
       },
       {
         label: 'Reserved sponsorship',
@@ -567,9 +577,9 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
         } charged executions`,
       },
       {
-        label: 'Current MAW',
+        label: 'Monthly active wallets',
         value: String(usage?.monthlyActiveWallets ?? overview?.monthlyActiveWallets ?? 0),
-        hint: usage?.monthUtc ? `${usage.monthUtc} (${usage.usageMetricVersion})` : 'No usage data',
+        hint: usage?.monthUtc ? `Billing month ${usage.monthUtc}` : 'No usage data',
       },
       {
         label: 'Recent top-ups',

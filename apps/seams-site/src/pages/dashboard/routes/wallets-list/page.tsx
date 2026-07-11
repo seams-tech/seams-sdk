@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   SEARCH_USER_WALLETS_PLACEHOLDER,
   USER_WALLETS_TABLE_COLUMNS,
@@ -31,8 +32,6 @@ import {
   type DashboardConsoleWalletSortOrder,
   type DashboardConsoleWalletType,
 } from '../wallets/consoleWalletApi';
-
-type WalletFilterMenuKey = 'chain' | 'policy' | 'walletType' | 'sort';
 
 type WalletFilterOption = {
   value: string;
@@ -80,73 +79,12 @@ const SORT_OPTIONS: readonly WalletSortOption[] = [
 const WALLETS_TABLE_COLUMNS = dashboardTableColumns(1.1, 1.3, 0.7, 0.95, 0.95, 0.8, 0.7, 0.95);
 
 function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
-}
-
-function WalletFilterDropdown({
-  buttonClassName,
-  buttonLabel,
-  options,
-  selectedValue,
-  isOpen,
-  onToggle,
-  onSelect,
-  withColumnsIcon = false,
-}: {
-  buttonClassName: string;
-  buttonLabel: string;
-  options: readonly WalletFilterOption[];
-  selectedValue: string;
-  isOpen: boolean;
-  onToggle: () => void;
-  onSelect: (value: string) => void;
-  withColumnsIcon?: boolean;
-}): React.JSX.Element {
-  return (
-    <div className="dashboard-filter-dropdown">
-      <button
-        type="button"
-        className={buttonClassName}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={onToggle}
-      >
-        {withColumnsIcon ? <span className="dashboard-columns-icon" aria-hidden="true" /> : null}
-        <span className="dashboard-select-control__value">{buttonLabel}</span>
-        <span
-          className={`dashboard-chevron${isOpen ? ' dashboard-chevron--open' : ''}`}
-          aria-hidden="true"
-        />
-      </button>
-      {isOpen ? (
-        <div className="dashboard-context-menu dashboard-filter-menu" role="menu">
-          {options.map((option) => {
-            const isSelected = option.value === selectedValue;
-            return (
-              <button
-                key={`${buttonLabel}-${option.value || 'all'}`}
-                type="button"
-                className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}`}
-                role="menuitemradio"
-                aria-checked={isSelected}
-                onClick={() => onSelect(option.value)}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
+  return formatDashboardTimestamp(value, '-');
 }
 
 export function UserWalletsListPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
-  const filtersRef = React.useRef<HTMLElement | null>(null);
   const [query, setQuery] = React.useState<string>('');
   const [wallets, setWallets] = React.useState<DashboardConsoleWallet[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -155,7 +93,6 @@ export function UserWalletsListPage(): React.JSX.Element {
   const [selectedWallet, setSelectedWallet] = React.useState<DashboardConsoleWallet | null>(null);
   const [selectedLoading, setSelectedLoading] = React.useState<boolean>(false);
   const [selectedError, setSelectedError] = React.useState<string>('');
-  const [activeMenu, setActiveMenu] = React.useState<WalletFilterMenuKey | null>(null);
   const [chainFilter, setChainFilter] = React.useState<string>('');
   const [policyFilter, setPolicyFilter] = React.useState<string>('');
   const [walletTypeFilter, setWalletTypeFilter] = React.useState<string>('');
@@ -197,27 +134,6 @@ export function UserWalletsListPage(): React.JSX.Element {
       walletTypeFilter,
     ],
   );
-
-  React.useEffect(() => {
-    if (!activeMenu) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const next = event.target;
-      if (next instanceof Node && filtersRef.current?.contains(next)) return;
-      setActiveMenu(null);
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setActiveMenu(null);
-    };
-
-    window.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [activeMenu]);
 
   React.useEffect(() => {
     if (session.loading || !session.claims) {
@@ -390,15 +306,15 @@ export function UserWalletsListPage(): React.JSX.Element {
   const summaryMetrics = React.useMemo(
     () => [
       {
-        label: '#wallets',
+        label: 'Wallets',
         value: String(wallets.length),
       },
       {
-        label: '#funded wallets',
+        label: 'Funded',
         value: String(wallets.filter((wallet) => wallet.balanceMinor > 0).length),
       },
       {
-        label: '#active wallets',
+        label: 'Active',
         value: String(
           wallets.filter((wallet) => String(wallet.status || '').toUpperCase() === 'ACTIVE').length,
         ),
@@ -407,12 +323,9 @@ export function UserWalletsListPage(): React.JSX.Element {
     [wallets],
   );
 
-  const selectedPolicyLabel =
-    policyOptions.find((option) => option.value === policyFilter)?.label || 'Any policy';
-
   return (
     <div className="dashboard-view" aria-label="User wallets list page">
-      <section ref={filtersRef} className="dashboard-filters" aria-label="Wallet search controls">
+      <section className="dashboard-filters" aria-label="Wallet search controls">
         <label className="dashboard-search-control">
           <span className="dashboard-search-icon" aria-hidden="true" />
           <input
@@ -423,66 +336,62 @@ export function UserWalletsListPage(): React.JSX.Element {
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-
-        <WalletFilterDropdown
-          buttonClassName="dashboard-select-control"
-          buttonLabel={
-            CHAIN_OPTIONS.find((option) => option.value === chainFilter)?.label || 'All chains'
-          }
-          options={CHAIN_OPTIONS}
-          selectedValue={chainFilter}
-          isOpen={activeMenu === 'chain'}
-          onToggle={() => setActiveMenu((current) => (current === 'chain' ? null : 'chain'))}
-          onSelect={(value) => {
-            setChainFilter(value);
-            setActiveMenu(null);
-          }}
-        />
-
-        <WalletFilterDropdown
-          buttonClassName="dashboard-select-control"
-          buttonLabel={selectedPolicyLabel}
-          options={policyOptions}
-          selectedValue={policyFilter}
-          isOpen={activeMenu === 'policy'}
-          onToggle={() => setActiveMenu((current) => (current === 'policy' ? null : 'policy'))}
-          onSelect={(value) => {
-            setPolicyFilter(value);
-            setActiveMenu(null);
-          }}
-        />
-
-        <WalletFilterDropdown
-          buttonClassName="dashboard-select-control"
-          buttonLabel={
-            WALLET_TYPE_OPTIONS.find((option) => option.value === walletTypeFilter)?.label ||
-            'EOA + Smart'
-          }
-          options={WALLET_TYPE_OPTIONS}
-          selectedValue={walletTypeFilter}
-          isOpen={activeMenu === 'walletType'}
-          onToggle={() =>
-            setActiveMenu((current) => (current === 'walletType' ? null : 'walletType'))
-          }
-          onSelect={(value) => {
-            setWalletTypeFilter(value);
-            setActiveMenu(null);
-          }}
-        />
-
-        <WalletFilterDropdown
-          buttonClassName="dashboard-columns-control dashboard-columns-control--dropdown"
-          buttonLabel={activeSort.label}
-          options={SORT_OPTIONS}
-          selectedValue={activeSort.value}
-          isOpen={activeMenu === 'sort'}
-          withColumnsIcon
-          onToggle={() => setActiveMenu((current) => (current === 'sort' ? null : 'sort'))}
-          onSelect={(value) => {
-            setSortValue(value);
-            setActiveMenu(null);
-          }}
-        />
+        <label className="dashboard-form-field">
+          <select
+            className="dashboard-input"
+            aria-label="Filter wallets by chain"
+            value={chainFilter}
+            onChange={(event) => setChainFilter(event.target.value)}
+          >
+            {CHAIN_OPTIONS.map((option) => (
+              <option key={option.value || 'all'} value={option.value}>
+                Chain: {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="dashboard-form-field">
+          <select
+            className="dashboard-input"
+            aria-label="Filter wallets by policy"
+            value={policyFilter}
+            onChange={(event) => setPolicyFilter(event.target.value)}
+          >
+            {policyOptions.map((option) => (
+              <option key={option.value || 'all'} value={option.value}>
+                Policy: {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="dashboard-form-field">
+          <select
+            className="dashboard-input"
+            aria-label="Filter wallets by wallet type"
+            value={walletTypeFilter}
+            onChange={(event) => setWalletTypeFilter(event.target.value)}
+          >
+            {WALLET_TYPE_OPTIONS.map((option) => (
+              <option key={option.value || 'all'} value={option.value}>
+                Type: {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="dashboard-form-field">
+          <select
+            className="dashboard-input"
+            aria-label="Sort wallets"
+            value={sortValue}
+            onChange={(event) => setSortValue(event.target.value)}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                Sort: {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <section className="dashboard-wallet-summary" aria-label="Wallet summary metrics">
@@ -518,7 +427,7 @@ export function UserWalletsListPage(): React.JSX.Element {
           <DashboardTableState>
             {searchMode
               ? 'No wallets matched this query.'
-              : 'No wallets returned by /console/wallets.'}
+              : 'No wallets in this environment yet. Wallets appear here after your first user signs up.'}
           </DashboardTableState>
         ) : (
           <>

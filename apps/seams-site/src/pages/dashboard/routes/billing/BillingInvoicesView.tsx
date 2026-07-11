@@ -82,21 +82,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
     <>
       <BillingMetricsGrid metrics={invoiceMetrics} ariaLabel="Billing document summary metrics" />
 
-      <section className="dashboard-view__section" aria-label="Billing document sponsorship links">
-        <p className="dashboard-info-banner">
-          Usage statements stay aggregated by billing period. For per-execution sponsored charges,
-          use{' '}
-          <a href="/dashboard/billing/account#billing-sponsored-history">
-            Sponsored usage history
-          </a>{' '}
-          and{' '}
-          <a href="/dashboard/billing/account#billing-sponsored-reconciliation">
-            Reconciliation
-          </a>{' '}
-          in Billing account.
-        </p>
-      </section>
-
       <section className="dashboard-view__section dashboard-billing-filters-panel">
         <div className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">Receipts and statements</h3>

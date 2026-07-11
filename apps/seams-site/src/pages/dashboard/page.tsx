@@ -261,6 +261,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       !onboardingState ||
       onboardingState.hasOrganization !== true ||
       onboardingState.hasProject !== true);
+  /* Only claim setup is incomplete once the onboarding status has actually
+     loaded; while loading the lock is provisional and the banner would flash
+     at fully-onboarded users on every page load. */
+  const showNavigationLockBanner =
+    isSidebarNavigationLocked && !onboardingLoading && Boolean(onboardingState);
   const recoveryTargetOrgId = !currentOrgId
     ? String(currentOrganizationSummary?.id || '').trim()
     : '';
@@ -725,20 +730,16 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
                 : []),
             ]),
       ),
-      accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.map((entry): TopbarOption => {
-        if (entry === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION) {
-          return {
-            value: entry,
-            label: 'Toggle Theme',
-            keepMenuOpen: true,
-            icon: resolvedTheme === 'dark' ? 'sun' : 'moon',
-          };
-        }
-        return {
+      /* Theme toggle is hidden while the console ships light-only; the
+         handler and option constant stay for when dark mode lands. */
+      accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.filter(
+        (entry) => entry !== DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION,
+      ).map(
+        (entry): TopbarOption => ({
           value: entry,
           label: entry,
-        };
-      }),
+        }),
+      ),
     }),
     [
       consoleSession.claims,
@@ -747,7 +748,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       scopedOnboardingSelectedProjectId,
       organizationOptions,
       projectOptions,
-      resolvedTheme,
       selectedProjectId,
     ],
   );
@@ -1043,17 +1043,35 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     [isPlatformAdmin],
   );
 
+  const topbarSearchItems = React.useMemo(
+    () =>
+      visibleSidebarGroups.flatMap((group) =>
+        group.items.map((item) => ({
+          label: item.label,
+          path: item.path,
+          group: group.label,
+        })),
+      ),
+    [visibleSidebarGroups],
+  );
+
   return (
     <main className={shellClassName} aria-label="Dashboard workspace">
       <DashboardTopbar
         isSidebarExpanded={isSidebarExpanded}
         onToggleSidebar={toggleSidebar}
         homeProps={homeProps}
+        pageTitle={activeView.label}
         selectedContext={selectedContext}
         onSelectContext={onSelectContext}
         dropdownOptions={dropdownOptions}
         focusedMode={focusedOnboardingMode}
         focusedContextValue={focusedOnboardingMode ? focusedOnboardingOrganizationValue : undefined}
+        accountLabel={
+          consoleSession.claims?.name || consoleSession.claims?.email || 'Account'
+        }
+        searchItems={topbarSearchItems}
+        onNavigate={(path) => go(path)}
       />
 
       <DashboardSidebar
@@ -1065,13 +1083,27 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         enabledWhenLockedPaths={navigationLockExemptPaths}
         onToggleGroup={toggleGroup}
         linkProps={linkProps}
+        homeProps={homeProps}
+        workspace={{
+          options: dropdownOptions.organization,
+          currentValue: selectedContext.organization,
+          onSelect: (value) => onSelectContext('organization', value),
+        }}
+        contextCard={{
+          projectOptions: dropdownOptions.project,
+          projectValue: selectedContext.project,
+          onSelectProject: (value) => onSelectContext('project', value),
+          environmentOptions: dropdownOptions.environment,
+          environmentValue: selectedContext.environment,
+          onSelectEnvironment: (value) => onSelectContext('environment', value),
+        }}
       />
 
       <section className="dashboard-main" aria-labelledby="dashboard-main-title">
         <h1 id="dashboard-main-title" className="dashboard-main__title">
           {activeView.label}
         </h1>
-        {isSidebarNavigationLocked ? (
+        {showNavigationLockBanner ? (
           <p className="dashboard-lock-banner" role="status">
             Finish organization + project setup to unlock navigation.
           </p>
