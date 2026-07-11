@@ -40,7 +40,8 @@ function emailOtpEcdsaSealedRecoveryRecord(
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
       source: 'email_otp',
-      evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice:root:email-otp:v1',
+      // Chain-agnostic 5-part slot id: wallet-key:evm-family:<walletId>:<signingRootId>:<signingRootVersion>
+      evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root%3Aemail-otp:v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       providerSubjectId: 'google:alice',
       emailHashHex: 'email-hash-alice',
@@ -51,6 +52,36 @@ function emailOtpEcdsaSealedRecoveryRecord(
       ethereumAddress: `0x${'33'.repeat(20)}`,
       relayerKeyId: 'relayer-key',
       participantIds: [1, 2],
+      // Required since Router A/B: canonical ECDSA records carry the normal-signing scope.
+      routerAbEcdsaHssNormalSigning: {
+        kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+        scope: {
+          wallet_key_id: 'wallet-key:evm-family:alice.testnet:root%3Aemail-otp:v1',
+          wallet_id: 'alice.testnet',
+          ecdsa_threshold_key_id: 'ecdsa-key',
+          signing_root_id: 'root:email-otp',
+          signing_root_version: 'v1',
+          context: {
+            application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+          },
+          public_identity: {
+            context_binding_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+            client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            ethereum_address20_b64u: 'MzMzMzMzMzMzMzMzMzMzMzMzMzM',
+            client_share_retry_counter: 0,
+            server_share_retry_counter: 0,
+          },
+          signing_worker: {
+            server_id: 'signing-worker-ecdsa',
+            key_epoch: 'epoch-ecdsa',
+            recipient_encryption_key:
+              'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+          },
+          activation_epoch: 'tsess-ecdsa',
+        },
+      },
     },
     issuedAtMs: now - 1_000,
     expiresAtMs: now + 60_000,
