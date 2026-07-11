@@ -7,6 +7,8 @@ each old phase went.
 Architecture hardening: July 10, 2026 — correlated capability operations,
 factor-enrollment identity, verified evidence sets, session audience/device
 binding, and atomic grant-use invariants were made canonical.
+MPC preparation generalization: July 10, 2026 — EVM ECDSA lane identity,
+material recovery, and authorization were made auth-factor agnostic.
 
 Status: Phases 1, 2, and 3 are complete. Phases 4 and 5 are in progress. Phase 6 onward is planning.
 
@@ -168,6 +170,13 @@ re-litigate them in later phases without a written reversal note here.
     assembly determines which handlers are in a bundle. Tenant runtime config
     can deny a deployed capability per request; it cannot mutate route assembly
     or trigger dynamic imports.
+20. **Auth factors do not define MPC signing lanes.** MPC capability code carries
+    `WalletAuthAuthorityRef`, separates transaction targeting from exact
+    signer-material ownership, and derives one action-oriented preparation state:
+    `ready`, `recovery_required`, `authorization_required`, or `blocked`.
+    Passkey, Email OTP, and future factor protocols stay behind factor/material
+    adapters. Generic lane selection, preparation, restore coordination, and
+    committed-lane construction contain no factor-kind control flow.
 
 ## Implementation Rules
 
@@ -1766,6 +1775,10 @@ Slice exit criteria:
 - Current Ed25519 and EVM-family ECDSA signing lanes and signing-session records
   carry `WalletAuthAuthorityRef`; admission, export, recovery, and restore never
   identify authority from branch-specific strings.
+- EVM-family ECDSA transaction lanes are independent of auth factor kind and
+  reference an exact material owner. One preparation union owns ready,
+  recovery, authorization, and terminal blocked states; no passkey/Email OTP
+  lane or resolver cross-product remains in the signing core.
 - The worker fleet is consolidated (Decided Point 14): one EVM-family worker
   replaces `eth-signer` and `tempo-signer`.
 - The slice's deletion ledger and net non-doc line accounting are recorded in
@@ -1780,26 +1793,30 @@ model into Slice B's auth/capability migration.
 Goal: make every current signing lane and signing-session record carry a stable
 wallet-auth authority reference before spend control moves from signing budgets
 to capability grants. Multi-factor wallets, multiple passkeys, Email OTP
-re-enrollment, and future auth factors must identify authority by the durable
-wallet-auth-method binding, not by branch-specific strings such as
-`passkey:rpId:credentialIdB64u` or `email_otp:providerSubjectId`.
+re-enrollment, and future auth factors identify authority by the durable
+wallet-auth-method binding. Core lanes stop carrying branch-specific strings
+such as `passkey:rpId:credentialIdB64u` or
+`email_otp:providerSubjectId`.
 
 Target owner: `capability/mpcWalletAuthority`. This shared capability-local
 module contains no chain, HSS, signer-WASM, or operation-lane code.
 
 Do:
 
-- Add `WalletAuthAuthorityRef` to current selected/committed signing lane auth
-  bindings for Ed25519 and ECDSA. The ref is derived from the bound
-  `WalletAuthAuthorityRecord` and carries wallet ID, wallet-auth-method binding
-  ID, exact `factorId`, and authority digest. It is never reconstructed from
-  display data or diagnostics.
+- Replace raw factor-bearing selected/committed signing lane auth bindings with
+  `WalletAuthAuthorityRef` for Ed25519 and ECDSA. The ref is derived from the
+  bound `WalletAuthAuthorityRecord` and carries wallet ID, wallet-auth-method
+  binding ID, exact `factorId`, and authority digest. It is never reconstructed
+  from display data or diagnostics.
+- Resolve user preference and policy into `any_authority` or one exact authority
+  reference before lane selection. Core selectors never accept `authMethod` as
+  an independent identity input.
 - Persist the authority ref in Ed25519 and ECDSA session records at the
   registration, unlock, step-up, recovery, export, durable restore, and sealed
   material boundaries.
 - Update lane builders and boundary parsers so core signing code requires an
-  authority ref. Raw compatibility parsing remains only at request/persistence
-  boundaries and carries a named Phase 18 deletion condition.
+  authority ref. Land a schema/version cut with the new shape; reject and clear
+  old local signing records instead of adding dual authority parsers or aliases.
 - Change signing-grant admission queue keys to use
   `authorityRef.authorityDigest` instead of the interim branch-specific
   authority-key helper. Keep wallet id, signing grant id, projection version,
@@ -1821,6 +1838,10 @@ Do:
 - Delete the interim
   `signingGrantAdmissionAuthorityKeyFromAuth` adapter once all signing lanes
   carry authority refs.
+- Add a Phase 19 deletion marker to the current Passkey/Email OTP committed-lane,
+  material-selection, authority-resolver, reauth-builder, and restore-builder
+  symbols. Phase 17 must not add new method-specific lane branches while the
+  authority-ref bridge is in flight.
 
 Check:
 
@@ -1832,6 +1853,8 @@ Check:
 - Admission queue keys use `WalletAuthAuthorityRef.authorityDigest`; no core
   signing flow builds authority identity from `rpId`, credential id,
   provider subject id, email hash, or display email.
+- Exact lane identity, selection, admission, restore, and recovery source guards
+  reject raw factor fields and independent `authMethod` identity parameters.
 - The Refactor 82B Phase 10D tests keep passing after the branch-specific
   queue-key helper is deleted.
 
@@ -1847,8 +1870,12 @@ Do:
   terminology before changing shared types.
 - Move `SignerAuthMethod` and `WalletAuthMethod` into capability-local code.
 - Delete `AuthMethod = SignerAuthMethod`.
-- Replace shared `signingGrantId` fields with `capabilityGrantId`. Keep
-  `thresholdSessionId` inside MPC branches only.
+- Classify every `signingGrantId` field by semantics. Delete it where
+  operation-bound `CapabilityGrant` admission replaces it; retain and rename a
+  distinct MPC session-authorization identity where signer-material lifecycle
+  still requires one. Add `capabilityGrantId` only to capability grant, grant
+  use, and authorized/claimed-operation records. A mechanical type alias or
+  field rename is forbidden. Keep `thresholdSessionId` inside MPC branches only.
 - Remap existing D1 console/signer migrations onto the Phase 10 schema:
   `api_keys`, `policies`, `policy_assignments`, `wallet_index`,
   `key_exports`, `approvals`, `audit_events`, webhook categories,
@@ -1858,23 +1885,40 @@ Do:
   `mpc_wallet_auth_authorities` rows referencing exact Phase 7 `factor_id`
   values. Replaced/revoked bindings remain explicit lifecycle rows and cannot be
   parsed as active authority.
+- Split signing-session storage facts into independent fields for provenance,
+  retention, authority reference, material owner, and recovery capability.
+  `email_otp` is an auth factor kind, never a storage provenance value. Session
+  versus single-use retention remains explicit and exhaustive.
+- Persist exact material-owner identity and typed recovery references for ECDSA
+  and Ed25519 sealed records. Transaction target projections may reference a
+  shared material owner without rewriting its identity.
 - Add migration notes for wallet-scoped records that become capability-scoped,
   principal-scoped, tenant/project/environment-scoped, or capability-local MPC
   records.
-- Delete compatibility parsers at request/persistence boundaries as each
-  surface moves; each temporary parser carries a named deletion condition.
+- Replace persistence formats atomically at each migrated surface. Reject and
+  clear obsolete local records; do not add dual-schema readers.
 
 Check:
 
 - Redundant wallet-first tests are deleted or adapted before shared renames
   land.
 - Old wallet-session rows and raw provider rows cannot enter core logic.
-- Source guards reject `signingGrantId` and wallet-only `AuthMethod` outside
-  capability-local modules.
+- Persistence parsers reject records whose authority ref, exact material owner,
+  retention, and recovery capability do not agree. Email OTP single-use records
+  cannot become silently restorable session material.
+- Source guards reject wallet-only `AuthMethod` outside capability-local
+  modules. The broader old-signing-symbol guard lands in Phase 19 when the old
+  EVM preparation flow is deleted.
 
 ## Phase 19: MPC Capability Modules
 
 Status: planning. Old Phase 9 (MPC part).
+
+Prerequisites: Phases 5, 12, 14, 17, and 18 are complete. Phase 19 defines the
+client/capability preparation domain and Phase 20 completes server admission and
+route cutover. Treat Phases 19 and 20 as one no-release migration tranche; no
+supported build may expose both the old signing authorization flow and the new
+capability-grant flow.
 
 Resolve before starting: which MPC capability produces `mpc_signer_proof` by
 default? (See Open Questions.)
@@ -1885,6 +1929,68 @@ Do:
   `capability/`.
 - Move Ed25519 and ECDSA operation lane and intent construction into their
   capability modules.
+- Implement the SPEC's auth-agnostic EVM ECDSA preparation domain. Transaction
+  lanes carry a transaction target plus `ExactEcdsaMaterialIdentity`; the
+  material owner composes `WalletAuthAuthorityRef` with Phase 5's final
+  canonical `EcdsaRoleLocalMaterialBinding` and carries no raw factor identity
+  or provisioning-only key-slot ID.
+- Build lane selection from a branded EVM transaction request containing the
+  parsed target and exact operation envelope. Its builder proves target/intent
+  digests and operation fingerprint before the selector sees it.
+- Add one exact capability resolver and one typed material-recovery port for the
+  EVM ECDSA capability. Preparation returns only `ready`,
+  `recovery_required`, `authorization_required`, or `blocked`.
+- Resolve in this order: active authority, authorized operation-bound active
+  grant, then exact material. `recovery_required` carries that branded
+  authorization so no signer material is unsealed before policy admission.
+  Claim grant use only after preparation reaches `ready` and immediately before
+  signing; failed material recovery does not consume an operation use.
+- Make `recovery_required` require a verified exact recovery reference. A
+  `restorable` or `deferred` inventory label alone is insufficient authority to
+  restore material.
+- Make authorization purpose explicit: operation grant, exact material unlock,
+  or threshold-session replacement. Operation grant policy may accept evidence
+  from a different factor; material unlock remains bound to the material
+  owner's exact `WalletAuthAuthorityRef`.
+- Correlate authorization results with their requirement kind. Successful
+  material unlock returns an upgraded recovery attempt bound to the original
+  recovery ID/digest; successful threshold replacement returns a branded lane
+  bound to its reauthorization anchor.
+- A threshold-session replacement returns a replacement lane through a
+  reauthorization anchor. Never rerun resolution against the obsolete exact
+  lane after its threshold-session identity changes.
+- Execute each operation-bound authorization action at most once per operation
+  fingerprint and return `no_progress_after_action` when the same action
+  repeats. Make recovery idempotent and singleflight by exact material-owner
+  identity key plus recovery ID so concurrent EVM/Tempo operations share one
+  restore. OTP resend/retry inside one factor-adapter interaction does not count
+  as a repeated core authorization action.
+- Encode generic material-use state: session-retained material may recover;
+  pending single-use material is ready only while hot and bound to the same
+  operation fingerprint; cold pending and consumed single-use material require
+  threshold-session replacement and cannot enter recovery.
+- Normalize Passkey, Email OTP, and future factor implementations behind
+  authority and material adapters at capability assembly. Factor adapters own
+  assertion/challenge protocols; material adapters own inspection, restore, and
+  consumption.
+- Normalize current cross-curve companion envelopes into separate exact Ed25519
+  and ECDSA recovery references at persistence boundaries. One capability
+  recovery cannot restore or commit its companion as a hidden side effect.
+- Replace method-specific signing step-up plans and retry branches with the
+  SPEC's generic authorization requirements. Operation-grant evidence uses only
+  a branded EVM transaction requirement whose exact envelope matches the
+  `grant_evidence_required` branch of `CapabilityGrantPlan`; material adapters
+  return requirements and never construct authorization policy.
+- Delete `PasskeyEcdsaCommittedLane`, `EmailOtpEcdsaCommittedLane`, their
+  ready aliases, method-specific builders, `EmailOtpEcdsaCommittedLaneStateError`,
+  `EvmFamilyEcdsaAuthMethod`, Passkey source-priority and material-selection
+  types, the Email OTP ECDSA authority resolver, method-specific reauth and
+  restore assembly ports, old signing step-up types/files, and the passkey-only
+  restore branch once the exact resolver is live. Delete
+  `reauth_required/missing_hot_material` as an implicit restore signal; remove
+  obsolete fixtures and guards in the same change.
+- Replace factor-labelled diagnostics collections with exact lane, material,
+  authority-ref, and recovery summaries. Diagnostics never select a branch.
 - Register correlated operation kinds for `near.sign_transaction`,
   `near.export_key`, `evm.sign_transaction`, `evm.export_key`, and
   `mpc.produce_signer_proof`. Type fixtures reject every cross-capability pair.
@@ -1900,6 +2006,31 @@ Check:
 
 - Vault-only compilation excludes MPC modules.
 - Ed25519, ECDSA, and vault operation lanes are not interchangeable.
+- Passkey and Email OTP refresh both follow
+  `recovery_required -> recover exact -> resolve exact -> ready`; direct EVM and
+  shared Tempo material-owner cases have targeted coverage.
+- Session-retained material can recover through a material adapter. Pending
+  single-use material may sign once while hot and operation-bound; cold pending
+  and consumed states require fresh threshold-session authorization. Type
+  fixtures reject single-use recovery descriptors.
+- Cross-curve companion records normalize to distinct recovery refs, and tests
+  prove both ECDSA-to-Ed25519 and Ed25519-to-ECDSA recovery cannot create hidden
+  material side effects.
+- A synthetic third-factor adapter passes the ECDSA preparation conformance
+  suite without changes to lane selection, preparation, restore coordination,
+  or committed-lane construction.
+- Source guards reject `passkey` and `email_otp` control-flow literals and
+  imports from factor-specific modules inside generic EVM ECDSA selection and
+  preparation code.
+- Source guards reject the deleted committed-lane/resolver/step-up symbols and
+  old `signingGrantId` semantics outside explicitly retained MPC session
+  authorization fields.
+- `@ts-expect-error` fixtures reject transaction lanes carrying export/proof
+  operations, ready states with non-hot or mismatched material, unbranded
+  recovery, single-use recovery, raw factor fields on material owners, raw
+  active grants in ready state, mismatched authority/material/authorization
+  aggregates, uncorrelated authorization result kinds, and unbranded replacement
+  lanes.
 - `mpc_signer_proof` missing capability, inactive capability, principal
   mismatch, target capability/operation mismatch, unsupported operation, and
   success have targeted tests.
@@ -1913,6 +2044,12 @@ Do:
 - Replace `threshold_session` route planes with `capability_grant` on signing
   routes.
 - Move threshold-session claim parsing into MPC route handlers.
+- Implement builders for branded `AuthorizedEvmEcdsaOperation` and
+  `ClaimedEvmEcdsaOperation`. Authorization accepts only an active grant whose
+  tenant, principal, capability, `evm.sign_transaction` operation, and operation
+  digests match the typed transaction envelope. Claiming occurs after ready
+  preparation and additionally requires an operation-fingerprint-matched
+  claimed grant use.
 - Map spend control onto grant-use consumption (Decided Point 13): atomic
   DB-backed grant `maxUses`/TTL consumption keyed by grant id and operation
   fingerprint replaces the signing-budget reservation subsystem. Delete
@@ -1946,6 +2083,11 @@ Check:
 - Concurrent final-use tests cover two same-fingerprint requests, two different
   fingerprints, one request arriving during grant refresh, and typed exhaustion
   that triggers one coordinated fresh-grant/step-up flow.
+- ECDSA preparation receives the same active-grant shape regardless of whether
+  Passkey, Email OTP, another interactive factor, or non-interactive evidence
+  satisfied policy.
+- Phase 20 deletes the last old route/auth wiring before the Phase 19/20 tranche
+  can release; no compatibility route or dual admission model remains.
 
 ## Phase 21: Client Worker Split And Bundle Boundaries
 
@@ -1967,6 +2109,13 @@ Do:
   package exports, and Refactor 86 asset manifest/smoke list.
 - Finish the `UiConfirmManager` split into generic confirmation coordination
   and MPC signing coordination.
+- Route WebAuthn assertion and OTP challenge/resend/code interaction through
+  factor adapters. Route PRF-derived unlock, worker material, sealed restore,
+  and consumption through material adapters. MPC preparation consumes only
+  boundary-validated admission, authorization, and recovery results.
+- Delete the replaced worker entrypoints, loaders, asset-manifest rows,
+  `UiConfirmManager` factor branches, and adapter wrappers in the same change as
+  the new split. No legacy worker alias or compatibility entrypoint survives.
 - Move threshold warm-session cache, signer WASM, HSS, chain adapters, and
   wallet restore code out of generic confirmation paths.
 - Complete the public entrypoint split so auth-only and vault-only imports do
@@ -2212,10 +2361,12 @@ Static checks:
 - Management/API-key principals cannot satisfy capability-grant routes
   without short-lived grants.
 - Public export maps expose auth/vault entrypoints that stay free of MPC imports.
-- Source guards reject old generic terms outside capability-local modules
-  (from Phase 18 onward): `signing-session`, `signingGrantId`, `thresholdSessionId`,
-  `threshold_session`, `user_session`, wallet-only `AuthMethod`, and wallet-only
-  API credential scopes.
+- Source guards reject old generic terms after their owning Slice B cutovers:
+  `signing-session`, obsolete `signingGrantId` semantics, generic
+  `thresholdSessionId`, `threshold_session`, `user_session`, wallet-only
+  `AuthMethod`, and wallet-only API credential scopes. Phase 17 guards migrated
+  exact-identity inputs; Phase 19 guards client preparation symbols; Phase 20
+  guards route and grant-admission symbols.
 - Parked workspaces such as `voiceId` cannot import auth core internals unless
   a future phase promotes them to `GrantEvidenceKind`.
 
@@ -2233,6 +2384,20 @@ Targeted tests (owning phase in parentheses):
 - Wallet auth authority refs on Ed25519/ECDSA signing lanes, multi-factor
   collision and re-enrollment fixtures, and deletion of the interim admission
   authority-key helper (Phase 17).
+- EVM ECDSA preparation matrix covering ready, exact recovery, authorization,
+  and blocked states across active/consumed/expired/revoked grants,
+  active/expired/exhausted threshold sessions, and
+  hot/sealed/missing/invalid material (Phase 19).
+- Static ECDSA preparation fixtures reject transaction lanes with export/proof
+  operations, non-hot ready material, unverified or single-use recovery,
+  mismatched material owner/authority/operation authorization, and raw active
+  grants in ready state (Phase 19).
+- Passkey and Email OTP cold-refresh recovery for direct EVM and shared Tempo
+  material owners; restored, already-ready, authorization-required, unavailable,
+  duplicate, corrupt, identity-mismatch, and no-progress recovery results
+  (Phase 19).
+- Synthetic third-factor authority/material adapters proving that generic ECDSA
+  selection and preparation require no new factor-kind branch (Phase 19).
 - Native provider session -> `SeamsSession` (Phase 11); Better Auth session ->
   `SeamsSession` through the same port (Phase 25).
 - Session exchange creation, refresh, revoke, replay denial, and tenant
@@ -2292,6 +2457,15 @@ Security tests:
   assurance, or authorize MPC signing.
 - Replaced factor enrollments and wallet-auth bindings cannot reactivate through
   matching credential/provider identity.
+- Exact ECDSA recovery cannot cross authority refs, material owners, threshold
+  sessions, canonical material bindings, recovery IDs, or capability
+  operations. EVM and Tempo targets may reference one material owner only when
+  each transaction envelope independently authorizes its target projection.
+- Pending single-use material is signable only while hot and bound to the same
+  operation fingerprint. Cold pending and consumed material cannot enter the
+  session-retained recovery path.
+- ECDSA and Ed25519 companion recovery references cannot restore or commit the
+  other capability as a hidden side effect.
 - Cross-capability operation pairs and evidence sets bound to a different exact
   operation fail before grant lookup or use consumption.
 - Vault-only sessions cannot call MPC signing endpoints.

@@ -60,7 +60,10 @@ w3a-drawer .drawer,
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell',
     sans-serif;
   font-size: 1rem;
-  border-radius: 2rem;
+  /* bottom sheet: top-only rounding, one step past the card shape and
+     capped at the classic 34px for the rounded preset */
+  --w3a-drawer__sheet-radius: min(calc(var(--w3a-shape-card, 16px) + 2px), 2.125rem);
+  border-radius: var(--w3a-drawer__sheet-radius) var(--w3a-drawer__sheet-radius) 0 0;
   border: none;
   transform: translateY(100%);
   transition: transform var(--w3a-drawer__transition-duration, 100ms)

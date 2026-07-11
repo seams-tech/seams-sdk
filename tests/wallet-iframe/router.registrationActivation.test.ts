@@ -481,7 +481,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     });
   });
 
-  test('rejects fullscreen wallet work while the anchored activation lease is ready', async ({
+  test('rejects fullscreen wallet work while the anchored activation surface is ready', async ({
     page,
   }) => {
     const result = await page.evaluate(

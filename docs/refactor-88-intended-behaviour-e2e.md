@@ -1411,7 +1411,7 @@ Initial audit:
 | `tests/unit/seamsAuthMenu.fouc.unit.test.ts` | keep | Seams auth menu UI/state coverage. It verifies style bootstrap, auth-method labels, Email OTP handoff prompts, resend UI, recovery options, and dropdown rendering. |
 | `tests/unit/passkeyClientDB.deviceSelection.test.ts` | keep | Wallet device-selection repository coverage. It verifies last-login scoping, signer-slot selection, duplicate registration rejection, idempotent retries, and Email OTP Ed25519 repair behavior. |
 | `tests/unit/passkeyClientDB.repositories.unit.test.ts` | keep | Wallet repository coverage. It verifies nonce leases, signer activation/querying, split NEAR identity persistence, ECDSA signer invariants, and scoped last-profile state. |
-| `tests/unit/passkeyConfirm.exportFlow.unit.test.ts` | keep | Passkey export worker coverage. It verifies cancellation, abort mapping, seed/public-key mismatch fail-closed behavior, NEAR export success, ECDSA-HSS export success, and retired artifact rejection. |
+| `tests/unit/passkeyConfirm.exportFlow.unit.test.ts` | keep | Passkey export worker failure coverage. It verifies cancellation, abort mapping, seed/public-key mismatch fail-closed behavior, and retired artifact rejection. Successful Ed25519 and ECDSA export belongs to the intended contracts. |
 | `tests/unit/pluginRorOrigins.unit.test.ts` | keep | Plugin related-origin coverage. It verifies wallet-origin inclusion, invalid-origin rejection, and Vite well-known route output for wallet-origin static hosting. |
 | `tests/unit/profileAccountProjection.generic.unit.test.ts` | keep | Generic profile/account projection coverage. It verifies mapped candidate resolution, canonical signer-slot selection, and last-selected profile state lookup. |
 | `tests/unit/progressBus.overlayIntentResolver.test.ts` | keep | Progress bus overlay-intent coverage. It verifies interaction metadata maps to show/hide/none and records v2 flow/phase/status stats. |
@@ -1435,7 +1435,7 @@ Initial audit:
 | `tests/unit/walletIframe.assetsBaseUrlNormalization.unit.test.ts` | keep | Wallet iframe asset-base normalization coverage. It verifies empty SDK base paths normalize to `/sdk/`. |
 | `tests/unit/walletIframeAuthHandlers.unit.test.ts` | keep | Wallet iframe auth-handler coverage. It verifies wallet-session reads resolve from host current-wallet state and pass through unscoped reads when the host wallet is cold. |
 | `tests/wallet-iframe/csp.strict.violation-free.test.ts` | keep | Wallet-service CSP regression coverage. It verifies the default wallet-service test route no longer emits the retired strict CSP header, outside the lifecycle contract matrix. |
-| `tests/wallet-iframe/export.flow.integration.test.ts` | keep | Wallet-origin export overlay isolation coverage. It uses a stub wallet service to prove export viewer open/close messages, stale generic close events, and concurrent export/signing request IDs do not cross-talk. The intended contracts prove public export authorization and success; this file owns iframe overlay protocol behaviour. |
+| `tests/wallet-iframe/export.flow.integration.test.ts` | keep | Wallet-origin export overlay isolation coverage. It uses a stub wallet service to prove stale generic close events and concurrent export/signing request IDs do not cross-talk. The intended contracts prove public export authorization and success; this file owns iframe overlay protocol behaviour. |
 | `tests/wallet-iframe/handshake.test.ts` | keep | Wallet iframe CONNECT/READY handshake coverage. It verifies the iframe source, WebAuthn allow attribute, sandbox absence, hidden pointer-inert default state, and READY timeout handling. |
 | `tests/wallet-iframe/harness.ts` | keep | Shared wallet-iframe browser harness with surviving importers across retained iframe protocol tests. Delete only if those protocol tests disappear. |
 | `tests/wallet-iframe/router.behavior.test.ts` | keep | Wallet iframe router timeout, progress-frame, unlock-status, strict option payload, and session-loss error normalization coverage. The intended contracts exercise real signing/unlock success; this test owns transport failure semantics and protocol payload boundaries. |
@@ -1724,6 +1724,7 @@ Initial audit:
 | `tests/unit/signingSession.state.unit.test.ts` | keep | Signing-session state coverage. It validates compact state transitions. |
 | `tests/unit/signingSessionBudgetFinalizer.unit.test.ts` | blocked_on_coverage(90 B3 grant-use migration) | Budget-era signing-session finalizer coverage. Replace with grant-use consumption/finalization coverage. |
 | `tests/unit/signingSessionCoordinator.ecdsaStepUp.unit.test.ts` | keep | Signing-session coordinator ECDSA step-up coverage. It validates step-up coordination directly. |
+| `tests/unit/signingSessionExpiryPersistence.unit.test.ts` | keep | Focused expiry-persistence regression coverage. It verifies an expired passkey Ed25519 seal retains its exact reauth anchor while policy expiry is updated. |
 | `tests/unit/signingSessionFreshness.unit.test.ts` | keep | Signing-session freshness coverage. It validates freshness rules and expiry behavior. |
 | `tests/unit/signingSessionReadiness.clearGrant.unit.test.ts` | keep | Signing-session readiness clear-grant coverage. It validates readiness cleanup behavior. |
 | `tests/unit/signingSessionRestoreCoordinator.unit.test.ts` | keep | Signing-session restore coordinator coverage. It validates restore coordination below the deferred recovery E2E spec. |
@@ -1761,7 +1762,7 @@ Initial audit:
 | `tests/unit/thresholdEcdsaChainTarget.unit.test.ts` | keep | Threshold ECDSA chain-target coverage. It validates exact chain-target parsing and identity. |
 | `tests/unit/thresholdEcdsaEmailOtpConsumption.unit.test.ts` | keep | Threshold ECDSA Email OTP consumption coverage. It validates Email OTP consumption behavior for ECDSA. |
 | `tests/unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` | keep | Threshold ECDSA key-identity inventory parser coverage. It validates inventory parsing and identity extraction. |
-| `tests/unit/thresholdEd25519.commitQueue.unit.test.ts` | keep | Threshold Ed25519 commit queue coverage. It validates queue behavior directly. |
+| `tests/unit/thresholdEd25519.commitQueue.unit.test.ts` | keep | Threshold Ed25519 commit-queue wrapper coverage. Shared FIFO, concurrency, and clear behavior is owned by the ECDSA wrapper suite over the same `commitQueueShared` implementation; this suite retains Ed25519-specific key formatting and rejection. |
 | `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts` | keep | Threshold Ed25519 HSS material-handle coverage. It validates material handle parsing and ownership. |
 | `tests/unit/thresholdEd25519.nearSignerWasm.unit.test.ts` | keep | Threshold Ed25519 NEAR signer WASM coverage. It validates WASM signer behavior and parity. |
 | `tests/unit/thresholdEd25519.persistedRecords.unit.test.ts` | keep | Threshold Ed25519 persisted-record coverage. It validates record parsing and persistence behavior. |
@@ -1806,7 +1807,7 @@ Initial audit:
 | `tests/unit/warmSessionEcdsaProvisioning.unit.test.ts` | keep | Warm-session ECDSA provisioning coverage. It validates focused provisioning behavior using the split helpers. |
 | `tests/unit/warmSessionEd25519Persistence.unit.test.ts` | keep | Warm-session Ed25519 persistence coverage. It validates focused persistence behavior. |
 | `tests/unit/warmSessionReadModel.unit.test.ts` | keep | Warm-session read-model coverage. It validates read-model projection behavior. |
-| `tests/unit/warmSessionRuntime.unit.test.ts` | keep | Warm-session runtime coverage. It validates focused runtime behavior after the broad warm-session fixture deletion. |
+| `tests/unit/warmSessionRuntime.unit.test.ts` | deleted | Deleted 227-line direct-helper suite after its PRF claim, diagnostic status read, seal transport, and required-failure branches were confirmed through the retained warm-session store PRF-claim, lifecycle, and error-normalization suites. |
 | `tests/unit/warmSessionStore.bootstrapResolution.unit.test.ts` | keep | Warm-session store bootstrap-resolution coverage. It validates bootstrap lookup and resolution behavior. |
 | `tests/unit/warmSessionStore.capabilityResolution.unit.test.ts` | keep | Warm-session store capability-resolution coverage. It validates capability lookup behavior. |
 | `tests/unit/warmSessionStore.concurrency.unit.test.ts` | keep | Warm-session store concurrency coverage. It validates concurrent store behavior. |
@@ -1821,6 +1822,7 @@ Initial audit:
 | `tests/unit/webServer.consoleConfig.unit.test.ts` | keep | Web server console-config coverage. It validates server-side config serving behavior. |
 | `tests/unit/webServer.stripeBillingProvider.unit.test.ts` | keep | Web server Stripe billing-provider coverage. It validates billing-provider config behavior. |
 | `tests/unit/webauthnPromptCredentialSelection.unit.test.ts` | keep | WebAuthn prompt credential-selection coverage. It validates credential selection behavior. |
+| `tests/unit/webauthnPromptCoordinator.unit.test.ts` | keep | Focused WebAuthn prompt-coordinator state coverage. It verifies reservation ownership, single consumption, expiry, abort, competing-operation exclusion, and failure cleanup through the coordinator's public state machine. |
 | `tests/unit/workerTransport.multichainTimeout.unit.test.ts` | keep | Worker transport multichain timeout coverage. It validates timeout behavior across chain-family worker requests. |
 
 Ledger checkpoint, July 5, 2026:
@@ -1894,6 +1896,12 @@ Ledger checkpoint, July 5, 2026:
   and focused boundary/domain unit tests.
 - [x] Delete `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts` and
   remove the demo `__testOverrides` prop path it depended on.
+- [x] Delete the redundant direct warm-session runtime suite and duplicated
+  export-success, dashboard-theme, lane-readiness, SeamsAuthMenu source-shape,
+  and Ed25519 shared commit-queue cases, then retired stale dashboard status
+  panels and copy assertions exposed by the focused run. This pass removed
+  1,342 test lines and added 25 lines, net -1,317, while retaining failure,
+  cancellation, isolation, parser, and wrapper-specific behavior coverage.
 - [x] Classify remaining inspected mocked/demo-browser tests that should stay
   because they cover focused UI, iframe transport, event-forwarding,
   worker-router, public signing API shape, or persistence-boundary behaviour

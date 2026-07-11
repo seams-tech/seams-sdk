@@ -1,9 +1,10 @@
 /**
  * OverlayController - Client-Side Communication Layer
  *
- * This module is the centralized controller for managing the wallet iframe's overlay
- * visibility and positioning. It provides a clean abstraction over the complex CSS
- * manipulations needed to show/hide the iframe for WebAuthn user activation.
+ * Low-level DOM/CSS writer for wallet iframe visibility and positioning. Typed
+ * surfaces are rendered through applyHidden(), applyAnchored(),
+ * applyAnchoredSuspended(), and applyViewportModal(). Fullscreen request flows
+ * still use the older imperative methods until their surface migration phases.
  *
  * Key Responsibilities:
  * - Overlay Visibility Management: Controls when the iframe is visible vs hidden
@@ -14,7 +15,7 @@
  * - Coordinate Handling: Converts DOMRect coordinates to CSS positioning
  *
  * Architecture:
- * - Single source of truth for iframe overlay state
+ * - Mirrors the last DOM mode for diagnostics and legacy request handling
  * - Mode-based positioning (hidden, fullscreen, anchored)
  * - Sticky mode prevents premature hiding during operations
  * - Clean separation between positioning logic and iframe management
@@ -43,11 +44,6 @@ import { setAnchored, setFullscreen, setHidden } from './overlay-styles';
 
 type Mode = 'hidden' | 'fullscreen' | 'anchored';
 
-export type AnchoredOverlayLease = {
-  readonly kind: 'anchored_overlay_lease_v1';
-  readonly leaseId: string;
-};
-
 export class OverlayController {
   private ensureIframe: () => HTMLIFrameElement;
   private mode: Mode = 'hidden';
@@ -55,8 +51,6 @@ export class OverlayController {
   private sticky = false;
   private rect: DOMRectLike | null = null;
   private suspended = false;
-  private anchoredLease: AnchoredOverlayLease | null = null;
-  private leaseCounter = 0;
 
   constructor(opts: { ensureIframe: () => HTMLIFrameElement }) {
     this.ensureIframe = opts.ensureIframe;
@@ -76,7 +70,6 @@ export class OverlayController {
    * This mode allows the iframe to receive user activation events
    */
   showFullscreen(): void {
-    if (this.anchoredLease) return;
     const iframe = this.ensureIframe();
     this.visible = true;
     this.mode = 'fullscreen';
@@ -97,27 +90,10 @@ export class OverlayController {
    * preserved as measured, with only minimum width/height enforcement
    */
   showAnchored(rect: DOMRectLike): void {
-    if (this.anchoredLease) return;
-    this.applyAnchored(rect);
+    this.applyAnchored(rect, {});
   }
 
-  acquireAnchoredLease(): AnchoredOverlayLease | null {
-    if (this.anchoredLease || this.visible || this.mode !== 'hidden') return null;
-    const lease: AnchoredOverlayLease = Object.freeze({
-      kind: 'anchored_overlay_lease_v1',
-      leaseId: `anchored-overlay-${++this.leaseCounter}`,
-    });
-    this.anchoredLease = lease;
-    return lease;
-  }
-
-  showAnchoredForLease(lease: AnchoredOverlayLease, rect: DOMRectLike): boolean {
-    if (this.anchoredLease !== lease) return false;
-    this.applyAnchored(rect);
-    return true;
-  }
-
-  private applyAnchored(rect: DOMRectLike): void {
+  applyAnchored(rect: DOMRectLike, accessibility: { title?: string }): void {
     const iframe = this.ensureIframe();
     this.visible = true;
     this.mode = 'anchored';
@@ -130,6 +106,7 @@ export class OverlayController {
     // Step 4: Set accessibility attributes
     iframe.setAttribute('aria-hidden', 'false');
     iframe.removeAttribute('tabindex');
+    this.applyTitle(iframe, accessibility.title);
   }
 
   /**
@@ -137,7 +114,6 @@ export class OverlayController {
    * If overlay is currently in anchored mode, immediately apply new position
    */
   setAnchoredRect(rect: DOMRectLike): void {
-    if (this.anchoredLease) return;
     this.rect = { ...rect };
     if (this.visible && this.mode === 'anchored') {
       this.showAnchored(this.rect);
@@ -145,24 +121,18 @@ export class OverlayController {
   }
 
   suspendAnchored(): void {
-    if (this.anchoredLease) return;
-    this.applyAnchoredSuspension();
+    this.applyAnchoredSuspended({});
   }
 
-  suspendAnchoredForLease(lease: AnchoredOverlayLease): boolean {
-    if (this.anchoredLease !== lease) return false;
-    this.applyAnchoredSuspension();
-    return true;
-  }
-
-  private applyAnchoredSuspension(): void {
-    if (this.mode !== 'anchored') return;
+  applyAnchoredSuspended(accessibility: { title?: string }): void {
     const iframe = this.ensureIframe();
+    this.mode = 'anchored';
     this.visible = false;
     this.suspended = true;
     setHidden(iframe);
     iframe.setAttribute('aria-hidden', 'true');
     iframe.setAttribute('tabindex', '-1');
+    this.applyTitle(iframe, accessibility.title);
   }
 
   /**
@@ -182,23 +152,33 @@ export class OverlayController {
    * Clear anchored rectangle - removes stored coordinates
    */
   clearAnchoredRect(): void {
-    if (this.anchoredLease) return;
     this.rect = null;
   }
 
-  releaseAnchoredLease(lease: AnchoredOverlayLease): boolean {
-    if (this.anchoredLease !== lease) return false;
-    this.anchoredLease = null;
-    this.rect = null;
+  applyViewportModal(accessibility: { title?: string }): void {
+    this.showFullscreen();
+    this.applyTitle(this.ensureIframe(), accessibility.title);
+  }
+
+  applyHidden(): void {
     this.sticky = false;
-    const iframe = this.ensureIframe();
+    this.rect = null;
     this.visible = false;
     this.mode = 'hidden';
     this.suspended = false;
+    const iframe = this.ensureIframe();
     setHidden(iframe);
     iframe.setAttribute('aria-hidden', 'true');
     iframe.setAttribute('tabindex', '-1');
-    return true;
+    iframe.removeAttribute('title');
+  }
+
+  private applyTitle(iframe: HTMLIFrameElement, title: string | undefined): void {
+    if (title) {
+      iframe.setAttribute('title', title);
+      return;
+    }
+    iframe.removeAttribute('title');
   }
 
   /**
@@ -207,7 +187,6 @@ export class OverlayController {
    * Used when WebAuthn activation is complete or operation is cancelled
    */
   hide(): void {
-    if (this.anchoredLease) return;
     // Step 1: Check sticky mode - don't hide if operation is still in progress
     if (this.sticky) {
       return;
@@ -227,7 +206,6 @@ export class OverlayController {
   }
 
   forceHide(): void {
-    if (this.anchoredLease) return;
     this.sticky = false;
     if (!this.visible) return;
     this.hide();
@@ -238,7 +216,6 @@ export class OverlayController {
     mode: Mode;
     sticky: boolean;
     suspended: boolean;
-    ownership: 'unowned' | 'anchored_lease';
     rect?: DOMRectLike;
   } {
     return {
@@ -246,7 +223,6 @@ export class OverlayController {
       mode: this.mode,
       sticky: this.sticky,
       suspended: this.suspended,
-      ownership: this.anchoredLease ? 'anchored_lease' : 'unowned',
       rect: this.rect || undefined,
     };
   }

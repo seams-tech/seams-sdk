@@ -57,7 +57,7 @@ w3a-tx-tree[theme='dark'] {
   --w3a-tree__host__font-size: 1rem;
   --w3a-tree__host__color: var(--w3a-grey75);
   --w3a-tree__host__background-color: var(--w3a-grey800);
-  --w3a-tree__tooltip-border-outer__border-radius: 1.5rem;
+  --w3a-tree__tooltip-border-outer__border-radius: var(--w3a-shape-box, 10px);
   --w3a-tree__tooltip-border-outer__border: 1px solid transparent;
   --w3a-tree__tooltip-border-outer__box-shadow: 0 1px 3px 0px rgba(5, 5, 5, 0.4);
   --w3a-tree__tooltip-tree-root__background: var(--w3a-colors-surface2);
@@ -79,7 +79,7 @@ w3a-tx-tree[theme='dark'] {
   --w3a-tree__label__line-height: 1.5;
   --w3a-tree__label__border: 1px solid transparent;
   --w3a-tree__label__padding: 0.25rem 0.75rem;
-  --w3a-tree__label__border-radius: 1rem;
+  --w3a-tree__label__border-radius: var(--w3a-shape-item, 8px);
   --w3a-tree__label-hover__background: var(
     --w3a-colors-highlightRow,
     var(--w3a-colors-active, var(--w3a-colors-hover))
@@ -128,7 +128,7 @@ w3a-tx-tree[theme='light'] {
   --w3a-tree__host__font-size: 1rem;
   --w3a-tree__host__color: var(--w3a-grey975);
   --w3a-tree__host__background-color: var(--w3a-grey50);
-  --w3a-tree__tooltip-border-outer__border-radius: 24px;
+  --w3a-tree__tooltip-border-outer__border-radius: var(--w3a-shape-box, 10px);
   --w3a-tree__tooltip-border-outer__border: 1px solid var(--w3a-slate300);
   --w3a-tree__tooltip-border-outer__box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
   --w3a-tree__tooltip-tree-root__background: var(--w3a-colors-surface);
@@ -150,7 +150,7 @@ w3a-tx-tree[theme='light'] {
   --w3a-tree__label__line-height: 1.5;
   --w3a-tree__label__border: 1px solid transparent;
   --w3a-tree__label__padding: 0.25rem 0.75rem;
-  --w3a-tree__label__border-radius: 1rem;
+  --w3a-tree__label__border-radius: var(--w3a-shape-item, 8px);
   --w3a-tree__label-hover__background: var(
     --w3a-colors-highlightRow,
     var(--w3a-colors-hover, var(--w3a-colors-active))
@@ -250,7 +250,7 @@ w3a-tx-tree .tooltip-border-outer {
   max-width: min(600px, 100%);
   position: relative;
   border: var(--w3a-tree__tooltip-border-outer__border, 1px solid transparent);
-  border-radius: var(--w3a-tree__tooltip-border-outer__border-radius, 24px);
+  border-radius: var(--w3a-tree__tooltip-border-outer__border-radius, 10px);
   margin: 0px;
   padding: 0px;
   height: auto;
@@ -264,7 +264,7 @@ w3a-tx-tree .tooltip-tree-root {
   width: 100%;
   max-width: min(600px, 100%);
   margin: 0 auto;
-  border-radius: 1.5rem;
+  border-radius: var(--w3a-shape-box, 10px);
   border: var(--w3a-tree__tooltip-tree-root__border, none);
   overflow: hidden;
   height: auto;

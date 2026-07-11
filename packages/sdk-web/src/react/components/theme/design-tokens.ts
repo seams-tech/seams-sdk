@@ -17,6 +17,10 @@ import { CHROMA_COLORS, GREY_COLORS, GRADIENTS, LIGHT_THEME, DARK_THEME } from '
  *   e.g. tokens.borderRadius.lg→ --w3a-border-radius-lg
  * - shadows:  --w3a-shadows-<key>
  *   e.g. tokens.shadows.sm     → --w3a-shadow-sm
+ * - shape:    --w3a-shape-<key>
+ *   e.g. tokens.shape.card     → --w3a-shape-card
+ *   Optional: when absent, component CSS falls back to the 'square' preset
+ *   values baked in as var() fallbacks.
  *
  * Where they’re used:
  * - Theme injects variables inline on a boundary element; components
@@ -146,7 +150,69 @@ export interface DesignTokens {
     lg: string;
     xl: string;
   };
+
+  /**
+   * Component geometry (radii, control sizes, field treatment). Optional:
+   * when omitted, component CSS falls back to SHAPE_SQUARE via var()
+   * fallbacks. Use SHAPE_PRESETS.rounded for the soft pill look.
+   */
+  shape?: ShapeTokens;
 }
+
+// ============================================================================
+// SHAPE PRESETS (component geometry: square = ElevenLabs-style rects,
+// rounded = the soft pill look). Values may reference other CSS vars.
+// ============================================================================
+
+export interface ShapeTokens {
+  /** Card-level corners: auth menu root, modal, drawer sheet */
+  card: string;
+  /** Buttons */
+  control: string;
+  /** Text fields */
+  field: string;
+  /** Data readout boxes: tx tree, identity panel */
+  box: string;
+  /** List rows, labels, small tooltips */
+  item: string;
+  /** Primary control height (secondary actions derive -4px from this) */
+  controlHeight: string;
+  fieldHeight: string;
+  /** Field face + border: square is bordered-surface, rounded is a tinted pill */
+  fieldBackground: string;
+  fieldBorder: string;
+}
+
+export type WalletShapeId = 'square' | 'rounded';
+
+export const SHAPE_SQUARE: ShapeTokens = {
+  card: '16px',
+  control: '10px',
+  field: '10px',
+  box: '10px',
+  item: '8px',
+  controlHeight: '44px',
+  fieldHeight: '44px',
+  fieldBackground: 'var(--w3a-colors-surface)',
+  fieldBorder: 'var(--w3a-colors-borderPrimary)',
+};
+
+export const SHAPE_ROUNDED: ShapeTokens = {
+  card: '3rem',
+  control: '2rem',
+  field: '2rem',
+  box: '1.5rem',
+  item: '1rem',
+  controlHeight: '52px',
+  fieldHeight: '54px',
+  fieldBackground: 'var(--w3a-colors-surface2)',
+  fieldBorder: 'color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 36%)',
+};
+
+export const SHAPE_PRESETS: Record<WalletShapeId, ShapeTokens> = {
+  square: SHAPE_SQUARE,
+  rounded: SHAPE_ROUNDED,
+};
 
 export interface UseThemeReturn {
   theme: 'light' | 'dark';

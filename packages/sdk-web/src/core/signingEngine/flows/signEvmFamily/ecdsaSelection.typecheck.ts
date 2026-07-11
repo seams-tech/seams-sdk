@@ -8,6 +8,7 @@ import type {
   RecordBackedEcdsaCommittedLane,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
+  RestoreRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
 import { ecdsaCommittedLaneAuthMethod } from './ecdsaSelection';
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
@@ -45,6 +46,9 @@ declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 declare const emailOtpFactor: EmailOtpFactorIdentity;
 declare const passkeyAuthority: PasskeyWalletAuthAuthority;
 declare const reauthLane: ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'];
+declare const restoreCandidate: RestoreRequiredEvmFamilyEcdsaSigningSelection['candidate'];
+declare const restoreMaterial: RestoreRequiredEvmFamilyEcdsaSigningSelection['material'];
+declare const restoreChainTarget: RestoreRequiredEvmFamilyEcdsaSigningSelection['restoreChainTarget'];
 declare const readyPasskeyCommittedLane: ReadyPasskeyEcdsaCommittedLane;
 declare const walletSessionJwt: VerifiedWalletSessionJwt;
 declare const walletId: WalletId;
@@ -176,6 +180,39 @@ const readySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   diagnostics: {} as ReadyEvmFamilyEcdsaSigningSelection['diagnostics'],
 };
 void readySelection;
+
+const restoreRequiredSelection: RestoreRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'restore_required',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'passkey',
+  lane: reauthLane,
+  candidate: restoreCandidate,
+  material: restoreMaterial,
+  restoreChainTarget,
+  diagnostics,
+};
+void restoreRequiredSelection;
+
+const invalidRestoreRequiredReadyMaterial: RestoreRequiredEvmFamilyEcdsaSigningSelection = {
+  ...restoreRequiredSelection,
+  // @ts-expect-error restore-required selections cannot carry ready signer material.
+  material: readyMaterial,
+};
+void invalidRestoreRequiredReadyMaterial;
+
+const invalidEmailOtpRestoreRequiredSelection: RestoreRequiredEvmFamilyEcdsaSigningSelection = {
+  ...restoreRequiredSelection,
+  // @ts-expect-error exact sealed restore without committed material is passkey-only.
+  authMethod: 'email_otp',
+};
+void invalidEmailOtpRestoreRequiredSelection;
+
+const invalidRestoreRequiredSelectionWithCommittedLane: RestoreRequiredEvmFamilyEcdsaSigningSelection = {
+  ...restoreRequiredSelection,
+  // @ts-expect-error restore-required selections do not carry committed hot material.
+  committedLane: readyPasskeyCommittedLane,
+};
+void invalidRestoreRequiredSelectionWithCommittedLane;
 
 // @ts-expect-error passkey ready selections require a committed lane.
 const invalidPasskeyReadySelection: ReadyEvmFamilyEcdsaSigningSelection = {

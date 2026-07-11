@@ -126,7 +126,7 @@ w3a-tx-confirm-content {
   width: min(100%, var(--tooltip-width, 100%));
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: 1.5rem;
+  border-radius: var(--w3a-shape-box, 10px);
   background: var(--w3a-colors-txDetailsBackground, var(--w3a-colors-surface2));
 }
 .tooltip-width > w3a-tx-tree,
@@ -188,7 +188,7 @@ w3a-tx-confirm-content {
   background: none;
   color: var(--w3a-colors-textPrimary);
   border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: 2rem;
+  border-radius: var(--w3a-shape-control, 10px);
   font: inherit;
   padding: 0.7em 1em;
   min-height: 2.75em;
@@ -198,7 +198,7 @@ w3a-tx-confirm-content {
   background: var(--w3a-colors-buttonBackground);
   color: var(--w3a-colors-textButton, #fff);
   border: 1px solid transparent;
-  border-radius: 2rem;
+  border-radius: var(--w3a-shape-control, 10px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -327,7 +327,8 @@ w3a-modal-tx-confirmer {
   max-inline-size: 100%;
   position: relative;
   border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: 2rem;
+  /* card shape, capped at the modal's classic 2rem for the rounded preset */
+  border-radius: min(var(--w3a-shape-card, 16px), 2rem);
   margin: 1rem 0 0 0;
   padding: 0.75rem;
   height: auto;
@@ -370,7 +371,7 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
 }
 
 .card-background-border {
-  border-radius: 2rem;
+  border-radius: min(var(--w3a-shape-card, 16px), 2rem);
   background: var(--w3a-colors-colorBackground);
   border: 1px solid var(--w3a-colors-borderPrimary);
   margin: 0px;
@@ -446,7 +447,7 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   gap: 0.5rem;
   margin-top: 0.25rem;
   padding: 0.75rem;
-  border-radius: 1.125rem;
+  border-radius: var(--w3a-shape-box, 10px);
   background: var(
     --w3a-colors-txDetailsBackground,
     color-mix(in srgb, var(--w3a-colors-surface), var(--w3a-colors-colorBackground) 44%)
@@ -779,7 +780,7 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   box-shadow: var(--w3a-modal__btn__box-shadow, none);
   color: var(--w3a-colors-textPrimary);
   text-align: center;
-  border-radius: 2rem;
+  border-radius: var(--w3a-shape-control, 10px);
   margin-right: 1px;
   justify-content: center;
   align-items: center;
@@ -1021,7 +1022,7 @@ w3a-drawer {
   margin: 0;
   font-size: var(--w3a-font-size-lg, 1.125rem);
   line-height: 1.3;
-  font-weight: 700;
+  font-weight: 600;
 }
 .drawer-actions {
   display: flex;

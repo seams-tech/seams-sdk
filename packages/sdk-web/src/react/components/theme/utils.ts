@@ -31,6 +31,11 @@ export function createCSSVariables(tokens: DesignTokens, prefix = '--w3a'): Reac
   Object.entries(tokens.shadows).forEach(([k, v]) => {
     vars[`${prefix}-shadows-${k}`] = String(v);
   });
+  if (tokens.shape) {
+    Object.entries(tokens.shape).forEach(([k, v]) => {
+      vars[`${prefix}-shape-${k}`] = String(v);
+    });
+  }
 
   // React CSSProperties style: map to --custom-prop keys
   const style: React.CSSProperties = {} as any;
