@@ -30,7 +30,8 @@
   flex-direction: column;
   transition:
     min-height 300ms cubic-bezier(0.22, 1, 0.36, 1),
-    padding 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    padding 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: min-height, padding;
 }
 
@@ -277,7 +278,9 @@
     background-color 160ms ease,
     border-color 160ms ease,
     transform 120ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    min-height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .w3a-auth-method-badge {
@@ -741,7 +744,10 @@
   overflow: visible;
   transition:
     border-color 150ms ease,
-    box-shadow 150ms ease;
+    box-shadow 150ms ease,
+    background-color 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* border-only focus: outward rings clip against the content switcher's
@@ -1301,6 +1307,9 @@
   font-size: 0.875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Hover/focus elevated state (theme-reactive via CSS vars) */

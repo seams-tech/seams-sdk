@@ -1816,6 +1816,16 @@ body:has(.h2-page) {
   margin-top: 16px;
 }
 
+/* corners toggle: rides directly under the theme pills */
+.h2-hero__demo .h2-themeswitch--shape {
+  margin-top: 10px;
+}
+
+/* no swatch in these pills, so even out the swatch-side padding */
+.h2-themeswitch--shape .h2-themeswitch__btn {
+  padding: 6px 14px;
+}
+
 .h2-page--wallet .passkey-demo {
   width: min(480px, 100%);
   min-height: var(--h2-wallet-demo-shell-min-height);

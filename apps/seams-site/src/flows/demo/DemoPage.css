@@ -1,8 +1,11 @@
 /* left-aligned editorial header, flush with the section content edge (the
-   ChainSigningSection's own 1rem padding provides the gap below) */
+   ChainSigningSection's own 1rem padding provides the gap below). Top padding
+   scales with the card radius so the heading clears the rounded corner: square
+   stays 1.25rem, rounded opens up. */
 .demo-page-header {
-  padding: 1.25rem 1rem 0;
+  padding: max(1.25rem, calc(var(--w3a-shape-card, 16px) * 0.6)) 1rem 0;
   text-align: left;
+  transition: padding 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .demo-title {
@@ -45,6 +48,7 @@
   padding: var(--site-space-2);
   background: var(--site-surface-muted);
   border-radius: var(--w3a-shape-field, 10px);
+  transition: border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .on-chain-greeting-box p {
@@ -119,7 +123,11 @@
   color: var(--site-text-primary);
   font-size: 0.9rem;
   font-family: var(--site-font-sans);
-  transition: all var(--site-duration-fast) var(--site-ease);
+  /* the trailing entries override `all` for the shape morph props */
+  transition:
+    all var(--site-duration-fast) var(--site-ease),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .greeting-input-group input:focus {
@@ -239,6 +247,7 @@
   padding: 0.25rem 0.5rem 0.25rem 0.75rem;
   border-radius: var(--w3a-shape-field, 10px);
   background: var(--w3a-colors-surface2);
+  transition: border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .funding-address-text {

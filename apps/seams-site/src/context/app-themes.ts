@@ -452,9 +452,6 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     // lavender reads most distinctly "pastel" next to the other swatches
     swatch: '#DBCDF0',
     colors: PASTEL_LIGHT_COLORS,
-    // the soft pill geometry suits the pastel personality — and demos that
-    // shape is themable alongside color
-    shape: 'rounded',
   },
   {
     id: 'pastel-dark',
@@ -462,7 +459,6 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     mode: 'dark',
     swatch: '#1e1d22',
     colors: PASTEL_DARK_COLORS,
-    shape: 'rounded',
   },
   {
     id: 'midnight',
@@ -473,17 +469,29 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
   },
 ];
 
+/* Shape is orthogonal to the color preset: the demo's corners toggle passes
+   it in; a preset's own shape (if any) is the fallback. */
+function resolveDemoShape(preset: DemoThemePreset, shape?: WalletShapeId): WalletShapeId {
+  return shape ?? preset.shape ?? 'square';
+}
+
 /** Build the React `<Theme tokens={...}>` value for a preset (includes a contained shadow). */
-export function demoReactTokens(preset: DemoThemePreset): ThemeProps['tokens'] {
+export function demoReactTokens(
+  preset: DemoThemePreset,
+  shapeId?: WalletShapeId,
+): ThemeProps['tokens'] {
   const shadows = { lg: preset.mode === 'dark' ? CONTAINED_SHADOW_DARK : CONTAINED_SHADOW_LIGHT };
-  const shape = SHAPE_PRESETS[preset.shape ?? 'square'];
+  const shape = SHAPE_PRESETS[resolveDemoShape(preset, shapeId)];
   return preset.mode === 'dark'
     ? { dark: { colors: preset.colors, shadows, shape } }
     : { light: { colors: preset.colors, shadows, shape } };
 }
 
 /** Build the wallet-iframe appearance (colors + shape) for a preset — fed to seams.setAppearance. */
-export function demoIframeAppearance(preset: DemoThemePreset): SdkAppearance {
+export function demoIframeAppearance(
+  preset: DemoThemePreset,
+  shapeId?: WalletShapeId,
+): SdkAppearance {
   return {
     theme: {
       id: preset.id,
@@ -491,7 +499,7 @@ export function demoIframeAppearance(preset: DemoThemePreset): SdkAppearance {
       colors: preset.colors,
       /* always send the full shape record so switching rounded → square
          overwrites every key (the host merges appearance updates) */
-      shape: { ...SHAPE_PRESETS[preset.shape ?? 'square'] },
+      shape: { ...SHAPE_PRESETS[resolveDemoShape(preset, shapeId)] },
     },
     palette: 'default',
   };

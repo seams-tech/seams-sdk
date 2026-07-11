@@ -19,7 +19,7 @@ import {
   Twitter,
   Wallet,
 } from 'lucide-react';
-import { Theme, useSeams, type AuthMenuMode } from '@seams/sdk/react';
+import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/sdk/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
@@ -81,6 +81,8 @@ export function H2DemoHero({
   const { seams, loginState } = useSeams();
   const [demoPage, setDemoPage] = React.useState(0);
   const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('paper');
+  // corner shape is orthogonal to the color theme: any palette, sharp or rounded
+  const [demoShape, setDemoShape] = React.useState<WalletShapeId>('square');
   const activePreset = DEMO_THEME_PRESETS.find((t) => t.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
   const startProps = linkProps('/docs/concepts/');
@@ -90,9 +92,9 @@ export function H2DemoHero({
   // components (tx confirmer, etc.) re-theme to match the React auth card.
   React.useEffect(() => {
     try {
-      seams.setAppearance(demoIframeAppearance(activePreset));
+      seams.setAppearance(demoIframeAppearance(activePreset, demoShape));
     } catch {}
-  }, [seams, activePreset, loginState?.isLoggedIn, activeWalletId]);
+  }, [seams, activePreset, demoShape, loginState?.isLoggedIn, activeWalletId]);
 
   // The Transactions / Account recovery screens need an unlocked wallet,
   // mirroring the carousel's own page gating.
@@ -143,7 +145,7 @@ export function H2DemoHero({
           {/* Feed the selected preset to the auth menu via the SDK theme context */}
           <Theme
             theme={activePreset.mode}
-            tokens={demoReactTokens(activePreset)}
+            tokens={demoReactTokens(activePreset, demoShape)}
             tag="div"
             className="h2-demo-theme-root"
             style={{ display: 'contents' }}
@@ -171,6 +173,29 @@ export function H2DemoHero({
               >
                 <span className="h2-themeswitch__swatch" style={{ background: t.swatch }} />
                 {t.label}
+              </button>
+            ))}
+          </div>
+          <div
+            className="h2-themeswitch h2-themeswitch--shape"
+            role="group"
+            aria-label="Corner shape"
+          >
+            <span className="h2-themeswitch__label">Corners</span>
+            {(
+              [
+                { id: 'square', label: 'Sharp' },
+                { id: 'rounded', label: 'Rounded' },
+              ] as const
+            ).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`h2-themeswitch__btn${demoShape === s.id ? ' is-active' : ''}`}
+                aria-pressed={demoShape === s.id}
+                onClick={() => setDemoShape(s.id)}
+              >
+                {s.label}
               </button>
             ))}
           </div>
