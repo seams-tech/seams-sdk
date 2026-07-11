@@ -1,0 +1,267 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:evaluator-abort-state-party-views:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "host_only_synthetic_evaluator_abort_state_party_views_v1",
+  "cases": [
+    {
+      "request_kind": "registration",
+      "source_ceremony_case_id": "ceremony-registration-v1",
+      "persistence": {
+        "pre_state_class": "unregistered",
+        "transition": "self_loop",
+        "burned_attempt": {
+          "request_kind": "registration",
+          "request_context_digest_hex": "6e8ceb4a0ca695d40f3e162f2c41f5923e1e7569283a69b019741096f05f89dc",
+          "authorization_digest_hex": "29653454f3e9c38ebadb261061c8d1f11c046de646aff0c7eaaa4e65937ec393",
+          "transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "one_use_execution_id_hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        },
+        "public_abort": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      },
+      "party_views": {
+        "deriver_a": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "deriver_b": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "client": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "signing_worker": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "router": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "observer": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "diagnostics": {
+          "request_kind": "registration",
+          "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      }
+    },
+    {
+      "request_kind": "recovery",
+      "source_ceremony_case_id": "ceremony-recovery-v1",
+      "persistence": {
+        "pre_state_class": "credential_suspended",
+        "transition": "self_loop",
+        "burned_attempt": {
+          "request_kind": "recovery",
+          "request_context_digest_hex": "c7d60ba32965e5d77a15122a1eba7cf85dc774a423f3e5b7f2428284f5aa4062",
+          "authorization_digest_hex": "4bf2fcae1e2ec667773f7dbc0268e25fc16b9f08a04b1b67f349df6c3a12f0dc",
+          "transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "one_use_execution_id_hex": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+        },
+        "public_abort": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      },
+      "party_views": {
+        "deriver_a": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "deriver_b": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "client": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "signing_worker": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "router": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "observer": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "diagnostics": {
+          "request_kind": "recovery",
+          "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      }
+    },
+    {
+      "request_kind": "refresh",
+      "source_ceremony_case_id": "ceremony-refresh-v1",
+      "persistence": {
+        "pre_state_class": "registered",
+        "transition": "self_loop",
+        "burned_attempt": {
+          "request_kind": "refresh",
+          "request_context_digest_hex": "011a86f2067d0e41f621881f268bdc4603e17ae21fad3bba5ce7aa22a8de8adb",
+          "authorization_digest_hex": "18a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c",
+          "transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "one_use_execution_id_hex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+        },
+        "public_abort": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      },
+      "party_views": {
+        "deriver_a": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "deriver_b": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "client": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "signing_worker": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "router": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "observer": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "diagnostics": {
+          "request_kind": "refresh",
+          "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      }
+    },
+    {
+      "request_kind": "export",
+      "source_ceremony_case_id": "ceremony-export-v1",
+      "persistence": {
+        "pre_state_class": "registered",
+        "transition": "self_loop",
+        "burned_attempt": {
+          "request_kind": "export",
+          "request_context_digest_hex": "77ee8387b38b8d7f5ba57282fe7c3e6be9bc14fa0b45a0d8b102a7087b613862",
+          "authorization_digest_hex": "6c57d4ad88cbcd58a661399ac9b7739016b7e243bd8af322eddd013eb51563e9",
+          "transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "one_use_execution_id_hex": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4"
+        },
+        "public_abort": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      },
+      "party_views": {
+        "deriver_a": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "deriver_b": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "client": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "signing_worker": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "router": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "observer": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        },
+        "diagnostics": {
+          "request_kind": "export",
+          "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "public_failure_code": "rejected",
+          "terminal": "aborted"
+        }
+      }
+    }
+  ]
+}

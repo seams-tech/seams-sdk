@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::{
-    evaluate_activation, evaluate_export, wrapping_add_le_256, DeriverAContribution,
+    ceremony_context::CeremonyRequestKindV1, evaluate_activation,
+    evaluate_full_clear_reference_export_v1, wrapping_add_le_256, DeriverAContribution,
     DeriverBContribution, OracleMaterial, RawDeriverAContribution, RawDeriverBContribution,
     StableKeyDerivationContext,
 };
@@ -58,22 +59,6 @@ const RFC8032_VECTOR_TWO_SEED: [u8; 32] = [
     0x5b, 0x8a, 0x31, 0x9f, 0x35, 0xab, 0xa6, 0x24, 0xda, 0x8c, 0xf6, 0xed, 0x4f, 0xb8, 0xa6, 0xfb,
 ];
 
-/// Canonical request kind associated with a clear-arithmetic vector.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LifecycleRequestKindV1 {
-    /// Registration request shape.
-    Registration,
-    /// SigningWorker activation request shape.
-    Activation,
-    /// Recovery request shape.
-    Recovery,
-    /// Role-local refresh request shape.
-    Refresh,
-    /// Explicitly authorized export request shape.
-    Export,
-}
-
 /// Versioned, deterministic portable vector corpus.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -113,13 +98,13 @@ pub enum VectorCaseV1 {
 
 impl VectorCaseV1 {
     /// Returns the canonical request kind encoded by this variant.
-    pub const fn request_kind(&self) -> LifecycleRequestKindV1 {
+    pub const fn request_kind(&self) -> CeremonyRequestKindV1 {
         match self {
-            Self::Registration(_) => LifecycleRequestKindV1::Registration,
-            Self::Activation(_) => LifecycleRequestKindV1::Activation,
-            Self::Recovery(_) => LifecycleRequestKindV1::Recovery,
-            Self::Refresh(_) => LifecycleRequestKindV1::Refresh,
-            Self::Export(_) => LifecycleRequestKindV1::Export,
+            Self::Registration(_) => CeremonyRequestKindV1::Registration,
+            Self::Activation(_) => CeremonyRequestKindV1::Activation,
+            Self::Recovery(_) => CeremonyRequestKindV1::Recovery,
+            Self::Refresh(_) => CeremonyRequestKindV1::Refresh,
+            Self::Export(_) => CeremonyRequestKindV1::Export,
         }
     }
 
@@ -245,13 +230,13 @@ struct SyntheticInputs {
 }
 
 impl SyntheticInputs {
-    fn for_request_kind(request_kind: LifecycleRequestKindV1) -> Self {
+    fn for_request_kind(request_kind: CeremonyRequestKindV1) -> Self {
         match request_kind {
-            LifecycleRequestKindV1::Registration => Self::rfc8032_vector_one(),
-            LifecycleRequestKindV1::Activation => Self::wrapping_boundaries(),
-            LifecycleRequestKindV1::Recovery => Self::patterned(0x13, 0x29, 3),
-            LifecycleRequestKindV1::Refresh => Self::patterned(0x71, 0x1d, 19),
-            LifecycleRequestKindV1::Export => Self::rfc8032_vector_two(),
+            CeremonyRequestKindV1::Registration => Self::rfc8032_vector_one(),
+            CeremonyRequestKindV1::Activation => Self::wrapping_boundaries(),
+            CeremonyRequestKindV1::Recovery => Self::patterned(0x13, 0x29, 3),
+            CeremonyRequestKindV1::Refresh => Self::patterned(0x71, 0x1d, 19),
+            CeremonyRequestKindV1::Export => Self::rfc8032_vector_two(),
         }
     }
 
@@ -331,11 +316,11 @@ impl SyntheticInputs {
 /// Builds the canonical deterministic version-one corpus.
 pub fn canonical_vector_corpus_v1() -> VectorCorpusV1 {
     let request_kinds = [
-        LifecycleRequestKindV1::Registration,
-        LifecycleRequestKindV1::Activation,
-        LifecycleRequestKindV1::Recovery,
-        LifecycleRequestKindV1::Refresh,
-        LifecycleRequestKindV1::Export,
+        CeremonyRequestKindV1::Registration,
+        CeremonyRequestKindV1::Activation,
+        CeremonyRequestKindV1::Recovery,
+        CeremonyRequestKindV1::Refresh,
+        CeremonyRequestKindV1::Export,
     ];
     let cases = request_kinds
         .into_iter()
@@ -380,7 +365,7 @@ pub fn differential_vector_corpus_v1(
     })
 }
 
-fn build_vector_case((index, request_kind): (usize, LifecycleRequestKindV1)) -> VectorCaseV1 {
+fn build_vector_case((index, request_kind): (usize, CeremonyRequestKindV1)) -> VectorCaseV1 {
     let index = u8::try_from(index).expect("five vector cases fit in u8");
     let inputs = SyntheticInputs::for_request_kind(request_kind);
     let context = StableKeyDerivationContext::new([0x40u8 + index; 32], 2, 1)
@@ -413,16 +398,13 @@ fn build_differential_vector_case(public_test_seed: [u8; 32], index: usize) -> V
     let context =
         StableKeyDerivationContext::new(context_digest, participant_high, participant_low)
             .expect("derived participant identifiers are distinct and nonzero");
-    let case_id = format!(
-        "differential_{index:04}_{}_v1",
-        request_kind_label(request_kind)
-    );
+    let case_id = format!("differential_{index:04}_{}_v1", request_kind.as_str());
     build_vector_case_from_inputs(case_id, request_kind, inputs, context)
 }
 
 fn build_vector_case_from_inputs(
     case_id: String,
-    request_kind: LifecycleRequestKindV1,
+    request_kind: CeremonyRequestKindV1,
     inputs: SyntheticInputs,
     context: StableKeyDerivationContext,
 ) -> VectorCaseV1 {
@@ -436,12 +418,12 @@ fn build_vector_case_from_inputs(
     };
 
     match request_kind {
-        LifecycleRequestKindV1::Registration => VectorCaseV1::Registration(reference),
-        LifecycleRequestKindV1::Activation => VectorCaseV1::Activation(reference),
-        LifecycleRequestKindV1::Recovery => VectorCaseV1::Recovery(reference),
-        LifecycleRequestKindV1::Refresh => VectorCaseV1::Refresh(reference),
-        LifecycleRequestKindV1::Export => {
-            let export = evaluate_export(&deriver_a, &deriver_b);
+        CeremonyRequestKindV1::Registration => VectorCaseV1::Registration(reference),
+        CeremonyRequestKindV1::Activation => VectorCaseV1::Activation(reference),
+        CeremonyRequestKindV1::Recovery => VectorCaseV1::Recovery(reference),
+        CeremonyRequestKindV1::Refresh => VectorCaseV1::Refresh(reference),
+        CeremonyRequestKindV1::Export => {
+            let export = evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b);
             assert_eq!(
                 reference.clear_reference_trace.joined_seed_hex,
                 encode_hex(&export.seed().expose_bytes()),
@@ -455,24 +437,14 @@ fn build_vector_case_from_inputs(
     }
 }
 
-fn differential_request_kind(index: usize) -> LifecycleRequestKindV1 {
+fn differential_request_kind(index: usize) -> CeremonyRequestKindV1 {
     match index % 5 {
-        0 => LifecycleRequestKindV1::Registration,
-        1 => LifecycleRequestKindV1::Activation,
-        2 => LifecycleRequestKindV1::Recovery,
-        3 => LifecycleRequestKindV1::Refresh,
-        4 => LifecycleRequestKindV1::Export,
+        0 => CeremonyRequestKindV1::Registration,
+        1 => CeremonyRequestKindV1::Activation,
+        2 => CeremonyRequestKindV1::Recovery,
+        3 => CeremonyRequestKindV1::Refresh,
+        4 => CeremonyRequestKindV1::Export,
         _ => unreachable!("remainder modulo five is in range"),
-    }
-}
-
-fn request_kind_label(request_kind: LifecycleRequestKindV1) -> &'static str {
-    match request_kind {
-        LifecycleRequestKindV1::Registration => "registration",
-        LifecycleRequestKindV1::Activation => "activation",
-        LifecycleRequestKindV1::Recovery => "recovery",
-        LifecycleRequestKindV1::Refresh => "refresh",
-        LifecycleRequestKindV1::Export => "export",
     }
 }
 
@@ -505,13 +477,13 @@ fn derive_differential_wide(
     hasher.finalize().into()
 }
 
-fn case_id(request_kind: LifecycleRequestKindV1) -> &'static str {
+fn case_id(request_kind: CeremonyRequestKindV1) -> &'static str {
     match request_kind {
-        LifecycleRequestKindV1::Registration => "registration_rfc8032_vector_one_v1",
-        LifecycleRequestKindV1::Activation => "activation_wrapping_boundaries_v1",
-        LifecycleRequestKindV1::Recovery => "recovery_clear_arithmetic_v1",
-        LifecycleRequestKindV1::Refresh => "refresh_clear_arithmetic_v1",
-        LifecycleRequestKindV1::Export => "export_rfc8032_vector_two_v1",
+        CeremonyRequestKindV1::Registration => "registration_rfc8032_vector_one_v1",
+        CeremonyRequestKindV1::Activation => "activation_wrapping_boundaries_v1",
+        CeremonyRequestKindV1::Recovery => "recovery_clear_arithmetic_v1",
+        CeremonyRequestKindV1::Refresh => "refresh_clear_arithmetic_v1",
+        CeremonyRequestKindV1::Export => "export_rfc8032_vector_two_v1",
     }
 }
 

@@ -20,6 +20,33 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned constant-time analyzer
+        env:
+          CONSTANT_TIME_ANALYZER_REV: cfe5d7b1619e47fb5b38b7e2561dad7e5f1e89af
+        run: |
+          python -m pip install uv==0.6.5
+          git clone --quiet --filter=blob:none --no-checkout https://github.com/trailofbits/skills.git "$RUNNER_TEMP/trailofbits-skills"
+          git -C "$RUNNER_TEMP/trailofbits-skills" sparse-checkout init --cone
+          git -C "$RUNNER_TEMP/trailofbits-skills" sparse-checkout set plugins/constant-time-analysis
+          git -C "$RUNNER_TEMP/trailofbits-skills" checkout --quiet "$CONSTANT_TIME_ANALYZER_REV"
+          echo "CT_ANALYZER=$RUNNER_TEMP/trailofbits-skills/plugins/constant-time-analysis/ct_analyzer/analyzer.py" >> "$GITHUB_ENV"
+
+      - name: Qualify constant-time analyzer
+        run: cargo yao-fv constant-time-qualification
+
+      - name: Check Ed25519 Yao reference, vectors, and parity
+        run: |
+          cargo yao-fv reference-spec-check
+          cargo yao-fv vectors-check
+          cargo yao-fv cross-language-check
+          cargo yao-fv benchmark-manifest-reproducibility
+          cargo yao-fv parity
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
         with:

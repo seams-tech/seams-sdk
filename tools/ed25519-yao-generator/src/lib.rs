@@ -13,15 +13,85 @@ use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha512};
 
+pub mod activation_delivery;
+mod activation_delivery_fixtures;
+mod activation_recipient_party_view_fixtures;
+mod activation_recipient_party_view_vector_fixtures;
+pub mod activation_recipient_party_views;
 mod application_binding;
+mod artifact_bundle;
+pub mod authenticated_store;
+mod benchmark_manifest;
+pub mod ceremony_context;
+#[cfg(test)]
+mod ceremony_context_tests;
+mod ceremony_fixtures;
+mod circuit;
 mod context;
+mod continuity_reference;
+mod evaluation_input_view_fixtures;
+pub mod evaluation_input_views;
+mod evaluator_abort_view_fixtures;
+pub mod export_delivery;
+mod export_delivery_fixtures;
+pub mod export_evaluation_acceptance;
+mod export_evaluation_acceptance_fixtures;
+mod export_reference;
 mod fixtures;
+pub mod ideal_function_randomness;
+mod joint_refresh_delta;
 mod kdf;
 mod kdf_fixtures;
 pub mod lifecycle_domain;
 mod lifecycle_fixtures;
+pub mod lifecycle_persistence;
 mod lifecycle_reference;
+mod output_party_view_fixtures;
+pub mod output_party_views;
+mod output_sharing;
+mod output_sharing_fixtures;
+pub mod provenance;
+mod provenance_fixtures;
+#[cfg_attr(not(test), allow(dead_code))]
+pub mod recovery_credential_transition;
+mod recovery_credential_transition_fixtures;
+pub mod recovery_evaluation_admission;
+mod recovery_evaluation_admission_fixtures;
+mod recovery_reference;
+pub mod refresh_evaluation_admission;
+#[cfg_attr(not(test), allow(dead_code))]
+pub mod refresh_promotion;
+mod refresh_reference;
+mod registered_key;
+pub mod registration_evaluation_admission;
+mod registration_evaluation_admission_fixtures;
+mod registration_reference;
+pub mod semantic_artifacts;
+#[cfg(test)]
+mod semantic_artifacts_tests;
+mod semantic_fixture_material;
+mod semantic_lifecycle_fixtures;
+#[cfg_attr(not(test), allow(dead_code))]
+pub mod signing_worker_activation;
+mod specification_goldens;
+mod uniform_abort_fixtures;
 
+pub use activation_delivery_fixtures::{
+    canonical_activation_delivery_vector_corpus_json_bytes_v1,
+    canonical_activation_delivery_vector_corpus_v1,
+    parse_canonical_activation_delivery_vector_corpus_json_v1,
+    ActivationDeliveryVectorCorpusParseErrorV1, ActivationDeliveryVectorCorpusV1,
+    ACTIVATION_DELIVERY_VECTOR_CORPUS_SCHEMA_V1, ACTIVATION_DELIVERY_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use activation_recipient_party_view_vector_fixtures::{
+    canonical_activation_recipient_party_view_vector_corpus_json_bytes_v1,
+    canonical_activation_recipient_party_view_vector_corpus_v1,
+    parse_canonical_activation_recipient_party_view_vector_corpus_json_v1,
+    ActivationRecipientPartyViewVectorCorpusParseErrorV1,
+    ActivationRecipientPartyViewVectorCorpusV1,
+    ACTIVATION_RECIPIENT_PARTY_VIEW_VECTOR_CORPUS_SCHEMA_V1,
+    ACTIVATION_RECIPIENT_PARTY_VIEW_VECTOR_EVIDENCE_SCOPE_V1,
+};
 pub use application_binding::{
     Ed25519YaoApplicationBindingBytesV1, Ed25519YaoApplicationBindingErrorV1,
     Ed25519YaoApplicationBindingFactsV1, Ed25519YaoApplicationBindingFieldV1,
@@ -33,6 +103,50 @@ pub use application_binding::{
     ED25519_YAO_APPLICATION_BINDING_SIGNING_ROOT_ID_LABEL_V1,
     ED25519_YAO_APPLICATION_BINDING_WALLET_ID_LABEL_V1,
 };
+pub use artifact_bundle::{
+    build_provisional_artifact_bundle_v1, ProvisionalArtifactBundleDigest32V1,
+    ProvisionalArtifactBundleEntryV1, ProvisionalArtifactBundleErrorV1,
+    ProvisionalArtifactBundleV1, ProvisionalArtifactFileDigest32V1,
+    PROVISIONAL_ARTIFACT_ACTIVATION_IR_FILE_V1, PROVISIONAL_ARTIFACT_ACTIVATION_SCHEDULE_FILE_V1,
+    PROVISIONAL_ARTIFACT_BUNDLE_INDEX_FILE_V1, PROVISIONAL_ARTIFACT_EXPORT_IR_FILE_V1,
+    PROVISIONAL_ARTIFACT_EXPORT_SCHEDULE_FILE_V1, PROVISIONAL_ARTIFACT_SHA512_IR_FILE_V1,
+    PROVISIONAL_ARTIFACT_SHA512_SCHEDULE_FILE_V1,
+};
+pub use benchmark_manifest::{
+    build_provisional_benchmark_manifest_v1, ProvisionalBenchmarkManifestComponentV1,
+    ProvisionalBenchmarkManifestDigest32V1, ProvisionalBenchmarkManifestErrorV1,
+    ProvisionalBenchmarkManifestV1, PROVISIONAL_BENCHMARK_COMPILER_CONTRACT_V1,
+    PROVISIONAL_BENCHMARK_MANIFEST_CANONICAL_BYTES_V1,
+    PROVISIONAL_BENCHMARK_MANIFEST_CANONICAL_DIGEST_V1,
+    PROVISIONAL_BENCHMARK_MANIFEST_DIGEST_DOMAIN_V1, PROVISIONAL_BENCHMARK_MANIFEST_MAGIC_V1,
+    PROVISIONAL_BENCHMARK_WIRE_ORDER_V1,
+};
+pub use ceremony_context::CeremonyRequestKindV1;
+pub use ceremony_fixtures::{
+    canonical_ceremony_context_vector_corpus_v1, canonical_ceremony_fixture_dag_v1,
+    CeremonyActivationAuthorizationVectorV1, CeremonyCaseVectorV1, CeremonyContextVectorCaseV1,
+    CeremonyContextVectorCorpusV1, CeremonyExpectedEncodingsV1,
+    CeremonyExportAuthorizationVectorV1, CeremonyPublicRequestContextVectorV1,
+    CeremonyRecoveryAuthorizationVectorV1, CeremonyRefreshAuthorizationVectorV1,
+    CeremonyRegistrationAuthorizationVectorV1, CeremonyTranscriptInputVectorV1,
+    CEREMONY_CONTEXT_VECTOR_CORPUS_SCHEMA_V1, CEREMONY_CONTEXT_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use circuit::{
+    compile_fixed_sha512_32_v1, compile_provisional_activation_core_v1,
+    compile_provisional_export_core_v1, BooleanCircuitMetricsV1, FixedSha512CircuitV1,
+    ProvisionalActivationCoreDigest32V1, ProvisionalActivationCoreV1,
+    ProvisionalActivationScheduleDigest32V1, ProvisionalBenchmarkComponentDigest32V1,
+    ProvisionalBenchmarkScheduleDigest32V1, ProvisionalExportCoreDigest32V1,
+    ProvisionalExportCoreV1, ProvisionalExportScheduleDigest32V1, ProvisionalScheduleMetricsV1,
+    PublicSyntheticActivationCoreInputsV1, PublicSyntheticActivationCoreOutputsV1,
+    PublicSyntheticActivationInputErrorV1, PublicSyntheticDeriverAActivationInputsV1,
+    PublicSyntheticDeriverAExportInputsV1, PublicSyntheticDeriverBActivationInputsV1,
+    PublicSyntheticDeriverBExportInputsV1, PublicSyntheticExportCoreInputsV1,
+    PublicSyntheticExportCoreOutputV1, PublicSyntheticTauFieldV1, FIXED_SHA512_32_BIT_ORDER_V1,
+    FIXED_SHA512_32_INPUT_SCHEMA_V1, FIXED_SHA512_32_OUTPUT_SCHEMA_V1,
+    PROVISIONAL_ACTIVATION_CORE_INPUT_SCHEMA_V1, PROVISIONAL_ACTIVATION_CORE_OUTPUT_SCHEMA_V1,
+    PROVISIONAL_EXPORT_CORE_INPUT_SCHEMA_V1, PROVISIONAL_EXPORT_CORE_OUTPUT_SCHEMA_V1,
+};
 pub use context::{
     ApplicationBindingDigest, NormalizedParticipantIds, ParticipantPosition,
     StableKeyDerivationContext, StableKeyDerivationContextBindingDigest,
@@ -40,11 +154,77 @@ pub use context::{
     STABLE_KEY_DERIVATION_CONTEXT_BINDING_DOMAIN_V1, STABLE_KEY_DERIVATION_CONTEXT_DOMAIN_V1,
     STABLE_KEY_DERIVATION_CONTEXT_ENCODED_LEN,
 };
+pub use continuity_reference::HostOnlyActivationContinuityFieldV1;
+pub use evaluation_input_view_fixtures::{
+    canonical_evaluation_input_party_view_vector_corpus_json_bytes_v1,
+    canonical_evaluation_input_party_view_vector_corpus_v1,
+    parse_canonical_evaluation_input_party_view_vector_corpus_json_v1,
+    EvaluationInputPartyViewVectorCorpusParseErrorV1, EvaluationInputPartyViewVectorCorpusV1,
+    EVALUATION_INPUT_PARTY_VIEW_VECTOR_CORPUS_SCHEMA_V1,
+    EVALUATION_INPUT_PARTY_VIEW_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use evaluation_input_views::{
+    build_host_only_activation_continuation_input_view_set_v1,
+    build_host_only_export_evaluation_input_view_set_v1,
+    build_host_only_recovery_evaluation_input_view_set_v1,
+    build_host_only_refresh_evaluation_input_view_set_v1,
+    build_host_only_registration_evaluation_input_view_set_v1,
+    HostOnlyActivationContinuationInputCommonV1, HostOnlyActivationContinuationInputViewSetV1,
+    HostOnlyClientEmptyEvaluationInputViewV1, HostOnlyDeriverAActivationEvaluationInputViewV1,
+    HostOnlyDeriverAEmptyEvaluationInputViewV1, HostOnlyDeriverAExportEvaluationInputViewV1,
+    HostOnlyDeriverBActivationEvaluationInputViewV1, HostOnlyDeriverBEmptyEvaluationInputViewV1,
+    HostOnlyDeriverBExportEvaluationInputViewV1, HostOnlyDiagnosticsEmptyEvaluationInputViewV1,
+    HostOnlyEvaluationInputExtensionKindV1, HostOnlyEvaluationInputStageV1,
+    HostOnlyEvaluationInputViewErrorV1, HostOnlyEvaluationPlanV1, HostOnlyEvaluationWindowCountsV1,
+    HostOnlyExportEvaluationInputCommonV1, HostOnlyExportEvaluationInputViewSetV1,
+    HostOnlyObserverEmptyEvaluationInputViewV1, HostOnlyRecoveryEvaluationInputCommonV1,
+    HostOnlyRecoveryEvaluationInputViewSetV1, HostOnlyRefreshEvaluationInputCommonV1,
+    HostOnlyRefreshEvaluationInputViewSetV1, HostOnlyRegistrationEvaluationInputCommonV1,
+    HostOnlyRegistrationEvaluationInputViewSetV1, HostOnlyRouterEmptyEvaluationInputViewV1,
+    HostOnlySigningWorkerEmptyEvaluationInputViewV1,
+};
+pub use evaluator_abort_view_fixtures::{
+    canonical_evaluator_abort_view_vector_corpus_json_bytes_v1,
+    canonical_evaluator_abort_view_vector_corpus_v1,
+    parse_canonical_evaluator_abort_view_vector_corpus_json_v1,
+    EvaluatorAbortViewVectorCorpusParseErrorV1, EvaluatorAbortViewVectorCorpusV1,
+    EVALUATOR_ABORT_VIEW_VECTOR_CORPUS_SCHEMA_V1, EVALUATOR_ABORT_VIEW_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use export_delivery_fixtures::{
+    canonical_export_delivery_vector_corpus_json_bytes_v1,
+    canonical_export_delivery_vector_corpus_v1,
+    parse_canonical_export_delivery_vector_corpus_json_v1, ExportDeliveryVectorCorpusParseErrorV1,
+    ExportDeliveryVectorCorpusV1, EXPORT_DELIVERY_VECTOR_CORPUS_SCHEMA_V1,
+    EXPORT_DELIVERY_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use export_evaluation_acceptance_fixtures::{
+    canonical_export_evaluator_authorization_vector_corpus_json_bytes_v1,
+    canonical_export_evaluator_authorization_vector_corpus_v1,
+    parse_canonical_export_evaluator_authorization_vector_corpus_json_v1,
+    ExportEvaluatorAuthorizationVectorCorpusParseErrorV1,
+    ExportEvaluatorAuthorizationVectorCorpusV1,
+    EXPORT_EVALUATOR_AUTHORIZATION_VECTOR_CORPUS_SCHEMA_V1,
+    EXPORT_EVALUATOR_AUTHORIZATION_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use export_reference::{
+    evaluate_host_only_export_output_sharing_v1, prepare_host_only_export_reference_v1,
+    HostOnlyExportPublicKeyEqualityWitnessV1, HostOnlyExportReferenceErrorV1,
+    HostOnlyExportReferenceInputsV1, HostOnlyExportReferenceSuccessV1,
+    HostOnlyPreparedExportReferenceV1,
+};
 pub use fixtures::{
     canonical_vector_corpus_v1, differential_vector_corpus_v1, DifferentialVectorError,
-    LifecycleRequestKindV1, VectorCaseV1, VectorClearReferenceTraceV1, VectorContextV1,
-    VectorCorpusV1, VectorExportCaseV1, VectorInputsV1, VectorReferenceCaseV1,
-    DIFFERENTIAL_INPUT_DOMAIN_V1, MAX_DIFFERENTIAL_VECTOR_CASES_V1, VECTOR_CORPUS_SCHEMA_V1,
+    VectorCaseV1, VectorClearReferenceTraceV1, VectorContextV1, VectorCorpusV1, VectorExportCaseV1,
+    VectorInputsV1, VectorReferenceCaseV1, DIFFERENTIAL_INPUT_DOMAIN_V1,
+    MAX_DIFFERENTIAL_VECTOR_CASES_V1, VECTOR_CORPUS_SCHEMA_V1,
+};
+pub use ideal_function_randomness::{
+    HostOnlyActivationNoIdealCoinsV1, HostOnlyExportIdealCoinV1, HostOnlyRecoveryIdealCoinsV1,
+    HostOnlyRefreshIdealCoinsV1, HostOnlyRegistrationIdealCoinsV1,
+};
+pub use joint_refresh_delta::{
+    HostOnlyDeriverARefreshDeltaContributionV1, HostOnlyDeriverBRefreshDeltaContributionV1,
+    HostOnlyJointRefreshDeltaCoinsV1, HostOnlyJointRefreshDeltaErrorV1,
 };
 pub use kdf::{
     derive_synthetic_client_contributions_v1, derive_synthetic_deriver_a_server_contribution_v1,
@@ -66,21 +246,138 @@ pub use kdf_fixtures::{
 };
 pub use lifecycle_fixtures::{
     canonical_lifecycle_continuity_corpus_v1, ActivationContinuityVectorV1,
-    ActiveContinuityPublicStateV1, ClientContributionPairV1, CorrelatedRefreshDeltaV1,
-    FixtureIdentityV1, FrozenAdmissionV1, LifecycleContinuityCaseV1, LifecycleContinuityCorpusV1,
+    ActiveContinuityPublicStateV1, ClientContributionPairV1, FixtureIdentityV1, FrozenAdmissionV1,
+    JointRefreshDeltaV1, LifecycleContinuityCaseV1, LifecycleContinuityCorpusV1,
     LifecycleContinuityValidationErrorV1, NonZeroEpochV1, OpenAdmissionV1,
     RecoveryActivationContinuationV1, RecoveryContinuityVectorV1, RecoveryHostOnlyReferenceV1,
     RecoveryPendingPublicStateV1, ReferenceOperationCountsV1, RefreshActivatedPublicStateV1,
-    RefreshActivationContinuationV1, RefreshContinuityVectorV1, RefreshHostOnlyReferenceV1,
-    RefreshPendingPublicStateV1, RetiredRoleInputEpochPairV1, RoleEpochPairV1, RoleEpochV1,
+    RefreshActivationContinuationV1, RefreshContinuityVectorV1, RefreshDeltaContributionV1,
+    RefreshHostOnlyReferenceV1, RefreshPendingPublicStateV1, RegistrationActivationContinuationV1,
+    RegistrationCandidateMetadataVectorV1, RegistrationPendingPublicStateV1,
+    RetiredRoleInputEpochPairV1, RoleEpochPairV1, RoleEpochV1,
     LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1, LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1,
     RECOVERY_ACTIVATION_CASE_ID_V1, RECOVERY_CONTINUITY_CASE_ID_V1, REFRESH_ACTIVATION_CASE_ID_V1,
-    REFRESH_CONTINUITY_CASE_ID_V1,
+    REFRESH_CONTINUITY_CASE_ID_V1, REGISTRATION_ACTIVATION_CASE_ID_V1,
+    REGISTRATION_CANDIDATE_CASE_ID_V1,
 };
-pub use lifecycle_reference::{
-    apply_synthetic_correlated_server_delta_v1, SyntheticContinuityDeltaErrorV1,
-    SyntheticContinuityTransitionV1, SyntheticCorrelatedServerDeltaV1, SyntheticNonZeroDeltaTauV1,
-    SyntheticNonZeroDeltaYV1,
+pub use output_party_view_fixtures::{
+    canonical_output_party_view_vector_corpus_json_bytes_v1,
+    canonical_output_party_view_vector_corpus_v1,
+    parse_canonical_output_party_view_vector_corpus_json_v1,
+    OutputPartyViewVectorCorpusParseErrorV1, OutputPartyViewVectorCorpusV1,
+    OUTPUT_PARTY_VIEW_VECTOR_CORPUS_SCHEMA_V1, OUTPUT_PARTY_VIEW_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use output_sharing::{
+    reconstruct_host_only_client_scalar_output_v1, reconstruct_host_only_seed_export_v1,
+    reconstruct_host_only_signing_worker_scalar_output_v1, share_host_only_activation_outputs_v1,
+    share_host_only_export_seed_v1, HostOnlyActivationOutputCoinsV1,
+    HostOnlyActivationOutputSharesV1, HostOnlyClientScalarOutputCoinV1,
+    HostOnlyDeriverAActivationOutputSharesV1, HostOnlyDeriverAClientScalarShareV1,
+    HostOnlyDeriverASeedExportShareV1, HostOnlyDeriverASigningWorkerScalarShareV1,
+    HostOnlyDeriverBActivationOutputSharesV1, HostOnlyDeriverBClientScalarShareV1,
+    HostOnlyDeriverBSeedExportShareV1, HostOnlyDeriverBSigningWorkerScalarShareV1,
+    HostOnlyOutputSharingErrorV1, HostOnlySeedExportSharesV1, HostOnlySeedOutputCoinV1,
+    HostOnlySigningWorkerScalarOutputCoinV1,
+};
+pub use output_sharing_fixtures::{
+    canonical_output_sharing_vector_corpus_json_bytes_v1,
+    canonical_output_sharing_vector_corpus_v1,
+    parse_canonical_output_sharing_vector_corpus_json_v1, OutputSharingVectorCorpusParseErrorV1,
+    OutputSharingVectorCorpusV1,
+};
+pub use provenance_fixtures::{
+    canonical_provenance_vector_corpus_v1, ProvenanceArtifactWrapperGoldenV1,
+    ProvenanceCaseVectorV1, ProvenanceLifecycleVectorCaseV1, ProvenanceRoleStatementVectorV1,
+    ProvenanceVectorCorpusV1, PROVENANCE_SYNTHETIC_DIGEST_FIXTURE_DOMAIN_V1,
+    PROVENANCE_VECTOR_CORPUS_SCHEMA_V1, PROVENANCE_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use recovery_credential_transition_fixtures::{
+    canonical_recovery_credential_transition_vector_corpus_json_bytes_v1,
+    canonical_recovery_credential_transition_vector_corpus_v1,
+    parse_canonical_recovery_credential_transition_vector_corpus_json_v1,
+    RecoveryCredentialTransitionVectorCorpusParseErrorV1,
+    RecoveryCredentialTransitionVectorCorpusV1,
+    RECOVERY_CREDENTIAL_TRANSITION_VECTOR_CORPUS_SCHEMA_V1,
+    RECOVERY_CREDENTIAL_TRANSITION_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use recovery_reference::{
+    evaluate_host_only_recovery_output_sharing_v1, prepare_host_only_recovery_reference_v1,
+    HostOnlyPreparedRecoveryReferenceV1, HostOnlyRecoveryContinuityWitnessV1,
+    HostOnlyRecoveryReferenceErrorV1, HostOnlyRecoveryReferenceInputsV1,
+    HostOnlyRecoveryReferenceSuccessV1,
+};
+pub use recovery_evaluation_admission::{
+    accept_host_only_recovery_admission_v1, AcceptedRecoveryAdmissionV1,
+    OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1,
+    RecoveryAdmissionCheckedAtUnixMsV1, RecoveryAdmissionErrorV1, RejectedRecoveryAdmissionV1,
+    TerminalRecoveryEvaluationV1,
+    RECOVERY_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1,
+    RECOVERY_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+};
+pub use recovery_evaluation_admission_fixtures::{
+    canonical_recovery_evaluator_admission_vector_corpus_json_bytes_v1,
+    canonical_recovery_evaluator_admission_vector_corpus_v1,
+    parse_canonical_recovery_evaluator_admission_vector_corpus_json_v1,
+    RecoveryEvaluatorAdmissionVectorCorpusParseErrorV1,
+    RecoveryEvaluatorAdmissionVectorCorpusV1,
+    RECOVERY_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+    RECOVERY_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use refresh_evaluation_admission::{
+    accept_host_only_refresh_admission_v1, AcceptedRefreshAdmissionV1,
+    OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1, RefreshAdmissionCheckedAtUnixMsV1,
+    RefreshAdmissionErrorV1, RejectedRefreshAdmissionV1, TerminalRefreshEvaluationV1,
+    REFRESH_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1,
+    REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+};
+pub use refresh_reference::{
+    evaluate_host_only_refresh_output_sharing_v1, prepare_host_only_refresh_reference_v1,
+    HostOnlyPreparedRefreshReferenceV1, HostOnlyRefreshContinuityFieldV1,
+    HostOnlyRefreshContinuityWitnessV1, HostOnlyRefreshReferenceErrorV1,
+    HostOnlyRefreshReferenceInputsV1, HostOnlyRefreshReferenceSuccessV1,
+};
+pub use registered_key::{RegisteredEd25519PublicKey32V1, RegisteredEd25519PublicKeyErrorV1};
+pub use registration_evaluation_admission::{
+    accept_host_only_registration_admission_v1, AcceptedRegistrationAdmissionV1,
+    OpaqueRegistrationInputSelectionEvidenceDigest32V1, RegistrationAdmissionCheckedAtUnixMsV1,
+    RegistrationAdmissionErrorV1, RegistrationCandidateStateDigest32V1,
+    RegistrationCandidateStateV1, RegistrationSelectionAttemptId32V1,
+    TerminalRegistrationSelectionV1, REGISTRATION_CANDIDATE_STATE_DIGEST_DOMAIN_V1,
+    REGISTRATION_CANDIDATE_STATE_ENCODING_DOMAIN_V1,
+    REGISTRATION_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1,
+    REGISTRATION_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+};
+pub use registration_evaluation_admission_fixtures::{
+    canonical_registration_evaluator_admission_vector_corpus_json_bytes_v1,
+    canonical_registration_evaluator_admission_vector_corpus_v1,
+    parse_canonical_registration_evaluator_admission_vector_corpus_json_v1,
+    RegistrationEvaluatorAdmissionVectorCorpusParseErrorV1,
+    RegistrationEvaluatorAdmissionVectorCorpusV1,
+    REGISTRATION_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+    REGISTRATION_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use registration_reference::{
+    evaluate_host_only_registration_output_sharing_v1, prepare_host_only_registration_reference_v1,
+    HostOnlyPreparedRegistrationReferenceV1, HostOnlyRegistrationReferenceInputsV1,
+    HostOnlyRegistrationReferenceSuccessV1,
+};
+pub use semantic_lifecycle_fixtures::{
+    canonical_semantic_lifecycle_vector_corpus_json_bytes_v1,
+    canonical_semantic_lifecycle_vector_corpus_v1,
+    parse_canonical_semantic_lifecycle_vector_corpus_json_v1,
+    SemanticLifecycleVectorCorpusParseErrorV1, SemanticLifecycleVectorCorpusV1,
+    SEMANTIC_LIFECYCLE_VECTOR_CORPUS_SCHEMA_V1, SEMANTIC_LIFECYCLE_VECTOR_EVIDENCE_SCOPE_V1,
+};
+pub use specification_goldens::{
+    canonical_fixed_reference_generated_block_v1, render_fixed_reference_specification_v1,
+    FixedReferenceSpecificationErrorV1, FIXED_REFERENCE_GENERATED_BEGIN_V1,
+    FIXED_REFERENCE_GENERATED_END_V1, FIXED_REFERENCE_GENERATED_SCHEMA_V1,
+};
+pub use uniform_abort_fixtures::{
+    canonical_uniform_abort_vector_corpus_json_bytes_v1, canonical_uniform_abort_vector_corpus_v1,
+    parse_canonical_uniform_abort_vector_corpus_json_v1, UniformAbortVectorCorpusParseErrorV1,
+    UniformAbortVectorCorpusV1, UNIFORM_ABORT_VECTOR_CORPUS_SCHEMA_V1,
+    UNIFORM_ABORT_VECTOR_EVIDENCE_SCOPE_V1,
 };
 
 /// Fallible result returned while validating raw role contributions.
@@ -524,8 +821,12 @@ pub fn evaluate_activation(
     }
 }
 
-/// Evaluates the explicitly authorized export functionality.
-pub fn evaluate_export(
+/// Evaluates the full clear reference trace used only by arithmetic fixtures.
+///
+/// The branch export boundary is the y-only `HostOnlyExportReferenceInputsV1`.
+/// This full trace also computes activation-family scalar material and must not
+/// be used as an export input or protocol API.
+pub fn evaluate_full_clear_reference_export_v1(
     deriver_a: &DeriverAContribution,
     deriver_b: &DeriverBContribution,
 ) -> ExportOracleOutput {

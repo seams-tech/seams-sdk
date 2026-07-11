@@ -4,113 +4,22 @@
 //! contributions. It does not model production delta generation, credentials,
 //! packages, persistence, transport, or active security.
 
-use core::fmt;
-
 use curve25519_dalek::scalar::Scalar;
 
+use crate::joint_refresh_delta::HostOnlyJointRefreshDeltaV1;
 use crate::{
     wrapping_add_le_256, DeriverAContribution, DeriverBContribution, RawDeriverAContribution,
     RawDeriverBContribution,
 };
 
-/// Validation failures for synthetic correlated lifecycle deltas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SyntheticContinuityDeltaErrorV1 {
-    /// The seed-domain delta was the additive identity in `Z_(2^256)`.
-    ZeroDeltaY,
-    /// The scalar-domain delta was not a canonical little-endian scalar.
-    NonCanonicalDeltaTau,
-    /// The scalar-domain delta was the additive identity in `Z_l`.
-    ZeroDeltaTau,
-}
-
-impl fmt::Display for SyntheticContinuityDeltaErrorV1 {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ZeroDeltaY => formatter.write_str("synthetic delta_y must be nonzero"),
-            Self::NonCanonicalDeltaTau => {
-                formatter.write_str("synthetic delta_tau must be a canonical Ed25519 scalar")
-            }
-            Self::ZeroDeltaTau => formatter.write_str("synthetic delta_tau must be nonzero"),
-        }
-    }
-}
-
-impl std::error::Error for SyntheticContinuityDeltaErrorV1 {}
-
-/// Nonzero synthetic seed-domain delta in `Z_(2^256)`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct SyntheticNonZeroDeltaYV1([u8; 32]);
-
-impl SyntheticNonZeroDeltaYV1 {
-    /// Validates a little-endian fixture value as nonzero.
-    pub fn from_fixture_bytes(bytes: [u8; 32]) -> Result<Self, SyntheticContinuityDeltaErrorV1> {
-        if bytes == [0u8; 32] {
-            return Err(SyntheticContinuityDeltaErrorV1::ZeroDeltaY);
-        }
-        Ok(Self(bytes))
-    }
-
-    /// Exposes the public synthetic fixture bytes.
-    pub const fn expose_fixture_bytes(&self) -> [u8; 32] {
-        self.0
-    }
-}
-
-/// Nonzero synthetic canonical scalar delta in `Z_l`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct SyntheticNonZeroDeltaTauV1(Scalar);
-
-impl SyntheticNonZeroDeltaTauV1 {
-    /// Validates canonical little-endian fixture bytes as a nonzero scalar.
-    pub fn from_canonical_fixture_bytes(
-        bytes: [u8; 32],
-    ) -> Result<Self, SyntheticContinuityDeltaErrorV1> {
-        let scalar = Option::<Scalar>::from(Scalar::from_canonical_bytes(bytes))
-            .ok_or(SyntheticContinuityDeltaErrorV1::NonCanonicalDeltaTau)?;
-        if scalar == Scalar::ZERO {
-            return Err(SyntheticContinuityDeltaErrorV1::ZeroDeltaTau);
-        }
-        Ok(Self(scalar))
-    }
-
-    /// Exposes the canonical public synthetic fixture bytes.
-    pub fn expose_fixture_bytes(&self) -> [u8; 32] {
-        self.0.to_bytes()
-    }
-}
-
-/// Typed zero-sum adjustment applied to the two synthetic server contributions.
-pub struct SyntheticCorrelatedServerDeltaV1 {
-    delta_y: SyntheticNonZeroDeltaYV1,
-    delta_tau: SyntheticNonZeroDeltaTauV1,
-}
-
-impl SyntheticCorrelatedServerDeltaV1 {
-    /// Constructs a correlated delta from individually validated domain values.
-    pub const fn new(
-        delta_y: SyntheticNonZeroDeltaYV1,
-        delta_tau: SyntheticNonZeroDeltaTauV1,
-    ) -> Self {
-        Self { delta_y, delta_tau }
-    }
-}
-
-/// Validated role contributions after one synthetic zero-sum adjustment.
-pub struct SyntheticContinuityTransitionV1 {
+pub(crate) struct HostOnlyContinuityTransitionV1 {
     deriver_a: DeriverAContribution,
     deriver_b: DeriverBContribution,
 }
 
-impl SyntheticContinuityTransitionV1 {
-    /// Returns the refreshed Deriver A contribution.
-    pub const fn deriver_a(&self) -> &DeriverAContribution {
-        &self.deriver_a
-    }
-
-    /// Returns the refreshed Deriver B contribution.
-    pub const fn deriver_b(&self) -> &DeriverBContribution {
-        &self.deriver_b
+impl HostOnlyContinuityTransitionV1 {
+    pub(crate) fn into_parts(self) -> (DeriverAContribution, DeriverBContribution) {
+        (self.deriver_a, self.deriver_b)
     }
 }
 
@@ -118,13 +27,13 @@ impl SyntheticContinuityTransitionV1 {
 ///
 /// Client contributions are copied byte-for-byte. The returned role values pass
 /// the same canonical scalar validation as every other oracle input.
-pub fn apply_synthetic_correlated_server_delta_v1(
+pub(crate) fn apply_host_only_joint_refresh_delta_v1(
     deriver_a: &DeriverAContribution,
     deriver_b: &DeriverBContribution,
-    delta: &SyntheticCorrelatedServerDeltaV1,
-) -> SyntheticContinuityTransitionV1 {
-    let delta_y = delta.delta_y.expose_fixture_bytes();
-    let delta_tau = delta.delta_tau.0;
+    delta: &HostOnlyJointRefreshDeltaV1,
+) -> HostOnlyContinuityTransitionV1 {
+    let delta_y = delta.delta_y();
+    let delta_tau = delta.delta_tau();
     let deriver_a_server_tau = canonical_scalar(deriver_a.tau_server().expose_bytes());
     let deriver_b_server_tau = canonical_scalar(deriver_b.tau_server().expose_bytes());
 
@@ -143,7 +52,7 @@ pub fn apply_synthetic_correlated_server_delta_v1(
     })
     .expect("canonical scalar arithmetic keeps the synthetic B contribution valid");
 
-    SyntheticContinuityTransitionV1 {
+    HostOnlyContinuityTransitionV1 {
         deriver_a: refreshed_a,
         deriver_b: refreshed_b,
     }
@@ -154,7 +63,7 @@ fn canonical_scalar(bytes: [u8; 32]) -> Scalar {
         .expect("validated oracle contribution contains a canonical scalar")
 }
 
-fn wrapping_sub_le_256(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
+pub(crate) fn wrapping_sub_le_256(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
     let mut output = [0u8; 32];
     let mut borrow = false;
     for index in 0..32 {

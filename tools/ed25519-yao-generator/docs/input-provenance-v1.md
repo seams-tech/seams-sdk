@@ -1,13 +1,14 @@
 # Ed25519 Yao Role-Input Provenance Statement V1
 
-Status: **Phase 1 proof-system-neutral contract; production use blocked**
+Status: **Phase 1 proof-system-neutral outer contract and executable host
+scaffold; production use blocked**
 
 This document freezes the candidate semantic shape and canonical outer bytes for
 an Ed25519 Yao role-input provenance statement. It does not select a commitment
-scheme, proof system, active Yao compiler, OT construction, circuit artifact, or
-production root-custody mechanism. A statement digest proves only which bytes
-were committed. The Phase 6 evidence verifier must establish the relations
-described here.
+scheme, proof system, Yao compiler, OT construction, circuit artifact, or
+production root-custody mechanism. A statement digest commits only to its
+encoded bytes. The Phase 6 evidence verifier must establish exactly the
+relations required by the selected P0-P3 claim.
 
 The statement covers Yao evaluations for registration, recovery, refresh, and
 authorized export. Activation is excluded from the evaluation request kinds.
@@ -30,24 +31,30 @@ The controlling requirements are:
 - The Yao-only application binding is the SHA-256 digest of one frozen LP32
   encoding over `walletId`, `nearEd25519SigningKeyId`, `signingRootId`, and a
   positive `u32` `keyCreationSignerSlot` (`src/application_binding.rs`).
-- Active 2PC must be augmented with evidence connecting supplied inputs to the
-  provisioned role root, wallet/key identity, derivation context/path, root
-  epoch, request kind, client envelope, and authorization
-  (`docs/yaos-ab.md`, **Input Provenance**).
-- Registration requires an anti-bias analysis, and recovery and refresh require
-  continuity with the registered public identity (`docs/yaos-ab.md`, **Input
-  Provenance**).
-- The production security claim depends on an approved input-provenance proof
-  and remains limited to Router plus at most one malicious Deriver under no A+B
-  collusion (`docs/yaos-ab.md`, **Goal**).
+- Every profile binds supplied inputs to the declared role root, wallet/key
+  identity, derivation context/path, root epoch, request kind, client envelope,
+  and authorization at the strength stated by its claim. P0 uses signed/public
+  transcript bindings and assumes honest role derivation; P1-P3 add only their
+  reviewed proof relations (`docs/yaos-ab.md`, **Input Provenance**).
+- Registration requires a profile-specific input-selection analysis. Only a
+  profile whose reviewed proof prevents adaptive selection may claim active
+  anti-bias. Recovery and refresh require continuity with the registered public
+  identity in every profile (`docs/yaos-ab.md`, **Input Provenance**).
+- The production security claim is the exact Phase 6A-selected P0-P3 claim
+  under no A+B collusion (`docs/yaos-ab.md`, **Goal**).
 
 The host reference already freezes the stable-context bytes and binding at
 `src/context.rs:5-15,107-162` and the synthetic KDF at
 `src/kdf.rs:12-40,182-312`. The application-binding encoder and its golden
 digest are implemented at `src/application_binding.rs` and
-`tests/application_binding.rs`. The oracle accepts raw role contribution
-values at `src/lib.rs:137-159,257-340`. It has no production root record, input
-commitment, epoch, authorization, or provenance-evidence type.
+`tests/application_binding.rs`. The oracle accepts raw role contribution values
+at `src/lib.rs:137-159,257-340`. The host-only `src/provenance.rs` layer owns
+role-typed outer statements, strict structural parsers, typed nonzero epochs,
+registered-point validation, and ordered A/B pair checks. The canonical public
+request, branch-authorization, and transcript preimages are frozen separately in
+`docs/ceremony-context-v1.md`. The host reference has no production root record,
+authenticated authorization record or artifact preimage, proof, custody
+boundary, replay store, or transport authentication.
 
 ## 2. Scope and claim boundary
 
@@ -60,7 +67,7 @@ This contract freezes:
 - statement, A/B pair, client-envelope-set, and artifact-wrapper digest domains;
 - root-epoch and role-input-state-epoch meanings;
 - semantic relations that later evidence must establish;
-- registration anti-bias acceptance requirements.
+- profile-indexed registration input-selection and anti-bias requirements.
 
 This contract does not freeze:
 
@@ -250,47 +257,47 @@ request bodies, database records, and proof objects are parsed once at their
 boundary. Core verification never accepts an untagged property bag.
 
 ```rust
-enum YaoEvaluationRequestKindV1 {
+enum ProvenanceRequestKindV1 {
     Registration,
     Recovery,
     Refresh,
     Export,
 }
 
-enum ProvenanceRoleV1 {
+enum ProvenanceRoleKindV1 {
     DeriverA,
     DeriverB,
 }
 
-enum RoleInputProvenanceStatementV1 {
-    Registration(RegistrationRoleInputStatementV1),
-    Recovery(RecoveryRoleInputStatementV1),
-    Refresh(RefreshRoleInputStatementV1),
-    Export(ExportRoleInputStatementV1),
+enum RoleInputProvenanceStatementV1<Role: ProvenanceRoleV1> {
+    Registration(Box<RegistrationRoleInputStatementV1<Role>>),
+    Recovery(Box<RecoveryRoleInputStatementV1<Role>>),
+    Refresh(Box<RefreshRoleInputStatementV1<Role>>),
+    Export(Box<ExportRoleInputStatementV1<Role>>),
 }
 
-struct RegistrationRoleInputStatementV1 {
-    common: RegistrationCommonV1,
-    branch: RegistrationBranchV1,
+struct RegistrationRoleInputStatementV1<Role: ProvenanceRoleV1> {
+    common: RegistrationStatementCommonV1<Role>,
+    branch: RegistrationBranchV1<Role>,
 }
 
-struct RecoveryRoleInputStatementV1 {
-    common: RecoveryCommonV1,
-    branch: RecoveryBranchV1,
+struct RecoveryRoleInputStatementV1<Role: ProvenanceRoleV1> {
+    common: RecoveryStatementCommonV1<Role>,
+    branch: RecoveryBranchV1<Role>,
 }
 
-struct RefreshRoleInputStatementV1 {
-    common: RefreshCommonV1,
-    branch: RefreshBranchV1,
+struct RefreshRoleInputStatementV1<Role: ProvenanceRoleV1> {
+    common: RefreshStatementCommonV1<Role>,
+    branch: RefreshBranchV1<Role>,
 }
 
-struct ExportRoleInputStatementV1 {
-    common: ExportCommonV1,
-    branch: ExportBranchV1,
+struct ExportRoleInputStatementV1<Role: ProvenanceRoleV1> {
+    common: ExportStatementCommonV1<Role>,
+    branch: ExportBranchV1<Role>,
 }
 ```
 
-Each `*CommonV1` constructor fixes its request tag and permitted circuit family.
+Each `*StatementCommonV1` constructor fixes its request tag and permitted circuit family.
 Callers never provide either mapping. Activation has no statement variant.
 
 ### 5.1 Stable KDF scope
@@ -298,7 +305,7 @@ Callers never provide either mapping. Activation has no statement variant.
 ```rust
 struct StableKdfScopeV1 {
     application_binding_digest: ApplicationBindingDigest32,
-    participant_ids: NormalizedParticipantIds,
+    participant_ids: [u16; 2],
     stable_context_binding_digest: StableContextBindingDigest32,
 }
 ```
@@ -381,24 +388,32 @@ provenance relation verifies those fixed tags directly.
 ### 5.2 Ceremony binding
 
 ```rust
-struct CeremonyProvenanceBindingV1 {
+struct CeremonyProvenanceBindingV1<Role> {
+    request_kind: ProvenanceRequestKindV1,
     public_request_context_digest: PublicRequestContextDigest32,
     transcript_digest: CeremonyTranscriptDigest32,
     authorization_digest: AuthorizationDigest32,
-    client_envelope_commitment_artifact_digest: ClientEnvelopeArtifactDigest32,
+    client_envelope_artifact_digest: ClientEnvelopeArtifactDigest32V1<Role>,
     client_envelope_set_digest: ClientEnvelopeSetDigest32,
 }
 ```
+
+The request kind and three ceremony digests are derived from one sealed
+`CeremonyValidatedDagV1`. Registration, recovery, refresh, and export DAGs map
+to their corresponding evaluation request kinds. Activation-control DAGs are
+rejected because they perform no Yao evaluation. Callers cannot construct a
+binding from an independently supplied digest tuple.
 
 Exact encoding order:
 
 ```text
 CeremonyProvenanceBindingEncodingV1 =
     LP32(CEREMONY_BINDING_ENCODING_DOMAIN_V1)
+ || LP32(request_kind_tag[1])
  || LP32(public_request_context_digest[32])
  || LP32(transcript_digest[32])
  || LP32(authorization_digest[32])
- || LP32(client_envelope_commitment_artifact_digest[32])
+ || LP32(client_envelope_artifact_digest[32])
  || LP32(client_envelope_set_digest[32])
 ```
 
@@ -437,9 +452,9 @@ struct RoleInputSnapshotV1<Role> {
     role_root_epoch: RoleRootEpochV1<Role>,
     role_input_state_record_digest: RoleInputStateRecordDigest32<Role>,
     role_input_state_epoch: RoleInputStateEpochV1<Role>,
-    client_input_binding_artifact_digest: ClientInputArtifactDigest32<Role>,
-    server_input_binding_artifact_digest: ServerInputArtifactDigest32<Role>,
-    combined_role_input_binding_artifact_digest: CombinedInputArtifactDigest32<Role>,
+    client_input_artifact_digest: ClientInputArtifactDigest32<Role>,
+    server_input_artifact_digest: ServerInputArtifactDigest32<Role>,
+    combined_input_artifact_digest: CombinedInputArtifactDigest32<Role>,
 }
 ```
 
@@ -456,9 +471,9 @@ RoleInputSnapshotEncodingV1 =
  || LP32(BE64(role_root_epoch))
  || LP32(role_input_state_record_digest[32])
  || LP32(BE64(role_input_state_epoch))
- || LP32(client_input_binding_artifact_digest[32])
- || LP32(server_input_binding_artifact_digest[32])
- || LP32(combined_role_input_binding_artifact_digest[32])
+ || LP32(client_input_artifact_digest[32])
+ || LP32(server_input_artifact_digest[32])
+ || LP32(combined_input_artifact_digest[32])
 ```
 
 The role tag is carried by the enclosing statement and by every artifact's
@@ -486,8 +501,11 @@ RegistrationBranchEncodingV1 =
 
 Registration structurally lacks a registered public key and a before-state
 snapshot. It starts from the unregistered public pre-state and establishes a new
-public identity (`docs/yaos-ab.md`, **Fixed Circuit Families**). Its anti-bias
-artifact is mandatory.
+public identity (`docs/yaos-ab.md`, **Fixed Circuit Families**). The evidence
+slot is structurally mandatory. Its semantics are profile-indexed: P0 binds the
+signed/public input-selection record and honest-input assumption; a selected
+P1-P3 profile may bind reviewed active anti-bias evidence. The digest alone
+establishes neither claim.
 
 ### 6.2 Recovery
 
@@ -570,8 +588,8 @@ receipts; circuit re-evaluation, delta replacement, and old-epoch rollback are
 forbidden. See `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`,
 **F_ed25519_refresh_v1** and **Refresh delta generation, proof, and distributed
 cutover**.
-Production joint delta generation, active transition proof, and distributed
-role-local transactions remain blocked.
+Deployed role-separated delta origination and anti-bias, active transition
+proof, and distributed role-local transactions remain blocked.
 
 ### 6.4 Export
 
@@ -600,10 +618,10 @@ Sharing**).
 For each branch, the branch-specific common constructor supplies:
 
 ```rust
-struct EvaluationStatementCommonV1<Role, Request> {
+struct EvaluationStatementCommonV1<Role> {
     stable_scope: StableKdfScopeV1,
-    ceremony: CeremonyProvenanceBindingV1,
-    final_circuit_digest: CircuitDigest32,
+    ceremony: CeremonyProvenanceBindingV1<Role>,
+    circuit_digest: CircuitDigest32,
     input_schema_digest: InputSchemaDigest32,
 }
 ```
@@ -652,8 +670,8 @@ The pair is role-typed and ordered:
 
 ```rust
 struct RoleInputProvenancePairV1 {
-    deriver_a: DeriverAInputProvenanceStatementV1,
-    deriver_b: DeriverBInputProvenanceStatementV1,
+    deriver_a: RoleInputProvenanceStatementV1<DeriverAProvenanceRoleV1>,
+    deriver_b: RoleInputProvenanceStatementV1<DeriverBProvenanceRoleV1>,
 }
 ```
 
@@ -819,12 +837,13 @@ blocked with protected credential/root custody.
 2. Reject every noncanonical `tau` scalar encoding.
 3. Bind the tuple to the final circuit digest, input-schema digest, request kind,
    role, transcript, authorization, and current role-input-state record.
-4. Verify that the active Yao input wires equal this committed tuple.
+4. Verify that the selected Yao protocol inputs equal this committed tuple at
+   the strength required by the selected claim.
 
 ### 10.5 Lifecycle relation
 
-- Registration verifies unregistered pre-state, fresh committed inputs, and the
-  anti-bias relation in Section 11.
+- Registration verifies unregistered pre-state, fresh bound inputs, and the
+  selected input-selection relation in Section 11.
 - Recovery verifies exact equality of the logical client root, client KDF
   contributions, role roots, effective contributions, root epochs, input-state
   epochs, joined seed, and public identity without an export branch.
@@ -834,16 +853,18 @@ blocked with protected credential/root custody.
 - Export verifies explicit export authorization and that reconstructed `d`
   derives the registered public key.
 
-### 10.6 Active-protocol composition relation
+### 10.6 Selected-protocol composition relation
 
-The selected active protocol must bind the accepted pair digest to malicious OT,
-garbler correctness, evaluator-input consistency, selective-failure resistance,
-private randomized outputs, recipient ciphertexts, the transcript root, and a
-uniform detectable abort. This document supplies no proof of that composition.
+Every selected profile binds the accepted pair digest to its transcript,
+private randomized outputs, and recipient ciphertexts. P0 records signed/public
+bindings and the honest-input assumption. P1-P3 bind malicious OT, garbler
+correctness, evaluator-input consistency, selective-failure resistance, and a
+uniform detectable abort only when those mechanisms belong to the selected
+claim. This document supplies no proof of any composition.
 
-## 11. Registration anti-bias contract
+## 11. Registration input-selection and anti-bias contract
 
-The mandatory registration anti-bias artifact binds at least:
+The mandatory registration input-selection evidence slot binds at least:
 
 - `registration_intent_digest`;
 - stable KDF scope and application binding;
@@ -856,7 +877,10 @@ The mandatory registration anti-bias artifact binds at least:
 - commitment-round transcript or authenticated registry checkpoint;
 - retry/attempt lineage and terminal acceptance state.
 
-The reviewed mechanism must establish these invariants:
+Every selected profile must establish one accepted identity per intent, replay
+and terminal-state safety, and exact binding to the inputs subsequently used.
+A profile claiming active registration anti-bias must additionally establish
+all of these invariants:
 
 1. A corrupt Deriver cannot select or grind its root or role input after learning
    an honest client or peer contribution relevant to the accepted key.
@@ -871,31 +895,45 @@ The reviewed mechanism must establish these invariants:
    candidate state to an available selection pool.
 7. The distribution of acceptance and public abort information does not depend
    on the honest role's private input beyond the declared ideal leakage.
-8. Evidence binds the exact values subsequently supplied to active Yao.
+8. Evidence binds the exact values subsequently supplied to the selected Yao
+   protocol.
 
 A preprovisioned signed root-registry checkpoint and a commit-before-reveal
-protocol are candidate mechanisms. Phase 1 must select and review one exact
-mechanism before registration provenance can be called complete.
+protocol are candidate mechanisms. Phase 6A selects the exact contract. P0 may
+close with signed/public bindings and an explicit honest-input-derivation
+assumption, without an active anti-bias claim. P1-P3 may claim only the
+anti-bias property established by their complete reviewed mechanism.
 
-Registration input anti-bias is separate from randomized-output-share anti-bias.
-The latter requires protocol-generated randomness that neither role can control
-(`docs/yaos-ab.md`, **Protocol-Generated Output Sharing**) and remains part of
-active-protocol selection.
+Registration input anti-bias is separate from randomized-output-share
+anti-bias. The selected output-sharing construction and its exact claim are
+frozen independently (`docs/yaos-ab.md`, **Protocol-Generated Output Sharing**).
 
 ## 12. Explicit blockers
 
 The application-binding preimage, encoder, validation rules, golden bytes, and
-golden digest are closed in the host reference. The following production and
+golden digest are closed in the host reference. The construction-independent
+outer statement surface is also executable in `src/provenance.rs` and
+`src/provenance_fixtures.rs`. Its committed four-case corpus is checked by Rust
+and an independent standard-library Python verifier. These checks establish
+canonical framing, request/family mapping, stable-context recomputation,
+registered-point validation, refresh epoch continuity, statement/pair digests,
+role ordering, envelope-set ordering, shared outer fields, and the link from
+each ceremony digest tuple to independently reconstructed ceremony bytes.
+Opaque digest slots remain unauthenticated. The following production and
 active-security gates remain open.
 
-### 12.1 Ceremony and authorization digest preimages
+### 12.1 Ceremony and authorization authentication
 
-The semantic ceremony fields are listed, while their canonical encoding remains
-open in `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`, **Common
-public context and leakage**.
-Lifecycle-specific authorization scopes and digest encoders also require exact
-bytes and golden vectors. Statement vectors cannot claim production transcript
-binding before both encoders freeze.
+`docs/ceremony-context-v1.md` freezes the canonical public request,
+branch-authorization, and transcript preimages plus their two digest edges. The
+five-case ceremony corpus is independently reconstructed in Python, and every
+provenance corpus case is cross-checked against the matching reconstructed
+ceremony DAG. This closes the host-only byte contract.
+
+Production still requires authenticated authorization-record preimages, expiry
+and replay enforcement, authenticated transport and artifact-suite preimages,
+and a boundary that reconstructs or verifies these records before accepting a
+ceremony. The frozen bytes and sealed host types do not provide those mechanisms.
 
 ### 12.2 Root records, custody, and epoch persistence
 
@@ -907,16 +945,19 @@ by themselves.
 
 ### 12.3 Commitment and proof artifacts
 
-Phase 6 must select reviewed hiding/binding commitments, proof statements,
-verification keys, canonical artifact encodings, and verification algorithms.
-`ArtifactDigestV1` cannot replace them. Artifact sizes, setup, proof bytes,
-rounds, and proving/verification CPU must be measured.
+Phase 6 must select the authenticated binding artifacts required by the frozen
+profile. When the selected claim uses cryptographic commitments or proofs, it
+also freezes their statements, verification keys, canonical encodings, and
+verification algorithms. `ArtifactDigestV1` cannot replace any required
+mechanism. Artifact sizes, setup, proof bytes, rounds, and
+proving/verification CPU must be measured when present.
 
-### 12.4 Registration anti-bias mechanism
+### 12.4 Registration input-selection mechanism
 
-Section 11 freezes the acceptance requirements and evidence slot. The exact
-preprovisioning or commit-before-reveal protocol, retry state machine, and
-selective-abort analysis remain unresolved.
+Section 11 freezes the common acceptance requirements and evidence slot. Phase
+6A still must select P0 signed/public input bindings and explicit assumptions,
+or the coherent P1-P3 preprovisioning/commit-before-reveal protocol, retry state
+machine, and selective-abort analysis required by the stronger claim.
 
 ### 12.5 Recovery custody and proof realization
 
@@ -949,38 +990,39 @@ authentication, and streaming integration remain later gates.
 
 ## 13. Verification evidence matrix
 
-| Requirement                                                                          | Specification evidence                                                                                                                                                                                       | Current implementation evidence                                                                                                                                                 | Alignment                       | Confidence | Required closure                                                                    |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ----------------------------------------------------------------------------------- |
-| Stable and ceremony contexts are separate                                            | `docs/yaos-ab.md`, **Stable Key Context and Ceremony Context**                                                                                                                                               | Stable-only context at `src/context.rs:107-162`                                                                                                                                 | `partial_match`                 |       0.99 | Add canonical ceremony and statement types without changing stable KDF bytes        |
-| Stable context encoding and binding are exact                                        | `docs/yaos-ab.md`, **Stable Key Context and Ceremony Context**                                                                                                                                               | `src/context.rs:5-15,72-162`                                                                                                                                                    | `full_match`                    |       1.00 | Preserve current bytes and golden vector                                            |
-| Application binding has an exact immutable preimage                                  | Section 5.1 of this contract                                                                                                                                                                                 | LP32 encoder, boundary types, tests, and committed KDF vector at `src/application_binding.rs`, `tests/application_binding.rs`, and `vectors/ed25519-yao-kdf-v1.json`            | `full_match` for host reference |       1.00 | Preserve the four-field bytes and reproduce them independently                      |
-| KDF is role/source/output separated and stable-context bound                         | `docs/yaos-ab.md`, **Stable Key Context and Ceremony Context**                                                                                                                                               | `src/kdf.rs:12-40,182-312`                                                                                                                                                      | `full_match` for host reference |       0.99 | Reproduce inside reviewed production custody/proof boundary                         |
-| Activation performs no Yao evaluation                                                | **Fixed Circuit Families** in `docs/yaos-ab.md`; **Product Operation To Ideal Functionality To Circuit Mapping** in `docs/router-a-b-SPEC.md`                                                                | `consume_activation_metadata_v1` move-consumes synthetic metadata and constructs a private zero-reference-work witness; package opening and the production evaluator are absent | `partial_match`                 |       0.99 | Bind and consume authenticated committed packages in the final activation path      |
-| Lifecycle-to-circuit mapping is fixed                                                | `docs/yaos-ab.md`, **Fixed Circuit Families**                                                                                                                                                                | Branch-specific wrappers derive request kind, recipient plan, output kind, and activation/export family in `src/lifecycle_domain.rs`; final artifact digests are absent         | `partial_match`                 |       0.99 | Bind the selected final active artifact digests                                     |
-| Each role input is tied to root, wallet/key/path, epoch, request, envelope, and auth | `docs/yaos-ab.md`, **Input Provenance**                                                                                                                                                                      | Raw contribution tuples only at `src/lib.rs:137-159,257-340`                                                                                                                    | `missing_in_code`               |       1.00 | Implement statement parser, authenticated records, artifacts, and reviewed verifier |
-| Tau inputs reject noncanonical encodings                                             | `docs/yaos-ab.md`, **Field and Byte Conventions**                                                                                                                                                            | Role-specific parsing and construction at `src/lib.rs:181-254,265-317`                                                                                                          | `full_match` for host reference |       1.00 | Apply the same rule before proof/circuit input acceptance                           |
-| Root epoch and input-state epoch have distinct semantics                             | **Root And Key-Continuity Policy** in `docs/router-a-b-sol-refactor.md`; **Stable Key Context and Ceremony Context** in `docs/yaos-ab.md`                                                                    | Host-semantic root-share, A/B input-state, and activation epoch types are distinct and validate nonzero/advancing transitions; authoritative production stores are absent       | `partial_match`                 |       0.98 | Add role-typed production epochs and authoritative store checks                     |
-| Registration input selection is unbiased against one corrupt role                    | `docs/yaos-ab.md`, **Input Provenance**                                                                                                                                                                      | No anti-bias state or evidence type                                                                                                                                             | `missing_in_code`               |       1.00 | Select mechanism, prove retry/abort properties, and add adversarial vectors         |
-| Recovery preserves seed/public identity without export                               | **Fixed Circuit Families** in `docs/yaos-ab.md`; **F_ed25519_recovery_v1** and **Recovery preservation proof and custody** in `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`                 | Committed same-root recovery/activation cases pass Rust relation tests and independent Python reproduction; production custody, proof, and cutover are absent                   | `partial_match`                 |       1.00 | Implement protected rewrap, same-root proof, receipts, and durable transactions     |
-| Refresh preserves joined values across epoch cutover                                 | **Fixed Circuit Families** in `docs/yaos-ab.md`; **F_ed25519_refresh_v1** and **Refresh delta generation, proof, and distributed cutover** in `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md` | Committed opposite-delta refresh/activation cases pass Rust and independent Python checks; production delta generation, proof, and distributed cutover are absent               | `partial_match`                 |       1.00 | Implement joint delta generation, active transition proof, and distributed cutover  |
-| Commitments are hiding, binding, and proof-composed                                  | **Input Provenance** and **Online Ceremony** in `docs/yaos-ab.md`                                                                                                                                            | No commitment/proof types in `ed25519-yao`; crate boundary at `crates/ed25519-yao/src/lib.rs:3-7`                                                                               | `missing_in_code`               |       1.00 | Select and independently review Phase 6 suite; measure its costs                    |
-| A/B statements are role-bound and cannot be swapped                                  | **Goal** and **Network and Administrative Edges** in `docs/yaos-ab.md`                                                                                                                                       | KDF role tags exist at `src/kdf.rs:20-30`; no statement pair                                                                                                                    | `partial_match`                 |       0.98 | Add sealed A/B types, pair verifier, swap/replay/cross-wallet tests                 |
+| Requirement                                                                          | Specification evidence                                                                                                                                                                                       | Current implementation evidence                                                                                                                                                 | Alignment                       | Confidence | Required closure                                                                           |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ------------------------------------------------------------------------------------------ |
+| Stable and ceremony contexts are separate                                            | `docs/yaos-ab.md`, **Stable Key Context and Ceremony Context**                                                                                                                                               | `StableKdfScopeV1` and role-specific `CeremonyProvenanceBindingV1` occupy distinct nested encodings; `CeremonyValidatedDagV1` supplies the branch and three digests from the frozen request/authorization/transcript DAG | `full_match` for host bytes     |       1.00 | Authenticate authorization records, transport/artifact-suite preimages, replay, and expiry |
+| Stable context encoding and binding are exact                                        | `docs/yaos-ab.md`, **Stable Key Context and Ceremony Context**                                                                                                                                               | `src/context.rs:5-15,72-162`                                                                                                                                                    | `full_match`                    |       1.00 | Preserve current bytes and golden vector                                                   |
+| Application binding has an exact immutable preimage                                  | Section 5.1 of this contract                                                                                                                                                                                 | LP32 encoder, boundary types, tests, and committed KDF vector at `src/application_binding.rs`, `tests/application_binding.rs`, and `vectors/ed25519-yao-kdf-v1.json`            | `full_match` for host reference |       1.00 | Preserve the four-field bytes and reproduce them independently                             |
+| KDF is role/source/output separated and stable-context bound                         | `docs/yaos-ab.md`, **Stable Key Context and Ceremony Context**                                                                                                                                               | `src/kdf.rs:12-40,182-312`                                                                                                                                                      | `full_match` for host reference |       0.99 | Reproduce inside reviewed production custody/proof boundary                                |
+| Activation performs no Yao evaluation                                                | **Fixed Circuit Families** in `docs/yaos-ab.md`; **Product Operation To Ideal Functionality To Circuit Mapping** in `docs/router-a-b-SPEC.md`                                                                | `consume_activation_metadata_v1` move-consumes synthetic metadata and constructs a private zero-reference-work witness; package opening and the production evaluator are absent | `partial_match`                 |       0.99 | Bind and consume authenticated committed packages in the final activation path             |
+| Lifecycle-to-circuit mapping is fixed                                                | `docs/yaos-ab.md`, **Fixed Circuit Families**                                                                                                                                                                | Branch-specific wrappers derive request kind, recipient plan, output kind, and activation/export family in `src/lifecycle_domain.rs`; final artifact digests are absent         | `partial_match`                 |       0.99 | Bind the selected final active artifact digests                                            |
+| Each role input is tied to root, wallet/key/path, epoch, request, envelope, and auth | `docs/yaos-ab.md`, **Input Provenance**                                                                                                                                                                      | Typed host-only statements and strict parsers bind canonical outer slots; record/artifact preimages and proof relations are absent                                              | `partial_match`                 |       1.00 | Implement authenticated records, artifact construction, and the reviewed evidence verifier |
+| Tau inputs reject noncanonical encodings                                             | `docs/yaos-ab.md`, **Field and Byte Conventions**                                                                                                                                                            | Role-specific parsing and construction at `src/lib.rs:181-254,265-317`                                                                                                          | `full_match` for host reference |       1.00 | Apply the same rule before proof/circuit input acceptance                                  |
+| Root epoch and input-state epoch have distinct semantics                             | **Root And Key-Continuity Policy** in `docs/router-a-b-sol-refactor.md`; **Stable Key Context and Ceremony Context** in `docs/yaos-ab.md`                                                                    | Sealed role-typed nonzero root/input-state epochs and refresh advancement checks exist; authoritative production stores are absent                                              | `partial_match`                 |       0.99 | Implement authenticated store resolution and rollback-resistant epoch checks               |
+| Registration input-selection claim matches the selected profile                      | `docs/yaos-ab.md`, **Input Provenance**                                                                                                                                                                      | A joint evidence slot and pair equality check exist; no signed P0 record realization or stronger anti-bias mechanism/retry state exists                                         | `partial_match`                 |       1.00 | Select P0-P3 contract, implement its exact record/mechanism, and add claim-specific vectors |
+| Recovery preserves seed/public identity without export                               | **Fixed Circuit Families** in `docs/yaos-ab.md`; **F_ed25519_recovery_v1** and **Recovery preservation proof and custody** in `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`                 | Committed same-root recovery/activation cases pass Rust relation tests and independent Python reproduction; production custody, proof, and cutover are absent                   | `partial_match`                 |       1.00 | Implement protected rewrap, same-root proof, receipts, and durable transactions            |
+| Refresh preserves joined values across epoch cutover                                 | **Fixed Circuit Families** in `docs/yaos-ab.md`; **F_ed25519_refresh_v1** and **Refresh delta generation, proof, and distributed cutover** in `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md` | Committed A/B ideal contributions and opposite-delta refresh/activation cases pass Rust and independent Python checks; deployed role-separated origination, anti-bias, proof, and distributed cutover are absent | `partial_match`                 |       1.00 | Implement deployed A/B contribution origination, anti-bias, active transition proof, and distributed cutover |
+| Commitments are hiding, binding, and proof-composed                                  | **Input Provenance** and **Online Ceremony** in `docs/yaos-ab.md`                                                                                                                                            | Artifact wrappers bind synthetic bytes for host vectors; no hiding commitment, proof type, verification key, or production verifier exists                                      | `missing_in_code`               |       1.00 | Select and independently review Phase 6 suite; measure its costs                           |
+| A/B statements are role-bound and cannot be swapped                                  | **Goal** and **Network and Administrative Edges** in `docs/yaos-ab.md`                                                                                                                                       | Sealed A/B role types, typed ordered-pair construction, fixed envelope-set ordering, compile-fail tests, and cross-language vectors                                             | `full_match` for outer bytes    |       1.00 | Bind authenticated role records and accepted proofs to the typed pair                      |
 
 ## 14. Required vectors and negative tests
 
-Before any blocker is marked complete, add independently reproduced vectors for:
+The committed `vectors/ed25519-yao-provenance-v1.json` corpus and independent
+Python verifier cover every construction-independent nested encoding,
+statement and pair digest, all eight generic artifact wrappers, all four valid
+evaluation request kinds, distinct role epochs, refresh advancement, activation
+exclusion, fixed A/B ordering, point validation, strict shapes, and common
+mutation classes. Before a production blocker is marked complete, extend that
+evidence with:
 
-- every nested encoding, statement encoding, statement digest, envelope-set
-  digest, pair encoding, pair digest, and artifact-wrapper digest;
-- A and B statements for registration, recovery, refresh, and export;
-- participant ordering and stable-context binding continuity;
-- different role-root and role-input-state epochs for A and B;
 - recovery current snapshots plus exact same-root, same-contribution, and
   same-root/input-state-epoch continuity;
 - refresh before/after snapshots with nonzero opposite deltas and advancing
   input-state epochs;
-- the exact four-field application binding and transcript, request-context, and
-  authorization digest preimages.
+- authenticated authorization-record, transport, and artifact-suite preimages,
+  including expiry and replay enforcement at the production boundary.
 
 Boundary and compile-fail tests must reject:
 
@@ -1009,13 +1051,16 @@ Boundary and compile-fail tests must reject:
 
 ## 15. Readiness verdict
 
-The canonical outer contract and four-field application binding are detailed
-enough to scaffold strict host-only types, encoders, decoders, and synthetic
-vectors. Same-root recovery semantics and opposite-delta refresh/cutover
-semantics are frozen. None of these artifacts is production provenance evidence.
+The canonical outer contract and four-field application binding now have strict
+host-only types, encoders, structural decoders, synthetic vectors, Rust
+mutation/compile-fail tests, and independent Python reproduction. Same-root
+recovery semantics and opposite-delta refresh/cutover semantics are frozen.
+The outer parser authenticates no opaque record or artifact digest, so these
+artifacts provide no production provenance evidence.
 
-Phase 1 provenance remains open until ceremony and authorization preimages,
-production root/state records, registration anti-bias, protected recovery
-custody/proof, refresh delta generation and distributed realization, and the
-commitment/proof artifact relations are complete. Phase 6 must then select and
-review the active-protocol composition before any security claim is enabled.
+Phase 1 provenance remains open until production root/state records,
+authenticated authorization, transport, and artifact records, the selected
+registration input-selection contract, protected recovery custody/proof,
+refresh delta generation and distributed realization, and the profile-required
+artifact relations are complete. Phase 6 must select and review the exact P0-P3
+composition before its security claim is enabled.

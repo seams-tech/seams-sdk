@@ -15,7 +15,7 @@ def familyByte : CircuitFamily → UInt8
 def manifestDigestSlotCount : Nat := 7
 
 /-- Model-local metric count; no production bridge exists in FV1. -/
-def manifestMetricCount : Nat := 12
+def manifestMetricCount : Nat := 13
 
 theorem familyBytesAreDistinct :
     familyByte .activation ≠ familyByte .export := by
@@ -24,7 +24,7 @@ theorem familyBytesAreDistinct :
 theorem manifestDigestSlotCountIsSeven : manifestDigestSlotCount = 7 := by
   rfl
 
-theorem manifestMetricCountIsTwelve : manifestMetricCount = 12 := by
+theorem manifestMetricCountIsThirteen : manifestMetricCount = 13 := by
   rfl
 
 end Ed25519YaoModel

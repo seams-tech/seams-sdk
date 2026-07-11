@@ -42,10 +42,11 @@ canonical byte sequence, in exact order:
 4. Output-schema identifier UTF-8 bytes.
 5. Seven raw 32-byte digests: circuit, compiler, source IR, schedule,
    constants, input schema, then the family-specific output schema.
-6. Twelve big-endian `u64` metrics: AND gates, XOR gates, inversion gates,
-   total gates, circuit depth, input wires, output wires, total wires,
-   scheduled gates, peak live wires, encoded schedule bytes, then garbled-table
-   payload bytes.
+6. Thirteen big-endian `u64` metrics: AND gates, XOR gates, inversion gates,
+   total gates, complete circuit depth, AND depth, input wires, output-wire
+   references, total logical wires, scheduled gates, peak live wires, encoded
+   schedule bytes, then passive Half-Gates table payload bytes. The payload is
+   derived as exactly 32 bytes per AND gate.
 
 `DraftActivationManifestDigest32` and `DraftExportManifestDigest32` expose the
 results. Their fields and constructors are private, so callers cannot supply or
@@ -69,9 +70,11 @@ constant-time and secret-lifecycle review.
 
 There is intentionally no Serde representation. A future wire or artifact
 adapter must validate raw lengths and values at its boundary, construct the
-field-specific digest type plus `GateMetrics`, `ScheduleMetrics`, and
-`CircuitMetrics`, place artifact digests into the required family-specific
-bundle, then pass only those validated types into draft manifest constructors.
+field-specific digest types plus `GateMetrics` and `ScheduleMetrics`, derive
+`CircuitMetrics` through `CircuitMetrics::new_passive_half_gates`, place
+artifact digests into the required family-specific bundle, then pass only those
+validated types into draft manifest constructors. Output counts reference wires
+already included in the logical wire count.
 
 ## Formal verification
 

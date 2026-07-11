@@ -29,4 +29,6 @@ pub use manifest::{
     ExportOutputSchema, ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE, DRAFT_MANIFEST_DIGEST_DOMAIN_V1,
     EXPORT_DRAFT_MANIFEST_FAMILY_BYTE,
 };
-pub use metrics::{CircuitMetrics, GateMetrics, ScheduleMetrics};
+pub use metrics::{
+    CircuitMetrics, GateMetrics, ScheduleMetrics, PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE,
+};

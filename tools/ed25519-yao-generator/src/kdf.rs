@@ -40,6 +40,7 @@ pub const CONTRIBUTION_KDF_EXPAND_INFO_LEN_V1: usize =
     CONTRIBUTION_KDF_EXPAND_INFO_DOMAIN_V1.len() + 1 + 1 + 1 + 1 + 32;
 
 /// Synthetic client derivation root used only by reference vectors.
+#[derive(PartialEq, Eq)]
 pub struct SyntheticClientDerivationRootV1([u8; 32]);
 
 impl SyntheticClientDerivationRootV1 {
@@ -295,7 +296,7 @@ fn derive_synthetic_contribution_v1(
     }
 }
 
-fn contribution_expand_info_v1(
+pub(crate) fn contribution_expand_info_v1(
     role_tag: u8,
     source_tag: u8,
     output_tag: u8,

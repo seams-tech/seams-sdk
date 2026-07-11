@@ -3,9 +3,9 @@ use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
 use ed25519_yao_generator::{
-    clamp_rfc8032, evaluate_activation, evaluate_export, wrapping_add_le_256, ContributionSide,
-    DeriverAContribution, DeriverBContribution, DeriverRole, OracleError, OracleMaterial,
-    RawDeriverAContribution, RawDeriverBContribution,
+    clamp_rfc8032, evaluate_activation, evaluate_full_clear_reference_export_v1,
+    wrapping_add_le_256, ContributionSide, DeriverAContribution, DeriverBContribution, DeriverRole,
+    OracleError, OracleMaterial, RawDeriverAContribution, RawDeriverBContribution,
 };
 use sha2::{Digest, Sha512};
 
@@ -89,7 +89,7 @@ fn assert_rfc8032_vector(seed_hex: &str, public_key_hex: &str) {
         tau_client: zero,
         tau_server: zero,
     });
-    let output = evaluate_export(&deriver_a, &deriver_b);
+    let output = evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b);
 
     assert_eq!(output.seed().expose_bytes(), seed);
     assert_eq!(
@@ -209,7 +209,7 @@ fn matches_known_rfc8032_hash_and_clamp() {
         tau_client: zero,
         tau_server: zero,
     });
-    let output = evaluate_export(&deriver_a, &deriver_b);
+    let output = evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b);
 
     assert_eq!(
         output.material().sha512_digest().expose_bytes(),
@@ -256,7 +256,7 @@ fn wrapping_little_endian_addition_propagates_and_discards_carry() {
         tau_server: zero,
     });
     assert_eq!(
-        evaluate_export(&deriver_a, &deriver_b)
+        evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b)
             .seed()
             .expose_bytes(),
         expected_carry
@@ -275,7 +275,7 @@ fn wrapping_little_endian_addition_propagates_and_discards_carry() {
         tau_server: zero,
     });
     assert_eq!(
-        evaluate_export(&deriver_a, &deriver_b)
+        evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b)
             .seed()
             .expose_bytes(),
         [0u8; 32]
@@ -385,7 +385,7 @@ fn activation_and_export_share_the_same_non_seed_material() {
         tau_server: Scalar::from(17u64).to_bytes(),
     });
     let activation = evaluate_activation(&deriver_a, &deriver_b);
-    let export = evaluate_export(&deriver_a, &deriver_b);
+    let export = evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b);
     let expected_seed = independent_wrapping_add_four([
         deriver_a.y_client().expose_bytes(),
         deriver_a.y_server().expose_bytes(),
@@ -438,7 +438,7 @@ fn every_nonzero_contribution_matches_independent_composition() {
         tau_client: tau_client_b.to_bytes(),
         tau_server: tau_server_b.to_bytes(),
     });
-    let output = evaluate_export(&deriver_a, &deriver_b);
+    let output = evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b);
 
     assert_eq!(deriver_a.y_client().expose_bytes(), y_client_a);
     assert_eq!(deriver_a.y_server().expose_bytes(), y_server_a);

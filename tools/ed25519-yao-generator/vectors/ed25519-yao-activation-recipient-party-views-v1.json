@@ -1,0 +1,244 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:activation-recipient-party-views:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "host_only_synthetic_activation_recipient_party_views_v1",
+  "cases": [
+    {
+      "case_id": "registration_activation_recipient_party_views_v1",
+      "origin_request_kind": "registration",
+      "activation_delivery_case_id": "registration_activation_delivery_v1",
+      "output_party_view_case_id": "registration_output_party_views_package_prepared_v1",
+      "recipients_released": {
+        "common_public": {
+          "stage": "recipients_released",
+          "origin_request_kind": "registration",
+          "package_set_digest_hex": "b401ded0646c3062df7289dd15af9685227fe368a1972a8a8d1e9059e007524e",
+          "output_committed_receipt_digest_hex": "c9aeffb881b730434637314d0ded60cb84b999fc27b00b290ed9eb140fa2021a",
+          "activation_transcript_digest_hex": "3acb203a4bc505ff5cb3dc6be00b8479517e7657853469799b23795157dbf347",
+          "activation_authorization_state": "consumed",
+          "zero_private_evaluation_work": {
+            "yao_evaluations": 0,
+            "deriver_a_invocations": 0,
+            "deriver_b_invocations": 0,
+            "contribution_derivations": 0,
+            "output_share_samples": 0
+          }
+        },
+        "role_extensions": {
+          "deriver_a": {},
+          "deriver_b": {},
+          "client": {
+            "extension_kind": "activation_client_scalar_release",
+            "package_set_digest_hex": "b401ded0646c3062df7289dd15af9685227fe368a1972a8a8d1e9059e007524e",
+            "delivery_evidence_digest_hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
+          },
+          "signing_worker": {
+            "extension_kind": "signing_worker_activation_release_authority",
+            "package_set_digest_hex": "b401ded0646c3062df7289dd15af9685227fe368a1972a8a8d1e9059e007524e",
+            "delivery_evidence_digest_hex": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+          },
+          "router": {},
+          "observer": {},
+          "diagnostics": {}
+        }
+      },
+      "signing_worker_activated": {
+        "common_public": {
+          "stage": "signing_worker_activated",
+          "origin_request_kind": "registration",
+          "package_set_digest_hex": "b401ded0646c3062df7289dd15af9685227fe368a1972a8a8d1e9059e007524e",
+          "output_committed_receipt_digest_hex": "c9aeffb881b730434637314d0ded60cb84b999fc27b00b290ed9eb140fa2021a",
+          "activation_epoch": 9,
+          "signing_worker_id": "signing-worker-fixture",
+          "signing_worker_recipient_key_epoch": 17,
+          "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+          "x_server_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+          "output_storage_evidence_digest_hex": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+          "activation_receipt_encoding_hex": "000000407365616d732f726f757465722d61622f656432353531392d79616f2f7369676e696e672d776f726b65722d61637469766174696f6e2d726563656970742f763100000008000000000000000300000020d14de88a471fdf126e10b22d4c514e89f41e31b2304e3d13b249f45121bed9c5000000167369676e696e672d776f726b65722d66697874757265000000080000000000000011000000010100000020856681dfb3ff7af8a6c7fc7da5aa63f30716483e05fc73b549706fa617b063d500000020fe33256fb0ffa08d9f9e3c600407e9178964851a96035513c6f1722688a3a300000000203acb203a4bc505ff5cb3dc6be00b8479517e7657853469799b23795157dbf34700000001010000000101000000206e8ceb4a0ca695d40f3e162f2c41f5923e1e7569283a69b019741096f05f89dc0000002029653454f3e9c38ebadb261061c8d1f11c046de646aff0c7eaaa4e65937ec393000000201735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf100000020707070707070707070707070707070707070707070707070707070707070707000000020b401ded0646c3062df7289dd15af9685227fe368a1972a8a8d1e9059e007524e00000008000000000000000900000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf07700000020c9aeffb881b730434637314d0ded60cb84b999fc27b00b290ed9eb140fa2021a000000204809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e0200000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf07700000020c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+          "activation_receipt_digest_hex": "0bc1909876906f5474c30cd061a049766863c0a801500b8ec95fb71d8b30bb08",
+          "activation_receipt_signature_hex": "60638499715d229a031e174c7f1ebe48ba32831604a7f8388ff1e85dfedffc38ab753cc833e485ab93899d78728782ce1c4167360ce48deb79f4f3d7a1443503",
+          "receipt_key_epoch": 3,
+          "receipt_key_digest_hex": "d14de88a471fdf126e10b22d4c514e89f41e31b2304e3d13b249f45121bed9c5",
+          "receipt_verifying_key_hex": "af06a3e3291714e4f356c19c9b15cd1951ec6e6662aa77be07547f289383341d",
+          "activation_authorization_state": "consumed"
+        },
+        "role_extensions": {
+          "deriver_a": {},
+          "deriver_b": {},
+          "client": {
+            "extension_kind": "activation_client_scalar_release",
+            "package_set_digest_hex": "b401ded0646c3062df7289dd15af9685227fe368a1972a8a8d1e9059e007524e",
+            "delivery_evidence_digest_hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
+          },
+          "signing_worker": {
+            "extension_kind": "sealed_signing_worker_activated_state",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01"
+          },
+          "router": {},
+          "observer": {},
+          "diagnostics": {}
+        }
+      }
+    },
+    {
+      "case_id": "recovery_activation_recipient_party_views_v1",
+      "origin_request_kind": "recovery",
+      "activation_delivery_case_id": "recovery_activation_delivery_v1",
+      "output_party_view_case_id": "recovery_output_party_views_package_prepared_v1",
+      "recipients_released": {
+        "common_public": {
+          "stage": "recipients_released",
+          "origin_request_kind": "recovery",
+          "package_set_digest_hex": "ee8491bda48921f7553875373518a5fc64cc596687507d315cc485c840ed18b1",
+          "output_committed_receipt_digest_hex": "80d2f03a8daa53b08d92b201f25f63fae435224089dc6857d489e036884cf884",
+          "activation_transcript_digest_hex": "6e02eb979e0e0518516eddc2935833433cfe6ca4ec861c976f8194ec4129954a",
+          "activation_authorization_state": "consumed",
+          "zero_private_evaluation_work": {
+            "yao_evaluations": 0,
+            "deriver_a_invocations": 0,
+            "deriver_b_invocations": 0,
+            "contribution_derivations": 0,
+            "output_share_samples": 0
+          }
+        },
+        "role_extensions": {
+          "deriver_a": {},
+          "deriver_b": {},
+          "client": {
+            "extension_kind": "activation_client_scalar_release",
+            "package_set_digest_hex": "ee8491bda48921f7553875373518a5fc64cc596687507d315cc485c840ed18b1",
+            "delivery_evidence_digest_hex": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
+          },
+          "signing_worker": {
+            "extension_kind": "signing_worker_activation_release_authority",
+            "package_set_digest_hex": "ee8491bda48921f7553875373518a5fc64cc596687507d315cc485c840ed18b1",
+            "delivery_evidence_digest_hex": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+          },
+          "router": {},
+          "observer": {},
+          "diagnostics": {}
+        }
+      },
+      "signing_worker_activated": {
+        "common_public": {
+          "stage": "signing_worker_activated",
+          "origin_request_kind": "recovery",
+          "package_set_digest_hex": "ee8491bda48921f7553875373518a5fc64cc596687507d315cc485c840ed18b1",
+          "output_committed_receipt_digest_hex": "80d2f03a8daa53b08d92b201f25f63fae435224089dc6857d489e036884cf884",
+          "activation_epoch": 10,
+          "signing_worker_id": "signing-worker-fixture",
+          "signing_worker_recipient_key_epoch": 17,
+          "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+          "x_server_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+          "output_storage_evidence_digest_hex": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+          "activation_receipt_encoding_hex": "000000407365616d732f726f757465722d61622f656432353531392d79616f2f7369676e696e672d776f726b65722d61637469766174696f6e2d726563656970742f76310000000800000000000000030000002005a1c7e4002d5ef48f1876ba38ffeb62034bbd9c2ad2358dbc105b64cd6bc58d000000167369676e696e672d776f726b65722d66697874757265000000080000000000000011000000010200000020d33232c13eb991b15ed3f384092e96d977859c12287a500fc69225b8e9209ea200000020399b824cd0e18042b36c08c727a7f44f698f2495756d0fe5d2c9cbc283c237e6000000206e02eb979e0e0518516eddc2935833433cfe6ca4ec861c976f8194ec4129954a0000000102000000010300000020c7d60ba32965e5d77a15122a1eba7cf85dc774a423f3e5b7f2428284f5aa4062000000204bf2fcae1e2ec667773f7dbc0268e25fc16b9f08a04b1b67f349df6c3a12f0dc00000020ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f1949300000020737373737373737373737373737373737373737373737373737373737373737300000020ee8491bda48921f7553875373518a5fc64cc596687507d315cc485c840ed18b100000008000000000000000a00000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf0770000002080d2f03a8daa53b08d92b201f25f63fae435224089dc6857d489e036884cf884000000204809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e0200000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf07700000020c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+          "activation_receipt_digest_hex": "63d376972dc1de94358339cf4d88a3ff3f31921e7da77b507b31c47755996420",
+          "activation_receipt_signature_hex": "12632363f89b0d98ad5d922aa9d8d7eae04f59d373aead540f4741935e110c35bb0691b9a64ead98759924375e95d78453f515704920d625c5aac26ff62d7d0f",
+          "receipt_key_epoch": 3,
+          "receipt_key_digest_hex": "05a1c7e4002d5ef48f1876ba38ffeb62034bbd9c2ad2358dbc105b64cd6bc58d",
+          "receipt_verifying_key_hex": "2df04125f0015afb47ce853aef8772094ff9498c14cb1b9e12973c2927da0fa6",
+          "activation_authorization_state": "consumed"
+        },
+        "role_extensions": {
+          "deriver_a": {},
+          "deriver_b": {},
+          "client": {
+            "extension_kind": "activation_client_scalar_release",
+            "package_set_digest_hex": "ee8491bda48921f7553875373518a5fc64cc596687507d315cc485c840ed18b1",
+            "delivery_evidence_digest_hex": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
+          },
+          "signing_worker": {
+            "extension_kind": "sealed_signing_worker_activated_state",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01"
+          },
+          "router": {},
+          "observer": {},
+          "diagnostics": {}
+        }
+      }
+    },
+    {
+      "case_id": "refresh_activation_recipient_party_views_v1",
+      "origin_request_kind": "refresh",
+      "activation_delivery_case_id": "refresh_activation_delivery_v1",
+      "output_party_view_case_id": "refresh_output_party_views_package_prepared_v1",
+      "recipients_released": {
+        "common_public": {
+          "stage": "recipients_released",
+          "origin_request_kind": "refresh",
+          "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+          "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+          "activation_transcript_digest_hex": "3b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb81",
+          "activation_authorization_state": "consumed",
+          "zero_private_evaluation_work": {
+            "yao_evaluations": 0,
+            "deriver_a_invocations": 0,
+            "deriver_b_invocations": 0,
+            "contribution_derivations": 0,
+            "output_share_samples": 0
+          }
+        },
+        "role_extensions": {
+          "deriver_a": {},
+          "deriver_b": {},
+          "client": {
+            "extension_kind": "activation_client_scalar_release",
+            "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+            "delivery_evidence_digest_hex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
+          },
+          "signing_worker": {
+            "extension_kind": "signing_worker_activation_release_authority",
+            "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+            "delivery_evidence_digest_hex": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3"
+          },
+          "router": {},
+          "observer": {},
+          "diagnostics": {}
+        }
+      },
+      "signing_worker_activated": {
+        "common_public": {
+          "stage": "signing_worker_activated",
+          "origin_request_kind": "refresh",
+          "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+          "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+          "activation_epoch": 11,
+          "signing_worker_id": "signing-worker-fixture",
+          "signing_worker_recipient_key_epoch": 17,
+          "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
+          "x_server_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
+          "output_storage_evidence_digest_hex": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "activation_receipt_encoding_hex": "000000407365616d732f726f757465722d61622f656432353531392d79616f2f7369676e696e672d776f726b65722d61637469766174696f6e2d726563656970742f763100000008000000000000000300000020d71dc91f6a4f564e536b653ea05c7c9d91e09c31ea340e643ad126673d8a3a54000000167369676e696e672d776f726b65722d66697874757265000000080000000000000011000000010300000020589e166a0a51a8b0237ec388f057218c3a4a0ee5d75999a98de1d079d1a8b34f00000020a34aafca8e377730c096b50ce5b81128fe02b22b52e4d6c9cebb571f25af2282000000203b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb810000000103000000010400000020011a86f2067d0e41f621881f268bdc4603e17ae21fad3bba5ce7aa22a8de8adb0000002018a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c000000204b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb00000020757575757575757575757575757575757575757575757575757575757575757500000020dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b00000008000000000000000b00000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077000000201e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511000000204809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e0200000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf07700000020c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "activation_receipt_digest_hex": "b1606e1839867914d9c65a69f15abbde9157b0212267239ceb73a6e23710e0f6",
+          "activation_receipt_signature_hex": "f5255cd934f23f40e1be7e13f70ef97137542716fbad64e3836eb74c977377f0182712c42eed13fb849264ba8e3f5a118a13f32b4e2f09e38f9a3f5307d6ab08",
+          "receipt_key_epoch": 3,
+          "receipt_key_digest_hex": "d71dc91f6a4f564e536b653ea05c7c9d91e09c31ea340e643ad126673d8a3a54",
+          "receipt_verifying_key_hex": "a7f6dfaf8f38b89ba8ce649b594f91e4d01fdc57f9c9493df43b5e50a9987367",
+          "activation_authorization_state": "consumed"
+        },
+        "role_extensions": {
+          "deriver_a": {},
+          "deriver_b": {},
+          "client": {
+            "extension_kind": "activation_client_scalar_release",
+            "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+            "delivery_evidence_digest_hex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+            "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
+          },
+          "signing_worker": {
+            "extension_kind": "sealed_signing_worker_activated_state",
+            "x_server_base_hex": "41214bf64d39395fb0bb3f59a2f45571b3e35dc957bdf58e491a9e87ce59ac01"
+          },
+          "router": {},
+          "observer": {},
+          "diagnostics": {}
+        }
+      }
+    }
+  ]
+}

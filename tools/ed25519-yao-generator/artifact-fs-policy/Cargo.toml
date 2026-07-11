@@ -1,0 +1,13 @@
+[package]
+name = "ed25519-yao-artifact-fs-policy"
+version = "0.1.0"
+edition = "2021"
+description = "Descriptor-only filesystem policy for Ed25519 Yao benchmark artifacts"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "=0.2.186"

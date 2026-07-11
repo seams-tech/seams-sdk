@@ -18,10 +18,11 @@ use crate::kdf_fixtures::{
     SYNTHETIC_SIGNING_ROOT_ID_V1, SYNTHETIC_WALLET_ID_V1,
 };
 use crate::{
-    apply_synthetic_correlated_server_delta_v1, derive_synthetic_client_contributions_v1,
-    evaluate_activation, DeriverAContribution, DeriverBContribution, RawDeriverAContribution,
-    RawDeriverBContribution, SyntheticClientDerivationRootV1, SyntheticCorrelatedServerDeltaV1,
-    SyntheticNonZeroDeltaTauV1, SyntheticNonZeroDeltaYV1,
+    evaluate_activation, prepare_host_only_recovery_reference_v1,
+    prepare_host_only_refresh_reference_v1, HostOnlyDeriverARefreshDeltaContributionV1,
+    HostOnlyDeriverBRefreshDeltaContributionV1, HostOnlyJointRefreshDeltaCoinsV1,
+    HostOnlyRecoveryReferenceInputsV1, HostOnlyRefreshReferenceInputsV1,
+    SyntheticClientDerivationRootV1,
 };
 
 /// Schema identifier for the version-one lifecycle-continuity corpus.
@@ -30,6 +31,13 @@ pub const LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1: &str =
 
 /// Fixed evidence-scope identifier excluding production lifecycle claims.
 pub const LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1: &str = "host_only_synthetic_continuity_v1";
+
+/// Canonical synthetic registration-candidate metadata case identifier.
+pub const REGISTRATION_CANDIDATE_CASE_ID_V1: &str = "registration_candidate_metadata_v1";
+
+/// Canonical registration-origin activation case identifier.
+pub const REGISTRATION_ACTIVATION_CASE_ID_V1: &str =
+    "activation_after_registration_zero_evaluation_v1";
 
 /// Canonical same-root recovery case identifier.
 pub const RECOVERY_CONTINUITY_CASE_ID_V1: &str = "recovery_same_root_continuity_v1";
@@ -54,8 +62,12 @@ const RECOVERY_ACTIVATION_EPOCH_V1: u64 = 8;
 const REFRESH_ACTIVATION_EPOCH_V1: u64 = 9;
 const REFRESH_DELTA_Y_V1: [u8; 32] = [0xa5; 32];
 const REFRESH_DELTA_TAU_V1: u64 = 17;
+const REFRESH_DERIVER_A_DELTA_Y_V1: [u8; 32] = [0x3c; 32];
+const REFRESH_DERIVER_A_DELTA_TAU_V1: u64 = 5;
+const REFRESH_DERIVER_B_DELTA_Y_V1: [u8; 32] = [0x69; 32];
+const REFRESH_DERIVER_B_DELTA_TAU_V1: u64 = 12;
 
-/// Strict portable corpus containing the four canonical continuity cases.
+/// Strict portable corpus containing the six canonical continuity cases.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LifecycleContinuityCorpusV1 {
     /// Fixed lifecycle-continuity schema identifier.
@@ -64,7 +76,7 @@ pub struct LifecycleContinuityCorpusV1 {
     pub protocol_id: String,
     /// Fixed host-only evidence-scope identifier.
     pub evidence_scope: String,
-    /// Canonical recovery, activation, refresh, activation case sequence.
+    /// Canonical registration/activation/recovery/activation/refresh/activation sequence.
     pub cases: Vec<LifecycleContinuityCaseV1>,
 }
 
@@ -109,7 +121,7 @@ impl fmt::Display for LifecycleContinuityValidationErrorV1 {
 impl std::error::Error for LifecycleContinuityValidationErrorV1 {}
 
 impl LifecycleContinuityCorpusV1 {
-    /// Requires the exact frozen four-case schema, values, and cross-case relations.
+    /// Requires the exact frozen six-case schema, values, and cross-case relations.
     pub fn validate(&self) -> Result<(), LifecycleContinuityValidationErrorV1> {
         if self != &canonical_lifecycle_continuity_corpus_v1() {
             return Err(LifecycleContinuityValidationErrorV1);
@@ -127,6 +139,8 @@ impl LifecycleContinuityCorpusV1 {
     deny_unknown_fields
 )]
 pub enum LifecycleContinuityCaseV1 {
+    /// Synthetic public registration-candidate metadata snapshot.
+    Registration(RegistrationCandidateMetadataVectorV1),
     /// Same-logical-root recovery continuity.
     Recovery(RecoveryContinuityVectorV1),
     /// Zero-evaluation activation continuation.
@@ -144,6 +158,8 @@ pub enum LifecycleContinuityCaseV1 {
     deny_unknown_fields
 )]
 pub enum ActivationContinuityVectorV1 {
+    /// Continuation of the canonical registration-candidate case.
+    Registration(RegistrationActivationContinuationV1),
     /// Continuation of the canonical recovery case.
     Recovery(RecoveryActivationContinuationV1),
     /// Continuation of the canonical refresh case.
@@ -236,6 +252,18 @@ pub struct ActiveContinuityPublicStateV1 {
     pub active_role_epochs: RoleEpochPairV1,
     /// Currently active SigningWorker activation epoch.
     pub active_activation_epoch: NonZeroEpochV1,
+}
+
+/// Public registration candidate awaiting its first activation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrationPendingPublicStateV1 {
+    /// Candidate public identity.
+    pub identity: FixtureIdentityV1,
+    /// Candidate role epochs that become active together.
+    pub candidate_role_epochs: RoleEpochPairV1,
+    /// First activation epoch, with no active predecessor.
+    pub pending_activation_epoch: NonZeroEpochV1,
 }
 
 /// Public pending state produced by the recovery reference case.
@@ -370,14 +398,28 @@ pub struct RecoveryHostOnlyReferenceV1 {
     pub after_clear_reference_trace: KdfClearReferenceTraceV1,
 }
 
-/// Explicit nonzero correlated refresh delta.
+/// One role's public synthetic ideal refresh-delta contribution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CorrelatedRefreshDeltaV1 {
-    /// Nonzero little-endian seed-domain delta.
+pub struct RefreshDeltaContributionV1 {
+    /// Little-endian seed-domain contribution.
     pub delta_y_hex: String,
-    /// Nonzero canonical little-endian scalar delta.
+    /// Canonical little-endian scalar-domain contribution.
     pub delta_tau_hex: String,
+}
+
+/// Role-local ideal contributions and their nonzero combined refresh delta.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JointRefreshDeltaV1 {
+    /// Deriver A's contribution.
+    pub deriver_a: RefreshDeltaContributionV1,
+    /// Deriver B's contribution.
+    pub deriver_b: RefreshDeltaContributionV1,
+    /// Sum of the two seed-domain contributions modulo `2^256`.
+    pub combined_delta_y_hex: String,
+    /// Sum of the two scalar contributions modulo `l`.
+    pub combined_delta_tau_hex: String,
 }
 
 /// Aggregate host-only refresh continuity evidence.
@@ -388,8 +430,8 @@ pub struct RefreshHostOnlyReferenceV1 {
     pub synthetic_roots: KdfSyntheticRootsV1,
     /// Complete contribution tuple before refresh.
     pub before_contributions: KdfContributionVectorV1,
-    /// Explicit opposite-signed correlated delta.
-    pub delta: CorrelatedRefreshDeltaV1,
+    /// Joint ideal role contributions and combined opposite-signed delta.
+    pub delta: JointRefreshDeltaV1,
     /// Complete contribution tuple after refresh.
     pub after_contributions: KdfContributionVectorV1,
     /// Host-only trace before refresh.
@@ -412,6 +454,18 @@ pub struct RecoveryContinuityVectorV1 {
     pub reference_operation_counts: ReferenceOperationCountsV1,
     /// Aggregate host-only continuity evidence.
     pub host_only_reference: RecoveryHostOnlyReferenceV1,
+}
+
+/// Synthetic public registration-candidate metadata vector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrationCandidateMetadataVectorV1 {
+    /// Stable canonical case identifier.
+    pub case_id: String,
+    /// Candidate metadata awaiting first activation.
+    pub pending_public: RegistrationPendingPublicStateV1,
+    /// Frozen zero-work metadata-snapshot counts.
+    pub reference_operation_counts: ReferenceOperationCountsV1,
 }
 
 /// Opposite-delta refresh continuity vector.
@@ -446,6 +500,22 @@ pub struct RecoveryActivationContinuationV1 {
     pub reference_operation_counts: ReferenceOperationCountsV1,
 }
 
+/// Zero-evaluation continuation of registration-candidate metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrationActivationContinuationV1 {
+    /// Stable canonical case identifier.
+    pub case_id: String,
+    /// Exact earlier registration-candidate case identifier.
+    pub origin_case_id: String,
+    /// Copied registration pending public state.
+    pub pending_public: RegistrationPendingPublicStateV1,
+    /// Initial active public state.
+    pub activated_public: ActiveContinuityPublicStateV1,
+    /// Frozen zero-evaluation operation counts.
+    pub reference_operation_counts: ReferenceOperationCountsV1,
+}
+
 /// Zero-evaluation continuation of the refresh pending state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -462,10 +532,21 @@ pub struct RefreshActivationContinuationV1 {
     pub reference_operation_counts: ReferenceOperationCountsV1,
 }
 
-/// Builds the canonical four-case host-only continuity corpus.
+/// Builds the canonical six-case host-only continuity corpus.
 pub fn canonical_lifecycle_continuity_corpus_v1() -> LifecycleContinuityCorpusV1 {
     let material = canonical_synthetic_kdf_material_v1();
-    let recovery = build_recovery_continuity_v1(&material);
+    let current_activation = evaluate_activation(&material.deriver_a, &material.deriver_b);
+    let current_trace = kdf_clear_reference_trace_v1(
+        &material.deriver_a,
+        &material.deriver_b,
+        current_activation.material(),
+    );
+    let registration =
+        build_registration_candidate_metadata_v1(fixture_identity_v1(&material, &current_trace));
+    let registration_activation =
+        build_registration_activation_continuation_v1(registration.pending_public.clone());
+    let recovery =
+        build_recovery_continuity_v1(&material, registration_activation.activated_public.clone());
     let recovery_activation =
         build_recovery_activation_continuation_v1(recovery.pending_public.clone());
     let refresh =
@@ -478,6 +559,10 @@ pub fn canonical_lifecycle_continuity_corpus_v1() -> LifecycleContinuityCorpusV1
         protocol_id: ed25519_yao::PROTOCOL_ID_STR.to_owned(),
         evidence_scope: LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1.to_owned(),
         cases: vec![
+            LifecycleContinuityCaseV1::Registration(registration),
+            LifecycleContinuityCaseV1::Activation(ActivationContinuityVectorV1::Registration(
+                registration_activation,
+            )),
             LifecycleContinuityCaseV1::Recovery(recovery),
             LifecycleContinuityCaseV1::Activation(ActivationContinuityVectorV1::Recovery(
                 recovery_activation,
@@ -490,8 +575,41 @@ pub fn canonical_lifecycle_continuity_corpus_v1() -> LifecycleContinuityCorpusV1
     }
 }
 
+fn build_registration_candidate_metadata_v1(
+    identity: FixtureIdentityV1,
+) -> RegistrationCandidateMetadataVectorV1 {
+    RegistrationCandidateMetadataVectorV1 {
+        case_id: REGISTRATION_CANDIDATE_CASE_ID_V1.to_owned(),
+        pending_public: RegistrationPendingPublicStateV1 {
+            identity,
+            candidate_role_epochs: current_role_epochs_v1(),
+            pending_activation_epoch: epoch_v1(INITIAL_ACTIVATION_EPOCH_V1),
+        },
+        reference_operation_counts: registration_metadata_reference_operation_counts_v1(),
+    }
+}
+
+fn build_registration_activation_continuation_v1(
+    pending_public: RegistrationPendingPublicStateV1,
+) -> RegistrationActivationContinuationV1 {
+    let activated_public = ActiveContinuityPublicStateV1 {
+        identity: pending_public.identity.clone(),
+        active_role_epochs: pending_public.candidate_role_epochs,
+        active_activation_epoch: pending_public.pending_activation_epoch,
+    };
+
+    RegistrationActivationContinuationV1 {
+        case_id: REGISTRATION_ACTIVATION_CASE_ID_V1.to_owned(),
+        origin_case_id: REGISTRATION_CANDIDATE_CASE_ID_V1.to_owned(),
+        pending_public,
+        activated_public,
+        reference_operation_counts: activation_reference_operation_counts_v1(),
+    }
+}
+
 fn build_recovery_continuity_v1(
     material: &CanonicalSyntheticKdfMaterialV1,
+    before_public: ActiveContinuityPublicStateV1,
 ) -> RecoveryContinuityVectorV1 {
     let current_activation = evaluate_activation(&material.deriver_a, &material.deriver_b);
     let current_trace = kdf_clear_reference_trace_v1(
@@ -499,37 +617,39 @@ fn build_recovery_continuity_v1(
         &material.deriver_b,
         current_activation.material(),
     );
-    let identity = fixture_identity_v1(material, &current_trace);
-    let current_role_epochs = current_role_epochs_v1();
-    let before_public = ActiveContinuityPublicStateV1 {
-        identity: identity.clone(),
-        active_role_epochs: current_role_epochs,
-        active_activation_epoch: epoch_v1(INITIAL_ACTIVATION_EPOCH_V1),
-    };
+    assert_eq!(
+        before_public.identity,
+        fixture_identity_v1(material, &current_trace)
+    );
+    assert_eq!(before_public.active_role_epochs, current_role_epochs_v1());
+    assert_eq!(
+        before_public.active_activation_epoch,
+        epoch_v1(INITIAL_ACTIVATION_EPOCH_V1)
+    );
+    let identity = before_public.identity.clone();
+    let current_role_epochs = before_public.active_role_epochs;
+    let current_root =
+        SyntheticClientDerivationRootV1::from_fixture_bytes(SYNTHETIC_CLIENT_ROOT_V1);
     let recovered_root =
         SyntheticClientDerivationRootV1::from_fixture_bytes(SYNTHETIC_CLIENT_ROOT_V1);
-    let recovered_client =
-        derive_synthetic_client_contributions_v1(&recovered_root, &material.context);
-    let recovered_a = DeriverAContribution::try_from(RawDeriverAContribution {
-        y_client: recovered_client.deriver_a().y().expose_fixture_bytes(),
-        y_server: material.deriver_a.y_server().expose_bytes(),
-        tau_client: recovered_client.deriver_a().tau().expose_fixture_bytes(),
-        tau_server: material.deriver_a.tau_server().expose_bytes(),
-    })
-    .expect("same-root recovery produces canonical A inputs");
-    let recovered_b = DeriverBContribution::try_from(RawDeriverBContribution {
-        y_client: recovered_client.deriver_b().y().expose_fixture_bytes(),
-        y_server: material.deriver_b.y_server().expose_bytes(),
-        tau_client: recovered_client.deriver_b().tau().expose_fixture_bytes(),
-        tau_server: material.deriver_b.tau_server().expose_bytes(),
-    })
-    .expect("same-root recovery produces canonical B inputs");
-    let after_activation = evaluate_activation(&recovered_a, &recovered_b);
+    let recovery = prepare_host_only_recovery_reference_v1(HostOnlyRecoveryReferenceInputsV1::new(
+        &current_root,
+        &recovered_root,
+        &material.context,
+        &material.deriver_a,
+        &material.deriver_b,
+    ))
+    .expect("canonical fixture satisfies same-root recovery continuity");
+    let recovered_client = recovery.rederived_client();
+    let recovered_a = recovery.recovered_deriver_a();
+    let recovered_b = recovery.recovered_deriver_b();
+    let after_activation = recovery.recovered_activation();
+    let _continuity_witness = recovery.continuity_witness();
     let after_trace =
-        kdf_clear_reference_trace_v1(&recovered_a, &recovered_b, after_activation.material());
+        kdf_clear_reference_trace_v1(recovered_a, recovered_b, after_activation.material());
     let current_contributions =
         kdf_contribution_vector_v1(&material.deriver_a, &material.deriver_b);
-    let after_contributions = kdf_contribution_vector_v1(&recovered_a, &recovered_b);
+    let after_contributions = kdf_contribution_vector_v1(recovered_a, recovered_b);
     assert_eq!(current_contributions, after_contributions);
     assert_eq!(current_trace, after_trace);
 
@@ -590,30 +710,39 @@ fn build_refresh_continuity_v1(
     material: &CanonicalSyntheticKdfMaterialV1,
     before_public: ActiveContinuityPublicStateV1,
 ) -> RefreshContinuityVectorV1 {
+    let deriver_a_delta_tau = Scalar::from(REFRESH_DERIVER_A_DELTA_TAU_V1).to_bytes();
+    let deriver_b_delta_tau = Scalar::from(REFRESH_DERIVER_B_DELTA_TAU_V1).to_bytes();
     let delta_tau_bytes = Scalar::from(REFRESH_DELTA_TAU_V1).to_bytes();
-    let delta = SyntheticCorrelatedServerDeltaV1::new(
-        SyntheticNonZeroDeltaYV1::from_fixture_bytes(REFRESH_DELTA_Y_V1)
-            .expect("canonical refresh delta_y is nonzero"),
-        SyntheticNonZeroDeltaTauV1::from_canonical_fixture_bytes(delta_tau_bytes)
-            .expect("canonical refresh delta_tau is nonzero"),
+    let delta_coins = HostOnlyJointRefreshDeltaCoinsV1::new(
+        HostOnlyDeriverARefreshDeltaContributionV1::from_host_only_fixture(
+            REFRESH_DERIVER_A_DELTA_Y_V1,
+            deriver_a_delta_tau,
+        )
+        .expect("canonical Deriver A refresh contribution is valid"),
+        HostOnlyDeriverBRefreshDeltaContributionV1::from_host_only_fixture(
+            REFRESH_DERIVER_B_DELTA_Y_V1,
+            deriver_b_delta_tau,
+        )
+        .expect("canonical Deriver B refresh contribution is valid"),
     );
-    let transitioned = apply_synthetic_correlated_server_delta_v1(
+    let refresh = prepare_host_only_refresh_reference_v1(HostOnlyRefreshReferenceInputsV1::new(
         &material.deriver_a,
         &material.deriver_b,
-        &delta,
-    );
-    let before_activation = evaluate_activation(&material.deriver_a, &material.deriver_b);
-    let after_activation = evaluate_activation(transitioned.deriver_a(), transitioned.deriver_b());
+        delta_coins,
+    ))
+    .expect("canonical fixture satisfies opposite-delta refresh continuity");
+    let refreshed_a = refresh.refreshed_deriver_a();
+    let refreshed_b = refresh.refreshed_deriver_b();
+    let before_activation = refresh.current_activation();
+    let after_activation = refresh.refreshed_activation();
+    let _continuity_witness = refresh.continuity_witness();
     let before_trace = kdf_clear_reference_trace_v1(
         &material.deriver_a,
         &material.deriver_b,
         before_activation.material(),
     );
-    let after_trace = kdf_clear_reference_trace_v1(
-        transitioned.deriver_a(),
-        transitioned.deriver_b(),
-        after_activation.material(),
-    );
+    let after_trace =
+        kdf_clear_reference_trace_v1(refreshed_a, refreshed_b, after_activation.material());
     assert_refresh_trace_continuity_v1(&before_trace, &after_trace);
     assert_eq!(
         before_public.identity,
@@ -639,14 +768,19 @@ fn build_refresh_continuity_v1(
                 &material.deriver_a,
                 &material.deriver_b,
             ),
-            delta: CorrelatedRefreshDeltaV1 {
-                delta_y_hex: encode_hex(&REFRESH_DELTA_Y_V1),
-                delta_tau_hex: encode_hex(&delta_tau_bytes),
+            delta: JointRefreshDeltaV1 {
+                deriver_a: RefreshDeltaContributionV1 {
+                    delta_y_hex: encode_hex(&REFRESH_DERIVER_A_DELTA_Y_V1),
+                    delta_tau_hex: encode_hex(&deriver_a_delta_tau),
+                },
+                deriver_b: RefreshDeltaContributionV1 {
+                    delta_y_hex: encode_hex(&REFRESH_DERIVER_B_DELTA_Y_V1),
+                    delta_tau_hex: encode_hex(&deriver_b_delta_tau),
+                },
+                combined_delta_y_hex: encode_hex(&REFRESH_DELTA_Y_V1),
+                combined_delta_tau_hex: encode_hex(&delta_tau_bytes),
             },
-            after_contributions: kdf_contribution_vector_v1(
-                transitioned.deriver_a(),
-                transitioned.deriver_b(),
-            ),
+            after_contributions: kdf_contribution_vector_v1(refreshed_a, refreshed_b),
             before_clear_reference_trace: before_trace,
             after_clear_reference_trace: after_trace,
         },
@@ -772,6 +906,20 @@ fn next_role_epochs_v1() -> RoleEpochPairV1 {
 
 fn epoch_v1(value: u64) -> NonZeroEpochV1 {
     NonZeroEpochV1::new(value).expect("canonical lifecycle epoch is nonzero")
+}
+
+const fn registration_metadata_reference_operation_counts_v1() -> ReferenceOperationCountsV1 {
+    ReferenceOperationCountsV1 {
+        deriver_a_invocations: 0,
+        deriver_b_invocations: 0,
+        client_kdf_derivations_a: 0,
+        client_kdf_derivations_b: 0,
+        server_kdf_derivations_a: 0,
+        server_kdf_derivations_b: 0,
+        activation_family_evaluations: 0,
+        export_family_evaluations: 0,
+        pending_activation_consumptions: 0,
+    }
 }
 
 const fn recovery_reference_operation_counts_v1() -> ReferenceOperationCountsV1 {

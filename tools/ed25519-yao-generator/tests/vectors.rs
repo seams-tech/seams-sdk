@@ -6,7 +6,7 @@ use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::{Signer, SigningKey, Verifier};
 use ed25519_yao_generator::{
-    canonical_vector_corpus_v1, LifecycleRequestKindV1, VectorCaseV1, VECTOR_CORPUS_SCHEMA_V1,
+    canonical_vector_corpus_v1, CeremonyRequestKindV1, VectorCaseV1, VECTOR_CORPUS_SCHEMA_V1,
 };
 
 #[test]
@@ -23,11 +23,11 @@ fn corpus_has_one_case_per_request_kind_and_export_only_result() {
     assert_eq!(
         request_kinds,
         [
-            LifecycleRequestKindV1::Registration,
-            LifecycleRequestKindV1::Activation,
-            LifecycleRequestKindV1::Recovery,
-            LifecycleRequestKindV1::Refresh,
-            LifecycleRequestKindV1::Export,
+            CeremonyRequestKindV1::Registration,
+            CeremonyRequestKindV1::Activation,
+            CeremonyRequestKindV1::Recovery,
+            CeremonyRequestKindV1::Refresh,
+            CeremonyRequestKindV1::Export,
         ]
     );
 
@@ -63,6 +63,31 @@ fn corpus_serialization_is_deterministic_and_strict() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn ceremony_request_kind_is_the_single_canonical_vector_kind() {
+    let fixtures_source = include_str!("../src/fixtures.rs");
+    let public_exports = include_str!("../src/lib.rs");
+    assert!(!fixtures_source.contains("LifecycleRequestKindV1"));
+    assert!(!public_exports.contains("LifecycleRequestKindV1"));
+
+    let cases = [
+        (CeremonyRequestKindV1::Registration, "registration"),
+        (CeremonyRequestKindV1::Activation, "activation"),
+        (CeremonyRequestKindV1::Recovery, "recovery"),
+        (CeremonyRequestKindV1::Refresh, "refresh"),
+        (CeremonyRequestKindV1::Export, "export"),
+    ];
+    for (kind, label) in cases {
+        let encoded = serde_json::to_string(&kind).expect("request kind serializes");
+        assert_eq!(encoded, format!("\"{label}\""));
+        assert_eq!(
+            serde_json::from_str::<CeremonyRequestKindV1>(&encoded)
+                .expect("request kind deserializes"),
+            kind
+        );
+    }
 }
 
 #[test]

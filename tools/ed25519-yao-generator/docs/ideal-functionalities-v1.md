@@ -12,9 +12,9 @@ persistence integration.
 
 Phase 1 remains open. The same-logical-root recovery transition and correlated
 refresh algebra are frozen below. Production root custody, production refresh
-delta generation, provenance artifacts and proofs, the registration anti-bias
-mechanism, active-output integration, and the exact active protocol require
-separate reviewed decisions.
+delta generation, profile-required provenance artifacts or proofs, the selected
+registration input-selection contract, private-output integration, and the
+exact P0-P3 protocol require separate reviewed decisions.
 
 ## 1. Source authority and evidence baseline
 
@@ -23,37 +23,59 @@ The source precedence for this boundary is:
 1. `docs/router-a-b-SPEC.md` owns product lifecycle, routing, transcript, and
    recipient behavior. See lines 5-11 and 902-925.
 2. `docs/yaos-ab.md` owns the Ed25519 secure-computation backend, arithmetic,
-   output custody, and active-security target. See **Document Authority and
+   output custody, and P0-P3 security target. See **Document Authority and
    Resolved Conflicts**, **Goal**, and **Scope**.
 3. `docs/router-a-b-sol-refactor.md` owns the wider cutover constraints and
    deletion plan. See **Goal**, **Executive Decisions**, and **Non-Negotiable
    Invariants**.
 4. Current generator code supplies executable clear arithmetic, a
-   nonserializable lifecycle-semantic type layer, one metadata-only activation
-   continuation, and narrow host lifecycle-continuity evidence. Its README
-   explicitly leaves production lifecycle transitions, provenance, package
-   opening, and active-protocol semantics open.
+   nonserializable lifecycle ownership and persistence-projection layer, narrow
+   host lifecycle-continuity evidence, and profile-neutral semantic
+   package/receipt bodies. Its README explicitly leaves production lifecycle
+   evaluators, durable persistence, authenticated provenance, package opening,
+   worker activation, and selected-protocol semantics open.
 
 Current implementation facts:
 
-- `LifecycleRequestKindV1` and `VectorCaseV1` already encode five disjoint tags
-  at `tools/ed25519-yao-generator/src/fixtures.rs:64-112`.
+- The serde-enabled `CeremonyRequestKindV1` is the single canonical five-branch
+  request discriminant; `VectorCaseV1` uses it directly in
+  `tools/ed25519-yao-generator/src/fixtures.rs:74-120`.
 - The existing vector union prevents an export result in a non-export branch at
-  `tools/ed25519-yao-generator/src/fixtures.rs:101-112,152-160`.
+  `tools/ed25519-yao-generator/src/fixtures.rs:74-120`.
 - `ActivationOracleOutput` has no seed field while `ExportOracleOutput` requires
-  one at `tools/ed25519-yao-generator/src/lib.rs:453-489`.
-- `lifecycle_domain.rs` implements five disjoint host-semantic structural
-  families. Its only transition function consumes synthetic activation metadata
-  and cannot open packages or establish a production activation.
-- `lifecycle_fixtures.rs` owns a separate strict four-case recovery,
-  activation, refresh, activation continuity corpus. Rust and an independent
-  standard-library Python verifier reproduce its complete relation.
-- Registration, recovery, refresh, and export lifecycle evaluators remain
-  absent. Complete party views, package/receipt bytes, persistence, and
-  production custody remain blocked below.
+  one at `tools/ed25519-yao-generator/src/lib.rs:590-626`.
+- `lifecycle_domain.rs` owns canonical branch requests, a non-`Clone`
+  `RegisteredLifecyclePreStateV1`, crate-private registered-state provenance
+  bridges, move-owned issuance and semantic sessions, evaluation-burn audit
+  identities, origin-typed output-committed activation states, retry-preserving
+  activation control, and metadata-consumed state projections. Registered
+  state is compared with recovery, refresh, or export provenance before host
+  evaluation; refresh also checks current and proposed role-input-state epochs.
+- `lifecycle_persistence.rs` implements nonserializable digest-only
+  `OutputCommitted`, rejected-attempt self-loop, and `MetadataConsumed`
+  projections. These values define construction-independent persistence states;
+  they are not durable records or transactions.
+- `lifecycle_fixtures.rs` owns a separate strict six-case continuity corpus:
+  synthetic registration-candidate metadata, first activation, recovery,
+  recovery-origin activation, refresh, and refresh-origin activation. Rust and
+  an independent standard-library Python verifier reproduce its complete
+  relation. The registration snapshot represents no registration evaluator.
+- Narrow registration, recovery, refresh, and export arithmetic/output-sharing
+  references now exist outside the complete lifecycle contracts. Their semantic
+  package descriptors and receipt bodies bind the exact ceremony/provenance DAG
+  through move-only branch contexts that run host-reference preparation,
+  output-sharing, and package construction in one call. No package API accepts a
+  separately precomputed success. This closes call-local type-level
+  ceremony/evaluation mixing; opaque provenance and evidence do not authenticate
+  the supplied synthetic inputs. Complete registration, recovery, refresh,
+  activation, and export evaluators, party views, selected cryptographic
+  package/receipt bytes, durable persistence, selected-profile opening,
+  production state promotion, recovery custody, atomic refresh cutover, and
+  production custody remain blocked below. Separate profile-neutral host
+  contracts now cover worker activation and authenticated refresh promotion.
 - Every current non-export vector is a lifecycle-labelled arithmetic case. The
   builder calls `evaluate_activation` before branching on the lifecycle tag at
-  `tools/ed25519-yao-generator/src/fixtures.rs:423-455`. Those cases are not
+  `tools/ed25519-yao-generator/src/fixtures.rs:410-436`. Those cases are not
   lifecycle-transition evidence.
 - The current Router primitive enum has only registration, export, and refresh
   at `crates/router-ab-core/src/derivation/context.rs:29-49`. Its admission
@@ -77,8 +99,8 @@ The keywords **MUST**, **MUST NOT**, **REQUIRED**, and **BLOCKED** are normative
 - **Public leakage** means transcript-bound public information and observable
   metadata that the ideal model deliberately exposes.
 - **Uniform abort** means one redacted terminal envelope whose contents are
-  independent of protected honest-party values. Exact active-protocol timing and
-  selective-failure proofs remain blocked.
+  independent of protected honest-party values. Exact selected-profile timing
+  and any selective-failure proof required by the frozen claim remain blocked.
 - **Same-logical-root rewrap** means recovering the exact existing 32-byte client
   derivation root inside an authorized secret boundary and encrypting those same
   bytes under a replacement credential binding. It never changes the stable
@@ -172,6 +194,16 @@ Evidence: `docs/router-a-b-SPEC.md:377-395,409-433`. The exact canonical encodin
 of `CeremonyTranscriptContext` remains Phase 1 work. Implementations may define
 the semantic type now; serialization and digest constructors MUST stay private
 until that encoding is frozen.
+
+Activation has two public semantic contexts. The origin context remains bound to
+the registration, recovery, or refresh package set. An origin-distinct
+activation-control context carries a request id, replay nonce, request-context
+digest, and transcript digest that each differ from the selected origin. It also
+carries a derived selection of the origin transition, origin transcript,
+package-set digest, and activation epoch. This is a pairwise comparison with the
+selected origin. Global uniqueness and replay admission remain responsibilities
+of the production request boundary. Package validation MUST compare package
+metadata with the origin context.
 
 The stable key context stays separate. Lifecycle, authorization, transport,
 deployment, ticket, epoch, and circuit metadata MUST NOT enter
@@ -284,32 +316,60 @@ pub enum ReferenceLifecycleRequestV1 {
 }
 
 pub struct RegistrationRequestV1 {
-    pub public: CommonLifecyclePublicInputV1,
-    pub recipients: ActivationRecipientsV1,
+    pub public: RegistrationPublicInputV1,
+}
+
+pub enum ActivationPackageOriginPublicInputV1 {
+    Registration(RegistrationPublicInputV1),
+    Recovery(RecoveryPublicInputV1),
+    Refresh(RefreshPublicInputV1),
+}
+
+pub struct ActivationControlProposalFieldsV1 {
+    request_id: PublicRequestIdV1,
+    replay_nonce: PublicReplayNonceV1,
+    request_expiry: PublicRequestExpiryV1,
+    request_context_digest: PublicRequestContextDigestV1,
+    transcript_digest: PublicTranscriptDigestV1,
+}
+
+pub struct PendingActivationSelectionV1 {
+    origin_transition: ActivationTransitionRefV1,
+    origin_transcript_digest: PublicTranscriptDigestV1,
+    package_set_digest: PublicActivationPackageSetDigestV1,
+    activation_epoch: ActivationEpochV1,
+}
+
+pub struct ActivationPublicInputV1 {
+    common: CommonLifecyclePublicInputV1,
+    selection: PendingActivationSelectionV1,
 }
 
 pub struct ActivationRequestV1 {
-    pub public: CommonLifecyclePublicInputV1,
-    pub pending: PendingActivationPreStateV1,
+    public: ActivationPublicInputV1,
+    pending: PendingActivationPreStateV1,
+}
+
+pub struct RejectedActivationControlProposalV1 {
+    public_abort: UniformLifecycleAbortV1,
+    pending: Box<PendingActivationPreStateV1>,
 }
 
 pub struct RecoveryRequestV1 {
-    pub public: CommonLifecyclePublicInputV1,
+    pub public: RecoveryPublicInputV1,
     pub authorization: ApprovedRecoveryAuthorizationV1,
-    pub replacement_client: ClientRecipientV1,
     pub replacement_credential: ReplacementCredentialBindingV1,
 }
 
 pub struct RefreshRequestV1 {
-    pub public: CommonLifecyclePublicInputV1,
+    pub public: RefreshPublicInputV1,
     pub authorization: ApprovedRefreshAuthorizationV1,
     pub next_role_epochs: NextRoleEpochsV1,
 }
 
 pub struct ExportRequestV1 {
-    pub public: CommonLifecyclePublicInputV1,
+    pub public: ExportPublicInputV1,
     pub authorization: ApprovedExportAuthorizationV1,
-    pub recipient: ClientRecipientV1,
 }
 
 pub struct UnregisteredPreStateV1 {
@@ -328,6 +388,21 @@ pub enum PendingActivationPreStateV1 {
     Registration(RegistrationPendingActivationV1),
     Recovery(RecoveryPendingActivationV1),
     Refresh(RefreshPendingActivationV1),
+}
+
+pub struct RegistrationPendingActivationV1 {
+    origin_public: RegistrationPublicInputV1,
+    // candidate, recipients, transition, activation epoch, packages
+}
+
+pub struct RecoveryPendingActivationV1 {
+    origin_public: RecoveryPublicInputV1,
+    // current/staged state, recipients, transition, activation epoch, packages
+}
+
+pub struct RefreshPendingActivationV1 {
+    origin_public: RefreshPublicInputV1,
+    // current/staged state, recipients, transition, activation epoch, packages
 }
 
 pub struct RegistrationSuccessV1 {
@@ -378,6 +453,35 @@ pub enum ReferenceLifecycleSuccessV1 {
 authorization, or seed field. `ExportSuccessV1` has no activation-family output,
 SigningWorker output, or client scalar output. The output types below enforce
 those rules.
+
+The executable host scaffold exposes less authority than this ideal schema.
+`RegisteredLifecyclePreStateV1::from_host_reference_store_projection`, the
+registered-state extraction methods on `RoleInputProvenancePairV1`, every
+`*ArtifactIssuanceV1`, and every `*ArtifactSessionV1` are crate-private.
+Issuance consumes its state and one-use execution identity; recovery and refresh
+also require strictly advancing epochs. Binding failure returns the owned request
+and issuance before evaluation. If an admitted evaluation fails, it returns a
+non-callable `BurnedArtifactAttemptV1` and any unchanged registered projection,
+without returning the request. Success seals the origin request into
+output-committed pending activation artifacts or a committed export value. None
+of these host-only values establishes globally unique issuance or durable
+storage.
+
+The crate-private `ActivationRequestV1::new` consumes
+`ActivationControlFreshFieldsV1` and an owned `PendingActivationPreStateV1`.
+It derives the canonical activation request, authorization, transcript, and
+validated DAG from the typed origin and committed artifact binding. Request id,
+replay nonce, request-context digest, transcript nonce, and transcript digest
+must each differ from the origin. Rejection returns a move-only
+`RejectedActivationControlProposalV1` containing the exact pending state for
+retry and one copyable public abort. Acceptance permits only crate-private
+`consume_activation_metadata_v1`, which moves the artifacts into an
+origin-preserving `MetadataConsumedActivationStateV1` with an exact
+`ZeroReevaluationWitnessV1`. It does not open or verify recipient packages,
+activate a SigningWorker, or promote registered identity, credential state,
+role-input-state epochs, or any state version. Canonical ceremony bytes and
+digests exist; expiry ordering, global replay admission, authenticated transport,
+and production wire handling remain outside this host scaffold.
 
 ```rust
 pub struct ReferenceActivationFamilyOutputsV1 {
@@ -436,44 +540,81 @@ pub fn evaluate_export_v1(
 ) -> ReferenceLifecycleResultV1<ExportSuccessV1>;
 ```
 
-These are the complete ideal-function contracts. The current Rust slice exposes
-only `consume_activation_metadata_v1(ActivationRequestV1)`, which validates and
-promotes synthetic public metadata without opening packages or combining
-SigningWorker shares. It is deliberately named outside the complete
-`evaluate_activation_v1` contract. Registration, recovery, refresh, export, and
-full activation evaluators remain absent until their respective blockers close.
+These are the complete ideal-function contracts. The current Rust slice keeps
+`consume_activation_metadata_v1(ActivationRequestV1)` crate-private. It
+validates and consumes synthetic metadata/control authority while retaining
+origin-specific host-reference state; it does not open packages, combine
+SigningWorker shares, promote state, or establish activation. The crate also
+exposes
+`prepare_host_only_registration_reference_v1` and
+`evaluate_host_only_registration_output_sharing_v1`,
+`prepare_host_only_recovery_reference_v1` and
+`evaluate_host_only_recovery_output_sharing_v1`, plus
+`prepare_host_only_refresh_reference_v1` and
+`evaluate_host_only_refresh_output_sharing_v1`, plus
+`prepare_host_only_export_reference_v1` and
+`evaluate_host_only_export_output_sharing_v1`. Registration derives four
+role/source-separated contribution pairs from three purpose-typed public
+synthetic roots and the stable context, evaluates the seed-free activation
+family, and applies typed scalar sharing. The recovery stages check exact
+synthetic-root equality, stable-context client KDF re-derivation, current
+client-contribution equality, and unchanged server contribution bytes. The
+refresh stages consume move-owned role-local A/B ideal delta contributions,
+derive their nonzero modular sum internally, keep all client bytes unchanged,
+and check the exact positive A and inverse B server updates. Both operations check complete before/after
+activation-oracle equality and typed scalar-share reconstruction from explicit
+public fixture coins. Export checks the projection's public key against one
+caller-supplied canonical expected key before typed seed sharing; its prepared
+and success accessors expose neither the joined seed nor the oracle material.
 
-The recovery and refresh input shapes are frozen for the host-only reference:
+The public host-reference arithmetic functions do not consume authorization,
+bind an activation output to authenticated state or epochs, establish
+unregistered admission, root/KDF provenance, or a registration input-selection
+claim, realize a deployed joint refresh-delta protocol, or open and replace a credential
+envelope. Crate-private lifecycle sessions construct profile-neutral semantic
+package and receipt bodies plus digest-only persistence projections from
+synthetic opaque evidence. They do not authenticate those evidence slots, write
+durable state, perform cutover, consume a production export authorization, or
+establish replay uniqueness. These functions are deliberately named outside
+the complete `evaluate_registration_v1`, `evaluate_activation_v1`,
+`evaluate_recovery_v1`, `evaluate_refresh_v1`, and `evaluate_export_v1`
+contracts. Full activation and every complete lifecycle evaluator remain absent
+until their respective blockers close.
+
+The implemented preparation input shapes are frozen for the host-only
+reference. Output-sharing coins enter only the separate consuming evaluation
+functions:
 
 ```rust
-pub struct RecoveryReferenceInputsV1 {
-    pub current_client_root: HostOnlyClientDerivationRootV1,
-    pub recovered_client_root: HostOnlyClientDerivationRootV1,
-    pub current_deriver_a: DeriverAContribution,
-    pub current_deriver_b: DeriverBContribution,
-    pub output_sharing_coins: HostOnlyActivationOutputCoinsV1,
+pub struct HostOnlyRegistrationReferenceInputsV1<'a> {
+    client_root: &'a SyntheticClientDerivationRootV1,
+    deriver_a_root: &'a SyntheticDeriverADerivationRootV1,
+    deriver_b_root: &'a SyntheticDeriverBDerivationRootV1,
+    stable_context: &'a StableKeyDerivationContext,
 }
 
-pub struct CorrelatedRefreshDeltaV1 {
-    pub delta_y: NonzeroLe256V1,
-    pub delta_tau: NonzeroCanonicalScalarV1,
+pub struct HostOnlyRecoveryReferenceInputsV1<'a> {
+    current_client_root: &'a SyntheticClientDerivationRootV1,
+    recovered_client_root: &'a SyntheticClientDerivationRootV1,
+    stable_context: &'a StableKeyDerivationContext,
+    current_deriver_a: &'a DeriverAContribution,
+    current_deriver_b: &'a DeriverBContribution,
 }
 
-pub struct RefreshReferenceInputsV1 {
-    pub current_deriver_a: DeriverAContribution,
-    pub current_deriver_b: DeriverBContribution,
-    pub delta: CorrelatedRefreshDeltaV1,
-    pub output_sharing_coins: HostOnlyActivationOutputCoinsV1,
+pub struct HostOnlyRefreshReferenceInputsV1<'a> {
+    current_deriver_a: &'a DeriverAContribution,
+    current_deriver_b: &'a DeriverBContribution,
+    delta_coins: HostOnlyJointRefreshDeltaCoinsV1,
 }
 ```
 
-The aggregate inputs and explicit coins exist only in the reference generator
-and formal model. Production APIs expose one role-local view. The production
-same-root witness, refresh-delta generation, contribution-state commitments, and
-input-provenance proofs remain undefined until Sections 12.1 through 12.4 close
-their remaining gates. `RegistrationReferenceInputsV1` may wrap the current
-synthetic A/B contributions for arithmetic fixtures. Its production-provenance
-member remains undefined until Section 12.3 closes.
+The borrowed aggregate inputs, moved role-local refresh contributions, and
+explicit output-sharing fixture coins
+exist only in the reference generator and formal model. Production APIs expose
+one role-local view. Production registration admission and root custody,
+same-root recovery proof, refresh-delta generation, contribution-state
+commitments, and profile-required input-provenance evidence remain undefined
+until Sections 12.1 through 12.4 close their remaining gates.
 
 ## 8. Common output sharing
 
@@ -504,6 +645,12 @@ supplies them as a freely chosen linear mask.
 Synthetic fixtures may record deterministic reference coins under an explicit
 `host_only_reference_randomness` field. Party views contain only the coins or
 shares visible to that party.
+
+The generator implements this deterministic reference in typed,
+nonserializable activation and export APIs. The strict six-case corpus in
+`docs/output-sharing-v1.md` covers zero, small, and wraparound coins and is
+independently reproduced by Python. This evidence establishes the equations
+and export-only seed-share boundary for public synthetic inputs.
 
 The active realization of these samples, private output translation,
 authentication, encryption, and anti-equivocation remains blocked by Section
@@ -546,9 +693,20 @@ has no pre-existing public-key equality precondition. Evidence: the **Fixed
 Circuit Families** section of `docs/yaos-ab.md` and
 `docs/router-a-b-SPEC.md:908-920`.
 
-Production root custody, the provenance proof, and the anti-bias rule are
-blockers. A complete registration evaluator and lifecycle fixture cannot ship
-before Section 12.3 closes.
+The complete Phase 1 construction-independent host evaluator uses the sealed
+admission and terminal-selection relation in
+`registration-evaluator-admission-v1.md`. It binds the public identity scope,
+ceremony DAG, intent, ordered provenance pair, both opaque input-selection
+evidence identities, checked-at time, activation epoch, execution identity,
+candidate key, and output commitment. This is an ideal host relation with an
+explicit public-scope-only unregistered claim.
+
+Production root custody, authenticated input provenance, durable absence and
+uniqueness, and the selected input-selection mechanism remain Phase 6B-7
+blockers. P0 records signed/public bindings plus the honest-input-derivation
+assumption. P1-P3 add only the reviewed anti-bias mechanism and proof covered by
+their selected composition. The deployable evaluator cannot ship before those
+Section 12.3 requirements close.
 
 ### 9.2 `F_ed25519_activation_v1`
 
@@ -659,8 +817,8 @@ Precondition:
 - both next role epochs strictly advance their corresponding current epochs;
 - the stable derivation roots, stable context, and both client contributions stay
   unchanged;
-- the host-only reference receives one nonzero canonical correlated refresh
-  delta for each arithmetic domain.
+- the host-only reference receives distinct canonical A/B ideal contributions
+  for each arithmetic domain and internally derives a nonzero joint result.
 
 At initial provisioning, each effective server/account contribution equals its
 frozen role-local KDF output. A refresh updates that persisted effective
@@ -685,7 +843,8 @@ Reference computation:
 
 1. Freeze new derivation ceremonies for the registered key and reserve one fresh
    one-use ticket at each role.
-2. Apply the explicit correlated delta above and stage both next-epoch role-local
+2. Derive the nonzero joint delta from the role-local contributions, apply the
+   correlated update above, and stage both next-epoch role-local
    contribution states. Neither next state is active yet.
 3. Recompute the old and next joined reference traces and require equality of
    joined `y`, joined `tau`, `d`, `a`, `x_client_base`, `x_server_base`,
@@ -723,7 +882,7 @@ Crash and retry semantics:
   the signed prepare, output-commitment, and SigningWorker activation receipts
   until both roles record the same active next epoch.
 - An uncertain pre-commit ticket is destroyed. A retry uses a fresh authorization,
-  delta, transcript, and ticket.
+  A/B contribution pair, transcript, and ticket.
 
 Preservation of `x_client_base` and `x_server_base` follows algebraically from
 the frozen preservation of `d` and `tau`. The normative identity requirements
@@ -773,6 +932,17 @@ Evidence: the **Ed25519 Export** section of
 and the **Fixed Circuit Families** and **Protocol-Generated Output Sharing**
 sections of `docs/yaos-ab.md`.
 
+The host-only export composition now starts from authenticated registered state,
+binds the canonical ceremony and role provenance, evaluates and packages one
+exact typed A/B share pair, and commits that output while authorization remains
+unconsumed. A construction-independent release transition retains those exact
+shares through delivery uncertainty, consumes authorization at Client release,
+binds the preceding output-commitment receipt, and models exact-identity
+redelivery with zero private reevaluation. Independent Rust and Python checks
+reconstruct the seed and reproduce the registered RFC 8032 public key. The
+model supplies no production opener, authenticated transport, durable replay
+transaction, constant-time construction evidence, or profile-security claim.
+
 Export MUST NOT contain activation-family client shares, SigningWorker shares,
 or a SigningWorker recipient. Registration, activation, recovery, and refresh
 MUST NOT contain seed wires, seed-share outputs, or export authorization.
@@ -785,7 +955,7 @@ All five ideal-function contracts specify one result shape:
 pub type ReferenceLifecycleResultV1<S> = Result<S, UniformLifecycleAbortV1>;
 
 pub struct UniformLifecycleAbortV1 {
-    pub request_kind: LifecycleRequestKindV1,
+    pub request_kind: CeremonyRequestKindV1,
     pub public_transcript_digest: TranscriptDigest32,
     pub public_failure_code: RedactedFailureCodeV1,
     pub terminal: AbortedTerminalStateV1,
@@ -799,21 +969,41 @@ digest. A redacted failure-code registry may distinguish public boundary classes
 such as expiry or replay only after review. Its encoding is not frozen here.
 
 Router faults such as denial, stale routing, replay, or incomplete delivery must
-be detectable (`docs/router-a-b-SPEC.md:746-759`). Malicious A or B behavior must
-produce a valid authenticated output or a uniform detectable abort
+be detectable (`docs/router-a-b-SPEC.md:746-759`). The Phase 6A-selected profile
+defines the Deriver-deviation claim. P0 covers approved honest execution and
+records active Deriver behavior as an exclusion; P1 covers only its coherent
+reviewed subset; P2/P3 require a valid authenticated output or a uniform
+detectable abort for the selected malicious-Deriver model
 (`docs/router-a-b-SPEC.md:761-772`). Timeout, crash, cancellation, peer
-uncertainty, malformed input, partial send, and rollback destroy one-use
-material (`docs/yaos-ab.md`, **Frame Format** and **Incremental Evaluation**).
+uncertainty, malformed input, partial send, and rollback destroy the selected
+per-ceremony session or preprocessing-ticket material (`docs/yaos-ab.md`,
+**Frame Format** and **Incremental Evaluation**).
 
 The ideal model freezes the envelope and its forbidden contents. Exact timing,
-active-protocol abort points, selective-failure independence, and failure-code
-equivalence remain Section 12.4 blockers.
+selected-profile protocol failure points, failure-code equivalence, and any
+selective-failure independence required by the selected P1-P3 claim remain
+Section 12.4 blockers.
 
-The host-semantic implementation constructs this shape for rejected synthetic
-activation-metadata bindings and uses one provisional redacted code. That is
-partial executable envelope evidence only. The other four functions, exact
-encoding, all active-protocol failures, timing equivalence, and
-selective-failure independence remain unimplemented.
+The host-semantic implementation now constructs this exact four-field shape
+from a validated ceremony DAG for all five request kinds and uses one redacted
+host-reference code plus one terminal state. A strict five-case corpus links
+each transcript digest to the canonical ceremony companion. Rejected activation
+metadata and every admitted registration, recovery, refresh, or export host-
+reference evaluation failure expose this envelope. Evaluator failures retain
+their detailed semantic cause only for crate-owned audit handling; the public
+accessor and `Debug` projection omit it. Production encoding, selected-profile
+protocol failures, timing equivalence, and every selective-failure guarantee
+remain unimplemented.
+
+The admitted evaluator-abort persistence and party-view layer now uses distinct
+registration, recovery, refresh, and export retention types. Registration is an
+unregistered self-loop; recovery retains its exact credential-suspended state;
+refresh and export return their exact registered state through `before()` and
+`after()`. All seven role observations contain only the uniform abort. Its strict
+four-case host corpus and complete contract are in
+`evaluator-abort-state-party-views-v1.md`. Production storage, actual ticket
+destruction, frames, delivery, timing, and selected-profile failure semantics
+remain unimplemented.
 
 ## 11. Fixture and test strategy
 
@@ -824,21 +1014,78 @@ Keep `vectors/ed25519-yao-v1.json` as a host-only clear-arithmetic corpus. Its
 differential implementations. No party-view test may treat that trace as a
 protocol output.
 
-### 11.2 Narrow continuity corpus and blocked complete lifecycle corpus
+### 11.2 Narrow lifecycle and output-party-view corpora
 
-A separately versioned four-case host continuity corpus is implemented. It
+A separately versioned six-case host continuity corpus is implemented. It
 contains:
 
+- a synthetic public registration-candidate metadata snapshot with all-zero
+  represented-work counters;
+- a registration-origin ideal first-activation snapshot with zero reference
+  work;
 - same-root recovery continuity;
-- recovery-origin activation metadata promotion with zero reference work;
+- a recovery-origin ideal activation snapshot with zero reference work;
 - opposite-delta refresh continuity;
-- refresh-origin activation metadata promotion with zero reference work.
+- a refresh-origin ideal activation snapshot with zero reference work.
+
+The same-root case is generated through
+`prepare_host_only_recovery_reference_v1`, which is the sole recovery arithmetic
+path used by the corpus builder. The opposite-delta case is generated through
+`prepare_host_only_refresh_reference_v1`, which is likewise its sole arithmetic
+path. The narrow corpus retains its existing public continuity schema and
+contains no output-sharing coins or shares.
 
 Its operation counters are ideal reference metadata. They do not instrument a
-deployed network, Deriver call path, or Yao engine. Registration,
-registration-origin activation, export, ciphertext/package receipts, crash and
+deployed network, Deriver call path, Yao engine, or fixture-construction work.
+The activated snapshots are continuity fixtures. They do not represent the
+implemented `MetadataConsumedActivationStateV1`, prove SigningWorker activation,
+or promote identity, credential, role-input-state, or versioned durable state.
+Registration evaluation, export, ciphertext/package receipts, crash and durable
 persistence behavior, and separate party views remain outside this narrow
 schema.
+
+The separate five-case semantic-artifact lifecycle corpus closes the public
+encoding and projection portion of this boundary. It contains registration,
+activation, recovery, refresh, and export tagged cases; exact semantic
+descriptor, package-set, and receipt-body encodings; the three digest-only
+persistence projections; all three activation origins with zero-reevaluation
+counters; and four reconstructed freshness-reuse rejection self-loops. Seven
+Rust tests and ten independent Python tests cover canonical bytes, typed
+digest domains, ceremony/provenance links, descriptor ordering, prime-subgroup
+share points, `2*X_client-X_server=A_pub`, uniform aborts, and recursive secret
+exclusion. The exact contract is `semantic-artifact-lifecycle-v1.md`.
+
+That corpus renders public evidence projections. It does not add party-private
+views, authenticated ciphertexts or receipts, durable records, recovery custody,
+refresh promotion, or worker activation.
+
+The separate strict five-case output-party-view corpus composes those public
+artifacts with construction-independent host output custody. It covers
+registration, recovery, and refresh package preparation; activation metadata
+consumption; and export release. Each case has one equal common-public value and
+seven closed role extensions. The core exposes separate consuming Deriver A and
+Deriver B observation methods, with no runtime role selector. Five core relation
+tests, two compile/static boundary tests, six corpus tests, nine independent
+Python tests, and nine Lean policy-shape theorems cover scalar/seed
+reconstruction, all three activation
+origins, export registered-key continuity, empty infrastructure extensions,
+static A/B separation, and forbidden-value exclusions. The exact contract is
+`output-party-views-v1.md`.
+
+The separate export-delivery lifecycle closes the host authorization-ordering
+and exact-output-provenance gap for export. Its one-case corpus covers output
+commitment, delivery uncertainty, Client release, and exact-identity redelivery.
+It does not model a production opener, network frames, durable delivery state,
+or selected-profile security. Separate activation-delivery and activation-
+recipient companions now cover atomic release and verified SigningWorker
+activation as host-only structural evidence.
+
+The corpora intentionally contain synthetic role-private values for independent
+verification. They are not public runtime leakage or a production format. This
+evidence does not model complete party inputs, protocol randomness, production
+frames, abort timing, durable transition state, memory erasure, adaptive
+corruption, noninterference, simulator equivalence, or selected-profile
+security.
 
 After the applicable blockers close, add a complete lifecycle corpus using a
 tagged union with five distinct DTOs:
@@ -871,7 +1118,8 @@ They reference committed output digests from a registration, recovery, or refres
 fixture. They contain no `VectorInputsV1` and no output-sharing randomness.
 
 Recovery and refresh success fixtures may now implement the frozen host-only
-semantics. They use exact root equality and explicit synthetic refresh deltas;
+semantics. They use exact root equality and explicit synthetic A/B refresh
+contributions plus their checked joint result;
 they carry no placeholder or `unsupported` success variant. These fixtures are
 reference evidence only. They do not satisfy the production provenance,
 delta-generation, active-output, or distributed-cutover gates.
@@ -959,7 +1207,7 @@ server/account contributions, joined values, signing bases, and public identity.
 An unavailable or suspected-compromised client root requires explicit wallet
 rekey. Compensating client-root replacement is outside version one.
 
-The host-only reference proves continuity through exact root and contribution
+The host-only reference checks continuity through exact root and contribution
 equality. Production remains BLOCKED until review selects:
 
 - the protected boundary that opens the old recovery envelope and creates the new
@@ -972,9 +1220,11 @@ equality. Production remains BLOCKED until review selects:
   suspension, output commitment, activation, promotion, and old-binding
   tombstones.
 
-Successful host-only recovery vectors and a deterministic reference evaluator
-may land before that production proof. They MUST label exact root comparison and
-all aggregate inputs as host-only evidence.
+The successful host-only recovery vector and deterministic preparation/output-
+sharing reference are implemented. They label exact root comparison, aggregate
+inputs, and explicit coins as host-only public synthetic evidence. They do not
+bind the before/after values to authenticated registered state. Production proof
+and custody remain blocked by the requirements above.
 
 ### 12.2 Refresh delta generation, proof, and distributed cutover
 
@@ -997,65 +1247,97 @@ exact ciphertext redelivery and idempotent signed receipts. Derivation admission
 stays frozen during a partial cutover, and the committed transition rejects both
 old role epochs.
 
-Production remains BLOCKED until review selects and verifies:
+The deterministic host-only refresh preparation and scalar-output-sharing
+composition are implemented over public synthetic current inputs, move-owned
+role-local A/B ideal delta contributions, and explicit output-sharing fixture coins. They
+check unchanged
+client inputs, exact `+delta`/`-delta` server updates, joined and downstream
+activation continuity, and scalar-share reconstruction. The implementation is
+variable-time and does not authenticate roots, KDF provenance, registered state,
+or epochs.
 
-- protocol-generated joint delta generation with correctness-with-abort and no
-  client or Router control over either delta;
-- input commitments proving each old contribution belongs to the current epoch
-  and each new contribution is the exact signed-delta update;
-- active-circuit or equivalent proof that old and next joined `y` and `tau` are
-  equal without opening either joined value;
-- authenticated binding between next contribution state, recipient packages,
-  active outputs, and the complete package-digest set;
-- concrete role-local durable transactions, cutover certificates, erasure, and
-  crash recovery across independent deployments.
+Production remains BLOCKED until Phase 6A selects a coherent P0-P3 profile and
+review verifies the corresponding realization:
+
+- deployed role-separated A/B contribution origination with no client or Router
+  control, reviewed entropy and anti-bias, and the frozen ideal nonzero-sum
+  distribution; correctness-with-abort is required when the selected profile
+  claims active protection;
+- profile-appropriate binding of each old contribution to the current epoch and
+  each new contribution to the exact signed-delta update; P0 records its
+  honest-execution assumption and signed/public checks explicitly;
+- an active-circuit or equivalent proof that old and next joined `y` and `tau`
+  are equal without opening either joined value for every profile whose claim
+  covers a deviating Deriver;
+- profile-appropriate authenticated binding between next contribution state,
+  recipient packages, outputs, and the complete package-digest set, using the
+  selected P0 signed/public checks or the reviewed P1-P3 mechanism;
+- the minimal role-local persistence, cutover evidence, erasure, and crash
+  recovery required by the Phase 6A-selected lifecycle across independent
+  deployments.
 
 Evidence for the current ambiguity spans the root-share flow at
 `docs/router-a-b-SPEC.md:533-553`, activation-family refresh in the **Fixed
 Circuit Families** section of `docs/yaos-ab.md`, and the **Root And
 Key-Continuity Policy** of `docs/router-a-b-sol-refactor.md`.
 
-The security claim remains static corruption. This transition invalidates stale
-role-share epochs and shortens retained-state cryptoperiods. It supplies no
-mobile-adversary or sequential-compromise healing claim. Such a claim requires a
-reviewed erasure model, corruption schedule, and refresh proof beyond this
-reference functionality.
+The production corruption claim follows the Phase 6A-selected P0-P3 profile;
+this host reference carries no corruption claim. The transition invalidates
+stale role-share epochs and shortens retained-state cryptoperiods. It supplies
+no mobile-adversary or sequential-compromise healing claim. Such a claim
+requires a reviewed erasure model, corruption schedule, and refresh proof beyond
+this reference functionality.
 
-### 12.3 Role-input provenance, root custody, and registration anti-bias
+### 12.3 Role-input provenance, root custody, and registration input selection
 
 The application binding, stable context, and contribution-KDF bytes are frozen
 in the host reference under `docs/yaos-ab.md` **Stable Key Context and Ceremony
 Context**. `docs/input-provenance-v1.md` freezes a proof-system-neutral outer
 statement, A/B pair invariants, root/input-state epoch meanings, lifecycle
-evidence slots, and registration anti-bias acceptance requirements. Production
-root custody and proof realization remain open. Active 2PC proves a computation
-over supplied inputs; it does not establish that those inputs match the
-provisioned roots described under **Input Provenance**. Required decisions are:
+evidence slots, and profile-indexed registration input-selection requirements.
+Production root custody and artifact realization remain open. Yao proves only
+the computation guaranteed by the selected profile over supplied inputs; it
+does not by itself establish that those inputs match the provisioned roots
+described under **Input Provenance**. Required decisions are:
 
 - protected production root representations and role-local invocation APIs;
 - hiding and binding artifact suites plus proof statements connecting each
   frozen KDF output to its provisioned root;
-- canonical ceremony, authorization, root-record, and role-input-state bytes;
-- registration anti-bias mechanism and retry/acceptance state machine;
+- authenticated authorization-record, root-record, and role-input-state bytes
+  plus their production verification and lookup rules;
+- the Phase 6A-selected registration input-selection contract and
+  retry/acceptance state: P0 signed/public bindings and explicit honest-input
+  assumption, or the reviewed P1-P3 anti-bias mechanism;
 - protected same-root recovery proof and joint refresh-delta proof;
-- active-protocol composition binding accepted provenance to exact input wires.
+- selected-protocol composition binding accepted provenance to exact input
+  wires at the strength required by the frozen claim.
 
 Synthetic raw contributions remain valid clear-arithmetic test inputs. They are
 not production provenance evidence.
 
-### 12.4 Exact active protocol and private outputs
+### 12.4 Selected protocol and private outputs
 
 The ideal random-sharing distribution is frozen in Section 8. Its realization
-remains blocked on selection and review of:
+remains blocked on the Phase 6A P0-P3 selection and review. Every eligible
+profile requires:
 
-- malicious-secure OT and consistency checks;
-- garbling correctness and input consistency;
 - protocol-generated unbiased output randomness;
-- two-sided private output translation;
-- active-output authentication and anti-equivocation;
-- recipient encryption and exact signed receipt bytes;
-- selective-failure-resistant uniform abort behavior;
-- one-use preprocessing, stream, persistence, and crash state machines.
+- reviewed garbling and OT matching the exact selected claim;
+- two-sided private output translation and recipient encryption;
+- transcript/package binding, public output checks, and exact signed receipt
+  bytes;
+- the minimal replay, stream, persistence, and crash lifecycle selected for
+  that profile.
+
+P1-P3 additionally require the complete reviewed combination selected for their
+claim, which may include malicious-secure OT, input consistency, active garbling
+correctness, active-output authentication, selective-failure-resistant aborts,
+and one-use preprocessing. P0 records honest execution of the approved OT,
+garbling, input derivation, and output-sharing algorithms as an explicit
+assumption. It retains the mandatory independent administration, artifact
+pinning, authenticated transport, replay controls, recipient encryption,
+constant-time review, and signed/public output checks defined in
+`docs/yaos-ab.md`. Partial active mechanisms do not widen its claim.
 
 These are production capabilities in the **Production Capabilities** section of
 `docs/yaos-ab.md`. This reference boundary supplies no evidence for them.
@@ -1067,20 +1349,42 @@ These are production capabilities in the **Production Capabilities** section of
 | Five disjoint request tags                | `fixtures.rs` and branch-specific wrappers in `lifecycle_domain.rs`                                                                  | executable structural match | 1.00       |
 | Export-only seed result                   | arithmetic oracle union and structural export output family                                                                          | executable structural match | 1.00       |
 | Five disjoint prestates and transitions   | nonserializable request, pre-state, success, and output-custody families in `lifecycle_domain.rs`                                    | host-semantic match         | 0.99       |
-| Activation package-reference consumption  | `consume_activation_metadata_v1` checks and move-consumes synthetic manifests, package references, and full semantic public bindings | metadata-only evidence      | 1.00       |
+| Lifecycle artifact ownership              | crate-private registered-state bridges and move-owned issuance/sessions return inputs before evaluation, then burn admitted request identities | executable host evidence    | 1.00       |
+| Activation package-reference consumption  | crate-private activation control retains output-committed artifacts on rejection and move-consumes accepted metadata with zero reevaluation | metadata-only evidence      | 1.00       |
+| Activation persistence projections        | digest-only `OutputCommitted`, exact rejected-attempt self-loop, and `MetadataConsumed` values; no durable record or worker-activation claim | executable host evidence    | 1.00       |
+| Public semantic artifact lifecycle corpus | strict five-branch descriptor/package/receipt/projection bytes, three activation origins, four uniform rejection self-loops, seven Rust tests, and ten independent Python tests | executable host evidence | 1.00 |
 | Recovery remains distinct from export     | generator types are distinct; the superseded Router gate remains an integration cleanup item                                         | integration mismatch        | 1.00       |
-| Recovery seed-preserving transition       | committed four-case corpus plus Rust and independent Python reproduction                                                             | executable host evidence    | 1.00       |
-| Refresh identity-preserving transition    | exact role-local signed deltas plus joined/downstream equality in Rust and independent Python                                        | executable host evidence    | 1.00       |
-| Complete party views and declared leakage | host traces are explicitly excluded from party views; complete role views remain absent                                              | missing in code             | 1.00       |
-| Uniform lifecycle abort envelope          | activation-metadata mismatch uses one public-only shape and provisional redacted code                                                | partial executable evidence | 0.99       |
+| Registration arithmetic establishment     | typed host-only root-to-contribution preparation, seed-free activation, and scalar sharing with six focused independent-arithmetic tests | executable host evidence    | 1.00       |
+| Recovery seed-preserving transition       | typed host-only preparation/output-sharing reference plus committed six-case corpus and Rust/Python checks                           | executable host evidence    | 1.00       |
+| Refresh identity-preserving transition    | typed host-only preparation/output-sharing reference, exact role-local signed deltas, six focused Rust tests, and unchanged Rust/Python corpus evidence | executable host evidence    | 1.00       |
+| Export registered-key equality and sharing | typed host-only caller-supplied key check plus consuming seed-share composition and six focused independent-arithmetic/RFC 8032 tests | executable host evidence    | 1.00       |
+| Host-only output-sharing arithmetic       | typed activation scalar and export-only seed shares plus a six-case Rust/Python corpus                                              | executable host evidence    | 1.00       |
+| Construction-independent output party views | five stage/seven-role host views, static consuming A/B observation, strict five-case corpus, 11 Rust tests, nine Python tests, and nine Lean policy theorems | executable host evidence | 1.00 |
+| Export release and redelivery lifecycle | output commitment keeps authorization live; exact retained shares flow through uncertainty to Client release; release consumes authorization; redelivery is an identity self-loop | executable host evidence | 1.00 |
+| Complete party views and declared leakage | output custody is executable; private input/randomness/frame, delivery, abort, durable-transition, and selected-profile views remain absent | missing in code | 1.00 |
+| Uniform lifecycle abort envelope          | exact public-only four-field shape and five-branch ceremony-linked corpus; activation-metadata mismatch is the only integrated lifecycle failure | partial executable evidence | 1.00       |
 | Active private randomized outputs         | no protocol implementation exists                                                                                                    | intentionally absent        | 1.00       |
 
-The completed slice provides branch-specific public semantics, five disjoint
-structural lifecycle families, metadata-only activation promotion, one narrow
-uniform-abort instance, and a cross-language four-case continuity corpus.
-Recovery and refresh inputs remain public synthetic host evidence. Package
-opening, global one-use issuance, complete lifecycle evaluators, party views,
-production provenance and custody, active outputs, receipts, and distributed
-persistence remain blocked by Sections 12.1 through 12.4.
+The completed slice provides branch-specific public semantics, canonical
+ceremony-owning requests, crate-private registered-state bridges, move-owned
+issuance and sessions, evaluation-burn behavior, origin-typed output-committed
+artifacts, retry-preserving activation control, metadata-consumed states, and
+three digest-only persistence projections. It also provides typed host-only
+recovery and refresh preparation/output-sharing references, a cross-language
+six-case continuity corpus, and a cross-language six-case host-only
+output-sharing corpus. The strict five-branch semantic-artifact lifecycle corpus
+adds public package/receipt encodings and persistence cross-links without
+creating production authority. The five-case output-party-view corpus adds
+closed construction-independent output-custody projections and static A/B
+observation without claiming runtime privacy. Recovery and refresh inputs remain
+public synthetic host evidence. The companion authenticated-store contract now
+requires a strictly verified request-bound authority wrapper before registered
+issuance. Package opening, production store parsing and rollback floors, global
+one-use issuance, complete lifecycle evaluators, durable persistence and
+transactions, selected-profile opening, production identity/state-version
+promotion, recovery custody, atomic refresh cutover, complete runtime party
+views, production provenance and custody, deployed role-separated delta
+origination and anti-bias, profile-selected private outputs, and authenticated
+receipt artifacts remain blocked by Sections 12.1 through 12.4 and Phase 6A.
 
 This document does not close Yao Phase 1 or FV0.

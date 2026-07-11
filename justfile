@@ -42,6 +42,10 @@ ed25519-hss-fv-verus:
 ed25519-yao-fv:
   cargo yao-fv all
 
+# Check the versioned fixed-reference generated region against its Rust owner.
+ed25519-yao-fv-reference-spec:
+  cargo yao-fv reference-spec-check
+
 # Check the committed Ed25519 Yao vector corpus through the clear oracle.
 ed25519-yao-fv-vectors:
   cargo yao-fv vectors-check
@@ -69,6 +73,13 @@ ed25519-yao-fv-aeneas:
 # Verify the current Ed25519 Yao Verus mirror with the pinned release.
 ed25519-yao-fv-verus:
   cargo yao-fv verus-check
+
+# Qualify the pinned native constant-time analyzer with safe and vulnerable fixtures.
+ed25519-yao-fv-constant-time-qualification:
+  cargo yao-fv constant-time-qualification
+
+ed25519-yao-fv-benchmark-manifest-reproducibility:
+  cargo yao-fv benchmark-manifest-reproducibility
 
 # Run the active crate parity tests for `ecdsa-hss`.
 ecdsa-hss-fv-parity:
