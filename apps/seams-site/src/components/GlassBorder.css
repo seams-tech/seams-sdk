@@ -4,7 +4,7 @@
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(2px);
   border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: var(--site-radius-xl);
+  border-radius: var(--w3a-shape-card, 16px);
   padding: var(--site-space-2);
   max-width: 860px;
   width: 100%;
@@ -12,7 +12,8 @@
 }
 
 .glass-border-inner {
-  border-radius: 2rem;
+  /* concentric with the shell radius across the shell's padding */
+  border-radius: calc(var(--w3a-shape-card, 16px) / 2);
   background: var(--site-surface, var(--w3a-colors-surface));
 }
 
@@ -22,5 +23,5 @@
 }
 
 .glass-border-root.demo-transaction-shell .glass-border-inner {
-  border-radius: var(--site-radius-xl);
+  border-radius: var(--w3a-shape-card, 16px);
 }

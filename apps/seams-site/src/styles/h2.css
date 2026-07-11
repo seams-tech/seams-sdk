@@ -57,7 +57,7 @@
 }
 
 .h2-page--wallet {
-  --h2-wallet-demo-shell-min-height: 580px;
+  --h2-wallet-demo-shell-min-height: 520px;
   --h2-wallet-auth-menu-block-size: 500px;
 }
 
@@ -947,9 +947,10 @@ body:has(.h2-page) {
 }
 
 .h2-heroscene__aside:hover {
-  /* hover just deepens the panel's own warm tint (base is taupe 55% / bg 45%)
-     rather than mixing in stone, so it lifts without reading dark grey */
-  background-color: color-mix(in srgb, var(--h2-taupe) 88%, var(--h2-bg) 12%);
+  /* hover just deepens the panel's own warm tint to full taupe (base is
+     taupe 55% / bg 45%) rather than mixing in stone, so it lifts a touch
+     without reading dark grey */
+  background-color: var(--h2-taupe);
 }
 
 .h2-heroscene__aside-body {
@@ -1020,7 +1021,7 @@ body:has(.h2-page) {
 .h2-wallet-confirm__card--front {
   position: relative;
   z-index: 2;
-  border-radius: 34px 34px 0 0;
+  border-radius: 18px 18px 0 0;
   border-bottom: none;
   padding-bottom: 26px;
   filter: drop-shadow(0 -14px 32px rgba(15, 23, 42, 0.1));
@@ -1049,18 +1050,26 @@ body:has(.h2-page) {
   /* ground the app in the panel's own tint (the sign-in scene's backdrop)
      instead of card white, so both scenes share one warm tone */
   background: color-mix(in srgb, var(--h2-taupe) 55%, var(--h2-bg) 45%);
-  /* slight scale keeps the blur from feathering the panel edges */
-  filter: blur(6px);
+  /* slight scale keeps the blur from feathering the panel edges; a touch of
+     brightness keeps the frosted app from reading dim */
+  filter: blur(6px) brightness(1.05);
   transform: scale(1.04);
 }
 
-/* warm taupe veil over the app: frosts it toward the panel tint rather than
-   dimming it cool */
+/* cream/light-grey veil over the app, like a page dimmed under a live bottom
+   sheet — neutral with only a hint of warmth, not sandy. The opaque backdrop
+   hides the aside's own taupe hover, so the veil carries the hover response
+   on this scene: a slow shift one step deeper into the same grey. */
 .h2-heroscene__aside-appback::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--h2-taupe) 62%, transparent);
+  background: color-mix(in srgb, #f9f8f6 58%, transparent);
+  transition: background-color 350ms ease;
+}
+
+.h2-heroscene__aside:hover .h2-heroscene__aside-appback::after {
+  background: color-mix(in srgb, #efedea 58%, transparent);
 }
 
 /* panel header and body stack above the backdrop */
@@ -1087,19 +1096,10 @@ body:has(.h2-page) {
   background: #e7e4df;
 }
 
-.h2-txmock__close {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 18px;
-  height: 18px;
-  color: #a59f97;
-}
-
 .h2-txmock__title {
-  margin: 22px 0 6px;
-  font-size: 20px;
-  font-weight: 700;
+  margin: 16px 0 6px;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .h2-txmock__meta {
@@ -1114,7 +1114,7 @@ body:has(.h2-page) {
 .h2-txmock__meta svg {
   width: 13px;
   height: 13px;
-  color: #7c9fe0;
+  color: #a59f97;
 }
 
 .h2-txmock__meta svg:not(:first-of-type) {
@@ -1127,12 +1127,15 @@ body:has(.h2-page) {
   color: #777169;
 }
 
+/* bordered-white data readout (EL grammar: border for data, fill for
+   buttons); function names read in ink, the contract address carries the
+   card's single accent */
 .h2-txmock__tree {
   margin: 0 0 16px;
   padding: 13px 15px;
-  border-radius: 16px;
-  border: 1px solid #f0eeeb;
-  background: #f6f5f3;
+  border-radius: 10px;
+  border: 1px solid #e7e4df;
+  background: #ffffff;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -1142,8 +1145,12 @@ body:has(.h2-page) {
 }
 
 .h2-txmock__tree strong {
-  color: #7c9fe0;
+  color: #0a0a0a;
   font-weight: 600;
+}
+
+.h2-txmock__addr {
+  color: #4a6fa5;
 }
 
 /* connected tree rail: each step carries a vertical segment spanning its
@@ -1199,15 +1206,15 @@ body:has(.h2-page) {
 .h2-txmock__btn {
   display: grid;
   place-items: center;
-  height: 48px;
-  border-radius: 9999px;
-  font-size: 15px;
+  height: 42px;
+  border-radius: 10px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .h2-txmock__btn--ghost {
   background: #ffffff;
-  border: 1px solid #ebe8e4;
+  border: 1px solid #dcd6cd;
 }
 
 .h2-txmock__btn--solid {
@@ -1297,12 +1304,15 @@ body:has(.h2-page) {
   color: var(--h2-ink);
 }
 
-/* Slack-style sidebar (integrations scene): classic aubergine workspace rail
-   with the blue active-channel highlight */
+/* Slack-style sidebar (integrations scene): the workspace rail stays dark so
+   it still reads as Slack, but desaturated to a dusty plum in the site's ink
+   family — Slack's saturated aubergine + blue pill fought the warm paper
+   palette. Active channel is a lighter step of the same plum, keeping the
+   mock monochrome so the pane's green "Approved" chip is the only accent. */
 .h2-window__side--slack {
-  background: #3f0e40;
-  border-right: 1px solid #2c092d;
-  color: rgba(255, 255, 255, 0.76);
+  background: #463a47;
+  border-right: 1px solid #392e3a;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .h2-window__side--slack .h2-window__brand {
@@ -1310,7 +1320,7 @@ body:has(.h2-page) {
 }
 
 .h2-window__side--slack .h2-window__navitem.is-active {
-  background: #1164a3;
+  background: #6b566d;
   color: #ffffff;
 }
 
@@ -1703,7 +1713,7 @@ body:has(.h2-page) {
   align-items: flex-start;
   justify-content: center;
   min-width: 0;
-  padding: 116px 48px 64px 40px;
+  padding: 80px 48px 48px 40px;
 }
 
 .h2-hero .h2-kicker {
@@ -1795,15 +1805,15 @@ body:has(.h2-page) {
   justify-content: center;
   /* without this the cell's min-content widens the stacked 1fr column on mobile */
   min-width: 0;
-  padding: 92px 40px 56px;
+  padding: 56px 40px 40px;
   border-left: 1px solid var(--h2-stone);
   background-color: color-mix(in srgb, var(--h2-taupe) 55%, var(--h2-bg) 45%);
-  min-height: 720px;
+  min-height: 600px;
 }
 
 .h2-hero__demo .h2-themeswitch {
   justify-content: center;
-  margin-top: 22px;
+  margin-top: 16px;
 }
 
 .h2-page--wallet .passkey-demo {

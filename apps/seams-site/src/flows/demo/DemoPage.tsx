@@ -16,7 +16,6 @@ import {
   type DemoNearAccountFundingStatus,
 } from './hooks/useDemoNearAccountFundingStatus';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
-import { useDemoThresholdGasStatus } from './hooks/useDemoThresholdGasStatus';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
 
@@ -87,11 +86,6 @@ export const DemoPage: React.FC = () => {
     arcGreetingInput,
   });
 
-  const thresholdGas = useDemoThresholdGasStatus({
-    isLoggedIn,
-    thresholdOwnerAddress: thresholdSigners.thresholdOwnerAddress,
-  });
-
   if (!isLoggedIn || !walletId) {
     return null;
   }
@@ -130,7 +124,6 @@ export const DemoPage: React.FC = () => {
       signLoading: thresholdSigners.tempoThresholdSignLoading,
       canSign: thresholdSigners.canSignTempo,
       signLabel: 'Sign on Tempo',
-      setupDefaultOpen: thresholdGas.tempo === 'needs_gas',
     },
     {
       id: 'arc',
@@ -148,16 +141,13 @@ export const DemoPage: React.FC = () => {
       signLoading: thresholdSigners.evmThresholdSignLoading,
       canSign: thresholdSigners.canSignEvm,
       signLabel: 'Sign on Arc',
-      setupDefaultOpen: thresholdGas.arc === 'needs_gas',
     },
   ];
 
   return (
     <AnimatedHeight>
-      <div className="action-section">
-        <div className="demo-page-header">
-          <h2 className="demo-title">Welcome</h2>
-        </div>
+      <div className="demo-page-header">
+        <h2 className="demo-title">Welcome</h2>
       </div>
 
       <ChainSigningSection

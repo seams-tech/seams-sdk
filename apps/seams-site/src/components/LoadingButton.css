@@ -3,16 +3,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
+  min-height: calc(var(--w3a-shape-controlHeight, 44px) - 2px);
   border: none;
-  border-radius: 2rem;
-  font-size: 1rem;
+  border-radius: var(--w3a-shape-control, 10px);
+  font-size: 0.9rem;
   font-weight: var(--site-font-weight-medium);
   font-family: var(--site-font-sans);
   cursor: pointer;
   transition: all 0.2s ease;
   line-height: 1.4;
-  box-shadow: 0 2px 4px var(--site-shadow-sm);
+  /* flat at rest, like the EL button grammar */
+  box-shadow: none;
   padding: 0rem 1rem 0rem 0.5rem;
 }
 
@@ -23,27 +24,22 @@
 
 .button--primary:hover:not(:disabled) {
   background: var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover));
-  /* Add a subtle primary-colored ring on hover */
-  box-shadow:
-    0 6px 12px var(--site-shadow-sm),
-    0 0 0 2px var(--w3a-colors-buttonBackground, var(--w3a-colors-primary));
+  box-shadow: 0 1px 2px var(--site-shadow-sm);
 }
 
 .button--primary:active:not(:disabled) {
-  box-shadow: 0 2px 4px var(--site-shadow-sm);
+  box-shadow: none;
 }
 
+/* quiet bordered secondary: fills belong to the primary action only */
 .button--secondary {
-  background: var(--w3a-colors-secondary);
-  color: white;
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textPrimary);
+  border: 1px solid var(--w3a-colors-borderHover, var(--w3a-colors-borderPrimary));
 }
 
 .button--secondary:hover:not(:disabled) {
-  background: var(--w3a-colors-secondaryHover);
-  /* Add a subtle primary-colored ring on hover */
-  box-shadow:
-    0 6px 12px var(--site-shadow-sm),
-    0 0 0 2px var(--w3a-colors-primary);
+  background: var(--w3a-colors-surface2);
 }
 
 .button:disabled,

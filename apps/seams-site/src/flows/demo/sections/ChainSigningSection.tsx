@@ -23,43 +23,7 @@ export type DemoChainView = {
   signLoading: boolean;
   canSign: boolean;
   signLabel: string;
-  /* open the testnet-setup disclosure by default (e.g. the signer has no
-     gas, so funding is the user's actual next step) */
-  setupDefaultOpen?: boolean;
 };
-
-/* Details with a default-open signal that can arrive late (async balance
-   probe): follows the prop until the user toggles it themselves. */
-function TestnetSetupDetails(props: {
-  defaultOpen: boolean;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  const [open, setOpen] = React.useState(props.defaultOpen);
-  const userToggledRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!userToggledRef.current) {
-      setOpen(props.defaultOpen);
-    }
-  }, [props.defaultOpen]);
-
-  return (
-    <details
-      className="demo-setup"
-      open={open}
-      onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}
-    >
-      <summary
-        onClick={() => {
-          userToggledRef.current = true;
-        }}
-      >
-        Testnet setup
-      </summary>
-      {props.children}
-    </details>
-  );
-}
 
 type ChainSigningSectionProps = {
   chains: readonly DemoChainView[];
@@ -69,8 +33,7 @@ type ChainSigningSectionProps = {
   onSignDelegate: () => void | Promise<void>;
   delegateLoading: boolean;
   canSignDelegate: boolean;
-  /* testnet plumbing for the threshold-signer chains, demoted to a
-     collapsed disclosure: it is a precondition, not demo content */
+  /* testnet plumbing for the threshold-signer chains */
   thresholdOwnerAddress: string | null;
   onCopyThresholdOwnerAddress: () => void;
   onPrepareTempoFeeToken: () => void | Promise<void>;
@@ -113,8 +76,7 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
         </div>
       </div>
 
-      {/* keyed by chain: remount fades the new view in (and resets the
-          per-chain setup disclosure to closed) */}
+      {/* keyed by chain: remount fades the new view in */}
       <div className="demo-chain-view" key={chain.id}>
       <div className="greeting-controls-box">
         <div className="on-chain-greeting-box">
@@ -151,7 +113,7 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
           loadingText="Signing..."
           variant="primary"
           size="medium"
-          style={{ width: '100%', marginTop: '0.5rem' }}
+          style={{ width: '100%' }}
           disabled={!chain.canSign || chain.signLoading}
         >
           {chain.signLabel}
@@ -164,67 +126,65 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
             loadingText="Signing delegate..."
             variant="secondary"
             size="medium"
-            style={{ width: '100%', marginTop: '0.5rem' }}
+            style={{ width: '100%' }}
             disabled={!props.canSignDelegate || props.delegateLoading}
           >
             Send Delegate Action
           </LoadingButton>
         ) : null}
-      </div>
 
-      {chain.id !== 'near' ? (
-        <TestnetSetupDetails defaultOpen={Boolean(chain.setupDefaultOpen)}>
-          <div className="demo-setup__body">
-            <div className="demo-setup__hint">
-              Fund this signer address with test gas
-              {chain.id === 'tempo' ? ', then prepare AlphaUSD fee tokens:' : ':'}
-            </div>
-            <div className="funding-address-row">
-              <span className="funding-address-text">
-                {props.thresholdOwnerAddress ||
-                  'Threshold ECDSA address unavailable. Refresh the wallet session before funding or signing.'}
-              </span>
-              {props.thresholdOwnerAddress ? (
-                <CopyButton
-                  text={props.thresholdOwnerAddress}
-                  ariaLabel="Copy threshold owner address"
-                  className="funding-address-copy"
-                  size={18}
-                  onCopy={props.onCopyThresholdOwnerAddress}
-                />
-              ) : (
-                <span className="funding-address-copy-placeholder" aria-hidden="true" />
-              )}
-            </div>
-            {chain.id === 'tempo' ? (
-              <LoadingButton
-                onClick={props.onPrepareTempoFeeToken}
-                loading={props.tempoFeeTokenPrepareLoading}
-                loadingText="Preparing..."
-                variant="secondary"
-                size="medium"
-                style={{ width: '100%' }}
-                disabled={
-                  props.tempoFeeTokenPrepareLoading ||
-                  Boolean(props.tempoPreparationUnavailableReason)
-                }
-              >
-                Prepare Tempo Fee Token
-              </LoadingButton>
-            ) : null}
-            {chain.id === 'tempo' && props.tempoPreparationUnavailableReason ? (
+        {chain.id === 'tempo' ? (
+          <>
+            <LoadingButton
+              onClick={props.onPrepareTempoFeeToken}
+              loading={props.tempoFeeTokenPrepareLoading}
+              loadingText="Funding..."
+              variant="secondary"
+              size="medium"
+              style={{ width: '100%' }}
+              disabled={
+                props.tempoFeeTokenPrepareLoading ||
+                Boolean(props.tempoPreparationUnavailableReason)
+              }
+            >
+              Fund Tempo Account
+            </LoadingButton>
+            {props.tempoPreparationUnavailableReason ? (
               <div className="demo-capability-note">
                 {props.tempoPreparationUnavailableReason}
               </div>
             ) : null}
-            <div className="demo-setup__hint">
-              Need test funds?{' '}
-              <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
-                Circle Faucet
-              </a>
-            </div>
+          </>
+        ) : null}
+      </div>
+
+      {chain.id === 'arc' ? (
+        <div className="demo-funding">
+          <div className="demo-funding__hint">
+            Fund this signer address with test gas from the{' '}
+            <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
+              Circle Faucet
+            </a>
+            :
           </div>
-        </TestnetSetupDetails>
+          <div className="funding-address-row">
+            <span className="funding-address-text">
+              {props.thresholdOwnerAddress ||
+                'Threshold ECDSA address unavailable. Refresh the wallet session before funding or signing.'}
+            </span>
+            {props.thresholdOwnerAddress ? (
+              <CopyButton
+                text={props.thresholdOwnerAddress}
+                ariaLabel="Copy threshold owner address"
+                className="funding-address-copy"
+                size={18}
+                onCopy={props.onCopyThresholdOwnerAddress}
+              />
+            ) : (
+              <span className="funding-address-copy-placeholder" aria-hidden="true" />
+            )}
+          </div>
+        </div>
       ) : null}
       </div>
     </div>

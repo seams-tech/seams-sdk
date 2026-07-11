@@ -57,6 +57,7 @@ Read next:
 
 - [Router A/B](/concepts/threshold-signing/router-ab)
 - [Streaming Yao A/B](/concepts/threshold-signing/streaming-yao-ab)
+- [Blind Deterministic Derivation](/concepts/threshold-signing/blind-deterministic-derivation)
 - [Serverless Threshold Signing](/concepts/threshold-signing/serverless-threshold-signing)
 - [Ed25519](/concepts/threshold-signing/ed25519)
 - [EVM ECDSA](/concepts/threshold-signing/evm-ecdsa)

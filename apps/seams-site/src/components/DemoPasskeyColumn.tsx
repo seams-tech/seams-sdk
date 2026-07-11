@@ -148,9 +148,9 @@ export function DemoPasskeyColumn({
           <>
             <GlassBorder
               className="demo-transaction-shell"
-              /* fixed width: content-sized width made the card snap wider when
-                 the testnet-setup expander revealed its long address row */
-              style={{ width: 'min(480px, calc(100vw - 2rem))', marginTop: '1rem' }}
+              /* fixed width (content-sized width made the card snap around) —
+                 420px matches the auth card so both demo pages read as one */
+              style={{ width: 'min(420px, calc(100vw - 2rem))', marginTop: '1rem' }}
             >
               <React.Suspense fallback={<SuspenseFallback />}>
                 <DemoPage />
@@ -207,7 +207,7 @@ export function DemoPasskeyColumn({
 const SuspenseFallback = () => (
   <div
     className={'suspense-fallback'}
-    style={{ height: 320, width: 'min(480px, calc(100vw - 2rem))' }}
+    style={{ height: 320, width: 'min(420px, calc(100vw - 2rem))' }}
   />
 );
 
