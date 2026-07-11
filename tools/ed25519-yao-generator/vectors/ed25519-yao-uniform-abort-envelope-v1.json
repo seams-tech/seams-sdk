@@ -1,0 +1,57 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:uniform-abort-envelope-vectors:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "host_only_synthetic_uniform_abort_envelope_v1",
+  "cases": [
+    {
+      "request_kind": "registration",
+      "source_ceremony_case_id": "ceremony-registration-v1",
+      "envelope": {
+        "request_kind": "registration",
+        "public_transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+        "public_failure_code": "rejected",
+        "terminal": "aborted"
+      }
+    },
+    {
+      "request_kind": "activation",
+      "source_ceremony_case_id": "ceremony-activation-v1",
+      "envelope": {
+        "request_kind": "activation",
+        "public_transcript_digest_hex": "6046727048ee2bcc986c64e62a3c60e6f24ee8520c040acc1772de5f56014ceb",
+        "public_failure_code": "rejected",
+        "terminal": "aborted"
+      }
+    },
+    {
+      "request_kind": "recovery",
+      "source_ceremony_case_id": "ceremony-recovery-v1",
+      "envelope": {
+        "request_kind": "recovery",
+        "public_transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+        "public_failure_code": "rejected",
+        "terminal": "aborted"
+      }
+    },
+    {
+      "request_kind": "refresh",
+      "source_ceremony_case_id": "ceremony-refresh-v1",
+      "envelope": {
+        "request_kind": "refresh",
+        "public_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+        "public_failure_code": "rejected",
+        "terminal": "aborted"
+      }
+    },
+    {
+      "request_kind": "export",
+      "source_ceremony_case_id": "ceremony-export-v1",
+      "envelope": {
+        "request_kind": "export",
+        "public_transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+        "public_failure_code": "rejected",
+        "terminal": "aborted"
+      }
+    }
+  ]
+}

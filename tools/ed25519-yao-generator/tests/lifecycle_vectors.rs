@@ -5,14 +5,40 @@ use ed25519_yao_generator::{
     canonical_lifecycle_continuity_corpus_v1, LifecycleContinuityCorpusV1,
     LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1, LIFECYCLE_CONTINUITY_EVIDENCE_SCOPE_V1,
     RECOVERY_ACTIVATION_CASE_ID_V1, RECOVERY_CONTINUITY_CASE_ID_V1, REFRESH_ACTIVATION_CASE_ID_V1,
-    REFRESH_CONTINUITY_CASE_ID_V1,
+    REFRESH_CONTINUITY_CASE_ID_V1, REGISTRATION_ACTIVATION_CASE_ID_V1,
+    REGISTRATION_CANDIDATE_CASE_ID_V1,
 };
 use serde_json::{Map, Value};
 
 const SOURCE: &str = include_str!("../src/lifecycle_fixtures.rs");
+const PUBLIC_STATE_POINTERS: [&str; 11] = [
+    "/cases/0/vector/pending_public",
+    "/cases/1/vector/transition/pending_public",
+    "/cases/1/vector/transition/activated_public",
+    "/cases/2/vector/before_public",
+    "/cases/2/vector/pending_public",
+    "/cases/3/vector/transition/pending_public",
+    "/cases/3/vector/transition/activated_public",
+    "/cases/4/vector/before_public",
+    "/cases/4/vector/pending_public",
+    "/cases/5/vector/transition/pending_public",
+    "/cases/5/vector/transition/activated_public",
+];
+const FORBIDDEN_PUBLIC_FIELDS: [&str; 10] = [
+    "secret_root_hex",
+    "secret_contribution_hex",
+    "secret_delta_hex",
+    "joined_seed_hex",
+    "sha512_digest_hex",
+    "clamped_scalar_bytes_hex",
+    "signing_scalar_hex",
+    "x_client_base_hex",
+    "x_server_base_hex",
+    "authorized_seed_hex",
+];
 
 #[test]
-fn corpus_has_the_exact_four_case_sequence_and_scope() {
+fn corpus_has_the_exact_six_case_sequence_and_scope() {
     let corpus = canonical_lifecycle_continuity_corpus_v1();
     assert_eq!(corpus.schema, LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1);
     assert_eq!(corpus.protocol_id, "router_ab_ed25519_yao_v1");
@@ -23,22 +49,53 @@ fn corpus_has_the_exact_four_case_sequence_and_scope() {
 
     let value = corpus_value();
     let cases = array(&value["cases"]);
-    assert_eq!(cases.len(), 4);
-    assert_case(cases, 0, "recovery", RECOVERY_CONTINUITY_CASE_ID_V1);
-    assert_case(cases, 1, "activation", RECOVERY_ACTIVATION_CASE_ID_V1);
-    assert_case(cases, 2, "refresh", REFRESH_CONTINUITY_CASE_ID_V1);
-    assert_case(cases, 3, "activation", REFRESH_ACTIVATION_CASE_ID_V1);
-    assert_eq!(cases[1]["vector"]["origin_kind"], "recovery");
-    assert_eq!(cases[3]["vector"]["origin_kind"], "refresh");
+    assert_eq!(cases.len(), 6);
+    assert_case(cases, 0, "registration", REGISTRATION_CANDIDATE_CASE_ID_V1);
+    assert_case(cases, 1, "activation", REGISTRATION_ACTIVATION_CASE_ID_V1);
+    assert_case(cases, 2, "recovery", RECOVERY_CONTINUITY_CASE_ID_V1);
+    assert_case(cases, 3, "activation", RECOVERY_ACTIVATION_CASE_ID_V1);
+    assert_case(cases, 4, "refresh", REFRESH_CONTINUITY_CASE_ID_V1);
+    assert_case(cases, 5, "activation", REFRESH_ACTIVATION_CASE_ID_V1);
+    assert_eq!(cases[1]["vector"]["origin_kind"], "registration");
+    assert_eq!(cases[3]["vector"]["origin_kind"], "recovery");
+    assert_eq!(cases[5]["vector"]["origin_kind"], "refresh");
 
     let case_ids: BTreeSet<_> = cases.iter().map(case_id).collect();
     assert_eq!(case_ids.len(), cases.len());
 }
 
 #[test]
+fn registration_candidate_is_public_metadata_with_zero_represented_work() {
+    let value = corpus_value();
+    let registration = &array(&value["cases"])[0]["vector"];
+    let pending = &registration["pending_public"];
+    assert_eq!(
+        pending["candidate_role_epochs"]["deriver_a"]["role_root_epoch"],
+        3
+    );
+    assert_eq!(
+        pending["candidate_role_epochs"]["deriver_a"]["role_input_state_epoch"],
+        11
+    );
+    assert_eq!(
+        pending["candidate_role_epochs"]["deriver_b"]["role_root_epoch"],
+        9
+    );
+    assert_eq!(
+        pending["candidate_role_epochs"]["deriver_b"]["role_input_state_epoch"],
+        41
+    );
+    assert_eq!(pending["pending_activation_epoch"], 7);
+    for count in object(&registration["reference_operation_counts"]).values() {
+        assert_eq!(unsigned(count), 0);
+    }
+    assert_no_forbidden_public_keys(registration);
+}
+
+#[test]
 fn same_root_recovery_preserves_every_contribution_trace_and_public_identity() {
     let value = corpus_value();
-    let recovery = &array(&value["cases"])[0]["vector"];
+    let recovery = &array(&value["cases"])[2]["vector"];
     let host = &recovery["host_only_reference"];
     assert_eq!(
         host["recovered_client_root_hex"],
@@ -88,12 +145,22 @@ fn same_root_recovery_preserves_every_contribution_trace_and_public_identity() {
 #[test]
 fn refresh_applies_opposite_nonzero_deltas_and_preserves_the_joined_trace() {
     let value = corpus_value();
-    let refresh = &array(&value["cases"])[2]["vector"];
+    let refresh = &array(&value["cases"])[4]["vector"];
     let host = &refresh["host_only_reference"];
     let before = object(&host["before_contributions"]);
     let after = object(&host["after_contributions"]);
-    let delta_y = hex_32(string(&host["delta"]["delta_y_hex"]));
-    let delta_tau = scalar(string(&host["delta"]["delta_tau_hex"]));
+    let delta = &host["delta"];
+    let deriver_a_delta_y = hex_32(string(&delta["deriver_a"]["delta_y_hex"]));
+    let deriver_b_delta_y = hex_32(string(&delta["deriver_b"]["delta_y_hex"]));
+    let deriver_a_delta_tau = scalar(string(&delta["deriver_a"]["delta_tau_hex"]));
+    let deriver_b_delta_tau = scalar(string(&delta["deriver_b"]["delta_tau_hex"]));
+    let delta_y = hex_32(string(&delta["combined_delta_y_hex"]));
+    let delta_tau = scalar(string(&delta["combined_delta_tau_hex"]));
+    assert_eq!(
+        wrapping_add_256(deriver_a_delta_y, deriver_b_delta_y),
+        delta_y
+    );
+    assert_eq!(deriver_a_delta_tau + deriver_b_delta_tau, delta_tau);
     assert_ne!(delta_y, [0u8; 32]);
     assert_ne!(delta_tau, Scalar::ZERO);
 
@@ -183,8 +250,31 @@ fn refresh_applies_opposite_nonzero_deltas_and_preserves_the_joined_trace() {
 fn activation_cases_copy_origin_state_promote_once_and_evaluate_nothing() {
     let value = corpus_value();
     let cases = array(&value["cases"]);
-    let recovery_pending = &cases[0]["vector"]["pending_public"];
-    let recovery_activation = &cases[1]["vector"]["transition"];
+    let registration_pending = &cases[0]["vector"]["pending_public"];
+    let registration_activation = &cases[1]["vector"]["transition"];
+    assert_eq!(
+        registration_activation["origin_case_id"],
+        REGISTRATION_CANDIDATE_CASE_ID_V1
+    );
+    assert_eq!(
+        &registration_activation["pending_public"],
+        registration_pending
+    );
+    assert_eq!(
+        registration_activation["activated_public"]["identity"],
+        registration_pending["identity"]
+    );
+    assert_eq!(
+        registration_activation["activated_public"]["active_role_epochs"],
+        registration_pending["candidate_role_epochs"]
+    );
+    assert_eq!(
+        registration_activation["activated_public"]["active_activation_epoch"],
+        registration_pending["pending_activation_epoch"]
+    );
+
+    let recovery_pending = &cases[2]["vector"]["pending_public"];
+    let recovery_activation = &cases[3]["vector"]["transition"];
     assert_eq!(
         recovery_activation["origin_case_id"],
         RECOVERY_CONTINUITY_CASE_ID_V1
@@ -203,8 +293,8 @@ fn activation_cases_copy_origin_state_promote_once_and_evaluate_nothing() {
         recovery_pending["pending_activation_epoch"]
     );
 
-    let refresh_pending = &cases[2]["vector"]["pending_public"];
-    let refresh_activation = &cases[3]["vector"]["transition"];
+    let refresh_pending = &cases[4]["vector"]["pending_public"];
+    let refresh_activation = &cases[5]["vector"]["transition"];
     assert_eq!(
         refresh_activation["origin_case_id"],
         REFRESH_CONTINUITY_CASE_ID_V1
@@ -235,7 +325,11 @@ fn activation_cases_copy_origin_state_promote_once_and_evaluate_nothing() {
         refresh_pending["current_role_epochs"]["deriver_b"]["role_input_state_epoch"]
     );
 
-    for activation in [recovery_activation, refresh_activation] {
+    for activation in [
+        registration_activation,
+        recovery_activation,
+        refresh_activation,
+    ] {
         let counts = object(&activation["reference_operation_counts"]);
         for field in [
             "deriver_a_invocations",
@@ -257,7 +351,7 @@ fn activation_cases_copy_origin_state_promote_once_and_evaluate_nothing() {
 fn activation_shapes_are_structurally_incapable_of_carrying_secret_inputs() {
     let value = corpus_value();
     let cases = array(&value["cases"]);
-    for case_index in [1usize, 3usize] {
+    for case_index in [1usize, 3usize, 5usize] {
         let activation = object(&cases[case_index]["vector"]["transition"]);
         let actual_keys: BTreeSet<&str> = activation.keys().map(String::as_str).collect();
         assert_eq!(
@@ -272,9 +366,39 @@ fn activation_shapes_are_structurally_incapable_of_carrying_secret_inputs() {
         );
         assert_no_forbidden_public_keys(&cases[case_index]["vector"]);
     }
-    for case_index in [0usize, 2usize] {
+    assert_no_forbidden_public_keys(&cases[0]["vector"]["pending_public"]);
+    for case_index in [2usize, 4usize] {
         assert_no_forbidden_public_keys(&cases[case_index]["vector"]["before_public"]);
         assert_no_forbidden_public_keys(&cases[case_index]["vector"]["pending_public"]);
+    }
+
+    for pointer in PUBLIC_STATE_POINTERS {
+        for field in FORBIDDEN_PUBLIC_FIELDS {
+            let mut mutated = value.clone();
+            object_mut(
+                mutated
+                    .pointer_mut(pointer)
+                    .expect("public-state JSON pointer exists"),
+            )
+            .insert(field.to_owned(), Value::String("00".to_owned()));
+            assert_decode_rejected(mutated);
+        }
+    }
+
+    for case_index in [1usize, 3usize, 5usize] {
+        for field in [
+            "host_only_reference",
+            "packages",
+            "proof",
+            "ciphertext",
+            "receipt",
+            "output_share_hex",
+        ] {
+            let mut mutated = value.clone();
+            object_mut(&mut mutated["cases"][case_index]["vector"]["transition"])
+                .insert(field.to_owned(), Value::Object(Map::new()));
+            assert_decode_rejected(mutated);
+        }
     }
 }
 
@@ -292,18 +416,18 @@ fn serde_rejects_unknown_missing_and_cross_branch_fields() {
     assert_decode_rejected(nested_unknown);
 
     let mut missing = canonical.clone();
-    object_mut(&mut missing["cases"][0]["vector"]).remove("before_public");
+    object_mut(&mut missing["cases"][2]["vector"]).remove("before_public");
     assert_decode_rejected(missing);
 
     let mut activation_with_host_inputs = canonical.clone();
     object_mut(&mut activation_with_host_inputs["cases"][1]["vector"]["transition"]).insert(
         "host_only_reference".to_owned(),
-        canonical["cases"][0]["vector"]["host_only_reference"].clone(),
+        canonical["cases"][2]["vector"]["host_only_reference"].clone(),
     );
     assert_decode_rejected(activation_with_host_inputs);
 
     let mut recovery_with_seed = canonical.clone();
-    object_mut(&mut recovery_with_seed["cases"][0]["vector"]).insert(
+    object_mut(&mut recovery_with_seed["cases"][2]["vector"]).insert(
         "authorized_seed_hex".to_owned(),
         Value::String("00".repeat(32)),
     );
@@ -315,7 +439,7 @@ fn serde_rejects_unknown_missing_and_cross_branch_fields() {
 
     let mut unsupported_origin = canonical;
     unsupported_origin["cases"][1]["vector"]["origin_kind"] =
-        Value::String("registration".to_owned());
+        Value::String("activation".to_owned());
     assert_decode_rejected(unsupported_origin);
 }
 
@@ -324,25 +448,25 @@ fn parsed_corpus_rejects_zero_repeated_and_regressing_epochs() {
     let canonical = corpus_value();
 
     let mut zero = canonical.clone();
-    zero["cases"][0]["vector"]["before_public"]["active_role_epochs"]["deriver_a"]
+    zero["cases"][2]["vector"]["before_public"]["active_role_epochs"]["deriver_a"]
         ["role_root_epoch"] = Value::from(0);
     assert_decode_rejected(zero);
 
     let mut repeated = canonical.clone();
-    let current = repeated["cases"][2]["vector"]["pending_public"]["current_role_epochs"]
+    let current = repeated["cases"][4]["vector"]["pending_public"]["current_role_epochs"]
         ["deriver_a"]["role_input_state_epoch"]
         .clone();
-    repeated["cases"][2]["vector"]["pending_public"]["next_role_epochs"]["deriver_a"]
+    repeated["cases"][4]["vector"]["pending_public"]["next_role_epochs"]["deriver_a"]
         ["role_input_state_epoch"] = current;
     assert_decode_rejected(repeated);
 
     let mut regressing = canonical.clone();
-    regressing["cases"][2]["vector"]["pending_public"]["next_role_epochs"]["deriver_b"]
+    regressing["cases"][4]["vector"]["pending_public"]["next_role_epochs"]["deriver_b"]
         ["role_input_state_epoch"] = Value::from(1);
     assert_decode_rejected(regressing);
 
     let mut changed_recovery_root = canonical;
-    changed_recovery_root["cases"][0]["vector"]["host_only_reference"]
+    changed_recovery_root["cases"][2]["vector"]["host_only_reference"]
         ["recovered_client_root_hex"] = Value::String("12".repeat(32));
     assert_decode_rejected(changed_recovery_root);
 }
@@ -360,6 +484,7 @@ fn serialization_round_trip_is_deterministic() {
 #[test]
 fn activation_builder_sources_have_no_oracle_kdf_or_deriver_access() {
     for function in [
+        "build_registration_activation_continuation_v1",
         "build_recovery_activation_continuation_v1",
         "build_refresh_activation_continuation_v1",
     ] {
@@ -413,7 +538,7 @@ fn case_id(case: &Value) -> &str {
     let vector = &case["vector"];
     match string(&case["request_kind"]) {
         "activation" => string(&vector["transition"]["case_id"]),
-        "recovery" | "refresh" => string(&vector["case_id"]),
+        "registration" | "recovery" | "refresh" => string(&vector["case_id"]),
         request_kind => panic!("unexpected request kind {request_kind}"),
     }
 }

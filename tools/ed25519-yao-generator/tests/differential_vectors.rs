@@ -1,5 +1,5 @@
 use ed25519_yao_generator::{
-    differential_vector_corpus_v1, DifferentialVectorError, LifecycleRequestKindV1, VectorCaseV1,
+    differential_vector_corpus_v1, CeremonyRequestKindV1, DifferentialVectorError, VectorCaseV1,
     MAX_DIFFERENTIAL_VECTOR_CASES_V1,
 };
 
@@ -15,18 +15,18 @@ fn deterministic_corpus_is_reproducible_and_cycles_request_kinds() {
     assert_eq!(
         request_kinds,
         [
-            LifecycleRequestKindV1::Registration,
-            LifecycleRequestKindV1::Activation,
-            LifecycleRequestKindV1::Recovery,
-            LifecycleRequestKindV1::Refresh,
-            LifecycleRequestKindV1::Export,
-            LifecycleRequestKindV1::Registration,
-            LifecycleRequestKindV1::Activation,
-            LifecycleRequestKindV1::Recovery,
-            LifecycleRequestKindV1::Refresh,
-            LifecycleRequestKindV1::Export,
-            LifecycleRequestKindV1::Registration,
-            LifecycleRequestKindV1::Activation,
+            CeremonyRequestKindV1::Registration,
+            CeremonyRequestKindV1::Activation,
+            CeremonyRequestKindV1::Recovery,
+            CeremonyRequestKindV1::Refresh,
+            CeremonyRequestKindV1::Export,
+            CeremonyRequestKindV1::Registration,
+            CeremonyRequestKindV1::Activation,
+            CeremonyRequestKindV1::Recovery,
+            CeremonyRequestKindV1::Refresh,
+            CeremonyRequestKindV1::Export,
+            CeremonyRequestKindV1::Registration,
+            CeremonyRequestKindV1::Activation,
         ]
     );
 

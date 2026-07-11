@@ -6,7 +6,8 @@ use ed25519_yao::{
     InputSchemaDigest32, MetricField, ScheduleDigest32, ScheduleMetrics, SourceIrDigest32,
     ValidationError, ACTIVATION_CIRCUIT_ID_STR, ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE,
     ACTIVATION_OUTPUT_SCHEMA_ID_STR, DRAFT_MANIFEST_DIGEST_DOMAIN_V1, EXPORT_CIRCUIT_ID_STR,
-    EXPORT_DRAFT_MANIFEST_FAMILY_BYTE, EXPORT_OUTPUT_SCHEMA_ID_STR, PROTOCOL_ID_STR,
+    EXPORT_DRAFT_MANIFEST_FAMILY_BYTE, EXPORT_OUTPUT_SCHEMA_ID_STR,
+    PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE, PROTOCOL_ID_STR,
 };
 
 fn circuit_digest(marker: u8) -> CircuitDigest32 {
@@ -72,9 +73,13 @@ fn metrics() -> CircuitMetrics {
 }
 
 fn metrics_with_depth(circuit_depth: u64) -> CircuitMetrics {
-    let gates = GateMetrics::new(10, 20, 2, 32, circuit_depth).expect("valid gates");
+    metrics_with_depths(circuit_depth, 4)
+}
+
+fn metrics_with_depths(circuit_depth: u64, and_depth: u64) -> CircuitMetrics {
+    let gates = GateMetrics::new(10, 20, 2, 32, circuit_depth, and_depth).expect("valid gates");
     let schedule = ScheduleMetrics::new(8, 8, 64, 32, 24, 512).expect("valid schedule");
-    CircuitMetrics::new(gates, schedule, 320).expect("valid circuit metrics")
+    CircuitMetrics::new_passive_half_gates(gates, schedule).expect("valid circuit metrics")
 }
 
 fn activation_manifest() -> DraftActivationCircuitManifest {
@@ -147,38 +152,66 @@ fn digest_boundaries_reject_wrong_length_and_zero() {
 #[test]
 fn gate_metrics_reject_zero_mismatch_overflow_and_excess_depth() {
     assert_eq!(
-        GateMetrics::new(0, 1, 0, 1, 1),
+        GateMetrics::new(0, 1, 0, 1, 1, 1),
         Err(ValidationError::ZeroMetric {
             field: MetricField::AndGateCount
         })
     );
     assert_eq!(
-        GateMetrics::new(1, 1, 1, 4, 1),
+        GateMetrics::new(1, 1, 1, 4, 1, 1),
         Err(ValidationError::TotalGateCountMismatch {
             declared: 4,
             computed: 3
         })
     );
     assert_eq!(
-        GateMetrics::new(u64::MAX, 1, 0, u64::MAX, 1),
+        GateMetrics::new(u64::MAX, 1, 0, u64::MAX, 1, 1),
         Err(ValidationError::GateCountOverflow)
     );
     assert_eq!(
-        GateMetrics::new(1, 1, 0, 2, 3),
+        GateMetrics::new(1, 1, 0, 2, 3, 1),
         Err(ValidationError::CircuitDepthExceedsTotalGateCount {
             depth: 3,
             total_gates: 2
+        })
+    );
+    assert_eq!(
+        GateMetrics::new(2, 2, 0, 4, 3, 0),
+        Err(ValidationError::ZeroMetric {
+            field: MetricField::AndDepth
+        })
+    );
+    assert_eq!(
+        GateMetrics::new(2, 2, 0, 4, 2, 3),
+        Err(ValidationError::AndDepthExceedsCircuitDepth {
+            and_depth: 3,
+            circuit_depth: 2
+        })
+    );
+    assert_eq!(
+        GateMetrics::new(1, 3, 0, 4, 3, 2),
+        Err(ValidationError::AndDepthExceedsAndGateCount {
+            and_depth: 2,
+            and_gate_count: 1
         })
     );
 }
 
 #[test]
 fn schedule_metrics_reject_impossible_wire_liveness() {
+    assert!(ScheduleMetrics::new(8, 8, 8, 32, 8, 512).is_ok());
     assert_eq!(
-        ScheduleMetrics::new(8, 8, 15, 32, 8, 512),
-        Err(ValidationError::WireCountBelowBoundaryCount {
-            wire_count: 15,
-            boundary_wire_count: 16
+        ScheduleMetrics::new(8, 7, 7, 32, 7, 512),
+        Err(ValidationError::WireCountBelowInputWireCount {
+            wire_count: 7,
+            input_wire_count: 8
+        })
+    );
+    assert_eq!(
+        ScheduleMetrics::new(6, 8, 7, 32, 7, 512),
+        Err(ValidationError::OutputWireCountExceedsWireCount {
+            output_wire_count: 8,
+            wire_count: 7
         })
     );
     assert_eq!(
@@ -191,14 +224,34 @@ fn schedule_metrics_reject_impossible_wire_liveness() {
 }
 
 #[test]
-fn circuit_metrics_require_one_schedule_entry_per_gate() {
-    let gates = GateMetrics::new(10, 20, 2, 32, 5).expect("valid gates");
+fn circuit_metrics_require_schedule_parity_and_derive_passive_table_bytes() {
+    let gates = GateMetrics::new(10, 20, 2, 32, 5, 4).expect("valid gates");
     let schedule = ScheduleMetrics::new(8, 8, 64, 31, 24, 512).expect("valid schedule shape");
     assert_eq!(
-        CircuitMetrics::new(gates, schedule, 320),
+        CircuitMetrics::new_passive_half_gates(gates, schedule),
         Err(ValidationError::ScheduledGateCountMismatch {
             scheduled: 31,
             total_gates: 32
+        })
+    );
+
+    let schedule = ScheduleMetrics::new(8, 8, 64, 32, 24, 512).expect("valid schedule");
+    let metrics = CircuitMetrics::new_passive_half_gates(gates, schedule).expect("valid metrics");
+    assert_eq!(
+        metrics.table_payload_bytes(),
+        gates.and_gate_count() * PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE
+    );
+
+    let overflowing_and_count = (u64::MAX / PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE) + 1;
+    let overflowing_total = overflowing_and_count + 1;
+    let overflowing_gates = GateMetrics::new(overflowing_and_count, 1, 0, overflowing_total, 2, 1)
+        .expect("gate counts fit before table-byte derivation");
+    let overflowing_schedule =
+        ScheduleMetrics::new(1, 1, 2, overflowing_total, 1, 1).expect("valid schedule shape");
+    assert_eq!(
+        CircuitMetrics::new_passive_half_gates(overflowing_gates, overflowing_schedule),
+        Err(ValidationError::PassiveHalfGatesTablePayloadOverflow {
+            and_gate_count: overflowing_and_count
         })
     );
 }
@@ -219,8 +272,17 @@ fn draft_manifest_digest_binds_metrics() {
         activation_output_schema(7),
         metrics_with_depth(6),
     );
+    let changed_and_depth = DraftActivationCircuitManifest::new(
+        activation_artifact_digests(1),
+        activation_output_schema(7),
+        metrics_with_depths(5, 3),
+    );
 
     assert_ne!(baseline.manifest_digest(), changed_depth.manifest_digest());
+    assert_ne!(
+        baseline.manifest_digest(),
+        changed_and_depth.manifest_digest()
+    );
 }
 
 #[test]
@@ -267,9 +329,9 @@ fn draft_manifest_digest_matches_v1_golden_value() {
     assert_eq!(
         activation_manifest().manifest_digest().into_bytes(),
         [
-            0xea, 0x53, 0xb5, 0x39, 0xce, 0x6c, 0xfb, 0xcf, 0xfe, 0xdc, 0x96, 0xe8, 0x7a, 0x2f,
-            0x92, 0x5c, 0x80, 0xb2, 0xb5, 0xf1, 0x39, 0x47, 0x8c, 0x5a, 0x3b, 0xaa, 0xfc, 0xf3,
-            0x53, 0xb7, 0x15, 0xf1,
+            0x7a, 0xad, 0x12, 0x5c, 0x10, 0xc2, 0x14, 0xc8, 0x12, 0xf7, 0x77, 0x84, 0xc4, 0x3b,
+            0x1b, 0xec, 0x4a, 0x92, 0xfc, 0x76, 0xec, 0x3a, 0x3e, 0xda, 0x85, 0xf2, 0x02, 0xe7,
+            0x80, 0xdd, 0x3d, 0x9a,
         ]
     );
 }

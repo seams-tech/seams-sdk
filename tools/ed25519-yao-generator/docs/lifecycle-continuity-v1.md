@@ -1,15 +1,18 @@
 # Ed25519 Yao Host-Only Lifecycle Continuity Corpus V1
 
-Status: **Phase 1 executable host-only four-case contract; no production
+Status: **Phase 1 executable host-only six-case contract; no production
 lifecycle or security claim**
 
 This document freezes one narrow, separately versioned JSON corpus for the
 isolated generator. It covers:
 
+- a synthetic public registration-candidate metadata snapshot;
+- first activation from registration-origin pending metadata;
 - recovery with the exact same logical client derivation root;
 - refresh with explicit opposite nonzero server-contribution deltas;
-- activation continuations for recovery-origin and refresh-origin pending state;
-- activation-metadata records with zero ideal reference-operation counts.
+- activation continuations for all three valid pending-state origins;
+- activation records with zero Deriver/KDF/Yao/export counts and exactly one
+  pending-metadata consumption.
 
 The corpus is synthetic reference evidence. Every secret-looking byte in the
 file is public test data, while the `host_only_reference` boundary records how
@@ -44,12 +47,28 @@ The controlling requirements are:
   (`tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`, **Add a
   separate lifecycle corpus**).
 
-The existing `lifecycle_reference.rs` implements only synthetic nonzero delta
-validation and opposite-delta arithmetic. It expressly excludes credentials,
-packages, persistence, transport, active security, and production delta
-generation (`src/lifecycle_reference.rs:1-5,16-81,117-149`). Its tests already
-prove same-root continuity, changed-root divergence, and opposite-delta
-continuity (`tests/lifecycle_continuity.rs:125-263`).
+`recovery_reference.rs` now owns the same-root recovery arithmetic used by the
+corpus builder. It checks exact synthetic-root equality, stable-context client
+KDF re-derivation, all four current client-contribution fields, unchanged server
+fields, joined `d`, and every downstream activation field. A separate stage
+composes the validated result with typed scalar output sharing, while those coins
+and shares remain outside this corpus. Six focused Rust tests cover precise
+rejections, retry-safe borrowed inputs, continuity, preserved server state,
+output reconstruction, and source-boundary guards.
+
+`refresh_reference.rs` takes move ownership of typed A/B ideal delta
+contributions, derives their nonzero modular sum, verifies
+all four client fields unchanged, checks the exact positive A and inverse B
+server updates, and checks
+joined/downstream activation continuity. Its separate output-sharing stage
+remains outside this corpus. Six focused Rust tests cover ordinary and boundary
+transforms, the private witness, scalar-share reconstruction, and source guards.
+
+`joint_refresh_delta.rs` owns role contribution validation and joint derivation;
+`lifecycle_reference.rs` owns only the opposite-delta arithmetic primitive used
+by that preparation. All four modules expressly
+exclude credentials, packages, persistence, transport, production custody,
+production delta generation, and any P0-P3 protocol-security claim.
 
 The existing `VectorCaseV1` corpus cannot be extended for this purpose. Its
 builder evaluates the activation-family arithmetic before branching on every
@@ -68,8 +87,8 @@ protocol_id = router_ab_ed25519_yao_v1
 evidence_scope = host_only_synthetic_continuity_v1
 ```
 
-This corpus proves only deterministic host-reference relations over synthetic
-values. It does not prove:
+This corpus provides executable evidence only for deterministic host-reference
+relations over synthetic values. It does not prove:
 
 - credential authorization, suspension, promotion, or tombstone persistence;
 - root custody or a production same-root proof;
@@ -84,8 +103,10 @@ values. It does not prove:
 - active security, selective-failure resistance, or proactive/mobile-adversary
   healing.
 
-Registration and export are outside this corpus. The full five-branch lifecycle
-JSON corpus remains BLOCKED.
+Registration evaluation and export are outside this corpus. The registration
+case is an already-created synthetic public candidate-metadata snapshot with
+zero represented evaluation work. The full five-branch lifecycle JSON corpus
+remains BLOCKED.
 
 ## 3. Primitive JSON Rules
 
@@ -112,6 +133,9 @@ JSON corpus remains BLOCKED.
 The canonical committed file is pretty-printed by `serde_json`, ends with one
 newline, and must equal the canonical Rust builder byte-for-byte.
 
+This repository is pre-release. The six-case contract replaces the earlier
+four-case draft in place; no four-case compatibility schema or decoder remains.
+
 ## 4. Exact Corpus Shape
 
 The following pseudocode freezes JSON field presence, nesting, and tags. Every
@@ -132,6 +156,7 @@ struct LifecycleContinuityCorpusV1 {
     deny_unknown_fields
 )]
 enum LifecycleContinuityCaseV1 {
+    Registration(RegistrationCandidateMetadataVectorV1),
     Recovery(RecoveryContinuityVectorV1),
     Activation(ActivationContinuityVectorV1),
     Refresh(RefreshContinuityVectorV1),
@@ -144,12 +169,13 @@ enum LifecycleContinuityCaseV1 {
     deny_unknown_fields
 )]
 enum ActivationContinuityVectorV1 {
+    Registration(RegistrationActivationContinuationV1),
     Recovery(RecoveryActivationContinuationV1),
     Refresh(RefreshActivationContinuationV1),
 }
 ```
 
-The top-level `cases` array MUST contain exactly the four cases and order frozen
+The top-level `cases` array MUST contain exactly the six cases and order frozen
 in Section 7.
 
 ### 4.1 Fixture Identity
@@ -205,6 +231,12 @@ struct ActiveContinuityPublicStateV1 {
     active_activation_epoch: NonZeroEpochV1,
 }
 
+struct RegistrationPendingPublicStateV1 {
+    identity: FixtureIdentityV1,
+    candidate_role_epochs: RoleEpochPairV1,
+    pending_activation_epoch: NonZeroEpochV1,
+}
+
 struct RecoveryPendingPublicStateV1 {
     identity: FixtureIdentityV1,
     current_role_epochs: RoleEpochPairV1,
@@ -250,7 +282,7 @@ boolean or caller-selected status string is forbidden.
 
 `NonZeroEpochV1` serializes as a JSON integer and rejects zero during
 deserialization. Top-level corpus validation additionally requires the exact
-canonical four-case relation, including each same-role `next > current`
+canonical six-case relation, including each same-role `next > current`
 transition.
 
 ### 4.3 Reference Operation Counts
@@ -348,12 +380,26 @@ contributions, and clear traces where their exact field sets match.
 ### 4.5 Case Payloads
 
 ```rust
+struct RegistrationCandidateMetadataVectorV1 {
+    case_id: String,
+    pending_public: RegistrationPendingPublicStateV1,
+    reference_operation_counts: ReferenceOperationCountsV1,
+}
+
 struct RecoveryContinuityVectorV1 {
     case_id: String,
     before_public: ActiveContinuityPublicStateV1,
     pending_public: RecoveryPendingPublicStateV1,
     reference_operation_counts: ReferenceOperationCountsV1,
     host_only_reference: RecoveryHostOnlyReferenceV1,
+}
+
+struct RegistrationActivationContinuationV1 {
+    case_id: String,
+    origin_case_id: String,
+    pending_public: RegistrationPendingPublicStateV1,
+    activated_public: ActiveContinuityPublicStateV1,
+    reference_operation_counts: ReferenceOperationCountsV1,
 }
 
 struct RefreshContinuityVectorV1 {
@@ -381,8 +427,11 @@ struct RefreshActivationContinuationV1 {
 }
 ```
 
-Activation has no `host_only_reference`, root, contribution, delta, clear trace,
-output randomness, or export result field.
+The registration candidate and every activation case have no
+`host_only_reference`, root, contribution, delta, clear trace, output
+randomness, or export result field. Registration-candidate operation counts are
+all zero because the case represents an already-created metadata snapshot; the
+corpus makes no claim about registration computation.
 
 ## 5. Public Versus Host-Only Classification
 
@@ -391,10 +440,12 @@ JSON placement is normative:
 | Location                     | Semantic visibility  | Allowed values                                                                                 |
 | ---------------------------- | -------------------- | ---------------------------------------------------------------------------------------------- |
 | `before_public`              | public reference     | immutable binding/context evidence, public points, current epochs                              |
-| `pending_public`             | public reference     | unchanged public identity, current/next epochs, pending activation epoch, frozen-admission tag |
+| registration `pending_public` | public reference   | candidate identity, candidate role epochs, first pending epoch, and no active predecessor       |
+| recovery `pending_public`     | public reference    | unchanged identity/current epochs, active epoch, and next pending activation epoch              |
+| refresh `pending_public`      | public reference    | unchanged identity, current/next epochs, active/pending epochs, and frozen-admission tag         |
 | `activated_public`           | public reference     | unchanged public identity, active/retired epochs, active activation epoch                      |
 | `reference_operation_counts` | public test metadata | only the counters frozen by Section 7                                                          |
-| `origin_case_id`             | public test linkage  | exact earlier recovery or refresh case identifier                                              |
+| `origin_case_id`             | public test linkage  | exact earlier registration, recovery, or refresh case identifier                                |
 | `host_only_reference`        | host-only reference  | synthetic roots, contributions, delta, joined traces                                           |
 
 Public objects MUST NOT contain a root, contribution, delta, joined seed,
@@ -420,6 +471,15 @@ tau   = tau_A + tau_B mod l
 
 x_client_base = a + tau mod l
 x_server_base = a + 2*tau mod l
+```
+
+The registration candidate requires:
+
+```text
+candidate identity = canonical synthetic fixture identity
+candidate role epochs = A(root=3,input=11), B(root=9,input=41)
+pending activation epoch = 7
+all reference-operation counts = 0
 ```
 
 Recovery requires:
@@ -469,12 +529,14 @@ pending_activation_epoch > active_activation_epoch
 
 Activation requires exact equality with its earlier origin case's pending state.
 It changes no public identity value or role epoch beyond the origin's already
-staged transition. Recovery-origin activation promotes the pending activation
-epoch. Refresh-origin activation promotes the staged role epochs and activation
-epoch, records the two former input-state epochs as retired, and changes
-derivation admission from the branch-specific `frozen` type to `open`.
+staged transition. Registration-origin activation promotes the candidate role
+epochs and first pending activation epoch into the initial active state.
+Recovery-origin activation promotes the pending activation epoch.
+Refresh-origin activation promotes the staged role epochs and activation epoch,
+records the two former input-state epochs as retired, and changes derivation
+admission from the branch-specific `frozen` type to `open`.
 
-## 7. Canonical Four-Case Corpus
+## 7. Canonical Six-Case Corpus
 
 The corpus uses the committed KDF fixture:
 
@@ -496,22 +558,39 @@ x_server_point              = 4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c
 
 The cases and order are:
 
-1. `recovery_same_root_continuity_v1`
+1. `registration_candidate_metadata_v1`
+   - request kind `registration`;
+   - records the canonical synthetic candidate identity and role epochs A
+     `(root=3,input=11)`, B `(root=9,input=41)`;
+   - stages the first activation epoch `7` without an active pre-state;
+   - represents no registration evaluator, contribution derivation, package
+     construction, or proof;
+   - every reference-operation count is `0`.
+2. `activation_after_registration_zero_evaluation_v1`
+   - request kind `activation`, origin kind `registration`;
+   - origin case is `registration_candidate_metadata_v1`;
+   - pending state is byte-for-byte equal to the origin's pending public state;
+   - candidate role epochs become active and activation epoch `7` becomes the
+     first active epoch;
+   - counts: every Deriver, KDF, activation-family, and export-family count is
+     `0`; pending consumptions is `1`.
+3. `recovery_same_root_continuity_v1`
    - request kind `recovery`;
+   - before state equals the preceding registration-origin activation output;
    - recovered client root `0x11 * 32`;
    - role epochs A `(root=3,input=11)`, B `(root=9,input=41)` remain unchanged;
    - activation epoch stages `7 -> 8`;
    - counts: A/B invocations `1/1`, client KDF derivations `1/1`, server KDF
      derivations `0/0`, activation-family evaluations `1`, export-family
      evaluations `0`, pending consumptions `0`.
-2. `activation_after_recovery_zero_evaluation_v1`
+4. `activation_after_recovery_zero_evaluation_v1`
    - request kind `activation`, origin kind `recovery`;
    - origin case is `recovery_same_root_continuity_v1`;
    - pending state is byte-for-byte equal to the origin's pending public state;
    - activation epoch `8` becomes active; role epochs and identity stay fixed;
    - counts: every Deriver, KDF, activation-family, and export-family count is
      `0`; pending consumptions is `1`.
-3. `refresh_opposite_delta_continuity_v1`
+5. `refresh_opposite_delta_continuity_v1`
    - request kind `refresh`;
    - starts from activation epoch `8` and the same role epochs;
    - `delta_y_hex = a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5`;
@@ -521,7 +600,7 @@ The cases and order are:
    - activation epoch stages `8 -> 9`; derivation admission is `frozen`;
    - counts: A/B invocations `1/1`, all KDF derivations `0`, activation-family
      evaluations `1`, export-family evaluations `0`, pending consumptions `0`.
-4. `activation_after_refresh_zero_evaluation_v1`
+6. `activation_after_refresh_zero_evaluation_v1`
    - request kind `activation`, origin kind `refresh`;
    - origin case is `refresh_opposite_delta_continuity_v1`;
    - pending state is byte-for-byte equal to the origin's pending public state;
@@ -553,12 +632,24 @@ Reject:
 5. recovery/refresh fields placed in activation, including
    `host_only_reference`, roots, contributions, deltas, clear traces, or output
    randomness;
-6. registration/export fields, export seed results, optional secret bags, or a
-   generic lifecycle payload;
+6. registration-evaluator inputs/results, export fields, export seed results,
+   optional secret bags, or a generic lifecycle payload;
 7. malformed, uppercase, short, or long hex; a noncanonical scalar; a zero or
    invalid epoch; invalid participant ids; invalid application-binding facts.
 
-### 8.2 Recovery Rejections
+### 8.2 Registration Metadata Rejections
+
+Reject a mutation that:
+
+1. adds an active predecessor epoch or active registered pre-state;
+2. changes the candidate identity, either role epoch, or the first pending
+   activation epoch;
+3. makes the first pending activation epoch zero, boolean, or noncanonical;
+4. makes any reference-operation count nonzero;
+5. adds roots, contributions, registration-evaluator inputs/results, package
+   bytes, proof material, or a host-only reference object.
+
+### 8.3 Recovery Rejections
 
 Reject a mutation that:
 
@@ -577,7 +668,7 @@ Unavailable/compromised-root classification and credential suspension are not
 fields in this narrow corpus. Their rejection behavior remains part of the full
 lifecycle boundary.
 
-### 8.3 Refresh Rejections
+### 8.4 Refresh Rejections
 
 Reject a mutation that:
 
@@ -594,16 +685,17 @@ Reject a mutation that:
 9. uses an `open` admission tag in the pending refresh state;
 10. sets a nonzero KDF/export count or a zero/multiple activation-family count.
 
-### 8.4 Activation Rejections
+### 8.5 Activation Rejections
 
 Reject a mutation that:
 
-1. names registration, activation, or export as the origin kind;
+1. names activation or export as the origin kind, or uses registration outside
+   the frozen registration-origin activation case;
 2. changes any byte of the copied origin pending state;
 3. changes the registered public key, stable binding, public points, or role-root
    epoch;
 4. activates the wrong activation epoch;
-5. changes a recovery-origin role-input-state epoch;
+5. changes a registration- or recovery-origin role-input-state epoch;
 6. fails to promote both refresh next epochs, records the wrong retired input
    epoch, or leaves derivation admission frozen;
 7. makes any Deriver, KDF, activation-family, or export-family count nonzero;
@@ -611,7 +703,7 @@ Reject a mutation that:
 9. adds a root, contribution, delta, joined trace, output coin/share, ciphertext,
    receipt, export result, or new client-secret field.
 
-### 8.5 Public/Host Boundary Rejections
+### 8.6 Public/Host Boundary Rejections
 
 For every public object, inject each forbidden host-only field name and require
 strict decoding failure. Also recursively assert that public objects contain no
@@ -651,14 +743,15 @@ Extend the standard-library verifier with schema auto-detection for
    exact deltas, and require equality only for the joined/downstream identity
    fields;
 6. enforce recovery and refresh epoch invariants;
-7. resolve each activation origin, require exact pending-state equality, enforce
-   the origin-specific promotion, and require the frozen zero-evaluation counts;
+7. resolve all three activation origins, require exact pending-state equality,
+   enforce the origin-specific promotion, and require the frozen zero-evaluation
+   counts;
 8. enforce the public/host boundary and structural absence of activation secret
    inputs;
 9. run one mutation test for every rejection class in Section 8.
 
 Python verification does not establish that deployed code made zero network or
-Yao calls. The Rust host-fixture construction shows only that these two
+Yao calls. The Rust host-fixture construction shows only that these three
 synthetic activation-continuation builders have no contribution, KDF, oracle,
 or Deriver input. Python verifies the resulting closed shape and counters.
 
@@ -680,24 +773,39 @@ LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1
 The builder MUST:
 
 - construct the baseline through the canonical KDF fixture path;
-- construct recovery by rederiving from the same typed synthetic client root;
-- construct refresh through `apply_synthetic_correlated_server_delta_v1`;
+- construct a public-only synthetic registration-candidate metadata snapshot;
+- construct recovery only through
+  `prepare_host_only_recovery_reference_v1` with the same typed synthetic client
+  root;
+- construct refresh only through `prepare_host_only_refresh_reference_v1`;
 - recompute before and after oracle traces independently;
-- construct activation solely from the earlier pending public state;
+- construct each activation solely from the earlier pending public state;
 - avoid calling `evaluate_activation`, KDF functions, or either Deriver path in
-  either activation branch;
+  any activation branch;
 - contain no production adapter, persistence, transport, or feature flag.
 
 Add focused Rust tests for:
 
 - byte-for-byte committed corpus equality and one trailing newline;
-- exact four-case order and activation origin links;
+- exact six-case order and activation origin links;
 - every relation in Section 6;
 - all strict Serde shape rejections in Section 8;
 - compile-time structural absence of activation host-only inputs and export seed
   outputs;
 - a source guard preventing the lifecycle fixture module from depending on
   Router, SDK, Worker, WASM, Cloudflare, HSS, or production protocol crates.
+
+The separate `recovery_reference` test target MUST remain nonzero and counted by
+the formal parity gate. It MUST reject a changed root and independent A/B client
+`y` or `tau` drift, prove all before/after activation fields equal, preserve
+arbitrary validated server inputs, reconstruct both typed scalar outputs, and
+exclude serialization and production surfaces.
+
+The separate `refresh_reference` test target MUST likewise remain nonzero and
+counted. It MUST check unchanged clients, exact A-positive/B-inverse server
+updates, carry/borrow and scalar wrap boundaries, every joined/downstream field,
+typed scalar-output reconstruction, call-local delta move ownership, and exclusion of
+serialization and production surfaces.
 
 Extend the existing vector CLI with distinct
 `emit-lifecycle-continuity` and `check-lifecycle-continuity` commands. Do not add
@@ -707,11 +815,11 @@ a second duplicate binary or reinterpret the existing arithmetic corpus.
 
 This narrow artifact is complete when:
 
-- Rust regenerates the committed four-case JSON byte-for-byte;
+- Rust regenerates the committed six-case JSON byte-for-byte;
 - independent Python accepts it and rejects every required mutation;
 - recovery preserves every frozen root/contribution/identity byte;
 - refresh satisfies the exact opposite-delta and epoch relations;
-- both activation variants contain no host-only input and record zero Deriver,
+- all three activation variants contain no host-only input and record zero Deriver,
   KDF, and Yao evaluation counts;
 - the corpus and tests label all aggregate secret data as host-only;
 - documentation and TODOs continue to leave the full lifecycle corpus,

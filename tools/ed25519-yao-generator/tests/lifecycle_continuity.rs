@@ -1,16 +1,17 @@
 use curve25519_dalek::scalar::Scalar;
 use ed25519_yao_generator::{
-    apply_synthetic_correlated_server_delta_v1, derive_synthetic_client_contributions_v1,
-    derive_synthetic_deriver_a_server_contribution_v1,
-    derive_synthetic_deriver_b_server_contribution_v1, evaluate_export, wrapping_add_le_256,
-    DeriverAContribution, DeriverBContribution, Ed25519YaoApplicationBindingFactsV1,
+    derive_synthetic_client_contributions_v1, derive_synthetic_deriver_a_server_contribution_v1,
+    derive_synthetic_deriver_b_server_contribution_v1, evaluate_full_clear_reference_export_v1,
+    prepare_host_only_refresh_reference_v1, wrapping_add_le_256, DeriverAContribution,
+    DeriverBContribution, Ed25519YaoApplicationBindingFactsV1,
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
-    Ed25519YaoApplicationBindingWalletIdV1, ExportOracleOutput, RawDeriverAContribution,
+    Ed25519YaoApplicationBindingWalletIdV1, ExportOracleOutput,
+    HostOnlyDeriverARefreshDeltaContributionV1, HostOnlyDeriverBRefreshDeltaContributionV1,
+    HostOnlyJointRefreshDeltaCoinsV1, HostOnlyJointRefreshDeltaErrorV1,
+    HostOnlyRefreshReferenceErrorV1, HostOnlyRefreshReferenceInputsV1, RawDeriverAContribution,
     RawDeriverBContribution, StableKeyDerivationContext, SyntheticClientDerivationRootV1,
-    SyntheticContinuityDeltaErrorV1, SyntheticCorrelatedServerDeltaV1,
     SyntheticDeriverADerivationRootV1, SyntheticDeriverBDerivationRootV1,
-    SyntheticNonZeroDeltaTauV1, SyntheticNonZeroDeltaYV1,
 };
 
 fn stable_context() -> StableKeyDerivationContext {
@@ -122,22 +123,40 @@ fn assert_identity_equal(left: &ExportOracleOutput, right: &ExportOracleOutput) 
     );
 }
 
+fn joint_delta_coins(
+    a_y: [u8; 32],
+    a_tau: Scalar,
+    b_y: [u8; 32],
+    b_tau: Scalar,
+) -> HostOnlyJointRefreshDeltaCoinsV1 {
+    HostOnlyJointRefreshDeltaCoinsV1::new(
+        HostOnlyDeriverARefreshDeltaContributionV1::from_host_only_fixture(a_y, a_tau.to_bytes())
+            .expect("canonical A contribution"),
+        HostOnlyDeriverBRefreshDeltaContributionV1::from_host_only_fixture(b_y, b_tau.to_bytes())
+            .expect("canonical B contribution"),
+    )
+}
+
 #[test]
 fn correlated_server_delta_preserves_every_joined_identity_value() {
     let (deriver_a, deriver_b) = derived_contributions(0x11);
-    let delta = SyntheticCorrelatedServerDeltaV1::new(
-        SyntheticNonZeroDeltaYV1::from_fixture_bytes([0xa5; 32]).expect("nonzero delta_y"),
-        SyntheticNonZeroDeltaTauV1::from_canonical_fixture_bytes(Scalar::from(17u64).to_bytes())
-            .expect("nonzero canonical delta_tau"),
+    let delta = joint_delta_coins(
+        [0x3c; 32],
+        Scalar::from(5_u64),
+        [0x69; 32],
+        Scalar::from(12_u64),
     );
     let before_joined_y = joined_y(&deriver_a, &deriver_b);
     let before_joined_tau = joined_tau(&deriver_a, &deriver_b);
-    let before = evaluate_export(&deriver_a, &deriver_b);
+    let before = evaluate_full_clear_reference_export_v1(&deriver_a, &deriver_b);
 
-    let transitioned = apply_synthetic_correlated_server_delta_v1(&deriver_a, &deriver_b, &delta);
-    let refreshed_a = transitioned.deriver_a();
-    let refreshed_b = transitioned.deriver_b();
-    let after = evaluate_export(refreshed_a, refreshed_b);
+    let transitioned = prepare_host_only_refresh_reference_v1(
+        HostOnlyRefreshReferenceInputsV1::new(&deriver_a, &deriver_b, delta),
+    )
+    .expect("joint refresh preserves continuity");
+    let refreshed_a = transitioned.refreshed_deriver_a();
+    let refreshed_b = transitioned.refreshed_deriver_b();
+    let after = evaluate_full_clear_reference_export_v1(refreshed_a, refreshed_b);
 
     assert_eq!(
         deriver_a.y_client().expose_bytes(),
@@ -179,18 +198,27 @@ fn correlated_server_delta_preserves_every_joined_identity_value() {
 }
 
 #[test]
-fn zero_and_noncanonical_deltas_are_rejected_precisely() {
+fn cancelling_joint_deltas_are_rejected_precisely() {
+    let (deriver_a, deriver_b) = derived_contributions(0x11);
+    let error = prepare_host_only_refresh_reference_v1(HostOnlyRefreshReferenceInputsV1::new(
+        &deriver_a,
+        &deriver_b,
+        joint_delta_coins(
+            [
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+            Scalar::ONE,
+            [0xff; 32],
+            Scalar::ONE,
+        ),
+    ))
+    .err();
     assert_eq!(
-        SyntheticNonZeroDeltaYV1::from_fixture_bytes([0u8; 32]).err(),
-        Some(SyntheticContinuityDeltaErrorV1::ZeroDeltaY)
-    );
-    assert_eq!(
-        SyntheticNonZeroDeltaTauV1::from_canonical_fixture_bytes([0u8; 32]).err(),
-        Some(SyntheticContinuityDeltaErrorV1::ZeroDeltaTau)
-    );
-    assert_eq!(
-        SyntheticNonZeroDeltaTauV1::from_canonical_fixture_bytes([0xff; 32]).err(),
-        Some(SyntheticContinuityDeltaErrorV1::NonCanonicalDeltaTau)
+        error,
+        Some(HostOnlyRefreshReferenceErrorV1::InvalidJointDelta(
+            HostOnlyJointRefreshDeltaErrorV1::ZeroJointDeltaY
+        ))
     );
 }
 
@@ -232,8 +260,8 @@ fn same_logical_client_root_rederives_identical_contributions_and_identity() {
         repeat_b.tau_server().expose_bytes()
     );
     assert_identity_equal(
-        &evaluate_export(&first_a, &first_b),
-        &evaluate_export(&repeat_a, &repeat_b),
+        &evaluate_full_clear_reference_export_v1(&first_a, &first_b),
+        &evaluate_full_clear_reference_export_v1(&repeat_a, &repeat_b),
     );
 }
 
@@ -241,8 +269,8 @@ fn same_logical_client_root_rederives_identical_contributions_and_identity() {
 fn changed_client_root_fails_identity_continuity() {
     let (baseline_a, baseline_b) = derived_contributions(0x11);
     let (changed_a, changed_b) = derived_contributions(0x12);
-    let baseline = evaluate_export(&baseline_a, &baseline_b);
-    let changed = evaluate_export(&changed_a, &changed_b);
+    let baseline = evaluate_full_clear_reference_export_v1(&baseline_a, &baseline_b);
+    let changed = evaluate_full_clear_reference_export_v1(&changed_a, &changed_b);
 
     assert_ne!(
         baseline_a.y_client().expose_bytes(),

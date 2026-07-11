@@ -1,0 +1,443 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:evaluation-input-party-views-vectors:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "host_only_synthetic_evaluation_input_party_views_v1",
+  "cases": [
+    {
+      "request_kind": "registration",
+      "vector": {
+        "case_id": "registration_evaluation_input_party_views_v1",
+        "stage": "registration_evaluation_accepted",
+        "host_only_source_references": {
+          "ceremony_context_case_id": "ceremony-registration-v1",
+          "provenance_case_id": "registration_provenance_outer_v1",
+          "semantic_lifecycle_case_id": "registration_semantic_artifacts_output_committed_v1",
+          "output_party_view_case_id": "registration_output_party_views_package_prepared_v1"
+        },
+        "common_public": {
+          "stage": "registration_evaluation_accepted",
+          "request_kind": "registration",
+          "evaluation_plan": {
+            "kind": "one_activation_evaluation",
+            "counts": {
+              "yao_evaluations": 1,
+              "deriver_a_invocations": 1,
+              "deriver_b_invocations": 1,
+              "contribution_derivations": 0,
+              "ideal_output_share_samples": 2
+            }
+          },
+          "public_request_context_digest_hex": "6e8ceb4a0ca695d40f3e162f2c41f5923e1e7569283a69b019741096f05f89dc",
+          "authorization_digest_hex": "29653454f3e9c38ebadb261061c8d1f11c046de646aff0c7eaaa4e65937ec393",
+          "transcript_digest_hex": "1735e65c53e1da0bdd9e9fd6a590f081c064549d3ccee8f80fef5a7dab320cf1",
+          "input_provenance_pair_digest_hex": "f9b14bf597c4fb6cb0d0adb86a2b12b6ce555f4a495bb9e2f996bb9615f0d607"
+        },
+        "role_extensions": {
+          "deriver_a": {
+            "kind": "deriver_a_activation_evaluation_inputs",
+            "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "y_server_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+            "tau_client_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "tau_server_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607"
+          },
+          "deriver_b": {
+            "kind": "deriver_b_activation_evaluation_inputs",
+            "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "y_server_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+            "tau_client_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "tau_server_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "client": {
+            "kind": "client_empty"
+          },
+          "signing_worker": {
+            "kind": "signing_worker_empty"
+          },
+          "router": {
+            "kind": "router_empty"
+          },
+          "observer": {
+            "kind": "observer_empty"
+          },
+          "diagnostics_logs": {
+            "kind": "diagnostics_empty"
+          }
+        },
+        "static_deriver_observations": {
+          "deriver_a": {
+            "observation_kind": "static_consuming_deriver_a_evaluation_inputs",
+            "source_case_id": "registration_evaluation_input_party_views_v1",
+            "source_stage": "registration_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_a_activation_evaluation_inputs",
+              "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+              "y_server_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+              "tau_client_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+              "tau_server_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607"
+            }
+          },
+          "deriver_b": {
+            "observation_kind": "static_consuming_deriver_b_evaluation_inputs",
+            "source_case_id": "registration_evaluation_input_party_views_v1",
+            "source_stage": "registration_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_b_activation_evaluation_inputs",
+              "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+              "y_server_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+              "tau_client_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+              "tau_server_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+            }
+          }
+        },
+        "host_only_ideal_function_randomness": {
+          "kind": "activation_family_output_sharing_coins",
+          "client_scalar_coin_hex": "0300000000000000000000000000000000000000000000000000000000000000",
+          "signing_worker_scalar_coin_hex": "0500000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "request_kind": "activation",
+      "vector": {
+        "case_id": "activation_no_evaluation_input_party_views_v1",
+        "stage": "activation_continuation_accepted",
+        "host_only_source_references": {
+          "semantic_lifecycle_case_id": "activation_metadata_control_v1",
+          "output_party_view_case_id": "activation_output_party_views_metadata_consumed_v1",
+          "activation_origin": "registration"
+        },
+        "common_public": {
+          "stage": "activation_continuation_accepted",
+          "request_kind": "activation",
+          "evaluation_plan": {
+            "kind": "zero_evaluation_continuation",
+            "counts": {
+              "yao_evaluations": 0,
+              "deriver_a_invocations": 0,
+              "deriver_b_invocations": 0,
+              "contribution_derivations": 0,
+              "ideal_output_share_samples": 0
+            }
+          },
+          "public_request_context_digest_hex": "856681dfb3ff7af8a6c7fc7da5aa63f30716483e05fc73b549706fa617b063d5",
+          "authorization_digest_hex": "fe33256fb0ffa08d9f9e3c600407e9178964851a96035513c6f1722688a3a300",
+          "transcript_digest_hex": "3acb203a4bc505ff5cb3dc6be00b8479517e7657853469799b23795157dbf347"
+        },
+        "role_extensions": {
+          "deriver_a": {
+            "kind": "deriver_a_empty"
+          },
+          "deriver_b": {
+            "kind": "deriver_b_empty"
+          },
+          "client": {
+            "kind": "client_empty"
+          },
+          "signing_worker": {
+            "kind": "signing_worker_empty"
+          },
+          "router": {
+            "kind": "router_empty"
+          },
+          "observer": {
+            "kind": "observer_empty"
+          },
+          "diagnostics_logs": {
+            "kind": "diagnostics_empty"
+          }
+        },
+        "static_deriver_observations": {
+          "deriver_a": {
+            "observation_kind": "static_consuming_deriver_a_evaluation_inputs",
+            "source_case_id": "activation_no_evaluation_input_party_views_v1",
+            "source_stage": "activation_continuation_accepted",
+            "extension": {
+              "kind": "deriver_a_empty"
+            }
+          },
+          "deriver_b": {
+            "observation_kind": "static_consuming_deriver_b_evaluation_inputs",
+            "source_case_id": "activation_no_evaluation_input_party_views_v1",
+            "source_stage": "activation_continuation_accepted",
+            "extension": {
+              "kind": "deriver_b_empty"
+            }
+          }
+        },
+        "host_only_ideal_function_randomness": {
+          "kind": "activation_no_ideal_function_randomness"
+        }
+      }
+    },
+    {
+      "request_kind": "recovery",
+      "vector": {
+        "case_id": "recovery_evaluation_input_party_views_v1",
+        "stage": "recovery_evaluation_accepted",
+        "host_only_source_references": {
+          "ceremony_context_case_id": "ceremony-recovery-v1",
+          "provenance_case_id": "recovery_provenance_outer_v1",
+          "semantic_lifecycle_case_id": "recovery_semantic_artifacts_output_committed_v1",
+          "output_party_view_case_id": "recovery_output_party_views_package_prepared_v1"
+        },
+        "common_public": {
+          "stage": "recovery_evaluation_accepted",
+          "request_kind": "recovery",
+          "evaluation_plan": {
+            "kind": "one_activation_evaluation",
+            "counts": {
+              "yao_evaluations": 1,
+              "deriver_a_invocations": 1,
+              "deriver_b_invocations": 1,
+              "contribution_derivations": 0,
+              "ideal_output_share_samples": 2
+            }
+          },
+          "public_request_context_digest_hex": "c7d60ba32965e5d77a15122a1eba7cf85dc774a423f3e5b7f2428284f5aa4062",
+          "authorization_digest_hex": "4bf2fcae1e2ec667773f7dbc0268e25fc16b9f08a04b1b67f349df6c3a12f0dc",
+          "transcript_digest_hex": "ba4bb55211214cc632addc67db08a78b84ddef077d23f8c35d17ff32c7f19493",
+          "input_provenance_pair_digest_hex": "18cf20d924fc7032e3d4fd2e224dd42aa38d8cdd05a6be0f2522b4a10cf7313c"
+        },
+        "role_extensions": {
+          "deriver_a": {
+            "kind": "deriver_a_activation_evaluation_inputs",
+            "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "y_server_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+            "tau_client_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "tau_server_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607"
+          },
+          "deriver_b": {
+            "kind": "deriver_b_activation_evaluation_inputs",
+            "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "y_server_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+            "tau_client_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "tau_server_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "client": {
+            "kind": "client_empty"
+          },
+          "signing_worker": {
+            "kind": "signing_worker_empty"
+          },
+          "router": {
+            "kind": "router_empty"
+          },
+          "observer": {
+            "kind": "observer_empty"
+          },
+          "diagnostics_logs": {
+            "kind": "diagnostics_empty"
+          }
+        },
+        "static_deriver_observations": {
+          "deriver_a": {
+            "observation_kind": "static_consuming_deriver_a_evaluation_inputs",
+            "source_case_id": "recovery_evaluation_input_party_views_v1",
+            "source_stage": "recovery_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_a_activation_evaluation_inputs",
+              "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+              "y_server_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9",
+              "tau_client_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+              "tau_server_hex": "cf2ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607"
+            }
+          },
+          "deriver_b": {
+            "observation_kind": "static_consuming_deriver_b_evaluation_inputs",
+            "source_case_id": "recovery_evaluation_input_party_views_v1",
+            "source_stage": "recovery_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_b_activation_evaluation_inputs",
+              "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+              "y_server_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2",
+              "tau_client_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+              "tau_server_hex": "8ec75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+            }
+          }
+        },
+        "host_only_ideal_function_randomness": {
+          "kind": "activation_family_output_sharing_coins",
+          "client_scalar_coin_hex": "0300000000000000000000000000000000000000000000000000000000000000",
+          "signing_worker_scalar_coin_hex": "0500000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "request_kind": "refresh",
+      "vector": {
+        "case_id": "refresh_evaluation_input_party_views_v1",
+        "stage": "refresh_evaluation_accepted",
+        "host_only_source_references": {
+          "ceremony_context_case_id": "ceremony-refresh-v1",
+          "provenance_case_id": "refresh_provenance_outer_v1",
+          "semantic_lifecycle_case_id": "refresh_semantic_artifacts_output_committed_v1",
+          "output_party_view_case_id": "refresh_output_party_views_package_prepared_v1"
+        },
+        "common_public": {
+          "stage": "refresh_evaluation_accepted",
+          "request_kind": "refresh",
+          "evaluation_plan": {
+            "kind": "one_activation_evaluation",
+            "counts": {
+              "yao_evaluations": 1,
+              "deriver_a_invocations": 1,
+              "deriver_b_invocations": 1,
+              "contribution_derivations": 0,
+              "ideal_output_share_samples": 2
+            }
+          },
+          "public_request_context_digest_hex": "011a86f2067d0e41f621881f268bdc4603e17ae21fad3bba5ce7aa22a8de8adb",
+          "authorization_digest_hex": "18a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c",
+          "transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
+          "input_provenance_pair_digest_hex": "8f71f2f9df8c94d925b438876cafba4f4c0d7fad276ff2a74256532e4f8df61b"
+        },
+        "role_extensions": {
+          "deriver_a": {
+            "kind": "deriver_a_activation_evaluation_inputs",
+            "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "y_server_hex": "05fb91551baac74c96f1b6d2448b2a3a22d50ade4838ed5602f1f9caaa380b7f",
+            "tau_client_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+            "tau_server_hex": "e02ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607"
+          },
+          "deriver_b": {
+            "kind": "deriver_b_activation_evaluation_inputs",
+            "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "y_server_hex": "488675d3489c9301019be568aa2f59977680d3c5e117da72177dde19348e42fd",
+            "tau_client_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+            "tau_server_hex": "7dc75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+          },
+          "client": {
+            "kind": "client_empty"
+          },
+          "signing_worker": {
+            "kind": "signing_worker_empty"
+          },
+          "router": {
+            "kind": "router_empty"
+          },
+          "observer": {
+            "kind": "observer_empty"
+          },
+          "diagnostics_logs": {
+            "kind": "diagnostics_empty"
+          }
+        },
+        "static_deriver_observations": {
+          "deriver_a": {
+            "observation_kind": "static_consuming_deriver_a_evaluation_inputs",
+            "source_case_id": "refresh_evaluation_input_party_views_v1",
+            "source_stage": "refresh_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_a_activation_evaluation_inputs",
+              "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+              "y_server_hex": "05fb91551baac74c96f1b6d2448b2a3a22d50ade4838ed5602f1f9caaa380b7f",
+              "tau_client_hex": "389a362ee32913daaf80b9d8e35c97ca1fa02b7e10e986960331a1d027ccc205",
+              "tau_server_hex": "e02ea34b870e9c78e98afe6c7f0bfd7210884c4a788dbee39e3b63e7b327b607"
+            }
+          },
+          "deriver_b": {
+            "observation_kind": "static_consuming_deriver_b_evaluation_inputs",
+            "source_case_id": "refresh_evaluation_input_party_views_v1",
+            "source_stage": "refresh_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_b_activation_evaluation_inputs",
+              "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+              "y_server_hex": "488675d3489c9301019be568aa2f59977680d3c5e117da72177dde19348e42fd",
+              "tau_client_hex": "667ec12757d3220783ed081d4bd69e494693ae9bcf56d05f5e825f0f003d5a03",
+              "tau_server_hex": "7dc75518784e99df254b0c996f811576b0fa71d970b29cd48640df39886e380c"
+            }
+          }
+        },
+        "host_only_ideal_function_randomness": {
+          "kind": "activation_family_output_sharing_coins",
+          "client_scalar_coin_hex": "0300000000000000000000000000000000000000000000000000000000000000",
+          "signing_worker_scalar_coin_hex": "0500000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "request_kind": "export",
+      "vector": {
+        "case_id": "export_evaluation_input_party_views_v1",
+        "stage": "export_evaluation_accepted",
+        "host_only_source_references": {
+          "ceremony_context_case_id": "ceremony-export-v1",
+          "provenance_case_id": "export_provenance_outer_v1",
+          "semantic_lifecycle_case_id": "export_semantic_artifacts_host_reference_receipt_v1",
+          "output_party_view_case_id": "export_output_party_views_released_v1"
+        },
+        "common_public": {
+          "stage": "export_evaluation_accepted",
+          "request_kind": "export",
+          "evaluation_plan": {
+            "kind": "one_export_evaluation",
+            "counts": {
+              "yao_evaluations": 1,
+              "deriver_a_invocations": 1,
+              "deriver_b_invocations": 1,
+              "contribution_derivations": 0,
+              "ideal_output_share_samples": 1
+            }
+          },
+          "public_request_context_digest_hex": "77ee8387b38b8d7f5ba57282fe7c3e6be9bc14fa0b45a0d8b102a7087b613862",
+          "authorization_digest_hex": "6c57d4ad88cbcd58a661399ac9b7739016b7e243bd8af322eddd013eb51563e9",
+          "transcript_digest_hex": "c7cf972b5452de56ec165862048a650c082b3fa8f2b8fae5aad8db4ccb9ec09d",
+          "input_provenance_pair_digest_hex": "6e62beeaee436b293635a52191f0fb6e6c1ceac406ad2af86ad429c1771da6e0"
+        },
+        "role_extensions": {
+          "deriver_a": {
+            "kind": "deriver_a_export_evaluation_inputs",
+            "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+            "y_server_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9"
+          },
+          "deriver_b": {
+            "kind": "deriver_b_export_evaluation_inputs",
+            "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+            "y_server_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2"
+          },
+          "client": {
+            "kind": "client_empty"
+          },
+          "signing_worker": {
+            "kind": "signing_worker_empty"
+          },
+          "router": {
+            "kind": "router_empty"
+          },
+          "observer": {
+            "kind": "observer_empty"
+          },
+          "diagnostics_logs": {
+            "kind": "diagnostics_empty"
+          }
+        },
+        "static_deriver_observations": {
+          "deriver_a": {
+            "observation_kind": "static_consuming_deriver_a_evaluation_inputs",
+            "source_case_id": "export_evaluation_input_party_views_v1",
+            "source_stage": "export_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_a_export_evaluation_inputs",
+              "y_client_hex": "8c667b5043a1f3e59821d2253c010c83a26b9f3426bb8295cd39ad2782425c10",
+              "y_server_hex": "6055ecaf750422a7f04b112d9fe584947c2f6538a39247b15c4b5425059365d9"
+            }
+          },
+          "deriver_b": {
+            "observation_kind": "static_consuming_deriver_b_evaluation_inputs",
+            "source_case_id": "export_evaluation_input_party_views_v1",
+            "source_stage": "export_evaluation_accepted",
+            "extension": {
+              "kind": "deriver_b_export_evaluation_inputs",
+              "y_client_hex": "edf3deaa4f175aaede186013471bc3bb9a868853b3c9f3332a0b55aa72423550",
+              "y_server_hex": "ed2b1b79ee4139a7a6408b0e50d5fe3c1c26796b87bd7f18bd2284bfd933e8a2"
+            }
+          }
+        },
+        "host_only_ideal_function_randomness": {
+          "kind": "export_seed_output_coin",
+          "seed_output_coin_hex": "7777777777777777777777777777777777777777777777777777777777777777"
+        }
+      }
+    }
+  ]
+}

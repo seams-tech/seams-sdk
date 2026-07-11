@@ -2,11 +2,12 @@
 
 Date created: July 10, 2026
 
-Status: approved replacement and active implementation plan. Phase 0 closed on
+Status: approved replacement and current implementation plan. Phase 0 closed on
 July 10, 2026. Streaming Yao is the sole Ed25519 split-derivation target.
-Production remains blocked until the active-security, separate-account,
-recipient-output, constant-time, and independent-review gates in this document
-pass.
+Production remains blocked until Phase 6A selects the strongest reviewed
+security profile that meets the latency SLO and the separate-account,
+recipient-output, constant-time, exact-claim, and independent-review gates in
+this document pass.
 
 Companion documents:
 
@@ -70,11 +71,12 @@ latency lower bound and runtime-compromise containment. They do not provide
 independent deployer or account security. Same-account deployment is limited to
 local development, staging, and performance experiments.
 
-Plain free-XOR/half-gates Yao supplies a semi-honest benchmark. Production needs
-a reviewed actively secure construction. That construction must enforce
-malicious-secure OT, garbling correctness, input consistency, selective-failure
-resistance, private authenticated outputs, and correctness-with-abort against
-one malicious Deriver.
+Plain free-XOR/half-gates Yao supplies the latency baseline. Fully active
+security remains the preferred production result. Phase 6A may select an
+operationally hardened passive construction when every reviewed active profile
+misses the approved online-latency SLO. The selected construction, its exact
+corruption model, and every excluded attack are frozen in the signed release
+manifest and capability document.
 
 If Streaming Yao passes the release gates, delete the Ed25519-HSS simulator,
 succinct-HSS placeholders, generic threshold service, old routes, client
@@ -86,27 +88,70 @@ additive secp256k1 scalar shares under its separately specified strict protocol.
 ECDSA has no dependency on the Ed25519 Yao crate or stream and must finish its
 migration before `ThresholdSigningService` is deleted.
 
+## Security-Performance 80/20 Priority
+
+User-visible latency is the primary product selection criterion. Phase 6A
+selects the strongest coherent security profile that meets the signed p95 and
+p99 SLO on the real independent-domain topology. Total CPU, preprocessing,
+storage, and attempted-ceremony cost remain release inputs, while work moved
+fully offline may be accepted when it preserves the online SLO.
+
+Hardening is evaluated as complete reviewed profiles. Individual mechanisms
+cannot be combined into an inflated security claim. Malicious OT without
+garbling correctness, for example, does not establish security against a
+malicious garbler.
+
+| Profile                                 | Composition                                                                                                                                                                                                                      | Eligible production claim                                                                                                                                     |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0 — operationally hardened passive Yao | Half-Gates/free-XOR, ordinary reviewed OT, independent administrators, pinned artifacts, fresh per-ceremony material, authenticated transcripts, strict framing, replay controls, recipient encryption, and public output checks | privacy and correctness while both Derivers execute the approved protocol; confidentiality against passive compromise of one Deriver; no active-Deriver claim |
+| P1 — reviewed targeted hardening        | P0 plus a complete reviewer-approved set of malicious OT, input consistency, selective-failure, provenance, or output-authentication mechanisms                                                                                  | only the exact one-sided or attack-specific claim proved for the complete composition                                                                         |
+| P2 — prepositioned full active          | reviewed active compiler plus malicious OT, provenance, authenticated private outputs, correctness-with-abort, and one-use prepositioning                                                                                        | Router plus at most one malicious Deriver, subject to the frozen assumptions                                                                                  |
+| P3 — just-in-time full active           | the P2 security composition with preprocessing on the online path                                                                                                                                                                | same cryptographic claim as P2, with higher expected online latency                                                                                           |
+
+Phase 6A first attempts P2, then any coherent P1 profile, then P0. P3 is a
+correctness and total-cost comparator unless it independently meets the online
+SLO. Dual execution remains disqualified because its adversarial leakage can
+compound across retries involving long-lived inputs.
+
+The following controls are mandatory for every selected profile because they
+provide high security value with bounded expected latency:
+
+- independent A and B administrative domains in production;
+- pinned protocol, circuit, schedule, binary, and deployment-manifest digests;
+- mutually authenticated role-bound transport and signed transcripts;
+- strict binary framing, size, sequence, timeout, and replay enforcement;
+- fresh labels, OT state, randomness, nonces, and session domains;
+- recipient-bound encryption and public output-share consistency checks;
+- export authorization, epoch binding, rate limits, and abuse controls;
+- constant-time review for the selected cryptographic kernels and platform.
+
+Phase 6A freezes exactly one security profile and one platform profile. Public
+requests contain no security-level selector, downgrade field, or backend
+negotiation. Losing implementations are deleted before product integration.
+
 ## Critical Risk Register
 
 Phase 6A owns the critical-path decision record. Each owner must close the
 listed tripwire or explicitly activate its fallback before dependent work
 starts.
 
-| Risk                                          | Owner                                     | Tripwire                                                             | Required fallback                                                              |
-| --------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| No acceptable active construction             | protocol lead and independent reviewer    | leakage, unsupported composition, or rejected proof assumptions      | stop the protocol; do not ship a passive or dual-execution downgrade           |
-| No reviewable implementation path             | Rust crypto lead and independent reviewer | no auditable build-or-port plan inside the approved effort budget    | select the next bounded candidate or stop                                      |
-| Worker garbling primitive is unsafe           | constant-time reviewer and Worker lead    | compiled WASM review finds secret-dependent memory or control flow   | move both roles to separate-account Containers or independent native VMs       |
-| Worker latency, memory, or round budget fails | performance owner and protocol lead       | Phase 6A projection exceeds reissued release budgets                 | move down the platform ladder or stop                                          |
-| Durable state dominates the critical path     | Cloudflare runtime owner                  | measured transaction graph misses the reissued p95 or p99 budget     | coalesce safe local transitions, remove network waits, then change platform    |
-| Ticket burning enables cost exhaustion        | abuse and operations owner                | wallet, organization, tenant, or global burn budget is exceeded      | throttle admission, open the circuit breaker, and suspend preprocessing        |
-| Epoch state can roll back                     | release-security owner                    | either role accepts an epoch below the independent signed floor      | stop issuance and rotate the entire base-OT channel epoch                      |
-| Circuit rollout revives stale tickets         | release owner                             | an old digest can activate after its floor or reappear after restore | stop issuance, destroy stale material, and complete only the bounded drain set |
+| Risk                                          | Owner                                     | Tripwire                                                                                 | Required fallback                                                                |
+| --------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| No acceptable active construction             | protocol lead and independent reviewer    | leakage, unsupported composition, rejected assumptions, or active profile misses the SLO | evaluate a coherent P1 profile, then P0 with an explicitly reduced claim         |
+| No reviewable implementation path             | Rust crypto lead and independent reviewer | no auditable build-or-port plan inside the approved effort budget                        | select the next security profile; stop only when P0 also lacks a reviewable path |
+| Worker garbling primitive is unsafe           | constant-time reviewer and Worker lead    | compiled WASM review finds secret-dependent memory or control flow                       | move both roles to separate-account Containers or independent native VMs         |
+| Worker latency, memory, or round budget fails | performance owner and protocol lead       | Phase 6A projection exceeds reissued release budgets                                     | compare prepositioning, the next security profile, and the platform ladder       |
+| Security claim exceeds selected profile       | product-security owner and reviewer       | capability or release text claims an attack class absent from the proof                  | stop release and reduce the claim or select a stronger measured profile          |
+| Durable state dominates the critical path     | Cloudflare runtime owner                  | measured transaction graph misses the reissued p95 or p99 budget                         | coalesce safe local transitions, remove network waits, then change platform      |
+| Ticket burning enables cost exhaustion        | abuse and operations owner                | wallet, organization, tenant, or global burn budget is exceeded                          | throttle admission, open the circuit breaker, and suspend preprocessing          |
+| Epoch state can roll back                     | release-security owner                    | either role accepts an epoch below the independent signed floor                          | stop issuance and rotate the entire base-OT channel epoch                        |
+| Circuit rollout revives stale tickets         | release owner                             | an old digest can activate after its floor or reappear after restore                     | stop issuance, destroy stale material, and complete only the bounded drain set   |
 
 ## Platform Fallback Ladder
 
-The protocol security target and independent-administrator requirement are
-fixed. Phase 6A chooses the first feasible execution profile in this order:
+The independent-administrator requirement and exact-claim requirement are
+fixed. Phase 6A chooses the first feasible execution platform for each serious
+security profile in this order:
 
 1. separate-account Cloudflare Workers;
 2. separate-account Cloudflare Containers;
@@ -130,9 +175,10 @@ the existing `ideal-functionalities-v1.md` and `input-provenance-v1.md` pattern
 with versioned specifications for:
 
 - fixed circuit encodings, constants, KDFs, and golden vectors;
-- the Phase 6A active-construction decision and assumption boundary;
+- the Phase 6A security-profile, construction, and assumption decision;
 - the binary stream manifest and frame grammar;
-- ticket lifecycle, epoch floor, and circuit rollout;
+- the selected session lifecycle, optional preprocessing-ticket lifecycle,
+  epoch floor, and circuit rollout;
 - approved deployment profiles and peer identity rules;
 - the reissued release SLO and resource budgets.
 
@@ -163,6 +209,13 @@ checkpointed together when Phase 0 closed. From that checkpoint:
 - `router-a-b-deployment.md` remains authoritative for deployment mechanics,
   with separate accounts promoted to the strict production profile.
 
+The July 10, 2026 performance-priority amendment supersedes the prior rule that
+production must stop when full active security misses the SLO. Streaming Yao
+remains the sole backend and independent A/B administration remains mandatory.
+Phase 6A may now select P0, P1, P2, or P3 under the 80/20 policy. The Router and
+formal-verification companion plans must be aligned with the selected profile
+before their corresponding gates close.
+
 No active, normative, capability, or release document may continue to advertise
 the current HSS simulator as a succinct-HSS implementation. Historical
 optimization records may retain dated descriptions of what was measured.
@@ -177,7 +230,8 @@ h = SHA-512(d)
 a = clamp(h[0..32]) mod l
 ```
 
-while preserving these custody rules:
+while preserving these custody rules during honest execution and against the
+corruption class claimed by the selected profile:
 
 ```text
 Deriver A never learns B inputs or a joined output.
@@ -188,7 +242,7 @@ SigningWorker receives only x_server_base.
 No server role reconstructs d or a.
 ```
 
-The target production claim is:
+The preferred P2/P3 production claim is:
 
 > The Streaming Yao Router A/B ceremony provides privacy and
 > correctness-with-abort against the Router plus at most one malicious Deriver,
@@ -196,6 +250,19 @@ The target production claim is:
 > secure two-party protocol, an approved proof binding each role input to its
 > provisioned root and epoch, authenticated role-bound transport, one-use
 > preprocessing, and no A+B collusion.
+
+If Phase 6A selects P0, the production claim is reduced to:
+
+> The Streaming Yao Router A/B ceremony provides privacy and correctness while
+> both Derivers execute the approved protocol, and confidentiality against
+> passive compromise of at most one Deriver, assuming independent A and B
+> administrative domains, authenticated role-bound transport, fresh
+> per-ceremony cryptographic material, and no A+B collusion. It provides no
+> protection against an actively deviating Deriver.
+
+P1 uses only the narrower corruption and attack-specific claim approved in its
+decision record. Public capability text always identifies the selected profile
+and its exclusions.
 
 ## Scope
 
@@ -214,6 +281,8 @@ In scope:
 - strict Router A/B product integration;
 - measured Streaming Yao latency and cost evidence, with historical HSS
   measurements retained only as dated context;
+- selection of the strongest reviewed P0-P3 security profile meeting the
+  approved latency SLO;
 - deletion of the losing Ed25519 production path.
 
 Out of scope:
@@ -450,11 +519,15 @@ verifies the previously committed activation-family packages; registration,
 recovery, and refresh perform the Yao evaluation that creates them. Only
 `F_ed25519_export_v1` has seed-output wires or seed-share packages.
 
-Phase 2 freezes a deterministic core-function digest and a passive benchmark
-artifact. Phase 6A selects the active protocol and randomized-output
-realization. Phase 6B freezes the production composition, regenerates the final
-production circuit manifests and digests, and freezes them. The passive digest
-cannot be used in production.
+Phase 2A emits provisional construction-independent compiler, evaluator,
+schedule, and gate-count evidence. Phase 2B reconciles that evidence against the
+completed Phase 1 contract and freezes a deterministic core-function digest and
+passive benchmark artifact. Phase 6A selects the security profile and
+randomized-output realization. Phase 6B freezes the production composition,
+regenerates the final production circuit manifests and digests, and freezes
+them. Neither a Phase 2A artifact nor the Phase 2B benchmark artifact ID can be
+used in production, including when P0 is selected; Phase 6B emits a distinct
+production security-suite digest.
 
 The activation circuit covers the derivation and output-activation portion of a
 refresh. Any protocol that refreshes role roots or persisted contributions must
@@ -517,9 +590,11 @@ admission until the committed next epoch reaches `WorkerActivated`; activation
 rejects stale role/worker epochs and retires the previous epoch.
 
 This refresh preserves identity against static corruption. It makes no
-proactive or mobile-adversary healing claim. Joint delta generation and
-anti-bias, role-local delta custody and provenance, active output generation,
-and atomic distributed persistence remain stop-ship blockers. Registration
+proactive or mobile-adversary healing claim. Deployed A/B delta-contribution
+origination, entropy and anti-bias, role-local custody and provenance, selected
+output generation and binding, and atomic distributed persistence remain
+stop-ship blockers.
+Registration
 cannot require a pre-existing account public key. The current
 `Recovery -> Export` request mapping and conflicting registration preconditions
 must be deleted when the disjoint product types land.
@@ -549,9 +624,11 @@ z_B only to Deriver B
 Neither Deriver supplies `R` as a freely chosen linear mask. A construction such
 as protocol-native random output sharing or committed private seeds passed
 through a reviewed in-circuit PRF/extractor may realize the functionality. The
-active-security proof must show that one corrupt role cannot force the honest
-role's decoded share to equal the joined output through a degenerate seed,
-selective failure, or abort pattern.
+P2/P3 proof must show that one corrupt role cannot force the honest role's
+decoded share to equal the joined output through a degenerate seed, selective
+failure, or abort pattern. P0 assumes honest execution of the approved
+randomized-output algorithm and retains public output checks; P1 states only its
+reviewed coverage.
 
 For seed export:
 
@@ -563,10 +640,12 @@ d_B = d - U mod 2^256
 
 Private garbler output requires a two-output construction. A generates and
 retains the semantic translation map for A-output wires. B receives no semantic
-mapping for those wires and returns only A's selected opaque labels after active
-verification. B receives translation data only for B-output wires. The
-active-security layer must authenticate both output paths and prevent
-equivocation.
+mapping for those wires and returns only A's selected opaque labels after any
+verification required by the selected profile. B receives translation data only
+for B-output wires. P1-P3 authenticate output paths to the extent required by
+their selected claim. P0 uses recipient encryption, transcript binding, signed
+package digests, and public consistency checks under its honest-execution
+assumption.
 
 A and B separately encrypt their scalar shares to the authorized recipient.
 Packages bind:
@@ -577,22 +656,26 @@ Packages bind:
 - root and deployment epochs;
 - Deriver role and peer identities;
 - recipient role and public key;
-- preprocessing ticket ID;
+- selected session or preprocessing-ticket ID;
 - transcript root;
 - output kind;
 - expiration and replay domain.
 
-Each scalar share includes a public point commitment. An active-output MAC,
-proof, or authenticated-label opening binds the decoded scalar, its point, the
-recipient ciphertext digest, and the transcript to the authenticated 2PC
-output. A self-consistent scalar and point supplied after circuit execution is
-insufficient: correlated changes to the two outputs can preserve the public
-relation below.
+Each scalar share includes a public point commitment. An individual additive
+share may be zero, in which case its canonical point commitment is the Edwards
+identity. Rejecting or retrying that valid outcome would change the randomized
+sharing distribution. P1-P3 use any selected active-output MAC, proof, or
+authenticated-label opening to bind the decoded scalar, its point, the recipient
+ciphertext digest, and the transcript to the 2PC output. P0 uses signed
+transcript/package binding and public consistency checks under honest execution.
+A self-consistent scalar and point supplied after circuit execution is
+insufficient for an active-Deriver claim because correlated changes to the two
+outputs can preserve the public relation below.
 
-The recipient verifies the active-output binding and its scalar against the
+The recipient verifies the selected output binding and its scalar against the
 point before combining. A public output receipt carries `X_client`, `X_server`,
-`A_pub`, the complete recipient-package digest set, the ticket ID, and the
-transcript root to both recipients. Both Derivers sign that receipt. The
+`A_pub`, the complete recipient-package digest set, the session/ticket ID, and
+the transcript root to both recipients. Both Derivers sign that receipt. The
 combined public points must satisfy:
 
 ```text
@@ -603,10 +686,14 @@ A_pub    = a * B
 2 * X_client - X_server = A_pub
 ```
 
-Before this check, parse every share verification point, `X_client`,
-`X_server`, and `A_pub` from a canonical Edwards encoding; reject identity,
-small-order, torsion, and non-prime-subgroup points; and verify strict
-scalar-to-point equality for each private share received by that recipient.
+Before this check, parse every share verification point, `X_client`, `X_server`,
+and `A_pub` from a canonical Edwards encoding and reject small-order, torsion,
+and non-prime-subgroup points. Permit identity only for an individual additive
+share whose decoded scalar is exactly zero, and verify strict scalar-to-point
+equality for every private share received by that recipient. Reject identity for
+the joined `X_client`, joined `X_server`, and `A_pub`; an identity joined signing
+share gives the other recipient the complete signing scalar and violates the
+two-party authorization boundary.
 
 Freeze the normal-signing verifying-share mapping:
 
@@ -639,14 +726,16 @@ The production design must bind each role input to:
 - client envelope commitment;
 - authorization digest.
 
-Phase 6A must select a reviewed input-commitment and proof mechanism. The
-anti-bias target is a Deriver that adaptively chooses an input, selectively
-aborts, or retries after learning peer-dependent information to bias an
-accepted `A_pub`. Commitments, challenge ordering, abort accounting, and retry
-rules must prevent that strategy for either Deriver. Recovery and refresh must
-prove continuity with the registered public identity. A public-key parity check
-detects an identity change; it does not replace a proof that the correct role
-root was used.
+Phase 6A must select the input-provenance scope. P2/P3 require a reviewed
+commitment and proof mechanism. P1 covers only its reviewed subset. P0 binds the
+declared root, context, request, and epoch into signed transcripts while assuming
+each Deriver honestly derives its role input. The active anti-bias target is a
+Deriver that adaptively chooses an input, selectively aborts, or retries after
+learning peer-dependent information to bias an accepted `A_pub`; only profiles
+whose proof prevents that strategy may claim active anti-bias. Recovery and
+refresh must preserve the registered public identity in every profile. A
+public-key parity check detects an identity change but does not prove that a P0
+Deriver used the correct role root.
 
 Client selection of its own root contribution, including vanity-key grinding,
 is a separate product and admission-control policy. If the product permits it,
@@ -672,17 +761,17 @@ flowchart LR
 
 ### Payload Boundaries
 
-| Link                    | Allowed payload                               |                                        Size class | Forbidden payload                                |
-| ----------------------- | --------------------------------------------- | ------------------------------------------------: | ------------------------------------------------ |
-| Client to Router        | public intent, authorization, A/B ciphertexts |                                               KiB | garbled tables, labels, clear Deriver inputs     |
-| Router to A             | A-scoped envelope and public metadata         |                                               KiB | B plaintext, joined input, circuit stream        |
-| Router to B             | B-scoped envelope and public metadata         |                                               KiB | A plaintext, joined input, circuit stream        |
-| A to B                  | signed control, OT, binary garbled stream     | approximately 2 MiB plus active-security overhead | client-readable encoding, JSON/base64 table      |
-| B to A                  | signed control, OT, A-output labels, receipt  |                                               KiB | decoded joined output                            |
-| A/B to Router           | recipient ciphertexts and public receipt      |                                               KiB | recipient plaintext or joined output             |
-| Router to Client        | client-encrypted package set                  |                                               KiB | server plaintext, joined `a`, normal seed output |
-| Router to SigningWorker | server-encrypted package set                  |                                               KiB | client plaintext, `d`, joined `a`                |
-| Router logs             | identifiers, public digests, status, timings  |                                             bytes | labels, masks, OT state, input/output plaintext  |
+| Link                    | Allowed payload                               |                                         Size class | Forbidden payload                                |
+| ----------------------- | --------------------------------------------- | -------------------------------------------------: | ------------------------------------------------ |
+| Client to Router        | public intent, authorization, A/B ciphertexts |                                                KiB | garbled tables, labels, clear Deriver inputs     |
+| Router to A             | A-scoped envelope and public metadata         |                                                KiB | B plaintext, joined input, circuit stream        |
+| Router to B             | B-scoped envelope and public metadata         |                                                KiB | A plaintext, joined input, circuit stream        |
+| A to B                  | signed control, OT, binary garbled stream     | approximately 2 MiB plus selected-profile overhead | client-readable encoding, JSON/base64 table      |
+| B to A                  | signed control, OT, A-output labels, receipt  |                                                KiB | decoded joined output                            |
+| A/B to Router           | recipient ciphertexts and public receipt      |                                                KiB | recipient plaintext or joined output             |
+| Router to Client        | client-encrypted package set                  |                                                KiB | server plaintext, joined `a`, normal seed output |
+| Router to SigningWorker | server-encrypted package set                  |                                                KiB | client plaintext, `d`, joined `a`                |
+| Router logs             | identifiers, public digests, status, timings  |                                              bytes | labels, masks, OT state, input/output plaintext  |
 
 ### Network and Administrative Edges
 
@@ -714,12 +803,13 @@ Binding URLs for every edge that crosses an account boundary.
 3. The Router authenticates the lifecycle request, freezes recipient keys, and
    dispatches the compact role envelopes.
 4. Each Deriver validates its envelope and derives its role-local server input.
-5. A and B run a signed two-phase reservation handshake. Each role performs a
-   locally atomic reservation; any ambiguous peer state burns both tickets.
+5. A and B establish the selected one-use session. Profiles with preprocessing
+   run the signed two-phase reservation handshake and burn ambiguous tickets;
+   P0 activates fresh just-in-time state without a preprocessing reservation.
 6. A and B complete the selected construction's bounded pre-stream control
    rounds. Every unpredictable challenge is sampled only after all challenged
    commitments are durably persisted and authenticated.
-7. A begins the direct binary request stream only when the active construction
+7. A begins the direct binary request stream only when the selected construction
    authorizes release.
 8. A garbles in fixed topological order while the transport applies
    backpressure.
@@ -728,15 +818,15 @@ Binding URLs for every edge that crosses an account boundary.
     packages, then returns A's opaque selected output labels, B's package
     digests, and its signed transcript root in the response to A's stream.
 11. A decodes only its authenticated share.
-12. A builds and persists its exact recipient ciphertexts and active output
+12. A builds and persists its exact recipient ciphertexts and selected output
     bindings in `OutputPrepared` state.
 13. A sends one small output-commit request containing the complete digest set
     and A's signature. B verifies, co-signs, enters `OutputCommitted`, consumes,
     and returns its signature. A verifies, enters `OutputCommitted`, and
     consumes.
-14. Only consumed tickets release the persisted packages to the Router for
-    opaque relay. Recipients validate active-output bindings, combine their
-    shares, and verify the public receipt.
+14. Only consumed sessions or tickets release the persisted packages to the
+    Router for opaque relay. Recipients validate the selected output bindings,
+    combine their shares, and verify the public receipt.
 15. The Router records only public terminal receipts. Exact ciphertext
     redelivery remains allowed; cryptographic reevaluation does not.
 
@@ -762,13 +852,15 @@ The compiler pipeline should:
    arithmetic, and deterministic mathematical outputs;
 5. assign a canonical topological gate order;
 6. compute live-wire intervals and compact reusable wire slots;
-7. emit a compact binary schedule and immutable manifest;
+7. emit compact binary IR/schedule files; Phase 2A attaches only its canonical
+   reproducibility index;
 8. digest the compiler version, source IR, schedule, constants, input schema,
    output schema, and gate counts.
 
-The Phase 2 artifact exposes mathematical outputs only inside a local passive
-benchmark/test harness. Phase 6B composes the Phase 6A input-provenance proof,
-active compiler, and randomized-output functionality, then generates the
+Phase 2A exposes mathematical outputs only inside a provisional local passive
+benchmark/test harness. Phase 2B freezes the reviewed benchmark artifact after
+the Phase 1 exit. Phase 6B composes the Phase 6A-selected input handling,
+compiler, hardening, and randomized-output functionality, then generates the
 production artifacts.
 
 CI regenerates each artifact and fails on an unexplained digest or gate-count
@@ -803,12 +895,13 @@ Planning budgets before synthesis:
 | Complete passive benchmark circuit     |    `1.65-2.10 MiB` |
 | Base64 representation                  |          forbidden |
 | Input-provenance proof/setup           |   must be measured |
-| Production active-security overhead    |   must be measured |
+| Production selected-profile overhead   |   must be measured |
 | Peak Worker isolate memory             | less than `96 MiB` |
 
-The production report includes input-provenance proof bytes, setup, rounds, A/B
-CPU, verification CPU, and any added circuit gates alongside the active-security
-overhead. Those costs cannot disappear into an unmeasured provisioning bucket.
+The production report includes selected input-provenance bytes, setup, rounds,
+A/B CPU, verification CPU, and any added circuit gates alongside the selected-
+profile overhead. Those costs cannot disappear into an unmeasured provisioning
+bucket.
 
 Garbled tables are pseudorandom and effectively incompressible. HTTP
 compression is disabled. All size gates use binary bytes on the wire.
@@ -827,7 +920,7 @@ The implementation must freeze and review:
 - point-and-permute convention;
 - global-delta lifecycle;
 - OT suite;
-- active-security compiler;
+- selected security-profile compiler and checks;
 - transcript hash;
 - peer authentication;
 - recipient HPKE/AEAD suites;
@@ -842,9 +935,12 @@ the final compiled WASM. Table-indexed software AES and any secret-dependent
 memory or control flow fail the Worker profile. A native fallback must repeat
 the compiled-output review for its actual target CPU and enabled features.
 
-The passive protocol API is benchmark-only. Once the active construction lands,
-delete any externally callable semi-honest ceremony entrypoint. Shared internal
-garbling primitives may remain where the active construction uses them.
+The passive protocol API is benchmark-only until Phase 6A. If P0 is selected,
+the operationally hardened passive ceremony becomes the sole production
+entrypoint and the benchmark-only harness remains isolated. If P1, P2, or P3 is
+selected, delete every externally callable passive ceremony entrypoint. Shared
+internal garbling primitives may remain where the selected construction uses
+them.
 
 ## Binary Streaming Protocol
 
@@ -871,7 +967,7 @@ prevents incremental evaluation and adds avoidable memory copies.
 The signed opening manifest includes:
 
 - protocol identifier;
-- active-security suite;
+- selected security suite and exact claim identifier;
 - circuit identifier and digest;
 - compiler and parameter digest;
 - ceremony and ticket IDs;
@@ -952,15 +1048,16 @@ B:
 
 These disposal rules describe the one-pass baseline. Phase 5 may prototype only
 the framing and disposal patterns permitted by the Phase 6A construction
-decision. The selected active compiler may require commitments, an
+decision. The selected construction may require commitments, an
 unpredictable challenge, checked-circuit retention, or a second pass before
 evaluation. Phase 6A defines the construction-level retention and challenge
 rules; Phase 6B freezes the exact production frame graph and earliest safe
 evaluation and disposal point. If retention is required, keep encrypted chunks
 in bounded role-local storage and preserve the selected platform's memory gate.
 
-Frame authentication proves that A sent the bytes in the stream. Garbling
-correctness comes only from the selected active-security construction.
+Frame authentication proves that A sent the bytes in the stream. P2/P3 garbling
+correctness comes from the selected active construction. P0 assumes the approved
+garbler executed honestly; framing does not upgrade that claim.
 
 The target wall time approaches:
 
@@ -974,6 +1071,21 @@ from cross-account HTTPS. Measure both instead of assuming perfect overlap.
 ## One-Use Preprocessing
 
 ### Lifecycle
+
+Phase 6A freezes the minimum lifecycle for the selected profile. A P0
+just-in-time candidate uses fresh per-ceremony state and a compact lifecycle such
+as:
+
+```text
+Created -> Activated -> OutputPrepared -> OutputCommitted -> Consumed
+```
+
+Every nonterminal state may transition to `Destroyed`. P0 has no
+`Generated`, `Paired`, `Available`, `Reserved`, or `Prepositioning` states unless
+a separately reviewed optimization requires them and still meets the SLO.
+
+The following fuller lifecycles apply to profiles with reusable channels,
+preprocessing pools, or prepositioned material.
 
 The just-in-time lifecycle is:
 
@@ -998,7 +1110,7 @@ Rules:
 - a signed two-phase handshake coordinates the two local reservations;
 - peer ambiguity after local reservation destroys the local ticket;
 - `Prepositioning` may release only input-independent material permitted by the
-  selected active-security proof;
+  selected security-profile proof or reviewed P0 construction;
 - a partial prepositioning upload destroys the ticket;
 - `Available` is reached after B authenticates the complete stored object and
   both roles sign its digest;
@@ -1034,14 +1146,17 @@ After restore, rollback, duplicated state, or counter uncertainty, rotate the
 entire base-OT channel epoch and destroy every ticket derived from the old
 epoch.
 
-`EpochFloorAuthorityV1` is the required authority before Phase 7 begins. It is
-an independently administered, append-only signed release ledger with offline
-root keys and a monotonic epoch. Both administrative domains cross-check its
-signed view before issuance, reservation, activation, restore, or peer-key
-rotation. Its authentication keys, signed floors, and revocation tombstones are
-excluded from role-state backups. Both peers reject an epoch below that floor.
-High-water marks stored only in the two restorable role databases are
-insufficient.
+`EpochFloorAuthorityV1` is required before Phase 7 enables reusable base-OT
+channels, preprocessing, or prepositioning. It is an independently administered,
+append-only signed release ledger with offline root keys and a monotonic epoch.
+Both administrative domains cross-check its signed view before issuance,
+reservation, activation, restore, or peer-key rotation. Its authentication keys,
+signed floors, and revocation tombstones are excluded from role-state backups.
+Both peers reject an epoch below that floor. High-water marks stored only in the
+two restorable role databases are insufficient. P0 may pin a signed monotonic
+deployment/circuit floor at startup and avoid a ceremony-path authority call
+when it uses no reusable preprocessing; Phase 6A must prove the resulting
+rollback boundary and measure its latency.
 
 Admission applies authenticated per-wallet, per-organization, per-tenant, and
 global ticket-generation and burn budgets. Every destroyed ticket records a
@@ -1059,17 +1174,22 @@ Rollback never revives an old digest or ticket.
 
 ### Persistence
 
-Each role owns an independent Durable Object namespace for:
+Profiles with distributed tickets or preprocessing give each role an
+independent Durable Object namespace for:
 
 - ticket state;
 - public peer commitment;
 - encrypted small role-local ticket secret;
 - base-OT channel epoch and generation high-water mark;
-- output-prepared package ciphertexts and active-output bindings;
+- output-prepared package ciphertexts and selected output bindings;
 - signed output-commitment digest set;
 - consume marker for idempotent redelivery.
 
 Durable Objects do not store a whole just-in-time garbled stream.
+
+P0 persists only the selected minimum replay, epoch/circuit floor, terminal
+package digest, and exact encrypted redelivery state. It must not acquire the
+full ticket-store schema by compatibility or shared abstraction.
 
 If prepositioned garbled circuits are retained:
 
@@ -1081,9 +1201,9 @@ If prepositioned garbled circuits are retained:
 - table storage, reads, writes, duration, and cleanup are added to the measured
   cost model.
 
-Prepositioning is available only when the selected active compiler proves that
-its pre-challenge material can be stored and later bound to one online
-execution. A compiler requiring unpredictable checks may preposition
+Prepositioning is available only when the selected profile's construction
+proves that its material can be stored and later bound to one online execution.
+A compiler requiring unpredictable checks may preposition
 commitments and encrypted chunks while delaying challenge-dependent opening or
 evaluation.
 
@@ -1107,18 +1227,18 @@ online:
 ```
 
 This mode is the first latency optimization after the just-in-time protocol is
-correct. It shares the same production circuit, active-security suite, output
+correct. It shares the same production circuit, selected security suite, output
 format, and ticket lifecycle. It is not a second protocol or fallback.
 
-## Active-Security Requirement
+## Security-Profile Requirement
 
 ### Baseline Classification
 
-Free-XOR, Half-Gates, and ordinary OT provide a passive/semi-honest baseline.
-Peer signatures establish message origin. Neither mechanism proves that a
+Free-XOR, Half-Gates, and ordinary reviewed OT provide the passive/semi-honest
+core. Peer signatures establish message origin. Neither mechanism proves that a
 malicious garbler built the required circuit.
 
-The passive milestone may answer:
+The passive milestone measures:
 
 - actual gate count;
 - binary payload;
@@ -1127,13 +1247,14 @@ The passive milestone may answer:
 - memory;
 - cross-account throughput.
 
-It cannot close the current critical security issue or support a production
-claim.
+Before Phase 6A, it remains a benchmark and correctness oracle. Phase 6A may
+promote it to P0 only after every mandatory 80/20 control, exact passive claim,
+independent-domain deployment, and release gate passes.
 
-### Production Capabilities
+### Full Active Capabilities
 
-Select one concrete, reviewed actively secure fixed-circuit 2PC construction
-that provides:
+P2 and P3 require one concrete, reviewed actively secure fixed-circuit 2PC
+construction that provides:
 
 - malicious-secure base OT and OT extension;
 - sender and receiver consistency checks;
@@ -1158,8 +1279,24 @@ An optimized cut-and-choose candidate may multiply the table payload far beyond
 - constant-time behavior;
 - audit surface.
 
-Prototype competing active compilers in isolated branches or experiment
-modules. Select one. Delete losing implementations before product integration.
+Prototype competing profiles and active compilers in isolated branches or
+experiment modules. Select one complete profile. Delete losing implementations
+before product integration.
+
+### P0 And P1 Claim Discipline
+
+P0 assumes both Derivers execute the approved circuit, OT, input derivation,
+output-sharing, and abort behavior. Independent administration, artifact
+pinning, signed transcripts, strict framing, fresh per-ceremony state,
+recipient encryption, replay controls, and public output checks remain
+mandatory. These controls limit operational and passive compromise risk. They
+do not establish garbling correctness, input provenance against a dishonest
+role, or selective-failure resistance against active deviation.
+
+P1 is eligible only when an independent reviewer defines a complete
+composition, corruption set, simulator or equivalent argument, attack coverage,
+and explicit residual exclusions. A list of independently useful checks cannot
+be labeled partially malicious-secure without that composition.
 
 ### Bounded Phase 6A Candidate Set
 
@@ -1184,7 +1321,7 @@ library may be unavailable.
 
 ### Explicit Exclusions
 
-The production claim excludes:
+Every production claim excludes:
 
 - A+B collusion;
 - sequential compromise of both retained role states without a reviewed
@@ -1194,6 +1331,12 @@ The production claim excludes:
 - common dependency or source compromise approved by both deployers;
 - availability and fairness;
 - client and SigningWorker collusion.
+
+P0 additionally excludes any Deriver that deviates from the approved protocol,
+including wrong-circuit garbling, chosen role inputs, malformed OT, selective
+failure, adaptive abort, output equivocation beyond public checks, and malicious
+reuse. P1 lists every excluded active behavior not covered by its reviewed
+composition. P2/P3 retain the one-malicious-Deriver claim.
 
 Dual execution is also excluded as a construction choice. Its per-execution
 adversarial leakage compounds across aborts and retries involving long-lived
@@ -1219,7 +1362,9 @@ The same-account profile may claim:
 > shared CI compromise, or any principal able to modify both Workers.
 
 This is a useful defense-in-depth property. It is a narrower property than
-strict production Router A/B.
+strict production Router A/B. Its cryptographic corruption claim is further
+bounded by the Phase 6A security profile: P0 covers passive inspection only;
+P1 covers its reviewed attack set; P2/P3 cover one malicious peer Worker.
 
 ### Properties Retained
 
@@ -1229,8 +1374,8 @@ With honest account administration and correctly separated bindings:
   Object namespaces.
 - A runtime exploit confined to one Worker does not automatically expose the
   other Worker's environment or storage binding.
-- actively secure Yao protects the honest Worker's input against one malicious
-  peer Worker.
+- the selected Yao profile protects the honest Worker's input only against the
+  corruption class named by its decision record;
 - the Router and network observer see only ciphertext, public metadata, and
   timing.
 - protocol-generated output shares, recipient encryption, replay protection, and
@@ -1259,20 +1404,20 @@ both deployments.
 
 ### Threat Matrix
 
-| Compromised set            | Separate accounts                                                   | Same account                                       |
-| -------------------------- | ------------------------------------------------------------------- | -------------------------------------------------- |
-| Network observer           | protected by TLS and transcript authentication                      | same                                               |
-| Router runtime             | metadata and denial of service                                      | same                                               |
-| Deriver A runtime          | B input and joined secrets remain hidden after active-security gate | retained while shared control plane remains honest |
-| Deriver B runtime          | A input and joined secrets remain hidden after active-security gate | retained while shared control plane remains honest |
-| Router + A runtimes        | B remains an independent trust boundary                             | retained only under runtime-confined corruption    |
-| Router + B runtimes        | A remains an independent trust boundary                             | retained only under runtime-confined corruption    |
-| Account A administrator    | B account remains independent                                       | can modify both roles                              |
-| Account B administrator    | A account remains independent                                       | can modify both roles                              |
-| Shared CI/deploy principal | forbidden production configuration                                  | effective A+B compromise                           |
-| A+B                        | security claim fails                                                | security claim fails                               |
-| Cloudflare platform        | security claim excluded/fails                                       | security claim excluded/fails                      |
-| Client + SigningWorker     | reconstructs `a`                                                    | same                                               |
+| Compromised set            | Separate accounts                                                                           | Same account                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Network observer           | protected by TLS and transcript authentication                                              | same                                                                      |
+| Router runtime             | metadata and denial of service                                                              | same                                                                      |
+| Deriver A runtime          | P0 protects passive inspection; P1-P3 provide only their reviewed active claim              | same cryptographic profile while the shared control plane remains honest  |
+| Deriver B runtime          | P0 protects passive inspection; P1-P3 provide only their reviewed active claim              | same cryptographic profile while the shared control plane remains honest  |
+| Router + A runtimes        | B remains independently administered; cryptographic protection follows the selected profile | retained only within the selected profile and honest shared control plane |
+| Router + B runtimes        | A remains independently administered; cryptographic protection follows the selected profile | retained only within the selected profile and honest shared control plane |
+| Account A administrator    | B account remains independent                                                               | can modify both roles                                                     |
+| Account B administrator    | A account remains independent                                                               | can modify both roles                                                     |
+| Shared CI/deploy principal | forbidden production configuration                                                          | effective A+B compromise                                                  |
+| A+B                        | security claim fails                                                                        | security claim fails                                                      |
+| Cloudflare platform        | security claim excluded/fails                                                               | security claim excluded/fails                                             |
+| Client + SigningWorker     | reconstructs `a`                                                                            | same                                                                      |
 
 ### Same-Account Controls
 
@@ -1286,8 +1431,8 @@ The development/staging profile still enforces:
 - distinct peer-signing and recipient-encryption keys;
 - source guards rejecting opposite-role secret names;
 - negative runtime probes for opposite-role bindings;
-- the same active protocol, circuit digest, ticket lifecycle, and transcript
-  checks used by production.
+- the same selected protocol, circuit digest, lifecycle, and transcript checks
+  used by production.
 
 These controls improve containment. The account super-administrator remains a
 shared authority.
@@ -1382,7 +1527,7 @@ Requirements:
 - placement experiments using the actual production account topology;
 - uniform failure responses without secret-bearing diagnostic bodies.
 
-Any active-security construction requiring more rounds must state the exact
+Any selected security construction requiring more rounds must state the exact
 request graph and increment the cost counters. Recursive A/B request chains are
 forbidden.
 
@@ -1401,17 +1546,17 @@ As of July 10, 2026, Cloudflare documents:
   headers;
 - at most 32 Worker invocations in one Service Binding request chain.
 
-The semi-honest 2 MiB stream fits the platform limits. The selected active
+The semi-honest 2 MiB stream fits the platform limits. The selected
 construction must publish its exact request size and remain within the deployed
 account's body limit. The 128 MB isolate cap makes whole-message copies, JS
 object-per-gate representations, base64, and duplicate WASM/JS buffers
 unacceptable.
 
-Initial production admission allows one active Yao ceremony per isolate. The
+Initial production admission allows one selected Yao ceremony per isolate. The
 memory proof must satisfy:
 
 ```text
-M_static + 1 * (M_live_labels + M_chunk + M_active_security + M_transport)
+M_static + 1 * (M_live_labels + M_chunk + M_security_profile + M_transport)
   + M_headroom <= 128 MiB
 ```
 
@@ -1494,7 +1639,7 @@ data in its size-oriented setting. A complete transfer estimate is:
 s_H = amortized or transferred global public data
     + ceil(circuit_gate_count / 8)
     + encoded input labels
-    + protocol and active-security framing
+    + protocol and selected-profile framing
 ```
 
 For the 349,617-gate SHA-512 reference alone, the one-bit-per-gate term is about
@@ -1509,12 +1654,12 @@ measured production implementation of that PRG in this repository. The paper's
 unamplified inverse-polynomial privacy and correctness errors require
 amplification for a target comparable to 128-bit Yao. Amplification increases
 global data and computation. The analytic estimates also exclude the
-repository-specific Ed25519 arithmetic, active-security composition,
+repository-specific Ed25519 arithmetic, selected security composition,
 persistence, retries, and deployment overhead.
 
 The HSS rows are historical analytical context. They do not authorize a new
 kernel, feasibility measurement, amplification experiment, active composition,
-or production candidate. Only the selected active Yao construction receives new
+or production candidate. Only the selected Yao security profile receives new
 deployment measurements.
 
 ### Separate-Account Formula
@@ -1539,7 +1684,7 @@ CPU overage =
 Workers bandwidth charge = $0
 ```
 
-The exact `r_A` and `r_B` values come from the selected OT and active-security
+The exact `r_A` and `r_B` values come from the selected OT and security-profile
 round structure. Each cross-account peer call is an inbound request on its
 recipient. Count Router dispatches, peer requests, retries, replay attempts,
 rejected requests, and aborted runs. A B-to-A message carried in A's streaming
@@ -1552,7 +1697,8 @@ costs `$0.30` per million attempts.
 At one million attempts:
 
 - a 2 MiB just-in-time semi-honest Yao stream transfers about 2.10 TB decimal;
-- active Yao volume is unknown until the compiler is selected;
+- P1-P3 Yao volume is unknown until the security profile and compiler are
+  selected;
 - the closed HSS analysis did not project volume because `s_H` and global-data
   caching were unresolved;
 - Cloudflare's Workers bandwidth charge remains `$0` for each case.
@@ -1659,22 +1805,23 @@ Add routing, connection setup, RTT, authentication, cold starts, and tail
 latency. Streaming overlaps transfer with garbling and evaluation. Prepositioned
 mode removes the large payload from the online path.
 
-Scale each floor by `measured_active_bytes / 2 MiB`. A cut-and-choose compiler
+Scale each floor by `measured_selected_bytes / 2 MiB`. A cut-and-choose compiler
 may multiply the payload, so the table is not a production estimate until the
-active suite is frozen.
+security suite is frozen.
 
 ### Cost Decision
 
 Cloudflare billing is unlikely to justify succinct HSS by itself:
 
-- the measured active-Yao transfer has no added Workers bandwidth charge;
+- the measured selected-profile Yao transfer has no added Workers bandwidth
+  charge;
 - Worker CPU and optional preprocessing storage drive variable cost;
 - the proposed prime-order succinct-HSS candidates use group-oriented
   computation to reduce communication;
 - the current HSS simulator supplies no valid implementation-cost evidence for
   the cited construction, while its measurements remain evidence for wrapper
   and runtime overhead;
-- active-security overhead can materially change Yao's payload and CPU.
+- selected hardening can materially change Yao's payload and CPU.
 
 These Cloudflare Worker formulas do not transfer to Containers or native VMs.
 Phase 6A and Phase 13 must re-price compute, memory, instance minimums, storage,
@@ -1692,16 +1839,16 @@ backend.
 crates/ed25519-yao
   embedded reviewed production circuits and manifests
   Half-Gates/free-XOR primitives
-  OT and selected active-security construction
+  OT and selected security-profile construction
   incremental garbler and evaluator
   Deriver A and Deriver B consuming state machines
   protocol-generated output sharing and role-private output decode
-  one-use ticket cryptographic state
+  selected one-use session or ticket cryptographic state
   no clear joined evaluator or circuit generator in production features
 
 crates/ed25519-yao/formal-verification
   phased Verus implementation proofs and production anti-drift tests
-  handwritten Lean functionality and conditional active-security model
+  handwritten Lean functionality and selected-profile conditional model
   narrow Aeneas/Charon Rust-to-Lean boundaries
   explicit assumption ledger, spec corpus, and compliance baseline
   no production reverse dependency or inherited HSS security claim
@@ -1709,7 +1856,7 @@ crates/ed25519-yao/formal-verification
 tools/ed25519-yao-generator
   exact clear reference oracle
   circuit compiler and liveness schedule generator
-  deterministic artifact and manifest emission
+  deterministic artifact and Phase 2A reproducibility-index emission
   developer/CI executable with no production reverse dependency
 
 crates/ed25519-yao/tests/support
@@ -1773,15 +1920,18 @@ move. `SigningWorker` remains the only signing-server role name.
   and state-transition types.
 - Use distinct state families for Deriver A and Deriver B.
 - Consume secret states by value.
-- Make `Prepositioning`, `Available`, `Reserved`, `Activated`,
-  `OutputPrepared`, `OutputCommitted`, `Consumed`, and `Destroyed` different
-  types.
+- Make every state in the Phase 6A-selected lifecycle a distinct consuming
+  type. P0 omits preprocessing-only states; profiles with preprocessing make
+  `Prepositioning`, `Available`, `Reserved`, `Activated`, `OutputPrepared`,
+  `OutputCommitted`, `Consumed`, and `Destroyed` different types.
 - Make client-output, SigningWorker-output, and seed-export packages different
   types.
 - Make seed fields impossible in non-export branches.
 - Make same-account development and the selected strict production profile
   different deployment types.
 - Exclude the same-account variant from production configuration unions.
+- Exclude security-profile and platform choice from request types; production
+  types contain only the Phase 6A-frozen suite.
 - Validate raw HTTP, persistence, HPKE, and peer data once at the boundary.
 - Keep raw strings, JSON values, partial records, and compatibility shapes out
   of core logic.
@@ -1800,25 +1950,26 @@ claim-to-evidence matrix, topology assumptions, and implementation-readiness
 gates are defined in
 [`crates/ed25519-yao/docs/formal-verification-plan.md`](../crates/ed25519-yao/docs/formal-verification-plan.md).
 
-| Phase | Name                                              | Depends on                 | Exit result                                |
-| ----: | ------------------------------------------------- | -------------------------- | ------------------------------------------ |
-|     0 | Approve replacement and freeze claim              | none                       | one authoritative architecture             |
-|     1 | Freeze reference functionality and vectors        | Phase 0                    | exact oracle and party views               |
-|     2 | Compile deterministic core and passive artifact   | Phase 1                    | core digest and real gate counts           |
-|     3 | Build isolated passive Yao core                   | Phase 2                    | local correctness and performance baseline |
-|     4 | Add private randomized output sharing             | Phase 3                    | no Deriver learns a joined output          |
-|    6A | Select construction and reissue feasibility gates | Phase 1 and Phase 2 counts | signed construction decision record        |
-|     5 | Add construction-shaped binary streaming          | Phases 3-4 and 6A          | incremental A-to-B evaluation              |
-|    6B | Implement active suite and freeze circuits        | Phases 2-5 and 6A          | one-malicious-Deriver production artifacts |
-|     7 | Add one-use preprocessing and prepositioning      | Phases 5 and 6B            | crash-safe ticket protocol                 |
-|     8 | Add Router contracts and composition adapter      | Phases 1, 5-7              | typed strict lifecycle                     |
-|     9 | Deploy same-account benchmark profile             | Phases 5, 7-8              | optimistic latency evidence                |
-|    10 | Deploy selected strict production profile         | Phases 7-8 and 6A          | independent A/B execution                  |
-|    11 | Integrate client and SigningWorker                | Phases 8 and 10            | complete Ed25519 lifecycles                |
-|    12 | Finish strict ECDSA residual migration            | wider Router A/B plan      | generic service has no caller              |
-|    13 | Run security, latency, and cost comparison        | Phases 9-11                | release/no-go evidence                     |
-|    14 | Hard cutover and legacy deletion                  | Phases 12-13               | one Ed25519 implementation                 |
-|    15 | Independent review and production burn-in         | Phase 14                   | signed release evidence                    |
+| Phase | Name                                                  | Depends on                                      | Exit result                                      |
+| ----: | ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------ |
+|     0 | Approve replacement and freeze claim                  | none                                            | one authoritative architecture                   |
+|     1 | Freeze reference functionality and vectors            | Phase 0                                         | exact oracle and party views                     |
+|    2A | Build construction-independent benchmark scaffold     | Phase 0 and frozen Phase 1 arithmetic/vectors   | provisional compiler, evaluator, and gate counts |
+|    2B | Close deterministic core and passive artifact         | Phase 1 exit and Phase 2A                       | Phase 2 exit: core digest and real gate counts   |
+|     3 | Build isolated passive Yao core                       | Phase 2 exit                                    | local correctness and performance baseline       |
+|     4 | Add private randomized output sharing                 | Phase 3                                         | no Deriver learns a joined output                |
+|    6A | Select security profile and reissue feasibility gates | Phase 1 exit and Phase 2 exit                   | signed profile and construction decision         |
+|     5 | Add construction-shaped binary streaming              | Phases 3-4 and 6A                              | incremental A-to-B evaluation                    |
+|    6B | Implement selected suite and freeze circuits          | Phases 2-5 and 6A                              | exact-claim production artifacts                 |
+|     7 | Add selected lifecycle and optional preprocessing     | Phases 5 and 6B                                | crash-safe session or ticket protocol            |
+|     8 | Add Router contracts and composition adapter          | Phases 1, 5-7                                  | typed strict lifecycle                           |
+|     9 | Deploy same-account benchmark profile                 | Phases 5, 7-8                                  | optimistic latency evidence                      |
+|    10 | Deploy selected strict production profile             | Phases 7-8 and 6A                              | independent A/B execution                        |
+|    11 | Integrate client and SigningWorker                    | Phases 8 and 10                                | complete Ed25519 lifecycles                      |
+|    12 | Finish strict ECDSA residual migration                | wider Router A/B plan                          | generic service has no caller                    |
+|    13 | Run security, latency, and cost comparison            | Phases 9-11                                    | release/no-go evidence                           |
+|    14 | Hard cutover and legacy deletion                      | Phases 12-13                                   | one Ed25519 implementation                       |
+|    15 | Independent review and production burn-in             | Phase 14                                       | signed release evidence                          |
 
 ### Cross-Plan Phase Crosswalk And Status Rules
 
@@ -1828,27 +1979,46 @@ track and cannot open an implementation gate. A checked task records only that
 exact deliverable. Early isolated scaffolding may be checked while its parent
 phase remains blocked on an earlier exit gate.
 
-| Workstream                                     | Yao phases in this document | Wider Router A/B phases | Formal-verification phases |
-| ---------------------------------------------- | --------------------------- | ----------------------- | -------------------------- |
-| Architecture and claim freeze                  | 0                           | 0                       | planning only              |
-| Functionality, vectors, and party views        | 1                           | 1                       | FV0-FV1                    |
-| Deterministic circuit and passive core         | 2-3                         | 2                       | FV2-FV4                    |
-| Active construction decision                   | 6A                          | 3A                      | decision gate before FV5   |
-| Private outputs and construction-shaped stream | 4-5                         | 3B                      | FV5                        |
-| Active-suite implementation                    | 6B                          | 3B                      | FV6                        |
-| One-use preprocessing and typed composition    | 7-8                         | 4-5                     | FV7                        |
-| Benchmark and selected strict runtime          | 9-10                        | 6                       | FV8                        |
-| Ed25519 lifecycle completion                   | 11                          | 7                       | FV7-FV8 evidence           |
-| ECDSA residual migration                       | 12                          | 8                       | outside Ed25519 Yao proofs |
-| Security, latency, cost, and release decision  | 13                          | 9                       | FV8                        |
-| Hard cutover and verification-gate replacement | 14                          | 10                      | FV9                        |
-| Independent review and production burn-in      | 15                          | 11                      | FV10                       |
+| Workstream                                     | Yao phases in this document | Wider Router A/B phases | Formal-verification phases  |
+| ---------------------------------------------- | --------------------------- | ----------------------- | --------------------------- |
+| Architecture and claim freeze                  | 0                           | 0                       | planning only               |
+| Functionality, vectors, and party views        | 1                           | 1                       | FV0-FV1                     |
+| Deterministic circuit and passive core         | 2A-3                        | 2A-2B                   | FV2-FV4                     |
+| Security-profile and construction decision     | 6A                          | 3A                      | selected-profile proof gate |
+| Private outputs and construction-shaped stream | 4-5                         | 3B                      | FV5                         |
+| Selected-suite implementation                  | 6B                          | 3B                      | FV4-FV6 by selected claim   |
+| One-use preprocessing and typed composition    | 7-8                         | 4-5                     | FV7                         |
+| Benchmark and selected strict runtime          | 9-10                        | 6                       | FV8                         |
+| Ed25519 lifecycle completion                   | 11                          | 7                       | FV7-FV8 evidence            |
+| ECDSA residual migration                       | 12                          | 8                       | outside Ed25519 Yao proofs  |
+| Security, latency, cost, and release decision  | 13                          | 9                       | FV8                         |
+| Hard cutover and verification-gate replacement | 14                          | 10                      | FV9                         |
+| Independent review and production burn-in      | 15                          | 11                      | FV10                        |
 
-Current cross-plan status is: Phase 0 is closed; Phase 1 is in progress; Yao
-Phase 2 and wider Router Phase 2 remain gate-closed. The existing oracle, draft
-manifest, identifier, and test foundations are partial deliverables completed
-ahead of those gates. They do not authorize circuit synthesis, passive Yao,
-active protocol, or product integration work.
+Current cross-plan status is: Phase 0 is closed and Phase 1 is in progress.
+Construction-independent Phase 2A is complete as provisional benchmark
+evidence against the frozen arithmetic and vector contract.
+Yao Phase 2 as a whole, Phase 2B, and the wider Router Phase 2 exit remain
+gate-closed. Phase 2A outputs are provisional benchmark evidence only; they do
+not authorize Phase 3, Phase 6A selection, a production artifact or security
+claim, or any Router, Cloudflare, SigningWorker, SDK, persistence, or route
+integration.
+
+### Current Execution Checkpoint
+
+- [x] Phase 0 is closed: architecture, role assignment, topology, and the
+      profile-selection policy are frozen.
+- [ ] Phase 1 is the active gate. The oracle, construction-independent
+      arithmetic, lifecycle ownership, output sharing, recipient delivery,
+      authenticated store resolution, SigningWorker activation, recovery
+      credential transition, refresh promotion, corpora, and current formal
+      evidence are implemented. The remaining critical path is listed below.
+- [x] Phase 2A is complete as early provisional benchmark evidence. This does
+      not close Phase 2 or authorize a later phase.
+- [ ] Phase 2B and the Phase 2 exit remain blocked on the Phase 1 exit and
+      independent circuit-semantics review.
+- [ ] Phase 3 and every production, deployment, SDK, Router, and cleanup phase
+      remain blocked.
 
 ## Phase 0: Approve Replacement and Freeze the Claim
 
@@ -1861,6 +2031,9 @@ Goal: remove conflicting architectural authority before implementation.
 - [x] Approve Streaming Yao as the sole Ed25519 split-derivation target.
 - [x] Approve Deriver A as fixed garbler and Deriver B as fixed evaluator.
 - [x] Approve the production claim and explicit exclusions in this document.
+- [x] Amend the production decision so Phase 6A selects the strongest reviewed
+      P0-P3 profile meeting the latency SLO, with an exact reduced claim when P0
+      or P1 wins.
 - [x] Approve independent administrative domains as the strict production
       requirement, with separate-account Workers preferred and the Phase 6A
       platform fallback ladder available.
@@ -1876,8 +2049,9 @@ Goal: remove conflicting architectural authority before implementation.
       2-3, Gate 1, and HSS-specific completion criteria explicitly.
 - [x] Update `router-a-b-deployment.md` to remove same-account strict-production
       claims.
-- [x] Update `router-a-b-SPEC.md` with the active-security requirement and role
-      names.
+- [x] Update `router-a-b-SPEC.md` with the original active-security requirement
+      and role names; Phase 6A must align it with the 80/20 amendment before
+      product integration.
 - [x] Record unconditional reprovisioning for existing development wallets.
 - [x] Approve a new frozen Yao-era `StableKeyDerivationContext`; Phase 1 owns its
       exact bytes and golden vectors.
@@ -1894,8 +2068,12 @@ Goal: remove conflicting architectural authority before implementation.
 
 ### Decision Record
 
-- Ed25519 uses actively secure Streaming Yao between independently administered
-  Deriver A and Deriver B domains.
+- Ed25519 uses Streaming Yao between independently administered Deriver A and
+  Deriver B domains. Phase 6A selects the strongest reviewed P0-P3 profile that
+  meets the approved online-latency SLO.
+- Full active security is preferred. Operationally hardened passive P0 is an
+  eligible production result with an explicit honest-execution/passive-
+  corruption claim.
 - ECDSA uses strict Router A/B threshold-PRF derivation and additive scalar
   shares. ECDSA has no Yao dependency.
 - Succinct HSS receives no further implementation or optimization work.
@@ -1905,11 +2083,46 @@ Goal: remove conflicting architectural authority before implementation.
 
 ## Phase 1: Freeze Reference Functionality, Vectors, and Party Views
 
-Status: **in progress — isolated oracle, nonserializable lifecycle semantics,
-activation-metadata continuation, and four-case continuity evidence exist;
-complete lifecycle evaluators and party views remain open**
+Status: **in progress — isolated oracle, canonical five-branch ceremony DAGs,
+sealed provenance binding, typed host-reference request/pre-state/session
+ownership, move-owned issuance and package sets, a uniform profile-neutral public
+abort, lean activation persistence projections, and a strict five-branch public
+semantic-artifact lifecycle corpus plus five-stage/seven-role construction-
+independent output and accepted-evaluation input/coin views plus authenticated
+request-bound store/state-version and immutable identity bindings exist; export
+output commitment, Client release, authorization consumption, uncertainty, and
+redelivery are now explicit construction-independent transitions; atomic
+activation recipient release and strict host SigningWorker activation have
+narrow typed views; authenticated recovery suspension, replacement promotion,
+old-credential tombstoning, and pinned-authority receipt evidence are frozen;
+the typed export evaluator now requires independently signed, role-distinct A/B
+authorization acceptance before one evaluation; the complete construction-
+independent registration evaluator now consumes one sealed ideal admission,
+commits one candidate, and retains terminal selection across success and abort;
+the complete recovery evaluator now consumes one sealed store-authenticated
+admission, suspends the active credential, and retains terminal authority across
+commitment, abort, worker activation, and promotion; the refresh evaluator plus
+semantic role views remain open; selected
+runtime frames, durable delivery, the production opener, and production
+wire/storage are explicitly deferred to Phases 6B-7**
 
 Goal: establish an exact oracle before circuit synthesis.
+
+### Phase 1 / Phase 6A / Phase 6B Dependency Rule
+
+Phase 1 freezes construction-independent ideal semantics. It defines exact
+private inputs, public leakage, randomized-output distributions, semantic
+package and receipt bodies, persistence transitions, party views, abort
+envelopes, and typed opaque slots for authenticated provenance and
+profile-specific evidence. It does not choose or implement the cryptographic
+mechanism occupying those slots.
+
+Phase 6A selects one coherent P0-P3 profile, platform, provenance mechanism,
+registration input-selection realization, output-protection construction, and
+minimum lifecycle. Phase 6B instantiates the Phase 1 slots and relations with
+that selected construction and freezes its wire artifacts. The Phase 1 exit is
+independent of the Phase 6A decision. This ordering prevents profile selection
+from depending on an exit that itself requires the selected profile.
 
 ### TODO
 
@@ -1920,35 +2133,84 @@ Goal: establish an exact oracle before circuit synthesis.
       reduction, and stable-context encoding rules.
 - [x] Freeze the role-local KDF labels and bind the stable context into every
       contribution derivation.
-- [ ] Extract fixed encodings, KDF definitions, constants, and golden vectors
-      into versioned normative specifications referenced by this plan.
-- [ ] Regenerate specification goldens and digests from
-      `tools/ed25519-yao-generator` in CI and fail on prose/code drift.
+- [x] Extract the implemented fixed-reference identifiers, application-binding
+      and stable-context encodings, KDF definitions and rows, arithmetic
+      fixtures, and corpus commitments into the versioned normative
+      `tools/ed25519-yao-generator/docs/fixed-reference-v1.md` specification.
+- [ ] Extend the remaining normative corpus with transport, selected circuit-
+      wire, durable-storage, and production-artifact encodings as their owning
+      phases close. Canonical ceremony/provenance and host-only semantic package,
+      receipt, and persistence-projection encodings are committed.
+- [x] Regenerate and check the `fixed-reference-v1.md` generated region,
+      twenty-two companion specifications, and eighteen attached vector corpora through
+      `cargo yao-fv reference-spec-check` and
+      `cargo yao-fv vectors-check` in CI, failing on prose/code drift.
+- [ ] Extend generated-spec drift checks to each later normative artifact as it
+      freezes.
 - [x] Freeze evidence-backed request, pre-state, success, output-custody, and
       identity shapes for five disjoint lifecycle boundary contracts in
       `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`.
 - [x] Implement nonserializable host-only semantic types for all five request,
       pre-state, success, and output-custody branches, with dispatch derived
       from the branch.
-- [x] Implement a metadata-only activation continuation over registration-,
-      recovery-, and refresh-origin synthetic package references, including
-      semantic public-binding checks, Rust move consumption, origin-specific
-      promotion, one provisional public-only abort envelope, and a zero-work
-      witness.
-- [x] Commit and independently verify the four-case host-only lifecycle corpus
-      covering same-root recovery, recovery-origin activation, opposite-delta
-      refresh, and refresh-origin activation.
+- [x] Implement a metadata/control-only activation continuation over move-owned,
+      output-committed registration-, recovery-, and refresh-origin artifacts.
+      It derives a distinct canonical activation-control DAG, retains the exact
+      pending state on rejection, exposes one profile-neutral public abort,
+      preserves origin-specific state without credential or refresh promotion,
+      and returns an exact zero-reevaluation witness. It makes no SigningWorker
+      activation claim.
+- [x] Commit and independently verify the six-case host-only lifecycle corpus
+      covering synthetic registration-candidate metadata, all three activation
+      origins, same-root recovery, and opposite-delta refresh. The registration
+      metadata case represents zero evaluator work.
 - [x] Freeze same-root recovery preservation plus explicit-delta refresh and
       forward-only cutover semantics.
-- [ ] Close role-input provenance/anti-bias, joint refresh-delta generation and
-      custody, and active-output blockers required for five executable ideal
-      functionalities.
+- [x] Implement the deterministic host-only same-root recovery preparation and
+      output-sharing composition. It checks exact root and KDF-contribution
+      equality, unchanged server inputs, and complete activation-output
+      continuity without claiming authoritative store authentication, old-to-
+      replacement credential evidence, production custody/package crypto,
+      signed receipt verification, durable cutover, or the complete recovery
+      evaluator.
+- [x] Implement the deterministic host-only opposite-delta refresh preparation
+      and output-sharing composition. It consumes move-owned role-local ideal
+      fixture contributions, derives their nonzero joint delta, preserves client
+      inputs, checks exact A-positive/B-inverse server updates and complete
+      activation continuity, and exercises wrap boundaries in six counted
+      tests. Deployed role-separated contribution origination, entropy,
+      anti-bias and custody; authenticated store/provenance/epoch authority;
+      production output-package crypto and receipt verification; durable
+      promotion/cutover; and the complete refresh evaluator remain open.
+- [x] Freeze construction-independent role-input and provenance acceptance
+      relations, the registration acceptance/retry relation, the ideal joint
+      refresh-delta distribution, and the output-binding relation using typed
+      opaque evidence slots. Phase 6B instantiates those slots at the strength
+      selected in Phase 6A. The provenance outer pair, profile-indexed
+      registration contract, semantic package/output-binding slots, and ideal
+      joint-delta contract now own these construction-independent relations;
+      their deployed cryptographic realizations remain excluded.
+- [x] Freeze the construction-independent ideal joint refresh-delta distribution
+      in `joint-refresh-delta-v1.md`. Refresh preparation now consumes distinct
+      move-owned A/B fixture contributions, derives the nonzero sum internally
+      in `Z_(2^256)` and `Z_l`, and exposes no direct combined-delta constructor
+      or public application path. Six focused Rust tests cover role parsing,
+      wrapping, zero-local validity, cancellation, and canonicality. The strict
+      lifecycle corpus records both role contributions; the independent Python
+      verifier recomputes both sums and opposite updates. Deployed entropy,
+      commitment/anti-bias, proof, and retry-grinding resistance remain Phase
+      6A/6B obligations.
 - [x] Freeze each operation's public pre-state class, success-state class,
       output family, and identity invariant.
 - [x] Freeze the recovery/refresh host lifecycle and the pre-commit abort versus
       post-commit forward-only policy.
-- [ ] Freeze complete role-private inputs/provenance, exact persisted records
-      and transactions, and executable evaluators.
+- [ ] Freeze the remaining opaque provenance/evidence slots, complete lifecycle
+      records, complete frame/delivery views, and executable
+      reference evaluators. The lean activation projections are implemented;
+      registration, export, and recovery evaluator admission are complete;
+      refresh evaluator admission remains open.
+      Phase 6B and Phase 7 own authenticated record authority, production bytes,
+      and distributed transactions.
 - [x] Replace the `Recovery -> Export` mapping in the isolated target contract.
 - [ ] Delete the superseded `Recovery -> Export` implementation during Router
       integration.
@@ -1960,20 +2222,189 @@ Goal: establish an exact oracle before circuit synthesis.
       integration.
 - [x] Freeze common public inputs/leakage, allowed outputs, forbidden values,
       ideal output-sharing distributions, and the uniform abort envelope.
-- [ ] Freeze complete role-private inputs, protocol randomness/frames,
-      lifecycle-specific abort equivalence, and persistence views.
+- [x] Freeze and implement the typed deterministic host-only output-sharing
+      reference for client/SigningWorker scalars and export-only seed shares in
+      `tools/ed25519-yao-generator/docs/output-sharing-v1.md`.
+- [x] Commit the complete output-sharing specification bytes through the
+      generated fixed-reference block and count it among the twenty-one companion
+      specifications within the twenty-two-document `reference-spec-check` gate.
+- [x] Commit and independently reproduce its strict six-case corpus from copied
+      source inputs, including zero, small, and wraparound coins.
+- [x] Freeze and implement the construction-independent output-stage party
+      views in `tools/ed25519-yao-generator/docs/output-party-views-v1.md`.
+      Five stages compose one equal common-public value with seven closed role
+      extensions; A/B observation uses separate consuming methods and has no
+      runtime role selector.
+- [x] Commit the complete output-party-view specification through the generated
+      fixed-reference block and attach its strict five-case corpus. Three core
+      relation tests, two compile/static boundary tests, six corpus tests, and
+      nine independent Python tests plus nine Lean structural theorems establish
+      host-only custody shape without a noninterference or protocol-security
+      claim.
+- [x] Freeze and implement accepted-evaluation input custody and ideal-function
+      coin custody in
+      `tools/ed25519-yao-generator/docs/evaluation-input-party-views-v1.md`.
+      Registration, recovery, and refresh give each Deriver exactly its four
+      typed `y`/`tau` inputs; export is y-only; activation and infrastructure
+      roles have no private evaluation input; branch-specific host coins remain
+      outside every party view.
+- [x] Commit the complete evaluation-input party-view specification through the
+      generated fixed-reference block and attach its strict five-case corpus.
+      Five core tests, two compile/static boundary tests with 16 rejection
+      fixtures, seven corpus tests, nine independent Python mutation tests, and
+      22 Lean structural theorems establish companion-linked host-only custody
+      and output reproduction without a runtime-delivery, noninterference,
+      randomness-security, or protocol-security claim.
+- [x] Freeze the exact construction-independent uniform abort envelope in
+      `tools/ed25519-yao-generator/docs/uniform-abort-envelope-v1.md`. All five
+      request kinds expose only request kind, public transcript digest, one
+      redacted `rejected` code, and the `aborted` terminal state.
+- [x] Implement the sealed `UniformLifecycleAbortV1` host type, derive it from
+      the validated ceremony DAG, and remove the extra request-context digest
+      from the public abort surface.
+- [x] Commit its strict five-case ceremony-linked corpus and independently
+      enforce exact field order, canonical bytes, common code/terminal values,
+      and recursive exclusion of authorization, blame, peer-frame, and private
+      payload fields through four Rust tests, five Python mutation tests, and
+      four Lean structural theorems.
+- [x] Route every admitted registration, recovery, refresh, and export host-
+      reference evaluation error through the same public abort. Keep the
+      detailed semantic cause crate-private and redact it from `Debug` output;
+      activation metadata rejection uses the same envelope. Selected-profile
+      protocol failures, timing equivalence, selective-failure resistance,
+      ticket destruction, and P0-P3 correctness with abort remain open.
+- [x] Freeze branch-typed admitted evaluator-abort persistence and seven
+      common-only role views in
+      `tools/ed25519-yao-generator/docs/evaluator-abort-state-party-views-v1.md`.
+      Registration remains unregistered; recovery retains its exact credential-
+      suspended state; refresh and export retain their exact registered state.
+      Every request and one-use identity is burned. Commit and independently
+      verify the strict four-case corpus.
+- [x] Implement profile-neutral semantic activation/export package descriptors,
+      fixed four/two-member package sets, and output-committed receipt bodies.
+      Package production uses move-only branch-specific ceremony contexts that
+      run host-reference preparation, output sharing, and package construction
+      in one call; no package constructor accepts an independently precomputed
+      success, and export gets its expected key only from its context. Their typed
+      A/B and Client/SigningWorker boundaries bind one-use execution,
+      recipient/key, transcript, provenance, ciphertext digest/BE64 length,
+      public share commitments, separate A/B receipt evidence, and export
+      authorization consumption through opaque construction slots. This closes
+      Phase 1 call-local same-branch ceremony/evaluation mixing. Opaque provenance
+      and evidence still do not authenticate the supplied synthetic inputs. Zero
+      additive shares remain valid; only the final
+      `2*X_client-X_server=A_pub` relation is enforced. Selected encryption,
+      authentication, proofs, signatures, and wire bytes remain Phase 6B work.
+- [x] Add canonical branch-typed host-reference lifecycle ownership. Each
+      registration, recovery, refresh, or export request owns one validated
+      request/authorization/transcript DAG; registered branches also own one
+      non-Clone store projection and can create only their matching consuming
+      semantic session.
+- [x] Check exact equality between registered host-reference state and sealed
+      provenance before recovery, refresh, or export evaluation, including the
+      registered key, stable KDF scope, both role-root records/bindings/epochs,
+      and both role input-state records/epochs. Refresh additionally checks its
+      current and proposed role epochs against authorization and provenance.
+- [x] Implement move-owned registration, recovery, refresh, and export issuance.
+      Stale epoch proposals recover all pre-evaluation inputs. Once admitted,
+      evaluation failure burns the request and one-use execution identity,
+      returns only a non-callable audit identity, preserves registered state for
+      refresh/export, and preserves credential suspension for recovery.
+- [x] Implement the construction-independent activation persistence family:
+      output-committed artifact identity, rejected-attempt exact self-loop, and
+      metadata-consumed projection. Metadata/control consumption performs zero
+      Yao evaluations, Deriver calls, contribution derivations, or output-share
+      sampling.
+- [x] Implement the deterministic host-only registration preparation and
+      scalar-output-sharing composition. It derives all four role/source
+      contribution pairs from three purpose-typed public synthetic roots and
+      the stable context, evaluates only the seed-free activation family, and
+      has six counted independent-arithmetic and compile-boundary tests.
+      Unregistered admission, root custody, authenticated provenance, the
+      selected input-selection claim, production package crypto and receipt
+      evidence, durable persistence, and the complete registration evaluator
+      remain open.
+- [x] Implement the deterministic host-only export key-equality and seed-sharing
+      composition. It requires a caller-supplied canonical expected public key,
+      rejects a mismatch before sharing, consumes the prepared joined output,
+      and returns only typed A/B seed shares, the expected key, and a private
+      equality witness. Six counted tests cover rejection/retry, carry/wrap
+      arithmetic, zero/one/max coins, RFC 8032 signing parity, and API guards.
+      The lifecycle composition now supplies authenticated registered-state and
+      provenance verification. Distributed randomness, production delivery,
+      durable replay/persistence, and selected-profile execution remain open.
+- [x] Freeze and implement the construction-independent export-delivery
+      lifecycle in `export-delivery-lifecycle-v1.md`. Export output commitment
+      retains the exact package set and A/B seed shares from one evaluation with
+      authorization unconsumed. Delivery uncertainty preserves that identity;
+      Client release consumes authorization and binds the preceding receipt;
+      redelivery is an exact released-state self-loop with zero private
+      reevaluation. The Client output view can only be built by consuming this
+      released transition. Four Rust tests, five independent Python tests,
+      compile/static API guards, a strict one-case corpus, and seven Lean
+      structural theorems cover the host claim. Phase 6B still owns the opener,
+      transport, durable replay, acknowledgement, and P0-P3 evidence.
+- [ ] Freeze the remaining semantic frame classes and complete parameterized
+      runtime role views. Phase 6A selects the coherent profile and Phase 6B
+      freezes that profile's exact frame graph and bytes. Abort timing
+      equivalence and durable realization remain Phase 6B-7 work; the exact
+      common public abort shape and lean activation projections are implemented.
 - [x] Freeze output-custody views for Client, Router, A, B, SigningWorker,
       observers, and logs.
-- [ ] Add complete executable party views and both corruption games after the
-      private-input and active-protocol decisions close.
+- [x] Add executable construction-independent output views for Client, Router,
+      A, B, SigningWorker, observers, and logs across package preparation,
+      activation metadata consumption, and export release.
+- [x] Retain activation package artifacts and their exact typed A/B shares in
+      one move-only same-evaluation output commitment across registration,
+      recovery, refresh, and metadata consumption. The package-prepared
+      party-view builder now consumes only the typed pending lifecycle state;
+      independently supplied artifacts/shares and their obsolete fixture/test
+      paths are deleted.
+- [x] Add the first activation-recipient delivery slice in
+      `activation-delivery-lifecycle-v1.md`. Metadata consumption retains the
+      consumed authorization state and exact output identity through delivery
+      uncertainty, then atomically yields disjoint Client and SigningWorker
+      release capabilities. SigningWorker preparation requires its capability,
+      returns it unchanged on rejection, and constant-time compares opened
+      worker shares with the retained same-evaluation shares. Two focused Rust
+      tests cover all three origins, cross-output rejection, retry, redelivery,
+      and zero reevaluation.
+- [x] Remove the package-prepared Client scalar projection. The committed
+      output-party-view corpus, independent verifier, and Lean policy model now
+      keep the Client extension empty until the separate activation-recipient
+      release capability exists.
+- [x] Commit the strict three-origin activation-delivery corpus, independent
+      Python mutation checks, and Lean authorization/capability theorems for
+      `YAO-DELIVERY-002`.
+- [x] Add the separate host-only activation recipient-party-view companion.
+      Its strict three-origin corpus covers atomic recipient release and
+      receipt-verified SigningWorker activation across seven closed role views.
+      Client custody retains only `x_client_base`; the pre-activation worker
+      view contains opaque release authority; the activated Rust view keeps the
+      worker scalar sealed. Six corpus tests, four core tests, two compile/static
+      guards, seven independent Python tests, and twelve Lean theorems cover the
+      structural claim. Frames, durable records, noninterference, and profile
+      security remain open.
+- [ ] Add complete executable party views covering frames, activation Client/
+      SigningWorker delivery, durable
+      transitions, and abort behavior plus construction-
+      independent corruption-game interfaces. Phase 6B supplies the selected
+      profile's executable adversarial harness and proof evidence.
 - [x] Add RFC 8032-compatible seed-to-public-key vectors.
 - [x] Add cross-language vectors for split `y`, split `tau`, joined `d`,
       `a`, `x_client_base`, `x_server_base`, and public commitments.
 - [x] Add deterministic pseudorandom differential vectors against an
       independent standard-library Ed25519 implementation.
-- [ ] Add the complete five-branch lifecycle corpus, including registration and
-      export, exact packages and receipts, persisted transitions, common
-      aborts, and separate party views.
+- [x] Add the strict five-branch public semantic-artifact lifecycle corpus for
+      registration, activation, recovery, refresh, and export. It commits exact
+      descriptor/package-set/receipt encodings, output-committed, rejected-
+      attempt, and metadata-consumed projections, all three activation origins,
+      four reconstructed uniform abort self-loops, and recursive secret
+      exclusion through seven Rust and ten independent Python tests.
+- [ ] Add the remaining complete frame and activation-delivery lifecycle views, corruption-game
+      interfaces, durable transition records, and selected-profile wire
+      fixtures. Encryption, signatures, proof bytes, and production storage
+      encodings remain Phase 6B-7 work.
 - [x] Add a committed five-case request-kind-tagged clear-arithmetic corpus
       containing the complete synthetic joined trace, RFC 8032 cases,
       arithmetic wrap boundaries, and an export-only authorized seed result.
@@ -1988,14 +2419,80 @@ Goal: establish an exact oracle before circuit synthesis.
 - [x] Freeze the proof-system-neutral role-input provenance outer statement,
       A/B pair invariants, evidence slots, and root/input-state epoch semantics
       in `tools/ed25519-yao-generator/docs/input-provenance-v1.md`.
-- [ ] Select and implement hiding/binding provenance artifacts, production root
-      records/custody, proof verification, and ceremony encoders.
+- [x] Implement sealed A/B host-only provenance statement types,
+      branch-specific constructors, strict structural LP32 decoders, nonzero
+      role-typed epochs, registered-point validation, ordered pair checks, and
+      construction-independent mutation/compile-fail tests.
+- [x] Commit and independently reproduce the four-case provenance outer corpus,
+      including all nested encodings, eight artifact-wrapper goldens, fixed
+      A/B envelope ordering, statement/pair digests, and refresh epoch checks.
+- [x] Define typed opaque provenance/evidence slots and the
+      construction-independent relations they must authenticate. Production
+      root records, custody, selected artifacts, and verification are Phase 6B
+      realization work.
 - [x] Specify the registered `A_pub` as the public identity checked during
       recovery and refresh.
-- [x] Specify registration anti-bias acceptance and retry requirements.
-- [ ] Select, review, and implement the registration anti-bias mechanism.
+- [x] Specify profile-indexed registration input-selection and retry
+      requirements.
+- [x] Freeze the profile-indexed registration input-selection acceptance,
+      retry, and residual-claim requirements. Phase 6B implements signed/public
+      P0 bindings or the coherent reviewed P1-P3 anti-bias mechanism selected
+      in Phase 6A.
+- [x] Add the versioned authenticated store-resolution contract and a move-only
+      strictly verified Ed25519 authority wrapper. It binds authority key epoch,
+      active state version, activation epoch, exact request/authorization/
+      transcript digests, ordered provenance-pair digest, registered state, and
+      the frozen wallet/organization/project/environment/signing-root/chain plus
+      application-binding identity. Recovery, refresh, and export issuance can
+      no longer accept a raw store projection. Production parsing, rollback
+      floors, and durable transactions remain later-phase work.
+- [x] Add authenticated recovery evidence binding the signed active credential
+      and state version to the distinct authorized replacement credential and
+      the common A/B same-root evidence artifact. Retain the sealed binding
+      through output commitment and activation metadata consumption; production
+      custody and proof-system-specific artifact verification remain stop-ship
+      gates.
+- [x] Freeze and implement the authenticated recovery credential transition.
+      Recovery admission suspends the old credential through evaluator abort,
+      output commitment, metadata consumption, recipient release, and strictly
+      verified worker activation. Only recovery-origin activation can promote
+      the distinct replacement. Promotion inherits the store authority pinned
+      by the authenticated old state, advances state and activation versions,
+      preserves the complete A/B state, and tombstones the old credential at its
+      retired version. Seven core tests, five strict corpus tests, seven
+      independent Python tests including coherent authority re-signing, and
+      twelve Lean theorems cover this host-only claim.
+- [x] Freeze and implement the authenticated host refresh-promotion transition.
+      It accepts only a strictly receipt-verified refresh activation, preserves
+      the registered key, credential, and stable scope, advances activation and
+      active-state versions, installs the sealed proposed A/B next bindings,
+      binds both retirement edges and the complete old/next state digests into a
+      strict store-authority signature, and retains the activated secret on all
+      retry paths. Six focused Rust tests cover success, stale version, invalid
+      signature, authority substitution, deterministic bytes, and nonzero
+      transaction evidence.
+- [ ] Implement the production durable adapter that atomically writes the
+      promoted state and retirement tombstones, creates the bound transaction-
+      receipt digest, enforces rollback/replay floors, and survives every crash
+      boundary. The host transition does not prove database atomicity. This is
+      a Phase 7-owned follow-on and does not block the Phase 1 exit.
+- [x] Freeze and implement the profile-neutral post-opener SigningWorker
+      activation engine. Sealed role-specific opened shares retain selected-
+      profile verification authority; the engine independently checks worker,
+      recipient, key epoch, activation epoch, request context, package
+      authentication, role share points, the joined worker point, and
+      `2*X_client-X_server=A_pub`. Secret scalar state is nonserializable and
+      zeroized on drop. Activation remains receipt-pending until strict
+      verification of a deterministic, worker-bound Ed25519 receipt. Ten
+      focused Rust tests cover registration, recovery, refresh, splice and
+      authority failures, canonical scalar rejection, retry retention, and
+      idempotent receipt bytes.
+- [ ] Implement the Phase 6A-selected profile's authenticated ciphertext opener
+      that constructs the sealed opened-share inputs, then complete production
+      wire/storage transactions and the runtime party-view/lifecycle corpus.
+      This is a Phase 6B-owned follow-on and does not block the Phase 1 exit.
 
-### July 10, 2026 Implementation Checkpoint
+### July 11, 2026 Implementation Checkpoint
 
 The current isolated Phase 1 slice is implemented in
 `tools/ed25519-yao-generator`. It provides the frozen application-binding and
@@ -2004,73 +2501,503 @@ strict request-kind-tagged JSON DTOs, byte-for-byte corpus generation, complete
 synthetic clear traces, RFC 8032 export/signature parity, deterministic
 differential generation, arithmetic-boundary coverage, and production
 dependency guards. It also contains nonserializable five-branch semantic types,
-a metadata-only activation continuation over synthetic package references, and
-a separate strict four-case lifecycle-continuity JSON corpus reproduced by Rust
-and independent Python. The joined traces are test-only and do not model
-party-visible outputs. The activation continuation does not verify ciphertexts,
-open recipient packages, combine shares, or establish deployed one-use or
-zero-call behavior.
+a metadata/control-only activation continuation over move-owned
+output-committed artifacts, and a separate strict six-case
+lifecycle-continuity JSON corpus reproduced by Rust and independent Python. The
+host-only provenance module adds sealed role types,
+canonical request/authorization/transcript DAG witnesses, branch-bound outer
+statement/pair bytes, structural parsers, and a strict four-case corpus with
+independent Python reproduction. Typed nonserializable
+output-sharing APIs and a strict six-case Rust/Python corpus now establish the
+activation scalar and export seed reconstruction equations for public fixture
+coins. A typed host-only registration reference derives all four KDF
+contribution pairs internally from three purpose-typed synthetic roots,
+evaluates the seed-free activation family, and composes it with scalar sharing.
+Its six focused tests independently reproduce HKDF/Ed25519 arithmetic and close
+role-swap and seed-access escape hatches. A separate typed host-only recovery
+reference now validates exact same-root re-derivation, preserves current server
+inputs, checks all joined and downstream activation fields, and composes with
+activation scalar sharing. Its six focused Rust tests are counted independently
+inside the formal parity gate.
+A parallel host-only refresh reference consumes the move-owned A/B ideal fixture
+contributions, derives their nonzero joint result, checks exact opposite server
+updates and all downstream equalities, and composes with the same activation
+scalar-sharing boundary. Its six focused tests cover role-local zero values,
+carry, cancellation, and scalar canonicality; six refresh-reference tests cover
+the opposite update and output-share boundaries. The lifecycle corpus now
+commits distinct A/B contributions plus their independently checked combined
+result. The joined traces are test-only and do not model party-visible outputs.
+The provenance corpus uses
+public synthetic opaque digest slots and supplies no production proof. The
+activation continuation does not verify ciphertexts, open recipient packages,
+or establish deployed one-use behavior.
 
-Production root/delta custody and provenance, joint delta generation and
-anti-bias, active output generation, and atomic distributed persistence remain
-blocked.
+A host-only export reference now closes the arithmetic composition between the
+export oracle and seed sharing. It checks one canonical expected public key
+before releasing typed A/B shares, privately retains the joined output only
+until sharing, and has six focused tests for mismatch handling,
+modulo-`2^256` sharing, and RFC 8032 key/signature parity. The lifecycle wrapper
+derives that key from its bound request and provenance and retains registered
+state after commitment. The opaque store projection and provenance records
+now resolves authenticated registered state and exact provenance before
+evaluation. Production replay authority and private delivery remain open.
 
-The companion FV1 tree under `crates/ed25519-yao/formal-verification` now runs
-seven counted local tracks: vectors, independent Python reproduction, Rust
-parity including compile-fail doctests, anti-drift, Aeneas/Lean boundary
-extraction, the Lean model, and Verus. Its empty-cache Aeneas bootstrap remains
-open because the ambient opam package set is not yet locked. Registration,
-recovery, refresh, and export evaluators; a complete five-branch lifecycle
-corpus; production provenance artifacts/proofs; executable party views; and
-active-protocol semantics remain Phase 1 work.
+The export path now separates output commitment from Client release.
+Commitment retains the exact package set and exact typed A/B shares produced by
+the same evaluation while authorization remains unconsumed. Delivery uncertainty
+preserves that identity for retry. Release consumes authorization, links an
+opaque Client-delivery evidence slot to the output-committed receipt, and is the
+only input accepted by the crate-private Client seed-view builder. Exact receipt
+and seed redelivery performs zero private reevaluation. A strict one-case corpus
+is reproduced by four Rust tests and five independent Python tests; seven Lean
+theorems freeze the structural state and recipient policy. This is host-only
+transition evidence. The production opener, transport, durable replay,
+acknowledgement, and selected-profile security remain Phase 6B-7 work.
+
+The profile-neutral semantic-artifact layer now constructs the exact four
+activation and two export package descriptors only through branch-specific,
+move-only ceremony contexts that run host-reference preparation, output sharing,
+and package construction in one call. No package constructor accepts a
+precomputed success, and export derives its expected key from its authorization-
+and provenance-bound context. The layer derives input-provenance bytes from a
+sealed A/B pair after matching the exact request, authorization, transcript, and
+branch, separates activation-client and export-client binding types, commits
+ciphertext metadata and public activation-share points, and derives
+activation/export receipt bodies with role-distinct evidence slots. Registration
+derives its candidate public key from joined points; recovery and refresh compare
+that result with the provenance-bound registered identity. Ten focused
+integration tests plus unit and compile-fail guards cover fixed ordering, digest
+binding, valid zero individual additive shares, rejection of identity joined
+signing shares, export non-disclosure, branch/family separation, reference-error
+propagation, and the Ed25519 public relation. This closes call-local type-level
+ceremony/evaluation mixing. The remaining opaque slots do not authenticate the
+supplied synthetic inputs and carry no authentication, proof, or P0-P3 claim.
+
+The strict five-case semantic-artifact lifecycle corpus now commits the exact
+public descriptor sets, receipt bodies, lifecycle projections, three accepted
+activation origins, and four uniform freshness-rejection self-loops. Seven Rust
+tests and ten independent Python tests reconstruct every LP32 layer and typed
+digest, cross-link the ceremony and provenance corpora, check public-share
+subgroup membership and the Ed25519 public relation, reject coherent registered-
+key forks and wrong-origin retry self-loops, and reject secret-bearing fields
+recursively. Ceremony, provenance, and semantic fixtures now share one KDF-
+derived canonical registered key. Refresh fixtures use the authorization's exact
+A/B epoch transitions while preserving the registered key and stable root
+bindings.
+
+The construction-independent output-party-view layer now composes those
+artifacts into five closed output stages: registration, recovery, and refresh
+package preparation; activation metadata consumption; and export release. Every
+stage carries one equal common-public value across seven structurally distinct
+role extensions. Separate consuming Deriver A and Deriver B observation methods
+provide no runtime role-selector API and cannot project both roles from one moved
+set. The strict five-case corpus checks scalar-share points and reconstruction,
+all three zero-output
+activation origins, export seed reconstruction and registered-key continuity,
+static observation, and recursive forbidden-value exclusion. Its synthetic
+role-private values are verifier evidence, not public runtime leakage or a
+production format. Nine Lean theorems establish policy shape only. Runtime
+delivery, memory erasure, noninterference, simulator equivalence, protocol
+privacy, adaptive-corruption security, and every P0-P3 claim remain open.
+
+The accepted-evaluation input-party-view layer now freezes the complementary
+pre-evaluation custody shape. Registration, recovery, and refresh project four
+typed inputs to each matching Deriver. Export projects only two `y` inputs per
+Deriver, preserving direct RFC 8032 seed export while excluding every `tau`
+field. Activation projects no private input and records zero evaluations,
+Deriver calls, contribution derivations, and output-share samples. Explicit
+branch-specific host coins reproduce the companion scalar or seed shares while
+remaining outside every role view. The strict five-case corpus cross-links the
+ceremony, provenance, semantic-lifecycle, and output-party-view attachments;
+checks recovery equality and exact opposite refresh server deltas; and enforces
+static consuming A/B observations. Twenty-two Lean theorems establish
+structural role, family, and coin-custody shape plus the exact finite stage/
+request/plan/count, pre-state-class, seven-role, and static-observation tables.
+The model does not establish companion pre-state authority, runtime frames and delivery, noninterference,
+randomness quality, anti-bias, selective-abort resistance, and every P0-P3
+claim remain open.
+
+The construction-independent abort layer now freezes one exact public envelope
+for registration, activation, recovery, refresh, and export. The sealed host
+type derives request kind and public transcript digest from the validated
+ceremony DAG, exposes one redacted `rejected` code and one `aborted` terminal
+state, and has no request-context digest, authorization detail, Deriver blame,
+peer frame, or private payload. Its strict five-case corpus is linked to the
+ceremony-context corpus and reproduced independently in Python. Four Lean
+theorems establish only the structural field and branch uniformity. Activation
+metadata rejection and all four admitted host-reference evaluator failure paths
+now use this envelope. Detailed semantic causes remain crate-private and are
+absent from `Debug` output. Selected-profile protocol failures, production
+encoding, frame/ticket handling, timing equivalence, selective-failure
+resistance, and selected-profile correctness with abort remain open.
+
+The canonical lifecycle ownership layer now wraps registration, recovery,
+refresh, and export in branch-typed requests that own one validated ceremony
+DAG. Registered branches take a non-Clone host-reference pre-state and require
+exact equality with the sealed provenance key, stable scope, role-root records
+and bindings, root epochs, input-state records, and input-state epochs before a
+crate-private semantic session can be formed. Recovery and refresh issuance
+enforce strict epoch advancement; refresh also checks current/next role epochs
+against its authorization and provenance. Issuance, sessions, package sets, and
+commitments move through consuming APIs. An admitted evaluation failure burns
+the request and one-use identity and exposes only a non-callable audit digest
+set. Refresh/export retain registered state; recovery retains its authenticated
+credential suspension. Session-construction failures and stale issuance retain
+every input because evaluation has not begun.
+
+The same layer implements one uniform public rejection envelope and three lean,
+digest-only persistence projections: output committed, rejected-attempt
+self-loop, and metadata consumed. Activation consumes metadata/control authority
+for registration, recovery, or refresh artifacts while preserving recovery
+state and leaving refresh's proposed next bindings non-promotable. Its witness
+records zero Yao evaluations, Deriver invocations, contribution derivations, and
+output-share samples. This state makes no activated-key or SigningWorker claim.
+
+The host lifecycle now requires a strictly verified request-bound store
+resolution. Seven focused store tests reject signature mutation, authority-key epoch or
+key substitution, incoherent registered state, and cross-request-family reuse while
+retaining the authenticated wrapper through abort and metadata-continuation
+paths. The signed record binds the active state version, activation epoch, and
+active credential binding to
+the exact request, authorization, transcript, provenance pair, and frozen
+wallet/organization/project/environment/signing-root/chain plus application-
+binding identity. Production record parsing, independently enforced rollback
+floors, key distribution, and durable transactions remain open. Recovery now
+retains a sealed authenticated binding across the suspended old credential, distinct
+authorized replacement, active state version, registered identity, stable scope,
+and common A/B same-root evidence artifact. Its promotion engine inherits the
+store authority authenticated by the old state, accepts only verified recovery-
+origin worker activation, preserves every A/B root/input-state field, promotes
+the replacement, and tombstones the old credential at its retired version. A
+strict corpus independently reconstructs the state digests, tombstone, receipt,
+digest, and pinned-authority signature. Production custody and verification of
+that proof-system-specific artifact remain open. The authenticated host
+refresh-promotion engine now requires the verified worker receipt, preserves
+identity/credential/scope, installs the sealed proposed A/B next bindings, and
+binds complete old/next state plus retirement edges into a strict store-
+authority receipt while retaining the activated secret across retries.
+Production database atomicity, rollback/replay floors, and crash recovery remain
+open. The profile-neutral SigningWorker activation engine consumes only sealed, selected-
+profile-verified opened shares. It independently checks exact worker,
+recipient, activation/key epoch, request-context, package-authentication,
+role-share, joined-point, and registered-key bindings before consuming
+metadata. Its secret scalar state is nonserializable and zeroized on drop.
+Strict verification of a deterministic worker-bound Ed25519 receipt is required
+before activated state is released; receipt failure retains the prepared state
+for idempotent retry. Ten focused Rust tests cover all three activation origins
+and the principal splice, authority, signature, scalar-canonicality, and retry
+paths. The Phase 6A-selected authenticated ciphertext opener remains open. Production
+root/delta custody and provenance, deployed role-separated delta origination and
+anti-bias, Phase 6A-selected input selection and private output protection, the
+complete runtime party-view/lifecycle corpus, and production wire/storage
+transactions also remain blocked.
+
+The fixed-reference gate now pins 23 reference documents—the generated fixed
+reference plus 22 companions—and 18 attached vector corpora, including the
+one-case export-evaluator authorization, registration evaluator-admission, and
+recovery evaluator-admission corpora. The companion FV1 tree under
+`crates/ed25519-yao/formal-verification` now pins 368 generator tests, including
+16 Phase 2A circuit tests, 11 artifact-bundle,
+six benchmark-manifest, seven authenticated-store, ten SigningWorker-activation,
+six refresh-promotion, seven recovery credential-transition core, and five
+recovery credential-transition corpus tests, seven semantic-lifecycle vector
+tests, 11 output-party-view tests, and 14
+evaluation-input party-view tests, four uniform-abort corpus tests, four
+evaluator-abort state/party-view tests, four export-delivery core tests, and four
+export-delivery corpus tests, plus two activation-delivery core and four
+activation-delivery corpus tests, four activation-recipient party-view core
+tests, two compile/static guards, six activation-recipient party-view corpus
+tests, seven export-evaluator authorization core tests, five strict one-case
+export-evaluator authorization corpus tests, eight registration evaluator-
+admission core tests, and five strict registration evaluator-admission corpus
+tests, eight recovery evaluator-admission core tests, and five strict recovery
+evaluator-admission corpus tests. The same parity gate separately
+pins six ideal joint-refresh-delta tests and three host-only artifact-filesystem-
+policy tests. Its
+independent verifier pins the semantic, output-party-view, evaluation-input
+party-view, uniform-abort, evaluator-abort, export-delivery,
+activation-delivery, recovery credential-transition, export-evaluator
+authorization, and benchmark-manifest mutation suites separately within the
+166-test aggregate Python gate, including
+nine tests for the original output
+and input party-view corpora, five tests for each abort corpus, five export-
+delivery tests, five activation-delivery tests, seven activation-recipient
+party-view tests, seven recovery credential-transition tests, and seven export-
+evaluator authorization tests, seven registration evaluator-admission tests,
+and seven recovery evaluator-admission tests.
+The Lean gate pins 122 theorems, including twelve recovery transition, twelve
+export-evaluator authorization, twelve registration evaluator-admission, and
+twelve recovery evaluator-admission theorems. Nine
+counted local tracks cover fixed-reference
+specification drift, vectors, independent Python reproduction, isolated clean-
+build benchmark-manifest reproduction, Rust parity including compile-fail
+doctests, anti-drift, Aeneas/Lean boundary extraction, the Lean model, and Verus. CI runs the
+construction-independent fixed-reference and committed-vector checks as focused
+steps. The empty-cache Aeneas bootstrap remains open because the ambient opam
+package set is not yet locked. Phase 1 still needs the complete refresh
+construction-independent evaluator, remaining semantic
+frame and delivery classes, construction-independent corruption-game
+interfaces, and closure of role-learning ambiguity. Profile-selected provenance
+artifacts, proof verification, ciphertext opening, runtime wire formats, and
+production storage belong to Phase 6B. Durable transactions, rollback floors,
+and crash recovery belong to Phase 7.
+
+### Remaining Phase 1 Critical Path
+
+Complete these items in order. They refine the aggregate open TODOs above and
+avoid pulling Phase 6B or Phase 7 implementation into the construction-
+independent reference gate.
+
+- [x] Complete the typed export evaluator and A/B export-authorization
+      acceptance evidence in `export-evaluator-authorization-v1.md`. Distinct
+      non-weak A/B authorities strictly verify role-typed signed capabilities
+      over the exact request, replay nonce, expiry, Client recipient key,
+      authorization, transcript, provenance pair and role statement, signed
+      registered-store resolution, state version, registered key, and one-use
+      execution identity. The export session requires and consumes the verified
+      pair, runs exactly one export evaluation, and retains its pair digest
+      through output commitment and authorization-consuming Client release. A
+      strict one-case corpus is covered by seven core and five corpus Rust tests,
+      seven independent Python tests, and twelve Lean theorems, including
+      signature, expiry, replay/execution splice, role/key swap and reuse,
+      coherent authority substitution, state/receipt splice, and canonical-byte
+      drift rejection. Production authority distribution, authorization-record
+      policy validation, transport, recipient protection, durable nonce/replay
+      coordination, production constant-time evidence, and P0-P3 protocol
+      security remain Phase 6B-7 obligations.
+- [x] Complete the construction-independent registration evaluator around a
+      sealed move-owned admission binding the public identity scope, exact
+      ceremony DAG, authorization intent, ordered A/B provenance pair, both
+      opaque input-selection evidence identities, checked-at time, first
+      activation epoch, execution identity, and terminal selection attempt. It
+      runs one evaluation, enforces the admitted stable scope, commits one
+      candidate/receipt identity, and retains the typed terminal selection
+      through pending activation, metadata consumption, verified worker
+      activation, and evaluator abort. Eight core and five corpus Rust tests,
+      seven independent Python tests, and twelve Lean theorems close
+      `YAO-SPEC-022` and `YAO-REG-002`. Authenticated absence, durable
+      uniqueness, production input opening, selected-profile security,
+      production promotion, and constant-time evidence remain Phase 6B-7.
+- [x] Complete the recovery construction-independent evaluator around the
+      frozen preparation, output-sharing, continuity, authenticated store
+      resolution, credential suspension, worker activation, and promotion
+      transitions. The move-only admission binds the exact request DAG,
+      authority-authenticated store state, active and replacement credential,
+      registered identity, stable scope, A/B provenance, separate same-root and
+      selected-mechanism evidence identities, freshness, advancing activation
+      epoch, and one-use execution. Its digest is the sole evaluation evidence.
+      The committed one-case corpus independently verifies the store-authority
+      Ed25519 signature and every admission/output/retry binding. Eight core and
+      five corpus Rust tests, seven Python tests, and twelve Lean theorems close
+      `YAO-SPEC-023` and `YAO-REC-002`. Production same-root proof verification,
+      durable replay/suspension, transactions, transport, selected-profile
+      security, and constant-time execution remain Phase 6B-7 obligations.
+- [ ] Complete the refresh construction-independent evaluator around the
+      frozen preparation, output-sharing, authenticated store resolution, and
+      promotion transitions. Activation remains the frozen zero-private-
+      evaluation metadata continuation.
+- [ ] Freeze the remaining construction-independent semantic frame and delivery
+      classes, complete the seven closed role views, and add the profile-neutral
+      corruption-game interfaces. Exact runtime frame bytes stay in Phase 6B.
+- [ ] Attach every new Phase 1 artifact to the normative corpus, generated-spec
+      drift checks, Rust/Python parity gates, and the applicable Lean or static
+      obligations.
+- [ ] Close the remaining Phase 1 exit item by showing an unambiguous value-
+      learning table for every role, stage, success path, abort path, uncertainty
+      state, retry, and redelivery transition.
 
 ### Exit Gate
 
-- [ ] Independent implementations reproduce every vector.
+- [x] Independent Rust and Python implementations reproduce every committed
+      construction-independent vector.
 - [ ] No lifecycle ambiguity remains about who learns each value.
-- [ ] Export is the only functionality with seed output shares.
-- [ ] Recovery and refresh preserve their byte-level identity invariants.
+- [x] Export is the only functionality with seed output shares.
+- [x] Recovery and refresh preserve their byte-level identity invariants.
 
 ## Phase 2: Compile the Deterministic Core and Passive Artifact
 
-Status: **blocked on Phase 1; draft manifest foundations exist ahead of gate**
+Status: **open but incomplete — benchmark-only Phase 2A is complete; Phase 2B
+and the Phase 2 exit remain blocked on the Phase 1 exit**
 
 Goal: replace analytic estimates with a real deterministic core and passive
 benchmark artifact, while leaving the production digest unfrozen until Phase
 6B.
 
-### TODO
+Phase 2A consumes only the frozen construction-independent arithmetic, byte
+order, circuit-family separation, and vector contract. Its generated artifacts,
+digests, schedules, and counts use benchmark-only identities and remain
+provisional. Phase 2A cannot freeze a production schema, protocol composition,
+security profile, party-view claim, or production artifact.
 
-- [ ] Implement the minimal fixed circuit IR.
-- [ ] Implement exact SHA-512 specialization for the fixed IV and padding.
-- [ ] Implement 256-bit modular addition.
-- [ ] Implement clamp and reduction modulo `l`.
-- [ ] Implement `tau` aggregation and both output equations.
-- [ ] Generate deterministic activation and export core functions for the
-      local passive harness.
-- [ ] Generate liveness-based wire-slot schedules.
-- [ ] Emit canonical binary manifests and circuit digests.
-- [ ] Record AND, XOR, inversion, total gate, depth, live-wire, input, output,
-      and table-byte counts.
-- [ ] Add deterministic regeneration checks to CI.
-- [ ] Add a simple clear evaluator under test/generator-only ownership.
-- [ ] Differential-test the clear evaluator against Phase 1 vectors.
-- [ ] Reject unknown, stale, mixed, or caller-provided circuit artifacts.
+### Phase 2A: Construction-Independent Benchmark Scaffold
+
+Status: **complete — closed July 10, 2026 as provisional benchmark evidence;
+no Phase 2 exit or production authority**
+
+#### TODO
+
+- [x] Implement the minimal fixed Boolean circuit IR with XOR/AND/INV gates,
+      constant folding, canonical commutative operands, deterministic dead-gate
+      pruning, topology validation, and a versioned canonical byte encoding.
+- [x] Implement exact SHA-512 specialization for a fixed 32-byte input, including
+      the standard IV and rounds, fixed padding words, endian conversion, and
+      final-carry elimination.
+- [x] Freeze all three components' scopes, exact field schemas and order,
+      bit/wire order, encoding, purpose-specific digest types, digests, metrics,
+      evaluator claims, and non-promotable status in
+      `tools/ed25519-yao-generator/docs/circuit-ir-v1.md`.
+- [x] Implement 256-bit wrapping addition and canonical-scalar addition modulo
+      `l`.
+- [x] Implement RFC 8032 clamp and seven-round fixed reduction modulo `l`.
+- [x] Implement canonical-`tau` host validation, `tau` aggregation, and both
+      scalar-output equations.
+- [x] Generate deterministic seed-free activation and seed-only export core
+      functions for the local passive harness, with distinct tags `0x91` and
+      `0x92` and distinct provisional digest types.
+- [x] Generate deterministic liveness-based wire-slot schedules with terminal
+      output pinning, last-use release, read-before-write reuse, smallest-free
+      allocation, and the schema-bound `EYAOSC01` encoding.
+- [x] Implement deterministic CLI emission/checking for the six fixed IR and
+      schedule files. Keep generated blobs intentionally uncommitted.
+- [x] Freeze the `ed25519-yao-phase2a-bundle-v1.bin` reproducibility index with
+      magic `EYAOBA01`, six ordered tag/name/BE64-length/SHA-256 entries, 387
+      canonical bytes, and digest
+      `aa62b83b38163bf898c90084f2eb25df1c95ba41274d0f7826250f9168b80db1`.
+      The index has no Phase 2B or production-manifest authority.
+- [x] Reject missing, extra, mutated, and nondirectory emitted-bundle inputs;
+      retain idempotent emission into a directory containing only expected
+      names.
+- [x] Emit the distinct benchmark-only fixed SHA-512/32 component with digest
+      `11488ae3b47722d42d4fc7e2d03fa2684312887ab93c3c9a0b080021b468f53b`.
+- [x] Freeze the provisional activation core digest
+      `747fa6f1815e3a0c70f0077ffc10508882f321ad6e7bb422f4eef695a853b5a5`
+      and the provisional export core digest
+      `3cc95694e01966642db7eaed9d68a4116c66bc4d72f14908d0d3b5e25ee79838`.
+- [x] Record AND, XOR, inversion, total gate, full depth, AND depth, wire,
+      input, output, encoded-byte, and passive table-byte counts for all three
+      components.
+- [x] Record the exact high-water reusable-slot and schedule metrics: fixed SHA
+      uses 4737 slots and 2317081 schedule bytes with digest
+      `0d7c79a0ab31b2ae04b91319355bb79aef32c5f3d5f8532a3db632b121f627da`;
+      activation uses 5761 slots and 2571762 bytes with digest
+      `e0f9dfb3f3b85eab28fbab81788e0efea25dac7c8de207af8ce9e57567c6ad25`;
+      export uses 1025 slots and 32658 bytes with digest
+      `bb4b0b1de87baa1bf7b190c8c57538a67367091483a4cb08abc1a2392f55b071`.
+      All three use two-byte slots and seven-byte scheduled-gate records.
+- [x] Freeze the fixed SHA-512/32 component at 54868 AND, 269622 XOR, 6367 INV,
+      330857 total gates, full depth 10675, AND depth 3301, 331113 wires,
+      2979847 encoded bytes, and 1755776 estimated passive table bytes.
+- [x] Freeze the provisional activation core at 62716 AND, 294021 XOR, 10503
+      INV, 367240 total gates, full depth 17903, AND depth 5723, 369288 wires,
+      2048 inputs, 512 outputs, 3307294 encoded bytes, and 2006912 estimated
+      passive table bytes.
+- [x] Freeze the provisional export core at 765 AND, 3819 XOR, 0 INV, 4584
+      total gates, full depth 766, AND depth 255, 5608 wires, 1024 inputs, 256
+      outputs, 42366 encoded bytes, and 24480 estimated passive table bytes.
+- [x] Run byte-for-byte IR/schedule regeneration, digest/metric goldens,
+      scheduled-evaluator parity, and emitted-file bundle regeneration through
+      the counted `cargo yao-fv parity` CI step: 368 generator tests, including
+      16 circuit tests, 11 bundle tests, seven semantic-lifecycle vector tests,
+      11 output-party-view tests, 14 evaluation-input party-view tests, and four
+      uniform-abort plus four evaluator-abort state/party-view corpus tests,
+      four export-delivery core and four export-delivery corpus tests, two
+      activation-delivery core and four activation-delivery corpus tests,
+      four activation-recipient party-view core, two compile/static guard, and
+      six activation-recipient party-view corpus tests, seven export-evaluator
+      authorization core tests, and five one-case authorization corpus tests,
+      eight recovery evaluator-admission core tests, and five one-case recovery
+      evaluator-admission corpus tests,
+      plus six joint-refresh-delta tests, together with three isolated artifact-
+      filesystem-policy tests.
+- [x] Add schedule-driven clear evaluators for the fixed SHA-512/32 component
+      and both provisional cores under test/generator-only ownership.
+- [x] Differential-test SHA-512 against `sha2::Sha512`, exercise the exact
+      add/clamp/scalar fragments, reject every noncanonical `tau` position, and
+      run every committed five-case arithmetic vector plus 128 deterministic
+      differential vectors through both provisional cores without claiming the
+      Phase 1 or Phase 2 exit.
+
+### Phase 2B: Reconcile and Close the Deterministic Core
+
+Status: **blocked on the Phase 1 exit and Phase 2A evidence**
+
+The independent stdlib-Python decoder/evaluator was implemented early against
+the provisional Phase 2A bundle and five committed arithmetic cases. This adds
+FV2 evidence only. It does not reconcile the incomplete Phase 1 contract,
+freeze a Phase 2B manifest, or close the Phase 2 or FV2-FV4 exits.
+
+#### TODO
+
+- [ ] Reconcile the compiler, clear evaluator, schemas, and benchmark artifacts
+      against the complete reviewed Phase 1 corpus and party-output semantics.
+- [x] Freeze a generator-owned 1973-byte Phase 2B candidate benchmark manifest
+      with magic `EYAOBM01` and digest
+      `c9c969fd23998509ae07f04fdc9982e2f3b5b21aa92aac9cf62db5ed2f0cce81`.
+      It binds the compiler contract, explicit bit/wire order, exact schemas,
+      the complete `EYAOBA01` index, IR/schedule digests, compiler-derived
+      metrics, and `32*AND` passive table counts for all three fixed components.
+      Its builder accepts no caller artifacts and exposes no production
+      conversion. Six focused Rust tests freeze regeneration, ordering,
+      schemas, count relations, mutation rejection, and the non-production API.
+- [ ] Reconcile and reviewer-approve that candidate as the final Phase 2B
+      benchmark manifest after the complete Phase 1 corpus closes.
+- [x] Regenerate the candidate manifest through two isolated clean Cargo target
+      directories and require exact equality of its bytes/digest plus the
+      wrapped bundle-index bytes/digest in the counted
+      `benchmark-manifest-reproducibility` CI track.
+- [ ] Require explicit reviewer approval for every future compiler-contract,
+      artifact, schema, digest, schedule, metric, or count change.
+- [x] Reject unknown, stale, mixed, mutated, or caller-provided benchmark
+      manifests at the generator boundary by accepting only exact internal
+      compiler regeneration. Production artifact acceptance remains absent.
+- [x] Independently decode and validate `EYAOBM01` in stdlib Python, including
+      the compiler/order/schema surface, wrapped index, three fixed components,
+      IR/schedule metrics, and passive counts. Four focused mutation tests bring
+      the independent artifact suite to 20 tests and the aggregate Python gate
+      to 166 tests.
+- [x] Implement a strict independent stdlib-Python byte decoder/evaluator for
+      `EYAOBA01`, `EYAOIR01`, and `EYAOSC01`. It independently rederives the
+      canonical last-use schedule, compares encoded records byte for byte,
+      evaluates IR and schedule identically, and reproduces activation/export
+      outputs for the five committed cases. Phase 2B review and the wider
+      reconciliation remain open.
+- [x] Close artifact-filesystem handling for every supported host. Linux/macOS
+      descriptor-relative no-follow path walking, bounded single-link regular-
+      file reads bracketed by metadata snapshots, and same-parent atomic
+      no-replace publication are implemented. POSIX ownership/mode checks now
+      cover every path component, bundle directory, and file; unsafe shared-
+      write ancestors, symlinks, hardlinks, concurrent mutation, extra names,
+      and oversized files fail focused Rust/Python regressions. The normative
+      `artifact-filesystem-policy-v1.md` requires descriptor-based `MNT_LOCAL`
+      plus no authority-expanding allow ACL entry on macOS and a closed local-
+      filesystem allowlist plus no recognized ACL xattr on Linux. Deny-only
+      macOS ACLs add no authority and remain valid. NFS/NFSv4, CIFS/SMB, FUSE,
+      OverlayFS, remote, stacked, and unknown filesystems fail closed. The
+      narrow macOS ACL ABI wrapper lives in an isolated host-only crate,
+      preserving the generator's `forbid(unsafe_code)` boundary. Three
+      platform-stable policy tests, including real macOS deny/allow fixtures,
+      run in counted parity.
 
 ### Exit Gate
 
-- [ ] Deterministic activation and export core artifacts reproduce all vectors.
-- [ ] Semi-honest table estimate is at most 2.10 MiB or a reviewed exception is
-      recorded.
-- [ ] Core-function digest and passive gate counts are stable across clean
-      builds.
+- [x] Deterministic activation and export core artifacts reproduce all five
+      committed vectors in Rust and the independent Python verifier, plus 128
+      deterministic differential cases in Rust.
+- [x] Semi-honest activation table estimate is 2006912 bytes, below 2.10 MiB.
+- [x] Core digests, schedule digests, metrics, and passive gate counts are bound
+      by the candidate manifest and stable across two isolated clean builds.
 - [ ] Reviewer approves circuit semantics and bit ordering.
-- [ ] Production Cloudflare crates have no dependency on the generator, clear
-      evaluator, or joined reference oracle.
+- [x] Production Rust and WASM runtime dependency closures have no dependency on
+      the generator, filesystem-policy helper, clear evaluator, or joined
+      reference oracle. The counted production-dependency guard follows local
+      runtime/build edges recursively and scans Cargo lockfiles so a local,
+      registry, or Git facade cannot hide either host-only package; dev-only
+      edges remain outside the runtime closure.
 
 ## Phase 3: Build the Isolated Passive Yao Core
 
-Status: **blocked on Phase 2; the draft manifest-only crate exists ahead of gate**
+Status: **blocked on the Phase 2 exit through Phase 2B; the draft manifest-only
+crate exists ahead of gate**
 
 Goal: measure the symmetric-key core and establish a differential oracle.
 
@@ -2088,7 +3015,8 @@ Goal: measure the symmetric-key core and establish a differential oracle.
 - [ ] Add known-answer tests for each gate primitive.
 - [ ] Add randomized circuit differential tests.
 - [ ] Record native and Worker/WASM garble/evaluate CPU and memory.
-- [ ] Label every passive entrypoint as non-production.
+- [ ] Label every passive entrypoint as pre-selection and non-production until
+      Phase 6A selects P0 and Phase 6B applies the mandatory hardening bundle.
 
 ### Exit Gate
 
@@ -2098,7 +3026,8 @@ Goal: measure the symmetric-key core and establish a differential oracle.
 - [ ] Peak memory is measured against every candidate profile. Exceeding 96 MiB
       disqualifies Workers through the Phase 6A tripwire instead of blocking a
       lower platform rung.
-- [ ] No production route or SDK caller reaches the passive protocol.
+- [ ] No production route or SDK caller reaches the passive protocol before a
+      P0 Phase 6A decision and completed Phase 6B production composition.
 
 ## Phase 4: Add Private Randomized Output Sharing
 
@@ -2108,17 +3037,21 @@ Goal: ensure each Deriver learns only its output share.
 
 ### TODO
 
-- [ ] Specify the ideal randomized-output functionality for scalar and seed
+- [x] Specify the ideal randomized-output functionality for scalar and seed
       shares.
-- [ ] Prototype the randomized-output interface in the isolated harness; defer
-      its malicious-secure realization to Phase 6B.
+- [x] Implement a typed host-only randomized-output reference and strict
+      cross-language corpus ahead of this phase.
+- [ ] Integrate the randomized-output interface into the isolated passive Yao
+      harness after Phase 3; defer its selected production realization to Phase
+      6B.
 - [ ] Implement private evaluator output.
 - [ ] Implement private garbler output using opaque returned labels.
 - [ ] Bind output decode information to role, circuit, and transcript.
 - [ ] Implement distinct client and SigningWorker recipient packages.
 - [ ] Implement the export-only seed packages.
-- [ ] Define the required active-output binding over decoded scalar, point,
-      ciphertext digest, recipient, and transcript.
+- [ ] Define the selected output binding over decoded scalar, point, ciphertext
+      digest, recipient, and transcript; distinguish P0 signed/public checks
+      from P1-P3 active authentication.
 - [ ] Add scalar-share point commitments.
 - [ ] Add a jointly signed public output receipt for both recipients.
 - [ ] Enforce canonical Edwards encoding, identity/small-order/torsion rejection,
@@ -2137,34 +3070,45 @@ Goal: ensure each Deriver learns only its output share.
 - [ ] B learns no A output share or joined result.
 - [ ] Client and SigningWorker receive only their intended output.
 - [ ] Test fixtures define how a self-consistent replacement scalar and point
-      must fail the future active-output verification.
+      is detected by the selected profile or recorded as outside its claim.
 - [ ] Seed shares exist only in the export circuit and export package types.
 
-## Phase 6A: Select the Construction and Reissue Feasibility Gates
+## Phase 6A: Select the Security Profile and Reissue Feasibility Gates
 
-Status: **blocked on Phase 1 and Phase 2 gate-count evidence; may run in
-parallel with Phases 3 and 4 after those inputs exist**
+Status: **selection blocked on the Phase 1 and Phase 2 exits; bounded candidate
+research may inspect provisional Phase 2A counts, but cannot select or freeze a
+profile before both exits pass**
 
-Goal: make the active-security, implementation, platform, stream, preprocessing,
-and release-budget decisions before those designs become production-shaped.
+Goal: select the strongest coherent security profile meeting the online-latency
+SLO, then freeze its implementation, platform, stream, lifecycle, exact claim,
+and release budgets before those designs become production-shaped.
 
 This is a bounded decision phase. It may build narrow proof-of-concept kernels
-and microbenchmarks. It does not create a product entrypoint or approve a
-passive deployment.
+and microbenchmarks. It does not create a product entrypoint. P0 becomes
+production-eligible only through this phase's signed decision and the remaining
+release gates.
 
 ### TODO
 
 - [ ] Write the construction and composition map for malicious OT, garbling
       correctness, input consistency, private randomized output, provenance,
       active-output binding, selective failure, and uniform abort.
+- [ ] Freeze the P0 operational hardening bundle, passive-corruption model,
+      honest-execution assumptions, excluded active attacks, and mandatory
+      release evidence.
+- [ ] Benchmark P0 as the canonical online-latency baseline on every serious
+      platform profile.
 - [ ] Evaluate the bounded candidate set in this document: WRK17/KRRW18
       authenticated garbling, SoftSpoken/KOS/Ferret-family OT choices, and
       Lindell-style or batched cut-and-choose.
+- [ ] Group candidates into coherent P1, P2, and P3 profiles with an exact claim
+      for each complete composition; reject feature lists without a reviewed
+      composition argument.
 - [ ] Record dual execution as disqualified because adversarial leakage
       compounds across aborts and retries involving long-lived inputs.
-- [ ] Freeze the exact active compiler, OT suite, input-provenance mechanism,
-      randomized-output realization, output-authentication composition, and
-      garbling hash.
+- [ ] Freeze the selected profile, compiler, OT suite, input-provenance scope,
+      randomized-output realization, output-authentication scope, garbling
+      hash, and residual exclusions.
 - [ ] Decide whether the garbling hash is constant-time bitsliced/fixsliced AES
       in WASM or another reviewed correlation-robust primitive.
 - [ ] Compare porting and hardening Swanky, mpz, or EMP components against a
@@ -2173,7 +3117,8 @@ passive deployment.
 - [ ] Obtain approval for a concrete implementation and review effort budget.
 - [ ] Derive projected online and offline bytes, preprocessing storage, rounds,
       request graph, CPU, peak memory, retained state, and disposal points from
-      the Phase 2 gate counts and narrow microbenchmarks.
+      the frozen Phase 2 exit counts and narrow microbenchmarks. Provisional
+      Phase 2A counts may inform candidate research only.
 - [ ] Publish the exact lifecycle transaction/write graph and identify which
       A/B operations can safely overlap or coalesce.
 - [ ] Freeze `EpochFloorAuthorityV1` and the circuit-version drain/destroy
@@ -2182,16 +3127,23 @@ passive deployment.
       record the tripwire that activates each lower rung.
 - [ ] Reissue the Phase 13 construction-specific payload, round, latency, CPU,
       memory, storage, and cost objectives before implementation begins.
+- [ ] Freeze the maximum permitted absolute and percentage p95/p99 latency
+      increase over P0 and apply it before comparing total cost.
+- [ ] Select the strongest profile that meets the reissued SLO; record every
+      stronger rejected profile and its measured latency tripwire.
+- [ ] Align `router-a-b-sol-refactor.md`, `router-a-b-SPEC.md`, the deployment
+      specification, and the formal-verification plan with the selected claim
+      before Phase 6B closes.
 - [ ] Produce a signed Phase 6A construction decision record with the named
       cryptographic, constant-time, deployment, and performance reviewers.
 
 ### Kill Criteria
 
-Phase 6A stops the selected candidate or changes platform when any of these
-conditions holds:
+Phase 6A rejects a candidate, lowers the security profile, changes platform, or
+stops when one of these conditions holds:
 
-- its proof leaks an adversarial predicate, omits the required one-malicious-role
-  composition, or fails the long-lived-input retry model;
+- its stated proof omits an attack claimed by that profile, leaks beyond its
+  explicit exclusions, or fails the long-lived-input retry model;
 - no reviewable build-or-port path fits the approved effort budget;
 - the Worker garbling primitive fails compiled constant-time review;
 - projected payload, rounds, CPU, memory, or Durable Object critical-path
@@ -2199,13 +3151,17 @@ conditions holds:
 - the implementation cannot preserve independent administrative domains;
 - an independent reviewer rejects the assumptions or composition.
 
-The platform response is Workers, then Containers, then independently
-administered native services. Failure on the final profile stops the protocol.
+P2/P3 failure moves to a coherent P1 candidate and then P0. Platform evaluation
+uses Workers, then Containers, then independently administered native services.
+P0 failure on mandatory controls, correctness, privacy under honest execution,
+constant-time review, independent administration, or the latency SLO stops the
+protocol.
 
 ### Exit Gate
 
-- [ ] The signed decision record freezes every construction and composition
-      choice listed above.
+- [ ] The signed decision record freezes one P0-P3 profile, one platform,
+      every construction and composition choice, the exact corruption claim,
+      and every exclusion.
 - [ ] Gate-count-based projections and microbenchmarks account for all online
       and offline bytes, rounds, CPU, memory, storage, and state retention.
 - [ ] The reissued Phase 13 budget table identifies hard platform limits,
@@ -2214,6 +3170,10 @@ administered native services. Failure on the final profile stops the protocol.
       budget.
 - [ ] The selected platform profile preserves two independent administrators
       and has a reviewed constant-time strategy.
+- [ ] The selected profile meets the absolute and incremental p95/p99 SLO
+      against the measured P0 baseline.
+- [ ] Capability, Router, deployment, and formal plans match the selected claim
+      and contain no stronger residual wording.
 - [ ] Every kill criterion has evidence-backed disposition and no unresolved
       critical or high finding remains.
 
@@ -2236,8 +3196,8 @@ the required retention, challenge, and disposal semantics.
 - [ ] Implement B's bounded parser and incremental evaluator.
 - [ ] Benchmark 64, 128, and 256 KiB frames.
 - [ ] Enforce exact length, count, sequence, gate range, and EOF.
-- [ ] Abort and destroy test tickets on truncation, overflow, trailing bytes,
-      duplicate, reordering, timeout, and disconnect.
+- [ ] Abort and destroy selected session or test-ticket state on truncation,
+      overflow, trailing bytes, duplicate, reordering, timeout, and disconnect.
 - [ ] Add slow-producer and slow-consumer tests.
 - [ ] Add memory-copy counters across Rust/WASM/JS boundaries.
 - [ ] Add source guards against JSON, base64, whole-body buffers, Router relay,
@@ -2256,26 +3216,36 @@ the required retention, challenge, and disposal semantics.
       byte-for-byte.
 - [ ] Framing, retention, and disposal match the Phase 6A proof assumptions.
 
-## Phase 6B: Implement the Active Suite and Freeze Production Circuits
+## Phase 6B: Implement the Selected Suite and Freeze Production Circuits
 
 Status: **blocked on Phases 2 through 5 and Phase 6A**
 
-Goal: meet the Router-plus-one-malicious-Deriver security target and produce the
-only circuit artifacts eligible for production.
+Goal: implement the exact Phase 6A profile and produce the only artifacts and
+entrypoint eligible for production.
 
 ### TODO
 
-- [ ] Implement the Phase 6A malicious-secure base OT and OT-extension suite.
-- [ ] Implement garbler-correctness enforcement.
-- [ ] Implement evaluator-input consistency and selective-failure defenses.
-- [ ] Implement the selected proof binding role inputs to provisioned roots,
-      epochs, derivation context, client envelope, and request authorization.
-- [ ] Prove the randomized-output sharing is unbiased within the malicious
-      protocol and private from each individual role.
-- [ ] Implement active-output bindings and prevent equivocation.
-- [ ] Compose input provenance, active garbling, randomized output, recipient
-      authentication, and lifecycle-specific functionality in the final
-      activation and export circuits/protocols.
+- [ ] Implement every mandatory 80/20 control and the selected P0-P3 protocol
+      composition without dormant security-profile branches.
+- [ ] Instantiate every Phase 1 opaque provenance/evidence slot with the
+      Phase 6A-selected authenticated root record, custody boundary, input
+      binding, and verification mechanism.
+- [ ] Implement the selected registration input-selection realization and its
+      retry/acceptance state machine without widening the approved claim.
+- [ ] Implement the selected joint refresh-delta generation, output binding,
+      abort-equivalence, and minimum durable-lifecycle realization against the
+      construction-independent Phase 1 relations.
+- [ ] For P0, implement ordinary reviewed OT, fresh per-ceremony labels and
+      randomness, pinned artifacts, authenticated transcripts, strict framing,
+      replay controls, recipient encryption, and public output checks.
+- [ ] For P1-P3, implement only the Phase 6A-selected malicious OT,
+      garbler-correctness, input-consistency, selective-failure, provenance, and
+      active-output mechanisms required by the approved composition.
+- [ ] Prove randomized-output privacy and bias resistance to the extent claimed
+      by the selected profile.
+- [ ] Compose the selected input handling, garbling, randomized output,
+      recipient authentication, and lifecycle-specific functionality in the
+      final activation and export circuits/protocols.
 - [ ] Regenerate final production schedules, manifests, gate counts, byte
       counts, and circuit digests.
 - [ ] Embed only those production artifacts in `crates/ed25519-yao`.
@@ -2285,28 +3255,54 @@ only circuit artifacts eligible for production.
 - [ ] Add corrupt-A and corrupt-B protocol harnesses.
 - [ ] Add wrong-circuit, wrong-input, malformed-OT, selective-failure,
       inconsistent-output, and early-abort tests.
-- [ ] Delete losing active-security prototypes and unused dependency paths.
+- [ ] Delete losing P0-P3 prototypes, inactive hardening paths, and unused
+      dependencies.
 - [ ] Obtain independent design review before product composition.
 
 ### Exit Gate
 
-- [ ] A malicious Deriver produces a valid committed result or detectable abort.
-- [ ] The honest role's input and recipient outputs remain private.
+- [ ] The implementation satisfies the exact Phase 6A corruption and
+      correctness claim; P2/P3 require a valid committed result or detectable
+      abort from one malicious Deriver.
+- [ ] The honest role's input and recipient outputs remain private under the
+      selected profile's corruption model.
 - [ ] The implemented proof claim matches the approved construction exactly.
-- [ ] Active online/offline bytes, rounds, CPU, and memory are recorded.
+- [ ] Selected-profile online/offline bytes, rounds, CPU, and memory are
+      recorded against P0.
 - [ ] Input-provenance setup, proof bytes, rounds, and verification CPU are
       recorded separately.
-- [ ] Production circuit digests reproduce across clean builds and supersede
-      every passive artifact ID.
+- [ ] Production circuit and security-suite digests reproduce across clean
+      builds and are distinct from benchmark-only artifact IDs.
 - [ ] No critical or high cryptographic review finding remains.
 
-## Phase 7: Add One-Use Preprocessing and Prepositioning
+## Phase 7: Add the Selected One-Use Lifecycle and Optional Prepositioning
 
 Status: **blocked on Phases 5 and 6B**
 
-Goal: minimize online work without introducing reuse or rollback.
+Goal: enforce the selected profile's minimum safe one-use/session lifecycle and
+move work offline only when the measured latency benefit exceeds persistence
+and tail-latency cost.
 
-### TODO
+P0 just-in-time execution uses fresh labels, OT state, randomness, nonces, and
+session domains plus replay and output-commit records. It does not inherit a
+preprocessing pool, base-OT reuse, distributed ticket states, or Durable Object
+round trips that its reviewed passive construction does not require. P1-P3 add
+only the lifecycle states required by their selected preprocessing and active
+security composition.
+
+### Common TODO
+
+- [ ] Freeze the minimal P0-P3 lifecycle selected by Phase 6A and make unused
+      states, stores, pools, and transitions absent from production types.
+- [ ] Generate fresh per-ceremony labels, OT state, garbling randomness, nonces,
+      and session domains for every profile.
+- [ ] Bind the selected circuit, security suite, wallet, request, roles,
+      recipients, epochs, authorization, and transcript into replay and terminal
+      records.
+- [ ] Persist only the minimum selected state required for replay prevention,
+      exact encrypted redelivery, rollback safety, and the approved claim.
+
+### Conditional Preprocessing TODO
 
 - [ ] Implement consuming ticket types and transition APIs.
 - [ ] Implement paired public ticket commitments.
@@ -2320,7 +3316,7 @@ Goal: minimize online work without introducing reuse or rollback.
 - [ ] Add concurrent reserve, double consume, rollback, restore, and retry tests.
 - [ ] Encrypt persisted secrets under per-ticket keys.
 - [ ] Destroy terminal per-ticket keys.
-- [ ] Persist exact recipient ciphertexts and active-output bindings before
+- [ ] Persist exact recipient ciphertexts and selected output bindings before
       output commit.
 - [ ] Exchange both roles' signed package-digest set before local consumption.
 - [ ] Release recipient packages only from consumed state.
@@ -2343,15 +3339,18 @@ Goal: minimize online work without introducing reuse or rollback.
 - [ ] Implement the circuit rollout rule: stop old issuance, destroy old
       pre-activation tickets, bound the activated drain set, and reject old
       digests for every new activation.
-- [ ] Implement a shallow just-in-time OT pool.
-- [ ] Implement optional prepositioned garbled-circuit storage.
+- [ ] Implement a shallow just-in-time OT pool only when the selected OT suite
+      proves its reuse/domain rules and measurements justify the added state.
+- [ ] Implement prepositioned garbled-circuit storage only for a selected
+      profile whose proof permits it and whose online p95 improves materially.
 - [ ] Stream stored chunks directly into B's evaluator.
 - [ ] Add pool depth, expiry, burn rate, cleanup, and starvation metrics.
 - [ ] Add storage and preprocessing cost to benchmark reports.
 
 ### Exit Gate
 
-- [ ] No ticket can be reused, cloned, rolled back, or returned to available.
+- [ ] No selected session or ticket material can be reused, cloned, rolled back,
+      or returned to available.
 - [ ] Backup restore cannot revive nonterminal material.
 - [ ] Neither epoch-floor rollback nor circuit rollback can revive stale
       material.
@@ -2359,8 +3358,10 @@ Goal: minimize online work without introducing reuse or rollback.
       cost without weakening one-use semantics.
 - [ ] A crash after output preparation permits exact ciphertext redelivery and
       no reevaluation.
-- [ ] Prepositioned online output matches just-in-time output.
-- [ ] Prepositioned mode reduces online p95 without weakening the claim.
+- [ ] When prepositioning is selected, online output matches just-in-time output
+      and online p95 improves without weakening the selected claim.
+- [ ] P0 incurs no preprocessing or persistence transition absent from its
+      reviewed minimum lifecycle.
 
 ## Phase 8: Add Router Contracts and the Composition Adapter
 
@@ -2381,7 +3382,8 @@ ownership separate.
 - [ ] Delete `Recovery -> Export` mapping and export-shaped recovery fields.
 - [ ] Make registration valid before an account public key exists.
 - [ ] Define public manifests, receipts, errors, and terminal results.
-- [ ] Define typed stream, ticket, prepositioning, and output-commit contracts.
+- [ ] Define typed stream, selected session/ticket lifecycle, optional
+      prepositioning, and output-commit contracts without unused profile states.
 - [ ] Keep table bytes and secret protocol state out of `router-ab-core`.
 - [ ] Create `crates/router-ab-ed25519-yao`.
 - [ ] Map admitted requests into narrow role-local inputs.
@@ -2415,7 +3417,7 @@ Goal: validate Cloudflare streaming and establish an optimistic lower bound.
       and return the typed retryable busy result before ticket allocation.
 - [ ] Load-test concurrent requests to prove the per-isolate cap and verify that
       rejected requests reserve or burn no ticket.
-- [ ] Enforce durable wallet, organization, tenant, and global active/burn
+- [ ] Enforce durable wallet, organization, tenant, and global selected/burn
       budgets independently of isolate admission.
 - [ ] Run the same binary parser and transcript code intended for HTTPS.
 - [ ] Add opposite-role binding and secret negative tests.
@@ -2442,8 +3444,9 @@ production platform.
 
 ### TODO
 
-- [ ] Freeze exactly one production deployment profile from the Phase 6A
-      ladder; exclude runtime backend negotiation and dormant production paths.
+- [ ] Freeze exactly one production security profile and one deployment profile
+      from Phase 6A; exclude runtime negotiation, downgrade, and dormant
+      production paths.
 - [ ] Publish its administrator, identity, transport, placement, persistence,
       and review rules in a versioned deployment-profile specification.
 - [ ] Provision distinct accounts or infrastructure domains, CI environments,
@@ -2466,8 +3469,9 @@ production platform.
 - [ ] Add independent artifact and manifest signatures.
 - [ ] Add negative cross-account deploy/storage access probes.
 - [ ] Add rate, size, concurrency, timeout, and circuit-breaker controls.
-- [ ] Connect admission to Phase 7 burn budgets and record rejection or burn
-      attribution by authenticated wallet, organization, and tenant.
+- [ ] Connect admission to the Phase 7-selected session/ticket and burn budgets;
+      record rejection or burn attribution by authenticated wallet,
+      organization, and tenant.
 - [ ] Verify epoch-floor and circuit-rollout enforcement across independent
       deployments and backups.
 - [ ] For a Containers or native profile, repeat dependency, constant-time,
@@ -2482,8 +3486,8 @@ production platform.
 - [ ] Every cross-domain edge uses the frozen signed direct transport contract;
       a Worker deployment contains no cross-account `.internal` Service
       Binding URL.
-- [ ] A and B execute the approved active protocol over the selected direct
-      transport.
+- [ ] A and B execute the Phase 6A-selected protocol and exact claim over the
+      selected direct transport.
 - [ ] Router carries zero table bytes.
 - [ ] Strict-profile latency, memory, CPU, storage, and byte measurements are
       recorded as Phase 13 inputs; Phase 13 applies the release thresholds after
@@ -2506,7 +3510,8 @@ Goal: complete every Ed25519 strict Router A/B lifecycle.
 - [ ] Add client recipient-package combine and commitment checks.
 - [ ] Add SigningWorker server-package combine and commitment checks.
 - [ ] Deliver the jointly signed public output receipt to both recipients.
-- [ ] Verify active-output bindings before either recipient combines shares.
+- [ ] Verify the Phase 6A-selected output bindings before either recipient
+      combines shares.
 - [ ] Add registration, activation, recovery, refresh, and export orchestration.
 - [ ] Add explicit export authorization and reconstructed-seed verification.
 - [ ] Add public identity continuity checks.
@@ -2555,7 +3560,8 @@ Goal: remove the final reason for the generic threshold service to exist.
 
 Status: **blocked on Phases 9 through 11**
 
-Goal: decide release from measured Yao security, latency, and cost evidence.
+Goal: validate the Phase 6A-selected profile against measured latency first,
+then its exact security, correctness, memory, reliability, and cost gates.
 
 ### Benchmark Matrix
 
@@ -2564,8 +3570,9 @@ Goal: decide release from measured Yao security, latency, and cost evidence.
 - [ ] Local garbling only.
 - [ ] Local evaluation only.
 - [ ] Passive just-in-time full ceremony.
-- [ ] Active just-in-time full ceremony.
-- [ ] Active prepositioned online ceremony.
+- [ ] Every coherent P1 targeted-hardening ceremony.
+- [ ] P2 prepositioned full-active online ceremony.
+- [ ] P3 just-in-time full-active ceremony.
 - [ ] Every Phase 6A candidate and selected-platform profile needed to validate
       the signed decision record.
 - [ ] Cold and warm runs.
@@ -2576,7 +3583,7 @@ Goal: decide release from measured Yao security, latency, and cost evidence.
 
 Record:
 
-- time to ticket reservation;
+- time to selected session activation or preprocessing-ticket reservation;
 - input-provenance setup, proof bytes, rounds, proving CPU, and verification CPU;
 - OT rounds;
 - time to first and final stream byte;
@@ -2584,6 +3591,7 @@ Record:
 - evaluation CPU;
 - transcript and output time;
 - total wall p50, p95, and p99;
+- absolute and percentage p50/p95/p99 increase over P0;
 - cold-start rate;
 - A and B CPU-ms;
 - A-to-B and B-to-A bytes;
@@ -2591,7 +3599,8 @@ Record:
 - peak isolate/WASM memory and memory drift;
 - enforced per-isolate admission cap and rejected-concurrency count;
 - local-guard and durable-budget rejection latency and reason;
-- ticket burn rate by wallet, organization, tenant, and global budget;
+- selected session/ticket destruction and burn rate by wallet, organization,
+  tenant, and global budget;
 - CPU, storage, and preprocessing cost attributed to each burn reason and
   authenticated admission principal;
 - storage reads, writes, and retained bytes;
@@ -2605,25 +3614,28 @@ Record:
 
 The numeric payload, latency, and CPU values below are provisional planning
 objectives until Phase 6A. Phase 6A must replace them with a signed, versioned
-construction-and-platform SLO table before Phase 5 or Phase 6B begins. The
-selected platform's hard memory, request-size, duration, and security limits
-remain binding.
+profile-and-platform SLO table, including the maximum permitted incremental
+p95/p99 over P0, before Phase 5 or Phase 6B begins. The selected platform's hard
+memory, request-size, duration, and security limits remain binding.
 
 - [ ] Publish and verify the Phase 6A-reissued values in the versioned release
       SLO specification.
 
 - [ ] Semi-honest fixed-circuit tables are at most 2.10 MiB.
-- [ ] Production active-security payload and preprocessing are recorded without
-      hidden offline bytes.
-- [ ] Input-provenance setup, proof, verification, and persistence costs are
-      recorded without hidden provisioning work.
+- [ ] Every selected-profile hardening and preprocessing cost is recorded
+      without hidden offline bytes.
+- [ ] Selected input-provenance setup, binding, proof, verification, and
+      persistence costs are recorded without hidden provisioning work.
 - [ ] Cross-account 2.10 MiB semi-honest control transfer p95 is below 75 ms, or
       prepositioned mode meets the full ceremony SLO.
-- [ ] Active full ceremony p95 is at most 250 ms.
-- [ ] Active full ceremony p99 is at most 500 ms.
+- [ ] P0 establishes the canonical production-topology latency baseline.
+- [ ] The selected production ceremony p95 is at most 250 ms and within the
+      Phase 6A incremental budget over P0.
+- [ ] The selected production ceremony p99 is at most 500 ms and within the
+      Phase 6A incremental budget over P0.
 - [ ] Combined A+B CPU is at most 150 ms at p95.
 - [ ] Peak isolate memory is below 96 MiB.
-- [ ] Initial production enforces one active ceremony per isolate.
+- [ ] Initial production enforces the selected per-isolate ceremony cap.
 - [ ] Concurrent admission tests prove the local guard, durable budgets, typed
       retryable rejection, and global circuit breaker under load.
 - [ ] Lifecycle persistence fits the reissued critical-path transaction and
@@ -2637,14 +3649,22 @@ with measured evidence and independent reviewer approval.
 ### Security and Correctness Gates
 
 - [ ] All reference and randomized differential vectors pass.
-- [ ] One malicious A or B obtains no joined secret in party-view tests.
-- [ ] A malicious role produces a valid output or transcript-verifiable abort.
-- [ ] Input provenance, selective-failure, and output-equivocation tests pass.
-- [ ] Degenerate output-randomness and post-circuit scalar replacement tests
-      pass.
+- [ ] P0 honest-execution and passive-corruption party-view tests pass; P1-P3
+      pass every adversarial property named by their selected claim.
+- [ ] Corrupt-A and corrupt-B harnesses run for every candidate. Behaviors
+      outside P0/P1 are documented as exclusions rather than silently counted as
+      passing security tests.
+- [ ] P2/P3 ensure one malicious A or B obtains no joined secret and produces a
+      valid output or transcript-verifiable abort.
+- [ ] Selected provenance, selective-failure, and output-equivocation tests pass
+      to the extent claimed by the frozen profile.
+- [ ] Degenerate output-randomness and post-circuit scalar replacement tests are
+      rejected to the extent claimed; P0/P1 residual active attacks are recorded
+      explicitly.
 - [ ] Noncanonical, identity, small-order, torsion, and non-prime-subgroup point
       vectors are rejected.
-- [ ] Concurrent reserve, crash, replay, rollback, restore, and retry tests pass.
+- [ ] Selected session/ticket crash, replay, rollback, restore, and retry tests
+      pass.
 - [ ] Epoch-floor rollback, circuit rollback, stale-ticket activation, and
       post-drain replay tests pass.
 - [ ] Output commitments and `2 * X_client - X_server = A_pub` pass.
@@ -2655,7 +3675,7 @@ with measured evidence and independent reviewer approval.
 - [ ] Constant-time review passes for native and compiled WASM.
 - [ ] Dependency, supply-chain, fuzz, and malformed-input reviews pass.
 - [ ] Independent cryptographic and deployment reviews approve the exact
-      artifacts.
+      artifacts, selected claim, and explicit exclusions.
 
 ### Cost Gate
 
@@ -2672,14 +3692,22 @@ with measured evidence and independent reviewer approval.
 
 ### Decision Rule
 
-Release Streaming Yao when every security/correctness gate passes and the
-production profile meets the approved latency, memory, and operational budgets.
+Release the strongest reviewed profile that passes the absolute and incremental
+latency SLO plus every gate required by its exact claim. Evaluate P2 first, then
+coherent P1 profiles, then P0. P3 releases only when its just-in-time latency
+independently wins the same comparison. Total cost breaks ties between profiles
+that meet the online SLO.
 
-When the selected construction crosses a Phase 6A platform tripwire, evaluate
-the next approved rung: separate-account Workers, separate-account Containers,
-then independently administered native services. Stop when the final profile
-misses the SLO, breaks the security claim, exceeds the approved operational or
-effort budget, or fails independent review.
+For each serious security profile, evaluate separate-account Workers, then
+separate-account Containers, then independently administered native services
+when a platform tripwire fires. Select exactly one security profile and one
+platform. P0 is the production fallback when stronger profiles exceed latency,
+effort, or operational budgets; its capability document must state the honest-
+execution and passive-corruption assumptions prominently.
+
+Stop when P0 misses the SLO, mandatory 80/20 controls, honest-execution
+correctness, passive privacy, constant-time, independent-administration, or
+review gates. No request may downgrade the frozen deployment profile.
 
 Succinct HSS is outside the release decision and receives no further
 implementation work.
@@ -2722,7 +3750,8 @@ Goal: leave one production implementation and no compatibility path.
 - [ ] Delete `ThresholdSigningService`, its factory/getters, ceremony stores,
       route handlers, mocks, and tests after Phase 12.
 - [ ] Delete same-account production manifests and configuration branches.
-- [ ] Delete passive ceremony entrypoints and losing active-security spikes.
+- [ ] Delete every losing P0-P3 ceremony entrypoint, security-profile spike, and
+      inactive dependency path.
 - [ ] Delete tests, fixtures, snapshots, and guards that protect obsolete
       behavior.
 - [ ] Add scoped production/test/build source guards for every deleted symbol,
@@ -2735,8 +3764,8 @@ Goal: leave one production implementation and no compatibility path.
       legacy Ed25519 HSS path outside explicit guard-pattern allowlists.
 - [ ] Those globs contain no `ThresholdSigningService` reference outside the
       guard pattern; historical plans may retain dated prose.
-- [ ] Production configuration contains only separate-account Streaming Yao for
-      Ed25519.
+- [ ] Production configuration contains only the Phase 6A-selected
+      separate-account Streaming Yao security and platform profile for Ed25519.
 - [ ] ECDSA contains only its strict Router A/B path.
 - [ ] Full focused and workspace security-sensitive suites pass.
 
@@ -2753,10 +3782,12 @@ Goal: produce durable release evidence under the real operator model.
       production platform.
 - [ ] Have A and B operators independently reproduce artifact digests.
 - [ ] Sign deployment manifests and account-separation attestations.
-- [ ] Run staged traffic with conservative ticket-pool depth.
+- [ ] Run staged traffic with the selected lifecycle and a conservative pool
+      depth only when prepositioning is selected.
 - [ ] Monitor p50/p95/p99, CPU, memory, burn rate, retries, storage, and cost.
 - [ ] Exercise account credential revocation and peer-key rotation.
-- [ ] Exercise fail-closed behavior for one unavailable or malicious role.
+- [ ] Exercise one unavailable role and every corruption behavior covered by the
+      selected profile; record P0/P1 active deviations as explicit exclusions.
 - [ ] Record incident, rollback, and wallet-continuity procedures.
 - [ ] Publish the exact production security claim and exclusions.
 
@@ -2770,6 +3801,20 @@ Goal: produce durable release evidence under the real operator model.
 ## Constant-Time and Side-Channel Checklist
 
 Review native and generated WASM independently:
+
+- [x] Install the constant-time analyzer with its executable Python project and
+      verify the CLI locally.
+- [x] Pin the analyzer and Python lockfile digests; add a Cargo-aware native
+      assembly qualification harness with branchless-safe and intentionally
+      vulnerable fixtures at `O0` and `O3`.
+- [x] Add a clean sparse-checkout of the pinned upstream analyzer revision and
+      the qualification harness to CI.
+- [ ] Confirm the clean CI analyzer-qualification job passes on Linux x86-64.
+- [ ] Connect the native harness only to production secret-bearing kernels as
+      they land; the variable-time generator and clear oracle remain excluded
+      from production evidence.
+- [ ] Add a dedicated generated-WASM inspection lane. Native qualification does
+      not establish the Cloudflare Worker constant-time claim.
 
 - [ ] no secret-dependent branch in label selection, mask handling, scalar
       arithmetic, OT, or output decode;
@@ -2803,6 +3848,8 @@ Fail CI when the guarded surface contains:
 - Ed25519 `MpcThresholdPrfV1`;
 - `/router-ab/split-derivation` without a documented current owner;
 - public `CandidateId`, backend selector, or `CorrectnessLevel` downgrade fields;
+- caller-selected security profiles, active/passive switches, or request-time
+  downgrade fields;
 - joined A/B secret-state types;
 - `Vec<u8>` whole garbled-table fields in Router contracts;
 - base64 or JSON garbled-table encoding;
@@ -2820,7 +3867,8 @@ Fail CI when the guarded surface contains:
 - opposite-role secrets or storage bindings;
 - seed-output fields in non-export types;
 - party-controlled linear output masks;
-- recipient scalars lacking an active-output binding;
+- recipient scalars lacking the selected-profile output binding, recipient
+  encryption, transcript binding, and public commitment checks;
 - output release from a state earlier than `Consumed`;
 - a direct production dependency on `ed25519-hss`;
 - linkage from a production bundle to the clear oracle, evaluator, or circuit
@@ -2891,7 +3939,7 @@ Also run:
 
 ## Experiment Record Template
 
-Record each Yao, transport, active-security, or preprocessing experiment:
+Record each Yao, transport, security-profile, or preprocessing experiment:
 
 ```markdown
 ### Experiment ID and title
@@ -2902,7 +3950,7 @@ Record each Yao, transport, active-security, or preprocessing experiment:
 - Hypothesis:
 - Security level:
 - Circuit digest:
-- Protocol/active suite:
+- Protocol/security suite:
 - Construction decision record/version:
 - Deployment profile:
 - Platform and measured CPU features:
@@ -2937,18 +3985,24 @@ Record each Yao, transport, active-security, or preprocessing experiment:
 This plan is complete when:
 
 - the exact Ed25519 derivation and export functionality run through one
-  actively secure fixed-circuit Yao protocol;
+  Phase 6A-selected fixed-circuit Yao security profile;
+- the selected profile is the strongest reviewed P0-P3 composition meeting the
+  absolute and incremental latency SLO;
+- capability and release documents state its exact corruption model and every
+  exclusion without claiming stronger security;
 - the large payload travels only between A and B;
 - client and Router payloads remain compact;
-- no Deriver learns joined `d`, `a`, `x_client_base`, or
-  `x_server_base`;
+- no Deriver learns joined `d`, `a`, `x_client_base`, or `x_server_base` under
+  the selected profile's corruption model;
 - production A and B use independently administered domains on the approved
   Phase 6A platform profile;
 - same-account deployment is clearly limited to development and benchmarking;
-- one-use preprocessing survives crash, replay, rollback, and restore tests;
+- the selected one-use session or preprocessing lifecycle survives its required
+  crash, replay, rollback, and restore tests;
 - exact Ed25519 key export matches the registered identity;
 - normal Ed25519 signing makes zero Deriver calls;
 - ECDSA uses only strict Router A/B;
 - `ThresholdSigningService` and the Ed25519-HSS simulator are deleted;
 - measured Cloudflare latency and cost evidence supports the decision;
-- independent cryptographic and deployment reviews approve release.
+- independent cryptographic and deployment reviews approve the selected
+  profile, reduced claim when applicable, platform, and release.

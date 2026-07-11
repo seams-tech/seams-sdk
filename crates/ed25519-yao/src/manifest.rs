@@ -473,6 +473,7 @@ fn compute_draft_manifest_digest(
     hasher.update(gates.inversion_gate_count().to_be_bytes());
     hasher.update(gates.total_gate_count().to_be_bytes());
     hasher.update(gates.circuit_depth().to_be_bytes());
+    hasher.update(gates.and_depth().to_be_bytes());
 
     let schedule = metrics.schedule();
     hasher.update(schedule.input_wire_count().to_be_bytes());

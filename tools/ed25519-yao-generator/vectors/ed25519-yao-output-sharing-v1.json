@@ -1,0 +1,220 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:output-sharing-vectors:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "host_only_deterministic_output_sharing_v1",
+  "cases": [
+    {
+      "output_family": "activation",
+      "vector": {
+        "case_id": "registration_activation_shares_zero_coins_v1",
+        "request_kind": "registration",
+        "host_only_source_reference": {
+          "case_id": "registration_rfc8032_vector_one_v1",
+          "inputs": {
+            "y_client_a_hex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+            "y_server_a_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_client_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_server_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_a_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_a_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_b_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "host_only_joined_outputs": {
+          "x_client_base_hex": "7c2cac12e69be96ae9065065462385e8fcff2768d980c0a3a520f006904de90f",
+          "x_server_base_hex": "7c2cac12e69be96ae9065065462385e8fcff2768d980c0a3a520f006904de90f"
+        },
+        "host_only_reference_randomness": {
+          "r_client_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "r_signing_worker_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "role_output_shares": {
+          "deriver_a": {
+            "client_scalar_share_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signing_worker_scalar_share_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "deriver_b": {
+            "client_scalar_share_hex": "7c2cac12e69be96ae9065065462385e8fcff2768d980c0a3a520f006904de90f",
+            "signing_worker_scalar_share_hex": "7c2cac12e69be96ae9065065462385e8fcff2768d980c0a3a520f006904de90f"
+          }
+        }
+      }
+    },
+    {
+      "output_family": "activation",
+      "vector": {
+        "case_id": "recovery_activation_shares_small_coins_v1",
+        "request_kind": "recovery",
+        "host_only_source_reference": {
+          "case_id": "recovery_clear_arithmetic_v1",
+          "inputs": {
+            "y_client_a_hex": "131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ec",
+            "y_server_a_hex": "293a4b5c6d7e8fa0b1c2d3e4f5061728394a5b6c7d8e9fb0c1d2e3f405162738",
+            "y_client_b_hex": "96afc8e1fa132c455e7790a9c2dbf40d263f58718aa3bcd5ee072039526b849d",
+            "y_server_b_hex": "7093b6d9fc1f426588abcef114375a7da0c3e6092c4f7295b8dbfe2144678aad",
+            "tau_client_a_hex": "0300000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_a_hex": "0500000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_b_hex": "0900000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_b_hex": "0f00000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "host_only_joined_outputs": {
+          "x_client_base_hex": "b23d1063dd1d3bc27d7b60b9934f5493c6501e29142e31444cd282887f7b540d",
+          "x_server_base_hex": "d23d1063dd1d3bc27d7b60b9934f5493c6501e29142e31444cd282887f7b540d"
+        },
+        "host_only_reference_randomness": {
+          "r_client_hex": "0100000000000000000000000000000000000000000000000000000000000000",
+          "r_signing_worker_hex": "0200000000000000000000000000000000000000000000000000000000000000"
+        },
+        "role_output_shares": {
+          "deriver_a": {
+            "client_scalar_share_hex": "0100000000000000000000000000000000000000000000000000000000000000",
+            "signing_worker_scalar_share_hex": "0200000000000000000000000000000000000000000000000000000000000000"
+          },
+          "deriver_b": {
+            "client_scalar_share_hex": "b13d1063dd1d3bc27d7b60b9934f5493c6501e29142e31444cd282887f7b540d",
+            "signing_worker_scalar_share_hex": "d03d1063dd1d3bc27d7b60b9934f5493c6501e29142e31444cd282887f7b540d"
+          }
+        }
+      }
+    },
+    {
+      "output_family": "activation",
+      "vector": {
+        "case_id": "refresh_activation_shares_boundary_coins_v1",
+        "request_kind": "refresh",
+        "host_only_source_reference": {
+          "case_id": "refresh_clear_arithmetic_v1",
+          "inputs": {
+            "y_client_a_hex": "71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a",
+            "y_server_a_hex": "1d2e3f5061728394a5b6c7d8e9fa0b1c2d3e4f60718293a4b5c6d7e8f90a1b2c",
+            "y_client_b_hex": "f40d263f58718aa3bcd5ee072039526b849db6cfe8011a334c657e97b0c9e2fb",
+            "y_server_b_hex": "6487aacdf01336597c9fc2e5082b4e7194b7dafd20436689accff215385b7ea1",
+            "tau_client_a_hex": "1300000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_a_hex": "1500000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_b_hex": "1900000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_b_hex": "1f00000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "host_only_joined_outputs": {
+          "x_client_base_hex": "8c8d7bd91913cfa0e47ea320c91ec97ee2458033191e5dfbadcb78473ff9be03",
+          "x_server_base_hex": "ec8d7bd91913cfa0e47ea320c91ec97ee2458033191e5dfbadcb78473ff9be03"
+        },
+        "host_only_reference_randomness": {
+          "r_client_hex": "ecd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010",
+          "r_signing_worker_hex": "ebd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"
+        },
+        "role_output_shares": {
+          "deriver_a": {
+            "client_scalar_share_hex": "ecd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010",
+            "signing_worker_scalar_share_hex": "ebd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"
+          },
+          "deriver_b": {
+            "client_scalar_share_hex": "8d8d7bd91913cfa0e47ea320c91ec97ee2458033191e5dfbadcb78473ff9be03",
+            "signing_worker_scalar_share_hex": "ee8d7bd91913cfa0e47ea320c91ec97ee2458033191e5dfbadcb78473ff9be03"
+          }
+        }
+      }
+    },
+    {
+      "output_family": "export",
+      "vector": {
+        "case_id": "export_seed_shares_zero_coin_v1",
+        "host_only_source_reference": {
+          "case_id": "export_rfc8032_vector_two_v1",
+          "inputs": {
+            "y_client_a_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+            "y_server_a_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_client_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_server_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_a_hex": "0500000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_a_hex": "0700000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_b_hex": "0b00000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_b_hex": "0d00000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "host_only_joined_output": {
+          "joined_seed_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+        },
+        "host_only_reference_randomness": {
+          "u_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "role_output_shares": {
+          "deriver_a": {
+            "seed_share_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "deriver_b": {
+            "seed_share_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+          }
+        }
+      }
+    },
+    {
+      "output_family": "export",
+      "vector": {
+        "case_id": "export_seed_shares_one_coin_v1",
+        "host_only_source_reference": {
+          "case_id": "export_rfc8032_vector_two_v1",
+          "inputs": {
+            "y_client_a_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+            "y_server_a_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_client_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_server_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_a_hex": "0500000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_a_hex": "0700000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_b_hex": "0b00000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_b_hex": "0d00000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "host_only_joined_output": {
+          "joined_seed_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+        },
+        "host_only_reference_randomness": {
+          "u_hex": "0100000000000000000000000000000000000000000000000000000000000000"
+        },
+        "role_output_shares": {
+          "deriver_a": {
+            "seed_share_hex": "0100000000000000000000000000000000000000000000000000000000000000"
+          },
+          "deriver_b": {
+            "seed_share_hex": "4bcd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+          }
+        }
+      }
+    },
+    {
+      "output_family": "export",
+      "vector": {
+        "case_id": "export_seed_shares_max_coin_v1",
+        "host_only_source_reference": {
+          "case_id": "export_rfc8032_vector_two_v1",
+          "inputs": {
+            "y_client_a_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+            "y_server_a_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_client_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "y_server_b_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_a_hex": "0500000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_a_hex": "0700000000000000000000000000000000000000000000000000000000000000",
+            "tau_client_b_hex": "0b00000000000000000000000000000000000000000000000000000000000000",
+            "tau_server_b_hex": "0d00000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "host_only_joined_output": {
+          "joined_seed_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+        },
+        "host_only_reference_randomness": {
+          "u_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "role_output_shares": {
+          "deriver_a": {
+            "seed_share_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          "deriver_b": {
+            "seed_share_hex": "4dcd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+          }
+        }
+      }
+    }
+  ]
+}

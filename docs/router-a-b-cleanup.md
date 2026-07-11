@@ -1364,7 +1364,6 @@ are audited from one plan.
     ./unit/warmSessionStore.errorNormalization.unit.test.ts
     ./unit/warmSessionStore.capabilityResolution.unit.test.ts
     ./unit/warmSessionStore.bootstrapResolution.unit.test.ts
-    ./unit/warmSessionRuntime.unit.test.ts
     ./unit/warmSessionEcdsaProvisioning.unit.test.ts
     ./unit/evmSigning.thresholdReconnectEvents.unit.test.ts
     ./unit/evmFamily.requestBoundary.unit.test.ts

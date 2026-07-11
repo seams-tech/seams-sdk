@@ -1,5 +1,8 @@
 use crate::{MetricField, ValidationError, ValidationResult};
 
+/// Bytes sent per AND gate by the passive two-ciphertext Half-Gates construction.
+pub const PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE: u64 = 32;
+
 /// Validated Boolean gate counts for one fixed circuit artifact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GateMetrics {
@@ -8,6 +11,7 @@ pub struct GateMetrics {
     inversion_gate_count: u64,
     total_gate_count: u64,
     circuit_depth: u64,
+    and_depth: u64,
 }
 
 impl GateMetrics {
@@ -18,11 +22,13 @@ impl GateMetrics {
         inversion_gate_count: u64,
         total_gate_count: u64,
         circuit_depth: u64,
+        and_depth: u64,
     ) -> ValidationResult<Self> {
         require_nonzero(MetricField::AndGateCount, and_gate_count)?;
         require_nonzero(MetricField::XorGateCount, xor_gate_count)?;
         require_nonzero(MetricField::TotalGateCount, total_gate_count)?;
         require_nonzero(MetricField::CircuitDepth, circuit_depth)?;
+        require_nonzero(MetricField::AndDepth, and_depth)?;
 
         let computed = and_gate_count
             .checked_add(xor_gate_count)
@@ -40,6 +46,18 @@ impl GateMetrics {
                 total_gates: total_gate_count,
             });
         }
+        if and_depth > circuit_depth {
+            return Err(ValidationError::AndDepthExceedsCircuitDepth {
+                and_depth,
+                circuit_depth,
+            });
+        }
+        if and_depth > and_gate_count {
+            return Err(ValidationError::AndDepthExceedsAndGateCount {
+                and_depth,
+                and_gate_count,
+            });
+        }
 
         Ok(Self {
             and_gate_count,
@@ -47,6 +65,7 @@ impl GateMetrics {
             inversion_gate_count,
             total_gate_count,
             circuit_depth,
+            and_depth,
         })
     }
 
@@ -74,6 +93,11 @@ impl GateMetrics {
     pub const fn circuit_depth(self) -> u64 {
         self.circuit_depth
     }
+
+    /// Maximum number of AND gates along any circuit path.
+    pub const fn and_depth(self) -> u64 {
+        self.and_depth
+    }
 }
 
 /// Validated compact-schedule and wire-liveness metrics.
@@ -88,7 +112,7 @@ pub struct ScheduleMetrics {
 }
 
 impl ScheduleMetrics {
-    /// Validates boundary wire, schedule, and liveness counts.
+    /// Validates input, output-reference, schedule, and liveness counts.
     pub fn new(
         input_wire_count: u64,
         output_wire_count: u64,
@@ -104,13 +128,16 @@ impl ScheduleMetrics {
         require_nonzero(MetricField::PeakLiveWireCount, peak_live_wire_count)?;
         require_nonzero(MetricField::EncodedScheduleBytes, encoded_schedule_bytes)?;
 
-        let boundary_wire_count = input_wire_count
-            .checked_add(output_wire_count)
-            .ok_or(ValidationError::BoundaryWireCountOverflow)?;
-        if wire_count < boundary_wire_count {
-            return Err(ValidationError::WireCountBelowBoundaryCount {
+        if wire_count < input_wire_count {
+            return Err(ValidationError::WireCountBelowInputWireCount {
                 wire_count,
-                boundary_wire_count,
+                input_wire_count,
+            });
+        }
+        if output_wire_count > wire_count {
+            return Err(ValidationError::OutputWireCountExceedsWireCount {
+                output_wire_count,
+                wire_count,
             });
         }
         if peak_live_wire_count > wire_count {
@@ -170,19 +197,23 @@ pub struct CircuitMetrics {
 }
 
 impl CircuitMetrics {
-    /// Validates cross-metric consistency and the table payload size.
-    pub fn new(
+    /// Validates cross-metric consistency and derives passive Half-Gates table bytes.
+    pub fn new_passive_half_gates(
         gates: GateMetrics,
         schedule: ScheduleMetrics,
-        table_payload_bytes: u64,
     ) -> ValidationResult<Self> {
-        require_nonzero(MetricField::TablePayloadBytes, table_payload_bytes)?;
         if schedule.scheduled_gate_count() != gates.total_gate_count() {
             return Err(ValidationError::ScheduledGateCountMismatch {
                 scheduled: schedule.scheduled_gate_count(),
                 total_gates: gates.total_gate_count(),
             });
         }
+        let table_payload_bytes = gates
+            .and_gate_count()
+            .checked_mul(PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE)
+            .ok_or(ValidationError::PassiveHalfGatesTablePayloadOverflow {
+                and_gate_count: gates.and_gate_count(),
+            })?;
         Ok(Self {
             gates,
             schedule,
@@ -200,7 +231,7 @@ impl CircuitMetrics {
         self.schedule
     }
 
-    /// Exact garbled-table payload bytes described by this artifact.
+    /// Exact passive Half-Gates table payload bytes described by this artifact.
     pub const fn table_payload_bytes(self) -> u64 {
         self.table_payload_bytes
     }

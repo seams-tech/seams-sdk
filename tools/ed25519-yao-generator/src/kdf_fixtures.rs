@@ -13,8 +13,9 @@ use crate::{
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
     Ed25519YaoApplicationBindingWalletIdV1, OracleMaterial, RawDeriverAContribution,
-    RawDeriverBContribution, StableKeyDerivationContext, SyntheticClientDerivationRootV1,
-    SyntheticDeriverADerivationRootV1, SyntheticDeriverBDerivationRootV1,
+    RawDeriverBContribution, RegisteredEd25519PublicKey32V1, StableKeyDerivationContext,
+    SyntheticClientDerivationRootV1, SyntheticDeriverADerivationRootV1,
+    SyntheticDeriverBDerivationRootV1,
 };
 
 /// Schema identifier for the version-one contribution-KDF corpus.
@@ -242,6 +243,17 @@ pub(crate) fn canonical_synthetic_kdf_material_v1() -> CanonicalSyntheticKdfMate
         deriver_a,
         deriver_b,
     }
+}
+
+pub(crate) fn canonical_registered_public_key_v1() -> RegisteredEd25519PublicKey32V1 {
+    let material = canonical_synthetic_kdf_material_v1();
+    RegisteredEd25519PublicKey32V1::parse(
+        evaluate_activation(&material.deriver_a, &material.deriver_b)
+            .material()
+            .public_key()
+            .expose_bytes(),
+    )
+    .expect("canonical KDF fixture public key is prime-subgroup")
 }
 
 pub(crate) fn canonical_application_binding_facts_v1() -> Ed25519YaoApplicationBindingFactsV1 {

@@ -13,7 +13,7 @@ set_option maxHeartbeats 1000000
 namespace ed25519_yao_generator
 
 /-- [ed25519_yao_generator::wrapping_add_le_256]: loop body 0:
-    Source: 'src/lib.rs', lines 544:4-548:5
+    Source: 'src/lib.rs', lines 729:4-733:5
     Visibility: public -/
 @[rust_loop_body]
 def wrapping_add_le_256_loop.body
@@ -40,7 +40,7 @@ def wrapping_add_le_256_loop.body
     ok (cont (iter1, a, carry1))
 
 /-- [ed25519_yao_generator::wrapping_add_le_256]: loop 0:
-    Source: 'src/lib.rs', lines 544:4-548:5
+    Source: 'src/lib.rs', lines 729:4-733:5
     Visibility: public -/
 @[rust_loop]
 def wrapping_add_le_256_loop
@@ -55,7 +55,7 @@ def wrapping_add_le_256_loop
     (iter, output, carry)
 
 /-- [ed25519_yao_generator::wrapping_add_le_256]:
-    Source: 'src/lib.rs', lines 540:0-551:1
+    Source: 'src/lib.rs', lines 725:0-736:1
     Visibility: public -/
 def wrapping_add_le_256
   (left : Array Std.U8 32#usize) (right : Array Std.U8 32#usize) :
@@ -66,7 +66,7 @@ def wrapping_add_le_256
     output 0#u16
 
 /-- [ed25519_yao_generator::clamp_rfc8032]:
-    Source: 'src/lib.rs', lines 554:0-559:1
+    Source: 'src/lib.rs', lines 739:0-744:1
     Visibility: public -/
 def clamp_rfc8032
   (digest_prefix : Array Std.U8 32#usize) :
