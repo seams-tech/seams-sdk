@@ -1,8 +1,11 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
+  DashboardTableActionMenu,
+  DashboardTableBadge,
   DashboardTableCell,
   DashboardTableHeader,
   DashboardTableHeaderCell,
@@ -146,9 +149,7 @@ function makeDefaultPermissionEditorState(): TeamPermissionEditorState {
 }
 
 function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function roleSetFromAssignments(
@@ -239,6 +240,27 @@ function formatPermissionSummary(input: DashboardConsoleTeamRoleAssignment[]): s
 
   if (parts.length === 0) return 'No permissions';
   return parts.join(' | ');
+}
+
+/* Compact permissions display: highest role as a chip plus a "+N more" count,
+   with the full summary available as a tooltip. */
+function summarizePermissionParts(input: DashboardConsoleTeamRoleAssignment[]): {
+  primary: string;
+  extraCount: number;
+} {
+  const state = resolvePermissionEditorState(input);
+  const roleSet = roleSetFromAssignments(input);
+  const parts: string[] = [];
+  if (roleSet.has('owner')) parts.push('Owner');
+  if (state.isAdmin) parts.push('Admin');
+  if (state.canManageAdmins) parts.push('Manage admins');
+  if (state.canManageMembers) parts.push('Manage team members');
+  for (const category of TEAM_PERMISSION_CATEGORIES) {
+    const level = state.categoryAccess[category.category];
+    if (level !== 'NONE') parts.push(`${category.label}: ${level.toLowerCase()}`);
+  }
+  if (parts.length === 0) return { primary: 'No permissions', extraCount: 0 };
+  return { primary: parts[0], extraCount: parts.length - 1 };
 }
 
 function canMutateTeamFromRoles(rolesRaw: unknown): boolean {
@@ -966,6 +988,7 @@ export function TeamMembersPage(): React.JSX.Element {
         ) : null}
       </section>
 
+      {orderedMembers.length > 5 || hasClientSideFilters || statusFilter !== 'ALL' ? (
       <section className="dashboard-view__section" aria-label="Team member filters section">
         <div className="dashboard-filters dashboard-team-members-filters">
           <label className="dashboard-search-control dashboard-search-control--compact dashboard-team-members-search-control">
@@ -1012,6 +1035,7 @@ export function TeamMembersPage(): React.JSX.Element {
           </label>
         </div>
       </section>
+      ) : null}
 
       <DashboardTable
         ariaLabel="Team members table"
@@ -1048,6 +1072,7 @@ export function TeamMembersPage(): React.JSX.Element {
               const memberIdentity = formatMemberPrimaryIdentity(member, session.claims);
               const memberProfile = buildMemberProfile(member, session.claims);
               const permissionSummary = formatPermissionSummary(member.roles);
+              const permissionParts = summarizePermissionParts(member.roles);
               return (
                 <DashboardTableRow className="dashboard-team-members-table__row" key={member.id}>
                   <DashboardTableCell
@@ -1073,33 +1098,42 @@ export function TeamMembersPage(): React.JSX.Element {
                     className="dashboard-team-members-table__permissions"
                     title={permissionSummary}
                   >
-                    {permissionSummary}
+                    <DashboardTableBadge>{permissionParts.primary}</DashboardTableBadge>
+                    {permissionParts.extraCount > 0 ? (
+                      <span className="dashboard-pagination-note">
+                        +{permissionParts.extraCount} more
+                      </span>
+                    ) : null}
                   </DashboardTableCell>
                   <DashboardTableCell truncate>
                     {formatTimestamp(member.updatedAt || member.createdAt)}
                   </DashboardTableCell>
                   <DashboardTableCell>
                     <DashboardTableActionGroup>
-                      <DashboardTableActionButton onClick={() => onOpenDetailModal(member)}>
-                        Details
-                      </DashboardTableActionButton>
                       <DashboardTableActionButton
                         onClick={() => onOpenUpdateModal(member)}
                         disabled={!canMutateTeam || member.status === 'REMOVED'}
                       >
                         Edit
                       </DashboardTableActionButton>
-                      <DashboardTableActionButton
-                        tone="danger"
-                        onClick={() => onRemoveMember(member)}
-                        disabled={
-                          !canMutateTeam ||
-                          busyMemberId === member.id ||
-                          member.status === 'REMOVED'
-                        }
-                      >
-                        {busyMemberId === member.id ? 'Deleting...' : 'Delete'}
-                      </DashboardTableActionButton>
+                      <DashboardTableActionMenu
+                        ariaLabel={`More actions for ${memberProfile.title}`}
+                        items={[
+                          {
+                            label: 'Details',
+                            onSelect: () => onOpenDetailModal(member),
+                          },
+                          {
+                            label: busyMemberId === member.id ? 'Deleting…' : 'Delete',
+                            onSelect: () => onRemoveMember(member),
+                            tone: 'danger',
+                            disabled:
+                              !canMutateTeam ||
+                              busyMemberId === member.id ||
+                              member.status === 'REMOVED',
+                          },
+                        ]}
+                      />
                     </DashboardTableActionGroup>
                   </DashboardTableCell>
                 </DashboardTableRow>

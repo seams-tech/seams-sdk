@@ -1,7 +1,12 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   DashboardTable,
+  DashboardTableActionButton,
   DashboardTableCell,
+  DashboardTableDetailsGrid,
+  DashboardTableDetailsItem,
+  DashboardTableDetailsPanel,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
@@ -35,34 +40,18 @@ const OBSERVABILITY_WINDOW_OPTIONS: ReadonlyArray<{
   { value: '24h', label: 'Last 24 hours', durationMs: DEFAULT_OBSERVABILITY_WINDOW_MS },
   { value: '7d', label: 'Last 7 days', durationMs: 1000 * 60 * 60 * 24 * 7 },
 ];
-const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(
-  1,
-  0.8,
-  0.75,
-  0.95,
-  0.85,
-  0.95,
-  0.8,
-  1.1,
-);
+const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(1.1, 0.8, 0.8, 1, 1.1);
 const OBSERVABILITY_EVENTS_TABLE_COLUMNS = dashboardTableColumns(
-  1,
   0.95,
   0.9,
-  0.65,
-  0.9,
-  1.35,
-  0.8,
-  0.8,
-  1.05,
+  0.6,
+  0.95,
+  1.7,
+  0.55,
 );
 
 function formatTimestamp(value: string | undefined | null): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '-';
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function formatPercent(value: number): string {
@@ -79,18 +68,6 @@ function metadataSummary(metadata: Record<string, unknown>): string {
     .map((key) => `${key}=${String(metadata[key])}`)
     .join(', ');
   return keys.length > 3 ? `${first}, +${keys.length - 3} more` : first;
-}
-
-function collectObservabilityFilterOptions(values: ReadonlyArray<string | null | undefined>): string[] {
-  const unique = new Set<string>();
-  for (const value of values) {
-    const normalized = String(value || '').trim();
-    if (!normalized) continue;
-    unique.add(normalized);
-  }
-  return [...unique].sort((left, right) =>
-    left.localeCompare(right, undefined, { sensitivity: 'base' }),
-  );
 }
 
 function resolveObservabilityWindowOption(
@@ -147,35 +124,25 @@ export function ObservabilityPage(): React.JSX.Element {
   const [data, setData] = React.useState<DashboardConsoleObservabilitySnapshot | null>(null);
   const [loadingMoreEvents, setLoadingMoreEvents] = React.useState<boolean>(false);
   const [loadMoreEventsError, setLoadMoreEventsError] = React.useState<string>('');
-  const [serviceWindowFilter, setServiceWindowFilter] = React.useState<ObservabilityWindowKey>(
+  /* One page-level time window: service health and the event log always
+     describe the same period, so a second select was pure duplication. */
+  const [windowFilter, setWindowFilter] = React.useState<ObservabilityWindowKey>(
     DEFAULT_OBSERVABILITY_WINDOW_KEY,
   );
   const [eventsQueryInput, setEventsQueryInput] = React.useState<string>('');
   const [eventsLevelFilter, setEventsLevelFilter] = React.useState<
     DashboardConsoleObservabilityLevel | ''
   >('');
-  const [eventsWindowFilter, setEventsWindowFilter] = React.useState<ObservabilityWindowKey>(
-    DEFAULT_OBSERVABILITY_WINDOW_KEY,
-  );
-  const [eventsServiceFilter, setEventsServiceFilter] = React.useState<string>('');
-  const [eventsComponentFilter, setEventsComponentFilter] = React.useState<string>('');
-  const [eventsEventTypeFilter, setEventsEventTypeFilter] = React.useState<string>('');
+  const [expandedEventId, setExpandedEventId] = React.useState<string>('');
   const deferredEventsQueryInput = React.useDeferredValue(eventsQueryInput);
-  const deferredEventsServiceFilter = React.useDeferredValue(eventsServiceFilter);
-  const deferredEventsComponentFilter = React.useDeferredValue(eventsComponentFilter);
-  const deferredEventsEventTypeFilter = React.useDeferredValue(eventsEventTypeFilter);
 
-  const serviceScopeWindow = React.useMemo(
-    () => buildObservabilityScopeWindow(serviceWindowFilter),
-    [serviceWindowFilter],
+  const scopeWindow = React.useMemo(
+    () => buildObservabilityScopeWindow(windowFilter),
+    [windowFilter],
   );
-  const eventsScopeWindow = React.useMemo(
-    () => buildObservabilityScopeWindow(eventsWindowFilter),
-    [eventsWindowFilter],
-  );
-  const serviceScope = React.useMemo(
+  const pageScope = React.useMemo(
     () => ({
-      ...serviceScopeWindow,
+      ...scopeWindow,
       ...(String(selectedContext.project || '').trim()
         ? { projectId: String(selectedContext.project || '').trim() }
         : {}),
@@ -183,35 +150,13 @@ export function ObservabilityPage(): React.JSX.Element {
         ? { environmentId: String(selectedContext.environment || '').trim() }
         : {}),
     }),
-    [selectedContext.environment, selectedContext.project, serviceScopeWindow],
+    [scopeWindow, selectedContext.environment, selectedContext.project],
   );
-  const eventsScope = React.useMemo(
-    () => ({
-      ...eventsScopeWindow,
-      ...(String(selectedContext.project || '').trim()
-        ? { projectId: String(selectedContext.project || '').trim() }
-        : {}),
-      ...(String(selectedContext.environment || '').trim()
-        ? { environmentId: String(selectedContext.environment || '').trim() }
-        : {}),
-    }),
-    [eventsScopeWindow, selectedContext.environment, selectedContext.project],
-  );
+  const serviceScope = pageScope;
+  const eventsScope = pageScope;
   const normalizedEventsQuery = React.useMemo(
     () => String(deferredEventsQueryInput || '').trim(),
     [deferredEventsQueryInput],
-  );
-  const normalizedEventsServiceFilter = React.useMemo(
-    () => String(deferredEventsServiceFilter || '').trim(),
-    [deferredEventsServiceFilter],
-  );
-  const normalizedEventsComponentFilter = React.useMemo(
-    () => String(deferredEventsComponentFilter || '').trim(),
-    [deferredEventsComponentFilter],
-  );
-  const normalizedEventsEventTypeFilter = React.useMemo(
-    () => String(deferredEventsEventTypeFilter || '').trim(),
-    [deferredEventsEventTypeFilter],
   );
 
   React.useEffect(() => {
@@ -243,9 +188,6 @@ export function ObservabilityPage(): React.JSX.Element {
         ...eventsScope,
         ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
         ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
-        ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
-        ...(normalizedEventsComponentFilter ? { component: normalizedEventsComponentFilter } : {}),
-        ...(normalizedEventsEventTypeFilter ? { eventType: normalizedEventsEventTypeFilter } : {}),
         limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
       }),
     ])
@@ -279,10 +221,7 @@ export function ObservabilityPage(): React.JSX.Element {
     };
   }, [
     eventsLevelFilter,
-    normalizedEventsComponentFilter,
-    normalizedEventsEventTypeFilter,
     normalizedEventsQuery,
-    normalizedEventsServiceFilter,
     eventsScope,
     session.claims,
     session.errorMessage,
@@ -297,28 +236,7 @@ export function ObservabilityPage(): React.JSX.Element {
     [data?.events.nextCursor],
   );
   const services = data?.services.services || [];
-  const hasEventsFilters =
-    Boolean(normalizedEventsQuery) ||
-    Boolean(eventsLevelFilter) ||
-    Boolean(normalizedEventsServiceFilter) ||
-    Boolean(normalizedEventsComponentFilter) ||
-    Boolean(normalizedEventsEventTypeFilter);
-  const eventServiceOptions = React.useMemo(
-    () =>
-      collectObservabilityFilterOptions([
-        ...services.map((entry) => entry.service),
-        ...events.map((entry) => entry.service),
-      ]),
-    [events, services],
-  );
-  const eventComponentOptions = React.useMemo(
-    () => collectObservabilityFilterOptions(events.map((entry) => entry.component)),
-    [events],
-  );
-  const eventTypeOptions = React.useMemo(
-    () => collectObservabilityFilterOptions(events.map((entry) => entry.eventType)),
-    [events],
-  );
+  const hasEventsFilters = Boolean(normalizedEventsQuery) || Boolean(eventsLevelFilter);
   const servicesPagination = useDashboardTablePagination(services, {
     disabled: loading,
     itemLabel: 'service',
@@ -341,9 +259,6 @@ export function ObservabilityPage(): React.JSX.Element {
         ...eventsScope,
         ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
         ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
-        ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
-        ...(normalizedEventsComponentFilter ? { component: normalizedEventsComponentFilter } : {}),
-        ...(normalizedEventsEventTypeFilter ? { eventType: normalizedEventsEventTypeFilter } : {}),
         cursor: eventsNextCursor,
         limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
       });
@@ -375,10 +290,7 @@ export function ObservabilityPage(): React.JSX.Element {
     eventsNextCursor,
     loading,
     loadingMoreEvents,
-    normalizedEventsComponentFilter,
-    normalizedEventsEventTypeFilter,
     normalizedEventsQuery,
-    normalizedEventsServiceFilter,
     eventsScope,
     session.claims,
   ]);
@@ -405,7 +317,23 @@ export function ObservabilityPage(): React.JSX.Element {
         className="dashboard-view__section dashboard-observability-section--plain"
         aria-label="Observability overview"
       >
-        <h2>Overview</h2>
+        <div className="dashboard-section-toolbar">
+          <h2>Overview</h2>
+          <label className="dashboard-form-field dashboard-form-field--observability-select">
+            <select
+              className="dashboard-input dashboard-select--observability"
+              aria-label="Time window for all observability data"
+              value={windowFilter}
+              onChange={(event) => setWindowFilter(event.target.value as ObservabilityWindowKey)}
+            >
+              {OBSERVABILITY_WINDOW_OPTIONS.map((entry) => (
+                <option key={entry.value} value={entry.value}>
+                  Window: {entry.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {summary ? (
           <section
             className="dashboard-observability-summary"
@@ -437,38 +365,9 @@ export function ObservabilityPage(): React.JSX.Element {
 
       <section
         className="dashboard-view__section dashboard-observability-section--plain"
-        aria-label="Observability service health controls"
-      >
-        <h2>Service health</h2>
-        <div className="dashboard-observability-controls-card">
-          <div
-            className="dashboard-filters dashboard-observability-service-health-filters"
-            aria-label="Observability service health filters"
-          >
-            <label className="dashboard-form-field dashboard-form-field--observability-select">
-              <select
-                className="dashboard-input dashboard-select--observability"
-                aria-label="Filter service health by time window"
-                value={serviceWindowFilter}
-                onChange={(event) =>
-                  setServiceWindowFilter(event.target.value as ObservabilityWindowKey)
-                }
-              >
-                {OBSERVABILITY_WINDOW_OPTIONS.map((entry) => (
-                  <option key={entry.value} value={entry.value}>
-                    Window: {entry.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section
-        className="dashboard-view__section dashboard-observability-section--plain"
         aria-label="Observability service health table"
       >
+        <h2>Service health</h2>
         <DashboardTable
           ariaLabel="Observability service health"
           columns={OBSERVABILITY_SERVICE_TABLE_COLUMNS}
@@ -479,9 +378,6 @@ export function ObservabilityPage(): React.JSX.Element {
             <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Recent failures</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Latest incident</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Scope project</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Scope environment</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Summary state</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Notes</DashboardTableHeaderCell>
           </DashboardTableHeader>
           {services.length === 0 ? (
@@ -497,9 +393,6 @@ export function ObservabilityPage(): React.JSX.Element {
                 <DashboardTableCell truncate>
                   {formatTimestamp(entry.latestIncidentAt)}
                 </DashboardTableCell>
-                <DashboardTableCell>{serviceScope.projectId || '-'}</DashboardTableCell>
-                <DashboardTableCell>{serviceScope.environmentId || '-'}</DashboardTableCell>
-                <DashboardTableCell>{summary?.status.state || '-'}</DashboardTableCell>
                 <DashboardTableCell>
                   {entry.recentFailureCount > 0 ? 'Investigate recent failures' : '-'}
                 </DashboardTableCell>
@@ -535,22 +428,6 @@ export function ObservabilityPage(): React.JSX.Element {
             <label className="dashboard-form-field dashboard-form-field--observability-select">
               <select
                 className="dashboard-input dashboard-select--observability"
-                aria-label="Filter observability events by time window"
-                value={eventsWindowFilter}
-                onChange={(event) =>
-                  setEventsWindowFilter(event.target.value as ObservabilityWindowKey)
-                }
-              >
-                {OBSERVABILITY_WINDOW_OPTIONS.map((entry) => (
-                  <option key={entry.value} value={entry.value}>
-                    Window: {entry.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="dashboard-form-field dashboard-form-field--observability-select">
-              <select
-                className="dashboard-input dashboard-select--observability"
                 aria-label="Filter observability events by level"
                 value={eventsLevelFilter}
                 onChange={(event) =>
@@ -568,59 +445,6 @@ export function ObservabilityPage(): React.JSX.Element {
               </select>
             </label>
           </div>
-          <div
-            className="dashboard-filters dashboard-observability-filters dashboard-observability-filters--secondary"
-            aria-label="Observability event exact-match filters"
-          >
-            <label className="dashboard-form-field">
-              <input
-                type="search"
-                className="dashboard-input"
-                list="dashboard-observability-event-services"
-                aria-label="Filter observability events by service"
-                placeholder="Service exact match"
-                value={eventsServiceFilter}
-                onChange={(event) => setEventsServiceFilter(event.target.value)}
-              />
-              <datalist id="dashboard-observability-event-services">
-                {eventServiceOptions.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
-            </label>
-            <label className="dashboard-form-field">
-              <input
-                type="search"
-                className="dashboard-input"
-                list="dashboard-observability-event-components"
-                aria-label="Filter observability events by component"
-                placeholder="Component exact match"
-                value={eventsComponentFilter}
-                onChange={(event) => setEventsComponentFilter(event.target.value)}
-              />
-              <datalist id="dashboard-observability-event-components">
-                {eventComponentOptions.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
-            </label>
-            <label className="dashboard-form-field">
-              <input
-                type="search"
-                className="dashboard-input"
-                list="dashboard-observability-event-types"
-                aria-label="Filter observability events by event type"
-                placeholder="Event type exact match"
-                value={eventsEventTypeFilter}
-                onChange={(event) => setEventsEventTypeFilter(event.target.value)}
-              />
-              <datalist id="dashboard-observability-event-types">
-                {eventTypeOptions.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
-            </label>
-          </div>
         </div>
         <DashboardTable
           ariaLabel="Observability events"
@@ -630,13 +454,10 @@ export function ObservabilityPage(): React.JSX.Element {
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Component</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Level</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Event type</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Message</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Request</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Trace</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Metadata</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Details</DashboardTableHeaderCell>
           </DashboardTableHeader>
           {events.length === 0 ? (
             <DashboardTableState>
@@ -647,23 +468,52 @@ export function ObservabilityPage(): React.JSX.Element {
                   : 'No incidents in the selected window. Observability is incident-driven, so healthy periods can be empty.'}
             </DashboardTableState>
           ) : (
-            eventsPagination.rows.map((entry) => (
-              <DashboardTableRow key={entry.id}>
-                <DashboardTableCell truncate>{formatTimestamp(entry.timestamp)}</DashboardTableCell>
-                <DashboardTableCell>{entry.service || '-'}</DashboardTableCell>
-                <DashboardTableCell>{entry.component || '-'}</DashboardTableCell>
-                <DashboardTableCell>{entry.level}</DashboardTableCell>
-                <DashboardTableCell>{entry.eventType || '-'}</DashboardTableCell>
-                <DashboardTableCell title={entry.message}>
-                  {entry.message || '-'}
-                </DashboardTableCell>
-                <DashboardTableCell>{entry.requestId || '-'}</DashboardTableCell>
-                <DashboardTableCell>{entry.traceId || '-'}</DashboardTableCell>
-                <DashboardTableCell title={JSON.stringify(entry.metadata)}>
-                  {metadataSummary(entry.metadata)}
-                </DashboardTableCell>
-              </DashboardTableRow>
-            ))
+            eventsPagination.rows.map((entry) => {
+              const isExpanded = expandedEventId === entry.id;
+              return (
+                <React.Fragment key={entry.id}>
+                  <DashboardTableRow>
+                    <DashboardTableCell truncate>
+                      {formatTimestamp(entry.timestamp)}
+                    </DashboardTableCell>
+                    <DashboardTableCell>{entry.service || '-'}</DashboardTableCell>
+                    <DashboardTableCell>{entry.level}</DashboardTableCell>
+                    <DashboardTableCell>{entry.eventType || '-'}</DashboardTableCell>
+                    <DashboardTableCell title={entry.message}>
+                      {entry.message || '-'}
+                    </DashboardTableCell>
+                    <DashboardTableCell align="center">
+                      <DashboardTableActionButton
+                        aria-expanded={isExpanded}
+                        onClick={() =>
+                          setExpandedEventId((current) => (current === entry.id ? '' : entry.id))
+                        }
+                      >
+                        {isExpanded ? 'Hide' : 'View'}
+                      </DashboardTableActionButton>
+                    </DashboardTableCell>
+                  </DashboardTableRow>
+                  {isExpanded ? (
+                    <DashboardTableDetailsPanel>
+                      <DashboardTableDetailsGrid>
+                        <DashboardTableDetailsItem label="Component">
+                          <span>{entry.component || '-'}</span>
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Request ID">
+                          {entry.requestId ? <code>{entry.requestId}</code> : <span>-</span>}
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Trace ID">
+                          {entry.traceId ? <code>{entry.traceId}</code> : <span>-</span>}
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Metadata">
+                          <span>{metadataSummary(entry.metadata)}</span>
+                        </DashboardTableDetailsItem>
+                      </DashboardTableDetailsGrid>
+                    </DashboardTableDetailsPanel>
+                  ) : null}
+                </React.Fragment>
+              );
+            })
           )}
         </DashboardTable>
         {loadMoreEventsError ? (

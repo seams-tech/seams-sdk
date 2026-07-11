@@ -293,10 +293,10 @@ export function BillingContextSummarySection(props: {
         </div>
       </dl>
       {sortedMembers.length > 0 ? (
-        <div className="dashboard-billing-overview__members" aria-label="Organisation team members">
+        <div className="dashboard-billing-overview__members" aria-label="Organization team members">
           <div className="dashboard-billing-overview__members-header">
             <h3>Team members</h3>
-            <p>{sortedMembers.length} associated with this organisation</p>
+            <p>{sortedMembers.length} associated with this organization</p>
           </div>
           <ul className="dashboard-billing-overview__members-list">
             {sortedMembers.map((member) => (
@@ -601,7 +601,7 @@ export function SponsoredExecutionReconciliationSection(props: {
   error: string;
   scopeDescription?: string;
 }): React.JSX.Element {
-  const { sectionId, page, loading = false, error, scopeDescription } = props;
+  const { sectionId, page, loading = false, error } = props;
   const items = page?.items || [];
   const summary = page?.summary || null;
   const pagination = useDashboardTablePagination(items, {
@@ -609,18 +609,20 @@ export function SponsoredExecutionReconciliationSection(props: {
     itemLabel: 'reconciliation row',
     itemLabelPlural: 'reconciliation rows',
   });
+  /* Reconciliation is an operations-grade audit view; collapse it by default
+     so the billing page leads with balance and top-up. The scope note is
+     already shown once on the usage-history section above. */
   return (
-    <section
+    <details
       id={sectionId}
       className="dashboard-view__section dashboard-billing-execution-card"
       aria-label="Sponsored execution reconciliation"
     >
+      <summary>Reconciliation</summary>
       <div className="dashboard-billing-table__intro">
-        <h3 className="dashboard-billing-table__title">Reconciliation</h3>
         <p className="dashboard-billing-table__description">
           Compare sponsored execution records against linked billing debits.
         </p>
-        {scopeDescription ? <p className="dashboard-pagination-note">{scopeDescription}</p> : null}
       </div>
       {summary ? (
         <div className="dashboard-kpi-grid dashboard-kpi-grid--content dashboard-billing-reconciliation-summary">
@@ -739,6 +741,6 @@ export function SponsoredExecutionReconciliationSection(props: {
           </>
         )}
       </DashboardTable>
-    </section>
+    </details>
   );
 }

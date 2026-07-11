@@ -4,7 +4,6 @@ export type SidebarGroupKey =
   | 'overview'
   | 'administration'
   | 'operationsSecurity'
-  | 'integrations'
   | 'billing'
   | 'platform';
 

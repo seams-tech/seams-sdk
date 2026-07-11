@@ -625,36 +625,43 @@ export function DashboardOnboardingPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Onboarding wizard page">
-      <section className="dashboard-view__section" aria-label="Onboarding summary">
-        <h2>Set up your workspace</h2>
-        <p>Complete organization and project setup to unlock full dashboard navigation.</p>
-        {session.loading || loading ? (
-          <p className="dashboard-pagination-note">Loading onboarding status...</p>
-        ) : !session.claims ? (
-          <p className="dashboard-pagination-note">
-            Onboarding unavailable: {session.errorMessage || 'unauthorized'}.
-          </p>
-        ) : errorMessage ? (
-          <p className="dashboard-pagination-note">Onboarding status unavailable: {errorMessage}</p>
-        ) : state ? (
-          <ol className="dashboard-onboarding-stepper" aria-label="Onboarding progress">
-            {stepper.map((entry, index) => (
-              <li
-                key={entry.key}
-                className={`dashboard-onboarding-stepper__item dashboard-onboarding-stepper__item--${entry.status}`}
-              >
-                <span className="dashboard-onboarding-stepper__index" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <span className="dashboard-onboarding-stepper__label">{entry.label}</span>
-                <span className="dashboard-onboarding-stepper__status">
-                  {stepperStatusLabel(entry.status)}
-                </span>
-              </li>
-            ))}
-          </ol>
-        ) : null}
-      </section>
+      {/* Once onboarding is complete the completion panel below says
+          everything; a stepper still claiming a "current" step would
+          contradict it. */}
+      {!onboardingComplete ? (
+        <section className="dashboard-view__section" aria-label="Onboarding summary">
+          <h2>Set up your workspace</h2>
+          <p>Complete organization and project setup to unlock full dashboard navigation.</p>
+          {session.loading || loading ? (
+            <p className="dashboard-pagination-note">Loading onboarding status...</p>
+          ) : !session.claims ? (
+            <p className="dashboard-pagination-note">
+              Onboarding unavailable: {session.errorMessage || 'unauthorized'}.
+            </p>
+          ) : errorMessage ? (
+            <p className="dashboard-pagination-note">
+              Onboarding status unavailable: {errorMessage}
+            </p>
+          ) : state ? (
+            <ol className="dashboard-onboarding-stepper" aria-label="Onboarding progress">
+              {stepper.map((entry, index) => (
+                <li
+                  key={entry.key}
+                  className={`dashboard-onboarding-stepper__item dashboard-onboarding-stepper__item--${entry.status}`}
+                >
+                  <span className="dashboard-onboarding-stepper__index" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span className="dashboard-onboarding-stepper__label">{entry.label}</span>
+                  <span className="dashboard-onboarding-stepper__status">
+                    {stepperStatusLabel(entry.status)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </section>
+      ) : null}
 
       {onboardingComplete ? (
         <section className="dashboard-view__section" aria-label="Onboarding completed">

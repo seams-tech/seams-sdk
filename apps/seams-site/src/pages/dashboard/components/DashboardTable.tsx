@@ -613,6 +613,85 @@ export function DashboardTableActionButton(
   );
 }
 
+export interface DashboardTableActionMenuItem {
+  label: React.ReactNode;
+  onSelect: () => void;
+  tone?: 'neutral' | 'danger';
+  disabled?: boolean;
+  title?: string;
+}
+
+export interface DashboardTableActionMenuProps {
+  ariaLabel?: string;
+  className?: string;
+  items: readonly DashboardTableActionMenuItem[];
+}
+
+/* Kebab menu for secondary row actions: keeps one primary button visible and
+   folds the rest here so action columns stay one row tall. */
+export function DashboardTableActionMenu(props: DashboardTableActionMenuProps): React.JSX.Element {
+  const { ariaLabel = 'More actions', className, items } = props;
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  if (items.length === 0) return <></>;
+
+  return (
+    <div ref={rootRef} className={clsx('dashboard-data-table__action-menu', className)}>
+      <button
+        type="button"
+        className="dashboard-data-table__action-button dashboard-data-table__action-menu-trigger"
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        &#8943;
+      </button>
+      {open ? (
+        <div className="dashboard-context-menu dashboard-data-table__action-menu-list" role="menu">
+          {items.map((item, index) => (
+            <button
+              key={index}
+              type="button"
+              role="menuitem"
+              className={clsx(
+                'dashboard-context-menu__item',
+                item.tone === 'danger' && 'dashboard-context-menu__item--danger',
+                item.disabled && 'is-disabled',
+              )}
+              disabled={item.disabled}
+              title={item.title}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DashboardTableDetailsPanel(
   props: DashboardTableDetailsPanelProps,
 ): React.JSX.Element {

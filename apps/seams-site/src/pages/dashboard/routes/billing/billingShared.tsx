@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import type { DashboardBillingInvoice } from './consoleBillingApi';
 
 export type BillingSubview =
@@ -10,13 +11,12 @@ export type BillingMetric = {
   label: string;
   value: string;
   hint: string;
+  /* Optional data-driven color for the value (e.g. balance health). */
+  tone?: 'success' | 'warning' | 'danger';
 };
 
 export function formatTimestamp(value: string | null): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 export function parsePositiveInteger(value: string): number | null {
@@ -120,7 +120,13 @@ export function BillingMetricsGrid(props: {
       {metrics.map((metric) => (
         <article className="dashboard-kpi-card" key={metric.label}>
           <p className="dashboard-kpi-card__label">{metric.label}</p>
-          <p className="dashboard-kpi-card__value">{metric.value}</p>
+          <p
+            className={`dashboard-kpi-card__value${
+              metric.tone ? ` dashboard-kpi-card__value--${metric.tone}` : ''
+            }`}
+          >
+            {metric.value}
+          </p>
           <p className="dashboard-kpi-card__hint">{metric.hint}</p>
         </article>
       ))}

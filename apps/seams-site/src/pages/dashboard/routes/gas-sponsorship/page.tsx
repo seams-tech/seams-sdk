@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import { toast } from 'sonner';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
@@ -97,7 +98,7 @@ const GAS_MAINNET_TARGET_IDS = GAS_CHAIN_TARGETS.filter(
 const GAS_TESTNET_TARGET_IDS = GAS_CHAIN_TARGETS.filter(
   (target) => target.networkClass === 'TESTNET',
 ).map((target) => target.id);
-const GAS_SPONSORSHIP_TABLE_COLUMNS = dashboardTableColumns(1.15, 1.2, 1, 1, 1.05, 0.85, 1.15);
+const GAS_SPONSORSHIP_TABLE_COLUMNS = dashboardTableColumns(1.25, 1.05, 1, 1.1, 0.85, 1.1);
 const SPEND_CAP_DECIMAL_FORMATTERS = new Map<number, Intl.NumberFormat>();
 
 type GasSponsorshipFormState = {
@@ -174,10 +175,7 @@ function createEmptyNearDelegateActionDraft(): GasNearDelegateActionDraft {
 }
 
 function formatTimestamp(value: string): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function normalizeSpendCapDisplayDecimals(value: number): number {
@@ -1650,11 +1648,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
         )}). Refill before live traffic pushes the org into blocked state.`,
       };
     }
-    return {
-      tone: 'info' as const,
-      message:
-        'Policy caps and org prepaid balance are enforced independently. Even enabled policies stop admitting sponsorship immediately once the org balance is exhausted.',
-    };
+    /* Healthy state: no banner. The section intro already explains that policy
+       caps and prepaid balance are independent — repeating it in a banner was
+       pure duplication. */
+    return null;
   }, [billingOverview]);
 
   return (
@@ -1727,27 +1724,21 @@ export function GasSponsorshipPage(): React.JSX.Element {
             ) : null}
           </section>
 
-          <section className="dashboard-view__section" aria-label="Gas sponsorship setup">
-            <h2>Create policy</h2>
-            <p>
-              Create a gas sponsorship policy: define EVM call templates or NEAR delegate-action
-              templates for the selected environment.
-            </p>
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--primary"
-              onClick={openCreateModal}
-              disabled={!canMutatePolicy || mutating}
-            >
-              Create policy
-            </button>
-          </section>
-
           <section
             className="dashboard-view__section dashboard-view__section--plain"
             aria-label="Gas sponsorship policies"
           >
-            <h2>Gas Sponsorship Policies</h2>
+            <div className="dashboard-section-toolbar">
+              <h2>Gas Sponsorship Policies</h2>
+              <button
+                type="button"
+                className="dashboard-pagination-button dashboard-pagination-button--primary"
+                onClick={openCreateModal}
+                disabled={!canMutatePolicy || mutating}
+              >
+                Create policy
+              </button>
+            </div>
             <DashboardTable
               ariaLabel="Gas sponsorship rows"
               className="dashboard-gas-sponsorship-table"
@@ -1756,7 +1747,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
             >
               <DashboardTableHeader className="dashboard-gas-sponsorship-table__header">
                 <DashboardTableHeaderCell>Policy</DashboardTableHeaderCell>
-                <DashboardTableHeaderCell>Environment</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Behavior</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Spend cap</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Rules</DashboardTableHeaderCell>
@@ -1777,17 +1767,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
                       <strong className="dashboard-data-table__summary">
                         {policy.name || policy.id}
                       </strong>
-                    </DashboardTableCell>
-                    <DashboardTableCell
-                      title={describeScope(policy, {
-                        projectNamesById,
-                        environmentNamesById,
-                      })}
-                    >
-                      {describeScope(policy, {
-                        projectNamesById,
-                        environmentNamesById,
-                      })}
                     </DashboardTableCell>
                     <DashboardTableCell title={formatRuleSummary(policy)}>
                       {formatRuleSummary(policy)}

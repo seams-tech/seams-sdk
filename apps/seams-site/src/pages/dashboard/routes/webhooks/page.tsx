@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   CONSOLE_WEBHOOK_EVENT_CATEGORIES,
   type ConsoleWebhookEventCategory,
@@ -7,6 +8,7 @@ import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
+  DashboardTableActionMenu,
   DashboardTableCell,
   DashboardTableHeader,
   DashboardTableHeaderCell,
@@ -58,16 +60,7 @@ const WEBHOOK_EVENT_CATEGORY_OPTIONS: readonly DashboardScopeOption<ConsoleWebho
                 ? 'Invoices, usage, and payment lifecycle events.'
                 : 'Session creation, refresh, and teardown events.',
   }));
-const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(
-  1,
-  1.45,
-  1.05,
-  0.7,
-  0.85,
-  0.85,
-  0.85,
-  0.95,
-);
+const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(1, 1.5, 1.05, 0.7, 0.85, 1);
 const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(
   1,
   0.95,
@@ -80,10 +73,7 @@ const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(
 );
 
 function formatTimestamp(value: string | null): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function readWebhooksRouteSelection(): {
@@ -133,6 +123,10 @@ export function WebhooksPage(): React.JSX.Element {
     itemLabel: 'endpoint',
     itemLabelPlural: 'endpoints',
   });
+  const selectedEndpoint = React.useMemo(
+    () => endpoints.find((entry) => entry.id === selectedEndpointId) || null,
+    [endpoints, selectedEndpointId],
+  );
   const deliveriesPagination = useDashboardTablePagination(deliveries, {
     disabled: deliveriesLoading,
     itemLabel: 'delivery',
@@ -401,7 +395,7 @@ export function WebhooksPage(): React.JSX.Element {
             type="button"
             className="dashboard-pagination-button dashboard-pagination-button--primary"
             onClick={onOpenCreateModal}
-            disabled={creating || session.loading || !session.claims}
+            disabled={creating || session.loading || !session.claims || Boolean(errorMessage)}
           >
             Create Webhook
           </button>
@@ -414,6 +408,13 @@ export function WebhooksPage(): React.JSX.Element {
         </p>
       ) : null}
 
+      {errorMessage && !loading && !session.loading ? (
+        <section className="dashboard-view__section" aria-label="Webhook service status">
+          <p className="dashboard-pagination-note">
+            Webhook endpoints unavailable: {errorMessage}
+          </p>
+        </section>
+      ) : (
       <DashboardTable
         ariaLabel="Webhook endpoints table"
         columns={WEBHOOK_ENDPOINTS_TABLE_COLUMNS}
@@ -424,9 +425,7 @@ export function WebhooksPage(): React.JSX.Element {
           <DashboardTableHeaderCell>URL</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Event categories</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Secret</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Created</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
         </DashboardTableHeader>
         {session.loading || loading ? (
@@ -435,8 +434,6 @@ export function WebhooksPage(): React.JSX.Element {
           <DashboardTableState>
             Webhooks unavailable: {session.errorMessage || 'unauthorized'}.
           </DashboardTableState>
-        ) : errorMessage ? (
-          <DashboardTableState>Webhook endpoints unavailable: {errorMessage}</DashboardTableState>
         ) : endpoints.length === 0 ? (
           <DashboardTableState>No webhook endpoints configured yet.</DashboardTableState>
         ) : (
@@ -457,14 +454,8 @@ export function WebhooksPage(): React.JSX.Element {
                   {endpoint.eventCategories.join(', ') || '-'}
                 </DashboardTableCell>
                 <DashboardTableCell>{endpoint.status}</DashboardTableCell>
-                <DashboardTableCell title={endpoint.secretPreview}>
-                  v{endpoint.secretVersion} {endpoint.secretPreview || ''}
-                </DashboardTableCell>
                 <DashboardTableCell truncate>
                   {formatTimestamp(endpoint.updatedAt)}
-                </DashboardTableCell>
-                <DashboardTableCell truncate>
-                  {formatTimestamp(endpoint.createdAt)}
                 </DashboardTableCell>
                 <DashboardTableCell>
                   <DashboardTableActionGroup>
@@ -474,13 +465,17 @@ export function WebhooksPage(): React.JSX.Element {
                     >
                       {endpoint.status === 'ACTIVE' ? 'Disable' : 'Enable'}
                     </DashboardTableActionButton>
-                    <DashboardTableActionButton
-                      tone="danger"
-                      onClick={() => onDeleteEndpoint(endpoint.id)}
-                      disabled={busyEndpointId === endpoint.id}
-                    >
-                      Delete
-                    </DashboardTableActionButton>
+                    <DashboardTableActionMenu
+                      ariaLabel={`More actions for ${endpoint.url}`}
+                      items={[
+                        {
+                          label: 'Delete',
+                          onSelect: () => onDeleteEndpoint(endpoint.id),
+                          tone: 'danger' as const,
+                          disabled: busyEndpointId === endpoint.id,
+                        },
+                      ]}
+                    />
                   </DashboardTableActionGroup>
                 </DashboardTableCell>
               </DashboardTableRow>
@@ -488,6 +483,7 @@ export function WebhooksPage(): React.JSX.Element {
           </>
         )}
       </DashboardTable>
+      )}
 
       <DashboardInlineModal
         isOpen={isCreateModalOpen}
@@ -537,10 +533,26 @@ export function WebhooksPage(): React.JSX.Element {
         </form>
       </DashboardInlineModal>
 
+      {selectedEndpointId && !errorMessage ? (
+      <section
+        className="dashboard-view__section dashboard-view__section--plain"
+        aria-label="Webhook deliveries"
+      >
+        <div className="dashboard-section-toolbar">
+          <div className="dashboard-section-toolbar__copy">
+            <h2>Deliveries</h2>
+            <p className="dashboard-pagination-note">
+              Endpoint <code>{selectedEndpointId}</code>
+              {selectedEndpoint
+                ? ` · Signing secret v${selectedEndpoint.secretVersion} ${selectedEndpoint.secretPreview || ''}`
+                : ''}
+            </p>
+          </div>
+        </div>
       <DashboardTable
         ariaLabel="Webhook deliveries table"
         columns={WEBHOOK_DELIVERIES_TABLE_COLUMNS}
-        pagination={selectedEndpointId ? deliveriesPagination.pagination : undefined}
+        pagination={deliveriesPagination.pagination}
       >
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Delivery ID</DashboardTableHeaderCell>
@@ -552,9 +564,7 @@ export function WebhooksPage(): React.JSX.Element {
           <DashboardTableHeaderCell>Last attempt</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Action</DashboardTableHeaderCell>
         </DashboardTableHeader>
-        {!selectedEndpointId ? (
-          <DashboardTableState>Select an endpoint to view deliveries.</DashboardTableState>
-        ) : deliveriesLoading ? (
+        {deliveriesLoading ? (
           <DashboardTableState>Loading deliveries for {selectedEndpointId}...</DashboardTableState>
         ) : deliveriesError ? (
           <DashboardTableState>Deliveries unavailable: {deliveriesError}</DashboardTableState>
@@ -599,6 +609,8 @@ export function WebhooksPage(): React.JSX.Element {
           </>
         )}
       </DashboardTable>
+      </section>
+      ) : null}
     </div>
   );
 }

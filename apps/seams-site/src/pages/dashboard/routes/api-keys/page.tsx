@@ -1,8 +1,10 @@
 import React from 'react';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
+  DashboardTableActionMenu,
   DashboardTableCell,
   DashboardTableHeader,
   DashboardTableHeaderCell,
@@ -68,7 +70,7 @@ const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymen
 
 const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption<ApiCredentialScope>[] =
   API_CREDENTIAL_SCOPE_OPTIONS;
-const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.3, 0.9, 0.95, 0.7, 1.05, 1.2, 0.85, 1.15);
+const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.35, 0.9, 0.7, 1.05, 1.1, 0.85, 0.95);
 const DEFAULT_SECRET_SCOPES: ApiCredentialScope[] = ['accounts.create'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
@@ -121,10 +123,7 @@ function parseApiCredentialScopeSelection(values: string[]): ApiCredentialScope[
 }
 
 function formatTimestamp(value: string | null): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return formatDashboardTimestamp(value, '-');
 }
 
 function normalizeOrigin(value: string): string {
@@ -301,8 +300,14 @@ function describeCredentialOrigins(apiKey: DashboardConsoleApiKey): {
   if (apiKey.kind !== 'publishable_key') {
     return { short: '-', title: 'Not applicable for secret_key' };
   }
-  const text = apiKey.allowedOrigins.length > 0 ? apiKey.allowedOrigins.join(', ') : '-';
-  return { short: text, title: text };
+  const count = apiKey.allowedOrigins.length;
+  if (count === 0) return { short: '-', title: 'No allowed origins' };
+  /* Full URLs wrap badly in a narrow cell; show a count and put the list in
+     the tooltip. */
+  return {
+    short: count === 1 ? apiKey.allowedOrigins[0] : `${count} origins`,
+    title: apiKey.allowedOrigins.join(', '),
+  };
 }
 
 function formatCredentialKindLabel(kind: DashboardCredentialKind): string {
@@ -849,12 +854,12 @@ export function ApiKeyManagementPage(): React.JSX.Element {
       ) : null}
 
       {revealedCredential ? (
-        <section className="dashboard-view__section" aria-label="Credential integration snippet">
-          <h3>
+        <details className="dashboard-view__section" aria-label="Credential integration snippet">
+          <summary>
             {revealedCredential.apiKey.kind === 'publishable_key'
               ? 'Managed browser bootstrap snippet'
               : 'Server bootstrap snippet'}
-          </h3>
+          </summary>
           <p>
             {revealedCredential.apiKey.kind === 'publishable_key'
               ? 'Use this publishable_key in browser-safe SDK config. A managed broker must exchange it for a one-time bootstrap_token before the relay is called.'
@@ -875,7 +880,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                   )}
             </code>
           </pre>
-        </section>
+        </details>
       ) : null}
 
       <DashboardTable
@@ -887,7 +892,6 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Name</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Kind</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Environment</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Overage</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Origins</DashboardTableHeaderCell>
@@ -923,9 +927,6 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                   <DashboardTableCell title={formatCredentialKindLabel(apiKey.kind)}>
                     {formatCredentialKindLabel(apiKey.kind)}
                   </DashboardTableCell>
-                  <DashboardTableCell title={formatCredentialEnvironmentLabel(apiKey.environmentId)}>
-                    {formatCredentialEnvironmentLabel(apiKey.environmentId)}
-                  </DashboardTableCell>
                   <DashboardTableCell>{apiKey.status}</DashboardTableCell>
                   <DashboardTableCell title={overage.title}>
                     {overage.short || '-'}
@@ -945,32 +946,29 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       >
                         Edit
                       </DashboardTableActionButton>
-                      <DashboardTableActionButton
-                        className="dashboard-credential-table__action-button"
-                        onClick={() => onOpenCredentialAction('rotate', apiKey)}
-                        disabled={busyApiKeyId === apiKey.id || apiKey.status === 'REVOKED'}
-                      >
-                        Rotate
-                      </DashboardTableActionButton>
-                      {apiKey.status === 'REVOKED' ? (
-                        <DashboardTableActionButton
-                          tone="danger"
-                          className="dashboard-credential-table__action-button"
-                          onClick={() => onDeleteRevokedApiKey(apiKey)}
-                          disabled={busyApiKeyId === apiKey.id}
-                        >
-                          Delete
-                        </DashboardTableActionButton>
-                      ) : (
-                        <DashboardTableActionButton
-                          tone="danger"
-                          className="dashboard-credential-table__action-button"
-                          onClick={() => onOpenCredentialAction('revoke', apiKey)}
-                          disabled={busyApiKeyId === apiKey.id}
-                        >
-                          Revoke
-                        </DashboardTableActionButton>
-                      )}
+                      <DashboardTableActionMenu
+                        ariaLabel={`More actions for ${apiKey.name}`}
+                        items={[
+                          {
+                            label: 'Rotate',
+                            onSelect: () => onOpenCredentialAction('rotate', apiKey),
+                            disabled: busyApiKeyId === apiKey.id || apiKey.status === 'REVOKED',
+                          },
+                          apiKey.status === 'REVOKED'
+                            ? {
+                                label: 'Delete',
+                                onSelect: () => onDeleteRevokedApiKey(apiKey),
+                                tone: 'danger' as const,
+                                disabled: busyApiKeyId === apiKey.id,
+                              }
+                            : {
+                                label: 'Revoke',
+                                onSelect: () => onOpenCredentialAction('revoke', apiKey),
+                                tone: 'danger' as const,
+                                disabled: busyApiKeyId === apiKey.id,
+                              },
+                        ]}
+                      />
                     </DashboardTableActionGroup>
                   </DashboardTableCell>
                 </DashboardTableRow>
