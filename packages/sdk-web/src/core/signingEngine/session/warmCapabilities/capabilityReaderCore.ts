@@ -1,6 +1,4 @@
-import {
-  resolveEmailOtpAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   buildEmailOtpEcdsaSigningSessionAuthority,
   type EmailOtpEcdsaSigningSessionAuthority,
@@ -9,10 +7,7 @@ import {
   buildEmailOtpEd25519SigningSessionAuthority,
   type EmailOtpEd25519SigningSessionAuthority,
 } from '../emailOtp/ed25519SigningSessionAuthority';
-import {
-  emailOtpAuthContextProviderUserId,
-  selectedEcdsaLane,
-} from '../identity/laneIdentity';
+import { emailOtpAuthContextProviderUserId, selectedEcdsaLane } from '../identity/laneIdentity';
 import {
   toExactEcdsaSigningLaneIdentity,
   thresholdEcdsaLaneCandidateFromSessionRecord,
@@ -27,6 +22,7 @@ import {
 import {
   readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEcdsaRecordByThresholdSessionId,
+  readWarmSessionEd25519RecordForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from './store';
 import {
@@ -57,6 +53,7 @@ import type {
   WarmSessionEnvelope,
 } from './types';
 import type { WarmSigningStatusReader } from './statusReader';
+import type { AccountId } from '@/core/types/accountIds';
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
@@ -78,13 +75,18 @@ export type WarmSessionCapabilityReaderCoreDeps = {
   touchConfirm: WarmSessionReadPorts | null;
   statusReader: Pick<
     WarmSigningStatusReader,
-    'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord' | 'resolveExactEcdsaRecord'
+    | 'readWalletScopedClaimsForRecords'
+    | 'readEcdsaWarmSessionClaimForRecord'
+    | 'resolveExactEcdsaRecord'
   >;
   signingSessionSeal: WarmSessionCapabilityReaderSeal;
 };
 
 export type WarmSessionCapabilityReaderCore = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
+  getEd25519CapabilityForNearAccount: (
+    nearAccountId: AccountId,
+  ) => Promise<WarmSessionEd25519CapabilityState | null>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEd25519CapabilityState['record'];
@@ -112,12 +114,19 @@ export type WarmSessionCapabilityReaderCore = {
   getEcdsaCapabilityForLane: (
     lane: ExactEcdsaSigningLaneIdentity,
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
-  resolveEcdsaSealTransportByThresholdSessionId: (
-    args: {
-      lane: ExactEcdsaSigningLaneIdentity;
-    },
-  ) => ThresholdSessionSealTransportAuthMaterial | null;
+  resolveEcdsaSealTransportByThresholdSessionId: (args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+  }) => ThresholdSessionSealTransportAuthMaterial | null;
 };
+
+async function getEd25519CapabilityForNearAccount(
+  getByThresholdSessionId: WarmSessionCapabilityReaderCore['getEd25519CapabilityByThresholdSessionId'],
+  nearAccountId: AccountId,
+): Promise<WarmSessionEd25519CapabilityState | null> {
+  const record = readWarmSessionEd25519RecordForAccount(nearAccountId);
+  if (!record) return null;
+  return await getByThresholdSessionId(record.thresholdSessionId);
+}
 
 function recordOwnedEd25519WalletSessionJwt(
   auth: WarmSessionEd25519AuthMaterial | null,
@@ -154,7 +163,9 @@ export function createWarmSessionCapabilityReaderCore(
       };
     }
     if (state === 'missing') {
-      throw new Error('[WarmSessionStore] Ed25519 capability state cannot be missing with a record');
+      throw new Error(
+        '[WarmSessionStore] Ed25519 capability state cannot be missing with a record',
+      );
     }
     if (args.record.source === 'email_otp') {
       if (!args.record.emailOtpAuthContext) {
@@ -415,8 +426,7 @@ export function createWarmSessionCapabilityReaderCore(
       return false;
     }
     if (
-      String(record.nearEd25519SigningKeyId || '').trim() !==
-      String(signer.nearEd25519SigningKeyId)
+      String(record.nearEd25519SigningKeyId || '').trim() !== String(signer.nearEd25519SigningKeyId)
     ) {
       return false;
     }
@@ -426,8 +436,7 @@ export function createWarmSessionCapabilityReaderCore(
     }
     if (!record.emailOtpAuthContext) return false;
     return (
-      emailOtpAuthContextProviderUserId(record.emailOtpAuthContext) ===
-      lane.auth.providerSubjectId
+      emailOtpAuthContextProviderUserId(record.emailOtpAuthContext) === lane.auth.providerSubjectId
     );
   }
 
@@ -438,7 +447,10 @@ export function createWarmSessionCapabilityReaderCore(
     if (!args.record) return false;
     if (args.record.source !== 'email_otp' && args.lane.auth.kind === 'email_otp') return false;
     try {
-      return exactSigningLaneIdentityMatches(toExactEcdsaSigningLaneIdentity(args.record), args.lane);
+      return exactSigningLaneIdentityMatches(
+        toExactEcdsaSigningLaneIdentity(args.record),
+        args.lane,
+      );
     } catch {
       return false;
     }
@@ -540,9 +552,7 @@ export function createWarmSessionCapabilityReaderCore(
         ? deps.signingSessionSeal.signingSessionSealKeyVersion
         : undefined;
     const fallbackShamirPrimeB64u =
-      deps.signingSessionSeal.seal === 'configured'
-        ? deps.signingSessionSeal.shamirPrimeB64u
-        : '';
+      deps.signingSessionSeal.seal === 'configured' ? deps.signingSessionSeal.shamirPrimeB64u : '';
     return resolveEcdsaSealTransport({
       record,
       auth,
@@ -557,6 +567,10 @@ export function createWarmSessionCapabilityReaderCore(
 
   return {
     getWarmSession,
+    getEd25519CapabilityForNearAccount: getEd25519CapabilityForNearAccount.bind(
+      null,
+      getEd25519CapabilityByThresholdSessionId,
+    ),
     resolveEd25519RecordByThresholdSessionId,
     resolveEcdsaRecordByThresholdSessionId,
     resolveEd25519AuthByThresholdSessionId,

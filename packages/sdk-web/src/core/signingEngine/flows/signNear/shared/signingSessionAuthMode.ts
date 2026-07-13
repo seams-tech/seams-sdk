@@ -42,9 +42,7 @@ import {
   SigningSessionPlanKind,
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
-import {
-  thresholdEd25519LaneCandidateFromSessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import { thresholdEd25519LaneCandidateFromSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
   exactEd25519SigningLaneIdentity,
   nearEd25519SignerBindingFromBoundaryFields,
@@ -54,11 +52,10 @@ import type {
   ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  classifyRouterAbEd25519PersistedSigningRecord,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { resolveEd25519RestoreMaterialIdentity } from '@/core/signingEngine/session/ed25519MaterialAuthority';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { toAccountId } from '@/core/types/accountIds';
 
 export type NearSigningSessionAuthPlan = {
   sessionId: string;
@@ -309,12 +306,24 @@ export async function resolveNearSigningSessionAuthContext(args: {
 }): Promise<NearSigningSessionAuthContext> {
   const walletId = toWalletId(args.commandSubject.walletSession.walletId);
   const nearAccountId = String(args.commandSubject.nearAccount.accountId || '').trim();
-  const warmSession = await args.warmSessionReader.getWarmSession(walletId);
-  const capability = warmSession.capabilities.ed25519;
+  const capability = await args.warmSessionReader.getEd25519CapabilityForNearAccount(
+    toAccountId(nearAccountId),
+  );
+  if (!capability) {
+    throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
+  }
   const record = capability.record;
   const sessionId = String(record?.thresholdSessionId || '').trim();
   if (!record || !sessionId) {
     throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
+  }
+  if (
+    String(record.walletId) !== String(walletId) ||
+    String(record.nearAccountId) !== nearAccountId
+  ) {
+    throw new Error(
+      '[SigningEngine][near] exact Ed25519 capability does not match command subject',
+    );
   }
   const isEmailOtpSession = record?.source === 'email_otp';
   const signingGrantId = String(record?.signingGrantId || '').trim();
@@ -325,8 +334,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
   if (!recordCandidate) {
     throw new Error('[SigningEngine][near] selected Ed25519 record has no lane candidate');
   }
-  const emailOtpAuthContext =
-    record.source === 'email_otp' ? record.emailOtpAuthContext : null;
+  const emailOtpAuthContext = record.source === 'email_otp' ? record.emailOtpAuthContext : null;
   const lane =
     record?.source === 'email_otp'
       ? recordCandidate.auth.kind === 'email_otp' && emailOtpAuthContext
@@ -953,7 +961,9 @@ function unavailableTrustedEd25519SigningSessionReadiness(args: {
         remainingUses: 0,
       });
     case 'passkey':
-      throw new Error(formatThresholdSigningSessionAvailabilityError(args.trustedStatus.statusCode));
+      throw new Error(
+        formatThresholdSigningSessionAvailabilityError(args.trustedStatus.statusCode),
+      );
     default:
       return assertNeverSigningSessionAuthMode(args.authMethod);
   }
@@ -1089,9 +1099,7 @@ function toTrustedEd25519SigningSessionStatus(
       const committedRemainingUses = parseNonNegativeIntegerStatusField(
         status.committedRemainingUses,
       );
-      const inFlightReservedUses = parseNonNegativeIntegerStatusField(
-        status.inFlightReservedUses,
-      );
+      const inFlightReservedUses = parseNonNegativeIntegerStatusField(status.inFlightReservedUses);
       const availableUses = parseNonNegativeIntegerStatusField(status.availableUses);
       const expiresAtMs = parsePositiveIntegerStatusField(status.expiresAtMs);
       const projectionVersion = String(status.projectionVersion || '').trim();
@@ -1144,9 +1152,7 @@ function parsePositiveIntegerStatusField(value: unknown): number | null {
   return parsed && parsed > 0 ? parsed : null;
 }
 
-function ed25519PlannerAuthMethod(
-  capability: NearEd25519Capability,
-): Ed25519PlannerAuthMethod {
+function ed25519PlannerAuthMethod(capability: NearEd25519Capability): Ed25519PlannerAuthMethod {
   return capability.record?.source === 'email_otp' ? 'email_otp' : 'passkey';
 }
 

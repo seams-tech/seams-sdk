@@ -1,7 +1,7 @@
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  getStoredThresholdEd25519SessionRecordForWallet,
+  getStoredThresholdEd25519SessionRecordForAccount,
 } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
@@ -20,17 +20,12 @@ export function createNearSigningDeps(args: {
   signingSessionCoordinator: SigningSessionCoordinator;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }): NearSigningApiDeps {
-  const {
-    createArgs,
-    nearRpcUrl,
-    signingSessionCoordinator,
-    getEmailOtpWarmSessionStatus,
-  } = args;
+  const { createArgs, nearRpcUrl, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
     nearRpcUrl,
-    resolveThresholdEd25519SessionId: (walletId: string): string | null => {
+    resolveThresholdEd25519SessionIdForNearAccount: (nearAccountId: string): string | null => {
       try {
-        const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
+        const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
         const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
         return thresholdSessionId || null;
       } catch {
@@ -60,8 +55,7 @@ export function createNearSigningDeps(args: {
     isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
       createArgs.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true,
     waitForPendingEmailOtpEd25519Warmup: ({ nearAccountId }) =>
-      createArgs.waitForPendingEmailOtpEd25519Warmup?.({ nearAccountId }) ||
-      Promise.resolve(false),
+      createArgs.waitForPendingEmailOtpEd25519Warmup?.({ nearAccountId }) || Promise.resolve(false),
     loginWithEmailOtpEd25519CapabilityForSigning: ({
       nearAccountId,
       challengeId,

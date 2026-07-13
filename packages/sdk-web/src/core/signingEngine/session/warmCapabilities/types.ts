@@ -372,10 +372,7 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: lane thresholdSessionId does not match record`,
       );
     }
-    if (
-      String(capability.lane.signingGrantId) !==
-      String(capability.record.signingGrantId)
-    ) {
+    if (String(capability.lane.signingGrantId) !== String(capability.record.signingGrantId)) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: lane signingGrantId does not match record`,
       );
@@ -628,18 +625,13 @@ export type EnsureWarmEcdsaProvisionPlanReadyArgs =
       plan: Extract<
         EcdsaSessionProvisionPlan,
         {
-          kind:
-            | 'wallet_session_ecdsa_reconnect'
-            | 'passkey_ecdsa_session_provision';
+          kind: 'wallet_session_ecdsa_reconnect' | 'passkey_ecdsa_session_provision';
         }
       >;
       record: ThresholdEcdsaSessionRecord;
     })
   | (EnsureWarmEcdsaProvisionPlanReadyCommonArgs & {
-      plan: Extract<
-        EcdsaSessionProvisionPlan,
-        { kind: 'email_otp_ecdsa_session_provision' }
-      >;
+      plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
       record: ThresholdEcdsaSessionRecord | null;
     });
 
@@ -745,6 +737,9 @@ export type GetWarmEcdsaSigningSessionStatusArgs = Omit<
 
 export type WarmSessionCapabilityReader = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
+  getEd25519CapabilityForNearAccount: (
+    nearAccountId: AccountId,
+  ) => Promise<WarmSessionEd25519CapabilityState | null>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEd25519CapabilityState['record'];

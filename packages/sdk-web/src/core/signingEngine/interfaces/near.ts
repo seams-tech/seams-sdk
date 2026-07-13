@@ -205,7 +205,7 @@ export type NearDelegateActionPayload = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  sessionId?: string;
+  operationId: SigningOperationId;
   signerSlot?: number;
 };
 
@@ -224,7 +224,7 @@ export type NearNep413Payload = {
     title?: string;
     body?: string;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    sessionId?: string;
+    operationId: SigningOperationId;
     nearRpcUrl?: string;
   };
 };

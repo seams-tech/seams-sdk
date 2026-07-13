@@ -23,9 +23,13 @@ import type {
   NearPasskeyEd25519ReconnectHook,
 } from '../../interfaces/near';
 import {
+  SigningAuthPlanKind,
   isWarmSessionSigningAuthPlan,
+  type EmailOtpConfirmPrompt,
+  type SigningAuthPlan,
   type UserConfirmProgressEvent,
 } from '@/core/signingEngine/stepUpConfirmation/types';
+import type { WebAuthnChallenge } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolveNearNetwork, resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -100,10 +104,10 @@ import {
 } from '../shared/signingStateMachine';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import {
-  buildSigningConfirmationAuthParams,
   confirmationConfigForSigningAuthPlan,
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
+import type { OrchestrateNearTransactionSigningConfirmationParams } from '../../stepUpConfirmation/confirmOperation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef, NearCommandSubject } from '../../interfaces/ecdsaChainTarget';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
@@ -115,6 +119,66 @@ import {
   restoreWarmSessionEd25519MaterialBeforeUserConfirmation,
   selectPreparedEd25519ReadyMaterialState,
 } from './shared/ed25519PreConfirmMaterialReadiness';
+import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
+
+type NearTransactionConfirmationAuthParams =
+  | {
+      signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+      nearFundingAuth: { kind: 'wallet_session'; walletSessionJwt: string };
+      webauthnChallenge?: never;
+      emailOtpPrompt?: never;
+    }
+  | {
+      signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+      nearFundingAuth?: never;
+      webauthnChallenge?: WebAuthnChallenge;
+      emailOtpPrompt?: never;
+    }
+  | {
+      signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+      nearFundingAuth?: never;
+      webauthnChallenge?: never;
+      emailOtpPrompt: EmailOtpConfirmPrompt;
+    };
+
+function buildNearTransactionConfirmationAuthParams(args: {
+  signingAuthPlan: SigningAuthPlan;
+  walletSessionJwt: string;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
+  webauthnChallenge?: WebAuthnChallenge;
+}): NearTransactionConfirmationAuthParams {
+  switch (args.signingAuthPlan.kind) {
+    case SigningAuthPlanKind.WarmSession:
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+        nearFundingAuth: {
+          kind: 'wallet_session',
+          walletSessionJwt: args.walletSessionJwt,
+        },
+      };
+    case SigningAuthPlanKind.PasskeyReauth:
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+        ...(args.webauthnChallenge ? { webauthnChallenge: args.webauthnChallenge } : {}),
+      };
+    case SigningAuthPlanKind.EmailOtpReauth: {
+      const emailOtpPrompt = args.emailOtpPrompt || args.signingAuthPlan.emailOtpPrompt;
+      if (!emailOtpPrompt) {
+        throw new Error('[SigningConfirmation] missing_email_otp_prompt');
+      }
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+        emailOtpPrompt,
+      };
+    }
+    default:
+      return assertNeverNearTransactionConfirmationAuth(args.signingAuthPlan);
+  }
+}
+
+function assertNeverNearTransactionConfirmationAuth(value: never): never {
+  throw new Error(`Unsupported NEAR transaction confirmation auth: ${String(value)}`);
+}
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -210,9 +274,9 @@ export async function runNearTransactionWithActionsSigning({
   ed25519Warmup,
   passkeyEd25519Reconnect,
 }: {
-	  ctx: NearSigningRuntimeDeps;
-	  commandSubject: NearCommandSubject;
-	  nearAccount: NearAccountRef;
+  ctx: NearSigningRuntimeDeps;
+  commandSubject: NearCommandSubject;
+  nearAccount: NearAccountRef;
   transaction: TransactionInputWasm;
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -456,8 +520,9 @@ export async function runNearTransactionWithActionsSigning({
       sessionId,
       chain: 'near',
       kind: 'transaction',
-      ...buildSigningConfirmationAuthParams({
+      ...buildNearTransactionConfirmationAuthParams({
         signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
+        walletSessionJwt: ed25519SigningBoundary.walletSessionJwt,
         emailOtpPrompt:
           preparedStepUp.kind === 'email_otp' ? preparedStepUp.emailOtpPrompt : undefined,
         webauthnChallenge:
@@ -473,10 +538,6 @@ export async function runNearTransactionWithActionsSigning({
       txSigningRequests: [confirmationTransaction],
       rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
-      nearFundingAuth: {
-        kind: 'wallet_session',
-        walletSessionJwt: ed25519SigningBoundary.walletSessionJwt,
-      },
       confirmationConfigOverride: confirmationConfigForSigningAuthPlan({
         signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
         override: confirmationConfigOverride,
@@ -506,8 +567,6 @@ export async function runNearTransactionWithActionsSigning({
     confirmation,
   });
 
-  const transactionContext = confirmation.transactionContext;
-  const nonceLeaseRefs = confirmation.nonceLeases || [];
   let thresholdSignatureCreated = false;
   let walletSpendRecorded = false;
   let signedTransactionOperation: SignedTransactionOperation<SelectedEd25519Lane> | null = null;
@@ -610,21 +669,31 @@ export async function runNearTransactionWithActionsSigning({
       const readyMaterialState =
         preparedReadyMaterialState ||
         (await requireOrRestoreRouterAbEd25519WalletSessionState({
+          ctx,
+          signingSessionCoordinator,
+          thresholdSessionId: canonicalThresholdSessionId,
+          operation: 'near_transaction',
+          nearAccountId,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          restoreAuthorization:
+            await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp({
               ctx,
               signingSessionCoordinator,
               thresholdSessionId: canonicalThresholdSessionId,
-              operation: 'near_transaction',
-              nearAccountId,
-              thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-              restoreAuthorization:
-                await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp({
-                  ctx,
-                  signingSessionCoordinator,
-                  thresholdSessionId: canonicalThresholdSessionId,
-                  stepUpAuthorization,
-                }),
-            }));
+              stepUpAuthorization,
+            }),
+        }));
       const { walletSessionState, routerAbReadyState, signingMaterial } = readyMaterialState;
+      const confirmedNearContext = await resolveConfirmedNearTransactionContext({
+        confirmation,
+        ctx,
+        walletId: String(signingLane.identity.signer.account.wallet.walletId),
+        nearAccountId,
+        nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
+        walletSessionState,
+        signingOperation,
+        signatureUses: requiredSignatureUses,
+      });
       await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
         touchConfirm,
         nearAccountId,
@@ -679,6 +748,8 @@ export async function runNearTransactionWithActionsSigning({
         trustedBudgetStatusAuth,
         refreshedBudgetIdentityRequired,
         signingMaterial,
+        transactionContext: confirmedNearContext.transactionContext,
+        nonceLeaseRefs: confirmedNearContext.nonceLeases,
       };
     },
   });
@@ -688,6 +759,8 @@ export async function runNearTransactionWithActionsSigning({
     routerAbReadyState,
     trustedBudgetStatusAuth,
     signingMaterial,
+    transactionContext,
+    nonceLeaseRefs,
   } = preparedPayload;
   let { refreshedBudgetIdentityRequired } = preparedPayload;
   let activeBudgetAdmittedOperation = ed25519SigningBoundary.initialBudgetAdmittedOperation;

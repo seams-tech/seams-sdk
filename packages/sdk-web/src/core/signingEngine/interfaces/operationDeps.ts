@@ -10,9 +10,7 @@ import type {
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
-import type {
-  EmailOtpSigningSessionAuthLane,
-} from '../stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpSigningSessionAuthLane } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../session/emailOtp/ecdsaSigningSessionAuthority';
 import type { EmailOtpEd25519SigningSessionAuthority } from '../session/emailOtp/ed25519SigningSessionAuthority';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
@@ -83,7 +81,9 @@ export type EmailOtpEcdsaSigningSessionAuthorityResolver = {
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  resolveThresholdEd25519SessionId?: (walletId: WalletId | string) => string | null;
+  resolveThresholdEd25519SessionIdForNearAccount: (
+    nearAccountId: AccountId | string,
+  ) => string | null;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     nearAccountId: AccountId;

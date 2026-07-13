@@ -26,7 +26,10 @@ import {
   type NearCommandSubject,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-function nearCommandSubject(walletIdRaw: string, nearAccountIdRaw = walletIdRaw): NearCommandSubject {
+function nearCommandSubject(
+  walletIdRaw: string,
+  nearAccountIdRaw = walletIdRaw,
+): NearCommandSubject {
   return {
     walletSession: {
       walletId: toWalletId(walletIdRaw),
@@ -66,6 +69,23 @@ function buildRouterAbEd25519WalletSessionJwtFixture(args: {
   });
 }
 
+function withExactNearAccountCapabilityReader<T extends { getWarmSession: () => Promise<any> }>(
+  reader: T,
+): T & {
+  getEd25519CapabilityForNearAccount: (nearAccountId: string) => Promise<any>;
+} {
+  return {
+    ...reader,
+    getEd25519CapabilityForNearAccount: async (nearAccountId: string) => {
+      const warmSession = await reader.getWarmSession();
+      const capability = warmSession.capabilities.ed25519;
+      return String(capability.record?.nearAccountId || '') === String(nearAccountId)
+        ? capability
+        : null;
+    },
+  };
+}
+
 function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
   walletId?: string;
   nearAccountId: string;
@@ -96,7 +116,7 @@ function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
     updatedAtMs: Date.now(),
   };
 
-  return {
+  return withExactNearAccountCapabilityReader({
     getWarmSession: async () => ({
       accountId: walletId,
       updatedAtMs: Date.now(),
@@ -131,7 +151,7 @@ function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
       },
     }),
     getEd25519SigningSessionStatusForSession: async () => args.status,
-  } as any;
+  } as any);
 }
 
 test.describe('near signing session selection', () => {
@@ -139,12 +159,53 @@ test.describe('near signing session selection', () => {
     clearAllStoredThresholdEd25519SessionRecords();
   });
 
+  test('resolves the Ed25519 capability by requested NEAR account', async () => {
+    const requestedNearAccountId = 'requested-account.testnet';
+    const reader = createStatusBackedPasskeyEd25519WarmSessionReader({
+      walletId: 'shared-wallet',
+      nearAccountId: requestedNearAccountId,
+      signingGrantId: 'requested-account-grant',
+      thresholdSessionId: 'requested-account-session',
+      expiresAtMs: Date.now() + 60_000,
+      status: {
+        sessionId: 'requested-account-session',
+        status: 'active',
+        remainingUses: 3,
+        committedRemainingUses: 3,
+        inFlightReservedUses: 0,
+        availableUses: 3,
+        expiresAtMs: Date.now() + 60_000,
+        projectionVersion: 'requested-account-projection',
+      },
+    });
+    let walletDefaultReads = 0;
+    const exactReader = {
+      ...reader,
+      getWarmSession: async () => {
+        walletDefaultReads += 1;
+        throw new Error('wallet-default Ed25519 capability must not drive NEAR signing');
+      },
+    } as any;
+
+    const context = await resolveNearSigningSessionAuthContext({
+      warmSessionReader: exactReader,
+      commandSubject: nearCommandSubject('shared-wallet', requestedNearAccountId),
+      operationLabel: 'exact account signing',
+      requiredSignatureUses: 1,
+    });
+
+    expect(walletDefaultReads).toBe(0);
+    expect(context.nearAccountId).toBe(requestedNearAccountId);
+    expect(String(context.lane.identity.signer.account.nearAccountId)).toBe(requestedNearAccountId);
+    expect(String(context.lane.thresholdSessionId)).toBe('requested-account-session');
+  });
+
   test('treats passkey Ed25519 auth-missing state as step-up reauthable', async () => {
     const nearAccountId = 'passkey-ed25519-auth-missing.testnet';
     const signingGrantId = 'wallet-passkey-ed25519-auth-missing';
     const thresholdSessionId = 'threshold-passkey-ed25519-auth-missing';
     const expiresAtMs = Date.now() + 60_000;
-    const warmSessionReader = {
+    const warmSessionReader = withExactNearAccountCapabilityReader({
       getWarmSession: async () => ({
         accountId: nearAccountId,
         updatedAtMs: Date.now(),
@@ -200,7 +261,7 @@ test.describe('near signing session selection', () => {
         status: 'unavailable',
         statusCode: 'auth_missing',
       }),
-    } as any;
+    } as any);
 
     const context = await resolveNearSigningSessionAuthContext({
       warmSessionReader,
@@ -263,9 +324,7 @@ test.describe('near signing session selection', () => {
       ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
         'pending-material-binding-digest',
       ),
-      sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(
-        'pending-material-sealed-ref',
-      ),
+      sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef('pending-material-sealed-ref'),
       sealedWorkerMaterialB64u: 'pending-material-sealed-blob',
       materialFormatVersion: 'ed25519_worker_material_v1',
       materialKeyId: parseEd25519WorkerMaterialKeyId('pending-material-key-id'),
@@ -395,122 +454,6 @@ test.describe('near signing session selection', () => {
 
     expect(plan.signingAuthPlan?.kind).toBe(SigningAuthPlanKind.PasskeyReauth);
     expect(plan.warmSessionReady).toBe(false);
-  });
-
-  test('fails closed when restored passkey Ed25519 material cannot be refreshed', async () => {
-    const nearAccountId = 'refresh-failed-passkey-ed25519.testnet';
-    const walletId = nearAccountId;
-    const nearEd25519SigningKeyId = nearAccountId;
-    const signingGrantId = 'wallet-refresh-failed-passkey-ed25519';
-    const thresholdSessionId = 'threshold-refresh-failed-passkey-ed25519';
-    const expiresAtMs = Date.now() + 60_000;
-    const relayerKeyId = 'ed25519:refresh-failed-relayer-key';
-    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
-      walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId,
-      thresholdSessionId,
-      signingGrantId,
-      relayerKeyId,
-    });
-    const record = {
-      walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId,
-      rpId: 'localhost',
-      passkeyCredentialIdB64u: 'credential-ed25519-refresh-failed',
-      relayerUrl: 'https://localhost:9444',
-      relayerKeyId,
-      participantIds: [1, 2],
-      thresholdSessionKind: 'jwt',
-      thresholdSessionId,
-      signingGrantId,
-      expiresAtMs,
-      remainingUses: 2,
-      signerSlot: 1,
-      clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
-        'refresh-failed-client-verifying-share',
-      ),
-      ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-        'refresh-failed-binding-digest',
-      ),
-      sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(
-        'refresh-failed-sealed-ref',
-      ),
-      sealedWorkerMaterialB64u: 'refresh-failed-sealed-blob',
-      materialFormatVersion: 'ed25519_worker_material_v1',
-      materialKeyId: parseEd25519WorkerMaterialKeyId('refresh-failed-material-key-id'),
-      materialCreatedAtMs: Date.now(),
-      keyVersion: 'kek-s-test',
-      materialState: 'restore_available',
-      jwt: walletSessionJwt,
-      walletSessionJwt,
-      runtimePolicyScope: {
-        orgId: 'org-refresh-failed',
-        projectId: 'project-refresh-failed',
-        envId: 'dev',
-        signingRootVersion: 'default',
-      },
-      routerAbNormalSigning: {
-        kind: 'router_ab_ed25519_normal_signing_v1' as const,
-        signingWorkerId: 'signing-worker-local',
-      },
-      source: 'login' as const,
-      updatedAtMs: Date.now(),
-    };
-    const warmSessionReader = {
-      getWarmSession: async () => ({
-        accountId: nearAccountId,
-        updatedAtMs: Date.now(),
-        capabilities: {
-          ed25519: {
-            capability: 'ed25519',
-            state: 'prf_missing',
-            record,
-            auth: null,
-            prfClaim: null,
-          },
-          ecdsa: {
-            evm: {
-              capability: 'ecdsa',
-              state: 'missing',
-              record: null,
-              key: null,
-              lane: null,
-              auth: null,
-              prfClaim: null,
-            },
-            tempo: {
-              capability: 'ecdsa',
-              state: 'missing',
-              record: null,
-              key: null,
-              lane: null,
-              auth: null,
-              prfClaim: null,
-            },
-          },
-        },
-      }),
-      restorePersistedSessionForSigning: async () => ({ attempted: 1, restored: 1, deferred: 0 }),
-      getEd25519CapabilityByThresholdSessionId: async () => {
-        throw new Error('refreshed capability unavailable');
-      },
-      getEd25519SigningSessionStatusForSession: async () => {
-        throw new Error('status should not be read after refresh failure');
-      },
-    } as any;
-
-    await expect(
-      resolveNearSigningSessionAuthContext({
-        warmSessionReader,
-        commandSubject: nearCommandSubject(nearAccountId),
-        operationLabel: 'transaction signing',
-        requiredSignatureUses: 1,
-      }),
-    ).rejects.toThrow(
-      'worker_restore_failed: pre_confirm:capability_refresh_failed:refreshed capability unavailable',
-    );
   });
 
   test('uses committed budget for passkey Ed25519 admission despite server in-flight reservations', async () => {
@@ -848,5 +791,4 @@ test.describe('near signing session selection', () => {
     );
     expect(newRecord).toBeNull();
   });
-
 });

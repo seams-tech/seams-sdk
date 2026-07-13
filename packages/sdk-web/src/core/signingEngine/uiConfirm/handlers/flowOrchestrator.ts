@@ -12,6 +12,7 @@ import {
   type TransactionSummary,
   type SignIntentDigestSubject,
   type SignIntentDigestPayload,
+  type SignTransactionPayload,
   type WebAuthnChallenge,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { TxDisplayModel } from '../../interfaces/display';
@@ -38,6 +39,102 @@ import {
   registerConfirmationReadiness,
   type ConfirmationReadiness,
 } from '../confirmationReadinessRegistry';
+
+function buildSignTransactionPayload(args: {
+  params: OrchestrateNearTransactionSigningConfirmationParams;
+  txSigningRequests: TransactionInputWasm[];
+  intentDigest: string;
+  displayModel: TxDisplayModel;
+}): SignTransactionPayload {
+  const base = {
+    signingKind: 'transaction' as const,
+    walletId: args.params.walletId,
+    txSigningRequests: args.txSigningRequests,
+    intentDigest: args.intentDigest,
+    displayModel: args.displayModel,
+    rpcCall: args.params.rpcCall,
+    ...(args.params.nearPublicKeyStr ? { nearPublicKeyStr: args.params.nearPublicKeyStr } : {}),
+  };
+  switch (args.params.signingAuthPlan.kind) {
+    case SigningAuthPlanKind.WarmSession:
+      if (!('nearFundingAuth' in args.params) || !args.params.nearFundingAuth) {
+        throw new Error('Warm-session NEAR confirmation requires funding authority');
+      }
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+        nearFundingAuth: args.params.nearFundingAuth,
+      };
+    case SigningAuthPlanKind.PasskeyReauth:
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+        ...(args.params.webauthnChallenge
+          ? { webauthnChallenge: args.params.webauthnChallenge }
+          : {}),
+      };
+    case SigningAuthPlanKind.EmailOtpReauth:
+      if (!args.params.emailOtpPrompt) {
+        throw new Error('Email OTP NEAR confirmation requires a prompt');
+      }
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+        emailOtpPrompt: args.params.emailOtpPrompt,
+      };
+    default:
+      return assertNeverTransactionSigningAuthParams(args.params.signingAuthPlan);
+  }
+}
+
+function assertNeverTransactionSigningAuthParams(value: never): never {
+  throw new Error(`Unsupported transaction signing auth params: ${String(value)}`);
+}
+
+function buildDelegateSignTransactionPayload(args: {
+  params: Extract<OrchestrateNearSignatureOnlySigningConfirmationParams, { kind: 'delegate' }>;
+  txSigningRequests: TransactionInputWasm[];
+  intentDigest: string;
+  displayModel: TxDisplayModel;
+}): SignTransactionPayload {
+  const base = {
+    signingKind: 'delegate' as const,
+    walletId: args.params.walletId,
+    txSigningRequests: args.txSigningRequests,
+    intentDigest: args.intentDigest,
+    displayModel: args.displayModel,
+    rpcCall: args.params.rpcCall,
+    ...(args.params.nearPublicKeyStr ? { nearPublicKeyStr: args.params.nearPublicKeyStr } : {}),
+  };
+  switch (args.params.signingAuthPlan.kind) {
+    case SigningAuthPlanKind.WarmSession:
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+      };
+    case SigningAuthPlanKind.PasskeyReauth:
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+        ...(args.params.webauthnChallenge
+          ? { webauthnChallenge: args.params.webauthnChallenge }
+          : {}),
+      };
+    case SigningAuthPlanKind.EmailOtpReauth: {
+      const emailOtpPrompt = args.params.signingAuthPlan.emailOtpPrompt;
+      if (!emailOtpPrompt) {
+        throw new Error('Email OTP delegate confirmation requires a prompt');
+      }
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+        emailOtpPrompt,
+      };
+    }
+    default:
+      return assertNeverTransactionSigningAuthParams(args.params.signingAuthPlan);
+  }
+}
 
 function normalizeIntentDigestForUi(value: unknown): string {
   const digest = String(value || '').trim();
@@ -201,10 +298,7 @@ export async function orchestrateSigningConfirmation(
         ...(params.body != null ? { body: params.body } : {}),
       };
 
-      if (
-        params.chain === 'near' &&
-        effectiveSigningAuthMode === 'warmSession'
-      ) {
+      if (params.chain === 'near' && effectiveSigningAuthMode === 'warmSession') {
         const eagerDisplayModel = buildNearDisplayModelWithFallback({
           txSigningRequests,
           signerAccountId: params.rpcCall.nearAccountId,
@@ -237,20 +331,12 @@ export async function orchestrateSigningConfirmation(
           requestId: sessionId,
           type: UserConfirmationType.SIGN_TRANSACTION,
           summary: summaryBase,
-          payload: {
-            walletId: params.walletId,
+          payload: buildSignTransactionPayload({
+            params,
             txSigningRequests,
             intentDigest: PENDING_INTENT_DIGEST,
             displayModel: eagerDisplayModel,
-            rpcCall: params.rpcCall,
-            ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
-            ...(params.nearFundingAuth ? { nearFundingAuth: params.nearFundingAuth } : {}),
-            ...(params.webauthnChallenge
-              ? { webauthnChallenge: params.webauthnChallenge }
-              : {}),
-            signingAuthPlan: params.signingAuthPlan,
-            ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
-          },
+          }),
           confirmationConfig: params.confirmationConfigOverride,
           intentDigest: PENDING_INTENT_DIGEST,
         };
@@ -275,20 +361,12 @@ export async function orchestrateSigningConfirmation(
         requestId: sessionId,
         type: UserConfirmationType.SIGN_TRANSACTION,
         summary,
-        payload: {
-          walletId: params.walletId,
+        payload: buildSignTransactionPayload({
+          params,
           txSigningRequests,
           intentDigest,
           displayModel,
-          rpcCall: params.rpcCall,
-          ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
-          ...(params.nearFundingAuth ? { nearFundingAuth: params.nearFundingAuth } : {}),
-          ...(params.webauthnChallenge
-            ? { webauthnChallenge: params.webauthnChallenge }
-            : {}),
-          signingAuthPlan: params.signingAuthPlan,
-          ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
-        },
+        }),
         confirmationConfig: params.confirmationConfigOverride,
         intentDigest,
       };
@@ -335,19 +413,12 @@ export async function orchestrateSigningConfirmation(
         requestId: sessionId,
         type: UserConfirmationType.SIGN_TRANSACTION,
         summary,
-        payload: {
-          walletId: params.walletId,
+        payload: buildDelegateSignTransactionPayload({
+          params,
           txSigningRequests,
           intentDigest,
           displayModel,
-          rpcCall: params.rpcCall,
-          ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
-          ...(params.webauthnChallenge
-            ? { webauthnChallenge: params.webauthnChallenge }
-            : {}),
-          signingAuthPlan: params.signingAuthPlan,
-          ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
-        },
+        }),
         confirmationConfig: params.confirmationConfigOverride,
         intentDigest,
       };
@@ -373,9 +444,7 @@ export async function orchestrateSigningConfirmation(
           ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
           message: params.message,
           recipient: params.recipient,
-          ...(params.webauthnChallenge
-            ? { webauthnChallenge: params.webauthnChallenge }
-            : {}),
+          ...(params.webauthnChallenge ? { webauthnChallenge: params.webauthnChallenge } : {}),
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
@@ -466,17 +535,28 @@ export async function orchestrateSigningConfirmation(
   }
 
   if (!decision.transactionContext) {
-    throw new Error('Missing transactionContext from confirmation flow');
+    if (params.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
+      throw new Error('Missing transactionContext from warm-session confirmation flow');
+    }
+    return {
+      kind: 'implicit_account_funding_required',
+      sessionId,
+      intentDigest: decision.intentDigest || intentDigest,
+      credential: decision.credential,
+      otpCode: decision.otpCode,
+      emailOtpChallengeId: decision.emailOtpChallengeId,
+    };
   }
 
   return {
+    kind: 'transaction_context_ready',
     sessionId,
     transactionContext: decision.transactionContext,
     intentDigest: decision.intentDigest || intentDigest,
     credential: decision.credential,
     otpCode: decision.otpCode,
     emailOtpChallengeId: decision.emailOtpChallengeId,
-    nonceLeases: decision.nonceLeases,
+    nonceLeases: decision.nonceLeases || [],
   };
 }
 

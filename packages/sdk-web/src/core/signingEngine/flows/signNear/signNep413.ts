@@ -15,10 +15,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import { refreshPasskeyEd25519SealedRecordAfterSigningMaterial } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
-import {
-  generateNearSigningSessionId,
-  resolveNearSigningMaterials,
-} from './shared/signingMaterials';
+import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import { requireOrRestoreRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './shared/ed25519MaterialRestoreAuthorization';
 import {
@@ -98,7 +95,7 @@ export async function signNep413Message({
   payload,
 }: NearNep413Payload): Promise<InternalSignNep413MessageResult> {
   try {
-    const sessionId = payload.sessionId ?? generateNearSigningSessionId();
+    const operationId = payload.operationId;
     const relayerUrl = ctx.relayerUrl;
     const nearAccountId = nearAccount.accountId;
     const touchConfirm = ctx.touchConfirm;
@@ -140,7 +137,7 @@ export async function signNep413Message({
       thresholdKeyMaterial,
     });
     const signingOperation: SigningOperationContext = {
-      operationId: SigningSessionIds.signingOperation(`near-nep413:${sessionId}`),
+      operationId,
       operationFingerprint: SigningSessionIds.signingOperationFingerprint(
         await thresholdEd25519Nep413OperationFingerprint({
           nearAccountId,
@@ -191,7 +188,7 @@ export async function signNep413Message({
       runtime: touchConfirm,
       request: {
         ctx: { touchConfirm },
-        sessionId,
+        sessionId: String(operationId),
         chain: 'near',
         kind: 'nep413',
         ...buildSigningConfirmationAuthParams({
@@ -296,11 +293,11 @@ export async function signNep413Message({
       const routerAbNormalSigningResult =
         await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
           ctx,
-	          thresholdSessionId: canonicalThresholdSessionId,
-	          signingSessionCoordinator,
-	          walletSessionState,
-	          walletId: commandSubject.walletSession.walletId,
-	          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          thresholdSessionId: canonicalThresholdSessionId,
+          signingSessionCoordinator,
+          walletSessionState,
+          walletId: commandSubject.walletSession.walletId,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
           nearAccountId,
           signingMaterial: payloadForWorker.signingMaterial,
           operationId: signingOperation.operationId,
