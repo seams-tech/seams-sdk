@@ -4,7 +4,7 @@ import type {
   OrchestrateIntentDigestSigningConfirmationParams,
   OrchestrateSigningConfirmationParams,
   SigningConfirmationResultIntentDigest,
-  SigningConfirmationResultWithTxContext,
+  NearTransactionSigningConfirmationResult,
 } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmOperation';
 import {
   SigningAuthPlanKind,
@@ -151,10 +151,10 @@ async function orchestrateSigningConfirmation(
     OrchestrateSigningConfirmationParams,
     OrchestrateIntentDigestSigningConfirmationParams
   >,
-): Promise<SigningConfirmationResultWithTxContext>;
+): Promise<NearTransactionSigningConfirmationResult>;
 async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
-): Promise<SigningConfirmationResultIntentDigest | SigningConfirmationResultWithTxContext> {
+): Promise<SigningConfirmationResultIntentDigest | NearTransactionSigningConfirmationResult> {
   if (params.kind !== 'intentDigest') {
     throw new Error('transaction confirmation is not used by this test');
   }
@@ -395,11 +395,6 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
     expect(reserveBudgetCalls).toBe(1);
     expect(signReadyCalls).toBe(1);
     expect(signCalls).toBe(0);
-    expect(callOrder).toEqual([
-      'reserve_budget_started',
-      'reserve_budget_completed',
-      'sign_ready',
-    ]);
+    expect(callOrder).toEqual(['reserve_budget_started', 'reserve_budget_completed', 'sign_ready']);
   });
-
 });

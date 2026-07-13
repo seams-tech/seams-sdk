@@ -1,6 +1,5 @@
 import type { TransactionInputWasm } from '@/core/types/actions';
 import type { RpcCallPayload, ConfirmationConfig } from '@/core/types/signer-worker';
-import type { TransactionContext } from '@/core/types/rpc';
 import type { EmailOtpConfirmPrompt, SigningAuthPlan, UserConfirmProgressEvent } from './types';
 import { SigningAuthPlanKind as SigningAuthPlanKinds } from './types';
 import type {
@@ -9,8 +8,11 @@ import type {
   UserConfirmRequest,
   WebAuthnChallenge,
 } from './channel/confirmTypes';
-import type { NonceLeaseRef } from '../interfaces/nonceLease';
 import type { TxDisplayModel } from '../interfaces/display';
+import type {
+  NearFundingRequest,
+  NearTransactionReadiness,
+} from '../nonce/nearTransactionReadiness';
 
 export type SigningConfirmationChain = 'near' | 'evm' | 'tempo';
 
@@ -108,23 +110,15 @@ type OrchestrateNearTransactionSigningConfirmationBaseParams =
     walletId: string;
     txSigningRequests: TransactionInputWasm[];
     rpcCall: RpcCallPayload;
-    nearPublicKeyStr?: string;
+    nearPublicKeyStr: string;
+    nearFundingRequest: NearFundingRequest;
     title?: string;
     body?: string;
   };
 
 export type OrchestrateNearTransactionSigningConfirmationParams =
   OrchestrateNearTransactionSigningConfirmationBaseParams &
-    (
-      | (WarmSessionSigningConfirmationAuthParams & {
-          nearFundingAuth: {
-            kind: 'wallet_session';
-            walletSessionJwt: string;
-          };
-        })
-      | (PasskeySigningConfirmationAuthParams & { nearFundingAuth?: never })
-      | (EmailOtpSigningConfirmationAuthParams & { nearFundingAuth?: never })
-    );
+    OrchestrateSigningConfirmationAuthParams;
 
 export type OrchestrateNearDelegateSigningConfirmationParams =
   OrchestrateSigningConfirmationBaseParams &
@@ -205,19 +199,9 @@ type SigningConfirmationResultBase = {
   emailOtpChallengeId?: string;
 };
 
-export type SigningConfirmationResultWithTxContext = SigningConfirmationResultBase &
-  (
-    | {
-        kind: 'transaction_context_ready';
-        transactionContext: TransactionContext;
-        nonceLeases: NonceLeaseRef[];
-      }
-    | {
-        kind: 'implicit_account_funding_required';
-        transactionContext?: never;
-        nonceLeases?: never;
-      }
-  );
+export type NearTransactionSigningConfirmationResult = SigningConfirmationResultBase & {
+  readiness: NearTransactionReadiness;
+};
 
 export interface SigningConfirmationResultIntentDigest {
   sessionId: string;
@@ -241,7 +225,7 @@ export type ConfirmSigningOperationRuntime = {
   ): Promise<SigningConfirmationResultIntentDigest>;
   orchestrateSigningConfirmation(
     params: OrchestrateNearTransactionSigningConfirmationParams,
-  ): Promise<SigningConfirmationResultWithTxContext>;
+  ): Promise<NearTransactionSigningConfirmationResult>;
   orchestrateSigningConfirmation(
     params: OrchestrateNearSignatureOnlySigningConfirmationParams,
   ): Promise<SigningConfirmationResultSignatureOnly>;
@@ -255,13 +239,13 @@ export type ConfirmTransactionSigningOperationRequest =
 export type ConfirmSignatureOnlySigningOperationRequest =
   OrchestrateNearSignatureOnlySigningConfirmationParams;
 export type ConfirmIntentDigestSigningOperationResult = SigningConfirmationResultIntentDigest;
-export type ConfirmTransactionSigningOperationResult = SigningConfirmationResultWithTxContext;
+export type ConfirmTransactionSigningOperationResult = NearTransactionSigningConfirmationResult;
 export type ConfirmSignatureOnlySigningOperationResult = SigningConfirmationResultSignatureOnly;
 export type ConfirmNearStepUpSigningOperationResult =
   | ConfirmTransactionSigningOperationResult
   | ConfirmSignatureOnlySigningOperationResult;
 export type ConfirmSigningOperationResult =
-  | SigningConfirmationResultWithTxContext
+  | NearTransactionSigningConfirmationResult
   | SigningConfirmationResultIntentDigest
   | SigningConfirmationResultSignatureOnly;
 
@@ -273,7 +257,7 @@ export async function confirmSigningOperation(args: {
 export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: ConfirmTransactionSigningOperationRequest;
-}): Promise<SigningConfirmationResultWithTxContext>;
+}): Promise<NearTransactionSigningConfirmationResult>;
 
 export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;

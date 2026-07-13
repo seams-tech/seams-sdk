@@ -99,6 +99,9 @@ function assertSigningRequestUsesAuthPlanOnly(request: UserConfirmRequest): void
   if (!isSigningAuthPlan(payload.signingAuthPlan)) {
     throw new Error('Invalid secure confirm request: missing or invalid signingAuthPlan');
   }
+  if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
+    assertNearTransactionFundingRequest(payload);
+  }
   if (payload.sessionPolicyDigest32 !== undefined) {
     throw new Error(
       'Invalid secure confirm request: sessionPolicyDigest32 is not accepted; use webauthnChallenge',
@@ -112,6 +115,77 @@ function assertSigningRequestUsesAuthPlanOnly(request: UserConfirmRequest): void
     throw new Error(
       'Invalid secure confirm request: passkey intent signing requires webauthnChallenge',
     );
+  }
+}
+
+function requiredRequestString(value: unknown, field: string): string {
+  if (!isString(value) || !value.trim()) {
+    throw new Error(`Invalid secure confirm request: ${field} is required`);
+  }
+  return value.trim();
+}
+
+function assertNearTransactionFundingRequest(payload: Record<string, unknown>): void {
+  if (payload.signingKind === 'delegate') {
+    if (payload.nearFundingRequest !== undefined) {
+      throw new Error('Invalid secure confirm request: delegate signing cannot request funding');
+    }
+    return;
+  }
+  if (payload.signingKind !== 'transaction') {
+    throw new Error('Invalid secure confirm request: missing transaction signing kind');
+  }
+  if (!isObject(payload.nearFundingRequest) || Array.isArray(payload.nearFundingRequest)) {
+    throw new Error('Invalid secure confirm request: missing nearFundingRequest');
+  }
+  const fundingRequest = payload.nearFundingRequest;
+  if (!isObject(fundingRequest.subject) || Array.isArray(fundingRequest.subject)) {
+    throw new Error('Invalid secure confirm request: missing NEAR funding subject');
+  }
+  if (!isObject(fundingRequest.operation) || Array.isArray(fundingRequest.operation)) {
+    throw new Error('Invalid secure confirm request: missing NEAR funding operation');
+  }
+  const walletId = requiredRequestString(fundingRequest.subject.walletId, 'funding walletId');
+  const nearAccountId = requiredRequestString(
+    fundingRequest.subject.nearAccountId,
+    'funding nearAccountId',
+  );
+  const nearPublicKeyStr = requiredRequestString(
+    fundingRequest.subject.nearPublicKeyStr,
+    'funding nearPublicKeyStr',
+  );
+  const payloadWalletId = requiredRequestString(payload.walletId, 'walletId');
+  const payloadNearPublicKey = requiredRequestString(payload.nearPublicKeyStr, 'nearPublicKeyStr');
+  if (!isObject(payload.rpcCall) || Array.isArray(payload.rpcCall)) {
+    throw new Error('Invalid secure confirm request: missing rpcCall');
+  }
+  const rpcNearAccountId = requiredRequestString(
+    payload.rpcCall.nearAccountId,
+    'rpc nearAccountId',
+  );
+  if (
+    walletId !== payloadWalletId ||
+    nearAccountId !== rpcNearAccountId ||
+    nearPublicKeyStr !== payloadNearPublicKey
+  ) {
+    throw new Error('Invalid secure confirm request: NEAR funding subject mismatch');
+  }
+  requiredRequestString(fundingRequest.operation.operationId, 'funding operationId');
+  requiredRequestString(
+    fundingRequest.operation.operationFingerprint,
+    'funding operationFingerprint',
+  );
+  if (fundingRequest.operation.intent !== 'transaction_sign') {
+    throw new Error('Invalid secure confirm request: invalid NEAR funding operation intent');
+  }
+  if (
+    requiredRequestString(fundingRequest.operation.accountId, 'funding operation accountId') !==
+    nearAccountId
+  ) {
+    throw new Error('Invalid secure confirm request: NEAR funding operation account mismatch');
+  }
+  if (!Number.isInteger(fundingRequest.signatureUses) || Number(fundingRequest.signatureUses) < 1) {
+    throw new Error('Invalid secure confirm request: invalid NEAR funding signature use count');
   }
 }
 
@@ -359,14 +433,6 @@ export function getNearPublicKeyStr(request: UserConfirmRequest): string | undef
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
   return undefined;
-}
-
-export function getNearFundingWalletSessionJwt(request: UserConfirmRequest): string | undefined {
-  if (request.type !== UserConfirmationType.SIGN_TRANSACTION) return undefined;
-  const fundingAuth = getSignTransactionPayload(request).nearFundingAuth;
-  if (fundingAuth?.kind !== 'wallet_session') return undefined;
-  const jwt = String(fundingAuth.walletSessionJwt || '').trim();
-  return jwt || undefined;
 }
 
 export function getRegisterAccountPayload(request: UserConfirmRequest): RegisterAccountPayload {

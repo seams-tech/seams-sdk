@@ -5,10 +5,16 @@ import type {
   UserConfirmDecision,
 } from './types';
 import type { WorkerConfirmationResponse } from './channel/confirmTypes';
+import type { NearTransactionReadiness } from '../nonce/nearTransactionReadiness';
 
 const credential = {} as SerializableCredential;
 const transactionContext = {} as TransactionContext;
 const nonceLeases = [] as NonceLeaseRef[];
+const nearTransactionReadiness = {
+  kind: 'context_ready',
+  transactionContext,
+  nonceLeases,
+} satisfies NearTransactionReadiness;
 
 const successDecision: UserConfirmDecision = {
   requestId: 'request-1',
@@ -66,6 +72,35 @@ const workerTransactionSuccess: WorkerConfirmationResponse = {
   transaction_context: transactionContext,
   nonce_leases: nonceLeases,
 };
+
+const nearReadinessSuccess: UserConfirmDecision = {
+  requestId: 'request-5-near-readiness',
+  confirmed: true,
+  nearTransactionReadiness,
+};
+
+const workerNearReadinessSuccess: WorkerConfirmationResponse = {
+  request_id: 'request-5-worker-near-readiness',
+  confirmed: true,
+  near_transaction_readiness: nearTransactionReadiness,
+};
+
+const invalidNearReadinessWithTopLevelContext = {
+  requestId: 'request-5-invalid-near-readiness',
+  confirmed: true,
+  nearTransactionReadiness,
+  transactionContext,
+  // @ts-expect-error NEAR readiness replaces the legacy top-level transaction context branch.
+} satisfies UserConfirmDecision;
+
+const invalidWorkerNearReadinessWithTopLevelContext = {
+  request_id: 'request-5-invalid-worker-near-readiness',
+  confirmed: true,
+  near_transaction_readiness: nearTransactionReadiness,
+  transaction_context: transactionContext,
+  nonce_leases: nonceLeases,
+  // @ts-expect-error Worker NEAR readiness replaces the top-level transaction context branch.
+} satisfies WorkerConfirmationResponse;
 
 const invalidFailureCredential = {
   requestId: 'request-6',
@@ -129,6 +164,10 @@ void failureWithDiagnostics;
 void workerFailure;
 void workerSuccess;
 void workerTransactionSuccess;
+void nearReadinessSuccess;
+void workerNearReadinessSuccess;
+void invalidNearReadinessWithTopLevelContext;
+void invalidWorkerNearReadinessWithTopLevelContext;
 void invalidFailureCredential;
 void invalidFailureOtp;
 void invalidFailureNonceLeases;

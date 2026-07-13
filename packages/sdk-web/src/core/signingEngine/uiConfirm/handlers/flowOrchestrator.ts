@@ -22,11 +22,11 @@ import type {
   OrchestrateNearSignatureOnlySigningConfirmationParams,
   OrchestrateNearTransactionSigningConfirmationParams,
   OrchestrateSigningConfirmationParams,
+  NearTransactionSigningConfirmationResult,
   RequestUserConfirmationBridge,
   SigningConfirmationChain,
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultSignatureOnly,
-  SigningConfirmationResultWithTxContext,
   UiConfirmRequestBridgeContext,
 } from '../../stepUpConfirmation/confirmOperation';
 import {
@@ -53,17 +53,14 @@ function buildSignTransactionPayload(args: {
     intentDigest: args.intentDigest,
     displayModel: args.displayModel,
     rpcCall: args.params.rpcCall,
-    ...(args.params.nearPublicKeyStr ? { nearPublicKeyStr: args.params.nearPublicKeyStr } : {}),
+    nearPublicKeyStr: args.params.nearPublicKeyStr,
+    nearFundingRequest: args.params.nearFundingRequest,
   };
   switch (args.params.signingAuthPlan.kind) {
     case SigningAuthPlanKind.WarmSession:
-      if (!('nearFundingAuth' in args.params) || !args.params.nearFundingAuth) {
-        throw new Error('Warm-session NEAR confirmation requires funding authority');
-      }
       return {
         ...base,
         signingAuthPlan: args.params.signingAuthPlan,
-        nearFundingAuth: args.params.nearFundingAuth,
       };
     case SigningAuthPlanKind.PasskeyReauth:
       return {
@@ -258,21 +255,21 @@ export async function orchestrateSigningConfirmation(
 ): Promise<SigningConfirmationResultIntentDigest>;
 export async function orchestrateSigningConfirmation(
   params: OrchestrateNearTransactionSigningConfirmationParams,
-): Promise<SigningConfirmationResultWithTxContext>;
+): Promise<NearTransactionSigningConfirmationResult>;
 export async function orchestrateSigningConfirmation(
   params: OrchestrateNearSignatureOnlySigningConfirmationParams,
 ): Promise<SigningConfirmationResultSignatureOnly>;
 export async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
 ): Promise<
-  | SigningConfirmationResultWithTxContext
+  | NearTransactionSigningConfirmationResult
   | SigningConfirmationResultIntentDigest
   | SigningConfirmationResultSignatureOnly
 >;
 export async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
 ): Promise<
-  | SigningConfirmationResultWithTxContext
+  | NearTransactionSigningConfirmationResult
   | SigningConfirmationResultIntentDigest
   | SigningConfirmationResultSignatureOnly
 > {
@@ -534,29 +531,17 @@ export async function orchestrateSigningConfirmation(
     };
   }
 
-  if (!decision.transactionContext) {
-    if (params.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
-      throw new Error('Missing transactionContext from warm-session confirmation flow');
-    }
-    return {
-      kind: 'implicit_account_funding_required',
-      sessionId,
-      intentDigest: decision.intentDigest || intentDigest,
-      credential: decision.credential,
-      otpCode: decision.otpCode,
-      emailOtpChallengeId: decision.emailOtpChallengeId,
-    };
+  if (!decision.nearTransactionReadiness) {
+    throw new Error('Missing explicit NEAR transaction readiness from confirmation flow');
   }
 
   return {
-    kind: 'transaction_context_ready',
     sessionId,
-    transactionContext: decision.transactionContext,
+    readiness: decision.nearTransactionReadiness,
     intentDigest: decision.intentDigest || intentDigest,
     credential: decision.credential,
     otpCode: decision.otpCode,
     emailOtpChallengeId: decision.emailOtpChallengeId,
-    nonceLeases: decision.nonceLeases || [],
   };
 }
 

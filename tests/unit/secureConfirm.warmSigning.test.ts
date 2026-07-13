@@ -103,7 +103,8 @@ test.describe('UserConfirm – warm signing', () => {
           },
         });
         ctx.nonceCoordinator.initializeNearAccessKey({
-          accountId: 'alice.testnet',
+          walletId: 'alice-wallet',
+          nearAccountId: 'alice.testnet',
           publicKey: 'pk',
         });
 
@@ -112,7 +113,24 @@ test.describe('UserConfirm – warm signing', () => {
           type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
+            signingKind: 'transaction',
+            walletId: 'alice-wallet',
             intentDigest: 'intent-warm',
+            nearPublicKeyStr: 'pk',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'alice-wallet',
+                nearAccountId: 'alice.testnet',
+                nearPublicKeyStr: 'pk',
+              },
+              operation: {
+                operationId: 'sess-warm',
+                operationFingerprint: 'intent-warm',
+                intent: 'transaction_sign',
+                accountId: 'alice.testnet',
+              },
+              signatureUses: 2,
+            },
             txSigningRequests: [
               { receiverId: 'x', actions: [] },
               { receiverId: 'y', actions: [] },
@@ -157,7 +175,7 @@ test.describe('UserConfirm – warm signing', () => {
 
     expect(result.counts.touchId).toBe(0);
     expect(result.response.confirmed).toBe(true);
-    expect(result.response.transactionContext).toBeTruthy();
+    expect(result.response.nearTransactionReadiness?.kind).toBe('context_ready');
     expect(result.reserved.length).toBeGreaterThan(0);
   });
 });

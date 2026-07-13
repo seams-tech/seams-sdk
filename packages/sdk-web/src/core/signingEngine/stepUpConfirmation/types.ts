@@ -5,6 +5,7 @@ import type {
   WalletAuthMethod,
 } from '@/core/types/seams';
 import type { TransactionContext } from '@/core/types/rpc';
+import type { NearTransactionReadiness } from '../nonce/nearTransactionReadiness';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -58,16 +59,33 @@ export type UserConfirmDecisionBase = ForbiddenMainThreadSecrets & {
   _confirmHandle?: { close: (confirmed: boolean) => void };
 };
 
-export type UserConfirmSuccessDecision = UserConfirmDecisionBase & {
+type UserConfirmSuccessDecisionBase = UserConfirmDecisionBase & {
   confirmed: true;
   credential?: SerializableCredential;
   otpCode?: string;
   emailOtpChallengeId?: string;
-  transactionContext?: TransactionContext;
-  nonceLeases?: NonceLeaseRef[];
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   error?: never;
 };
+
+export type UserConfirmSuccessDecision = UserConfirmSuccessDecisionBase &
+  (
+    | {
+        nearTransactionReadiness: NearTransactionReadiness;
+        transactionContext?: never;
+        nonceLeases?: never;
+      }
+    | {
+        nearTransactionReadiness?: never;
+        transactionContext: TransactionContext;
+        nonceLeases?: NonceLeaseRef[];
+      }
+    | {
+        nearTransactionReadiness?: never;
+        transactionContext?: never;
+        nonceLeases?: never;
+      }
+  );
 
 export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
   confirmed: false;
@@ -78,6 +96,7 @@ export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
   emailOtpChallengeId?: never;
   transactionContext?: never;
   nonceLeases?: never;
+  nearTransactionReadiness?: never;
 };
 
 export type UserConfirmDecision = UserConfirmSuccessDecision | UserConfirmFailureDecision;
@@ -90,8 +109,7 @@ export const SigningAuthPlanKind = {
   EmailOtpReauth: 'emailOtpReauth',
 } as const;
 
-export type SigningAuthPlanKind =
-  (typeof SigningAuthPlanKind)[keyof typeof SigningAuthPlanKind];
+export type SigningAuthPlanKind = (typeof SigningAuthPlanKind)[keyof typeof SigningAuthPlanKind];
 
 export interface EmailOtpConfirmPrompt {
   challengeId: string;
@@ -233,7 +251,10 @@ export type StepUpAuthorizationResult<TPasskeyAuthorization, TEmailOtpAuthorizat
     };
 
 export type WarmSessionStepUpAuthorization<
-  TSigningAuthPlan extends Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.WarmSession }>,
+  TSigningAuthPlan extends Extract<
+    SigningAuthPlan,
+    { kind: typeof SigningAuthPlanKind.WarmSession }
+  >,
 > = {
   kind: 'warm_session';
   signingAuthPlan: TSigningAuthPlan;
@@ -243,7 +264,10 @@ export type WarmSessionStepUpAuthorization<
 };
 
 export type PasskeyStepUpAuthorization<
-  TSigningAuthPlan extends Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.PasskeyReauth }>,
+  TSigningAuthPlan extends Extract<
+    SigningAuthPlan,
+    { kind: typeof SigningAuthPlanKind.PasskeyReauth }
+  >,
   TIdentity extends object = Record<never, never>,
 > = {
   kind: 'passkey';
@@ -252,7 +276,10 @@ export type PasskeyStepUpAuthorization<
 } & TIdentity;
 
 export type EmailOtpStepUpAuthorization<
-  TSigningAuthPlan extends Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.EmailOtpReauth }>,
+  TSigningAuthPlan extends Extract<
+    SigningAuthPlan,
+    { kind: typeof SigningAuthPlanKind.EmailOtpReauth }
+  >,
   TIdentity extends object = Record<never, never>,
 > = {
   kind: 'email_otp';

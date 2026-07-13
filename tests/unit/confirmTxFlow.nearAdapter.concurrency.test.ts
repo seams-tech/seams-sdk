@@ -62,24 +62,51 @@ test.describe('touchConfirm near adapter – concurrency', () => {
           // Run two reservations "concurrently" to mimic rapid-fire signing requests.
           const [r1, r2] = await Promise.all([
             adapters.near.fetchNearContext({
-              nearAccountId: 'test-account.testnet',
-              nearPublicKeyStr: 'ed25519:test-public-key',
-              txCount: 1,
-              reserveNonces: true,
+              subject: {
+                walletId: 'test-wallet',
+                nearAccountId: 'test-account.testnet',
+                nearPublicKeyStr: 'ed25519:test-public-key',
+              },
+              operation: {
+                operationId: 'operation-1',
+                operationFingerprint: 'fingerprint-1',
+                intent: 'transaction_sign',
+                accountId: 'test-account.testnet',
+              },
+              signatureUses: 1,
             }),
             adapters.near.fetchNearContext({
-              nearAccountId: 'test-account.testnet',
-              nearPublicKeyStr: 'ed25519:test-public-key',
-              txCount: 1,
-              reserveNonces: true,
+              subject: {
+                walletId: 'test-wallet',
+                nearAccountId: 'test-account.testnet',
+                nearPublicKeyStr: 'ed25519:test-public-key',
+              },
+              operation: {
+                operationId: 'operation-2',
+                operationFingerprint: 'fingerprint-2',
+                intent: 'transaction_sign',
+                accountId: 'test-account.testnet',
+              },
+              signatureUses: 1,
             }),
           ]);
 
           return {
             ok: true as const,
-            sameObject: r1.transactionContext === r2.transactionContext,
-            nonce1: r1.transactionContext?.nextNonce ?? null,
-            nonce2: r2.transactionContext?.nextNonce ?? null,
+            sameObject:
+              r1.kind === 'readiness' &&
+              r2.kind === 'readiness' &&
+              r1.readiness.kind === 'context_ready' &&
+              r2.readiness.kind === 'context_ready' &&
+              r1.readiness.transactionContext === r2.readiness.transactionContext,
+            nonce1:
+              r1.kind === 'readiness' && r1.readiness.kind === 'context_ready'
+                ? r1.readiness.transactionContext.nextNonce
+                : null,
+            nonce2:
+              r2.kind === 'readiness' && r2.readiness.kind === 'context_ready'
+                ? r2.readiness.transactionContext.nextNonce
+                : null,
           };
         } catch (e: any) {
           return { ok: false as const, error: e?.message || String(e) };

@@ -1,12 +1,11 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
 import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig';
-import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
+import type { UserConfirmSecurityContext } from '@/core/types';
 import type { ThemeMode } from '@/core/types/seams';
 import type {
-  NearExecutionReadiness,
-  NonceLease,
-} from '@/core/signingEngine/nonce/NonceCoordinator';
-import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
+  NearFundingRequest,
+  NearTransactionReadiness,
+} from '@/core/signingEngine/nonce/nearTransactionReadiness';
 import {
   collectAuthenticationCredentialForChallengeB64u,
   collectAuthenticationCredentialForWalletChallengeB64u,
@@ -30,17 +29,17 @@ import {
 import {
   getNearAccountId,
   getIntentDigest,
-  getNearPublicKeyStr,
-  getNearFundingWalletSessionJwt,
   getSigningAuthMode,
   getTxCount,
   getSignTransactionPayload,
-  getWalletId,
   getSignIntentDigestSubject,
 } from './adapters/request';
 import { toError } from '@shared/utils/errors';
-import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
-import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
+import {
+  createConfirmSession,
+  createConfirmTxFlowAdapters,
+  type NearContextFetchResult,
+} from './adapters/adapters';
 import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
 import {
   clearIntentDigestPreparation,
@@ -49,10 +48,7 @@ import {
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import { consumeConfirmationReadiness } from '@/core/signingEngine/uiConfirm/confirmationReadinessRegistry';
-import {
-  formatNearAccountFundingNotice,
-  NEAR_TRANSACTION_SUBMITTING_NOTICE,
-} from '@/core/signingEngine/uiConfirm/nearFundingNotice';
+import { formatNearAccountFundingNotice } from '@/core/signingEngine/uiConfirm/nearFundingNotice';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 
@@ -72,49 +68,13 @@ function getTransactionSigningAuthMode(request: SigningUserConfirmRequest) {
   return 'webauthn';
 }
 
-function shouldReserveNearNonceLeases(
-  request: SigningUserConfirmRequest,
-  transactionSummary: TransactionSummary,
-): boolean {
-  if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) return false;
-  if (request.type !== UserConfirmationType.SIGN_TRANSACTION) return false;
-  return transactionSummary.type !== 'delegateAction';
-}
-
-type NearContextFetchResult = {
-  transactionContext: TransactionContext | null;
-  error?: string;
-  details?: string;
-  readiness?: NearExecutionReadiness;
-  reservedNonces?: string[];
-  nonceLeases?: NonceLease[];
-};
-
-type NearContextFetchInput = {
-  walletId: string;
-  nearAccountId: string;
-  nearPublicKeyStr?: string;
-  txCount: number;
-  reserveNonces: boolean;
-  allowFallback?: boolean;
-  operationId?: string;
-  operationFingerprint?: string;
-};
-
-type NearContextFetcher = (input: NearContextFetchInput) => Promise<NearContextFetchResult>;
-
 type NearSigningReadinessMode =
   | {
       kind: 'transaction_access_key';
-      reserveNonces: boolean;
     }
   | {
       kind: 'signature_only';
-      reserveNonces?: never;
     };
-
-const IMPLICIT_NEAR_FUNDING_ACCESS_KEY_POLL_ATTEMPTS = 12;
-const IMPLICIT_NEAR_FUNDING_ACCESS_KEY_POLL_DELAY_MS = 1000;
 
 function resolveNearSigningReadinessMode(args: {
   request: SigningUserConfirmRequest;
@@ -129,30 +89,11 @@ function resolveNearSigningReadinessMode(args: {
   ) {
     return { kind: 'signature_only' };
   }
-  return {
-    kind: 'transaction_access_key',
-    reserveNonces: shouldReserveNearNonceLeases(args.request, args.transactionSummary),
-  };
+  return { kind: 'transaction_access_key' };
 }
 
-function nearRpcFailureMessage(args: {
-  error?: string;
-  details?: string;
-  readiness?: NearExecutionReadiness;
-}): string {
-  if (
-    args.readiness?.kind === 'implicit_unfunded' ||
-    args.error === 'NEAR_IMPLICIT_ACCOUNT_UNFUNDED'
-  ) {
-    return (
-      args.details ||
-      'NEAR implicit account is not funded on-chain. Fund the account before direct NEAR signing.'
-    );
-  }
-  if (
-    args.readiness?.kind === 'account_lookup_failed' ||
-    args.error === 'NEAR_ACCOUNT_LOOKUP_FAILED'
-  ) {
+function nearRpcFailureMessage(args: Extract<NearContextFetchResult, { kind: 'failed' }>): string {
+  if (args.error === 'NEAR_ACCOUNT_LOOKUP_FAILED') {
     return args.details || 'NEAR account access-key lookup failed.';
   }
   return args.details
@@ -160,116 +101,42 @@ function nearRpcFailureMessage(args: {
     : ERROR_MESSAGES.nearRpcFailed;
 }
 
-function isImplicitNearAccountFundingRequired(args?: {
-  error?: string;
-  readiness?: NearExecutionReadiness;
-}): boolean {
-  return (
-    args?.readiness?.kind === 'implicit_unfunded' ||
-    args?.error === 'NEAR_IMPLICIT_ACCOUNT_UNFUNDED'
-  );
-}
-
-function requiresFreshAuthBeforeImplicitNearFunding(
-  signingAuthMode: ReturnType<typeof getTransactionSigningAuthMode>,
-): boolean {
-  return signingAuthMode === 'webauthn' || signingAuthMode === 'emailOtp';
-}
-
-function implicitNearAccountFundingConfirmText(args?: {
-  error?: string;
-  readiness?: NearExecutionReadiness;
-}): string | undefined {
-  return isImplicitNearAccountFundingRequired(args) ? 'Fund account' : undefined;
-}
-
-function implicitNearAccountFundingNotice(
-  args: { error?: string; readiness?: NearExecutionReadiness } | undefined,
-  fallbackNearAccountId: string,
-): string | undefined {
-  if (!isImplicitNearAccountFundingRequired(args)) return undefined;
-  const nearAccountId =
-    args?.readiness?.kind === 'implicit_unfunded'
-      ? args.readiness.nearAccountId
-      : fallbackNearAccountId;
-  return formatNearAccountFundingNotice(nearAccountId);
-}
-
 function buildNearContextFetchInput(args: {
   request: SigningUserConfirmRequest;
-  nearAccountId: string;
   usesNeeded: number;
   readinessMode: NearSigningReadinessMode;
-  resolvedIntentDigest?: string;
-}): NearContextFetchInput | undefined {
+}): NearFundingRequest | undefined {
   if (args.readinessMode.kind !== 'transaction_access_key') return undefined;
-  return {
-    walletId: getWalletId(args.request),
-    nearAccountId: args.nearAccountId,
-    nearPublicKeyStr: getNearPublicKeyStr(args.request),
-    txCount: args.usesNeeded,
-    reserveNonces: args.readinessMode.reserveNonces,
-    allowFallback: false,
-    operationId: args.request.requestId,
-    operationFingerprint: args.resolvedIntentDigest || args.request.requestId,
-  };
+  if (args.request.type !== UserConfirmationType.SIGN_TRANSACTION) {
+    throw new Error('NEAR transaction readiness requires a transaction confirmation request');
+  }
+  const payload = getSignTransactionPayload(args.request);
+  if (payload.signingKind !== 'transaction') {
+    throw new Error('NEAR transaction readiness cannot use a delegate confirmation payload');
+  }
+  const fundingRequest = payload.nearFundingRequest;
+  if (fundingRequest.signatureUses !== args.usesNeeded) {
+    throw new Error('NEAR funding request signature use count does not match confirmation request');
+  }
+  return fundingRequest;
 }
 
-function delayMs(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function waitForFundedNearContext(args: {
-  fetchNearContext: NearContextFetcher;
-  input: NearContextFetchInput;
-}): Promise<NearContextFetchResult> {
-  let latest: NearContextFetchResult | undefined;
-  for (let attempt = 1; attempt <= IMPLICIT_NEAR_FUNDING_ACCESS_KEY_POLL_ATTEMPTS; attempt += 1) {
-    latest = await args.fetchNearContext(args.input);
-    if (latest.transactionContext) return latest;
-    if (attempt < IMPLICIT_NEAR_FUNDING_ACCESS_KEY_POLL_ATTEMPTS) {
-      await delayMs(IMPLICIT_NEAR_FUNDING_ACCESS_KEY_POLL_DELAY_MS);
+type NearReadinessDecisionFields =
+  | {
+      nearTransactionReadiness: NearTransactionReadiness;
+      transactionContext?: never;
+      nonceLeases?: never;
     }
-  }
-  return (
-    latest || {
-      transactionContext: null,
-      error: 'NEAR_ACCOUNT_LOOKUP_FAILED',
-      details: 'Funded NEAR account, but the access key was not visible before the wait timed out.',
-    }
-  );
-}
+  | {
+      nearTransactionReadiness?: never;
+      transactionContext?: never;
+      nonceLeases?: never;
+    };
 
-async function fundImplicitNearAccountForRequest(args: {
-  ctx: UiConfirmContext;
-  request: SigningUserConfirmRequest;
-}): Promise<void> {
-  const relayerUrl = String(args.ctx.relayerUrl || '').trim();
-  const walletId = getWalletId(args.request);
-  const nearAccountId = getNearAccountId(args.request);
-  const nearPublicKeyStr = getNearPublicKeyStr(args.request);
-  const walletSessionJwt = getNearFundingWalletSessionJwt(args.request);
-  if (!relayerUrl) throw new Error('Missing relayer URL for implicit NEAR account funding');
-  if (!walletId) throw new Error('Missing wallet ID for implicit NEAR account funding');
-  if (!nearAccountId) throw new Error('Missing NEAR account ID for implicit NEAR account funding');
-  if (!nearPublicKeyStr) {
-    throw new Error('Missing NEAR public key for implicit NEAR account funding');
-  }
-  if (!walletSessionJwt) {
-    throw new Error('Missing Wallet Session JWT for implicit NEAR account funding');
-  }
-  const result = await fundImplicitNearAccountForTesting({
-    relayerUrl,
-    walletId,
-    nearAccountId,
-    nearPublicKeyStr,
-    walletSessionJwt,
-  });
-  if (!result.ok) {
-    throw new Error(result.message || result.code || 'Failed to fund implicit NEAR account');
-  }
+function nearReadinessDecisionFields(
+  readiness: NearTransactionReadiness | undefined,
+): NearReadinessDecisionFields {
+  return readiness ? { nearTransactionReadiness: readiness } : {};
 }
 
 function normalizeSixDigitOtpCode(value: unknown): string {
@@ -423,10 +290,8 @@ export async function handleTransactionSigningFlow(
     const readinessMode = resolveNearSigningReadinessMode({ request, transactionSummary });
     const nearContextFetchInput = buildNearContextFetchInput({
       request,
-      nearAccountId,
       usesNeeded,
       readinessMode,
-      resolvedIntentDigest,
     });
     const nearContextPromise = nearContextFetchInput
       ? adapters.near.fetchNearContext(nearContextFetchInput)
@@ -481,7 +346,6 @@ export async function handleTransactionSigningFlow(
     void promptDecisionPromise.finally(markPromptReady);
 
     let nearRpcResolved: NearContextFetchResult | undefined;
-    let implicitFundingDeferredForFreshAuth = false;
     const applyPreparedIntentData = (prepared: IntentDigestPreparationResult): void => {
       const preparedIntentDigest = String(prepared.intentDigest || '').trim();
       const preparedChallengeB64u = String(prepared.challengeB64u || '').trim();
@@ -555,29 +419,32 @@ export async function handleTransactionSigningFlow(
     if (nearContextPromise) {
       void nearContextPromise.then(async (nearRpc) => {
         nearRpcResolved = nearRpc;
-        nearContextReady = true;
         await promptReady;
-        if (!nearRpc.transactionContext) {
+        if (nearRpc.kind === 'failed') {
           nearContextFailed = true;
           if (decisionResolved) return;
-          const fundingNotice = implicitNearAccountFundingNotice(nearRpc, nearAccountId);
-          if (fundingNotice) {
-            session.updateUI({
-              loading: false,
-              body: fundingNotice,
-              errorMessage: '',
-              confirmText: implicitNearAccountFundingConfirmText(nearRpc),
-            });
-            return;
-          }
           session.updateUI({
             loading: false,
             errorMessage: nearRpcFailureMessage(nearRpc),
           });
           return;
         }
-        session.setNonceLeases(nearRpc.nonceLeases);
-        const transactionContext: TransactionContext = nearRpc.transactionContext;
+        nearContextReady = true;
+        nearContextFailed = false;
+        if (nearRpc.readiness.kind === 'funding_required') {
+          if (decisionResolved) return;
+          session.updateUI({
+            loading: false,
+            body: formatNearAccountFundingNotice(
+              String(nearRpc.readiness.request.subject.nearAccountId),
+            ),
+            errorMessage: '',
+            confirmText: 'Fund account',
+          });
+          return;
+        }
+        session.setNonceLeases(nearRpc.reservedNonceLeases);
+        const transactionContext = nearRpc.readiness.transactionContext;
         const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
           ? {
               rpId,
@@ -607,76 +474,26 @@ export async function handleTransactionSigningFlow(
       });
     }
 
-    let nearRpc = nearContextPromise ? nearRpcResolved || (await nearContextPromise) : undefined;
-    let transactionContext: TransactionContext | undefined;
+    const nearRpc = nearContextPromise ? nearRpcResolved || (await nearContextPromise) : undefined;
+    let nearTransactionReadiness: NearTransactionReadiness | undefined;
     if (nearContextPromise) {
-      if (!nearRpc?.transactionContext) {
-        if (isImplicitNearAccountFundingRequired(nearRpc)) {
-          if (requiresFreshAuthBeforeImplicitNearFunding(signingAuthMode)) {
-            implicitFundingDeferredForFreshAuth = true;
-          } else {
-            session.updateUI({
-              loading: true,
-              errorMessage: '',
-              body: implicitNearAccountFundingNotice(nearRpc, nearAccountId) || originalBody,
-              confirmText: 'Funding account...',
-            });
-            try {
-              if (!nearContextFetchInput) {
-                throw new Error('NEAR funding requires transaction readiness input');
-              }
-              await fundImplicitNearAccountForRequest({ ctx, request });
-              const submittingSecurityContext: Partial<UserConfirmSecurityContext> | undefined =
-                rpId ? { rpId } : undefined;
-              session.updateUI({
-                loading: true,
-                errorMessage: '',
-                body: NEAR_TRANSACTION_SUBMITTING_NOTICE,
-                ...(submittingSecurityContext
-                  ? { securityContext: submittingSecurityContext }
-                  : {}),
-                confirmText: 'Waiting for access key...',
-              });
-              nearContextFailed = false;
-              nearContextReady = false;
-              nearRpc = await waitForFundedNearContext({
-                fetchNearContext: adapters.near.fetchNearContext,
-                input: nearContextFetchInput,
-              });
-              nearRpcResolved = nearRpc;
-              nearContextReady = Boolean(nearRpc.transactionContext);
-              nearContextFailed = !nearRpc.transactionContext;
-            } catch (error: unknown) {
-              return session.confirmAndCloseModal({
-                requestId: request.requestId,
-                intentDigest: resolvedIntentDigestForResponse,
-                confirmed: false,
-                error: toError(error)?.message || 'Failed to fund implicit NEAR account',
-              });
-            }
-          }
-        }
-        if (nearRpc?.transactionContext) {
-          session.setNonceLeases(nearRpc.nonceLeases);
-          transactionContext = nearRpc.transactionContext;
-        }
-      }
-      if (!nearRpc?.transactionContext && !implicitFundingDeferredForFreshAuth) {
-        console.error('[SigningFlow] fetchNearContext failed', {
-          error: nearRpc?.error,
-          details: nearRpc?.details,
-          readiness: nearRpc?.readiness,
-        });
+      if (!nearRpc || nearRpc.kind === 'failed') {
+        const failure = nearRpc || {
+          kind: 'failed' as const,
+          error: 'NEAR_CONTEXT_UNAVAILABLE' as const,
+          details: 'NEAR transaction readiness did not resolve',
+        };
+        console.error('[SigningFlow] fetchNearContext failed', failure);
         return session.confirmAndCloseModal({
           requestId: request.requestId,
           intentDigest: resolvedIntentDigestForResponse,
           confirmed: false,
-          error: nearRpcFailureMessage(nearRpc || {}),
+          error: nearRpcFailureMessage(failure),
         });
       }
-      if (!transactionContext && nearRpc?.transactionContext) {
-        session.setNonceLeases(nearRpc.nonceLeases);
-        transactionContext = nearRpc.transactionContext;
+      nearTransactionReadiness = nearRpc.readiness;
+      if (nearRpc.readiness.kind === 'context_ready') {
+        session.setNonceLeases(nearRpc.reservedNonceLeases);
       }
     }
 
@@ -707,12 +524,7 @@ export async function handleTransactionSigningFlow(
         confirmed: true,
         otpCode: normalizeSixDigitOtpCode(otpCode),
         ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
-        ...(transactionContext ? { transactionContext } : {}),
-        ...(nearRpc?.nonceLeases?.length
-          ? {
-              nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
-            }
-          : {}),
+        ...nearReadinessDecisionFields(nearTransactionReadiness),
       });
       return;
     }
@@ -723,12 +535,7 @@ export async function handleTransactionSigningFlow(
         requestId: request.requestId,
         intentDigest: resolvedIntentDigestForResponse,
         confirmed: true,
-        ...(transactionContext ? { transactionContext } : {}),
-        ...(nearRpc?.nonceLeases?.length
-          ? {
-              nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
-            }
-          : {}),
+        ...nearReadinessDecisionFields(nearTransactionReadiness),
       });
       return;
     }
@@ -778,12 +585,7 @@ export async function handleTransactionSigningFlow(
       intentDigest: resolvedIntentDigestForResponse,
       confirmed: true,
       credential: serializedCredential,
-      ...(transactionContext ? { transactionContext } : {}),
-      ...(nearRpc?.nonceLeases?.length
-        ? {
-            nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
-          }
-        : {}),
+      ...nearReadinessDecisionFields(nearTransactionReadiness),
     });
   } catch (err: unknown) {
     // Treat TouchID/FaceID cancellation and related errors as a negative decision

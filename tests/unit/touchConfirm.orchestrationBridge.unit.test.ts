@@ -10,7 +10,16 @@ import {
   getSigningAuthMode,
 } from '@/core/signingEngine/uiConfirm/handlers/flows/adapters/request';
 import type { WebAuthnChallenge } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { EmailOtpConfirmPrompt, SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
+import type {
+  EmailOtpConfirmPrompt,
+  SigningAuthPlan,
+} from '@/core/signingEngine/stepUpConfirmation/types';
+import { toAccountId } from '@/core/types/accountIds';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+} from '@/core/signingEngine/session/operationState/types';
 
 const passkeyPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }> = {
   kind: 'passkeyReauth',
@@ -45,6 +54,24 @@ function roleLocalBootstrapChallenge(id: string): WebAuthnChallenge {
     requestId: `tecdsa-keygen-${id}`,
     thresholdSessionId: `threshold-session-${id}`,
     signingGrantId: `wallet-session-${id}`,
+  };
+}
+
+function nearFundingRequest(operationIdRaw: string, operationFingerprintRaw: string) {
+  const nearAccountId = toAccountId('alice.testnet');
+  return {
+    subject: {
+      walletId: toWalletId('alice.testnet'),
+      nearAccountId,
+      nearPublicKeyStr: 'ed25519:warm-session-key',
+    },
+    operation: {
+      operationId: SigningSessionIds.signingOperation(operationIdRaw),
+      operationFingerprint: SigningSessionIds.signingOperationFingerprint(operationFingerprintRaw),
+      intent: SigningOperationIntent.TransactionSign,
+      accountId: nearAccountId,
+    },
+    signatureUses: 1,
   };
 }
 
@@ -203,12 +230,16 @@ test.describe('touchConfirm orchestration manager bridge', () => {
                 requestId: request.requestId,
                 confirmed: true,
                 intentDigest: prepared.intentDigest,
-                transactionContext: {
-                  nearPublicKeyStr: 'pk',
-                  accessKeyInfo: { nonce: 1 },
-                  nextNonce: '2',
-                  txBlockHeight: '100',
-                  txBlockHash: 'hash100',
+                nearTransactionReadiness: {
+                  kind: 'context_ready',
+                  transactionContext: {
+                    nearPublicKeyStr: 'pk',
+                    accessKeyInfo: { nonce: 1 },
+                    nextNonce: '2',
+                    txBlockHeight: '100',
+                    txBlockHash: 'hash100',
+                  },
+                  nonceLeases: [],
                 },
               };
             },
@@ -230,6 +261,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
           nearAccountId: 'alice.testnet',
         } as any,
         nearPublicKeyStr: 'ed25519:warm-session-key',
+        nearFundingRequest: nearFundingRequest(sessionId, 'warm-placeholder-fingerprint'),
       });
 
       expect(capturedRequest?.payload?.intentDigest).toBe(PENDING_INTENT_DIGEST);
@@ -259,12 +291,16 @@ test.describe('touchConfirm orchestration manager bridge', () => {
                 requestId: request.requestId,
                 confirmed: true,
                 intentDigest: prepared.intentDigest,
-                transactionContext: {
-                  nearPublicKeyStr: 'pk',
-                  accessKeyInfo: { nonce: 1 },
-                  nextNonce: '2',
-                  txBlockHeight: '100',
-                  txBlockHash: 'hash100',
+                nearTransactionReadiness: {
+                  kind: 'context_ready',
+                  transactionContext: {
+                    nearPublicKeyStr: 'pk',
+                    accessKeyInfo: { nonce: 1 },
+                    nextNonce: '2',
+                    txBlockHeight: '100',
+                    txBlockHash: 'hash100',
+                  },
+                  nonceLeases: [],
                 },
               };
             },
@@ -286,6 +322,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
           nearAccountId: 'alice.testnet',
         } as any,
         nearPublicKeyStr: 'ed25519:warm-session-key',
+        nearFundingRequest: nearFundingRequest(sessionId, 'warm-plan-fingerprint'),
       });
 
       expect(capturedRequest?.payload?.intentDigest).toBe(PENDING_INTENT_DIGEST);
