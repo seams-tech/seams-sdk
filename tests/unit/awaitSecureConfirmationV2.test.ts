@@ -243,7 +243,29 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
             receiverId: 'contract.testnet',
           },
           payload: {
+            signingKind: 'transaction',
             walletId: 'wallet-alice',
+            intentDigest: 'fingerprint-1',
+            nearPublicKeyStr: 'ed25519:test',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'wallet-alice',
+                nearAccountId: 'alice.testnet',
+                nearPublicKeyStr: 'ed25519:test',
+              },
+              operation: {
+                operationId: 'near-tx-lease-1',
+                operationFingerprint: 'fingerprint-1',
+                intent: 'transaction_sign',
+                accountId: 'alice.testnet',
+              },
+              signatureUses: 1,
+            },
+            txSigningRequests: [{ receiverId: 'contract.testnet', actions: [] }],
+            rpcCall: {
+              nearAccountId: 'alice.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
             signingAuthPlan: {
               kind: 'warmSession',
               method: 'passkey',
@@ -272,25 +294,28 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
                       data: {
                         requestId: data.data.requestId,
                         confirmed: true,
-                        transactionContext: {
-                          nearPublicKeyStr: 'ed25519:test',
-                          nextNonce: '41',
-                          txBlockHeight: '123',
-                          txBlockHash: 'block-hash',
-                          accessKeyInfo: {
-                            nonce: '40',
-                            block_height: 123,
-                            block_hash: 'block-hash',
+                        nearTransactionReadiness: {
+                          kind: 'context_ready',
+                          transactionContext: {
+                            nearPublicKeyStr: 'ed25519:test',
+                            nextNonce: '41',
+                            txBlockHeight: '123',
+                            txBlockHash: 'block-hash',
+                            accessKeyInfo: {
+                              nonce: '40',
+                              block_height: 123,
+                              block_hash: 'block-hash',
+                            },
                           },
+                          nonceLeases: [
+                            {
+                              leaseId: 'lease-1',
+                              operationId: 'near-tx-lease-1',
+                              operationFingerprint: 'fingerprint-1',
+                              nonce: '41',
+                            },
+                          ],
                         },
-                        nonceLeases: [
-                          {
-                            leaseId: 'lease-1',
-                            operationId: 'near-tx-lease-1',
-                            operationFingerprint: 'fingerprint-1',
-                            nonce: '41',
-                          },
-                        ],
                       },
                     },
                   }),
@@ -307,7 +332,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
         return {
           requestId: resp?.request_id,
           confirmed: resp?.confirmed,
-          nonceLeases: resp?.nonce_leases,
+          readiness: resp?.near_transaction_readiness,
         };
       },
       { workerPath: WORKER_PATH },
@@ -316,14 +341,28 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     expect(result).toEqual({
       requestId: 'near-tx-lease-1',
       confirmed: true,
-      nonceLeases: [
-        {
-          leaseId: 'lease-1',
-          operationId: 'near-tx-lease-1',
-          operationFingerprint: 'fingerprint-1',
-          nonce: '41',
+      readiness: {
+        kind: 'context_ready',
+        transactionContext: {
+          nearPublicKeyStr: 'ed25519:test',
+          nextNonce: '41',
+          txBlockHeight: '123',
+          txBlockHash: 'block-hash',
+          accessKeyInfo: {
+            nonce: '40',
+            block_height: 123,
+            block_hash: 'block-hash',
+          },
         },
-      ],
+        nonceLeases: [
+          {
+            leaseId: 'lease-1',
+            operationId: 'near-tx-lease-1',
+            operationFingerprint: 'fingerprint-1',
+            nonce: '41',
+          },
+        ],
+      },
     });
   });
 

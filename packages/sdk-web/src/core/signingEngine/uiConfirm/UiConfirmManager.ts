@@ -80,7 +80,7 @@ import type {
   OrchestrateSigningConfirmationParams,
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultSignatureOnly,
-  SigningConfirmationResultWithTxContext,
+  NearTransactionSigningConfirmationResult,
 } from '../stepUpConfirmation/confirmOperation';
 import type { ThresholdEd25519WorkerMaterialCredentialAuthorization } from '@/core/types/signer-worker';
 import { requestRegistrationCredentialConfirmationOnMainThread } from './handlers/flows/requestRegistrationCredentialConfirmation';
@@ -2626,14 +2626,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   ): Promise<SigningConfirmationResultIntentDigest>;
   async orchestrateSigningConfirmation(
     params: OrchestrateNearTransactionSigningConfirmationParams,
-  ): Promise<SigningConfirmationResultWithTxContext>;
+  ): Promise<NearTransactionSigningConfirmationResult>;
   async orchestrateSigningConfirmation(
     params: OrchestrateNearSignatureOnlySigningConfirmationParams,
   ): Promise<SigningConfirmationResultSignatureOnly>;
   async orchestrateSigningConfirmation(
     params: OrchestrateSigningConfirmationParams,
   ): Promise<
-    | SigningConfirmationResultWithTxContext
+    | NearTransactionSigningConfirmationResult
     | SigningConfirmationResultIntentDigest
     | SigningConfirmationResultSignatureOnly
   > {

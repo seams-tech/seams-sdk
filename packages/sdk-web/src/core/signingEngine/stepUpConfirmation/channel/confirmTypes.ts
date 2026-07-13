@@ -14,6 +14,10 @@ import type {
   WebAuthnChallenge,
 } from '../types';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
+import type {
+  NearFundingRequest,
+  NearTransactionReadiness,
+} from '../../nonce/nearTransactionReadiness';
 
 export type {
   ForbiddenMainThreadSecrets,
@@ -95,8 +99,15 @@ export type WorkerConfirmationResponse =
   | (WorkerConfirmationSuccessBase & {
       transaction_context: TransactionContext;
       nonce_leases: NonceLeaseRef[];
+      near_transaction_readiness?: never;
     })
   | (WorkerConfirmationSuccessBase & {
+      near_transaction_readiness: NearTransactionReadiness;
+      transaction_context?: never;
+      nonce_leases?: never;
+    })
+  | (WorkerConfirmationSuccessBase & {
+      near_transaction_readiness?: never;
       transaction_context?: never;
       nonce_leases?: never;
     })
@@ -107,6 +118,7 @@ export type WorkerConfirmationResponse =
       credential?: never;
       otp_code?: never;
       email_otp_challenge_id?: never;
+      near_transaction_readiness?: never;
       transaction_context?: never;
       nonce_leases?: never;
     });
@@ -196,27 +208,22 @@ type SignTransactionPayloadBase = {
   nearPublicKeyStr?: string;
 };
 
-type NearFundingAuth = {
-  kind: 'wallet_session';
-  walletSessionJwt: string;
-};
-
 type NearTransactionSigningPayload = SignTransactionPayloadBase & { signingKind: 'transaction' } & (
     | {
         signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
-        nearFundingAuth: NearFundingAuth;
+        nearFundingRequest: NearFundingRequest;
         webauthnChallenge?: never;
         emailOtpPrompt?: never;
       }
     | {
         signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
-        nearFundingAuth?: never;
+        nearFundingRequest: NearFundingRequest;
         webauthnChallenge?: WebAuthnChallenge;
         emailOtpPrompt?: never;
       }
     | {
         signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
-        nearFundingAuth?: never;
+        nearFundingRequest: NearFundingRequest;
         webauthnChallenge?: never;
         emailOtpPrompt: EmailOtpConfirmPrompt;
       }
@@ -224,7 +231,7 @@ type NearTransactionSigningPayload = SignTransactionPayloadBase & { signingKind:
 
 type NearDelegateSigningPayload = SignTransactionPayloadBase & {
   signingKind: 'delegate';
-  nearFundingAuth?: never;
+  nearFundingRequest?: never;
 } & (
     | {
         signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;

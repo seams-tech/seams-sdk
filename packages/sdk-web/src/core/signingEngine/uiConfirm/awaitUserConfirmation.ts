@@ -19,6 +19,7 @@ import { errorMessage, toError } from '@shared/utils/errors';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { TransactionContext } from '@/core/types/rpc';
+import type { NearTransactionReadiness } from '../nonce/nearTransactionReadiness';
 import { validateUserConfirmRequest } from './handlers/flows/adapters/request';
 
 type ConfirmResponsePayload = {
@@ -30,6 +31,7 @@ type ConfirmResponsePayload = {
   emailOtpChallengeId?: string;
   transactionContext?: TransactionContext;
   nonceLeases?: NonceLeaseRef[];
+  nearTransactionReadiness?: NearTransactionReadiness;
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   error?: string;
 };
@@ -173,6 +175,15 @@ function buildConfirmedWorkerConfirmationResponse(args: {
       ? { registration_diagnostics: args.data.registrationDiagnostics }
       : {}),
   };
+  if (args.data.nearTransactionReadiness) {
+    if (args.data.transactionContext || nonceLeases !== undefined) {
+      throw new Error('Secure confirm NEAR readiness cannot include top-level transaction context');
+    }
+    return {
+      ...base,
+      near_transaction_readiness: args.data.nearTransactionReadiness,
+    };
+  }
   if (args.data.transactionContext) {
     if (!nonceLeases?.length) {
       throw new Error('Secure confirm transaction response requires nonceLeases');
@@ -210,7 +221,9 @@ function normalizeNonceLeaseRef(value: unknown): NonceLeaseRef {
   );
   const nonce = normalizeNonceLeaseString(record.nonce, 'nonceLease.nonce');
   const batchId =
-    record.batchId == null ? undefined : normalizeNonceLeaseString(record.batchId, 'nonceLease.batchId');
+    record.batchId == null
+      ? undefined
+      : normalizeNonceLeaseString(record.batchId, 'nonceLease.batchId');
   const txIndex = normalizeNonceLeaseTxIndex(record.txIndex);
   return {
     leaseId,

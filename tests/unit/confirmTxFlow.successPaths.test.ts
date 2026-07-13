@@ -704,11 +704,26 @@ test.describe('confirmTxFlow – success paths', () => {
           type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
+            signingKind: 'transaction',
             intentDigest: 'intent-1',
             signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             walletId: 'carol-wallet',
             nearAccountId: 'carol.testnet',
             nearPublicKeyStr: 'pk',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'carol-wallet',
+                nearAccountId: 'carol.testnet',
+                nearPublicKeyStr: 'pk',
+              },
+              operation: {
+                operationId: 'r3',
+                operationFingerprint: 'intent-1',
+                intent: 'transaction_sign',
+                accountId: 'carol.testnet',
+              },
+              signatureUses: 1,
+            },
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
             rpcCall: {
               method: 'sign',
@@ -732,7 +747,7 @@ test.describe('confirmTxFlow – success paths', () => {
         return {
           confirmed: resp?.confirmed,
           error: resp?.error,
-          tx: resp?.transactionContext,
+          readiness: resp?.nearTransactionReadiness,
           reserved,
           prf: resp?.prfOutput,
         };
@@ -741,7 +756,8 @@ test.describe('confirmTxFlow – success paths', () => {
     );
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
-    expect(result.tx?.nextNonce).toBe('201');
+    expect(result.readiness?.kind).toBe('context_ready');
+    expect(result.readiness?.transactionContext?.nextNonce).toBe('201');
     expect(result.reserved).toEqual(['201']);
     // Signing responses must not expose PRF in UserConfirm-driven design.
     expect(result.prf).toBeUndefined();
@@ -880,9 +896,15 @@ test.describe('confirmTxFlow – success paths', () => {
               signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
               nearAccountId,
               nearPublicKeyStr,
-              nearFundingAuth: {
-                kind: 'wallet_session',
-                walletSessionJwt: 'wallet-session-jwt',
+              nearFundingRequest: {
+                subject: { walletId, nearAccountId, nearPublicKeyStr },
+                operation: {
+                  operationId: 'r-implicit-fund',
+                  operationFingerprint: 'intent-implicit-fund',
+                  intent: 'transaction_sign',
+                  accountId: nearAccountId,
+                },
+                signatureUses: 1,
               },
               txSigningRequests: [{ receiverId: 'x', actions: [] }],
               rpcCall: {
@@ -907,8 +929,7 @@ test.describe('confirmTxFlow – success paths', () => {
           return {
             confirmed: resp?.confirmed,
             error: resp?.error,
-            tx: resp?.transactionContext,
-            nonceLeases: resp?.nonceLeases,
+            readiness: resp?.nearTransactionReadiness,
             reserved,
             fundingCalls,
             accessKeyLookups,
@@ -924,8 +945,10 @@ test.describe('confirmTxFlow – success paths', () => {
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
     expect(result.hasCredential).toBe(true);
-    expect(result.tx).toBeUndefined();
-    expect(result.nonceLeases).toBeUndefined();
+    expect(result.readiness?.kind).toBe('funding_required');
+    expect(result.readiness?.request?.subject?.nearAccountId).toBe(
+      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    );
     expect(result.reserved).toEqual([]);
     expect(result.fundingCalls).toBe(0);
     expect(result.accessKeyLookups).toBe(1);
@@ -975,6 +998,7 @@ test.describe('confirmTxFlow – success paths', () => {
             },
           },
           payload: {
+            signingKind: 'delegate',
             walletId: 'wallet.testnet',
             signingAuthPlan: {
               kind: 'warmSession',

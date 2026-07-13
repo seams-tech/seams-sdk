@@ -74,9 +74,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
               chainIdKey,
               accountAddress,
             }),
-          listProfileAuthenticators: async () => [
-            { credentialId: 'test-passkey', transports: [] },
-          ],
+          listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
           listAccountSigners: async (args: any) => [
             {
               signerAuthMethod: 'passkey',
@@ -185,7 +183,8 @@ test.describe('confirmTxFlow – defensive paths', () => {
         });
         if (nearContextFixture.nearPublicKeyStr) {
           ctx.nonceCoordinator.initializeNearAccessKey({
-            accountId: nearContextFixture.nearAccountId || 'test-near-context.testnet',
+            walletId: nearContextFixture.walletId || 'test-wallet',
+            nearAccountId: nearContextFixture.nearAccountId || 'test-near-context.testnet',
             publicKey: nearContextFixture.nearPublicKeyStr,
           });
         }
@@ -251,8 +250,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -267,10 +272,26 @@ test.describe('confirmTxFlow – defensive paths', () => {
           type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
+            signingKind: 'transaction',
+            walletId: 'cancel-wallet',
             intentDigest: 'intent-sign-cancel',
             signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             nearAccountId: 'cancel.testnet',
             nearPublicKeyStr: 'pk',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'cancel-wallet',
+                nearAccountId: 'cancel.testnet',
+                nearPublicKeyStr: 'pk',
+              },
+              operation: {
+                operationId: 'cancel-sign',
+                operationFingerprint: 'intent-sign-cancel',
+                intent: 'transaction_sign',
+                accountId: 'cancel.testnet',
+              },
+              signatureUses: 1,
+            },
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
             rpcCall: {
               method: 'sign',
@@ -364,10 +385,26 @@ test.describe('confirmTxFlow – defensive paths', () => {
           type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
+            signingKind: 'transaction',
+            walletId: 'alice-wallet',
             intentDigest: 'intent-fail-fast',
             signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             nearAccountId: 'alice.testnet',
             nearPublicKeyStr: 'pk',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'alice-wallet',
+                nearAccountId: 'alice.testnet',
+                nearPublicKeyStr: 'pk',
+              },
+              operation: {
+                operationId: 'fail-fast-signing',
+                operationFingerprint: 'intent-fail-fast',
+                intent: 'transaction_sign',
+                accountId: 'alice.testnet',
+              },
+              signatureUses: 1,
+            },
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
             rpcCall: {
               method: 'sign',
@@ -452,8 +489,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -574,8 +617,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -682,8 +731,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -749,7 +804,11 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
               listProfileAuthenticators: async () => [authOld, authNew],
               selectProfileAuthenticatorsForPrompt: async () => ({
                 authenticatorsForPrompt: [authNew],
@@ -836,8 +895,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -948,8 +1013,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -978,10 +1049,26 @@ test.describe('confirmTxFlow – defensive paths', () => {
           type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
+            signingKind: 'transaction',
+            walletId: 'error-wallet',
             intentDigest: 'intent-error',
             signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             nearAccountId: 'error.testnet',
             nearPublicKeyStr: 'pk',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'error-wallet',
+                nearAccountId: 'error.testnet',
+                nearPublicKeyStr: 'pk',
+              },
+              operation: {
+                operationId: 'prf-fail-sign',
+                operationFingerprint: 'intent-error',
+                intent: 'transaction_sign',
+                accountId: 'error.testnet',
+              },
+              signatureUses: 1,
+            },
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
             rpcCall: {
               method: 'sign',
@@ -1066,8 +1153,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -1163,8 +1256,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -1179,10 +1278,26 @@ test.describe('confirmTxFlow – defensive paths', () => {
           type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
+            signingKind: 'transaction',
+            walletId: 'error-wallet',
             intentDigest: 'intent-credential-error',
             signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             nearAccountId: 'error.testnet',
             nearPublicKeyStr: 'pk',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'error-wallet',
+                nearAccountId: 'error.testnet',
+                nearPublicKeyStr: 'pk',
+              },
+              operation: {
+                operationId: 'credential-collection-error',
+                operationFingerprint: 'intent-credential-error',
+                intent: 'transaction_sign',
+                accountId: 'error.testnet',
+              },
+              signatureUses: 1,
+            },
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
             rpcCall: {
               method: 'sign',

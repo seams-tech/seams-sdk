@@ -235,13 +235,7 @@ async function passkeyServerSealedSecretCacheKey(args: {
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u);
   const cacheScope = args.cacheScope;
-  if (
-    !prfFirstB64u ||
-    !relayerUrl ||
-    !keyVersion ||
-    !shamirPrimeB64u ||
-    !cacheScope
-  ) {
+  if (!prfFirstB64u || !relayerUrl || !keyVersion || !shamirPrimeB64u || !cacheScope) {
     return null;
   }
   const prfDigestHex = await sha256HexUtf8(prfFirstB64u);
@@ -1629,17 +1623,29 @@ function toDecisionFromWorkerResponse(
       error: response.error,
     };
   }
-  return {
+  const decisionBase = {
     requestId,
     intentDigest: response.intent_digest,
     confirmed: true,
     credential: response.credential,
     otpCode: response.otp_code,
     emailOtpChallengeId: response.email_otp_challenge_id,
-    transactionContext: response.transaction_context,
-    ...(response.nonce_leases ? { nonceLeases: response.nonce_leases } : {}),
     registrationDiagnostics: response.registration_diagnostics,
-  };
+  } as const;
+  if (response.near_transaction_readiness) {
+    return {
+      ...decisionBase,
+      nearTransactionReadiness: response.near_transaction_readiness,
+    };
+  }
+  if (response.transaction_context) {
+    return {
+      ...decisionBase,
+      transactionContext: response.transaction_context,
+      nonceLeases: response.nonce_leases,
+    };
+  }
+  return decisionBase;
 }
 
 // This worker intentionally ignores USER_PASSKEY_CONFIRM_RESPONSE at the

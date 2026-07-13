@@ -24,7 +24,7 @@ import type {
   OrchestrateSigningConfirmationParams,
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultSignatureOnly,
-  SigningConfirmationResultWithTxContext,
+  NearTransactionSigningConfirmationResult,
 } from '../stepUpConfirmation/confirmOperation';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
@@ -243,7 +243,7 @@ export interface UiConfirmSigningPort {
   ): Promise<SigningConfirmationResultIntentDigest>;
   orchestrateSigningConfirmation(
     params: OrchestrateNearTransactionSigningConfirmationParams,
-  ): Promise<SigningConfirmationResultWithTxContext>;
+  ): Promise<NearTransactionSigningConfirmationResult>;
   orchestrateSigningConfirmation(
     params: OrchestrateNearSignatureOnlySigningConfirmationParams,
   ): Promise<SigningConfirmationResultSignatureOnly>;
