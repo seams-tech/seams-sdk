@@ -29,10 +29,7 @@ import {
 } from '@/core/signingEngine/workerManager/validation';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { computeThresholdEd25519DelegateSigningDigestWasm } from '../../chains/near/nearSignerWasm';
-import {
-  generateNearSigningSessionId,
-  resolveNearSigningMaterials,
-} from './shared/signingMaterials';
+import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import {
   refreshPasskeyEd25519SealedRecordAfterSigningMaterial,
   type ResolvedRouterAbEd25519WalletSessionState,
@@ -117,7 +114,7 @@ export async function runNearDelegateActionSigning({
   confirmationConfigOverride,
   title,
   body,
-  sessionId: providedSessionId,
+  operationId,
   signerSlot,
   signingSessionCoordinator,
 }: NearDelegateActionPayload): Promise<{
@@ -126,7 +123,6 @@ export async function runNearDelegateActionSigning({
   nearAccountId: AccountId;
   logs?: string[];
 }> {
-  const sessionId = providedSessionId ?? generateNearSigningSessionId();
   const nearAccountId = toAccountId(nearAccount.accountId);
   const relayerUrl = ctx.relayerUrl;
 
@@ -204,7 +200,7 @@ export async function runNearDelegateActionSigning({
   };
 
   const signingOperation: SigningOperationContext = {
-    operationId: SigningSessionIds.signingOperation(`near-delegate:${sessionId}`),
+    operationId,
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(
       await thresholdEd25519DelegateActionOperationFingerprint({
         nearAccountId,
@@ -227,7 +223,7 @@ export async function runNearDelegateActionSigning({
       signingOperation,
       commandKind: args.commandKind,
       execute: args.execute,
-  });
+    });
   const preparedStepUp = await requireNearStepUpAuth({
     signingAuthPlan: signingSessionAuthPlan.signingAuthPlan,
     signingLane: signingSessionAuthPlan.lane,
@@ -271,7 +267,7 @@ export async function runNearDelegateActionSigning({
     runtime: touchConfirm,
     request: {
       ctx: { touchConfirm },
-      sessionId,
+      sessionId: String(operationId),
       chain: 'near',
       kind: 'delegate',
       ...buildSigningConfirmationAuthParams({
@@ -414,10 +410,10 @@ export async function runNearDelegateActionSigning({
     const routerAbNormalSigningResult = await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
       ctx,
       thresholdSessionId: canonicalThresholdSessionId,
-	      signingSessionCoordinator,
-	      walletSessionState,
-	      walletId: commandSubject.walletSession.walletId,
-	      thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+      signingSessionCoordinator,
+      walletSessionState,
+      walletId: commandSubject.walletSession.walletId,
+      thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
       nearAccountId,
       signingMaterial: payload.signingMaterial,
       operationId: signingOperation.operationId,

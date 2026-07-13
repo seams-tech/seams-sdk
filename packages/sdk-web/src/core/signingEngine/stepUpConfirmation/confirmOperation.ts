@@ -1,11 +1,7 @@
 import type { TransactionInputWasm } from '@/core/types/actions';
 import type { RpcCallPayload, ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TransactionContext } from '@/core/types/rpc';
-import type {
-  EmailOtpConfirmPrompt,
-  SigningAuthPlan,
-  UserConfirmProgressEvent,
-} from './types';
+import type { EmailOtpConfirmPrompt, SigningAuthPlan, UserConfirmProgressEvent } from './types';
 import { SigningAuthPlanKind as SigningAuthPlanKinds } from './types';
 import type {
   SerializableCredential,
@@ -105,22 +101,30 @@ function assertNeverSigningAuthPlan(value: never): never {
   throw new Error(`Unsupported signing auth plan: ${String((value as { kind?: unknown }).kind)}`);
 }
 
+type OrchestrateNearTransactionSigningConfirmationBaseParams =
+  OrchestrateSigningConfirmationBaseParams & {
+    chain: 'near';
+    kind: 'transaction';
+    walletId: string;
+    txSigningRequests: TransactionInputWasm[];
+    rpcCall: RpcCallPayload;
+    nearPublicKeyStr?: string;
+    title?: string;
+    body?: string;
+  };
+
 export type OrchestrateNearTransactionSigningConfirmationParams =
-  OrchestrateSigningConfirmationBaseParams &
-    OrchestrateSigningConfirmationAuthParams & {
-      chain: 'near';
-      kind: 'transaction';
-      walletId: string;
-      txSigningRequests: TransactionInputWasm[];
-      rpcCall: RpcCallPayload;
-      nearPublicKeyStr?: string;
-      nearFundingAuth?: {
-        kind: 'wallet_session';
-        walletSessionJwt: string;
-      };
-      title?: string;
-      body?: string;
-    };
+  OrchestrateNearTransactionSigningConfirmationBaseParams &
+    (
+      | (WarmSessionSigningConfirmationAuthParams & {
+          nearFundingAuth: {
+            kind: 'wallet_session';
+            walletSessionJwt: string;
+          };
+        })
+      | (PasskeySigningConfirmationAuthParams & { nearFundingAuth?: never })
+      | (EmailOtpSigningConfirmationAuthParams & { nearFundingAuth?: never })
+    );
 
 export type OrchestrateNearDelegateSigningConfirmationParams =
   OrchestrateSigningConfirmationBaseParams &
@@ -193,15 +197,27 @@ export type OrchestrateNearSignatureOnlySigningConfirmationParams =
   | OrchestrateNearDelegateSigningConfirmationParams
   | OrchestrateNearNep413SigningConfirmationParams;
 
-export interface SigningConfirmationResultWithTxContext {
+type SigningConfirmationResultBase = {
   sessionId: string;
-  transactionContext: TransactionContext;
   intentDigest: string;
   credential?: SerializableCredential;
   otpCode?: string;
   emailOtpChallengeId?: string;
-  nonceLeases?: NonceLeaseRef[];
-}
+};
+
+export type SigningConfirmationResultWithTxContext = SigningConfirmationResultBase &
+  (
+    | {
+        kind: 'transaction_context_ready';
+        transactionContext: TransactionContext;
+        nonceLeases: NonceLeaseRef[];
+      }
+    | {
+        kind: 'implicit_account_funding_required';
+        transactionContext?: never;
+        nonceLeases?: never;
+      }
+  );
 
 export interface SigningConfirmationResultIntentDigest {
   sessionId: string;
@@ -240,8 +256,7 @@ export type ConfirmSignatureOnlySigningOperationRequest =
   OrchestrateNearSignatureOnlySigningConfirmationParams;
 export type ConfirmIntentDigestSigningOperationResult = SigningConfirmationResultIntentDigest;
 export type ConfirmTransactionSigningOperationResult = SigningConfirmationResultWithTxContext;
-export type ConfirmSignatureOnlySigningOperationResult =
-  SigningConfirmationResultSignatureOnly;
+export type ConfirmSignatureOnlySigningOperationResult = SigningConfirmationResultSignatureOnly;
 export type ConfirmNearStepUpSigningOperationResult =
   | ConfirmTransactionSigningOperationResult
   | ConfirmSignatureOnlySigningOperationResult;

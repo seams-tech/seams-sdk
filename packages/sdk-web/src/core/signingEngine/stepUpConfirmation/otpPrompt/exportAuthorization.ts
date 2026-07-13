@@ -147,7 +147,6 @@ export async function requestEmailOtpExportAuthorization(args: {
     },
     payload: {
       signingSubject,
-      publicKey: args.publicKey,
       challengeB64u: challenge.challengeId,
       signingAuthPlan: {
         kind: SigningAuthPlanKind.EmailOtpReauth,

@@ -1,5 +1,4 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
-import { secureRandomId } from '@shared/utils/secureRandomId';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
@@ -9,10 +8,6 @@ import {
   getLastLoggedInSignerSlot,
   parseSignerSlot,
 } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
-
-export function generateNearSigningSessionId(): string {
-  return secureRandomId('sess', 32, 'NEAR signing session IDs');
-}
 
 export type ResolvedNearSigningMaterials = {
   nearAccountId: AccountId;

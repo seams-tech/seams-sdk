@@ -187,21 +187,63 @@ export interface UserConfirmRequest<TPayload = UserConfirmPayload, TSummary = Us
 }
 
 // V2 payloads
-export interface SignTransactionPayload {
+type SignTransactionPayloadBase = {
   walletId: string;
   txSigningRequests: TransactionInputWasm[];
   intentDigest: string;
   displayModel?: TxDisplayModel;
   rpcCall: RpcCallPayload;
   nearPublicKeyStr?: string;
-  nearFundingAuth?: {
-    kind: 'wallet_session';
-    walletSessionJwt: string;
-  };
-  webauthnChallenge?: WebAuthnChallenge;
-  signingAuthPlan: SigningAuthPlan;
-  emailOtpPrompt?: EmailOtpConfirmPrompt;
-}
+};
+
+type NearFundingAuth = {
+  kind: 'wallet_session';
+  walletSessionJwt: string;
+};
+
+type NearTransactionSigningPayload = SignTransactionPayloadBase & { signingKind: 'transaction' } & (
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+        nearFundingAuth: NearFundingAuth;
+        webauthnChallenge?: never;
+        emailOtpPrompt?: never;
+      }
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+        nearFundingAuth?: never;
+        webauthnChallenge?: WebAuthnChallenge;
+        emailOtpPrompt?: never;
+      }
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+        nearFundingAuth?: never;
+        webauthnChallenge?: never;
+        emailOtpPrompt: EmailOtpConfirmPrompt;
+      }
+  );
+
+type NearDelegateSigningPayload = SignTransactionPayloadBase & {
+  signingKind: 'delegate';
+  nearFundingAuth?: never;
+} & (
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+        webauthnChallenge?: never;
+        emailOtpPrompt?: never;
+      }
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+        webauthnChallenge?: WebAuthnChallenge;
+        emailOtpPrompt?: never;
+      }
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+        webauthnChallenge?: never;
+        emailOtpPrompt: EmailOtpConfirmPrompt;
+      }
+  );
+
+export type SignTransactionPayload = NearTransactionSigningPayload | NearDelegateSigningPayload;
 
 export interface RegisterAccountPayload {
   walletId: string;
@@ -306,7 +348,10 @@ export type SignIntentDigestPayload =
       webauthnChallenge: WebAuthnChallenge;
     })
   | (SignIntentDigestPayloadBase & {
-      signingAuthPlan: Exclude<SigningAuthPlan, Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>>;
+      signingAuthPlan: Exclude<
+        SigningAuthPlan,
+        Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>
+      >;
       webauthnChallenge?: WebAuthnChallenge;
     });
 

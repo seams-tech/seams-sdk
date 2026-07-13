@@ -1,15 +1,8 @@
 import type { RpcCallPayload } from '@/core/types/signer-worker';
 import type { TransactionInputWasm } from '@/core/types/actions';
-import type {
-  EmailOtpConfirmPrompt,
-  SigningAuthPlan,
-} from './types';
-import type {
-  WebAuthnChallenge,
-} from './channel/confirmTypes';
-import type {
-  OrchestrateNearTransactionSigningConfirmationParams,
-} from './confirmOperation';
+import type { EmailOtpConfirmPrompt, SigningAuthPlan } from './types';
+import type { WebAuthnChallenge } from './channel/confirmTypes';
+import type { OrchestrateNearTransactionSigningConfirmationParams } from './confirmOperation';
 
 const ctx = {} as OrchestrateNearTransactionSigningConfirmationParams['ctx'];
 const rpcCall = {} as RpcCallPayload;
@@ -53,6 +46,10 @@ const baseTransaction = {
 const validWarmTransaction: OrchestrateNearTransactionSigningConfirmationParams = {
   ...baseTransaction,
   signingAuthPlan: warmPlan,
+  nearFundingAuth: {
+    kind: 'wallet_session',
+    walletSessionJwt: 'wallet-session-jwt',
+  },
 };
 
 const validPasskeyTransaction: OrchestrateNearTransactionSigningConfirmationParams = {
@@ -72,6 +69,16 @@ const invalidWarmWithChallenge = {
   signingAuthPlan: warmPlan,
   webauthnChallenge: challenge,
   // @ts-expect-error Warm-session route cannot carry a WebAuthn challenge.
+} satisfies OrchestrateNearTransactionSigningConfirmationParams;
+
+const invalidPasskeyWithFundingAuth = {
+  ...baseTransaction,
+  signingAuthPlan: passkeyPlan,
+  nearFundingAuth: {
+    kind: 'wallet_session',
+    walletSessionJwt: 'stale-wallet-session-jwt',
+  },
+  // @ts-expect-error Reauth routes cannot carry pre-reauth funding authority.
 } satisfies OrchestrateNearTransactionSigningConfirmationParams;
 
 const invalidPasskeyWithEmailPrompt = {
@@ -99,6 +106,7 @@ void validWarmTransaction;
 void validPasskeyTransaction;
 void validEmailOtpTransaction;
 void invalidWarmWithChallenge;
+void invalidPasskeyWithFundingAuth;
 void invalidPasskeyWithEmailPrompt;
 void invalidEmailOtpMissingPrompt;
 void invalidEmailOtpWithChallenge;

@@ -75,9 +75,7 @@ test.describe('confirmTxFlow – success paths', () => {
               chainIdKey,
               accountAddress,
             }),
-          listProfileAuthenticators: async () => [
-            { credentialId: 'test-passkey', transports: [] },
-          ],
+          listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
           listAccountSigners: async (args: any) => [
             {
               signerAuthMethod: 'passkey',
@@ -247,8 +245,14 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -377,8 +381,14 @@ test.describe('confirmTxFlow – success paths', () => {
                 }: {
                   chainIdKey: string;
                   accountAddress: string;
-                }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-                listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+                }) =>
+                  (globalThis as any).__buildTestNearProfileAccountContext({
+                    chainIdKey,
+                    accountAddress,
+                  }),
+                listProfileAuthenticators: async () => [
+                  { credentialId: 'test-passkey', transports: [] },
+                ],
                 selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                   authenticatorsForPrompt: authenticators,
                   wrongPasskeyError: undefined,
@@ -518,8 +528,14 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -651,8 +667,14 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -725,17 +747,14 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.prf).toBeUndefined();
   });
 
-  test('Signing: funds implicit NEAR account, waits for access key, then emits tx context', async ({
-    page,
-  }) => {
+  test('Signing: defers implicit NEAR funding until passkey reauth completes', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.handle);
         const types = await import(paths.types);
         const handle = mod.handlePromptFromWorker as Function;
 
-        const nearAccountId =
-          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+        const nearAccountId = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
         const walletId = 'frost-grove-k7p9m2';
         const nearPublicKeyStr = 'ed25519:test-implicit-public-key';
         const originalFetch = globalThis.fetch.bind(globalThis);
@@ -855,6 +874,7 @@ test.describe('confirmTxFlow – success paths', () => {
             type: types.UserConfirmationType.SIGN_TRANSACTION,
             summary: {},
             payload: {
+              signingKind: 'transaction',
               walletId,
               intentDigest: 'intent-implicit-fund',
               signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
@@ -893,6 +913,7 @@ test.describe('confirmTxFlow – success paths', () => {
             fundingCalls,
             accessKeyLookups,
             fundedRequestBody,
+            hasCredential: Boolean(resp?.credential),
           };
         } finally {
           globalThis.fetch = originalFetch;
@@ -902,15 +923,13 @@ test.describe('confirmTxFlow – success paths', () => {
     );
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
-    expect(result.tx?.nextNonce).toBe('301');
-    expect(result.nonceLeases).toHaveLength(1);
-    expect(result.reserved).toEqual(['301']);
-    expect(result.fundingCalls).toBe(1);
-    expect(result.accessKeyLookups).toBeGreaterThanOrEqual(2);
-    expect(result.fundedRequestBody).toEqual({
-      nearAccountId: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-      nearPublicKeyStr: 'ed25519:test-implicit-public-key',
-    });
+    expect(result.hasCredential).toBe(true);
+    expect(result.tx).toBeUndefined();
+    expect(result.nonceLeases).toBeUndefined();
+    expect(result.reserved).toEqual([]);
+    expect(result.fundingCalls).toBe(0);
+    expect(result.accessKeyLookups).toBe(1);
+    expect(result.fundedRequestBody).toBeNull();
   });
 
   test('Delegate action: warm-session confirmation skips access-key readiness', async ({
@@ -1079,8 +1098,14 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
-              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
+              }) =>
+                (globalThis as any).__buildTestNearProfileAccountContext({
+                  chainIdKey,
+                  accountAddress,
+                }),
+              listProfileAuthenticators: async () => [
+                { credentialId: 'test-passkey', transports: [] },
+              ],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
