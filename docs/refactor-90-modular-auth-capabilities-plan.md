@@ -9,6 +9,14 @@ factor-enrollment identity, verified evidence sets, session audience/device
 binding, and atomic grant-use invariants were made canonical.
 MPC preparation generalization: July 10, 2026 — EVM ECDSA lane identity,
 material recovery, and authorization were made auth-factor agnostic.
+YAOS and OTP recovery alignment: July 15, 2026 — the landed Ed25519 Yao and OTP
+recovery work was reconciled into Slice B's canonical public locator,
+capability-material-adapter-owned sealed and fresh recovery, non-secret recovery
+commit journal and revocation outbox, volatile runtime publication lifecycle,
+capability-local readiness, shared wallet signing quota, complete NEAR operation
+family, refresh-safe server-verified export context, exact Yao lifecycle
+continuity, worker-private rehydration/reseal lifecycle, fixed effect order, and
+responsibility-local worker/package boundaries.
 
 Status: Phases 1, 2, and 3 are complete. Phases 4 and 5 are in progress. Phase 6 onward is planning.
 
@@ -23,6 +31,7 @@ Companion plans:
 - [Refactor 82B: Auth Authority Typing Cleanup](./refactor-82B.md)
 - [Refactor 85: IndexedDB Minimization](./refactor-85-indexedDB.md)
 - [Refactor 86: Static Wallet Assets And Vite Plugin Removal](./refactor-86-static-wallet-assets.md)
+- [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
 
 This document is the implementation checklist. Requirements, architecture
 decisions, domain sketches, persistence defaults, and security model live in the
@@ -35,10 +44,43 @@ auth authority from one-time registration proof data so the modular auth-factor
 and capability surfaces here can be implemented without carrying Passkey-specific
 session assumptions into Email OTP and future auth factors.
 
+`yaos-ab.md` is authoritative for the Ed25519 cryptographic construction,
+Deriver A/B and SigningWorker ownership, client lifecycle, recovery/refresh/export
+protocols, deployment topology, security profile, and production-readiness gates.
+Refactor 90 owns session, authorization, capability composition, policy, and the
+public integration around that implementation. Refactor 90 cannot redefine the
+Ed25519 backend or advance its production status ahead of the YAOS gates.
+
+The July 15 alignment changes below require a matching companion-SPEC amendment.
+Phase 4 cannot close, and Phases 7, 10, 12, 17, 19, 20, and 21 cannot begin, until
+the SPEC distinguishes session state, capability readiness, live signing runtime,
+exact operation grants, and the shared wallet signing quota with the same
+invariants used here. The amendment must also define the discriminated
+`sealed_source | fresh_acquisition` recovery source, recovery commit journal,
+separate revocation outbox with local/server fences, committed
+runtime-publication/durability proof,
+pending-journal precedence, grant/quota-independent operation fingerprint, and
+the generic authenticated `CapabilityOperationClaim` lookup, fenced execution,
+terminal reconciliation, and `revoked_after_claim` lifecycle used from Phase 10
+onward. MPC claims specialize that base with exact quota, cryptographic-phase, and
+delivery bindings. The amendment must also distinguish affine browser
+material-use leases from durable server execution leases and define the
+auth-agnostic, refresh-safe `near.export_key` context described in Phase 19. That
+context carries an exact Yao lifecycle reference, remains independent of normal
+signing grant/quota/runtime readiness, and converges on one export operation and
+one-use export session for every supported factor. The amended closed Near
+operation union and policy table must also cover `near.sign_transaction`,
+`near.sign_delegate_action`, `near.sign_nep413_message`, `near.export_key`, and
+`mpc.produce_signer_proof` as distinct operation contracts. It must distinguish
+stable pre-effect continuity refs from rotating grant, quota, session-transport,
+and runtime/export-session state and require exact current-state resolution after
+every recovery or reauthentication effect.
+
 ## Decided Architecture Points
 
-Decisions made July 3 and July 10, 2026 during plan review. These are settled; do not
-re-litigate them in later phases without a written reversal note here.
+Decisions made July 3, July 10, and July 15, 2026 during plan review. These are
+settled; do not re-litigate them in later phases without a written reversal note
+here.
 
 1. **Execute vertically, not horizontally.** The old Phases 1-14 landed
    vocabulary, schema, ports, and modules layer-by-layer, so nothing worked
@@ -138,18 +180,31 @@ re-litigate them in later phases without a written reversal note here.
     existing provider passkey becomes wallet authority only through the Seams
     add-auth-method enrollment ceremony (one credential, two verifiers; see
     the SPEC's credential-adoption note).
-13. **`CapabilityGrant` subsumes the signing budget subsystem in Slice B.**
-    DB-backed grants already carry `maxUses`, TTL, one-use consumption, and
-    replay checks; Phase 20 maps spend control onto atomic grant-use consumption
-    instead of porting the budget reservation subsystem. Only the client-side
-    concurrent-operation fingerprinting survives.
+13. **Operation authorization and aggregate signing quota are separate.**
+    `CapabilityGrant` remains DB-backed, short-lived, and bound to one exact
+    capability operation and digest set. `MpcWalletSigningQuota` owns the YAOS
+    product invariant of one expiry and remaining-use counter shared across the
+    wallet's exact NEAR Ed25519 and EVM-family ECDSA bindings. Each binding carries
+    its own exact `WalletAuthAuthorityRef`, so one wallet quota can span capabilities
+    owned by different enrolled authorities. Phase 20 replaces
+    the old reserve/commit/release budget subsystem with one atomic claim that
+    always consumes the exact grant use and, for `quota_use: required`, one quota
+    use under the same operation fingerprint. The fingerprint excludes
+    grant/quota IDs and survives their
+    renewal. Grant or quota renewal never identifies or mutates live
+    cryptographic material. Each MPC operation descriptor carries
+    `quota_use: required(cost) | none`; normal signing costs one use, while key
+    export uses its exact one-use operation grant and ceremony admission with
+    `quota_use: none`. No `signingGrantId` survives in material identity.
 14. **Bloat discipline.** Each slice exit records a deletion ledger and net
     non-doc line accounting in the journal; source guards and fixtures retire
     in the same slice that makes their invariant structural (closed unions,
-    branded IDs, generic lanes). The worker fleet consolidates in Phase 21:
-    `eth-signer` and `tempo-signer` merge into one EVM-family worker — 90
-    Phase 5 made role-local material chain-agnostic, removing the reason for
-    the split.
+    branded IDs, generic lanes). The chain-specific online signer fleet
+    consolidates in Phase 21: `eth-signer` and `tempo-signer` merge into one
+    EVM-family online signer because Phase 5 made role-local material
+    chain-agnostic. ECDSA derivation, presign, and online signing remain
+    responsibility-local workers and artifacts. Ed25519 uses a narrow Yao
+    client-only package with no Deriver/server execution code.
 15. **Exact factor enrollment is authority.** Factor identity is matching data;
     `factorId` identifies one enrollment. Wallet authority adds a durable
     wallet-auth-method binding and digest. Re-enrollment creates new IDs and
@@ -158,10 +213,19 @@ re-litigate them in later phases without a written reversal note here.
     accepts a raw array of evidence. A boundary builder proves common tenant,
     principal, session/device context, correlated operation, and operation
     digests before policy evaluation.
-17. **Grant use is atomically idempotent.** Every use is keyed by a canonical
-    operation fingerprint with a database uniqueness constraint. Claim insertion
-    and remaining-use decrement happen in one transaction; same-fingerprint
-    retries never consume twice.
+17. **Grant use is atomically idempotent.** Every operation is keyed by a
+    canonical authorization-resource-independent fingerprint with a database
+    uniqueness constraint. It covers tenant, principal, capability, correlated
+    operation, operation ID, and lane/intent/display digests; it excludes grant,
+    quota, session, and material-handle IDs. Those component digest projections
+    exclude the same rotating resource IDs transitively. Claim insertion and all
+    applicable decrements happen in one transaction. Same-fingerprint retries
+    never consume twice, including after grant, quota, or same-operation lane
+    replacement. Authenticated lookup returns or reconciles an existing claim
+    before fresh preparation. Every `claimed` row has a fenced execution lease,
+    deadline, phase journal, and terminal reconciliation path. Server revocation
+    fences an already consumed claim through one exact epoch-transition CAS and
+    completes or reconciles it without refund.
 18. **Sessions are audience- and device-bound.** Hosted wallet iframes use a
     one-time origin-bound exchange code redeemed by the iframe. Bearer tokens
     never cross `postMessage`, and session exchange does not trust a
@@ -172,11 +236,103 @@ re-litigate them in later phases without a written reversal note here.
     or trigger dynamic imports.
 20. **Auth factors do not define MPC signing lanes.** MPC capability code carries
     `WalletAuthAuthorityRef`, separates transaction targeting from exact
-    signer-material ownership, and derives one action-oriented preparation state:
+    signing-runtime ownership, and derives one action-oriented preparation state:
     `ready`, `recovery_required`, `authorization_required`, or `blocked`.
-    Passkey, Email OTP, and future factor protocols stay behind factor/material
+    Passkey, Email OTP, and future interaction protocols stay behind auth-factor
+    adapters; sealed/root cryptography stays behind capability-local material
     adapters. Generic lane selection, preparation, restore coordination, and
     committed-lane construction contain no factor-kind control flow.
+    Factor-specific cryptographic ingress exists only inside capability-local
+    material adapters or responsibility-local secure workers and their Rust/WASM constructors. After
+    an authority-bound one-use material handle is
+    consumed, registration, recovery, export coordination, active runtime, and
+    normal signing are factor-neutral. Generic capability code receives no factor
+    discriminator or secret bytes. This rule applies equally to the Near Ed25519
+    Yao active Client and EVM-family ECDSA material.
+21. **Ed25519 durability, recoverability, and runtime readiness are separate.**
+    The browser persists a minimal public `NearEd25519YaoCapabilityLocator` and
+    may persist a capability-local sealed root-material recovery record owned by
+    the Near material adapter. It also persists a non-secret capability-local
+    recovery commit journal while promotion, local activation, or required reseal
+    finalization is incomplete; lock/logout uses a separate non-secret revocation
+    outbox. A valid exact locator plus matching sealed record
+    yields sealed recovery availability. Normal signing requires both an exact
+    active Rust/WASM `NearEd25519YaoRuntimeHandle` and a branded
+    `committed_ready` publication/durability proof; an active handle with pending
+    activation or durability finalization cannot sign. Export requires a correlated one-use export
+    session and carries no runtime handle. A data-only, server-verified export
+    context can be resolved after page refresh without constructing or recovering
+    a signable Client. It binds the durable locator/root owner to an exact
+    `NearEd25519YaoLifecycleRef`; normal-signing grant/quota exhaustion does not
+    suppress that context. Root material stays inside the Near
+    material adapter as an authority-bound, purpose-typed, one-use handle with an
+    `owned -> consumed` lifecycle. Same-root recovery stages a candidate, promotes
+    it only after server continuity succeeds, and disposes every failed or
+    replaced candidate. Page lifecycle, explicit lock, and logout destroy the live
+    runtime. ECDSA sealed material remains an independent capability-local
+    lifecycle.
+22. **Session identity and capability readiness are independent.** A restored
+    `SeamsSession` and public wallet identity do not imply a ready signing
+    runtime. Each MPC capability reports `ready`, `recovery_required`,
+    `authorization_required`, or `blocked` independently. Expiry, exhaustion,
+    missing live Client state, and recoverable ECDSA material are typed
+    capability conditions instead of login states.
+23. **Authorization capabilities, protocol ceremonies, and runtime handles use
+    distinct identities.** `CapabilityInstance`, `CapabilityGrant`, one-use Yao
+    ceremony admission/ticket state, `NearEd25519YaoCapabilityLocator`, sealed
+    root-recovery references, `NearEd25519YaoLifecycleRef`, verified export
+    contexts, one-use root-material handles,
+    `NearEd25519YaoRuntimeHandle`, ECDSA material handles, and
+    `MpcWalletSigningQuota` have separate branded IDs and state machines. A grant
+    or quota ID cannot become a signing key, threshold session, recovery
+    reference, material handle, or runtime identity.
+24. **Signing preparation is data-only and effects follow one order.** Pure lane
+    selection, resolution, and challenge planning precede user approval. Approval
+    and evidence completion precede authorized nonce recovery, material
+    acquisition, candidate/session staging, recovery/activation commit, and any
+    retention-policy-required durability finalization. Exact post-effect
+    re-resolution follows that finalization and precedes the atomic operation claim and all
+    descriptor-applicable debits, cryptographic execution, and finalization.
+    Any recovery, transport reauthentication, or session replacement invalidates
+    rotating fields captured by the pre-effect observation. Continuity compares
+    only the exact stable authority, material-owner, signer, lifecycle, and policy
+    refs. The post-effect resolution supplies the current session transport,
+    operation grant, quota revision when applicable, runtime/export session, and
+    lane/context. Core code never compares complete pre-effect and post-effect
+    lane aggregates or reuses a stale grant or credential from the selected lane.
+    Challenge creation, resend, and code collection stay inside the
+    approval/evidence-completion stage and may precede prerequisite recovery.
+    They mutate only ephemeral provider challenge state. Auth-factor adapters in
+    that stage may receive a boundary-scoped immutable credential/reference for
+    their own challenge protocol. They have no port for material or recovery
+    persistence, material-recovery transport reauthentication/mutation, worker
+    material, runtime activation, nonce, claim, grant, or quota. User cancellation
+    during approval or evidence completion leaves all
+    capability, material, persistence, transport, nonce, authorization, and quota
+    domains unchanged.
+    An authenticated existing-operation-claim lookup is a data-only idempotency
+    read and may precede local preparation/approval. It cannot create, renew,
+    execute, or mutate a claim or authorization resource.
+25. **Sealed refresh is capability-material recovery.** A durable sealed record
+    proves only that exact recovery may be attempted. Data-only inspection may
+    happen before approval; server seal removal, transport reauthentication,
+    worker rehydration, material binding, Client construction, promotion/local
+    activation, replacement reseal, and persistence are effects and happen only
+    after approval and required evidence. The persistence adapter owns source/
+    replacement sealed refs and the non-secret commit journal. The worker-private
+    segment is `pending factor -> purpose-bound root handle -> staged candidate ->
+    retained reseal source -> candidate replacement ciphertext`.
+    Fresh factor acquisition uses a distinct source branch in the same commit
+    lifecycle. It has no source seal/unseal transition and may publish the first
+    retained seal or finalize volatile retention. Lock/logout reconciliation uses
+    a separate non-secret revocation outbox.
+    Every transition is correlated to one exact authority, locator, recovery
+    digest, material owner, and purpose. Recovery allowance and expiry are
+    monotonic protocol limits; they never grant an operation or replenish
+    `MpcWalletSigningQuota`. Partial commits such as server promotion without
+    local activation, or activation without required reseal, are explicit
+    resumable states. They never collapse into a boolean reauth decision or a
+    ready lane.
 
 ## Implementation Rules
 
@@ -206,6 +362,13 @@ re-litigate them in later phases without a written reversal note here.
 - Use static route assembly plus import guards for Cloudflare Workers.
 - Keep compatibility logic at request and persistence boundaries, then delete it.
 - Delete wallet-first fixtures when they only protect obsolete behavior.
+- Reject `ed25519_only`, `ecdsa_only`, `ed25519_and_ecdsa`, and equivalent
+  curve-combination mode tags in core registration, quota, session, and signing
+  state. Model quota coverage as a nonempty collection of exact discriminated
+  curve bindings.
+- Use Router A/B ECDSA threshold-PRF derivation terminology in target
+  architecture. Retain HSS names only in current-state inventories and explicit
+  deleted-name guards until YAOS Phase 14B removes them.
 - Treat browser `walletRuntime`, `authMethods`, and `capabilities` as SDK module
   selection only. Server tenant runtime config is authoritative for enabled auth
   methods, capabilities, and policies.
@@ -245,9 +408,16 @@ authorization/
 
 capability/
   mpcWalletAuthority
+    signingQuota
   vault
-  nearEd25519Mpc
+    nearEd25519Mpc
+      operationPreparation
+      yaoRuntime
+      yaoRecovery
+      yaoRootMaterialAdapters
   evmEcdsaMpc
+    operationPreparation
+    roleLocalMaterial
   idpAccess
 
 idp/
@@ -426,7 +596,7 @@ Long-term path:
 - The branch identity used by D1 ceremony state becomes the capability
   provisioning identity or `capabilityId` once Phase 23 lands.
 - Vault-only, IdP-only, and auth-only registration paths must not create signer
-  records or load signer/HSS/WASM code.
+  records or load MPC protocol, signer, Deriver, or WASM code.
 - Capability policies bind requested signer capabilities to registered auth
   evidence kinds through Seams authorization, replacing the current wallet-first
   registration authority checks.
@@ -516,7 +686,9 @@ Split inventory (final):
 | WebAuthn sync-account helpers | `core/authService/AuthService.ts` | Active facade methods | Move only after the threshold/session dependencies are narrowed enough to avoid a broad context bag. |
 | Email OTP challenge, enrollment, unlock, registration, recovery | `core/authService/emailOtp*` plus D1 route adapters | Active but duplicated ownership | Delete AuthService-era branches once D1 ports are canonical (Phase 9 or Slice B). |
 | Wallet registration intent/ceremony/finalize helpers | `core/authService/**` plus D1 registration services | Active but duplicated ownership | Route through D1 canonical adapters, then delete old AuthService authority paths. |
-| Threshold Ed25519/ECDSA bootstrap, inventory, export | `core/authService/**` plus threshold services and D1/DO stores | Active but too broad | Defer stateful split until 82B authority unions are stable. |
+| Ed25519 Yao registration, active Client, recovery, refresh, and export | `packages/sdk-web/src/core/signingEngine/threshold/ed25519/yao*`, `packages/sdk-server-ts/src/router/routerAbEd25519Yao*`, and `crates/router-ab-ed25519-yao*` | Active YAOS lifecycle with capability-local ownership | Move public orchestration behind `capability/nearEd25519Mpc`; preserve the YAOS protocol/runtime boundary and delete factor-specific capability resolvers in Phase 19. |
+| Ed25519/ECDSA ordinary signing, replay, and shared-use accounting | `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts` plus signing routes/stores | Active shared runtime awaiting decomposition | Move curve policy/admission into each MPC capability, retain a narrow capability-neutral SigningWorker transport/replay port, and replace budget APIs with grant-plus-quota claiming in Phase 20. |
+| Router A/B ECDSA derivation, role-local material, signing, recovery, and export | current ECDSA-HSS-named Router, SDK, WASM, and D1/DO owners | Active strict Router A/B implementation with pre-Phase-14B names | Complete Phase 5 material slimming, migrate behind `capability/evmEcdsaMpc`, and apply YAOS Phase 14B destructive naming/package cleanup. |
 | NEAR account creation, funding, access-key checks, transactions | `core/authService/nearAccountOperations.ts`, `nearTransactions.ts` | Active facade helpers | Account creation and delegate execution stay in the facade until their queueing/registration coordination is split. |
 
 Delete-candidate ledger:
@@ -524,7 +696,7 @@ Delete-candidate ledger:
 | Candidate | Why it is stale or risky | Replacement | Delete phase |
 | --- | --- | --- | --- |
 | AuthService-era wallet registration authority branches | D1 registration is the canonical registration owner; duplicate authority branches caused passkey-only and Email OTP drift. | D1 registration route services plus typed Router API adapter ports. | Refactor 82 Phase 12 / Refactor 82B authority cleanup. |
-| Passkey-only Ed25519 authority checks inside shared session paths | Shared Ed25519 session code must accept the discriminated auth authority, not assume `passkey_rp` or `rpId`. | `WalletAuthAuthority` / auth-specific authority unions from Refactor 82B. | Refactor 82B. |
+| Passkey-only Ed25519 authority checks inside shared session paths | Shared Ed25519 session code must require an exact durable authority ref and cannot assume `passkey_rp` or `rpId`. | Boundary factor parsers producing `WalletAuthAuthorityRef`; shared session and capability code consume only the ref. | Refactor 82B / Phase 17. |
 | AuthService generic registration bootstrap/finalize surfaces used by Cloudflare D1 routes | They keep old AuthService request shapes alive beside D1 request models. | D1 route adapter boundary with raw parsing at route/persistence edges only. | Refactor 82 Phase 12. |
 | Helper code that only supports removed registration diagnostics | The extracted diagnostics module had no active callers after import audit. | None; deleted instead of moved. | Completed July 3, 2026. |
 | Parallel wallet-ID allocation copy in the D1 registration intent service | Router code must not import `core/authService/**` internals, so a local copy exists beside `walletRegistrationPlanning.ts`. | Collapse through the Refactor 82 route-port cleanup. | Phase 9 / Refactor 82 route-port cleanup. |
@@ -568,14 +740,16 @@ type WalletUnlockSubject =
     };
 ```
 
-- Use the same branch-specific subject model for wallet-session reads. Session
-  restoration must resolve a wallet into a `WalletUnlockSubjectSet` at the
-  IndexedDB/request boundary, then compute session display state from that set.
+- Use the same branch-specific subject model for capability-subject reads that
+  accompany session restoration. Resolve a wallet into a
+  `WalletUnlockSubjectSet` at the IndexedDB/request boundary, then compute each
+  capability's preparation input from that set. Session/login state comes from
+  the independent session boundary.
   Do not introduce a sibling `WalletSessionReadSubject` union that restates the
   same branch identities.
 
 ```ts
-type WalletSessionReadResolution =
+type WalletCapabilitySubjectResolution =
   | { kind: 'no_session_request' }
   | {
       kind: 'resolved';
@@ -620,17 +794,28 @@ type WalletSessionReadResolution =
   a set of exact `WalletUnlockSubject` branches rather than one flattened object.
 - Update passkey and Email OTP unlock flows so auth prompts bind to wallet/auth
   subject identity, while capability warmup binds to the selected branch subject.
-- Update `getWalletSession`/page-refresh restoration to call the same resolver.
+- Update `getWalletSession`/page-refresh restoration to call the same capability
+  subject resolver after session/public identity resolution.
   `no_session_request` means there was no wallet to restore.
   `no_session_for_wallet` means a requested or selected wallet has no active
-  capability subject and should read as logged out without warning noise.
+  capability subject. It does not determine whether the `SeamsSession` or public
+  wallet identity is active.
   Corrupt or ambiguous durable identity is `unresolvable` and must remain
   observable in diagnostics/tests.
-- Model sealed-session display state as `active_warm`, `active_restorable`,
-  `expired`, `exhausted`, or `unavailable`. A restorable sealed session may make
-  the wallet look unlockable in UI, but the first signing/export operation still
-  performs exact material restore and can demote to re-auth on typed restore
-  failure.
+- Split session/login display from capability readiness. Session state reports
+  the `SeamsSession` lifecycle and public wallet identity. Each requested MPC
+  capability independently reports `ready`, `recovery_required`,
+  `authorization_required`, or `blocked` with a typed reason. A page refresh may
+  restore an active session and registered NEAR identity while the Ed25519 Yao
+  runtime requires same-root recovery or fresh authorization. ECDSA sealed
+  material may report exact recovery without changing login state.
+- Preserve registered NEAR account identity and Ed25519 public key independently
+  of lane, grant, quota, or live Client readiness. Session reads remain
+  side-effect free; the first signing/export operation owns exact recovery or
+  authorization.
+- Amend the companion SPEC's `WalletSessionDisplayState` before this phase closes
+  so `expired`, `exhausted`, material restoration, and missing live Client state
+  cannot masquerade as login lifecycle branches.
 - Keep resolver `source` fields diagnostic-only. Source must never select auth
   authority or authorize a capability.
 - Move display names, recent unlock lists, and account picker labels to wallet
@@ -658,15 +843,20 @@ Check:
 - [ ] Page refresh wallet-session restoration uses `WalletUnlockSubjectSet`,
   supports NEAR-only, ECDSA-only, and combined wallets, and never mints a
   NEAR-only session-read subject.
-- [ ] Restorable sealed sessions report `active_restorable`, not plain `active`,
-  and restore failure transitions to a typed re-auth requirement.
+- [ ] An active restored login can coexist with ECDSA `recovery_required` and
+  Ed25519 `recovery_required` or `authorization_required`; capability recovery
+  failure changes only that capability's preparation state.
+- [ ] Registered NEAR identity remains available when the Ed25519 lane snapshot,
+  grant, quota, or live Yao Client is absent, expired, exhausted, or disposed.
 - [ ] Source guards reject:
   - optional `nearAccountId` in wallet unlock core subject types;
   - `wallet-scoped auth requires a resolved NEAR account binding` in
     wallet-scoped unlock code;
   - ECDSA unlock paths importing NEAR account validators.
   - new `WalletSessionReadSubject` or `wallet_near_subject` aliases outside
-    tests that intentionally assert their absence.
+    tests that intentionally assert their absence;
+  - `WalletSessionReadResolution` after
+    `WalletCapabilitySubjectResolution` lands.
 - [ ] Focused tests cover:
   - [ ] ECDSA-only wallet unlock;
   - [x] NEAR Ed25519 wallet unlock;
@@ -674,8 +864,10 @@ Check:
   - [x] page-reload unlock where runtime session records are empty but durable wallet
     signer records exist.
   - [ ] page-reload session read for ECDSA-only and combined wallets;
-  - [ ] missing-profile, ambiguous-profile, expired sealed-session, and
-    restorable-sealed-session demotion cases.
+  - [ ] missing-profile, ambiguous-profile, expired ECDSA sealed-session, and
+    capability-local recovery/authorization demotion cases;
+  - [ ] active login plus public NEAR identity after page reload with no live Yao
+    Client.
 
 Cross-plan notes:
 
@@ -683,8 +875,12 @@ Cross-plan notes:
   lane mutation rules. Phase 5 owns worker material identity.
 - Refactor 90 owns `WalletUnlockSubject` because unlock is an auth/capability
   entrypoint, not a NEAR account API.
-- Refactor 84b HSS slimming must keep HSS crate contexts digest-only; SDK
-  capability subjects may include app-specific identity before digesting.
+- YAOS owns Ed25519 Client cryptography and same-root protocol continuity.
+  Refactor 90 owns the public capability locator, sealed/fresh recovery-source
+  model, non-secret recovery commit journal and revocation outbox, volatile
+  runtime ownership/publication, and capability-readiness projection.
+- ECDSA role-local derivation contexts remain digest-only; SDK capability
+  subjects may include app-specific identity before digesting.
 
 ## Phase 5: ECDSA Role-Local Material Cache Slimming
 
@@ -833,7 +1029,6 @@ type EcdsaRoleLocalMaterialBinding = {
 ```ts
 type EcdsaRoleLocalMaterialBinding = {
   thresholdSessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
   keyHandle: EcdsaKeyHandle;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
@@ -847,6 +1042,11 @@ type EcdsaRoleLocalMaterialBinding = {
   payloads, runtime material validation keys, tests, and diagnostics.
 - Remove `chainTarget` from `EcdsaRoleLocalMaterialBinding`,
   `EcdsaRoleLocalBindingDigest`, and `EcdsaRoleLocalMaterialHandle`.
+- Remove `signingGrantId`, `CapabilityGrantId`, `MpcWalletSigningQuotaId`, and
+  remaining-use/expiry fields from `EcdsaRoleLocalMaterialBinding`, its binding
+  digest, material handle, worker-store key, and cryptographic runtime identity.
+  Phase 20 validates authorization and quota independently immediately before
+  material use.
 - [x] Remove `evmFamilySigningKeySlotId` from `EcdsaRoleLocalMaterialBinding`,
   `EcdsaRoleLocalBindingDigest`, and `EcdsaRoleLocalMaterialHandle`.
 - Rename `clientVerifyingShareB64u` to `clientVerifyingPublicKey33B64u` in
@@ -856,16 +1056,21 @@ type EcdsaRoleLocalMaterialBinding = {
 - Keep `chainTarget` in `ExactSigningLaneIdentity`,
   `ThresholdEcdsaSessionRecord`, ECDSA lane selection, ready-record lookup, and
   signer-session validation.
-- Keep `routerAbEcdsaHssNormalSigning` as signed state in wallet-session claims
-  and persisted session records. Use `routerAbEcdsaHssActiveStateSessionId()`
-  only at Router A/B request/admission boundaries that need the canonical
-  normal-signing state session key.
+- Keep the current `routerAbEcdsaHssNormalSigning` signed state in
+  wallet-session claims and persisted session records only until the coordinated
+  YAOS Phase 14B cut. Use its active-state session helper only at Router A/B
+  request/admission boundaries that need the canonical normal-signing state
+  session key. The Phase 14B change destructively replaces every target type,
+  route, record, helper, domain, and test with Router A/B ECDSA derivation names.
 - Move lane/session chain checks before worker-material access. A selected ECDSA
   lane must prove:
   - lane signer `walletId` matches the session record wallet;
   - lane signer `chainTarget` matches the session record chain target;
-  - lane `thresholdSessionId` and `signingGrantId` match the session record;
+  - lane `thresholdSessionId` matches the session record;
   - lane signer key handle and ECDSA threshold key match the session record.
+- Validate the exact operation grant and wallet signing quota after lane/material
+  identity is established. Their renewal or replacement cannot invalidate,
+  rename, or re-key role-local material.
 - Make `buildEcdsaRoleLocalMaterialIdentity()` accept only branded domain types.
   Parse raw strings in record/JWT/worker-response boundary builders before
   calling it.
@@ -894,6 +1099,8 @@ Check:
   `pnpm -C tests exec playwright test unit/evmFamilyEcdsaIdentity.unit.test.ts -g "without signing key slot identity"`.
 - [ ] `buildEcdsaRoleLocalMaterialIdentity()` has no `chainTarget`,
   `walletId`, `evmFamilySigningKeySlotId`, or `routerAbStateSessionId` input.
+- [ ] `buildEcdsaRoleLocalMaterialIdentity()` and its handle/digest builders have
+  no grant, quota, remaining-use, or expiry input.
 - [ ] `evmFamilySigningKeySlotId` is either deleted from runtime paths or renamed
   to a provisioning-reservation id that appears only in registration/bootstrap
   code.
@@ -905,8 +1112,9 @@ Check:
   Tempo, ARC, and other EVM-family chain targets.
 - [ ] Cross-chain signing still fails closed through exact lane/session-record
   validation before the worker material handle is opened.
-- [ ] Router A/B signing requests still carry and validate the signed
-  `routerAbEcdsaHssNormalSigning.scope` against Wallet Session claims.
+- [ ] Router A/B signing requests carry and validate the signed ECDSA derivation
+  normal-signing scope against Wallet Session claims; current HSS-named fields
+  survive only until the coordinated Phase 14B rename.
 - [ ] `routerAbStateSessionId` appears only in Router A/B state/admission
   helpers, request builders, and diagnostics that describe the signed Router A/B
   scope.
@@ -928,6 +1136,10 @@ Do — call-site inventory:
 - Inventory `signing-session`, `signingGrantId`, `thresholdSessionId`,
   `SigningAuthPlan`, `WalletAuthIntent`, `WalletAuthCurve`, `AuthMethod`,
   `user_session`, and `threshold_session` call sites.
+- Classify each `signingGrantId` occurrence as exact operation authorization,
+  aggregate wallet signing quota, threshold-session authorization, or obsolete
+  data. The ledger must assign a distinct target type or deletion action; a
+  mechanical rename is forbidden.
 - Classify each route and method as identity, session/provider adapter, Seams
   authorization, auth factor, route assembly, vault, IdP, Ed25519 MPC, or ECDSA MPC.
 - Inventory frontend demo and SDK surfaces, including `apps/seams-site`,
@@ -946,8 +1158,42 @@ Do — call-site inventory:
   policy assignment scopes, wallet index, key exports, approvals, audit,
   webhooks, observability, and seed data.
 - Inventory auth-factor runtimes and sealed storage, including Email OTP WASM,
-  signing-session seal records, wallet session IndexedDB stores, and any HKDF
+  Ed25519 Yao factor-root recovery records, signing-session seal records, wallet
+  session IndexedDB stores, combined cross-curve worker envelopes, and any HKDF
   salt/info labels that currently bind to wallet or threshold identities.
+- Inventory the complete landed YAOS surface: `crates/ed25519-yao*`,
+  `crates/router-ab-ed25519-yao*`, the client WASM package, `yaoClient.ts`,
+  `yaoActiveClientRegistry.ts`, `yaoPublicCapabilityReferences.ts`,
+  `yaoPageLifecycleOwner.ts`, registration/add-signer/recovery/refresh/export
+  orchestration, normal Ed25519 signing, server admission/recovery/refresh
+  routes, D1 capability replacement, source guards, and intended-behaviour
+  tests.
+- Inventory the tactical OTP repair symbols as Phase 19 deletion inputs:
+  `NearEd25519YaoCapabilitySource`, `NearEd25519YaoSigningCapability`,
+  `nearEd25519YaoCapabilitySource`,
+  `emailOtpNearEd25519LaneRequiresFreshAuth`, the Passkey/Email OTP reconnect
+  aggregates and hooks, `EmailOtpEd25519YaoSilentRecovery*`, the Email OTP
+  budget/cold-recovery prepared states and entrypoints, factor-labelled
+  rehydrate/root worker operations and handles, method-specific Browser recovery
+  maps, factor-labelled Near assembly ports, persisted-record-as-runtime
+  publication, combined cross-curve unlock envelopes, source-text ordering
+  guards, and generic-named passkey-only WASM registration/recovery sessions.
+- Inventory every sealed-refresh identity and policy field separately:
+  locator/recovery binding, authority, factor/provider identity, material owner,
+  threshold session, recovery-envelope allowance/expiry, session transport JWT
+  and expiry, operation grant, wallet quota, signer slot/key, root/version,
+  participants, worker, public key, seal version, and retention. Assign each to
+  the Phase 18 schema, a boundary-only parser, or destructive deletion; an
+  ambiguous `remainingUses`/`expiresAtMs` row cannot survive.
+- Inventory `RouterAbNormalSigningRuntime`, its replay and SigningWorker
+  transport ports, the current shared budget stores/routes, every
+  `ed25519_only | ecdsa_only | ed25519_and_ecdsa` binding mode, and the exact
+  authority/curve/session/participant facts that become
+  `MpcWalletSigningQuota` bindings.
+- Inventory current ECDSA-HSS-named source, routes, records, worker entrypoints,
+  WASM packages, generated bindings, tests, and docs as YAOS Phase 14B rename or
+  deletion inputs. Target-owner rows use Router A/B ECDSA threshold-PRF
+  derivation terminology.
 - Inventory test helpers and tooling, including Playwright configs, setup
   scripts, source guards, helper flows, fake relayers, fixture imports, and
   generated test env files.
@@ -957,8 +1203,9 @@ Do — call-site inventory:
 - Classify frontend call sites as auth UI, session exchange, grant-evidence
   confirmation, vault UI, IdP UI, wallet UI, MPC signing, worker/runtime, or demo
   glue.
-- Record imports that pull threshold, HSS, signer WASM, chain, wallet UI, or
-  recovery code into generic auth/router/frontend paths.
+- Record imports that pull threshold, current ECDSA-HSS/Router A/B derivation,
+  Yao runtime, signer WASM, chain, wallet UI, or recovery code into generic
+  auth/router/frontend paths.
 - Mark tests to preserve, rewrite, or delete.
 
 Do — public-surface ledger:
@@ -1002,6 +1249,16 @@ Check:
   `signing-session`, `AuthMethod`, `wallet_auth`, `wallet_session`,
   `user_session`, and `threshold_session` surfaces outside generated build
   output.
+- Every YAOS row is classified as retained protocol owner, public locator,
+  Near material adapter, sealed recovery owner, non-secret commit-journal owner,
+  runtime-publication owner, volatile runtime owner, rename, or deletion. Every
+  Ed25519 sealed record has a capability-local Near material adapter owner. Only
+  a valid exact locator plus matching sealed
+  record can produce `sealed_recovery_available`; orphan, expired, exhausted,
+  exact-binding-mismatched, corrupt, conflicting, and unavailable records retain
+  their typed failure. No HSS target owner exists.
+- The ledger proves each old curve-combination budget tag has a typed quota
+  binding replacement and a deletion phase.
 - Export maps for `@seams/sdk`, `@seams/sdk-server`, and
   `@seams-internal/shared-ts` have target shapes before Phase 7 type changes.
 - Host assembly targets are recorded for Cloudflare, Node web server,
@@ -1029,6 +1286,15 @@ Do:
   handlers at assembly time, keyed by these closed kinds. Extend the unions in
   place as capabilities land; exhaustiveness checks must break when a kind is
   added without a handler.
+- Define the complete Near authorization operation family:
+  `near.sign_transaction`, `near.sign_delegate_action`,
+  `near.sign_nep413_message`, and `near.export_key`. Define
+  `mpc.produce_signer_proof` as a separate correlated MPC operation whose owning
+  capability is resolved before Phase 19. Keep Yao registration, same-root recovery,
+  server-share refresh, activation, and one-use export ceremony commands in a
+  separate capability-local lifecycle union. Boundary builders map an authorized
+  export operation to its one-use Yao ceremony without merging normal signing
+  and Deriver execution.
 - Add `AuthFactorIdentity`, `AuthFactorRecord`, `AuthFactorKind`,
   `GrantEvidenceKind`, `VerifiedGrantEvidenceSet`,
   tenant/principal/session/capability/grant IDs, public opaque `SeamsSession`,
@@ -1367,7 +1633,8 @@ Slice exit criteria:
   use through the Phase 16 minimal broker/gateway adapter -> passkey grant evidence
   -> vault reveal -> audit works against local D1.
 - A vault-only tenant persists principals, factors, sessions, grants, and vault
-  items with zero signer tables touched and zero signer/HSS/WASM code loaded.
+  items with zero signer tables touched and zero MPC protocol/signer/WASM code
+  loaded.
 - A service account can request, receive, and consume a `vault.proxy_use` grant.
 - No wallet-path file was renamed or deleted for this slice.
 - The slice's deletion ledger and net non-doc line accounting are recorded in
@@ -1408,11 +1675,35 @@ Do:
   the exact `SessionSubjectRef`, `SessionAudience`, and assurance profile.
 - Persist immutable evidence sets and their ordered evidence membership so a
   grant can be reconstructed without embedding a transient request object.
-- Add `operation_fingerprint_digest` and the unique grant-use claim constraint.
-  Implement the SPEC's claim-plus-decrement transaction and adapter conformance
-  suite before any capability consumes grants. Completed uses persist an
-  integrity-bound operation-result reference so same-fingerprint retries can
-  return the prior result without repeating side effects.
+- Add `operation_fingerprint_digest` and a unique
+  `capability_operation_claims` record independent of authorizing-resource IDs.
+  Model `CapabilityOperationClaim<Descriptor>` as an exhaustive
+  `claimed | completed` union whose Slice A descriptor links one grant use.
+  `claimed` requires a server-owned `CapabilityOperationExecutionLease` with an
+  exact execution owner, lease ID, monotonic fencing token, deadline, expected
+  capability-revocation epoch, and the descriptor's closed execution-phase
+  journal. `completed` makes active-lease fields `never` and requires the original
+  claim identity, final fencing token, completion time, and a descriptor-valid
+  terminal result. The base terminal union is `succeeded | failed_after_claim |
+  executor_lost | outcome_unknown | delivery_unknown | revoked_after_claim`;
+  descriptor builders make inapplicable outcome and delivery branches
+  unconstructable and require exact result, attempt, delivery, reconciliation, or
+  revocation references where applicable.
+  Phase 20 adds an MPC union keyed by operation descriptor: `quota_use: required`
+  links one grant use and one wallet-quota use, while `quota_use: none` links only
+  the exact grant use and makes quota fields `never`.
+  `CapabilityGrantUse` references the operation claim instead of owning the
+  idempotency key.
+  Canonicalize the fingerprint from tenant, principal, capability, correlated
+  operation, operation ID, and lane/intent/display digests. Exclude grant tokens,
+  grant IDs, quotas, sessions, and runtime/material handles so renewal cannot
+  create a second identity for the same operation. Implement the SPEC's
+  claim-plus-decrement transaction and adapter conformance suite before any
+  capability consumes grants. New-claim insertion creates the initial fenced
+  execution lease atomically with every applicable decrement and linked audit/use
+  row. Completed uses persist an integrity-bound terminal result so
+  same-fingerprint retries can return the protected result without repeating side
+  effects.
 - Store raw OTPs, grant tokens, refresh tokens, vault secrets, auth headers, and
   signer material only as hashes, sealed envelopes, or external references.
 - Do not remap existing wallet/signer/WebAuthn/Email-OTP tables in this phase;
@@ -1427,9 +1718,16 @@ Check:
 - Console roles, API scopes, policy assignment scopes, and seed data can express
   vault-only and auth-only tenants without wallet-operation roles.
 - Raw provider rows cannot enter core logic.
-- Concurrent same-fingerprint grant-use claims consume once and return the same
-  result/in-progress state; different fingerprints serialize against the grant
-  balance; exhausted grants cannot create orphan claim rows.
+- Concurrent same-fingerprint operation claims consume once and return the same
+  `completed | claimed_active | claimed_stale` state, including after grant
+  renewal. Different fingerprints
+  serialize against applicable balances; exhausted grants cannot create orphan
+  claim or use rows.
+- Claim schema/type fixtures reject missing lease facts, terminal fields on
+  `claimed`, active-lease fields on `completed`, invalid descriptor phases,
+  inapplicable delivery/outcome branches, missing revocation correlation, and
+  broad-spread lifecycle construction. Indexes support lease expiry, exact
+  fingerprint lookup, and terminal reconciliation.
 - Persistence parsers reject mismatched capability/operation pairs, unsupported
   lifecycle strings, cross-tenant references, and grants whose evidence-set
   binding differs from the grant record.
@@ -1538,6 +1836,23 @@ Do:
 - Implement operation digest envelopes (`laneDigest`, `intentDigest`,
   `displayDigest`), policy evaluation, grant lifecycle, replay checks, and audit
   envelopes.
+- Define `CapabilityOperationFingerprint` independently from the grant that
+  authorizes it. A fresh grant for the same tenant/principal/capability,
+  correlated operation, operation ID, and digest set resolves to the existing
+  claim/result. A deliberate retry uses a new operation ID.
+- Implement authenticated, data-only
+  `CapabilityOperationClaimLookup<Descriptor>` before fresh capability
+  preparation. Its request contains only the semantic operation envelope and
+  claimed fingerprint. The server recomputes the fingerprint, verifies tenant,
+  principal, capability, and descriptor ownership, and returns
+  `absent | claimed_active | claimed_stale | completed`. `completed` returns the
+  protected terminal result; `claimed_active` joins or polls the current
+  execution and requires an unexpired lease whose expected revocation epoch equals
+  the current capability epoch with no tombstone. `claimed_stale` is a nested
+  `lease_expired | revocation_epoch_changed | terminalization_pending` union and
+  enters the matching descriptor or server-only revocation reconciliation. Only
+  `absent` may proceed to fresh grant preparation and claim creation. Lookup
+  cannot create, renew, execute, or mutate a claim or authorization resource.
 - Implement `authorization/digests` as the canonical byte encoder for lane,
   intent, display, challenge, evidence-set, and audit digests. Add TypeScript
   fixtures plus Rust parity vectors before a capability depends on a digest.
@@ -1557,10 +1872,32 @@ Do:
 - Grants are DB-backed one-use/short-TTL records (Decided Point 6).
 - Implement `seams_session` grant evidence first. `service_account_api_key`
   lands in Phase 15; interactive challenge evidence lands in Phase 14.
-- Implement one-way grant-use consumption through the Phase 10 atomic claim
-  port, with typed `claimed` and `completed` states and result rows for success,
-  pre-side-effect failure, and post-side-effect failure. Replay denial before a
-  claim is an authorization audit event, not a consumed-use row.
+- Implement one-way grant-use consumption through the Phase 10 atomic operation
+  claim port. Add the generic execution coordinator for the Phase 10
+  `claimed | completed` lifecycle: lease renewal and every descriptor-phase
+  transition use compare-and-swap on the current fencing token and expected
+  revocation epoch; an expired lease can be fenced and transferred to exactly one
+  descriptor reconciler. The reconciler reads exact attempt/result/delivery
+  references before resuming an idempotent effect or completing a terminal result.
+  It never repeats delivery without a descriptor-owned status query. Success and
+  every post-claim failure complete the existing consumed claim without refund.
+  Replay denial before a claim is an authorization audit event and creates no
+  consumed-use row.
+- Add the server-only revocation transition for an already consumed claim. It is
+  authorized by claim ID, current fencing token, the lease's expected epoch, and
+  an observed newer capability-revocation epoch plus exact revocation receipt. One
+  compare-and-swap fences the old executor and either completes
+  `revoked_after_claim` when no external outcome is possible or enters a
+  descriptor-specific revocation-reconciliation lease whose expected epoch is the
+  observed newer epoch and whose phase retains the prior epoch/token plus receipt.
+  That reconciler resolves
+  cryptography/result/delivery uncertainty before completing `succeeded`,
+  `failed_after_claim`, `outcome_unknown`, `delivery_unknown`, or
+  `revoked_after_claim`. Every branch is non-refunding, and existing-claim lookup
+  returns the final completed result.
+- Delete the bare `result | operation_in_progress` response and every indefinite
+  claimed-row fixture before Slice A releases. The fenced base lifecycle is the
+  only claim contract; retain no compatibility branch.
 - Implement fail-closed `mpc_signer_proof` evaluation. The proof *producer*
   lands with the MPC capability in Phase 19; until then any policy requiring
   `mpc_signer_proof` must deny.
@@ -1575,6 +1912,12 @@ Check:
 - Missing/inactive/mismatched MPC proof-producing capability fails closed.
 - Grant lifecycle, digest mismatch, expiry, replay, and consumption have
   targeted tests.
+- Existing-claim tests prove lookup precedes fresh readiness, completed results
+  replay without a current grant, active leases join, stale leases fence the old
+  executor, and descriptor reconciliation reaches one terminal result. Crash
+  tests cover every descriptor phase. Revocation tests cover pre-effect,
+  effect-started, and delivery-started claims and prove the server-only epoch
+  transition cannot strand or refund a consumed claim.
 - Mixed tenant, principal, session, device, capability-operation, or digest
   evidence cannot build a `VerifiedGrantEvidenceSet`.
 - Mismatched capability/operation pairs fail in the Phase 7 parser and cannot
@@ -1658,7 +2001,7 @@ Check:
 - Vault/IdP prompts use generic confirmation without signing-engine imports.
 - Vault-only and IdP-only bundles exclude MPC worker chunks and signer WASM.
 - Public auth/vault entrypoints compile without importing MPC workers, signer
-  WASM, threshold stores, HSS, or chain adapters.
+  WASM, threshold stores, Router A/B derivation/Yao runtime, or chain adapters.
 - Seams passkey, Email OTP, and Slack OTP grant-evidence challenge and verify
   have targeted tests.
 - Cross-session, cross-device, cross-origin, cross-operation, and digest-mismatched
@@ -1770,36 +2113,63 @@ Slice exit criteria:
 - Vault-only and auth-only bundles still exclude all MPC/worker/WASM chunks.
 - `core/authService/` is empty: every helper is re-homed to its end-state
   owner or deleted, and the `AuthService` facade is gone.
-- The signing budget subsystem is subsumed by grant-use consumption (Decided
-  Point 13); only client-side concurrent-operation fingerprinting survives.
+- Exact operation grants and descriptor-applicable `MpcWalletSigningQuota` use
+  authorize MPC operations (Decided Point 13). Normal signing requires both;
+  key export is grant-only. The old signing-budget coordinator,
+  reserve/commit/release lifecycle, ambiguous `signingGrantId`, and curve-mode
+  cross-product tags are deleted.
 - Current Ed25519 and EVM-family ECDSA signing lanes and signing-session records
   carry `WalletAuthAuthorityRef`; admission, export, recovery, and restore never
   identify authority from branch-specific strings.
-- EVM-family ECDSA transaction lanes are independent of auth factor kind and
-  reference an exact material owner. One preparation union owns ready,
-  recovery, authorization, and terminal blocked states; no passkey/Email OTP
-  lane or resolver cross-product remains in the signing core.
-- The worker fleet is consolidated (Decided Point 14): one EVM-family worker
-  replaces `eth-signer` and `tempo-signer`.
+- Near Ed25519 and EVM-family ECDSA lanes are independent of auth factor kind.
+  Each capability exposes `ready`, `recovery_required`,
+  `authorization_required`, or `blocked`; no passkey/Email OTP lane or resolver
+  cross-product remains in signing core.
+- Browser persistence separates the public Ed25519 Yao capability locator from
+  an optional sealed root-recovery record, a non-secret recovery commit journal,
+  and a separate non-secret revocation outbox owned by the Near material adapter.
+  A valid exact locator plus matching sealed
+  record yields recovery availability; typed lookup failures stay distinct.
+  `normal_signing.ready` requires an exact active Client plus committed
+  publication/durability proof, while `export.ready` requires a correlated
+  one-use export session and forbids a runtime handle. Lock, logout, page hide,
+  and owner disposal destroy the live Client. Same-root recovery promotes a
+  replacement only after server continuity and disposes every failed candidate.
+- Page-refresh export resolution loads an exact durable Near Ed25519 context,
+  verifies its server-canonical Yao lifecycle, and remains available when normal
+  signing authorization or shared quota is exhausted. It performs no signable
+  capability recovery. The export operation still requires its own exact
+  `near.export_key` grant, one-use admission, and material-owner proof.
+- Normal NEAR transaction, delegate-action, NEP-413, and any Near-owned
+  signer-proof signing use the active Client plus SigningWorker/FROST with zero
+  Deriver calls.
+- One EVM-family online signer replaces `eth-signer` and `tempo-signer` while
+  ECDSA derivation, presign, and online-signing artifacts stay
+  responsibility-local. The browser Yao package contains client protocol code
+  only.
 - The slice's deletion ledger and net non-doc line accounting are recorded in
   the journal, and guards watching surfaces this slice deleted are retired.
 
 ## Phase 17: Wallet Auth Authority Refs On Signing Lanes
 
-Status: planning. Start after Phase 7 lands the Refactor 82B vocabulary mapping.
+Status: planning. The shared authority/ref scaffold exists; exact factor and
+wallet-auth-method binding IDs, final persistence shape, and lane/runtime
+migration remain. Start after Phase 7 lands the Refactor 82B vocabulary mapping.
 This is the narrow bridge from Refactor 82B's stable `WalletAuthAuthority`
 model into Slice B's auth/capability migration.
 
 Goal: make every current signing lane and signing-session record carry a stable
-wallet-auth authority reference before spend control moves from signing budgets
-to capability grants. Multi-factor wallets, multiple passkeys, Email OTP
+wallet-auth authority reference before the old signing budget is replaced by
+exact operation grants plus the shared wallet quota. Multi-factor wallets,
+multiple passkeys, Email OTP
 re-enrollment, and future auth factors identify authority by the durable
 wallet-auth-method binding. Core lanes stop carrying branch-specific strings
 such as `passkey:rpId:credentialIdB64u` or
 `email_otp:providerSubjectId`.
 
 Target owner: `capability/mpcWalletAuthority`. This shared capability-local
-module contains no chain, HSS, signer-WASM, or operation-lane code.
+module contains no chain, curve protocol, signer-WASM, material, or
+operation-lane code.
 
 Do:
 
@@ -1811,16 +2181,30 @@ Do:
 - Resolve user preference and policy into `any_authority` or one exact authority
   reference before lane selection. Core selectors never accept `authMethod` as
   an independent identity input.
-- Persist the authority ref in Ed25519 and ECDSA session records at the
-  registration, unlock, step-up, recovery, export, durable restore, and sealed
-  material boundaries.
+- Persist the authority ref in exact operation lanes and ECDSA session,
+  material, recovery, restore, and export records. Carry it through Ed25519 Yao
+  registration/admission, active runtime binding, public capability locator,
+  sealed root-recovery and fresh-acquisition references, recovery commit journal, runtime-publication
+  proof, revocation outbox, exact Yao lifecycle ref, one-use material handle,
+  same-root candidate/promotion, add-signer, and export records. Each quota binding
+  and its refresh request carry their own exact
+  authority ref; the aggregate wallet quota has no single authority ref.
+- Separate durable authority identity from transient session transport
+  credentials. New Ed25519 locator, recovery, material, and runtime paths carry
+  `WalletAuthAuthorityRef`; they acquire the current bearer credential through a
+  narrow `SeamsSession` transport port when a Router call requires one. Generic
+  capability records contain no provider subject, email hash, display email, or
+  bearer JWT.
 - Update lane builders and boundary parsers so core signing code requires an
   authority ref. Land a schema/version cut with the new shape; reject and clear
   old local signing records instead of adding dual authority parsers or aliases.
-- Change signing-grant admission queue keys to use
-  `authorityRef.authorityDigest` instead of the interim branch-specific
-  authority-key helper. Keep wallet id, signing grant id, projection version,
-  curve, and target in the key.
+- Change operation-authorization action singleflight to use an
+  `AuthorizationActionKey` composed of the operation fingerprint and exact
+  requirement digest. The requirement digest binds
+  `authorityRef.authorityDigest`, capability/operation identity, projection
+  version, curve, target, and exact quota requirement where applicable. Exclude
+  live grant IDs and factor display data; the operation fingerprint remains
+  independent of grant and quota IDs.
 - Define re-enrollment semantics explicitly: if a wallet-auth-method binding is
   re-minted, the new binding produces a new `WalletAuthAuthorityRef`; old
   signing/session/export records tied to the previous ref cannot satisfy new
@@ -1832,9 +2216,14 @@ Do:
 - Make the durable wallet-authority record reference the exact `factorId` from
   Phase 7. Matching credential/provider identity cannot substitute for an active
   factor enrollment or wallet-auth-method binding.
-- Add static fixtures rejecting selected/committed signing lanes, sealed session
-  records, warm capability records, and export/recovery grant state without an
-  authority ref.
+- Add static fixtures rejecting selected/committed signing lanes, ECDSA sealed
+  records, Ed25519 public locators, sealed root-recovery and fresh-acquisition
+  references, one-use
+  material handles, recovery commit journals, revocation outboxes,
+  runtime-publication proofs, live
+  runtime bindings, quota bindings, and export/recovery authorization state
+  without an authority ref. Add purpose-substitution fixtures for
+  `registration | recovery | export` root-material handles.
 - Delete the interim
   `signingGrantAdmissionAuthorityKeyFromAuth` adapter once all signing lanes
   carry authority refs.
@@ -1850,9 +2239,22 @@ Check:
 - Two passkeys on the same wallet have distinct authority refs.
 - Email OTP re-enrollment produces a new authority ref; old records fail at the
   boundary parser/build step instead of during signing.
-- Admission queue keys use `WalletAuthAuthorityRef.authorityDigest`; no core
-  signing flow builds authority identity from `rpId`, credential id,
+- Authorization-action singleflight keys bind the operation fingerprint to an
+  exact requirement digest containing `WalletAuthAuthorityRef.authorityDigest`;
+  no core signing flow builds authority identity from `rpId`, credential id,
   provider subject id, email hash, or display email.
+- Ed25519 public locators, sealed/fresh recovery references, recovery commit journals,
+  revocation outboxes, runtime-publication proofs, one-use material handles,
+  active runtime bindings, recovery promotion, refresh, and export carry the same exact authority ref
+  without carrying an auth-factor discriminator into the Yao runtime.
+- Ed25519 export context resolution preserves the same exact authority and Yao
+  lifecycle refs across the durable record, server lookup, worker request, export
+  admission, and one-use export session. Missing or substituted lifecycle facts
+  fail at the first parser or continuity boundary.
+- Transient provider credentials are acquired only at the Router transport
+  boundary. Static and runtime substitution tests reject provider-subject,
+  factor-enrollment, authority-ref, and root-purpose mismatches before material
+  consumption.
 - Exact lane identity, selection, admission, restore, and recovery source guards
   reject raw factor fields and independent `authMethod` identity parameters.
 - The Refactor 82B Phase 10D tests keep passing after the branch-specific
@@ -1871,11 +2273,13 @@ Do:
 - Move `SignerAuthMethod` and `WalletAuthMethod` into capability-local code.
 - Delete `AuthMethod = SignerAuthMethod`.
 - Classify every `signingGrantId` field by semantics. Delete it where
-  operation-bound `CapabilityGrant` admission replaces it; retain and rename a
-  distinct MPC session-authorization identity where signer-material lifecycle
-  still requires one. Add `capabilityGrantId` only to capability grant, grant
-  use, and authorized/claimed-operation records. A mechanical type alias or
-  field rename is forbidden. Keep `thresholdSessionId` inside MPC branches only.
+  operation-bound `CapabilityGrant` admission replaces it; map current
+  wallet-level shared-use identity to `MpcWalletSigningQuotaId`; assign any
+  distinct threshold-session authorization a separate branded ID; delete every
+  material-identity occurrence. Add `capabilityGrantId` only to capability
+  grant, grant use, and authorized/claimed-operation records. A mechanical type
+  alias or field rename is forbidden. Keep `thresholdSessionId` inside MPC
+  branches only.
 - Remap existing D1 console/signer migrations onto the Phase 10 schema:
   `api_keys`, `policies`, `policy_assignments`, `wallet_index`,
   `key_exports`, `approvals`, `audit_events`, webhook categories,
@@ -1889,9 +2293,204 @@ Do:
   retention, authority reference, material owner, and recovery capability.
   `email_otp` is an auth factor kind, never a storage provenance value. Session
   versus single-use retention remains explicit and exhaustive.
-- Persist exact material-owner identity and typed recovery references for ECDSA
-  and Ed25519 sealed records. Transaction target projections may reference a
-  shared material owner without rewriting its identity.
+- Keep ECDSA sealed material and typed recovery records capability-local.
+  Transaction target projections may reference a shared ECDSA material owner
+  without rewriting its identity.
+- Split Ed25519 persistence and runtime observation into five exact domains: a
+  minimal public `NearEd25519YaoCapabilityLocator`, an optional capability-local
+  sealed root-recovery record, an optional non-secret
+  `NearEd25519YaoRecoveryCommitJournal`, an optional non-secret
+  `NearEd25519YaoRevocationOutbox`, and a volatile Rust/WASM
+  `NearEd25519YaoRuntimeHandle`. The Near material/runtime adapter owns the last
+  four domains. The locator and sealed record carry the exact authority and
+  public binding digests needed for same-root validation. The sealed record
+  carries ciphertext plus a typed recovery reference; it contains no live Client
+  scalar, raw factor root, role input, recipient plaintext, bearer credential, or
+  operation authorization.
+- Define a branded `NearEd25519YaoLifecycleRef` at the server-response boundary.
+  It requires the canonical Yao lifecycle ID, root-share epoch, account ID,
+  threshold/wallet-session ID, signer-set ID, and SigningWorker ID. The public
+  locator, sealed/fresh recovery refs, recovery journal, server capability
+  descriptors and receipts, export context, worker request, and export admission
+  carry that same exact ref or a digest that transitively binds it. Raw lifecycle
+  strings cannot cross more than one boundary, and no builder may reconstruct the
+  ref from a subset of wallet/session fields.
+- Add a data-only `NearEd25519YaoExportContextResolution` built on demand from the
+  exact public locator/root owner and a server-canonical active-capability lookup.
+  It is not another persistence domain. Its closed result is `available |
+  session_transport_reauthentication_required | missing | exact_binding_mismatch |
+  exact_record_conflict | corrupt | persistence_unavailable | server_unavailable`.
+  `available` requires the exact authority ref, material owner, lifecycle ref,
+  wallet/account, signer slot/key, threshold session, runtime-policy binding,
+  participants, SigningWorker, registered public key, locator revision/digest, and
+  server verification receipt/epoch. Active Client state, runtime publication,
+  normal-signing grant/quota state, recovery allowance, raw provider identity, and
+  bearer credentials are `never`. Recovery-envelope or normal-signing quota
+  exhaustion therefore cannot hide a valid export context; `near.export_key`
+  obtains its own operation authorization later.
+- Persist the recovery commit journal before the first non-reversible server
+  mutation. It carries only the recovery/idempotency correlation, authority and
+  owner refs, locator digest, expected server revocation epoch, and a discriminated
+  `NearEd25519YaoMaterialRecoverySource`. `sealed_source` requires the exact
+  sealed-recovery ref, sealed-recovery requirement digest, authenticated
+  ciphertext digest, and source revision; fresh-acquisition fields are `never`.
+  `fresh_acquisition` requires an exact non-secret acquisition requirement ref
+  and digest plus requested retention and initial recovery-envelope policy;
+  sealed-record ID, ciphertext, revision, and current recovery-allowance fields
+  are `never`. The journal has an exhaustive state:
+  `recovery_material_acquisition_pending |
+  material_acquisition_committed_promotion_pending |
+  pre_promotion_cleanup_pending | promotion_prepared |
+  promotion_committed_activation_pending |
+  activation_committed_seal_pending |
+  seal_persistence_pending |
+  seal_committed_readback_pending |
+  volatile_retention_persistence_pending |
+  volatile_retention_committed_readback_pending`.
+  Branch-specific builders make the exact material-acquisition/admission receipt,
+  promotion receipt,
+  active-publication facts, candidate seal digest/revision, committed seal
+  digest/revision, and volatile-retention receipt required exactly
+  where they exist and `never` everywhere else. Secret handles,
+  factor data, bearer credentials, and Client state are always `never`.
+  `pre_promotion_cleanup_pending` requires the exact cancellation correlation and
+  an `admission_only | material_acquired` cleanup stage. `admission_only` requires
+  the exact admission query/result and makes acquisition receipt/policy `never`;
+  `material_acquired` requires the acquisition receipt and reconciled monotonic
+  policy. Promotion, runtime, and seal fields are `never` in both. Server
+  recovery admission, sealed-source removal/recovery-policy consumption, fresh
+  acquisition admission, and Router promotion declare whether they consume state
+  and are independently idempotent and queryable by the same recovery ID. Persist
+  `recovery_material_acquisition_pending` before the first consuming call, so a
+  crash can reconstruct each exact result without a second allowance decrement or
+  promotion.
+- Clear a journal before promotion only after exact reconciliation proves that no
+  consuming call committed, or after every attempted consuming admission or
+  material-acquisition result is reconciled, terminal worker cleanup completes,
+  and one durable CAS
+  records the stage-specific terminal result, any returned monotonic recovery
+  policy, and either restored sealed-source eligibility/removal or the fresh
+  acquisition's terminal receipt. No journal-owned quarantine survives journal deletion. Once the
+  journal enters `promotion_prepared`, retain and advance every
+  partial-commit journal until local publication/durability finalization succeeds
+  or explicit lock/logout reconciliation revokes the remote state.
+- Create `recovery_material_acquisition_pending` in one IndexedDB compare-and-swap.
+  For `sealed_source`, it verifies the exact source digest/revision, rejects
+  another active journal for that source, and reserves/quarantines the source to
+  the recovery ID before admission or unseal. For `fresh_acquisition`, it verifies
+  the exact acquisition requirement and rejects another active recovery for the
+  same material owner; it reserves no sealed record. After material acquisition
+  commits, advance the existing journal to
+  `material_acquisition_committed_promotion_pending` with its exact idempotent
+  result and monotonic recovery policy when applicable. A sealed source remains
+  replayable only through that recovery's idempotent result for material
+  reacquisition until replacement or volatile-retention CAS commits; every new or
+  differently correlated recovery treats it as ineligible. Fresh acquisition
+  never invokes sealed-source unseal or retirement and may create the first
+  retained seal or finalize volatile retention.
+- Bind every sealed recovery reference to a branded
+  `NearEd25519YaoSealedRecoveryRequirementDigest`. The digest covers the public
+  locator, authority ref, material owner, lifecycle ref, wallet/account, signer slot and key,
+  threshold session, signing root/version, participants, SigningWorker, public
+  key, server revocation epoch, exact source sealed-record ID, authenticated
+  ciphertext digest, source record revision, seal version, retention policy, and recovery-envelope policy.
+  The Near material adapter verifies that digest before any server unseal or
+  worker rehydration. Provider subject, email hash, display email, registration
+  authority strings, and stored bearer JWTs remain boundary migration inputs
+  and are absent from the current schema.
+- Bind fresh recovery to a branded
+  `NearEd25519YaoFreshAcquisitionRequirementDigest` covering the same public
+  capability bindings plus exact acquisition purpose, correlation, and requested
+  retention and initial recovery-envelope policy. It contains no sealed-record
+  identity, ciphertext, source revision, or current recovery allowance. The two
+  source digests are not interchangeable.
+- Classify every current `remainingUses` and expiry field before migrating it.
+  A recovery-envelope allowance becomes branded `remainingRecoveryUses` and
+  `recoveryExpiresAt`; threshold-session lifetime, `SeamsSession` transport
+  lifetime, operation-grant expiry, and wallet-quota expiry remain separate
+  domains. If a field authorizes signing spend, migrate it completely to
+  `MpcWalletSigningQuota` and remove it from material recovery. Recovery policy
+  reconciliation may only take the protocol-defined monotonic minimum of local
+  and server recovery limits. It cannot increase an allowance, renew a grant,
+  replenish quota, or identify live material.
+- Parse persisted Ed25519 lookup as a closed union:
+  `locator_only | sealed_recovery_available | sealed_recovery_expired |
+  sealed_recovery_exhausted | exact_binding_mismatch | missing | corrupt |
+  exact_record_conflict | persistence_unavailable`. A sealed record without its
+  exact locator is `corrupt`; a well-formed record with the wrong exact
+  authority/owner/signer/root/policy binding is `exact_binding_mismatch`. Parse
+  volatile handle observation independently as `active | disposed | absent`.
+  Compose it with the commit journal and retention result into a closed
+  `NearEd25519YaoRuntimePublicationState`:
+  `absent | disposed | promotion_pending | durability_pending | committed_ready`.
+  Only `committed_ready` carries the active runtime ref, observed owner-fence
+  generation, server revocation epoch/promotion receipt, and a branded
+  `durability_finalized` proof. That proof is explicitly either finalized
+  volatile retention or finalized sealed retention with the committed seal
+  digest/revision. Pending branches carry the exact journal ref and make
+  claim-ready fields `never`. No persistence/runtime lookup can construct an
+  operation authorization; Phase 19 composes readiness only from
+  `committed_ready` plus authorization/quota state. Duplicate exact rows remain
+  `exact_record_conflict`, and storage I/O failure remains
+  `persistence_unavailable`. A valid revocation outbox makes `committed_ready`
+  unconstructable even if a stale active-handle observation exists.
+- Parse the recovery journal independently as
+  `absent | valid_pending | exact_binding_mismatch | stale_revision | corrupt |
+  exact_record_conflict | persistence_unavailable`. A valid pending journal takes
+  precedence over ordinary locator/seal recovery lookup. A `sealed_source` record
+  is journal-owned and quarantined: generic lookup cannot expose it as
+  `sealed_recovery_available`, while the exact reconciliation/finalization port
+  may read it by journal and sealed-source requirement digest. A
+  `fresh_acquisition` journal has no source record to expose or quarantine.
+- Persist lock/logout reconciliation in a separate non-secret
+  `NearEd25519YaoRevocationOutbox`, parsed as `absent | valid_pending |
+  exact_binding_mismatch | stale_revision | corrupt | exact_record_conflict |
+  persistence_unavailable`. `valid_pending` carries a `revocation_pending`
+  outbox whose branch requires exact authority, locator,
+  material owner, idempotency correlation, and a nonempty collection of
+  discriminated `capability_locator | sealed_recovery | recovery_commit |
+  runtime_publication | operation_claim` targets. Each target requires its exact
+  IDs, revisions, and receipts and makes every other target's fields `never`. Locator-only and
+  volatile-runtime states can therefore be revoked without inventing a sealed
+  record.
+  Only a proven `absent` parser result permits capability recovery or readiness.
+  `valid_pending` is `blocked(wallet_locked)`; binding mismatch, stale revision,
+  corruption, and exact conflict are terminal blocked states;
+  `persistence_unavailable` is retryable blocked. No parser failure can be
+  interpreted as absence.
+- Store a monotonic `NearEd25519YaoOwnerFenceGeneration` with the public owner
+  state. Lock/logout first advances the process-local fence and disposes local
+  runtime/worker state. One IndexedDB transaction then increments the durable
+  fence, marks locator/seal/journal state ineligible, and writes the revocation
+  outbox. Runtime publication observes the fence mismatch and cannot remain ready;
+  active tabs receive the local fence through the owner broadcast channel. The
+  model claims no memory/IndexedDB distributed atomicity. Storage failure keeps
+  the process locally locked, returns retryable `lock_persistence_pending`, and
+  cannot report lock/logout completion.
+  Every recovery admission, material acquisition, promotion, publication, claim,
+  and signing boundary revalidates the observed fence inside the owner queue.
+  Every owner-state IndexedDB CAS predicates on that expected generation. A stale
+  lease cannot publish readiness or begin another consuming effect; a remote call
+  already in flight is reconciled through the outbox target captured at lock.
+- Give the Router a server-canonical capability/authority revocation epoch. Every
+  recovery admission, material-acquisition admission, and promotion
+  compare-and-swap requires the exact expected epoch. Revocation atomically
+  advances the epoch or installs a terminal tombstone and issues an exact
+  revocation receipt. It then queries every recovery and claimed-operation ID
+  associated with the exact capability/authority, including races absent from the
+  original outbox snapshot. An already consumed claim uses Phase 12's server-only
+  revocation transition: the exact old epoch, current execution-fence token, new
+  epoch, and revocation receipt fence the old executor before terminal or
+  uncertainty reconciliation. Acknowledgement can clear local durable records
+  only after the server fence is durable and every correlated recovery is terminal
+  and every correlated claim is `completed`. A stale ordinary request that reaches
+  the Router after the fence fails its compare-and-swap.
+- Land the SPEC-owned `MpcWalletSigningQuota` domain, parser, and persistence with
+  one tenant/wallet/policy scope, expiry, remaining-use count, and a nonempty
+  collection of exact Ed25519/ECDSA authority/curve/session/participant bindings.
+  Each binding carries its own `WalletAuthAuthorityRef`. Delete the
+  `ed25519_only`, `ecdsa_only`, and `ed25519_and_ecdsa` core union and all data
+  shaped for those modes.
 - Add migration notes for wallet-scoped records that become capability-scoped,
   principal-scoped, tenant/project/environment-scoped, or capability-local MPC
   records.
@@ -1904,8 +2503,76 @@ Check:
   land.
 - Old wallet-session rows and raw provider rows cannot enter core logic.
 - Persistence parsers reject records whose authority ref, exact material owner,
-  retention, and recovery capability do not agree. Email OTP single-use records
-  cannot become silently restorable session material.
+  retention, and recovery capability do not agree. Pending single-use ECDSA
+  records cannot become silently restorable session material. Ed25519 sealed
+  root records parse only into sealed-recovery lookup branches and never imply
+  runtime readiness.
+- Sealed-recovery parsers distinguish missing, expired, exhausted, corrupt,
+  exact-record conflict, persistence unavailable, and exact binding mismatch.
+  Wrong curve, authority, subject, key, root, or policy is a terminal typed
+  mismatch rather than a missing record. Tests prove local/server recovery
+  allowance and expiry reconciliation is monotonic and never changes an
+  operation grant or `MpcWalletSigningQuota`.
+- Lifecycle-ref fixtures reject missing/substituted lifecycle ID, root-share
+  epoch, account, threshold session, signer set, or SigningWorker at server,
+  browser, worker, admission, and persistence boundaries. Export-context parser
+  tests also reject wallet/account, signer slot/key, runtime policy, participant,
+  locator revision, and registered-public-key substitution.
+- Export-context resolution is data-only and creates no additional durable export
+  record. With an exact locator and server capability, it returns `available`
+  after reload even when the active Client is absent and normal-signing grant,
+  quota, or recovery allowance is exhausted. Typed tests cover transport
+  reauthentication, missing context, exact mismatch/conflict, corruption, local
+  persistence failure, and server unavailability. No branch changes recovery
+  allowance, seal eligibility, journal state, runtime publication, grant, or quota.
+- Browser persistence parsers accept only the public locator, exact sealed
+  factor-root recovery schema, non-secret recovery commit journal, or non-secret
+  revocation outbox. They reject live Client state, secret handles, raw root
+  material, transport credentials, and authorization state. Page hide disposes
+  the live owner while retaining durable recovery and partial-commit facts,
+  including a quarantined source for a sealed-source journal only while that
+  source still exists. Post-retirement pending journals retain the exact former
+  source identity and finalization receipt. Explicit
+  lock/logout disposes local runtime/worker secrets immediately, makes durable
+  recovery state ineligible, and persists the revocation outbox before attempting
+  server reconciliation. Network failure cannot leave local signing state usable.
+- Journal/reconciliation tests terminate the worker or reload the page before
+  material acquisition, after sealed-source unseal or fresh acquisition,
+  before/after server promotion, after local activation, during seal generation,
+  and after seal persistence. Each attempt
+  resumes from server-canonical and journal state without decrementing recovery
+  allowance twice or repeating promotion, a signing claim, a grant decrement, or
+  a quota decrement.
+- Journal `@ts-expect-error` fixtures reject direct literals/broad spreads,
+  missing branch receipts/revisions, committed-seal fields before candidate seal
+  creation, candidate fields after persistence commit, secret handles in every
+  branch, sealed-source fields on fresh acquisition, fresh-acquisition fields on
+  sealed recovery, cleanup state without an exact cancellation correlation/stage,
+  admission/acquisition receipt substitution, cleanup state with promotion/seal
+  fields, and an ordinary sealed-recovery lookup while a valid
+  sealed-source journal owns the source record.
+- Offline lock/logout tests dispose runtime and worker secrets immediately, mark
+  all durable recovery state ineligible, and retain only the non-secret
+  `revocation_pending` outbox until idempotent server acknowledgement. Type
+  fixtures reject empty/duplicate revocation target collections, cross-target
+  field combinations, and sealed fields on locator-only or volatile-runtime
+  targets. Concurrency tests prove the owner-fence increment invalidates
+  pre-lock recovery and claim leases before their next consuming boundary. Outbox
+  parser tests prove only `absent` may proceed. Router tests prove a stale
+  admission/promotion request cannot commit after the server revocation epoch and
+  that acknowledgement waits for every correlated recovery ID to become terminal
+  and every correlated operation claim to become `completed`. Claim revocation
+  tests cover no-external-effect, outcome-uncertain, and delivery-uncertain phases
+  through the exact fenced Phase 12 transition.
+- Authority selection reports `authority_ambiguous` when `any_authority` matches
+  multiple refs. Exact persistence resolvers distinguish `missing`,
+  expired/exhausted recovery, exact binding mismatch, `corrupt`,
+  `exact_record_conflict`, and `persistence_unavailable`. They never choose a
+  newest or source-priority record when exact matches conflict.
+- Quota parsers require a nonempty typed binding collection, reject duplicate or
+  substituted authority/curve/session/participant bindings, and accept no legacy
+  curve-combination mode. Distinct bindings in one wallet quota may carry
+  different exact authority refs.
 - Source guards reject wallet-only `AuthMethod` outside capability-local
   modules. The broader old-signing-symbol guard lands in Phase 19 when the old
   EVM preparation flow is deleted.
@@ -1914,11 +2581,20 @@ Check:
 
 Status: planning. Old Phase 9 (MPC part).
 
-Prerequisites: Phases 5, 12, 14, 17, and 18 are complete. Phase 19 defines the
-client/capability preparation domain and Phase 20 completes server admission and
+Prerequisites: Phases 5, 12, 14, 17, and 18 are complete, and the companion SPEC
+contains the auth-agnostic Near preparation domain, public locator, sealed
+and fresh recovery source union, exact Yao lifecycle ref, refresh-safe verified
+export context, recovery journal, separate revocation outbox and local/server fences,
+and runtime-publication split, operation-versus-material authorization model,
+complete Near operation union, fixed effect order, exact resolver failures, and
+grant/quota amendment. It must also define the worker-private material-recovery
+lifecycle, recovery-envelope policy, session-transport reauthentication,
+pending-journal precedence, reseal finalization, and every post-commit recovery
+state. Phase 19 defines the client/capability preparation domain, and Phase 20
+completes server admission and
 route cutover. Treat Phases 19 and 20 as one no-release migration tranche; no
 supported build may expose both the old signing authorization flow and the new
-capability-grant flow.
+capability-grant flow. YAOS production readiness remains gated by `yaos-ab.md`.
 
 Resolve before starting: which MPC capability produces `mpc_signer_proof` by
 default? (See Open Questions.)
@@ -1929,58 +2605,540 @@ Do:
   `capability/`.
 - Move Ed25519 and ECDSA operation lane and intent construction into their
   capability modules.
+- Use distinct names for the authorization resource, durable public Ed25519
+  identity, sealed root-recovery reference, and live cryptographic runtime:
+  `CapabilityInstance`,
+  `NearEd25519YaoCapabilityLocator`,
+  `NearEd25519YaoSealedRootRecoveryRef`, and
+  `NearEd25519YaoRuntimeHandle`. Add
+  `NearEd25519YaoLifecycleRef`,
+  `VerifiedNearEd25519YaoExportContext`,
+  `NearEd25519YaoMaterialRecoverySource`,
+  `NearEd25519YaoRecoveryCommitJournal`,
+  `NearEd25519YaoRevocationOutbox`, and
+  `NearEd25519YaoRuntimePublicationState` for the non-secret partial-commit and
+  signability lifecycle. The runtime handle has only `active | disposed`; it
+  carries no grant, quota, persistence, or publication identity.
+- Implement the SPEC's auth-agnostic Near Ed25519 Yao preparation domain as a
+  union keyed by operation class. `normal_signing` carries one exact
+  transaction/delegate/NEP-413/(Near-owned proof) envelope, stable signer/runtime
+  identity, and `quota_use: required(cost)`. `export` carries one exact
+  `near.export_key` envelope, exact root-material owner, verified durable export
+  context, and `quota_use: none`;
+  normal signing lane/runtime/quota fields are `never`. Both branches require
+  `WalletAuthAuthorityRef`, validate the exact operation grant independently of
+  cryptographic state, and return only `ready`, `recovery_required`,
+  `authorization_required`, or `blocked` with branch-specific payloads.
+- Add one auth-agnostic `NearEd25519YaoRootMaterialAdapter` with separate
+  inspection and acquisition ports. The data-only inspection port returns
+  `acquisition_ready | sealed_recovery_available | unlock_required |
+  partial_commit_pending | unavailable`. Its acquisition/sealed branches
+  carry only an exact non-secret acquisition or sealed-recovery ref.
+  `partial_commit_pending` carries only the exact parsed journal ref and action;
+  acquisition and ordinary sealed-recovery refs are `never`, and it takes
+  precedence over a journal-owned sealed source. Inspect the revocation outbox
+  independently and require a proven `absent` result before any other preparation
+  branch. `revocation_pending` maps to `blocked(wallet_locked)` and is executable
+  only by the revocation outbox owner; every parser error maps to its fail-closed
+  typed blocked state.
+  The effect-only port accepts an authorized, exact-purpose
+  acquisition request plus Router admission, acquires an authority-bound
+  `NearEd25519YaoRootMaterialHandle<Purpose>`, and immediately consumes it through
+  the matching Rust/WASM constructor inside the Near material adapter or secure worker.
+  The handle has an `owned -> consumed` lifecycle and is leaf-private: it is never
+  returned through capability assembly or placed in preparation state. The port
+  returns only a purpose-specific, correlated candidate-runtime or ceremony
+  result.
+- Implement material recovery across two explicit owners. The material-adapter
+  persistence port supplies the exact discriminated recovery source and owns
+  journal/source/seal eligibility and IndexedDB CAS. Inside the secure worker, the
+  lifecycle is `pending factor -> authority/purpose/correlation-bound root handle
+  -> consumed staged candidate -> volatile finalization | retained reseal source
+  -> candidate seal ciphertext`. For sealed retention, the persistence port
+  consumes the candidate ciphertext and publishes a new eligible sealed recovery
+  ref; it replaces `sealed_source` and is the first seal for
+  `fresh_acquisition`. Volatile retention has no seal branch. For
+  `sealed_source`, the adapter
+  checks the exact sealed-recovery requirement digest from Phase 18 before unseal.
+  For `fresh_acquisition`, it checks the exact acquisition requirement digest and
+  invokes no sealed-source operation. Rehydration returns only
+  an opaque pending-factor handle plus branded monotonic recovery policy; root
+  binding and constructor consumption happen in the same secure owner. Raw
+  factor bytes, provider identity, and bearer credentials never return to the
+  capability coordinator. Surviving candidate or reseal-source refs stay in the
+  secure owner's private `resident` state keyed by recovery ID; public pending
+  results carry only the exact journal action, and reload uses
+  `reconstruction_required`. Every
+  terminal failure, cancellation, expiry, supersession, and disposal zeroizes or
+  disposes all pending factors, bound roots, staged Clients, retained reseal
+  sources, and candidate ciphertext still owned by that attempt. The worker never
+  owns, retires, or selects a durable sealed record.
+- Make root-material purpose a closed discriminated union with branch-specific
+  correlation and `never` fields: registration binds ceremony/admission identity;
+  recovery binds recovery-requirement ID and digest; export binds operation
+  fingerprint, envelope digest, and admission identity. Every branch carries the
+  same exact `WalletAuthAuthorityRef`. Branch-specific builders are the only way
+  to create acquisition requests and one-use handles.
+- Implement one auth-agnostic, data-only Near export-context resolver. It parses
+  the Phase 18 resolution union, verifies the exact locator/authority/material
+  owner/lifecycle/server receipt, and returns only a branded
+  `VerifiedNearEd25519YaoExportContext` or its typed unavailable branch. Page
+  refresh, an absent/disposed active Client, exhausted normal-signing grant or
+  wallet quota, and exhausted recovery allowance do not change a valid result.
+  Resolution performs no seal unseal/removal, root acquisition, normal-signing
+  recovery, journal transition, candidate construction, promotion, activation,
+  publication, authorization claim, or quota mutation.
+- Auth-factor adapters own WebAuthn/OTP interaction and verified evidence. The
+  Near material adapter owns recovery-source/journal/revocation-outbox inspection
+  and persistence CAS
+  through its non-secret persistence port. Its responsibility-local secure-worker
+  subport owns root acquisition, constructor invocation, immediate handle
+  consumption, candidate state, and reseal-source zeroization. The capability
+  coordinator and active runtime receive no factor-kind discriminator, raw root,
+  provider credential, root-material handle, or secret-bearing record.
+- Give the generic export coordinator one exact export material-acquisition port.
+  Boundary assembly resolves the verified authority requirement to the registered
+  factor/material adapter; capability core receives the opaque requirement and
+  result. It contains no `auth.kind` switch, Passkey recovery callback, Email OTP
+  context callback, or factor-labelled export function. Static adapter inputs
+  reject a requirement for a different exact authority, while the operation and
+  export-session lifecycle remain identical across factors.
+- Keep factor-domain KDFs inside Rust/WASM. Each Near material adapter implementation invokes its
+  factor-specific constructor, which derives the Client root before converging on
+  the common activation lifecycle. No generic capability API accepts a
+  pre-derived Client root.
+- Give registration its own no-grant ceremony sequence: resolve the exact
+  ceremony and authority, obtain Router admission, acquire the registration
+  material handle and consume it into Rust/WASM inside the Near material adapter,
+  execute, then complete. Admission failure leaves material unacquired and
+  unconsumed.
+- Resolve the revocation-outbox parser union and recovery commit journal before
+  parent operation authorization and quota. Only a proven absent outbox proceeds;
+  every other branch stays blocked. A pending recovery
+  resumes through its existing recovery correlation and queries admission by
+  recovery ID as `not_started | committed | terminal`. `not_started` obtains the
+  exact admission once after its required recovery-specific approval/evidence or
+  transport prerequisite; `committed` reuses the receipt; `terminal` maps to its
+  exact blocked/revocation outcome. The resume path consumes no operation grant or quota. After it
+  converges, rerun the complete normal operation resolution against current
+  authorization, quota, runtime publication, and lane identity.
+- When no journal is pending, sequence signing recovery as: inspect durable
+  recovery data and validate the parent operation's grant and required quota
+  readiness without effects; obtain approval and required evidence; reacquire a
+  current session transport credential when required; allocate the exact
+  recovery/idempotency ID and persist
+  `recovery_material_acquisition_pending` with its sealed or fresh source; obtain
+  exact recovery admission; idempotently unseal a sealed source or acquire fresh
+  material, then consume the recovery material handle inside the Near material
+  adapter; advance the journal through
+  `material_acquisition_committed_promotion_pending` and `promotion_prepared`;
+  verify and promote/activate the correlated candidate Client; complete the
+  required retention finalization; then perform exact post-effect re-resolution.
+  The parent signing operation claims grant and quota only after the re-resolved
+  lane is `ready`.
+- Sequence `near.export_key` as: perform authenticated existing-claim lookup;
+  resolve the exact durable export context and export operation requirement using
+  data-only reads; validate the exact export grant plan; obtain approval and
+  policy-required evidence; reacquire session transport when required; obtain
+  exact export admission; complete material unlock/acquisition; stage the one-use
+  Rust/WASM export session; re-resolve the lifecycle/context exactly; atomically
+  claim the grant-only export operation; execute export; then finalize and
+  zeroize. Normal-signing authorization/quota state is absent from this sequence.
+  The export operation's own grant remains mandatory. User cancellation before
+  claim decrements no grant and zeroizes any acquired handle or staged export
+  session.
+- Treat the pre-effect export selection as a stable continuity request. It carries
+  no executable grant, bearer credential, or runtime/export-session authority.
+  After material acquisition, cold recovery, or transport reauthentication,
+  compare exact wallet/account, signer key/slot, threshold session, lifecycle,
+  runtime policy, and `WalletAuthAuthorityRef` continuity. Then discard every
+  rotating field from the earlier observation and use the current canonical
+  context, export grant, session transport, and one-use export session. Stable
+  signer or authority drift fails closed; grant replacement or session-transport
+  credential rotation is an expected successful transition. No transaction or
+  normal-signing operation may be required to publish that current export state
+  first.
+- Consume or zeroize every one-use root-material handle on success, failure,
+  cancellation, constructor error, supersession, and disposal. Staged candidate
+  Clients follow the same terminal-path cleanup rule.
+- Model operation authorization and root-material ownership as independent
+  proofs. The operation grant may be satisfied by any policy-approved evidence;
+  material recovery and export require the exact material owner's
+  `WalletAuthAuthorityRef`. An adapter may reuse one interaction only after it
+  proves exact authority, purpose, operation, and correlation. Export,
+  registration, and recovery inputs cannot substitute for one another.
+- Require `normal_signing.ready` to contain a validated active Client whose wallet,
+  account, signer slot/key, threshold session, authority, signing root/version,
+  epoch, participants, SigningWorker, runtime policy, and public key match the lane
+  and public capability locator, plus a branded `durability_finalized` publication
+  proof, current local owner-fence generation, current server revocation epoch/
+  promotion receipt, branded operation authorization, and exact quota readiness.
+  Require `export.ready` to contain the verified durable export context, exact
+  export-grant readiness, `quota_use: none`, and a correlated one-use
+  export-session reference. Runtime handle/publication, normal-signing lane/grant,
+  nonce, recovery journal/result, and quota fields are `never`. Its post-effect
+  resolution validates lifecycle, export-session, and root-owner correlation
+  independently of active runtime.
+  Resolve normal-signing action precedence explicitly: parse the revocation outbox
+  first, and only `revocation_outbox.absent` may proceed. Parse and reconcile an
+  exact journal next from its persisted locator/authority/source binding; a valid
+  pending journal yields `recovery_required` with its exact action before generic
+  authority selection, operation grant, or quota resolution. Journal binding,
+  re-enrollment, conflict, corruption, and persistence failures yield their exact
+  reconciliation/blocked state. Only after proving no outbox or journal pending
+  does generic authority ambiguity exit before lane construction. Then missing
+  operation authorization or replenishable quota produce
+  `authorization_required` before fresh material access;
+  an absent/disposed runtime plus `acquisition_ready` or
+  `sealed_recovery_available` produces `recovery_required`; `unlock_required`
+  produces `authorization_required` with an exact material-unlock requirement;
+  unavailable material, missing locator, schema corruption, exact conflict,
+  binding mismatch, or terminal quota failure is terminal `blocked` with its
+  typed reason. Pre-mutation storage unavailability is
+  `blocked({ retryability: 'retryable', reason: 'persistence_unavailable' })` and
+  performs no effect. Persistence CAS/read-back failure after a remote/local
+  commit stays in its exact partial-commit journal branch.
+- Treat a persisted Wallet Session only as a transport fact. An exact public
+  locator plus sealed/fresh acquisition state or a pending commit journal with an
+  absent/disposed/unobservable Client maps to `recovery_required` or a typed
+  blocked state. An active Client with `promotion_pending` or `durability_pending` also remains
+  `recovery_required`. A status-read failure cannot fall back to `ready`, and
+  publishing a persisted record as runtime identity is forbidden. Only
+  `committed_ready` publication, exact active-runtime observation, continuity
+  validation, authorization, and quota readiness can establish normal-signing
+  readiness.
+- Keep preparation branches data-only. They carry verified requirements,
+  correlation digests, and exact references; they contain no effect callbacks.
+  Lifecycle/action/result unions and operation payloads cannot carry optional
+  factor-specific reconnect, restore, or recovery hooks. Inject effect ports at
+  execution assembly and require a data-only action reference to select them.
+  Execute every Near and EVM-family signing operation in this order: pure
+  selection/resolution/challenge planning, user approval and evidence completion,
+  authorized prerequisite recovery (including Near nonce recovery when required),
+  material acquisition, candidate/session staging, and applicable external
+  promotion/local activation, retention-policy-required durability finalization,
+  exact post-effect re-resolution, atomic operation claim and all
+  descriptor-applicable debits, cryptographic execution, then finalization.
+  Challenge creation, resend, and code collection remain ephemeral interactions
+  inside the approval/evidence-completion stage and may precede prerequisite
+  recovery. The adapter may receive a boundary-scoped immutable credential/ref
+  for that challenge protocol and has no material, recovery-persistence,
+  material-recovery transport reauthentication/mutation, worker-material,
+  runtime, nonce, claim, grant, or quota mutation port. User
+  cancellation during this stage leaves every one of those domains unchanged.
+  A cancelled recovery disposes its staged candidate and leaves the active runtime
+  unchanged.
+- Model `cancelled` in the outer operation-executor result, outside the exhaustive
+  recovery-result union. Before any consuming call, cancellation uses one CAS to
+  clear the journal and, for `sealed_source`, unreserve the source;
+  `fresh_acquisition` has no sealed source transition. After a consuming admission
+  or material acquisition may have started, cancellation is accepted only when an
+  owner-queue CAS advances the current pre-promotion state to
+  `pre_promotion_cleanup_pending` with its exact cancellation correlation. That
+  state maps to `recovery_required(cleanup_pending)` while the executor reconciles
+  every exact server result, zeroizes worker-owned state, then uses one CAS to
+  persist the stage-specific terminal admission/acquisition result, apply any
+  returned monotonic policy, restore/remove the sealed source or record the
+  fresh-acquisition terminal receipt, and clear the journal. It leaves no
+  quarantined source without a journal owner. Only successful cleanup returns
+  outer `cancelled`; failure remains `pre_promotion_cleanup_pending`. If
+  `promotion_prepared` wins the CAS, cancellation is rejected and every later
+  outcome remains an explicit non-cancellable partial-commit/finalization result
+  until convergence.
+- Keep a recovered Client staged through lifecycle continuity checks. Cancellation
+  is allowed until the owner-queue CAS enters `promotion_prepared`; that transition
+  is the non-cancellable cutoff. Persist `promotion_prepared` with the exact
+  recovery/idempotency correlation before promotion. Server promotion uses compare-and-swap, is queryable by that
+  correlation, and returns an exact promotion receipt.
+  The browser then atomically swaps its active-runtime registry entry and disposes
+  the superseded active handle. These are two sequential owner-local commits;
+  the model claims no distributed atomicity. If server promotion succeeds and
+  the local swap fails, return `promotion_committed_activation_pending` with the
+  receipt, exact journal ref, and journal resume action; consume no grant/quota
+  and resume or reconstruct the candidate through the runtime owner. When
+  session-retained recovery requires a
+  durable seal, successful local activation first returns
+  `activation_committed_seal_pending` with the exact promotion receipt, journal
+  ref, public activation facts, material-recovery source digest, and journal
+  resume action. Runtime, candidate, and replacement fields are `never`.
+  The runtime owner's private lookup is an exhaustive
+  `resident | reconstruction_required` union. `resident` requires its opaque
+  candidate or reseal-source ref; `reconstruction_required` makes those refs
+  `never`. This private optimization never changes the public journal/result
+  branch. Once the worker produces a
+  candidate seal, advance to `seal_persistence_pending`, which
+  requires its exact candidate digest/revision. Successful persistence advances
+  to `seal_committed_readback_pending`, which requires the committed
+  seal identity. Volatile retention uses its two explicit pending states.
+  Resume each branch from journal and server-canonical state without repeating
+  server promotion; consume no grant/quota before required durability
+  finalization.
+  Exact post-effect re-resolution follows successful local activation and the
+  retention-policy-required finalization. A binding change returns a branded
+  replacement lane and invalidates the old preparation before any claim. Failed,
+  cancelled, superseded, abandoned, and unpromoted candidates are disposed.
+  Candidate promotion uses the runtime-recovery singleflight scope defined below.
+- Correlate every Near recovery/activation result to the original capability
+  locator, discriminated material-recovery source, authority ref, and recovery
+  digest. Exact post-effect resolution accepts only that correlated result and current runtime
+  observation. The result union is exhaustive across `activated`,
+  `replacement_lane_required`, `recovery_material_acquisition_pending`,
+  `material_acquisition_committed_promotion_pending`,
+  `pre_promotion_cleanup_pending`, `promotion_prepared`,
+  `promotion_committed_activation_pending`,
+  `activation_committed_seal_pending`,
+  `seal_persistence_pending`,
+  `seal_committed_readback_pending`,
+  `volatile_retention_persistence_pending`,
+  `volatile_retention_committed_readback_pending`, `authorization_required`,
+  `retryable_failure`, and `blocked`. Branch-specific fields are required and
+  invalid combinations are `never`. `activated` is constructible only after
+  `committed_ready` publication and carries its `durability_finalized` proof.
+  Raw Router and worker error strings are parsed once at their adapters and never
+  enter capability core.
+- Restrict recovery-result `authorization_required` to the pre-material,
+  pre-journal state;
+  pending-factor, root, candidate, active-runtime, and reseal-source refs are
+  `never` in that branch. If recovery transport/evidence expires or material must
+  be reacquired after acquisition begins, dispose or zeroize worker-owned state,
+  retain/advance the non-secret journal, and return `recovery_required` with the
+  exact `session_transport_reauthentication` or `material_unlock` prerequisite.
+  Parent operation grant/quota expiry has no effect on this convergence path.
+  After promotion, keep the corresponding promotion/activation/retention pending
+  branch and attach the same exact recovery prerequisite; the partial commit never collapses to pre-material
+  `authorization_required`. A pending branch carrying that prerequisite makes all
+  process-local secret refs `never`. No secret-bearing attempt remains alive
+  across human interaction.
+- Construct `retryable_failure` only before journal creation or after exact
+  reconciliation and atomic journal cleanup. Once a valid journal exists, every
+  transport, Router, worker, persistence, reload, and cancellation interruption
+  returns that exact pending journal branch with its resume/query action. Generic
+  failure branches cannot hide durable partial state.
+- Map that result union exhaustively back into preparation. `activated` triggers
+  exact post-effect resolution. Each pre-promotion pending branch becomes
+  `recovery_required` with only its exact journal query/resume action; it cannot
+  become a generic retryable failure. `promotion_committed_activation_pending`
+  becomes `recovery_required` with the exact promotion receipt and journal resume
+  action and resumes local activation without repeating root unlock or server
+  promotion; `activation_committed_seal_pending` becomes `recovery_required`
+  with only its journal resume action and resumes without repeating activation.
+  Seal-persistence/read-back and volatile-retention pending branches each
+  become `recovery_required` with only their exact journal finalization action;
+  `replacement_lane_required` returns only its branded replacement lane and
+  invalidates the old preparation. Missing, expired, or exhausted sealed recovery
+  maps to an exact material-unlock requirement when fresh acquisition is allowed.
+  Expired session transport maps to
+  `session_transport_reauthentication`; identity, authority, locator, key, root,
+  public-key, or policy mismatch maps to `blocked`. Retryable worker, Router, and
+  pre-commit transport failures remain correlated recovery actions. Pre-mutation
+  persistence unavailability maps to retryable `blocked`; post-commit persistence
+  failure maps to the exact retention-finalization-pending branch. No outcome
+  becomes a planner boolean.
+- For both MPC capabilities, preserve independently branded operation and quota
+  readiness across recovery only when exact post-effect revalidation proves the
+  same authority, threshold session, signing root, key, runtime/material binding,
+  participants, and policy. Any binding change returns a branded replacement lane
+  and invalidates the old preparation. Recovery alone never implies grant renewal,
+  quota replenishment, or budget readmission; delete the transitional blanket
+  readmission path.
+- Keep grant/quota renewal separate from runtime replacement. Exhaustion refresh
+  may replace operation authorization or replenish the wallet quota while
+  retaining the active Client, threshold session, signing key, authority,
+  participants, root/version, epoch, runtime policy, and public key.
+- Keep normal Ed25519 transaction, delegate-action, NEP-413, and any Near-owned
+  signer-proof signing outside the Yao Deriver path. They consume the active
+  Client and SigningWorker through normal FROST signing with zero Deriver calls.
+  Yao ceremonies remain registration, same-root recovery, server-share refresh,
+  activation, add-signer, and explicit export.
+- Route Near transaction, delegate-action, and NEP-413 operations through the same
+  generic preparation/action loop, effect order, exact post-effect re-resolution,
+  and runtime-owner material-use queue. Apply the same rule to signer proof if the
+  Near capability becomes its owner. No operation may require a pre-existing
+  active Client through an auth-method-specific shortcut.
+- Publish a sealed recovery record after promotion only when it exactly matches the
+  promoted authority, root, threshold session, key, and runtime binding. The
+  worker first produces a candidate seal plus its digest/revision;
+  the persistence port advances to `seal_persistence_pending`. One
+  IndexedDB compare-and-swap transaction verifies the journal and recovery-source
+  digest. For `sealed_source`, it also verifies the source revision, publishes the
+  replacement as eligible, and retires the source record. For
+  `fresh_acquisition`, it publishes the first eligible sealed record and performs
+  no source retirement. The transaction advances to
+  `seal_committed_readback_pending`. Exact read-back follows
+  that transaction. A second journal CAS clears the completed journal, after
+  which the runtime owner may construct sealed-retention `durability_finalized`
+  and acknowledge the worker to zeroize its retained reseal source and candidate
+  ciphertext. A mismatch or persistence failure leaves the exact pending journal
+  branch and keeps every source/candidate/committed seal identity distinct.
+- Finalize volatile retention explicitly. After local activation, advance to
+  `volatile_retention_persistence_pending`; one persistence CAS verifies the
+  recovery-source digest, atomically retires/removes a sealed source, performs no
+  sealed-record transition for fresh acquisition, and advances to
+  `volatile_retention_committed_readback_pending`. Exact read-back and a second
+  CAS prove the sealed source absent and clear the journal before the runtime owner constructs volatile-retention
+  `durability_finalized`. A crash at either step remains journal-pending and
+  cannot publish readiness.
+- The Near material-adapter persistence port owns both finalization effects. A
+  session-retained attempt cannot report completion while seal persistence
+  or read-back is pending or failed.
+- Make page hide dispose the live Client while retaining the public capability
+  and zeroize worker secrets while retaining the public capability locator, any
+  ordinarily eligible sealed recovery reference, and any incomplete non-secret
+  journal. A `sealed_source` journal retains its quarantined source record only
+  while that record still exists. After sealed or volatile finalization has
+  retired the source, the pending journal retains the exact former source
+  identity/revision and replacement-seal or volatile-retirement receipt, with no
+  live quarantined source. Reload reconciliation
+  queries the server-canonical recovery ID, reacquires exact material when
+  process-local handles were lost, and resumes activation or retention
+  finalization without a second allowance decrement, promotion, or operation
+  claim. Explicit wallet lock or logout immediately disposes/zeroizes local
+  runtime and worker state and advances the process-local fence. One IndexedDB
+  transaction increments the durable fence, marks locator/seal/journal state
+  ineligible, and writes a separate non-secret `revocation_pending` outbox. Server reconciliation then
+  idempotently advances the capability/authority revocation epoch or installs its
+  tombstone before resolving every correlated in-flight recovery. Network failure
+  leaves the wallet locally locked with no live secret. Acknowledgement clears
+  durable records/outbox only after the server fence and terminal recovery states
+  are durable.
 - Implement the SPEC's auth-agnostic EVM ECDSA preparation domain. Transaction
   lanes carry a transaction target plus `ExactEcdsaMaterialIdentity`; the
   material owner composes `WalletAuthAuthorityRef` with Phase 5's final
   canonical `EcdsaRoleLocalMaterialBinding` and carries no raw factor identity
   or provisioning-only key-slot ID.
+- Canonicalize exact ECDSA source material and recovery facts before EVM-family
+  projection. Project only stable material-owner identity, exact authority,
+  lifecycle, and recovery facts to requested chain targets; perform target-lane
+  selection afterward. A target-local unusable observation cannot suppress a
+  valid canonical shared-material projection. Target-specific operation grants,
+  envelopes, authorization results, operation claims, and quota uses never
+  project. Delete the legacy projection path that copies `signingGrantId` or
+  other operation authorization across EVM and Tempo targets.
 - Build lane selection from a branded EVM transaction request containing the
   parsed target and exact operation envelope. Its builder proves target/intent
   digests and operation fingerprint before the selector sees it.
+- Add a separate EVM ECDSA export preparation/action path. Its branch-specific
+  builder accepts only an `evm.export_key` envelope, exact material-owner identity,
+  and `quota_use: none`; the transaction builder rejects export and the export
+  builder rejects transaction. `export.ready` requires exact grant readiness and a
+  correlated staged export-session ref; transaction target, nonce, signing lane,
+  transaction material-readiness, and quota fields are `never`. Sequence export
+  as exact operation authorization, material unlock/session staging inside the
+  ECDSA material adapter, exact post-effect re-resolution of export correlation,
+  atomic grant-only claim, export, then finalization/zeroization. The export path
+  reuses no transaction authorization and serializes with other cryptographic uses
+  of the same exact material owner.
 - Add one exact capability resolver and one typed material-recovery port for the
   EVM ECDSA capability. Preparation returns only `ready`,
   `recovery_required`, `authorization_required`, or `blocked`.
-- Resolve in this order: active authority, authorized operation-bound active
-  grant, then exact material. `recovery_required` carries that branded
-  authorization so no signer material is unsealed before policy admission.
-  Claim grant use only after preparation reaches `ready` and immediately before
-  signing; failed material recovery does not consume an operation use.
+- Make authority and persistence resolution fail explicitly. Multiple eligible
+  authority refs under `any_authority` return `authority_ambiguous`; multiple
+  durable rows matching one exact selected lane or recovery ref return
+  `exact_record_conflict`; a zero match returns `missing`; malformed data returns
+  `corrupt`; storage failure returns `persistence_unavailable`. Exact conflicts
+  fail closed and never select by newest timestamp, source priority, or array
+  order. The resolver leaves conflicting current-schema rows untouched; a
+  separate explicit maintenance action owns conflict cleanup. Boundary migration
+  may reject and clear obsolete-schema rows before they enter core parsing.
+- Resolve EVM transaction preparation in this order: active authority, authorized
+  operation-bound active grant, exact spendable wallet quota binding, then exact material.
+  `recovery_required` carries branded operation and quota readiness so no signer
+  material is unsealed before policy admission.
+  Claim grant and quota use jointly only after preparation reaches `ready` and
+  immediately before signing; failed material recovery consumes neither.
 - Make `recovery_required` require a verified exact recovery reference. A
   `restorable` or `deferred` inventory label alone is insufficient authority to
   restore material.
-- Make authorization purpose explicit: operation grant, exact material unlock,
-  or threshold-session replacement. Operation grant policy may accept evidence
-  from a different factor; material unlock remains bound to the material
-  owner's exact `WalletAuthAuthorityRef`.
-- Correlate authorization results with their requirement kind. Successful
+- Make prerequisite action kind explicit:
+  `operation_grant | quota_replenishment | material_unlock |
+  threshold_session_replacement | session_transport_reauthentication`.
+  Session transport reauthentication carries the exact authority, session
+  audience/device binding, recovery ID, and recovery digest and returns only a
+  fresh opaque transport reference. Operation grant policy may accept evidence
+  from a different authority or factor; material unlock and transport
+  reauthentication remain bound to the exact requirement that requested them.
+- Correlate prerequisite action results with their requirement kind. Successful
   material unlock returns an upgraded recovery attempt bound to the original
   recovery ID/digest; successful threshold replacement returns a branded lane
-  bound to its reauthorization anchor.
+  bound to its reauthorization anchor; successful session transport
+  reauthentication returns an opaque transport ref bound to the exact recovery
+  requirement and cannot satisfy operation authorization or material ownership.
 - A threshold-session replacement returns a replacement lane through a
   reauthorization anchor. Never rerun resolution against the obsolete exact
   lane after its threshold-session identity changes.
-- Execute each operation-bound authorization action at most once per operation
-  fingerprint and return `no_progress_after_action` when the same action
-  repeats. Make recovery idempotent and singleflight by exact material-owner
-  identity key plus recovery ID so concurrent EVM/Tempo operations share one
-  restore. OTP resend/retry inside one factor-adapter interaction does not count
-  as a repeated core authorization action.
+- Use three independent concurrency scopes. Authorization actions are
+  singleflight by operation fingerprint plus exact requirement and return
+  `no_progress_after_action` when that requirement repeats. Runtime
+  recovery/activation is singleflight by stable material/runtime owner plus exact
+  recovery identity, authority ref, and discriminated recovery-source digest; a
+  replaceable `thresholdSessionId` alone is never the key. Two attempts join only
+  when all stable owner and recovery facts match. Authority re-enrollment, seal
+  replacement/version change, or recovery-digest change creates a distinct
+  flight. After approval/evidence, the flight leader acquires the stable
+  runtime/root-owner material-use queue before journal creation, sealed-source
+  reservation, exact recovery admission, material acquisition, or any owner
+  mutation. It captures and revalidates the owner-fence generation before every
+  consuming server or publication boundary and stops on mismatch while retaining
+  the exact journal/outbox reconciliation state. Only the queue callback can
+  construct the branded, non-serializable `MaterialUseLease<Owner>` union:
+  `recovery_held | parent_held | transferred | released`. Both held branches
+  require the exact owner key, underlying lease ID, acquisition generation,
+  observed owner fence, and an opaque holder-specific token. Recovery coordination
+  accepts only `RecoveryHeldMaterialUseLease<Owner>`; parent operation
+  preparation, export, claim, and signing accept only
+  `ParentHeldMaterialUseLease<Owner>`. A queue-owned runtime registry stores the
+  sole current holder token for each underlying lease ID and validates it at every
+  material, claim, and signing boundary. Transfer atomically invalidates the
+  recovery holder token, records a transferred source receipt, and returns exactly
+  one parent-held destination with a fresh token. Release invalidates either held
+  token and records only `released`. TypeScript aliases to an old held value may
+  still exist, so they fail the runtime token check and can perform no effect. The
+  leader holds the queue through
+  root consumption, candidate promotion/local activation, required retention
+  finalization, and exact
+  post-effect re-resolution. Distinct recovery flights for the same owner
+  serialize even when their digests differ; identical flights join once. The
+  recovery leader either moves its recovery-held lease exactly once into a
+  parent-held lease for claim/signing or releases it. A repeated move with the old
+  holder token fails closed. After release, the parent
+  must reacquire the queue, receive a new parent-held lease, and rerun exact
+  runtime/publication generation and durability-proof resolution immediately
+  before claim. Cached generations or a ready proof observed outside a currently
+  held lease can never authorize a claim. The lease is `never` in operation
+  requests, durable claims, persistence, diagnostics, and logs.
+  Cryptographic material use is queued by exact material/runtime owner, so EVM
+  and Tempo projections and export operations sharing one owner share one queue.
+  Never hold this queue during human interaction. Normal signing acquires a
+  parent-held lease after
+  exact post-effect re-resolution, revalidates the exact generation/proof inside
+  the lease, and holds it around atomic claim and signing.
+  Export acquires a parent-held lease after human interaction and initial
+  authorization resolution,
+  before material unlock/session staging, and holds it through exact re-resolution,
+  grant-only claim, export, and zeroization. OTP resend/retry inside one auth-factor
+  adapter interaction does not count as a repeated core authorization action.
 - Encode generic material-use state: session-retained material may recover;
   pending single-use material is ready only while hot and bound to the same
   operation fingerprint; cold pending and consumed single-use material require
   threshold-session replacement and cannot enter recovery.
-- Normalize Passkey, Email OTP, and future factor implementations behind
-  authority and material adapters at capability assembly. Factor adapters own
-  assertion/challenge protocols; material adapters own inspection, restore, and
-  consumption.
-- Normalize current cross-curve companion envelopes into separate exact Ed25519
-  and ECDSA recovery references at persistence boundaries. One capability
-  recovery cannot restore or commit its companion as a hidden side effect.
+- Normalize Passkey, Email OTP, and future implementations behind auth-factor and
+  capability-local material adapters at capability assembly. Auth-factor adapters
+  own assertion/challenge protocols and verified evidence; Near and ECDSA material
+  adapters own inspection, restore/acquisition, constructor invocation, and
+  immediate secret consumption.
+- Delete stale cross-curve companion envelopes at persistence boundaries. ECDSA
+  recovery references and Ed25519 sealed root-recovery references remain
+  disjoint; one capability recovery cannot enumerate, restore, or commit its
+  companion as a hidden side effect. Replace the tactical
+  `ecdsa_and_ed25519_yao_recovery` unlock envelope with capability-specific
+  material requests. One verified factor interaction may satisfy two exact
+  requirements through the auth-factor adapter, while each material adapter
+  receives and commits only its own request.
 - Replace method-specific signing step-up plans and retry branches with the
-  SPEC's generic authorization requirements. Operation-grant evidence uses only
-  a branded EVM transaction requirement whose exact envelope matches the
-  `grant_evidence_required` branch of `CapabilityGrantPlan`; material adapters
-  return requirements and never construct authorization policy.
+  SPEC's generic authorization requirements. Operation-grant evidence uses a
+  branded exact operation requirement whose envelope matches the
+  `grant_evidence_required` branch of `CapabilityGrantPlan`; root/material
+  adapters return requirements and never construct authorization policy.
 - Delete `PasskeyEcdsaCommittedLane`, `EmailOtpEcdsaCommittedLane`, their
   ready aliases, method-specific builders, `EmailOtpEcdsaCommittedLaneStateError`,
   `EvmFamilyEcdsaAuthMethod`, Passkey source-priority and material-selection
@@ -1989,14 +3147,119 @@ Do:
   restore branch once the exact resolver is live. Delete
   `reauth_required/missing_hot_material` as an implicit restore signal; remove
   obsolete fixtures and guards in the same change.
+- Delete `NearPasskeyEd25519ReconnectHook`,
+  `NearEmailOtpEd25519ReconnectHook`,
+  `NearEd25519PasskeyReconnect`, `NearEd25519EmailOtpReconnect`,
+  `recoverPasskeyEd25519YaoCapabilityForSigning`,
+  `NearEd25519YaoCapabilitySource`, `nearEd25519YaoCapabilitySource`,
+  `emailOtpNearEd25519LaneRequiresFreshAuth`,
+  `RouterAbEd25519YaoClientRootFactorV1`,
+  `RouterAbEd25519YaoBudgetRefreshAuthorizationV1`, factor-labelled Yao
+  root/export transport unions, and passkey/Email OTP recovery/refresh assembly
+  ports after the generic root and runtime ports are live. Keep factor protocol
+  types inside their adapters. Replace `NearEd25519YaoSigningCapability` with the
+  branded committed capability shape when its legacy session/grant/budget fields
+  are removed; retain no broad source aggregate.
+- Migrate the behavior and delete the landed sealed-refresh tactical surface:
+  `EmailOtpEd25519YaoSilentRecoveryResultV1`,
+  `EmailOtpEd25519YaoSilentRecoveryPorts`,
+  `EmailOtpEd25519YaoBudgetRecoveryResult`,
+  `PreparedEmailOtpEd25519YaoRecoveryV1`,
+  `PreparedColdEmailOtpEd25519YaoRecoveryV1`,
+  `recoverEmailOtpEd25519YaoFromSealedSessionV1`,
+  `recoverEmailOtpEd25519CapabilityForSigningV1`,
+  `recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning`,
+  `requestRehydrateEmailOtpEd25519YaoFactor`, the
+  `rehydrateEmailOtpEd25519YaoFactor` worker operation, current Email-OTP-specific
+  Yao root purpose/scope/handle shapes, and method-specific Browser recovery
+  singleflight maps. Replace them with the generic inspection, recovery action,
+  material adapter, and worker-private handle lifecycle; retain no alias.
+- Migrate the landed refresh-safe export behavior and delete its auth-specific
+  coordinator surface: `Ed25519YaoExportFlowDeps.recoverPasskeyCapability`, the
+  nested `emailOtp.resolveExportContext` callback bag,
+  `exportEd25519YaoKeyWithFreshPasskey`,
+  `exportEd25519YaoKeyWithFreshEmailOtp`,
+  `ExactPasskeyEd25519SigningLaneIdentity`,
+  `ExactEmailOtpEd25519SigningLaneIdentity`,
+  `EmailOtpEd25519YaoExportSubjectV1`,
+  `EmailOtpEd25519YaoExportContextV1`,
+  `EmailOtpEd25519YaoExportContextPorts`,
+  `recoverExactPasskeyEd25519YaoCapabilityForExport`,
+  `resolveEmailOtpEd25519YaoExportContext`, and the matching Browser/assembly port
+  aliases. Remove the `laneIdentity.auth.kind` export dispatch from
+  `exportKeypairOperation.ts`. Replace it with the generic verified export-context
+  resolver and exact export material-acquisition action. Preserve the regression
+  invariant through exact-authority adapter fixtures; retain no method-labelled
+  lane or shared recovery callback.
+- Move `EmailOtpEd25519YaoActiveCapabilityDescriptorV1` into the generic Near
+  lifecycle/export-context boundary and destructively replace the Email OTP worker
+  export payload. Its final request requires the branded lifecycle ref, exact
+  authority/material owner, export operation/admission correlation, runtime-policy
+  binding, participant set, SigningWorker, and registered public key. Remove
+  `signingGrantId`, raw provider subject, and bearer JWT from that payload. The
+  Email OTP adapter may keep a responsibility-local OTP/export worker command;
+  factor-specific types do not escape that adapter.
+- Delete the factor-labelled Near assembly ports and Browser shortcuts:
+  `refreshPasskeyEd25519CapabilityForSigning`,
+  `requestEmailOtpEd25519SigningChallenge`,
+  `recoverEmailOtpEd25519CapabilityForSigning`,
+  `resolveAccountAuthMethodForSigning`,
+  `ensureNearEd25519YaoCapabilityForSigning`,
+  `resolveActiveNearEd25519YaoSigningLane`,
+  `hasPasskeyAuthenticatorForNearEd25519Subject`,
+  `recoverNearEd25519YaoCapabilityForSigning`,
+  `recoverExactPasskeyEd25519YaoCapabilityForSigning`,
+  `recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning`,
+  `recoverExactEd25519YaoCapability`,
+  `hasNearEd25519YaoPublicReference`,
+  `recoverNearEd25519YaoCapabilityFromSealedSession`,
+  `recoverNearEd25519YaoCapabilityWithPasskey`,
+  `readNearEd25519RuntimeRecordForSelectedLane`,
+  `publishNearEd25519RuntimeIdentityForRecord`, the method-specific Browser
+  recovery maps, `resolveNearTransactionPlannerReadiness`, the control-flow use
+  of `getWarmThresholdEd25519SessionStatusForSession`,
+  `resolveThresholdEd25519SessionIdForNearAccount`, the broad
+  `resolveActiveEd25519YaoSigningCapability` port,
+  `withThresholdEd25519CommitQueue`, `ThresholdEd25519CommitQueueByKey`,
+  `resolveThresholdEd25519CommitQueueKey`, and the `forceFreshAuth` and
+  `retryingFreshAuth` planner booleans. Delete all
+  `CreateSigningEnginePortsArgs` aliases/wiring for those ports. Generic
+  capability/runtime resolution accepts exact authority and runtime identity and
+  contains no auth-method filter. Adapt valid fixtures in
+  `nearSigning.typecheck.ts` to reject callback-bearing sources and factor-hook
+  combinations, then delete its obsolete positive capability-source fixtures.
+- Destructively migrate durable Ed25519 restore fields that currently carry
+  `walletSessionJwt`, `providerSubjectId`, `emailHashHex`,
+  `registrationAuthorityId`, `signingGrantId`, and ambiguous
+  `remainingUses`/`expiresAtMs`. The current schema contains only exact authority,
+  recovery digest, ciphertext/seal identity, retention, and the branded recovery
+  policy selected in Phase 18.
+- Delete `signingGrantId` from the current export subject/context and worker
+  request when the generic context lands. The exact `near.export_key` grant exists
+  only in operation authorization/claim state; normal-signing grant exhaustion is
+  never an export-context lookup key.
 - Replace factor-labelled diagnostics collections with exact lane, material,
   authority-ref, and recovery summaries. Diagnostics never select a branch.
 - Register correlated operation kinds for `near.sign_transaction`,
-  `near.export_key`, `evm.sign_transaction`, `evm.export_key`, and
-  `mpc.produce_signer_proof`. Type fixtures reject every cross-capability pair.
-- Add `produceMpcSignerProof` to MPC capabilities as the implementation of the
-  closed `mpc.produce_signer_proof` operation; connect it to the Phase 12 fail-closed
-  `mpc_signer_proof` evaluator.
+  `near.sign_delegate_action`, `near.sign_nep413_message`, `near.export_key`,
+  `evm.sign_transaction`, `evm.export_key`, and
+  `mpc.produce_signer_proof`. Each operation has its own envelope, digest,
+  result, policy descriptor, and invalid-pair fixtures.
+- Treat `near.export_key` as one exact, one-use Yao export operation. Passkey,
+  Email OTP, and future factors satisfy its policy through registered evidence
+  and the Near material adapter; factor kind never changes the operation identity
+  or export lifecycle type. Preserve and migrate the landed Email OTP export
+  implementation, including page-refresh context resolution, server-canonical
+  lifecycle lookup, one-use WASM ownership, worker-side exact continuity checks,
+  and registered-public-key verification. Replace factor-kind pairing fixtures
+  with exact authority-ref, lifecycle-ref, root-purpose, operation-envelope, and
+  correlation fixtures.
+  Update YAOS's stale Phase 9F follow-up note before Phase 19 starts. The companion
+  SPEC must state explicitly whether Email OTP evidence is accepted by the
+  default `near.export_key` policy or enabled through tenant policy.
+- Add `produceMpcSignerProof` to the selected owning MPC capability as the
+  implementation of the closed `mpc.produce_signer_proof` operation; connect it
+  to the Phase 12 fail-closed `mpc_signer_proof` evaluator.
 - Validate capability grant policies against registered grant evidence kinds and
   capability operation descriptors.
 - Re-home the remaining threshold/wallet helpers from `core/authService/**`
@@ -2006,31 +3269,192 @@ Check:
 
 - Vault-only compilation excludes MPC modules.
 - Ed25519, ECDSA, and vault operation lanes are not interchangeable.
-- Passkey and Email OTP refresh both follow
+- Passkey, Email OTP, and a synthetic third factor drive the same Near Yao
+  preparation transitions without changes to selection, recovery, refresh,
+  committed-runtime construction, or normal signing.
+- When live runtime/material recovery is required, both MPC capabilities follow
   `recovery_required -> recover exact -> resolve exact -> ready`; direct EVM and
   shared Tempo material-owner cases have targeted coverage.
-- Session-retained material can recover through a material adapter. Pending
+- A valid exact locator plus sealed root-recovery ref and an absent/disposed
+  runtime resolves to `recovery_required` when the Near material adapter reports
+  `sealed_recovery_available`. Tests cover locator-only, successful refresh
+  activation, fresh `acquisition_ready`, unlock-required, unavailable, missing, corrupt, expired,
+  substituted, duplicate-exact, unavailable-storage, and authority re-enrollment
+  states. Only `committed_ready` publication with a validated active Client and
+  `durability_finalized` proof can construct `normal_signing.ready`; only a
+  correlated one-use export session can construct `export.ready`.
+- Page-refresh export tests start with no active Client and exhausted
+  normal-signing grant/quota/recovery allowance. An exact locator plus
+  server-verified lifecycle still resolves the export context, while the export
+  operation requires its own fresh `near.export_key` grant. Context resolution
+  performs zero Passkey recovery, Email OTP signable-capability recovery,
+  promotion, activation, reseal, runtime publication, signing claim, or quota
+  effects.
+- Cold-recovery export tests begin with a selected observation carrying stale
+  rotating authorization/session values. Recovery of the same exact authority,
+  signer, threshold session, lifecycle, and policy returns the current canonical
+  context; export uses only its current grant, session transport, and export
+  session and succeeds without an intervening transaction. Signer, lifecycle,
+  or authority drift fails before export. Whole-lane equality and reuse of the
+  selected observation's grant or bearer credential are rejected by type fixtures
+  and port-spy assertions.
+- Server and worker continuity tests substitute wallet, account, signer slot/key,
+  threshold session, lifecycle ID, root-share epoch, signer set, SigningWorker,
+  runtime policy, participants, active-capability binding, state epoch, and
+  registered public key one field at a time. Every mismatch fails closed before
+  root material is exported. Missing lifecycle identity is rejected by static
+  fixtures and boundary parsers.
+- A restored login/session or persisted Wallet Session never chooses a capability
+  action. With no exact locator, capability discovery returns absent; a request
+  that requires an already-provisioned capability returns
+  `blocked(missing_locator)`. An exact locator plus
+  `sealed_recovery_available` or `acquisition_ready` and no active Client yields
+  `recovery_required`; an exact active Client plus continuity, grant, and quota
+  readiness plus `committed_ready` publication yields `ready`. Unavailable or
+  pending runtime publication cannot become ready.
+  Cancellation after data-only material inspection invokes zero server seal
+  removal, fresh acquisition, warm bootstrap, worker rehydration, root binding,
+  Client construction, activation, reseal, persistence, nonce recovery, claim, or
+  quota effects.
+- Sealed-recovery lifecycle tests cover exact rehydrate-digest substitution,
+  local/server monotonic recovery policy, pending-factor and bound-root cleanup,
+  candidate cleanup, worker-retained reseal-source cleanup, atomic replacement
+  record read-back, stale-record ineligibility, and every terminal zeroization
+  path. Reseal generation failure returns
+  `activation_committed_seal_pending`; replacement CAS failure returns
+  `seal_persistence_pending`; committed-record read-back failure returns
+  `seal_committed_readback_pending`. None performs a signing claim.
+- Commit-journal tests cover crash/worker termination before material acquisition,
+  after sealed unseal or fresh acquisition, before promotion, between server
+  promotion and local activation, after activation, during seal generation, and
+  between seal persistence and read-back. Server-canonical reconciliation resumes
+  by the same recovery ID, reacquires material when required, rejects stale-tab/
+  source-revision CAS, and never repeats promotion or a signing claim.
+  Admission reconstruction tests cover `not_started`, `committed`, and `terminal`
+  from the initial journal branch without assuming a receipt exists.
+- Cancellation tests race the `pre_promotion_cleanup_pending` transition against
+  `promotion_prepared`, prove exactly one CAS wins, return outer `cancelled` only
+  after durable cleanup, and keep cleanup pending across CAS failure/reload.
+- Closed result fixtures distinguish transport reauthentication, material unlock,
+  retryable Router/worker/storage failure, and terminal identity/authority/key/
+  root/policy mismatch. `@ts-expect-error` fixtures reject direct literals, broad
+  spreads, missing branch fields, callback-bearing actions, old-lane reuse after
+  replacement, pending publication passed to ready/claim builders, and
+  recovery/reason/sealed-source/fresh-source/seal-digest/receipt
+  combinations from different branches. `authorization_required` rejects every pending-factor,
+  root, candidate, runtime, and reseal-source field.
+- Session-retained material can recover through its capability-local material adapter. Pending
   single-use material may sign once while hot and operation-bound; cold pending
   and consumed states require fresh threshold-session authorization. Type
   fixtures reject single-use recovery descriptors.
-- Cross-curve companion records normalize to distinct recovery refs, and tests
-  prove both ECDSA-to-Ed25519 and Ed25519-to-ECDSA recovery cannot create hidden
-  material side effects.
-- A synthetic third-factor adapter passes the ECDSA preparation conformance
-  suite without changes to lane selection, preparation, restore coordination,
-  or committed-lane construction.
+- Stale cross-curve companion records are rejected and cleared. Tests prove both
+  ECDSA-to-Ed25519 and Ed25519-to-ECDSA recovery cannot create hidden material
+  side effects.
+- A synthetic third-factor adapter passes both MPC preparation conformance
+  suites without changes to lane selection, preparation, recovery coordination,
+  or committed runtime/material construction.
+- Positive cross-factor tests allow policy-approved evidence from authority B to
+  authorize an operation whose exact material owner is authority A, while root or
+  ECDSA material acquisition still requires A. One interaction may satisfy both
+  proofs only when authority, purpose, operation, and correlation all match.
 - Source guards reject `passkey` and `email_otp` control-flow literals and
-  imports from factor-specific modules inside generic EVM ECDSA selection and
-  preparation code.
+  imports from factor-specific modules inside generic Near Ed25519 Yao and EVM
+  ECDSA selection/preparation/export coordination code. Runtime and export-context
+  resolution contain no auth-method literal or filter. Adapter conformance tests
+  prove Passkey, Email OTP, and a synthetic third factor consume the same generic
+  export requirement and produce the same one-use export-session result.
 - Source guards reject the deleted committed-lane/resolver/step-up symbols and
-  old `signingGrantId` semantics outside explicitly retained MPC session
-  authorization fields.
+  every old `signingGrantId` semantic, broad Yao capability-source aggregate,
+  auth-specific reconnect hook, and auth-labelled preparation-order assertion.
+  Delete `nearRefreshYaoOrdering.guard.unit.test.ts`, whose substring checks
+  preserve pre-confirmation silent recovery, and
+  `ed25519YaoSealedRefreshWiring.guard.unit.test.ts`, whose factor-specific source
+  ordering belongs to the tactical implementation. Replace them with port-spy
+  behavior tests covering the complete effect boundary, worker-private lifecycle,
+  retention finalization, and post-effect canonical re-resolution. Migrate the
+  still-valid continuity, monotonic-policy, and cleanup assertions from
+  `emailOtpEd25519YaoBudgetRecovery.unit.test.ts` into generic adapter/runtime
+  conformance tests, then delete its old grant/budget fixtures and the tactical
+  sealed-recovery typecheck fixture.
+- Migrate the valid page-refresh, zero-Passkey-callback, exact durable context,
+  lifecycle continuity, and worker zeroization assertions from
+  `emailOtpEd25519YaoExportRefresh.unit.test.ts` into generic Near export-context
+  and adapter conformance tests. Replace
+  `ed25519YaoExportFlow.typecheck.ts` with fixtures that reject authority/adapter
+  substitution without naming Passkey or Email OTP lanes, then delete the tactical
+  files.
+- Migrate the valid stale-selected-grant/current-recovered-grant, current Wallet
+  Session credential, no-intervening-transaction, and authenticator-drift
+  assertions from `passkeyEd25519YaoExportRefresh.unit.test.ts` into the generic
+  continuity/post-effect-resolution suite. The generic fixtures use exact
+  `WalletAuthAuthorityRef` continuity and contain no Passkey-specific lane type or
+  callback. Delete the tactical test with the factor-labelled export flow.
 - `@ts-expect-error` fixtures reject transaction lanes carrying export/proof
   operations, ready states with non-hot or mismatched material, unbranded
   recovery, single-use recovery, raw factor fields on material owners, raw
   active grants in ready state, mismatched authority/material/authorization
   aggregates, uncorrelated authorization result kinds, and unbranded replacement
   lanes.
+- EVM export fixtures reject transaction envelopes/targets, quota readiness,
+  unverified material unlock, cross-owner substitution, and transaction
+  authorization reuse. Ordering tests require exact post-unlock re-resolution and
+  a grant-only claim before export, with terminal zeroization.
+- Ed25519 fixtures reject `normal_signing.ready` with a missing/disposed Client,
+  pending promotion/seal publication, missing/mismatched durability proof,
+  mismatched capability locator or sealed recovery ref, grant/quota identity
+  embedded in runtime identity, factor-specific root type in capability core,
+  cross-purpose root-material handle, or transaction/delegate/NEP-413 envelope
+  substitution. They reject `export.ready` with a normal runtime/lane/nonce/quota
+  field, missing export-session correlation, or a signing envelope.
+- Root-material inspection fixtures reject a secret handle in every branch,
+  acquisition refs on sealed/unlock/unavailable branches, sealed recovery refs on
+  acquisition/unlock/unavailable branches, optional authority or purpose, and
+  effect callbacks inside preparation state. Acquisition fixtures reject
+  registration/recovery/export correlation substitution and consumed-handle
+  reuse.
+- Ceremony-order tests prove Router admission failure acquires or consumes no
+  root-material handle, while every terminal path after acquisition consumes or
+  zeroizes the handle and any staged Client.
+- Export-order tests prove exact operation authorization and admission precede
+  material acquisition, exact re-resolution precedes the grant-only claim, and
+  the claim precedes export. Cancellation before claim consumes no grant and
+  zeroizes acquired material/session state. Registration tests prove its ceremony
+  uses no capability grant or wallet signing quota.
+- Page-hide/lock disposal, pre-promotion candidate disposal,
+  post-promotion activation-pending recovery, activation-committed seal
+  finalization, failed-candidate disposal, refresh identity preservation,
+  public-locator/sealed-recovery/commit-journal/revocation-outbox/
+  runtime-publication separation, and zero signing-path Deriver calls have
+  targeted tests.
+- Factor-neutral preparation tests enforce the complete effect order for
+  transaction, delegate-action, NEP-413, and any Near-owned signer-proof
+  operation. Cancellation during approval/evidence completion leaves nonce,
+  runtime, grant, and quota unchanged. Same-binding recovery preserves readiness
+  only after exact revalidation; binding changes produce a replacement lane.
+- Recovery-result tests cover server promotion CAS receipts, atomic local registry
+  swap and superseded-handle disposal, resumable
+  `recovery_material_acquisition_pending`, resumable
+  `material_acquisition_committed_promotion_pending`, resumable
+  `pre_promotion_cleanup_pending`, resumable
+  `promotion_prepared`, resumable
+  `promotion_committed_activation_pending`, resumable
+  `activation_committed_seal_pending`, seal persistence/read-back
+  pending, volatile-retention persistence/read-back pending, replacement lanes,
+  transport reauthentication, retryable versus terminal failures, no-progress
+  detection, and singleflight retries. Public pending branches carry only journal
+  actions; private resident/reconstruction state never changes their shape. No
+  branch claims grant/quota before final exact readiness. A pending journal takes
+  precedence over expired or missing operation authorization/quota, and full
+  authorization/quota resolution reruns after convergence. A journal bound to one
+  exact authority also reconciles when generic `any_authority` selection would
+  currently be ambiguous; re-enrollment is reported by the journal's exact
+  binding outcome.
+- Exact resolver tests distinguish authority ambiguity, duplicate exact records,
+  missing records, corrupt records, and pre-mutation persistence unavailability.
+  Projection tests
+  prove EVM/Tempo project only stable material-owner identity, exact authority,
+  lifecycle, and recovery facts and share one material-use queue; operation
+  grants, envelopes, claims, and quota uses remain target-local.
 - `mpc_signer_proof` missing capability, inactive capability, principal
   mismatch, target capability/operation mismatch, unsupported operation, and
   success have targeted tests.
@@ -2039,34 +3463,164 @@ Check:
 
 Status: planning. Old Phase 6 remainder.
 
+Prerequisite: the companion SPEC must adopt Phase 10/12's generic authenticated
+claim lookup, fenced execution/reconciliation lifecycle, and terminal result
+contract. It must exclude grant, quota, threshold-session, and runtime/material
+IDs transitively from the canonical operation fingerprint and uniqueness key, then
+define the MPC quota, binding, cryptographic phase, and delivery specializations
+below. Phase 20 cannot start while the SPEC retains an indefinite
+`operation_in_progress` contract.
+
 Do:
 
-- Replace `threshold_session` route planes with `capability_grant` on signing
-  routes.
-- Move threshold-session claim parsing into MPC route handlers.
-- Implement builders for branded `AuthorizedEvmEcdsaOperation` and
-  `ClaimedEvmEcdsaOperation`. Authorization accepts only an active grant whose
-  tenant, principal, capability, `evm.sign_transaction` operation, and operation
-  digests match the typed transaction envelope. Claiming occurs after ready
-  preparation and additionally requires an operation-fingerprint-matched
-  claimed grant use.
-- Map spend control onto grant-use consumption (Decided Point 13): atomic
-  DB-backed grant `maxUses`/TTL consumption keyed by grant id and operation
-  fingerprint replaces the signing-budget reservation subsystem. Delete
+- Replace `threshold_session` route planes with `capability_grant` on every MPC
+  capability-operation route: normal signing, the selected signer-proof owner,
+  and explicit export.
+- Parse threshold-session claims only inside the discriminated MPC operation
+  branches that require them. Export branches carry no threshold-session or
+  quota field.
+- Specialize Phase 12's
+  `CapabilityOperationClaimLookup<MpcOperationDescriptor>` with the MPC semantic
+  envelope and fingerprint. Add no MPC-only lookup lifecycle. It runs before
+  fresh grant/quota preparation, runtime recovery, user approval, or acquisition
+  of a material-use lease. `completed` returns the protected terminal result;
+  `claimed_active` joins or polls the current execution; `claimed_stale` enters
+  MPC claim reconciliation. Only `absent` may enter new-claim preparation.
+- Implement builders for branded authorized and claimed Near Ed25519 and EVM
+  ECDSA operations on the lookup's `absent` branch. New authorization accepts only an active grant whose tenant,
+  principal, capability, exact operation kind, and operation digests match the
+  typed envelope. Claiming occurs after preparation reaches `ready` and always
+  requires an operation-fingerprint-matched grant use. The `quota_use: required`
+  builder also requires the exact wallet quota binding; the `quota_use: none`
+  builder makes every quota field `never`. Before sending a Near normal-signing
+  claim request, a client-side `ClaimableNearOperation` builder requires
+  a current `ParentHeldMaterialUseLease<Owner>`, `committed_ready` matching that
+  lease's exact owner/acquisition/fence generations, the exact server revocation
+  epoch/promotion receipt, and its `durability_finalized` proof;
+  promotion/durability-pending branches are
+  unconstructable inputs. It emits only the semantic operation envelope,
+  fingerprint, grant, and applicable quota data. Browser handles, journal refs,
+  every `MaterialUseLease` branch, and local durability brands are `never` in the
+  request and durable `MpcOperationClaim`; Phase 10's server-owned
+  `CapabilityOperationExecutionLease<MpcOperationDescriptor>` is a distinct
+  durable type. Server-side lifecycle
+  enforcement loads the authenticated current promotion/capability receipt and
+  revocation epoch by exact capability binding; it never trusts a client assertion
+  about local IndexedDB or runtime state.
+- Enforce the Phase 19 effect order at route and client boundaries. Runtime or
+  material recovery and any retention-policy-required durability finalization
+  complete before exact lane re-resolution; the applicable new claim begins only
+  after that re-resolution returns `ready`. Existing-claim lookup precedes this
+  sequence and has no mutation port. A cancelled approval, failed
+  recovery/finalization, failed re-resolution, or replacement lane consumes no
+  grant or applicable quota. Every post-claim failure is finalized against the
+  existing operation claim.
+- Implement claim and service adapters for Phase 18's SPEC-owned
+  `MpcWalletSigningQuota` domain. It has one branded quota ID,
+  tenant/wallet/policy scope, monotonic `quotaRevision`, and a nonempty collection
+  of discriminated `near_ed25519 | evm_ecdsa` bindings. Each binding requires its
+  exact `WalletAuthAuthorityRef`, capability, signing key, threshold session,
+  SigningWorker, and nonempty participant set. The lifecycle is exhaustive:
+  `active` carries positive `remainingUses` and expiry; `exhausted`, `expired`,
+  and `revoked` carry only their branch-specific facts. Policy may transition
+  exhausted or expired quota to a new active revision; revoked is terminal.
+  ECDSA target projections may share one material binding while keeping their
+  operation envelopes exact.
+- Define `MpcOperationClaim` as a discriminated branch of the durable
+  `CapabilityOperationClaim<MpcOperationDescriptor>` union. Both quota-use
+  branches carry the
+  authorization-resource-independent operation fingerprint, grant-use ID, and
+  the Phase 10/12 `claimed | completed` lifecycle. Specialize
+  `CapabilityOperationExecutionLease` with this closed MPC execution phase:
+  `claim_committed | cryptography_started | result_materialized |
+  delivery_started | delivery_observed | revocation_reconciliation`. Each ordinary
+  phase requires its exact attempt, result, or idempotent delivery reference and
+  makes later-phase and terminal fields `never`; operation descriptors make
+  inapplicable delivery phases unconstructable. `revocation_reconciliation`
+  requires the prior phase, old fencing token/epoch, observed newer epoch, exact
+  revocation receipt, and every external reference required to determine the
+  outcome. MPC completion uses the base closed terminal union, including
+  `revoked_after_claim`, with branch-specific result/reconciliation references.
+  Branch-specific builders are the only constructors. Every ordinary lease
+  renewal and phase transition validates the expected server revocation epoch;
+  Phase 12's server-only transition is the sole path across an epoch change.
+  `quota_use: required` also requires quota ID/revision, exact quota-binding
+  digest, and `quotaCost: PositiveInt`; `quota_use: none` makes those fields
+  `never`. Current normal signing operations use cost `1`; Near and EVM key
+  exports use `none`.
+- Implement one database transaction keyed by the canonical operation
+  fingerprint. It loads first: an existing claim returns its exact lifecycle
+  branch without validating or consuming renewed grant/quota resources. Only the
+  `absent` branch loads the current server promotion/revocation state, validates
+  the exact active grant, and switches exhaustively on `quota_use` before inserting
+  `claimed`. The `required` branch validates the quota
+  revision and exact authority/curve/session/key/worker/participant binding and
+  decrements grant and quota by their declared costs. The `none` branch validates
+  that quota fields are absent and decrements only the exact grant. Both branches
+  write linked use/audit state and the initial execution lease atomically. Any
+  failed validation or compare-and-swap rolls back the transaction.
+- Reconcile `claimed` operations with an idempotent watchdog and retry-triggered
+  finalizer. An unexpired execution lease is `claimed_active` only when its expected
+  revocation epoch equals the current server epoch and no tombstone exists. An
+  epoch mismatch returns `claimed_stale(revocation_epoch_changed)` and enters the
+  Phase 12 server-only transition. When a current-epoch lease expires, one
+  compare-and-swap advances its fencing token and either transfers execution to a
+  reconciler or completes a terminal result. The reconciler checks
+  descriptor-specific attempt/result/delivery references before resuming. If
+  external delivery may have occurred, it queries the chain/relayer by the exact
+  idempotency or result reference before choosing `succeeded`, a typed failure, or
+  `delivery_unknown`; it never blindly repeats delivery. If safe cryptographic
+  resumption requires a disposed runtime, recovery runs under the existing claim
+  and exact material-owner authority/recovery admission, without a new operation
+  grant or quota decrement. The resumed executor enters the current owner queue.
+  A required recovery subflow receives a recovery-held lease and affinely moves it
+  to one parent-held lease before cryptographic continuation; an executor with no
+  recovery receives a parent-held lease directly. Both paths revalidate the
+  current local/server revocation fences before material or cryptographic work.
+  Impossible resumption completes `executor_lost` or
+  `outcome_unknown`. No reconciliation branch refunds authorization resources.
+  Source guards reject any bare, unleased `operation_in_progress` response or
+  indefinite claimed-row fixture that survived the Phase 12 cut.
+- Delete the old signing-budget implementation after grant-plus-quota claiming
+  lands (Decided Point 13): remove
   `BudgetCoordinator`, `budgetProjection`, `budgetFinalizer`,
   `budgetStatusReader`, `signingEngine/session/budget/**`,
   `DelegatedBudgetReservationStore`, and router reserve/commit/release budget
-  methods from capability-grant routes; keep only the client-side
-  concurrent-operation fingerprinting.
-- Canonicalize the operation fingerprint from tenant, grant, capability,
-  correlated operation, operation ID, and lane/intent/display digests. The
-  server recomputes and verifies it at the capability boundary.
+  methods. Build the quota store/claim transaction under its final name and
+  schema; add no wrapper, alias, or dual-write path. Keep only client-side
+  concurrent-operation fingerprinting from the old subsystem.
+- Reject and clear old development `signingGrantId` budget rows at the
+  persistence boundary. Provision new quota rows from exact current capability
+  bindings; never fan one old remaining-use count into multiple quota or grant
+  balances.
+- Canonicalize the operation fingerprint from tenant, principal, capability,
+  correlated operation, operation ID, and lane/intent/display digests. Exclude
+  grant ID, quota ID/revision, threshold session, and runtime/material handles.
+  The component digest projections also exclude those rotating resource IDs
+  transitively. A replacement lane for the same semantic operation keeps one
+  operation fingerprint while its new reauthorization anchor makes the old
+  preparation unclaimable. The server recomputes and verifies the fingerprint at
+  the capability boundary.
 - Use the Phase 10 claim-plus-decrement transaction. Same-fingerprint retries
-  return the completed result or `operation_in_progress` without another
-  decrement; different fingerprints consume independently until exhaustion.
-- Apply the SPEC's one-way grant-use rule: pre-consumption failures leave the
-  grant untouched, and post-consumption failures record a failed use without
-  refunding it. Retry uses a remaining use or a fresh grant.
+  return `completed`, join `claimed_active`, or reconcile `claimed_stale` without
+  another grant or applicable quota decrement. They never create a second
+  execution. Different fingerprints consume independently until an applicable
+  grant or quota is exhausted.
+- Apply the SPEC's one-way use rule to every applicable authorization resource:
+  pre-claim failures leave grant and quota untouched; post-claim failures record
+  a failed use and refund neither consumed resource. `quota_use: none` consumes
+  only its grant. Replay of the same fingerprint follows its existing claim. A
+  deliberate new attempt requires a new operation ID and fingerprint, then uses
+  remaining applicable capacity or fresh authorization.
+- Make grant renewal and quota replenishment explicit, independent actions.
+  Quota refresh preserves its ID lineage, advances `quotaRevision` by one under
+  compare-and-swap, and updates only lifecycle/expiry/balance. It cannot change
+  an exact binding; binding changes require quota replacement/provisioning.
+  Policy explicitly defines whether exhausted, expired, or active state may
+  refresh; revoked state is terminal. Refresh serializes with in-flight claims
+  and cannot overwrite a decrement. Grant renewal and quota refresh preserve the
+  active Yao Client or ECDSA material identity when its exact stable bindings
+  still match.
 - Delete the wallet-only API scopes left on signing routes by Phase 13.
 - Mount MPC routes as Phase 9 manifest modules.
 
@@ -2075,17 +3629,68 @@ Check:
 - Old wallet-only API scopes are gone everywhere.
 - Old wallet-operation console roles are gone or capability-local.
 - Vault-only sessions cannot call MPC signing endpoints.
-- Spend denial comes from grant state; no separate budget subsystem remains on
-  capability-grant routes, and concurrent signing operations carry distinct
-  operation fingerprints into grant-use consumption and audit.
-- Mid-flight signing failures after grant-use consumption require re-auth or a
-  grant with remaining uses; no reserve/commit/release path remains.
+- Spend denial identifies exact grant or applicable quota state. No old budget
+  subsystem remains. Quota-required operations atomically consume grant and quota;
+  quota-none exports atomically consume only their grant. Both write audit under
+  the exact operation fingerprint.
+- Mid-flight operation failures after atomic claim are finalized or reconciled on
+  that claim without refund or another decrement. A deliberate new operation ID/
+  fingerprint requires remaining applicable capacity or fresh authorization; no
+  reserve/commit/release path remains.
 - Concurrent final-use tests cover two same-fingerprint requests, two different
-  fingerprints, one request arriving during grant refresh, and typed exhaustion
-  that triggers one coordinated fresh-grant/step-up flow.
-- ECDSA preparation receives the same active-grant shape regardless of whether
-  Passkey, Email OTP, another interactive factor, or non-interactive evidence
-  satisfied policy.
+  fingerprints on different curves, one request arriving during grant or quota
+  refresh, and typed exhaustion that triggers one coordinated authorization or
+  quota-replenishment flow.
+- The canonical mixed-wallet regression preserves the exact cross-curve
+  sequence: NEAR consumes `3 -> 2`, Tempo consumes `2 -> 1`, EVM consumes
+  `1 -> 0`, and a fourth operation fails before signing. Every operation has its
+  own exact `CapabilityGrant`; all three claims reference one quota.
+- Near Ed25519 and ECDSA preparation receive the same active-grant shape
+  regardless of whether Passkey, Email OTP, another interactive factor, or
+  non-interactive evidence satisfied policy.
+- Type fixtures and persistence parsers reject empty/duplicate quota bindings,
+  `ed25519_only | ecdsa_only | ed25519_and_ecdsa`,
+  authority/capability/session/key/worker substitution, partial grant-only or
+  quota-only consumption for `quota_use: required`, quota fields on
+  `quota_use: none`, and grant/quota IDs inside cryptographic runtime identity.
+- Claim tests cover idempotent `required` and `none` branches, reject missing or
+  extra quota fields, reject terminal fields on `claimed` and missing terminal
+  fields on `completed`, and prove a key export never reads or decrements wallet
+  signing quota. Existing-claim lookup tests run with no live runtime and an
+  expired/replaced grant/quota: `completed` returns its protected result,
+  `claimed_active` joins, `claimed_stale` reconciles, and only `absent` enters
+  fresh preparation. An unexpired lease with a changed revocation epoch returns
+  `claimed_stale(revocation_epoch_changed)` and cannot join ordinary execution.
+- Lookup type fixtures make grant, quota, runtime, journal, durability, and held
+  material-use lease fields `never`; new-claim fixtures require the exact absent
+  lookup proof and reject reuse of a completed/active/stale lookup result.
+- Client-side Near claimability fixtures reject `promotion_pending`,
+  `durability_pending`, active handles without `durability_finalized`, stale queue
+  generations, stale local/server fence generations or promotion receipts,
+  missing/released/transferred held leases, double handoff, generation values
+  presented without a live lease, and mismatched publication/journal revisions.
+  Type fixtures reject recovery-held leases at claim/signing boundaries,
+  parent-held leases at recovery-only boundaries, and transferred/released
+  receipts at every effect boundary. Runtime queue tests retain aliases deliberately
+  and prove an old recovery token fails after transfer, exactly one parent token is
+  current, a repeated transfer fails, and release invalidates either held token.
+  Server claim-request fixtures reject every local handle, journal ref,
+  `MaterialUseLease` branch, and client durability brand.
+  A same-operation replacement lane preserves the fingerprint while the old
+  preparation and reauthorization anchor remain unclaimable.
+- Claim-versus-refresh tests cover both transaction orderings, duplicate refresh,
+  stale revision, active top-up policy, binding-change rejection, explicit
+  operation cost, and same-operation replay after grant/quota renewal without a
+  second decrement.
+- Execution-reconciliation tests crash after claim insertion, cryptography start,
+  result materialization, delivery start, delivery observation, and before final
+  completion. Active leases join; stale leases fence the old executor and resume
+  or terminate exactly once. Delivery reconciliation queries the exact external
+  reference and never resends blindly. Revocation tests fence claims in
+  `claim_committed`, `cryptography_started`, and `delivery_started`, then complete
+  exactly once as `revoked_after_claim` or the reconciled outcome branch. Every
+  terminal branch remains non-refunding, and no claim stays indefinitely
+  `operation_in_progress`.
 - Phase 20 deletes the last old route/auth wiring before the Phase 19/20 tranche
   can release; no compatibility route or dual admission model remains.
 
@@ -2093,31 +3698,94 @@ Check:
 
 Status: planning. Old Phase 7 remainder.
 
-Prerequisite: Phase 5 must finish removing `chainTarget` and
-`routerAbStateSessionId` from material-handle builders and role-local material
-surfaces before this phase starts.
+Prerequisites: Phase 5 must finish removing `chainTarget`,
+`routerAbStateSessionId`, and authorization/quota identity from material-handle
+builders and role-local material surfaces. The Phase 19/20 no-release tranche must
+finish the material adapters, operation preparation/results, and discriminated
+claim paths. The companion SPEC must carry the YAOS client/runtime and
+responsibility-local ECDSA worker boundaries before this phase starts.
 
 Do:
 
 - Split `passkey-confirm.worker.ts` into generic auth confirmation and MPC
   capability workers; the generic worker from Phase 14 becomes the only generic path.
-- Consolidate the worker fleet (Decided Point 14): merge `eth-signer` and
-  `tempo-signer` into one EVM-family worker. Phase 5 made role-local material
-  chain-agnostic with chain enforcement in lanes/session records, so the
-  per-chain worker split has no remaining reason. Merge the two Rust WASM
-  crates (`wasm/eth_signer`, `wasm/tempo_signer`), loaders, rolldown inputs,
-  package exports, and Refactor 86 asset manifest/smoke list.
+- Consolidate chain duplicates within responsibility-local workers (Decided
+  Point 14). Merge `eth-signer` and `tempo-signer` into one EVM-family online
+  signing worker and WASM artifact because Phase 5 made role-local material
+  chain-agnostic with chain enforcement in lanes/session records.
+- Apply YAOS Phase 14B's destructive ECDSA package/worker cut: one
+  chain-agnostic Router A/B derivation-client worker, one presign-client worker,
+  and one online-signing worker. Each owns only its lifecycle's secret material,
+  sessions, loader, generated bindings, and package exports. Delete every active
+  ECDSA-HSS name, route, record, feature, vector domain, and worker discriminant
+  in the same change; retain no aliases.
+- Create the narrow Ed25519 Yao client-only protocol/WASM package. Its dependency
+  and symbol closure contains client request/envelope/receipt types, recipient
+  opening, active Client/FROST state, and verification for registration,
+  same-root recovery, server-share refresh, activation, add-signer, and export.
+  It contains no circuits, schedules, OT, garbling/evaluation, Deriver entrypoints,
+  or local two-party execution.
+- Destructively rename the passkey-only WASM sessions to
+  `WasmPasskeyClientRegistrationSessionV1` and
+  `WasmPasskeyClientRecoverySessionV1`. Their current generic names imply a
+  factor-neutral constructor contract that they do not implement. Add no aliases.
 - Finish the `UiConfirmManager` split into generic confirmation coordination
   and MPC signing coordination.
 - Route WebAuthn assertion and OTP challenge/resend/code interaction through
-  factor adapters. Route PRF-derived unlock, worker material, sealed restore,
-  and consumption through material adapters. MPC preparation consumes only
-  boundary-validated admission, authorization, and recovery results.
+  auth-factor adapters. Route only verified requirements and results to the Near
+  material adapter; it owns authority-bound, purpose-typed, one-use Yao handles
+  and their immediate Rust/WASM consumption. Route ECDSA material
+  unlock/restore/consumption through the ECDSA material adapter. MPC preparation
+  consumes only boundary-validated admission, authorization, and recovery results.
+- Keep the sealed and fresh material-recovery handle lifecycle inside the
+  capability-specific secure
+  worker. Public/generic worker messages carry only exact data refs, admission,
+  and closed results. Root binding and constructor consumption remain one
+  uninterrupted worker-private operation; a root handle never crosses a public or
+  generic message. A Near-adapter-private protocol may carry opaque pending,
+  candidate, or finalization refs back to the same secure owner. Provider
+  credentials are accepted only by the auth-factor or Router transport boundary;
+  raw factor bytes, reconstructed roots, retained reseal sources, and Client
+  scalars never cross into generic coordination.
+- Make Near Yao export messages carry the exact
+  `NearEd25519YaoLifecycleRef`, verified export-context ref, export operation ref,
+  and admission. Generic coordinator and public worker messages carry no factor
+  kind, raw provider credential, ordinary signing grant/quota, or signable-runtime
+  recovery request. The selected auth-factor adapter turns verified factor
+  evidence into a secure-worker-private material-acquisition command. Before
+  constructing the one-use export session, that worker revalidates wallet,
+  account, signer slot, key, threshold/wallet session, lifecycle, runtime policy,
+  participants, SigningWorker, and registered public key against the exact
+  context.
+- Decompose combined ECDSA enrollment and
+  `ecdsa_and_ed25519_yao_recovery` unlock requests into capability-specific
+  worker requests. Preserve cross-curve restore isolation: an ECDSA restore
+  request cannot enumerate or restore Ed25519 recovery state, and an Ed25519
+  recovery request cannot inspect ECDSA material. Shared OTP/WebAuthn interaction
+  is represented by verified evidence satisfying two exact requirements, never
+  by a combined material envelope.
+- Restrict one-use Yao WASM registration, recovery, and export constructors to
+  the Near material adapter or its responsibility-local secure worker. UI code,
+  selectors, capability coordinators, diagnostics, and normal signing cannot
+  import those constructors or access factor secrets and reconstructed seeds.
+  Retain the boundary guard until package exports make the restriction
+  structurally unrepresentable, then replace the guard with export-map tests.
 - Delete the replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers in the same change as
   the new split. No legacy worker alias or compatibility entrypoint survives.
-- Move threshold warm-session cache, signer WASM, HSS, chain adapters, and
-  wallet restore code out of generic confirmation paths.
+- Move threshold warm-session cache, signer WASM, Router A/B ECDSA derivation,
+  Yao client runtime, chain adapters, and wallet restore code out of generic
+  confirmation paths.
+- Load artifacts by operation. Normal NEAR signing cannot download a Deriver or
+  Yao server artifact; Ed25519 registration, same-root recovery, server-share
+  refresh, activation, add-signer, and export load only the client Yao package;
+  ECDSA registration/derivation, role-local material recovery/refresh/reseal, and
+  explicit export load the Router A/B derivation-client package; that package owns
+  public-identity validation, additive-share mapping, client-state opening, and
+  explicit export reconstruction. Presign creation, refill, and refresh load only
+  the presign-client package. Normal ECDSA-family signing loads only the
+  online-signing package. Keep the three artifacts separate unless measured
+  first-use and repeat-use evidence justifies consolidation.
 - Complete the public entrypoint split so auth-only and vault-only imports do
   not traverse `./advanced`, `./threshold`, `./worker`, `./wasm`, wallet iframe
   signer hosts, or signing-engine modules.
@@ -2127,6 +3795,17 @@ Check:
 
 - Vault-only and IdP-only bundles exclude MPC worker chunks and signer WASM.
 - MPC signing still works end to end through the split workers.
+- Dependency/symbol guards prove the Ed25519 browser package contains no Yao
+  server execution and each ECDSA worker contains only its lifecycle owner.
+- Worker request/type fixtures reject combined cross-curve enrollment and restore
+  envelopes, `ecdsa_and_ed25519_yao_recovery`, optional companion capability
+  state, raw/provider fields in generic requests, and imports of one-use Yao
+  constructors outside the Near material adapter or its secure worker. Export
+  guards reject the old generic passkey WASM session names and prove ECDSA export
+  resolves only through the derivation-client artifact.
+- Browser waterfall checks cover registration, normal signing, same-root recovery,
+  server-share refresh, activation, add-signer, and export and prove each operation
+  downloads only its required artifacts.
 - Bundle/dependency checks pass for vault-only, IdP-only, MPC-only, and
   full-platform browser runtimes.
 
@@ -2193,7 +3872,7 @@ Check:
 - Multi-factor registration and re-enrollment cannot coalesce wallet authority,
   session, export, recovery, restore, or admission state by raw factor identity.
 - Vault-only, IdP-only, and auth-only registration paths do not load
-  signer/HSS/WASM code.
+  MPC protocol/signer/WASM code.
 
 ---
 
@@ -2304,7 +3983,7 @@ Do:
 - Delete or capability-localize old public exports whose names imply wallet-only
   auth, wallet sessions, signing sessions, threshold sessions, or signer grants.
 - Delete generic imports of MPC confirmation workers, threshold stores, signer
-  WASM, HSS, chain adapters, and wallet UI.
+  WASM, Router A/B derivation/Yao runtime, chain adapters, and wallet UI.
 - Delete public docs, diagrams, source guards, and helper scripts that preserve
   obsolete generic terminology.
 - Close out the Phase 3 delete-candidate ledger: every entry is deleted or has
@@ -2325,8 +4004,9 @@ Check:
   invariant is structurally enforced.
 - The Phase 6 ledger has no rows left in `move_*` or `delete` state.
 - Net non-doc line change is recorded and explained; parallel-implementation
-  deletions (AuthService stack, Express routes, budget subsystem, worker
-  merge) appear in the accounting.
+  deletions (AuthService stack, Express routes, old budget subsystem,
+  factor-specific signing resolvers, chain-specific online signer workers, and
+  retired ECDSA-HSS names/packages) appear in the accounting.
 
 ---
 
@@ -2348,16 +4028,95 @@ Static checks:
   module; `CapabilityOperationRef` correlates every pair; no runtime kind
   registry exists; kind switches are exhaustive.
 - `AuthFactorIdentity`, `AuthFactorRecord`, and wallet-auth authority bindings
-  remain distinct. Core session/signing code requires exact factor/binding IDs.
+  remain distinct. Boundary authority builders require exact factor and binding
+  IDs; core session/signing code requires only `WalletAuthAuthorityRef`.
 - Session records require subject, audience, device, and assurance bindings;
   hosted-wallet exchange codes are single-use and origin-bound.
 - Grant issuance accepts only `VerifiedGrantEvidenceSet`, and every persisted
   grant can reconstruct its evidence membership.
-- Grant-use persistence has a unique operation fingerprint and passes the atomic
-  claim-plus-decrement adapter conformance suite.
+- `CapabilityOperationClaim` owns a unique fingerprint independent of grant,
+  quota, session, and runtime IDs. Exact grant uses and descriptor-applicable MPC
+  quota uses link to that claim and pass the atomic adapter conformance suite. Its
+  base `claimed | completed` lifecycle requires a fenced execution lease, closed
+  descriptor phase, deadline, expected revocation epoch, and exhaustive terminal
+  result. Static fixtures reject invalid lease/phase/result combinations, including
+  missing `revoked_after_claim` correlation and active fields on completion.
+- `MpcOperationClaim` is exhaustive on `quota_use`. The `required` branch
+  atomically claims one exact grant use and one exact `MpcWalletSigningQuota` use;
+  the `none` branch atomically claims one exact grant use and makes quota fields
+  `never`. Static fixtures reject terminal fields on `claimed`, missing terminal
+  fields on `completed`, malformed MPC phase/reference specializations, and
+  broad-spread lifecycle construction. Existing-claim lookup is
+  constructible without runtime, material-use lease, or fresh grant/quota state;
+  new-claim creation requires all of them according to its operation descriptor.
+- `SeamsSession` state, public wallet identity, per-capability preparation,
+  Ed25519 Yao ceremony state, live runtime handles, ECDSA material handles,
+  exact grants, and wallet quotas use distinct branded IDs and exhaustive
+  lifecycle unions.
+- ECDSA material and Ed25519 live runtime identity contain no grant, quota,
+  remaining-use, or expiry field.
+- Ed25519 persistence distinguishes a public capability locator, a
+  capability-local sealed root-recovery record, a non-secret recovery commit
+  journal, a separate non-secret revocation outbox, volatile runtime observation,
+  and closed runtime publication state.
+  Static fixtures prevent sealed-only, promotion-pending, durability-pending, or
+  active-without-durability-finalization state from constructing
+  `normal_signing.ready` or a claim. Separate export fixtures require a correlated
+  acquired export session and make normal runtime, lane, nonce, and quota fields
+  `never`. Lookup fixtures map orphan/expired/exhausted/mismatched/corrupt/
+  conflicting/unavailable states to typed failures. Source and
+  generated-WASM guards reject live Client scalars, raw root material, Deriver
+  execution code, transient bearer credentials, and recipient plaintext in
+  persistence or generic bundles.
+- `NearEd25519YaoLifecycleRef` is a precise required-field value shared by the
+  locator, sealed recovery record, journal, server descriptor/receipt, export
+  context, worker request, and admission. Static fixtures reject lifecycle ID,
+  root-share epoch, account, threshold/wallet session, signer-set, participant,
+  SigningWorker, runtime-policy, or public-key substitution at every boundary.
+  `VerifiedNearEd25519YaoExportContext` is data-only and cannot contain an active
+  Client, normal signing lane/grant/quota, recovery allowance, raw provider
+  credential, or provider token. Its available branch remains constructible when
+  all ordinary signing resources are exhausted.
+- Root-material inspection is data-only and carries no secret handle. Leaf-private
+  root-material handles are exact-authority-bound, purpose/correlation-typed, and
+  one-use. Type fixtures reject direct object-literal construction, broad spreads,
+  unsafe casts, cross-purpose/correlation use, and operation-authorization/material-
+  ownership substitution.
+- Sealed recovery requires a branded digest over the complete locator, authority,
+  material-owner, signer, root, participant, worker, public-key, seal, retention,
+  source record ID/ciphertext digest/revision, and recovery-policy binding before
+  unseal. Its closed lifecycle/result unions
+  distinguish transport reauthentication, material unlock, pending activation,
+  pending seal finalization, retryable failure, and terminal mismatch. Recovery policy is
+  monotonic and carries no grant or wallet-quota authority.
+- Fresh acquisition uses a distinct branded requirement digest with every sealed
+  field `never`. Journal fixtures cover both source branches, reject cross-source
+  field combinations, and prove that fresh acquisition can publish a first sealed
+  record or finalize volatile retention without invoking unseal or source
+  retirement. Revocation-outbox fixtures work for locator-only, sealed, journaled,
+  and volatile-runtime states without requiring sealed-source fields.
+- Authority selection has an explicit `authority_ambiguous` branch. Exact
+  persistence result unions distinguish `missing`, expired/exhausted sealed
+  recovery, `exact_binding_mismatch`, `corrupt`, `exact_record_conflict`, and
+  `persistence_unavailable`; every switch is exhaustive and diagnostics cannot
+  influence resolution.
+- EVM-family projection begins from canonical source material facts and projects
+  only stable material-owner identity, exact authority, lifecycle, and recovery
+  facts. Target-specific operation grants, envelopes, claims, and quota uses remain
+  unprojectable.
+- Preparation states contain data-only requirements and exact references.
+  Authorization-action singleflight, runtime recovery/activation singleflight,
+  and material-owner cryptographic-use queues have separate branded keys.
+- Pre-effect continuity requests and post-effect current resolutions are distinct
+  domain branches. Static fixtures reject executable grants, bearer credentials,
+  quota revisions, runtime handles, and export-session refs in the pre-effect
+  branch; they also reject post-effect readiness built from a selected lane or
+  context without exact current resolution. Recovery and reauthentication result
+  builders require stable continuity and supply only current rotating resources.
 - Capability grant policies cannot reference unregistered grant evidence.
-- Vault-only/IdP-only entry points cannot import MPC workers, signer WASM, HSS,
-  threshold stores, chain adapters, or wallet UI.
+- Vault-only/IdP-only entry points cannot import MPC workers, signer WASM,
+  Router A/B derivation/Yao runtime, threshold stores, chain adapters, or wallet
+  UI.
 - Management/API-key principals cannot satisfy capability-grant routes
   without short-lived grants.
 - Public export maps expose auth/vault entrypoints that stay free of MPC imports.
@@ -2367,6 +4126,9 @@ Static checks:
   `AuthMethod`, and wallet-only API credential scopes. Phase 17 guards migrated
   exact-identity inputs; Phase 19 guards client preparation symbols; Phase 20
   guards route and grant-admission symbols.
+- Source guards reject `ed25519_only`, `ecdsa_only`,
+  `ed25519_and_ecdsa`, factor-specific Yao resolvers/hooks in capability core,
+  and target ECDSA-HSS names after YAOS Phase 14B.
 - Parked workspaces such as `voiceId` cannot import auth core internals unless
   a future phase promotes them to `GrantEvidenceKind`.
 
@@ -2379,8 +4141,9 @@ Targeted tests (owning phase in parentheses):
 - Exact capability subject and session-read boundary tests: ECDSA-only unlock,
   combined unlock subject sets, cold page-refresh session reads from
   `WalletUnlockSubjectSet`, missing-profile denial, ambiguous-profile denial,
-  expired sealed-session denial, `active_restorable` display state, and
-  restorable-session demotion to re-auth on restore failure (Phase 4).
+  active login plus public NEAR identity with no live Yao Client, expired ECDSA
+  sealed-session denial, capability-local recovery state, and recovery failure
+  that leaves login identity unchanged (Phase 4).
 - Wallet auth authority refs on Ed25519/ECDSA signing lanes, multi-factor
   collision and re-enrollment fixtures, and deletion of the interim admission
   authority-key helper (Phase 17).
@@ -2396,8 +4159,98 @@ Targeted tests (owning phase in parentheses):
   material owners; restored, already-ready, authorization-required, unavailable,
   duplicate, corrupt, identity-mismatch, and no-progress recovery results
   (Phase 19).
-- Synthetic third-factor authority/material adapters proving that generic ECDSA
-  selection and preparation require no new factor-kind branch (Phase 19).
+- Near Ed25519 Yao preparation matrix covering active Client with committed
+  publication, active Client with pending seal finalization, disposed or missing Client,
+  sealed-only recovery, fresh acquisition, exact same-root recovery,
+  authorization/quota renewal, pre-promotion candidate disposal,
+  post-promotion activation-pending recovery, activation-committed seal
+  finalization, seal-persistence/read-back pending, volatile-retention
+  finalization, replacement-lane invalidation, pre-mutation storage unavailability,
+  and terminal binding failures (Phase 19).
+- Passkey, Email OTP, and synthetic third-factor adapters proving that generic
+  Near Ed25519 and ECDSA selection/preparation require no new factor-kind branch
+  (Phase 19).
+- Cross-factor authorization/material tests prove policy-approved evidence from
+  authority B can authorize an operation over authority A's material, while A is
+  still required for material acquisition. Reusing one interaction requires exact
+  authority, purpose, operation, and correlation (Phase 19).
+- Page-hide disposal with retained public locator and any matching optional
+  sealed recovery record and incomplete non-secret journal with an optional
+  quarantined sealed source; explicit lock/logout
+  immediate local zeroization, ineligibility, offline revocation outbox, and
+  eventual reconciliation/removal; failed Yao candidate disposal; recovery substitution
+  denial; refresh identity preservation; server promotion CAS receipt; atomic
+  local registry swap and superseded-handle disposal; reload-resumable
+  `promotion_committed_activation_pending`; and reload-resumable
+  `activation_committed_seal_pending` with no grant/quota claim before final
+  readiness (Phase 19).
+- Factor-neutral effect-order tests for all Near signing operations: approval
+  follows data-only durable inspection and precedes nonce recovery, session
+  transport reauthentication, sealed-source unseal or fresh acquisition, worker
+  rehydration, Client
+  construction, activation, and retention-policy-required durability
+  finalization; completed recovery precedes exact canonical re-resolution;
+  re-resolution precedes joint claim; and claim precedes signing. Cancellation
+  during approval/evidence completion invokes none of those effects. Replace the
+  obsolete source-text ordering guard with behavioral port spies (Phase 19/Phase
+  20).
+- Sealed-refresh tests cover missing/expired/exhausted recovery policy,
+  transport expiry, monotonic local/server allowance reconciliation, exact
+  recovery-digest substitution, pending/root/candidate/reseal-source cleanup,
+  stale-seal quarantine/ineligibility, replacement-record read-back, reseal
+  generation failure, replacement CAS failure, and post-commit read-back failure.
+  Reload/worker-termination cases cover every
+  journal transition, idempotent seal-removal and promotion-result
+  reconstruction, exact material reacquisition, source/replacement revision CAS,
+  and stale-tab denial (Phase 18/Phase 19).
+- Fresh-acquisition tests cover the distinct source digest, absence of unseal and
+  source-record effects, first-seal publication, volatile retention, reload before
+  and after material acquisition, and cross-source substitution denial. Pending
+  journal tests prove expired or missing operation grant/quota cannot hide
+  reconciliation and that grant/quota resolution reruns only after convergence
+  (Phase 18/Phase 19).
+- Exact resolver tests cover authority ambiguity, duplicate exact durable rows,
+  missing rows, corrupt rows, and storage failure without newest/source-priority
+  fallback. Current-schema conflicts remain untouched until a separate explicit
+  maintenance action cleans them; obsolete-schema cleanup occurs only at the
+  migration boundary. EVM-family projection tests cover valid shared material in the
+  presence of target-local unusable observations and reject projected operation
+  authorization (Phase 18/Phase 19).
+- Concurrency tests prove distinct authorization requirement digests do not
+  coalesce; identical operation/requirement pairs do. Runtime recovery joins only
+  for the same stable owner, authority, and exact discriminated recovery-source digest,
+  including when the threshold session is replaced; re-enrollment or reseal
+  version changes do not join. EVM, Tempo, and ECDSA export operations sharing
+  one ECDSA material owner serialize together; Near recovery, signing, and export
+  serialize on their exact Near runtime/root owner as applicable. Distinct owners
+  progress independently. No material-use queue is held during human interaction.
+  A Near recovery leader acquires it before journal creation, sealed-source
+  reservation, recovery admission, or material acquisition and holds it through durability persistence/read-back,
+  cleanup, and exact re-resolution. Normal signing
+  receives a direct lease handoff or reacquires and revalidates exact generation/
+  publication/durability plus the owner fence inside the lease before claim.
+  Lock/logout increments the fence and makes every pre-lock lease fail at its next
+  consuming boundary. Export acquires it before
+  material unlock/session staging and holds it through zeroization (Phase 19).
+- Separate grant/envelope/digest/result tests for `near.sign_transaction`,
+  `near.sign_delegate_action`, `near.sign_nep413_message`, and
+  `near.export_key`; normal signing asserts zero Deriver calls (Phase 7/Phase 19).
+- Passkey, Email OTP, and a synthetic third-factor Ed25519 export satisfy the
+  same `near.export_key` operation contract. Cold-refresh coverage resolves the
+  exact server-verified context with no active Client and with ordinary signing
+  grant, quota, and recovery allowance exhausted; it invokes no Passkey recovery
+  or signable Email OTP recovery. Tests require a fresh export-specific grant,
+  separate operation authorization from exact root ownership, reject every
+  authority/lifecycle/root-purpose/envelope substitution, consume one-use Yao
+  admission and material handles, verify registered-public-key continuity, and
+  clean up secret state on every terminal path. A stale pre-recovery authorization
+  observation followed by same-owner recovery uses the current context, grant,
+  and session transport and succeeds without a prior NEAR transaction; stable
+  identity drift fails closed (Phase 19).
+- EVM ECDSA export uses its own `evm.export_key` envelope and preparation/action
+  path, exact material unlock, post-unlock re-resolution, grant-only operation
+  claim, material-owner serialization, and terminal zeroization. Transaction
+  lanes and authorization cannot substitute for export (Phase 19).
 - Native provider session -> `SeamsSession` (Phase 11); Better Auth session ->
   `SeamsSession` through the same port (Phase 25).
 - Session exchange creation, refresh, revoke, replay denial, and tenant
@@ -2413,7 +4266,17 @@ Targeted tests (owning phase in parentheses):
 - Digest canonicalization TypeScript fixtures and Rust parity vectors for lane,
   intent, display, challenge, evidence-set, and audit digests (Phase 12).
 - Grant lifecycle, digest mismatch, expiry, replay, one-way consumption, failed
-  consumed operation audit, and no refund after post-consumption failure (Phase 12/Phase 20).
+  consumed operation audit, existing-claim lookup before fresh readiness,
+  execution-lease fencing/expiry, crash reconciliation across crypto/delivery
+  phases, protected completed-result replay, and no refund after post-consumption failure
+  (Phase 12/Phase 20).
+- Wallet signing quota lifecycle, per-binding exact
+  authority/curve/session/key/worker/participant identity, mixed-authority
+  bindings in one wallet quota, `3 -> 2 -> 1 -> 0` NEAR/Tempo/EVM sequence, cross-curve final-use
+  concurrency, monotonic revision, refresh during claim, stale/duplicate refresh,
+  same-operation replay after authorization renewal, explicit operation cost,
+  and no balance multiplication during the destructive cutover
+  (Phase 18/Phase 20).
 - Correlated capability-operation rejection, verified evidence-set mixed-binding
   rejection, same-fingerprint idempotency, different-fingerprint final-use
   concurrency, and exhaustion-to-step-up coordination (Phase 7/Phase 10/Phase 12/Phase 20).
@@ -2464,8 +4327,32 @@ Security tests:
 - Pending single-use material is signable only while hot and bound to the same
   operation fingerprint. Cold pending and consumed material cannot enter the
   session-retained recovery path.
-- ECDSA and Ed25519 companion recovery references cannot restore or commit the
-  other capability as a hidden side effect.
+- Ed25519 Yao recovery cannot cross authority refs, wallets/accounts, signer
+  keys/slots, threshold sessions, roots/epochs, participants, SigningWorkers,
+  public keys, runtime policies, capability locators, sealed recovery refs, or
+  root-handle purposes. Failed candidates never replace the active runtime.
+- ECDSA recovery references and Ed25519 sealed root-recovery references cannot
+  enumerate, restore, or commit the other capability as a hidden side effect.
+- Browser persistence may contain authenticated ciphertext in a capability-local
+  Ed25519 sealed recovery record and non-secret correlation/receipt/revision facts
+  in its recovery commit journal. Persistence, logs, diagnostics, and route
+  bodies contain no live Yao Client scalar, secret handle, raw authority-bound
+  factor root, reconstructed seed, transient bearer credential, role input, or
+  recipient plaintext. Stale journals, stale tabs, and pending publication cannot
+  construct readiness or a claim.
+- Operation authorization evidence cannot substitute for exact Ed25519 root
+  ownership. Root-material handles cannot cross authority, purpose, operation,
+  recovery-correlation, or consumed-state boundaries.
+- UI, lane selection, capability coordination, diagnostics, and normal signing
+  cannot import one-use factor-specific Yao WASM constructors or access factor
+  secret bytes.
+- Normal Ed25519 transaction, delegate-action, NEP-413, and any Near-owned
+  signer-proof path make zero Deriver calls.
+- A quota use cannot be claimed without the matching exact grant use. A
+  `quota_use: required` grant cannot bypass quota exhaustion;
+  `quota_use: none` makes every quota field absent. Same-fingerprint replay never
+  consumes an applicable resource twice or starts a second execution; it returns,
+  joins, or reconciles the existing claim.
 - Cross-capability operation pairs and evidence sets bound to a different exact
   operation fail before grant lookup or use consumption.
 - Vault-only sessions cannot call MPC signing endpoints.
@@ -2496,8 +4383,33 @@ Resolved July 3, 2026 (see Decided Architecture Points for rationale):
 - How does a hosted wallet iframe receive a session? **A short-lived,
   single-use, app-origin/wallet-origin-bound exchange code redeemed directly by
   the iframe. Bearer tokens never cross `postMessage`.**
-- How are concurrent grant uses coordinated? **A unique canonical operation
-  fingerprint plus an atomic claim-and-decrement transaction.**
+- How are concurrent grant uses coordinated? **A canonical operation fingerprint
+  independent of rotating authorization resources plus one atomic
+  claim-and-decrement transaction, followed by a fenced execution lease and
+  terminal reconciler.**
+
+Resolved July 15, 2026 through YAOS alignment:
+
+- Which document owns the Ed25519 cryptographic lifecycle and production gates?
+  **`yaos-ab.md`; Refactor 90 owns session, authorization, and capability
+  integration.**
+- Does login/session restoration imply MPC readiness? **No. Session/public
+  identity and each capability's preparation state are independent domains.**
+- What persists for Ed25519 in the browser? **A minimal public Yao capability
+  locator and, when the Near material adapter supports refresh recovery, an exact
+  capability-local sealed root-recovery record. An incomplete promotion,
+  activation, or reseal also persists a non-secret recovery commit journal. A
+  valid exact locator/seal pair yields sealed recovery availability; lookup
+  failures remain typed. The live Client remains volatile Rust/WASM state, and
+  signing requires a separate committed publication/durability proof.**
+- Does `CapabilityGrant` carry the wallet-wide signing limit? **No. Exact
+  operation grants and `MpcWalletSigningQuota` are distinct; signing atomically
+  claims both, while key export declares `quota_use: none` and claims only its
+  exact grant.**
+- How are EVM-family workers consolidated? **Chain duplicates merge within each
+  responsibility-local derivation, presign, or online-signing role. Explicit
+  ECDSA export reconstruction belongs to the derivation-client role. Those roles
+  and their artifacts remain separate.**
 
 ## Open Questions
 
@@ -2509,6 +4421,7 @@ question gating it is open.
 | Should `vault_access` be provisioned automatically for every tenant? | Before Phase 16 starts | Auto-provision; it is the baseline capability. |
 | Should Ed25519 and ECDSA MPC capabilities be provisioned separately by default? | Before Phase 23 starts | Separately; the Phase 1 signer-set shape already models them as independent branches. |
 | Which MPC capability should produce `mpc_signer_proof` by default? | Before Phase 19 starts | — |
+| Should the default `near.export_key` policy accept Email OTP evidence, or should tenants enable it explicitly? | Before Phase 19 starts | Runtime support is landed; keep the policy choice explicit. |
 | Should embedded wallet login be a default auth factor for wallet customers? | Before Phase 23 starts | — |
 | Should VoiceID become a future `GrantEvidenceKind`, or remain a separate optional workspace? | Revisit at Slice B exit | Parked workspace with source guards. |
 | Which customer signal should trigger SAML support after the OIDC IdP path ships? | Before Phase 26 scoping | — |
@@ -2520,5 +4433,7 @@ question gating it is open.
 - [Refactor 90 Progress Journal](./refactor-90-journal.md)
 - [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
 - [Slack OTP Step-Up Spec](./otp-slack.md)
-- [Optional HSS Bootstrap Profiles](./refactor-8X-hss-optional.md)
+- [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
+- [Router A/B Solution Refactor](./router-a-b-sol-refactor.md)
+- [Router A/B Specification](./router-a-b-SPEC.md)
 - [Step-Up Adaptor Refactor Plan](./refactor-34b-stepup-adaptor.md)

@@ -232,37 +232,6 @@ For the QR-display role, `link_device.qr.displayed` emits `interaction.overlay: 
 
 Implementation note: signer persistence and ECDSA owner-management details are only public link-device events when user-visible. Otherwise, they stay in `data` on the parent event.
 
-## Email Recovery
-
-Flow: `email_recovery`
-
-Start, pending resume, polling, and finalize use the same event family.
-
-| Step | Phase | Message |
-| ---: | --- | --- |
-| 0 | `email_recovery.resumed.pending` | `Resuming email recovery` |
-| 1 | `email_recovery.started` | `Starting email recovery` |
-| 2 | `email_recovery.account.lookup.started` | `Finding wallet account` |
-| 2 | `email_recovery.account.lookup.succeeded` | `Wallet account found` |
-| 3 | `email_recovery.auth.passkey.create.started` | `Create your recovery passkey` |
-| 3 | `email_recovery.auth.passkey.create.succeeded` | `Recovery passkey created` |
-| 4 | `email_recovery.email.link.sent` | `Recovery email sent` |
-| 4 | `email_recovery.email.link.waiting` | `Waiting for email confirmation` |
-| 5 | `email_recovery.recovery_key.poll.started` | `Checking recovery key status` |
-| 5 | `email_recovery.recovery_key.poll.detected` | `Recovery key confirmed` |
-| 6 | `email_recovery.finalize.started` | `Finalizing recovery` |
-| 6 | `email_recovery.finalize.succeeded` | `Recovery finalized` |
-| 6 | `email_recovery.auto_unlock.skipped` | `Local unlock skipped` |
-| 7 | `email_recovery.completed` | `Email recovery complete` |
-| 0 | `email_recovery.failed` | `Email recovery failed` |
-| 0 | `email_recovery.cancelled` | `Email recovery cancelled` |
-
-Overlay behavior:
-
-- Recovery passkey creation uses `interaction.kind: 'passkey_create'`.
-- Email-link waiting uses `interaction.kind: 'email_recovery_link'` and hides the iframe overlay while the user leaves the app to confirm email.
-- Polling and finalization do not show the overlay by themselves.
-
 ## Account Sync
 
 Flow: `account_sync`
