@@ -1,7 +1,8 @@
 # Router A/B Local Development Deployment Parity Plan
 
-Status: local implementation plan complete for the current Router A/B local
-stack. Deployed Cloudflare timing evidence is moved to a future deployment plan.
+Status: Phase 9C local Ed25519 Yao lifecycle implemented and passing. SDK
+public-route cutover remains open. Cloudflare deployment and timing evidence
+remain deferred until the local cutover closes.
 
 This plan defines how local development should mimic the Cloudflare Router/A/B
 deployment while keeping the existing fast in-process tests. The target local
@@ -19,8 +20,8 @@ rules as production.
 
 ## Goals
 
-- Run the Router/A/B setup and refresh path through the SDK Router server and
-  private workers.
+- Run Ed25519 registration, recovery, refresh, export, and activation through
+  separate local Deriver A, Deriver B, and SigningWorker processes.
 - Run normal signing through `Client -> Router -> SigningWorker -> Router -> Client`.
 - Keep Deriver A and Deriver B off the normal-signing hot path.
 - Keep role-specific env, keys, storage, and diagnostics separated.
@@ -75,7 +76,10 @@ flowchart LR
   and `LocalSigningWorkerEndpointV1`.
 - `router-ab-dev` has SQLite seeding helpers for local signing-root metadata and
   sealed root-share records.
-- `router-ab-dev` has the dev-only Ed25519-HSS parity adapter.
+- `router-ab-dev` has the fixed-profile Ed25519 Yao lifecycle adapter, typed
+  Router admission, authenticated duplex A/B stream, encrypted recipient
+  delivery, SigningWorker activation, recovery, refresh, export, and ordinary
+  signing.
 - `router-ab-dev` has persistent private-worker helpers:
   `router_ab_local_init`, `router_ab_local_up`, `router_ab_local_smoke`, and
   `router_ab_local_down`.
@@ -83,12 +87,17 @@ flowchart LR
   wrangler configs for Router, Deriver A, Deriver B, and SigningWorker.
 - `router-ab-cloudflare` has typed runtime contexts and an in-memory Durable
   Object storage implementation used by tests.
+- The SDK Router exposes the two-step Yao registration boundary, and the
+  browser WASM Client retains its scalar inside an opaque disposable object.
+  A real-process SDK test completes registration and ordinary FROST signing.
 
-Remaining local parity pieces:
+Remaining local work:
 
-- deployed Cloudflare startup/runtime evidence next to local timing evidence,
-- replacement of the local dev normal-signing signature with the production
-  role-separated Ed25519-HSS signer when that API exists.
+- finish deleting the superseded SDK and server Ed25519-HSS lifecycle surfaces;
+- update intended-behaviour tests around the canonical Yao lifecycle.
+
+Cloudflare startup and runtime evidence begins only after those local items
+close.
 
 ## Architecture
 
@@ -122,23 +131,22 @@ combinations should be unrepresentable after startup parsing.
 
 ## Routes
 
-The local HTTP harness should use production route paths where the Cloudflare
-adapter already defines them:
+The local HTTP harness uses the canonical protocol-specific route families:
 
-| Route                                                  | Owner         | Purpose                                     |
-| ------------------------------------------------------ | ------------- | ------------------------------------------- |
-| `/router-ab/split-derivation`                             | Router        | public setup/export/refresh entry           |
-| `/router-ab/ed25519/sign`                                         | Router        | public normal-signing entry                 |
-| `/router-ab/signer-a`                               | Deriver A     | private Router -> Deriver A request         |
-| `/router-ab/signer-b`                               | Deriver B     | private Router -> Deriver B request         |
-| `/router-ab/signer-a/peer`                          | Deriver A     | private Deriver B -> Deriver A peer request |
-| `/router-ab/signer-b/peer`                          | Deriver B     | private Deriver A -> Deriver B peer request |
-| `/router-ab/signing-worker/proof-bundle-activation` | SigningWorker | private activation request                  |
-| `/router-ab/signing-worker/sign`                    | SigningWorker | private normal-signing request              |
+| Route                                                                           | Owner         | Purpose                                |
+| ------------------------------------------------------------------------------- | ------------- | -------------------------------------- |
+| `/router-ab/ed25519/yao/registration/{admit,execute}`                           | Router        | public Ed25519 registration lifecycle  |
+| `/router-ab/ed25519/yao/recovery/{admit,execute,activate}`                      | Router        | public Ed25519 recovery lifecycle      |
+| `/router-ab/ed25519/sign/{prepare}` and `/router-ab/ed25519/sign`               | Router        | public normal-signing lifecycle        |
+| `/router-ab/deriver-a/ed25519-yao/*`                                            | Deriver A     | private Ed25519 Yao role-A work        |
+| `/router-ab/deriver-b/ed25519-yao/*`                                            | Deriver B     | private Ed25519 Yao role-B work        |
+| `/router-ab/ecdsa-hss/*`                                                        | Router        | public strict ECDSA lifecycle          |
+| `/router-ab/signing-worker/ed25519-yao/*`                                       | SigningWorker | private Ed25519 activation and refresh |
+| `/router-ab/signing-worker/sign/{prepare}` and `/router-ab/signing-worker/sign` | SigningWorker | private normal-signing lifecycle       |
 
-The current `LocalHttpPathV1` `/local/...` routes remain useful for
-in-process unit tests. The local topology should converge on the
-Cloudflare route constants so local smoke tests catch production path drift.
+The current `LocalHttpPathV1` `/local/...` routes remain useful for in-process
+unit tests. Local smoke tests bind exact public and role-private contracts so
+route drift fails at the boundary.
 
 ## Local Storage
 
@@ -259,14 +267,35 @@ by Cloudflare service-binding requests.
 7. Router returns the response.
 8. Smoke check asserts Deriver A and Deriver B receive zero requests.
 
-The local HTTP smoke uses a deterministic dev SigningWorker signature over a
-required payload so the local path can prove Router -> SigningWorker
-success and Deriver A/B idleness. The Cloudflare strict worker remains gated on
-the production role-separated Ed25519-HSS signer API.
+The canonical Yao smoke activates disjoint Client and SigningWorker shares,
+terminates both Deriver processes, then produces and verifies a standard
+Ed25519 signature. This directly checks that ordinary signing performs zero
+Deriver or Yao work.
 
 ## Commands
 
-Add these commands after the binary exists:
+Canonical Ed25519 Yao local commands:
+
+```text
+pnpm router:yao-smoke
+pnpm router:yao-smoke:one-account
+pnpm router:yao-smoke:two-administrator
+pnpm validate:yaos-ab-local
+pnpm router:yao-measure-local
+```
+
+- `router:yao-smoke` runs the complete lifecycle in both fixed local profiles
+  and cleans up every spawned process.
+- The profile-specific commands run the identical protocol with either one
+  shared development state root or separate A/B/SigningWorker roots and
+  working directories.
+- `validate:yaos-ab-local` runs the canonical KDF, adapter, process lifecycle,
+  fault matrix, source boundaries, and optimized host/Worker-WASM
+  constant-time code-generation checks.
+- `router:yao-measure-local` collects release-mode local p50/p95/p99 latency
+  and exact directional A/B bytes. Its report is local nonproduction evidence.
+
+The broader SDK Router development harness also exposes:
 
 ```text
 pnpm router:init
@@ -358,7 +387,7 @@ standardizes Router/A/B developer commands there.
 - [x] Ctrl-C stops the started local workers and Router server.
 
 This is local development evidence. It does not replace deployed Cloudflare
-runtime evidence or the production Ed25519-HSS normal-signing release gate.
+runtime evidence or the post-cutover Yao release gates.
 
 ## Test Gates
 
@@ -374,12 +403,13 @@ Focused gates:
 
 Release gates before Cloudflare deployment:
 
+- `pnpm validate:yaos-ab-local`
 - `cargo test --manifest-path crates/router-ab-core/Cargo.toml`
 - `cargo test --manifest-path crates/router-ab-dev/Cargo.toml`
 - `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml`
 - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
-- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signer-a-entrypoint`
-- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signer-b-entrypoint`
+- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-deriver-a-entrypoint`
+- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-deriver-b-entrypoint`
 - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
 - local Router/API plus private-worker smoke
 - Wrangler dry-run for all four role configs
@@ -432,10 +462,8 @@ Release gates before Cloudflare deployment:
 - [x] Assert Deriver A and Deriver B receive zero normal-signing requests.
 - [x] Replace HTTP fail-closed smoke with a successful local dev SigningWorker
       signature smoke.
-- [x] Replace the local dev signature with the production role-separated
-      Ed25519-HSS signer after that API exists.
-      Superseded by the current production Ed25519-HSS prepare/finalize local
-      smoke shape below.
+- [x] Replace the local dev signature with standard two-party FROST over the
+      Client and SigningWorker shares activated by Yao.
 
 ### Phase 6: Developer Commands
 
@@ -479,15 +507,35 @@ Release gates before Cloudflare deployment:
       2026-06-14 local run: setup `18 ms`, SigningWorker activation `1 ms`,
       normal signing `0 ms`, total `36 ms`; Deriver A/B normal-signing request
       counts stayed `0`.
-- [x] Move local normal-signing smoke from `local_dev_ed25519_v1` to the
-      production Ed25519-HSS prepare/finalize shape. Current
-      `pnpm router:check` runs report `normal_signing_status: "ed25519_v1"`.
+- [x] Move local normal-signing smoke to the public prepare/finalize routes
+      backed by the active Yao-derived Client and SigningWorker shares.
 - [x] Record deployed Cloudflare startup and hot-path benchmarks next to the
       local timing evidence. Moved to a future deployment evidence plan.
 
 `router:check` emits local per-phase elapsed times in milliseconds.
 `router:measure` writes the same data to
 `crates/router-ab-dev/reports/local-smoke-timings/`. `router:evidence` writes
-local protocol timing evidence for the ECDSA-HSS and Ed25519 presign-pool
+local protocol timing evidence for the ECDSA-HSS and Ed25519 Yao
 release gates. Keep the deployed benchmark checkbox open until Cloudflare
 startup and hot-path measurements are recorded next to those local numbers.
+
+### Phase 8: Canonical Local Ed25519 Yao Usability
+
+- [x] Add fixed one-account and two-administrator local profiles with identical
+      protocol and circuit artifacts.
+- [x] Complete registration, activation, ordinary signing, recovery, refresh,
+      and exact seed export through separate Deriver A/B and SigningWorker
+      processes.
+- [x] Authenticate the duplex A/B stream, enforce one-use sessions, encrypt
+      recipient packages, and cover replay, stale epoch, wrong role/family,
+      wrong recipient, malformed framing, disconnect, and promotion failures.
+- [x] Add `pnpm router:yao-smoke` and `pnpm validate:yaos-ab-local`.
+- [x] Record optimized local p50/p95/p99 latency plus exact directional bytes.
+- [x] Remove the obsolete local HSS parity suite and detach the generic local
+      Router/A/B transport smoke from HSS fixtures.
+- [x] Connect the SDK Router/API and browser Client to the Phase 9C Yao
+      contracts.
+- [ ] Delete the remaining SDK-bound Ed25519-HSS dependency, state, handlers,
+      and fixtures after the cutover passes.
+- [ ] Run intended-behaviour tests through the SDK public route, then close
+      local usability before starting Cloudflare deployment work.

@@ -10,6 +10,10 @@ GitHub deployments use two environments:
 - `staging`: automatic from `dev`; manual target for pre-production deploys.
 - `production`: automatic from `main`; manual target for production deploys.
 
+Router A/B Worker deployment currently exposes `staging` only. Its previous
+production target used same-account Service Bindings and has been deleted.
+Pages, R2, and other non-Router surfaces continue to use both environments.
+
 The workflow target is the deployment environment, not the chain. NEAR network,
 RPC URLs, wallet origins, and Pages aliases come from GitHub Environment
 variables and checked-in Cloudflare config.
@@ -30,13 +34,14 @@ old `testnet` environment into `staging`.
 
 ## First Deploy Checklist
 
-1. Create GitHub Environments `staging` and `production`.
+1. Create the general `staging` and `production` GitHub Environments plus the
+   split Router A/B `staging-*` role environments.
 2. Add Cloudflare, R2, Pages, Router A/B, and Vite environment values from
    [infra.md](infra.md).
-3. Generate Router A/B deployment identity keys with
-   `pnpm router:deploy:keygen -- --env staging --apply`. Repeat for production.
-4. Store `SIGNER_A_ROOT_SHARE_WIRE_SECRET` and
-   `SIGNER_B_ROOT_SHARE_WIRE_SECRET` from
+3. Generate staging Router A/B deployment identity keys with
+   `pnpm router:deploy:keygen -- --env staging --apply`.
+4. Store `DERIVER_A_ROOT_SHARE_WIRE_SECRET` and
+   `DERIVER_B_ROOT_SHARE_WIRE_SECRET` from
    `pnpm router:deploy:root-share-keygen` in the matching GitHub Environment.
 5. Provision D1 signer and console databases, Durable Object namespaces, R2
    backups, and migrations from [infra.md](infra.md#cloudflare-data).
@@ -76,7 +81,8 @@ Run `operation=deploy` only after `pnpm router:deploy:check` passes on the
 target commit. Router A/B role config lives in
 [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml).
 
-For production manual runs, use `--ref main` and `production`.
+Production Router A/B commands remain absent until Phase 6A selects the strict
+profile and Phase 10 adds independently administered deployment manifests.
 
 ## Deploy Order
 

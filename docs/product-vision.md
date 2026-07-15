@@ -9,10 +9,10 @@ Related docs:
 - [Router A/B sales pitch](router-a-b-sales-pitch.md)
 - [Router A/B spec](router-a-b-SPEC.md)
 - [Router A/B deployment](router-a-b-deployment.md)
-- [Delegate wallets](refactor-82-delegate-wallets.md)
-- [Delegated agent linked-device behavior](refactor-84-delegated-agent-linked-device-behavior.md)
-- [Voice agent GTM](voice-agent-gtm.md)
-- [Voice biometrics](voice-biometrics.md)
+- [Delegate wallets](refactor-96-delegate-wallets.md)
+- [Delegated agent linked-device behavior](refactor-98-delegated-agent-linked-device-behavior.md)
+- [Voice agent GTM](../voiceId/docs/voice-agent-gtm.md)
+- [VoiceID engine specification](../voiceId/docs/voiceId-mvp-1.md)
 
 ## Thesis
 

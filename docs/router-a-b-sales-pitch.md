@@ -367,34 +367,31 @@ This is distinct from org-managed fleet custody. Human-delegated robot auth
 preserves human control while letting robots operate within revocable policy
 bounds.
 
-### HSS Baseline And TEE-Backed Hardening
+### Streaming Yao Baseline And TEE-Backed Hardening
 
-TEE-centric wallet infrastructure can be elegant for managed SaaS. Router A/B
-plus HSS is more elegant for self-hostable embedded wallet infrastructure.
-Router A/B can also run inside TEEs for customers that want a hardened,
-lower-latency deployment.
+Router A/B uses fixed-circuit Streaming Yao for Ed25519 derivation. ECDSA keeps
+its separate threshold-PRF/HSS protocol. Both paths preserve role separation and
+ordinary signing stays outside the derivation critical path.
 
-| Criterion | Router A/B + HSS baseline | Router A/B + TEE-backed non-HSS mode | Typical TEE-centric wallet infrastructure |
+| Criterion | Router A/B server-blind baseline | Router A/B + TEE-backed mode | Typical TEE-centric wallet infrastructure |
 | --- | --- | --- | --- |
-| Self-hostability | Same protocol can run in customer-owned Cloudflare accounts or hardened provider-diverse deployments. | Available for customers that can run or buy managed attested signer infrastructure. | Usually tied to the provider's enclave and control plane unless the customer operates comparable enclave infrastructure. |
-| Operational simplicity | Simple when packaged through infrastructure-as-code; same-account Cloudflare is the paved-road default. | Heavier than serverless HSS, but still uses the same Router A/B product surface and migration model. | Simple for SaaS consumption, heavy for true customer-operated deployment. |
-| Server blindness without TEE | HSS and split derivation provide the server-blindness property without requiring trusted hardware. | The TEE boundary and secret-release policy supply the tamper-resistance assumption, allowing a non-HSS threshold signer for lower latency. | Relies on enclave isolation, attestation, and provider-managed enclave operations. |
-| Company-level migration | Designed around migration bundles, same-wallet verification, hosted-disablement, and share retirement evidence. | Uses the same migration semantics, with extra attestation and deployment-manifest evidence. | Often supports key export, while full provider-to-self-host operational migration is harder. |
-| Latency | The measured user-visible HSS latency concern is concentrated in Ed25519 registration and bootstrap flows. ECDSA bootstrap should be benchmarked and messaged separately, and normal signing remains outside the HSS critical path. | Can avoid HSS hidden-evaluation cost for latency-sensitive threshold signing paths. | Signing can be very fast when key shares live inside managed enclaves. |
-| Hardening path | Same Cloudflare account, then separate accounts, then provider-diverse signers. | Provider-diverse signers with attestation-bound identities, deployment epochs, and secret-release policy. | Stronger posture usually means deeper enclave, attestation, and provider-operations dependency. |
-| Failure mode | More protocol and adapter discipline. | More attestation, secret-release, and enclave-upgrade discipline. | More platform, attestation, and control-plane dependency. |
+| Self-hostability | The same pinned protocol artifacts can run in two independently administered Cloudflare accounts or provider-diverse deployments. | Available for customers that operate or purchase managed attested signer infrastructure. | Usually tied to the provider's enclave and control plane unless the customer operates comparable enclave infrastructure. |
+| Operational simplicity | Infrastructure-as-code provisions fixed Deriver A and B roles. Same-account Service Bindings are limited to development and staging. | Adds attestation, secret-release policy, and enclave lifecycle operations. | Simple for SaaS consumption and heavier for customer-operated deployment. |
+| Server blindness | Ed25519 Streaming Yao and ECDSA threshold PRF keep each Deriver's input private under their selected corruption claims. Independent administration supplies the intended operational boundary. | The TEE boundary adds hardware isolation and attested secret release. | Relies on enclave isolation, attestation, and provider-managed enclave operations. |
+| Company-level migration | Designed around migration bundles, same-wallet verification, hosted-disablement, and share-retirement evidence. | Uses the same migration semantics with additional attestation and deployment-manifest evidence. | Often supports key export; full provider-to-self-host operational migration can require comparable enclave infrastructure. |
+| Latency | Ed25519 Yao runs during registration, recovery, refresh, and authorized export. Local activation-family evidence is roughly 100-150 ms before deployed-network effects. Ordinary Ed25519 signing performs zero Yao calls. ECDSA bootstrap is measured separately. | Can move sensitive computation into attested local state where the reviewed deployment permits it. | Signing can be very fast when key shares remain inside managed enclaves. |
+| Hardening path | Independent A/B accounts, artifact pinning, authenticated transport, replay protection, recipient encryption, then the strongest reviewed P0-P2 profile meeting the latency SLO. | Provider-diverse signers with attestation-bound identities, deployment epochs, and secret-release policy. | Stronger posture usually increases enclave, attestation, and provider-operations dependency. |
+| Failure mode | Requires strict protocol, artifact, transport, and independent-administration discipline. | Requires strict attestation, secret-release, and enclave-upgrade discipline. | Concentrates risk in platform, attestation, and control-plane operations. |
 
-The tradeoff is deliberate. HSS supports server-blindness without TEEs and keeps
-self-hosting realistic for customers that can operate serverless infrastructure
-but cannot operate enclave infrastructure. Sales copy should be precise about
-latency: current benchmark work identifies Ed25519 HSS registration as the main
-visible HSS latency bucket, while ECDSA bootstrap and normal signing need their
-own performance language.
+Sales claims must name the selected Ed25519 Yao security profile and its exact
+corruption assumptions. Local same-account measurements are latency lower
+bounds. Production claims require independently administered A/B deployment
+evidence. ECDSA bootstrap and ordinary signing keep separate performance
+language because their protocols and critical paths differ.
 
-The hardened TEE-backed profile is additive. It lets us offer a non-HSS,
-lower-latency threshold signer for customers that want attested signer
-infrastructure, while preserving the same Router A/B client integration,
-deployment manifest model, migration semantics, and company-level exit story.
+The TEE-backed profile preserves the Router A/B client integration, deployment
+manifest model, migration semantics, and company-level exit story while adding
+an attested execution boundary.
 
 ## Architecture Discipline
 

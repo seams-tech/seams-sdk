@@ -865,26 +865,19 @@ strict Router protocol surfaces. TypeScript and Cloudflare adapter code must use
 shared vectors or boundary parsers for public request shapes, admission material,
 request digests, replay digests, response digests, and active-state ids.
 
-### 6.6 Router Split Request Shape
+### 6.6 Protocol-Specific Router Request Shapes
 
-The client sends one Router request containing public routing metadata and two
-role-specific encrypted envelopes:
+Ed25519 Streaming Yao uses a two-step Router boundary. Admission creates the
+session, immutable lifecycle binding, and exact Deriver and recipient public
+keys. Execution then carries two opaque role envelopes bound to that admission.
+Registration and recovery expose separate typed routes and request types.
 
-```ts
-type RouterSplitDerivationRequest = {
-  protocolVersion: string;
-  requestKind: 'registration' | 'activation' | 'recovery' | 'refresh' | 'export';
-  accountId: string;
-  sessionId: string;
-  transcriptNonce: string;
-  expiresAtMs: number;
-  clientEphemeralPublicKey: string;
-  aEnvelope: EncryptedDeriverEnvelope;
-  bEnvelope: EncryptedDeriverEnvelope;
-};
-```
+ECDSA registration, export, recovery, and refresh also expose separate typed
+routes. The Router may normalize those requests into an internal proof-bundle
+dispatch representation after boundary validation. No public generic
+derivation endpoint or caller-selected backend exists.
 
-Each encrypted deriver envelope must bind:
+Each encrypted Deriver envelope binds:
 
 - `protocolVersion`
 - `requestKind`
@@ -894,10 +887,11 @@ Each encrypted deriver envelope must bind:
 - `expiresAtMs`
 - deriver role, `A` or `B`
 - client ephemeral public key
-- Router request digest
+- Router admission and request digests
 
-The plaintext inside `aEnvelope` is valid only for A. The plaintext inside
-`bEnvelope` is valid only for B.
+The role-A plaintext is valid only for A. The role-B plaintext is valid only
+for B. Request parsing rejects role swaps, lifecycle drift, unknown fields, and
+replayed execution identities before either Deriver receives work.
 
 #### Product Operation To Ideal Functionality To Circuit Mapping
 
@@ -2060,8 +2054,8 @@ Deriver-envelope HPKE private-key source rules:
 | Worker        | Allowed deriver-envelope Secret bindings                                                                    |
 | ------------- | ----------------------------------------------------------------------------------------------------------- |
 | Router        | none                                                                                                        |
-| Deriver A     | `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`, optional `SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
-| Deriver B     | `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`, optional `SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
+| Deriver A     | `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, optional `DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
+| Deriver B     | `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, optional `DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
 | SigningWorker | none                                                                                                        |
 
 Direct A/B peer-message signing key-source rules:
@@ -2069,8 +2063,8 @@ Direct A/B peer-message signing key-source rules:
 | Worker        | Allowed peer-message signing Secret bindings |
 | ------------- | -------------------------------------------- |
 | Router        | none                                         |
-| Deriver A     | `SIGNER_A_PEER_SIGNING_KEY` only             |
-| Deriver B     | `SIGNER_B_PEER_SIGNING_KEY` only             |
+| Deriver A     | `DERIVER_A_PEER_SIGNING_KEY` only             |
+| Deriver B     | `DERIVER_B_PEER_SIGNING_KEY` only             |
 | SigningWorker | none                                         |
 
 Direct A/B peer-message verifying key-source rules:
@@ -2078,33 +2072,33 @@ Direct A/B peer-message verifying key-source rules:
 | Worker        | Allowed peer-message verifying keys                                  |
 | ------------- | -------------------------------------------------------------------- |
 | Router        | optional public config only                                          |
-| Deriver A     | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
-| Deriver B     | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
+| Deriver A     | `DERIVER_A_PEER_VERIFYING_KEY_HEX`, `DERIVER_B_PEER_VERIFYING_KEY_HEX` |
+| Deriver B     | `DERIVER_A_PEER_VERIFYING_KEY_HEX`, `DERIVER_B_PEER_VERIFYING_KEY_HEX` |
 | SigningWorker | optional public config only                                          |
 
 The Cloudflare parser receives public key-source descriptors and public
 verifying-key bytes:
 
 ```text
-SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH
-SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
-SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH
-SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
-SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-SIGNER_A_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH
-SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY
-SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-SIGNER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH
-SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY
+DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH
+DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY
+DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH
+DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY
+DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+DERIVER_A_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH
+DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY
+DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+DERIVER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH
+DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY
 ROUTER_AB_PREVIOUS_ENVELOPE_HPKE_RETIRE_AT_MS
-SIGNER_A_PEER_SIGNING_KEY_BINDING
-SIGNER_A_PEER_SIGNING_KEY_EPOCH
-SIGNER_B_PEER_SIGNING_KEY_BINDING
-SIGNER_B_PEER_SIGNING_KEY_EPOCH
-SIGNER_A_PEER_VERIFYING_KEY_HEX
-SIGNER_B_PEER_VERIFYING_KEY_HEX
+DERIVER_A_PEER_SIGNING_KEY_BINDING
+DERIVER_A_PEER_SIGNING_KEY_EPOCH
+DERIVER_B_PEER_SIGNING_KEY_BINDING
+DERIVER_B_PEER_SIGNING_KEY_EPOCH
+DERIVER_A_PEER_VERIFYING_KEY_HEX
+DERIVER_B_PEER_VERIFYING_KEY_HEX
 ```
 
 For the production HPKE path, `*_PRIVATE_KEY_BINDING` names a role-local
@@ -2633,30 +2627,33 @@ crates/router-ab-core/
     lib.rs
     derivation/
       mod.rs
-      candidate_mpc_prf.rs
-      candidate_mpc_prf_threshold_backend.rs
       context.rs
       diagnostics.rs
-      envelope.rs
-      evidence.rs
+      ecdsa_threshold_prf.rs
+      ecdsa_threshold_prf_backend.rs
+      error.rs
       leakage.rs
       material.rs
       scope.rs
-      state_machine.rs
+      signer_plaintext.rs
       transcript.rs
-      vectors.rs
       wire/
         mod.rs
     protocol/
       mod.rs
+      ecdsa_hss.rs
+      ecdsa_threshold_prf_request.rs
+      ed25519_yao.rs
       envelope.rs
       error.rs
       gate.rs
       identity.rs
       lifecycle.rs
       local.rs
+      normal_signing.rs
       output.rs
       payload.rs
+      signer_input.rs
       vectors.rs
       wire.rs
       engine/
@@ -2667,14 +2664,10 @@ crates/router-ab-core/
         deriver_b.rs
         signing_worker.rs
     bin/
-      emit_contract_vectors.rs
       emit_payload_vectors.rs
       emit_wire_vectors.rs
 
-  benches/
-    derivation_candidates.rs
   fixtures/
-    derivation/
     protocol/
   specs/
   formal-verification/

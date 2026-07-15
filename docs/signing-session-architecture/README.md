@@ -197,8 +197,8 @@ Signing uses three separate auth planes.
 
 An app session proves the user is logged in and may request user-level
 operations, such as Email OTP challenge issuance. App sessions are not signing
-authority and cannot authorize threshold signing, key export, or HSS
-continuation routes by themselves.
+authority and cannot authorize threshold signing, key export, or derivation
+lifecycle routes by themselves.
 
 ### Threshold Session
 
@@ -207,7 +207,7 @@ threshold session.
 
 Use threshold-session auth for:
 
-1. Ed25519 threshold signing and HSS continuation routes.
+1. Ed25519 threshold signing and Streaming Yao lifecycle routes.
 2. ECDSA threshold signing, presign, and HSS continuation routes.
 3. Threshold export routes after the operation has fresh export authorization.
 
@@ -629,6 +629,6 @@ Guard tests should reject:
 4. ECDSA model:
    [../ecdsa_threshold_signing.md](../ecdsa_threshold_signing.md).
 5. Ed25519 model:
-   [../threshold-ed25519/stateless-shared-root.md](../threshold-ed25519/stateless-shared-root.md).
+   [../yaos-ab.md](../yaos-ab.md).
 6. Nonce coordinator:
    [../nonce-coordinator.md](../nonce-coordinator.md).
