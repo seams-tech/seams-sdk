@@ -5,10 +5,7 @@ import { createInMemoryConsoleSponsoredCallService } from '../../packages/consol
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express-adaptor';
-import {
-  createRouterApiModule,
-  type RouterApiModule,
-} from '../../packages/sdk-server-ts/src/router/modules';
+import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/modules';
 import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/console-server-ts/src/router/routerApiKeyAuth';
 import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
 import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
@@ -18,11 +15,6 @@ import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
-import {
-  createDefaultVoiceIdService,
-  createVoiceIdRouterApiModule,
-  createVoiceIdServerCapability,
-} from '../../voiceId/server/src/index';
 import { callCf } from '../relayer/helpers';
 
 type CloudflareRouterApiHandler = ReturnType<typeof createCloudflareRouter>;
@@ -191,7 +183,7 @@ function materializeRoutePath(path: string): string {
   });
 }
 
-function voiceIdTestRoute(id: string, method: 'GET' | 'POST', path: string) {
+function testExtensionRoute(id: string, method: 'GET' | 'POST', path: string) {
   return defineRoute({
     id,
     surface: 'relay',
@@ -200,59 +192,12 @@ function voiceIdTestRoute(id: string, method: 'GET' | 'POST', path: string) {
     auth: {
       plane: 'public',
       proof: 'intent_grant',
-      rationale: 'VoiceID extension routes exchange caller-held owner-presence evidence.',
+      rationale: 'Test extension route exercises generic module registration.',
     },
     metering: { kind: 'none' },
-    summary: `VoiceID test route ${id}`,
+    summary: `Test extension route ${id}`,
   });
 }
-
-async function callCfFormData(
-  handler: CloudflareRouterApiHandler,
-  path: string,
-  form: FormData,
-): Promise<{
-  status: number;
-  headers: Headers;
-  json: Record<string, unknown> | null;
-  text: string;
-}> {
-  const response = await handler(
-    new Request(new URL(path, 'https://relay.test').toString(), {
-      method: 'POST',
-      body: form,
-    }),
-  );
-  return await readResponse(response);
-}
-
-async function readResponse(response: globalThis.Response): Promise<{
-  status: number;
-  headers: Headers;
-  json: Record<string, unknown> | null;
-  text: string;
-}> {
-  const text = await response.text();
-  let json: Record<string, unknown> | null = null;
-  try {
-    const parsed: unknown = text ? JSON.parse(text) : null;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      json = parsed as Record<string, unknown>;
-    }
-  } catch {
-    json = null;
-  }
-  return { status: response.status, headers: response.headers, json, text };
-}
-
-function okValue<TValue>(body: Record<string, unknown> | null): TValue {
-  expect(body?.kind).toBe('ok');
-  const value = body?.value;
-  expect(value).toBeTruthy();
-  return value as TValue;
-}
-
-const VOICE_ID_TEST_INTENT_DIGEST = 'A'.repeat(43);
 
 const EMAIL_RECOVERY_EXECUTION_SERVICE = {
   async requestEmailRecovery() {
@@ -260,65 +205,6 @@ const EMAIL_RECOVERY_EXECUTION_SERVICE = {
   },
 };
 
-function voiceIdIntentBindingBody(): Record<string, unknown> {
-  return {
-    intentDigest: VOICE_ID_TEST_INTENT_DIGEST,
-    intentExpiresAt: '2099-01-01T00:00:00.000Z',
-    intentNonce: 'nonce_123456',
-  };
-}
-
-function voiceIdOwnerPresenceAuthorizationBody(verificationId: string): Record<string, unknown> {
-  return {
-    verificationId,
-    intentDigest: VOICE_ID_TEST_INTENT_DIGEST,
-    useCase: 'wallet_mpc_signing',
-    policyVersion: 'voiceid-wallet-policy-v1',
-    audio: {
-      kind: 'audio_liveness_signals_v1',
-      promptOpenedAt: '2026-06-13T00:00:00.000Z',
-      speechStartedAt: '2026-06-13T00:00:00.600Z',
-      speechEndedAt: '2026-06-13T00:00:01.900Z',
-      captureSource: {
-        kind: 'trusted_microphone',
-        deviceId: 'sdk-router-surface-test-mic',
-      },
-      replayRisk: { kind: 'low' },
-    },
-    context: {
-      kind: 'local_device_context_v1',
-      deviceId: 'sdk-router-surface-device',
-      sidecarId: 'sdk-router-surface-sidecar',
-      captureStartedAt: '2026-06-13T00:00:00.000Z',
-      evaluatedAt: '2026-06-13T00:00:02.200Z',
-      localPolicyVersion: 'voiceid-liveness-policy-v1',
-    },
-  };
-}
-
-function voiceIdSampleForm(input: {
-  fields: Record<string, unknown>;
-  speakerLabel: string;
-}): FormData {
-  const bytes = new Uint8Array([1, 2, 3]);
-  const form = new FormData();
-  form.set('audio', new Blob([bytes], { type: 'audio/webm' }));
-  form.set(
-    'metadata',
-    JSON.stringify({
-      mimeType: 'audio/webm',
-      durationMs: 1500,
-      sampleRate: { kind: 'unknown' },
-      channelCount: { kind: 'unknown' },
-      byteLength: bytes.byteLength,
-      capturedAt: '2026-06-13T00:00:00.000Z',
-      recorder: 'router-module-test',
-      fixtureBehavior: { kind: 'speaker_label', speakerLabel: input.speakerLabel },
-    }),
-  );
-  form.set('fields', JSON.stringify(input.fields));
-  return form;
-}
 
 test.describe('Router API route surface wiring', () => {
   test('Express adapter route surface matches canonical fetch router surface', async () => {
@@ -459,16 +345,16 @@ test.describe('Router API route surface wiring', () => {
 
   test('route extensions are surfaced and mounted by supported transport', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const cloudflareRoute = voiceIdTestRoute(
-      'voiceid_owner_presence_cloudflare',
+    const cloudflareRoute = testExtensionRoute(
+      'test_evidence_cloudflare',
       'POST',
-      '/voiceid/owner-presence',
+      '/test/evidence',
     );
-    const capabilitiesRoute = voiceIdTestRoute('voiceid_capabilities', 'GET', '/voiceid/capabilities');
+    const capabilitiesRoute = testExtensionRoute('test_capabilities', 'GET', '/test/capabilities');
     const extensions: RouterApiRouteExtension[] = [
       {
         kind: 'cloudflare_route_extension',
-        id: 'voiceid-cloudflare',
+        id: 'test-evidence-cloudflare',
         routes: [cloudflareRoute],
         handleCloudflareRoute: ({ route }) =>
           new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
@@ -477,7 +363,7 @@ test.describe('Router API route surface wiring', () => {
       },
       {
         kind: 'cloudflare_route_extension',
-        id: 'voiceid-capabilities',
+        id: 'test-capabilities',
         routes: [capabilitiesRoute],
         handleCloudflareRoute: ({ route }) =>
           new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
@@ -491,25 +377,25 @@ test.describe('Router API route surface wiring', () => {
     const cloudflareIds = new Set(
       (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
     );
-    expect(cloudflareIds.has('voiceid_owner_presence_cloudflare')).toBe(true);
-    expect(cloudflareIds.has('voiceid_capabilities')).toBe(true);
+    expect(cloudflareIds.has('test_evidence_cloudflare')).toBe(true);
+    expect(cloudflareIds.has('test_capabilities')).toBe(true);
 
-    const ownerPresenceResponse = await callCf(cloudflareHandler, {
+    const evidenceResponse = await callCf(cloudflareHandler, {
       method: 'POST',
-      path: '/voiceid/owner-presence',
+      path: '/test/evidence',
       body: {},
     });
-    expect(ownerPresenceResponse.status).toBe(200);
-    expect(ownerPresenceResponse.json).toEqual({
-      routeId: 'voiceid_owner_presence_cloudflare',
+    expect(evidenceResponse.status).toBe(200);
+    expect(evidenceResponse.json).toEqual({
+      routeId: 'test_evidence_cloudflare',
       runtime: 'cloudflare',
     });
 
     const expressRouter = createRouterApiRouter(service, { routeExtensions: extensions });
     const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
-    expect(expressIds.has('voiceid_owner_presence_cloudflare')).toBe(true);
-    expect(expressIds.has('voiceid_capabilities')).toBe(true);
+    expect(expressIds.has('test_evidence_cloudflare')).toBe(true);
+    expect(expressIds.has('test_capabilities')).toBe(true);
   });
 
   test('console Router API route extensions own managed registration and wallet API routes', async () => {
@@ -549,7 +435,7 @@ test.describe('Router API route surface wiring', () => {
     const extension: RouterApiRouteExtension = {
       kind: 'cloudflare_route_extension',
       id: 'conflicting-extension',
-      routes: [voiceIdTestRoute('conflicting_session_state', 'GET', '/session/state')],
+      routes: [testExtensionRoute('conflicting_session_state', 'GET', '/session/state')],
       handleCloudflareRoute: () => new Response(null, { status: 204 }),
     };
 
@@ -558,172 +444,20 @@ test.describe('Router API route surface wiring', () => {
     );
   });
 
-  test('Router API routers run without optional VoiceID module registered', async () => {
-    const service = makeRouterApiServiceBagFixture();
-
-    const cloudflareHandler = createCloudflareRouter(service, {});
-    const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
-    const cloudflareIds = new Set(
-      (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
-    );
-    expect(cloudflareIds.has('voice_id_health')).toBe(false);
-
-    const missingVoiceIdResponse = await callCf(cloudflareHandler, {
-      method: 'GET',
-      path: '/voice-id/health',
-    });
-    expect(missingVoiceIdResponse.status).toBe(404);
-
-    const expressRouter = createRouterApiRouter(service, {});
-    const expressSurface = getRouterApiRouteSurface(expressRouter);
-    const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
-    expect(expressIds.has('voice_id_health')).toBe(false);
-  });
-
-  test('Router API modules register VoiceID routes across Cloudflare and Express', async () => {
-    const service = makeRouterApiServiceBagFixture();
-    const voiceIdModule: RouterApiModule = createVoiceIdRouterApiModule(
-      createVoiceIdServerCapability({
-        kind: 'service',
-        service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
-      }),
-    );
-
-    const cloudflareHandler = createCloudflareRouter(service, { modules: [voiceIdModule] });
-    const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
-    const cloudflareIds = new Set(
-      (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
-    );
-    expect(cloudflareIds.has('voice_id_health')).toBe(true);
-    expect(cloudflareIds.has('voice_id_verification_sample')).toBe(true);
-    expect(cloudflareIds.has('voice_id_owner_presence_authorize')).toBe(true);
-
-    const healthResponse = await callCf(cloudflareHandler, {
-      method: 'GET',
-      path: '/voice-id/health',
-    });
-    expect(healthResponse.status).toBe(200);
-    expect(healthResponse.json?.kind).toBe('ok');
-    expect(healthResponse.json?.service).toBe('voice-id-api');
-
-    const enrollmentStart = okValue<{ record: { enrollmentId: string } }>(
-      (
-        await callCf(cloudflareHandler, {
-          method: 'POST',
-          path: '/voice-id/enrollment/start',
-          body: {
-            userId: 'owner',
-            phrase: 'Walking on clouds',
-          },
-        })
-      ).json,
-    );
-
-    for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
-      const sample = await callCfFormData(
-        cloudflareHandler,
-        '/voice-id/enrollment/sample',
-        voiceIdSampleForm({
-          fields: {
-            userId: 'owner',
-            enrollmentId: enrollmentStart.record.enrollmentId,
-            expectedPhrase: 'Walking on clouds',
-            spokenPhrase: 'Walking on clouds',
-            attemptNumber,
-          },
-          speakerLabel: 'owner',
-        }),
-      );
-      expect(sample.status).toBe(200);
-      expect(sample.json?.kind).toBe('ok');
-    }
-
-    const finalized = okValue<{ state: string }>(
-      (
-        await callCf(cloudflareHandler, {
-          method: 'POST',
-          path: '/voice-id/enrollment/finalize',
-          body: {
-            userId: 'owner',
-            enrollmentId: enrollmentStart.record.enrollmentId,
-          },
-        })
-      ).json,
-    );
-    expect(finalized.state).toBe('enrolled');
-
-    const verificationStart = okValue<{ record: { verificationId: string } }>(
-      (
-        await callCf(cloudflareHandler, {
-          method: 'POST',
-          path: '/voice-id/verification/start',
-          body: {
-            userId: 'owner',
-            enrollmentId: enrollmentStart.record.enrollmentId,
-            phrase: 'Walking on clouds',
-            ...voiceIdIntentBindingBody(),
-          },
-        })
-      ).json,
-    );
-
-    const verificationSample = await callCfFormData(
-      cloudflareHandler,
-      '/voice-id/verification/sample',
-      voiceIdSampleForm({
-        fields: {
-          userId: 'owner',
-          enrollmentId: enrollmentStart.record.enrollmentId,
-          verificationId: verificationStart.record.verificationId,
-          expectedPhrase: 'Walking on clouds',
-          spokenPhrase: 'Walking on clouds',
-          attemptNumber: 1,
-        },
-        speakerLabel: 'owner',
-      }),
-    );
-    const verificationResult = okValue<{ kind: string }>(verificationSample.json);
-    expect(verificationResult.kind).toBe('accepted');
-
-    const ownerPresence = okValue<{
-      ownerPresence: { kind: string; intentDigest: string };
-      decision: { kind: string; evidence?: { intentDigest: string } };
-    }>(
-      (
-        await callCf(cloudflareHandler, {
-          method: 'POST',
-          path: '/voice-id/owner-presence/authorize',
-          body: voiceIdOwnerPresenceAuthorizationBody(verificationStart.record.verificationId),
-        })
-      ).json,
-    );
-    expect(ownerPresence.ownerPresence.kind).toBe('accepted');
-    expect(ownerPresence.ownerPresence.intentDigest).toBe(VOICE_ID_TEST_INTENT_DIGEST);
-    expect(ownerPresence.decision.kind).toBe('accepted');
-    expect(ownerPresence.decision.evidence?.intentDigest).toBe(VOICE_ID_TEST_INTENT_DIGEST);
-
-    const expressRouter = createRouterApiRouter(service, { modules: [voiceIdModule] });
-    const expressSurface = getRouterApiRouteSurface(expressRouter);
-    const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
-    expect(expressIds.has('voice_id_health')).toBe(true);
-    expect(expressIds.has('voice_id_verification_sample')).toBe(true);
-    expect(expressIds.has('voice_id_owner_presence_authorize')).toBe(true);
-  });
-
   test('Router API modules reject duplicate module ids', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const route = voiceIdTestRoute('voiceid_duplicate_module_route', 'GET', '/voiceid/dupe');
+    const route = testExtensionRoute('test_duplicate_module_route', 'GET', '/test/dupe');
     const extension: RouterApiRouteExtension = {
       kind: 'cloudflare_route_extension',
       id: 'duplicate-module-extension',
       routes: [route],
       handleCloudflareRoute: () => new Response(null, { status: 204 }),
     };
-    const first = createRouterApiModule({ id: 'voiceid', routeExtensions: [extension] });
-    const second = createRouterApiModule({ id: 'voiceid', routeExtensions: [extension] });
+    const first = createRouterApiModule({ id: 'test-module', routeExtensions: [extension] });
+    const second = createRouterApiModule({ id: 'test-module', routeExtensions: [extension] });
 
     expect(() => createCloudflareRouter(service, { modules: [first, second] })).toThrow(
-      /duplicate Router API module id voiceid/,
+      /duplicate Router API module id test-module/,
     );
   });
 });

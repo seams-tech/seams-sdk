@@ -280,7 +280,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           workerCtx: {
             requestWorkerOperation: async ({ kind, request }: any) => {
               if (
-                kind === 'hssClient' &&
+                kind === 'ecdsaHssClient' &&
                 request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
               ) {
                 return {
@@ -307,7 +307,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                 };
               }
               if (
-                kind === 'hssClient' &&
+                kind === 'ecdsaHssClient' &&
                 request.type === WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
               ) {
                 return {
@@ -333,7 +333,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                 };
               }
               if (
-                kind === 'hssClient' &&
+                kind === 'ecdsaHssClient' &&
                 request.type === HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
               ) {
                 storedMaterials.push({
@@ -518,7 +518,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         workerCtx: {
           requestWorkerOperation: async ({ kind, request }: any) => {
             if (
-              kind === 'hssClient' &&
+              kind === 'ecdsaHssClient' &&
               request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
             ) {
               expect(request.payload).toMatchObject({

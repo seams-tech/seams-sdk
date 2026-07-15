@@ -194,7 +194,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     const result = await putRouterAbEcdsaHssPresignaturePoolFill({
       signingWorkerBaseUrl: 'https://signing-worker.example/base/',
       request: poolFillRequest,
-      auth: { kind: 'internal_service_auth_token', token: 'private-route-token' },
+      auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
       fetchImpl,
     });
 
@@ -224,7 +224,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       putRouterAbEcdsaHssPresignaturePoolFill({
         signingWorkerBaseUrl: 'https://signing-worker.example',
         request: poolFillRequest,
-        auth: { kind: 'internal_service_auth_token', token: 'private-route-token' },
+        auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
         fetchImpl,
       }),
     ).resolves.toEqual({
@@ -246,7 +246,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       putRouterAbEcdsaHssPresignaturePoolFill({
         signingWorkerBaseUrl: 'http://127.0.0.1:9093',
         request: poolFillRequest,
-        auth: { kind: 'internal_service_auth_token', token: 'private-route-token' },
+        auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
         fetchImpl,
       }),
     ).resolves.toMatchObject({
@@ -273,7 +273,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       putRouterAbEcdsaHssPresignaturePoolFill({
         signingWorkerBaseUrl: 'https://signing-worker.example',
         request: poolFillRequest,
-        auth: { kind: 'internal_service_auth_token', token: 'private-route-token' },
+        auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
         fetchImpl,
       }),
     ).resolves.toMatchObject({

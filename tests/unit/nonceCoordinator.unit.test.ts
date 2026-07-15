@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import type { EvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
+import type {
+  EvmBroadcastTransactionStatus,
+  EvmNonceBackend,
+} from '@/core/rpcClients/evm/nonceBackend';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { fromManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import {
@@ -24,18 +27,23 @@ import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  encodeNonceKeyParts,
-  nonceLaneKey,
-} from '@/core/signingEngine/nonce/nonceLaneKeys';
+import { encodeNonceKeyParts, nonceLaneKey } from '@/core/signingEngine/nonce/nonceLaneKeys';
 
 const TEST_SENDER = `0x${'22'.repeat(20)}` as const;
 
-function createFakeEvmNonceBackend(calls: unknown[], nonce = 7n): EvmNonceBackend {
+function createFakeEvmNonceBackend(
+  calls: unknown[],
+  nonce = 7n,
+  broadcastStatus: EvmBroadcastTransactionStatus = { kind: 'pending' },
+): EvmNonceBackend {
   return {
     fetchChainNonce: async (input) => {
       calls.push({ fn: 'fetchChainNonce', input });
       return nonce;
+    },
+    fetchBroadcastTransactionStatus: async (input) => {
+      calls.push({ fn: 'fetchBroadcastTransactionStatus', input });
+      return broadcastStatus;
     },
   };
 }
@@ -123,14 +131,20 @@ function createMemoryNonceLaneCoordinationStore(initial?: NonceLaneCoordinationR
         }),
     readAll: async (input) =>
       Array.from(records.values())
-        .filter((record) => !input?.walletId || nonceCoordinationRecordWalletId(record) === input.walletId)
+        .filter(
+          (record) =>
+            !input?.walletId || nonceCoordinationRecordWalletId(record) === input.walletId,
+        )
         .flatMap((record) => {
           const parsed = parseNonceLaneCoordinationRecord(toRawCoordinationRecord(record));
           return parsed.ok ? [parsed.parsed] : [];
         }),
     readAllForRecovery: async (input) =>
       Array.from(records.values())
-        .filter((record) => !input?.walletId || nonceCoordinationRecordWalletId(record) === input.walletId)
+        .filter(
+          (record) =>
+            !input?.walletId || nonceCoordinationRecordWalletId(record) === input.walletId,
+        )
         .map((record) => parseNonceLaneCoordinationRecord(toRawCoordinationRecord(record))),
     upsert: async (record) => {
       records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
@@ -146,7 +160,9 @@ function createMemoryNonceLaneCoordinationStore(initial?: NonceLaneCoordinationR
     clearAll: async () => records.clear(),
     pruneExpired: async (nowMs) => {
       for (const [key, record] of records.entries()) {
-        if (record.expiresAtMs <= nowMs) records.delete(key);
+        if (record.expiresAtMs <= nowMs && record.state !== 'broadcast_accepted') {
+          records.delete(key);
+        }
       }
     },
     withLock: async (_input, task) => {
@@ -190,6 +206,7 @@ function toRawCoordinationRecord(record: NonceLaneCoordinationRecord): Record<st
     if (record.batchId) raw.batchId = record.batchId;
     if (Number.isSafeInteger(record.txIndex)) raw.txIndex = record.txIndex;
     if (record.nonceKey != null) raw.nonceKey = record.nonceKey.toString();
+    if (record.state === 'broadcast_accepted') raw.txHash = record.txHash;
     return raw;
   }
   const raw: Record<string, unknown> = {
@@ -213,14 +230,24 @@ function toRawCoordinationRecord(record: NonceLaneCoordinationRecord): Record<st
   if (record.fencingToken) raw.fencingToken = record.fencingToken;
   if (record.batchId) raw.batchId = record.batchId;
   if (Number.isSafeInteger(record.txIndex)) raw.txIndex = record.txIndex;
+  if (record.state === 'broadcast_accepted') raw.txHash = record.txHash;
   return raw;
 }
 
+type EvmCoordinationRecord = Extract<NonceLaneCoordinationRecord, { family: 'evm' }>;
+type EvmCoordinationRecordOverrides = Partial<
+  Omit<EvmCoordinationRecord, 'family' | 'state' | 'txHash'>
+> &
+  (
+    | { state?: 'reserved' | 'signed'; txHash?: never }
+    | { state: 'broadcast_accepted'; txHash?: `0x${string}` }
+  );
+
 function createEvmCoordinationRecord(
-  overrides?: Partial<Extract<NonceLaneCoordinationRecord, { family: 'evm' }>>,
-): NonceLaneCoordinationRecord {
+  overrides?: EvmCoordinationRecordOverrides,
+): EvmCoordinationRecord {
   const lane = createLane();
-  return {
+  const common = {
     v: 1,
     leaseId: 'durable-lease-1',
     laneKey: encodeNonceKeyParts([
@@ -237,13 +264,23 @@ function createEvmCoordinationRecord(
     nonceKey: lane.nonceKey,
     accountId: lane.subjectId,
     nonce: 7n,
-    state: 'broadcast_accepted',
     operationId: String(createOperation().operationId),
     operationFingerprint: String(createOperation().operationFingerprint),
     reservedAtMs: 1_000,
     expiresAtMs: 10_000,
     updatedAtMs: 1_000,
     ...overrides,
+  };
+  if (overrides?.state === 'broadcast_accepted') {
+    return {
+      ...common,
+      state: 'broadcast_accepted',
+      txHash: overrides.txHash ?? `0x${'ab'.repeat(32)}`,
+    };
+  }
+  return {
+    ...common,
+    state: overrides?.state ?? 'reserved',
   };
 }
 
@@ -1008,56 +1045,6 @@ test.describe('NonceCoordinator', () => {
     });
   });
 
-  test('rejects NEAR broadcast acceptance without a tx hash', async () => {
-    const { store, records } = createMemoryNonceLaneCoordinationStore();
-    const lane = createNearLane();
-    const coordinator = createNonceCoordinator({
-      evmNonceBackend: createFakeEvmNonceBackend([]),
-      nonceLaneCoordinationStore: store,
-      now: () => 3_000,
-    });
-    const operation = {
-      ...createOperation(),
-      chainFamily: 'near' as const,
-    };
-    const { leases } = await coordinator.reserveNearContext({
-      lane,
-      operation,
-      count: 1,
-      fetchContext: async () => ({
-        nearPublicKeyStr: lane.publicKey,
-        accessKeyInfo: {
-          nonce: 30n,
-          permission: 'FullAccess',
-          block_height: 1,
-          block_hash: 'test-access-key-block',
-        },
-        nextNonce: '31',
-        txBlockHeight: '2000',
-        txBlockHash: 'h2000',
-      }),
-    });
-    const lease = leases[0]!;
-    await coordinator.markSigned({
-      leaseId: lease.leaseId,
-      operationId: operation.operationId,
-      operationFingerprint: operation.operationFingerprint,
-    });
-    const durableRecordsBefore = Array.from(records.values());
-    const nearDiagnosticsBefore = coordinator.getDiagnostics().near;
-
-    await expect(
-      coordinator.markBroadcastAccepted({
-        leaseId: lease.leaseId,
-        operationId: operation.operationId,
-        operationFingerprint: operation.operationFingerprint,
-      }),
-    ).rejects.toThrow('NEAR broadcast acceptance requires txHash');
-
-    expect(Array.from(records.values())).toEqual(durableRecordsBefore);
-    expect(coordinator.getDiagnostics().near).toEqual(nearDiagnosticsBefore);
-  });
-
   test('routes finalized NEAR leases through coordinator-owned NEAR chain refresh', async () => {
     const calls: unknown[] = [];
     const coordinator = createNonceCoordinator({
@@ -1301,7 +1288,9 @@ test.describe('NonceCoordinator', () => {
       clearAll: async () => records.clear(),
       pruneExpired: async (nowMs: number) => {
         for (const [key, record] of records.entries()) {
-          if (record.expiresAtMs <= nowMs) records.delete(key);
+          if (record.expiresAtMs <= nowMs && record.state !== 'broadcast_accepted') {
+            records.delete(key);
+          }
         }
       },
     };
@@ -1407,6 +1396,36 @@ test.describe('NonceCoordinator', () => {
     expect(Array.from(records.values())[0]?.leaseId).toBe(lease.leaseId);
   });
 
+  test('persists the broadcast transaction hash with an accepted EVM lease', async () => {
+    const { store, records } = createMemoryNonceLaneCoordinationStore();
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([]),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 2_000,
+    });
+    const operation = createOperation();
+    const lease = await coordinator.reserve({ lane: createLane(), operation });
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+    });
+    await coordinator.markBroadcastAccepted({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+      txHash: `0x${'bc'.repeat(32)}`,
+    });
+
+    expect(Array.from(records.values())).toContainEqual(
+      expect.objectContaining({
+        state: 'broadcast_accepted',
+        txHash: `0x${'bc'.repeat(32)}`,
+      }),
+    );
+  });
+
   test('rejects raw durable records that carry bigint nonce values', () => {
     const record = createEvmCoordinationRecord();
     const parsed = parseNonceLaneCoordinationRecord({
@@ -1417,6 +1436,39 @@ test.describe('NonceCoordinator', () => {
     expect(parsed.ok).toBe(false);
     if (parsed.ok) throw new Error('expected bigint raw nonce parsing to fail');
     expect(parsed.degradation.reason).toBe('malformed_durable_record');
+  });
+
+  test('keeps pre-txHash accepted records blocked as signed leases at the persistence boundary', () => {
+    const rawRecord = toRawCoordinationRecord(
+      createEvmCoordinationRecord({ state: 'broadcast_accepted' }),
+    );
+    delete rawRecord.txHash;
+
+    const parsed = parseNonceLaneCoordinationRecord(rawRecord);
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error('expected the pre-txHash durable record to remain recoverable');
+    expect(parsed.parsed.record).toEqual(
+      expect.objectContaining({
+        state: 'signed',
+        expiresAtMs: 10_000,
+      }),
+    );
+    expect('txHash' in parsed.parsed.record).toBe(false);
+  });
+
+  test('keeps accepted records with invalid EVM transaction hashes blocked at the persistence boundary', () => {
+    const rawRecord = toRawCoordinationRecord(
+      createEvmCoordinationRecord({ state: 'broadcast_accepted' }),
+    );
+    rawRecord.txHash = 'invalid-transaction-hash';
+
+    const parsed = parseNonceLaneCoordinationRecord(rawRecord);
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error('expected the invalid legacy hash to remain recoverable');
+    expect(parsed.parsed.record.state).toBe('signed');
+    expect('txHash' in parsed.parsed.record).toBe(false);
   });
 
   test('removes malformed durable EVM records and emits a degraded recovery diagnostic', async () => {
@@ -1485,7 +1537,7 @@ test.describe('NonceCoordinator', () => {
     ).toBe(true);
   });
 
-  test('startup recovery clears finalized EVM durable broadcast leases', async () => {
+  test('startup recovery clears finalized EVM durable broadcast leases by tx hash', async () => {
     const calls: unknown[] = [];
     const { store, records } = createMemoryNonceLaneCoordinationStore([
       createEvmCoordinationRecord({
@@ -1495,7 +1547,7 @@ test.describe('NonceCoordinator', () => {
       }),
     ]);
     const coordinator = createNonceCoordinator({
-      evmNonceBackend: createFakeEvmNonceBackend(calls, 8n),
+      evmNonceBackend: createFakeEvmNonceBackend(calls, 7n, { kind: 'finalized' }),
       sameOriginLock: null,
       nonceLaneCoordinationStore: store,
       now: () => 2_000,
@@ -1506,9 +1558,102 @@ test.describe('NonceCoordinator', () => {
     expect(records.size).toBe(0);
     expect(calls).toEqual([
       expect.objectContaining({
-        fn: 'fetchChainNonce',
+        fn: 'fetchBroadcastTransactionStatus',
+        input: expect.objectContaining({
+          txHash: `0x${'ab'.repeat(32)}`,
+        }),
+      }),
+      expect.objectContaining({ fn: 'fetchChainNonce' }),
+    ]);
+  });
+
+  test('startup recovery releases a stale broadcast lease after its tx hash disappears', async () => {
+    const calls: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore([
+      createEvmCoordinationRecord({
+        leaseId: 'durable-dropped-broadcast',
+        nonce: 7n,
+        state: 'broadcast_accepted',
+        expiresAtMs: 10_000,
+        updatedAtMs: 1_000,
       }),
     ]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls, 7n, { kind: 'missing' }),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 60_000,
+    });
+
+    await coordinator.recoverDurableLeases({ walletId: 'nonce-coordinator.testnet' });
+    const lease = await coordinator.reserve({
+      lane: createLane(),
+      operation: createOperation(),
+    });
+
+    expect(records.size).toBe(1);
+    expect(lease.nonce).toBe(7n);
+    expect(calls.map((call) => (call as { fn: string }).fn)).toEqual([
+      'fetchBroadcastTransactionStatus',
+      'fetchChainNonce',
+    ]);
+  });
+
+  test('startup recovery keeps an expired pending broadcast lease blocked', async () => {
+    const calls: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore([
+      createEvmCoordinationRecord({
+        leaseId: 'durable-pending-broadcast',
+        nonce: 7n,
+        state: 'broadcast_accepted',
+        expiresAtMs: 10_000,
+        updatedAtMs: 1_000,
+      }),
+    ]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls, 7n, { kind: 'pending' }),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 60_000,
+    });
+
+    await coordinator.recoverDurableLeases({ walletId: 'nonce-coordinator.testnet' });
+
+    expect(records.size).toBe(1);
+    await expect(
+      coordinator.reserve({ lane: createLane(), operation: createOperation() }),
+    ).rejects.toMatchObject({ code: 'nonce_lane_blocked' });
+  });
+
+  test('startup recovery keeps an accepted lease blocked when transaction status lookup fails', async () => {
+    const calls: unknown[] = [];
+    const backend = createFakeEvmNonceBackend(calls, 7n);
+    backend.fetchBroadcastTransactionStatus = async (input) => {
+      calls.push({ fn: 'fetchBroadcastTransactionStatus', input });
+      throw new Error('RPC unavailable');
+    };
+    const { store, records } = createMemoryNonceLaneCoordinationStore([
+      createEvmCoordinationRecord({
+        leaseId: 'durable-unknown-broadcast',
+        nonce: 7n,
+        state: 'broadcast_accepted',
+        expiresAtMs: 10_000,
+        updatedAtMs: 1_000,
+      }),
+    ]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: backend,
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 60_000,
+    });
+
+    await coordinator.recoverDurableLeases({ walletId: 'nonce-coordinator.testnet' });
+
+    expect(records.size).toBe(1);
+    await expect(
+      coordinator.reserve({ lane: createLane(), operation: createOperation() }),
+    ).rejects.toMatchObject({ code: 'nonce_lane_blocked' });
   });
 
   test('same-origin durable NEAR leases prevent overlapping batch reservations', async () => {

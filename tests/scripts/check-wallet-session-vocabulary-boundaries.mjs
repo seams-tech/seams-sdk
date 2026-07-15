@@ -160,8 +160,6 @@ const classifiedSessionIdBoundaryFiles = {
   'apps/docs/src/concepts/security-model.md': 'keep_secureconfirm_session',
   'crates/signer-core/src/commands/ecdsa_bootstrap.rs':
     'rename_later_agent_b_signing_or_wasm',
-  'crates/signer-core/src/commands/ed25519_worker_material.rs':
-    'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_delegate_action.rs':
     'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_nep413_message.rs':
@@ -170,13 +168,10 @@ const classifiedSessionIdBoundaryFiles = {
     'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_client_verifying_share.rs':
     'rename_later_agent_b_signing_or_wasm',
-  'wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_hss_client_inputs.rs':
-    'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/threshold/coordinator.rs': 'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/threshold/relayer_http.rs': 'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/threshold/signer_backend.rs': 'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/threshold/transport.rs': 'rename_later_agent_b_signing_or_wasm',
-  'wasm/near_signer/src/threshold/worker_material.rs': 'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/types/signing.rs': 'rename_later_agent_b_signing_or_wasm',
 };
 const forbiddenWalletSigningSessionMarkers = [

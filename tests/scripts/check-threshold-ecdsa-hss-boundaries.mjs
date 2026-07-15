@@ -40,7 +40,10 @@ function checkPresignRefillScheduler() {
     'secp256k1 signing path must refill the client presignature pool',
   );
   assert.ok(source.includes("trigger: 'commit_start'"), 'missing commit_start refill trigger');
-  assert.ok(source.includes("trigger: 'post_sign_success'"), 'missing post_sign_success refill trigger');
+  assert.ok(
+    source.includes("trigger: 'post_sign_success'"),
+    'missing post_sign_success refill trigger',
+  );
 }
 
 function checkRoleLocalSigningAuthorization() {
@@ -62,7 +65,7 @@ function checkNoRuntimeV1DerivationSurfaces() {
     'packages/sdk-server-ts/src',
     'packages/shared-ts/src',
     'wasm/eth_signer/src',
-    'wasm/hss_client_signer/src',
+    'wasm/ecdsa_client_signer/src',
     'wasm/threshold_prf/src',
   ];
   const forbiddenTokens = [
@@ -127,7 +130,10 @@ function checkProductionBridgeDoesNotExposeRootMaterial() {
     }
   }
 
-  assertNoOffenders('Router A/B ECDSA HSS bridge must not expose export or root material', offenders);
+  assertNoOffenders(
+    'Router A/B ECDSA HSS bridge must not expose export or root material',
+    offenders,
+  );
 }
 
 function checkEcdsaHssCrateHasNoOldContextVersionApi() {
@@ -146,11 +152,158 @@ function checkEcdsaHssCrateHasNoOldContextVersionApi() {
   for (const filePath of listFiles(path.join(repoRoot, 'crates/ecdsa-hss/src'), ['.rs'])) {
     const source = fs.readFileSync(filePath, 'utf8');
     for (const token of forbiddenTokens) {
-      if (source.includes(token)) offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
+      if (source.includes(token))
+        offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
     }
   }
 
   assertNoOffenders('ECDSA HSS crate source must not retain old context-version API', offenders);
+}
+
+function checkEcdsaClientSignerHasOneExplicitOwner() {
+  assert.equal(
+    fs.existsSync(path.join(repoRoot, 'wasm/hss_client_signer')),
+    false,
+    'the mixed hss_client_signer crate must stay deleted',
+  );
+
+  const roots = [
+    'packages/sdk-web/src',
+    'packages/sdk-web/scripts',
+    'benchmarks/ecdsa-hss-wasm',
+    'wasm/ecdsa_client_signer',
+  ];
+  const forbiddenTokens = [
+    'wasm/hss_client_signer',
+    'hssClientSignerWasm',
+    '/sdk/workers/hss-client.worker.js',
+    'SOURCE_SIGNING_WORKERS/hss-client.worker.ts',
+    'hss_client_signer.js',
+    'threshold_ed25519_seed_export_artifact_from_seed',
+    'mod threshold_hss',
+    '__W3A_HSS_CLIENT_WORKER_URL__',
+    "'hssClient'",
+    'HSS_CLIENT_SIGNER',
+    'SOURCE_WASM_HSS_CLIENT_SIGNER',
+    'WORKER_HSS_CLIENT',
+    'RUNTIME_HSS_CLIENT_WORKER',
+    'SIGNER_WORKER_MANAGER_CONFIG.HSS_CLIENT_WORKER',
+    'BUILD_PATHS.RUNTIME.HSS_CLIENT_WORKER',
+  ];
+  const offenders = [];
+
+  for (const relativeRoot of roots) {
+    for (const filePath of listFiles(path.join(repoRoot, relativeRoot), [
+      '.ts',
+      '.tsx',
+      '.mjs',
+      '.sh',
+      '.rs',
+      '.toml',
+    ])) {
+      const source = fs.readFileSync(filePath, 'utf8');
+      for (const token of forbiddenTokens) {
+        if (source.includes(token))
+          offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
+      }
+    }
+  }
+
+  const rootPackage = readRepoFile('package.json');
+  for (const token of forbiddenTokens) {
+    if (rootPackage.includes(token)) offenders.push(`package.json contains ${token}`);
+  }
+
+  assertNoOffenders('ECDSA client signer must have one explicit ECDSA owner', offenders);
+}
+
+function checkNormalSigningHasOneRuntimeOwner() {
+  const sourceRoots = [
+    path.join(repoRoot, 'packages/sdk-server-ts/src'),
+    path.join(repoRoot, 'packages/console-server-ts/src'),
+    path.join(repoRoot, 'apps/web-server/src'),
+  ];
+  const forbiddenTokens = [
+    'getRouterAbNormalSigningWorkerId',
+    'getRouterAbSigningWorkerPrivateHttpConfig',
+    'reserveRouterAbNormalSigningPrepareReplay',
+    'reserveRouterAbNormalSigningBudget',
+    'commitRouterAbNormalSigningBudget',
+    'validateRouterAbNormalSigningBudget',
+    'releaseRouterAbNormalSigningBudget',
+    'releaseRouterAbNormalSigningBudgetForIdentity',
+    'ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL',
+    'ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN',
+    'internal_service_auth_token',
+    'InternalServiceAuthToken',
+    'service-auth token',
+  ];
+  const offenders = [];
+
+  for (const sourceRoot of sourceRoots) {
+    for (const filePath of listFiles(sourceRoot, ['.ts', '.tsx'])) {
+      const source = fs.readFileSync(filePath, 'utf8');
+      for (const token of forbiddenTokens) {
+        if (source.includes(token)) {
+          offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
+        }
+      }
+    }
+  }
+
+  const thresholdService = readRepoFile(
+    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  );
+  assert.equal(
+    thresholdService.includes('export type RouterAbNormalSigningBudget'),
+    false,
+    'ThresholdSigningService must not own normal-signing budget types',
+  );
+  for (const token of [
+    'provisionRouterAbEd25519YaoNormalSigningSession',
+    'refreshRouterAbEd25519YaoNormalSigningBudget',
+    'seedLocalRouterAbEd25519NormalSigningSession',
+    'seedLocalRouterAbEcdsaHssNormalSigningSession',
+    'LocalRouterAbEd25519NormalSigningSeedInput',
+    'LocalRouterAbEcdsaHssNormalSigningSeedInput',
+    'deleteEcdsaHssRoleLocalKeyByBootstrapIdentity',
+    'verifyEcdsaHssRoleLocalBootstrapPersisted',
+  ]) {
+    assert.equal(
+      thresholdService.includes(token),
+      false,
+      `ThresholdSigningService must not retain ${token}`,
+    );
+  }
+  for (const method of [
+    'getEcdsaKeyIdentityMetadata',
+    'verifyEcdsaSigningRootWalletAddress',
+    'ecdsaHssRoleLocalBootstrap',
+    'verifyEcdsaHssRoleLocalClientRootProofForExistingKey',
+    'ecdsaHssRoleLocalExportShare',
+  ]) {
+    assert.equal(
+      new RegExp(`\\b${method}\\s*\\(`).test(thresholdService),
+      false,
+      `ThresholdSigningService must not retain ${method}`,
+    );
+  }
+
+  const privateRoutes = readRepoFile(
+    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+  );
+  assert.equal(
+    privateRoutes.includes('getThresholdSigningService'),
+    false,
+    'normal-signing routes must use RouterAbNormalSigningRuntime directly',
+  );
+  assert.equal(
+    privateRoutes.includes('ThresholdSigningService'),
+    false,
+    'normal-signing routes must not depend on ThresholdSigningService',
+  );
+
+  assertNoOffenders('normal signing must have one RouterAbNormalSigningRuntime owner', offenders);
 }
 
 checkPresignRefillScheduler();
@@ -158,5 +311,7 @@ checkRoleLocalSigningAuthorization();
 checkNoRuntimeV1DerivationSurfaces();
 checkProductionBridgeDoesNotExposeRootMaterial();
 checkEcdsaHssCrateHasNoOldContextVersionApi();
+checkEcdsaClientSignerHasOneExplicitOwner();
+checkNormalSigningHasOneRuntimeOwner();
 
 console.log('[check-threshold-ecdsa-hss-boundaries] passed');

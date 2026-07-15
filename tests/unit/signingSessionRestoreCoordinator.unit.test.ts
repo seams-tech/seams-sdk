@@ -17,18 +17,8 @@ import {
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
-  exactEd25519SigningLaneIdentity,
-  nearEd25519SignerBindingFromBoundaryFields,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
-import { resolveEd25519RestoreMaterialIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/ed25519MaterialAuthority';
-import {
-  nearEd25519SigningKeyIdFromString,
-  walletIdFromString,
-} from '../../packages/shared-ts/src/utils/registrationIntent';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const TEST_ECDSA_CHAIN_TARGETS = {
@@ -41,17 +31,7 @@ const TEST_ECDSA_CHAIN_TARGETS = {
   },
 };
 const TEST_ECDSA_CHAIN_TARGET_LIST = [TEST_ECDSA_CHAIN_TARGETS.tempo, TEST_ECDSA_CHAIN_TARGETS.evm];
-const TEST_ED25519_MATERIAL_BINDING_DIGEST = 'ed25519-worker-material-binding-digest-restore';
-const TEST_ED25519_MATERIAL_KEY_ID = 'ed25519-worker-material-key-restore';
 const TEST_EMAIL_OTP_EMAIL_HASH_HEX = 'email-hash-restore';
-const TEST_ED25519_SEALED_MATERIAL = {
-  clientVerifyingShareB64u: 'ed25519-client-verifying-share-restore',
-  ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
-  sealedWorkerMaterialRef: 'ed25519-sealed-worker-material-ref-restore',
-  materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
-  materialCreatedAtMs: 1_700_000_000_000,
-} as const;
 const TEST_ECDSA_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('key-handle-restore');
 const TEST_ECDSA_RUNTIME_POLICY_SCOPE = {
   orgId: 'org-restore',
@@ -156,83 +136,16 @@ function ecdsaRestoreInput(
   };
 }
 
-function ed25519RestoreInput(
-  args: Partial<Extract<RestorePersistedSessionForSigningInput, { curve: 'ed25519' }>> = {},
-): Extract<RestorePersistedSessionForSigningInput, { curve: 'ed25519' }> {
-  const authMethod = args.authMethod || 'email_otp';
-  const signingGrantId = args.signingGrantId || 'wsess-restore';
-  const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
-  const wallet = walletIdFromString(args.walletId || 'restore.testnet');
-  const walletId = String(wallet);
-  const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('restore.testnet');
-  return {
-    walletId,
-    authMethod,
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId,
-    thresholdSessionId,
-    reason: args.reason || 'transaction',
-    materialRestoreIdentity: {
-      kind: 'ed25519_worker_material_restore',
-      lane: exactEd25519SigningLaneIdentity({
-        signer: nearEd25519SignerBindingFromBoundaryFields({
-          walletId: wallet,
-          nearAccountId: 'restore.testnet',
-          nearEd25519SigningKeyId,
-          signerSlot: 1,
-        }),
-        auth:
-          authMethod === 'passkey'
-            ? {
-                kind: 'passkey',
-                rpId: toRpId('example.com'),
-                credentialIdB64u: 'credential-restore',
-              }
-            : { kind: 'email_otp', providerSubjectId: 'google:restore' },
-        signingGrantId,
-        thresholdSessionId,
-      }),
-      material: requireTestEd25519RestoreMaterial(thresholdSessionId),
-    },
-  };
-}
-
-// Restore material identities are only constructible via the boundary resolver
-// (session/ed25519MaterialAuthority.ts). With no live record in the store the
-// resolution falls back to the supplied hint, mirroring production behavior.
-function requireTestEd25519RestoreMaterial(thresholdSessionId: string) {
-  const resolution = resolveEd25519RestoreMaterialIdentity({
-    thresholdSessionId,
-    hint: {
-      bindingDigest: parseEd25519WorkerMaterialBindingDigest(
-        TEST_ED25519_MATERIAL_BINDING_DIGEST,
-      ),
-      materialKeyId: parseEd25519WorkerMaterialKeyId(TEST_ED25519_MATERIAL_KEY_ID),
-    },
-  });
-  if (resolution.kind !== 'resolved') {
-    throw new Error('expected test Ed25519 restore material to resolve');
-  }
-  return resolution.identity;
-}
-
 function makeSealedRecord(args: {
   authMethod?: 'email_otp' | 'passkey';
   chain?: 'tempo' | 'evm';
-  curve?: 'ed25519' | 'ecdsa';
   thresholdSessionId?: string;
-  thresholdSessionIds?: {
-    ed25519?: string;
-    ecdsa?: string;
-  };
   signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   updatedAtMs?: number;
 }): SigningSessionSealedStoreRecord {
   const authMethod = args.authMethod || 'email_otp';
-  const curve = args.curve || 'ecdsa';
   const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
   const chain = args.chain || 'tempo';
   const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
@@ -284,115 +197,20 @@ function makeSealedRecord(args: {
     storageScope: 'iframe_origin_indexeddb',
     authMethod,
     secretKind: 'signing_session_secret32',
-    storeKey: `${authMethod}:${curve}:${args.chain || 'near'}:${thresholdSessionId}`,
+    storeKey: `${authMethod}:ecdsa:${args.chain || 'tempo'}:${thresholdSessionId}`,
     signingGrantId: args.signingGrantId || 'wsess-restore',
-    thresholdSessionIds:
-      args.thresholdSessionIds ||
-      (curve === 'ecdsa' ? { ecdsa: thresholdSessionId } : { ed25519: thresholdSessionId }),
+    thresholdSessionIds: { ecdsa: thresholdSessionId },
     sealedSecretB64u: 'sealed-secret',
-    curve,
+    curve: 'ecdsa',
     walletId: 'restore.testnet',
     relayerUrl: 'https://relay.example',
-    ...(curve === 'ecdsa'
-      ? {
-          keyVersion: 'signing-session-seal-kek-test-r1',
-          shamirPrimeB64u: 'prime-b64u',
-          ecdsaRestore,
-        }
-      : {
-          ed25519Restore: {
-            nearAccountId: 'restore.testnet',
-            nearEd25519SigningKeyId: 'restore.testnet',
-            rpId: 'example.com',
-            ...(authMethod === 'passkey'
-              ? { credentialIdB64u: 'credential-restore' }
-              : {
-                  providerSubjectId: 'google:restore',
-                  emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-                }),
-            relayerKeyId: 'relayer-key-restore',
-            participantIds: [1, 2],
-            ...TEST_ED25519_SEALED_MATERIAL,
-            sessionKind: 'jwt' as const,
-            walletSessionJwt: 'jwt-restore',
-            signerSlot: 1,
-          },
-        }),
+    keyVersion: 'signing-session-seal-kek-test-r1',
+    shamirPrimeB64u: 'prime-b64u',
+    ecdsaRestore,
     issuedAtMs: 1,
     expiresAtMs: args.expiresAtMs ?? Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 5,
     updatedAtMs: args.updatedAtMs || 1,
-  };
-}
-
-function makeEd25519RecordWithEcdsaCompanion(args: {
-  thresholdSessionId: string;
-  signingGrantId: string;
-  ecdsaThresholdSessionId: string;
-}): SigningSessionSealedStoreRecord {
-  return {
-    ...makeSealedRecord({
-      curve: 'ed25519',
-      thresholdSessionId: args.thresholdSessionId,
-      signingGrantId: args.signingGrantId,
-    }),
-    thresholdSessionIds: {
-      ecdsa: args.ecdsaThresholdSessionId,
-      ed25519: args.thresholdSessionId,
-    },
-    ecdsaRestore: {
-      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-      source: 'email_otp',
-      evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-      runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
-      providerSubjectId: 'google:restore',
-      emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-      sessionKind: 'jwt',
-      walletSessionJwt: 'jwt-restore',
-      keyHandle: 'key-handle-restore',
-      ecdsaThresholdKeyId: 'ecdsa-key-restore',
-      ethereumAddress: `0x${'33'.repeat(20)}`,
-      relayerKeyId: 'relayer-key-restore',
-      clientVerifyingShareB64u: 'client-verifying-share-restore',
-      thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-      participantIds: [1, 2],
-      routerAbEcdsaHssNormalSigning: restoreEcdsaNormalSigningState({
-        thresholdSessionId: args.ecdsaThresholdSessionId,
-      }),
-    },
-  };
-}
-
-function makeEcdsaRecordWithEd25519Companion(args: {
-  thresholdSessionId: string;
-  signingGrantId: string;
-  ed25519ThresholdSessionId: string;
-}): SigningSessionSealedStoreRecord {
-  return {
-    ...makeSealedRecord({
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
-      thresholdSessionId: args.thresholdSessionId,
-      signingGrantId: args.signingGrantId,
-      thresholdSessionIds: {
-        ecdsa: args.thresholdSessionId,
-        ed25519: args.ed25519ThresholdSessionId,
-      },
-    }),
-    ed25519Restore: {
-      nearAccountId: 'restore.testnet',
-      nearEd25519SigningKeyId: 'restore.testnet',
-      rpId: 'example.com',
-      providerSubjectId: 'google:restore',
-      emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-      relayerKeyId: 'relayer-key-restore',
-      participantIds: [1, 2],
-      ...TEST_ED25519_SEALED_MATERIAL,
-      sessionKind: 'jwt',
-      walletSessionJwt: 'jwt-ed25519-companion',
-      signerSlot: 1,
-      runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
-    },
   };
 }
 
@@ -546,55 +364,16 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     expect(restoreCalls).toBe(0);
   });
 
-  test('passes expired Ed25519 exact-purpose sealed records to the curve adapter', async () => {
-    let restoreCalls = 0;
-    let restoredRecord: SealedRecoveryRecord | null = null;
-
-    const result = await restorePersistedSessionForSigningCommand(
-      ed25519RestoreInput(),
-      {
-        listExactSealedSessionsForWallet: async () => [
-          makeSealedRecord({
-            curve: 'ed25519',
-            expiresAtMs: Date.now() - 1,
-            remainingUses: 3,
-          }),
-        ],
-        restoreSealedRecordForWallet: async ({ record }) => {
-          restoreCalls += 1;
-          restoredRecord = record;
-          return 'deferred';
-        },
-      },
-    );
-
-    expect(result).toEqual({ kind: 'completed', attempted: 1, restored: 0, deferred: 1 });
-    expect(restoreCalls).toBe(1);
-    expect(restoredRecord).toMatchObject({
-      curve: 'ed25519',
-      expiresAtMs: expect.any(Number),
-      remainingUses: 3,
-    });
-  });
-
   test('surfaces rejected exact-purpose records through the rejection callback', async () => {
     const rejections: string[] = [];
 
     const result = await restorePersistedSessionForSigningCommand(
-      ed25519RestoreInput(),
+      ecdsaRestoreInput(),
       {
         listExactSealedSessionsForWallet: async () => [
           {
-            ...makeSealedRecord({ curve: 'ed25519' }),
-	            ed25519Restore: {
-	              nearAccountId: 'restore.testnet',
-	              nearEd25519SigningKeyId: 'restore.testnet',
-	              rpId: 'example.com',
-              relayerKeyId: 'relayer-key-restore',
-              participantIds: [1, 2],
-              sessionKind: 'jwt',
-              walletSessionJwt: 'jwt-restore',
-            },
+            ...makeSealedRecord({}),
+            ecdsaRestore: undefined,
           },
         ],
         restoreSealedRecordForWallet: async () => 'restored',
@@ -608,33 +387,6 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     expect(rejections).toEqual(['missing_restore_metadata']);
   });
 
-  test('rejects stale sealed-record identity aliases before restore', async () => {
-    const rejections: string[] = [];
-    const ed25519Record = makeSealedRecord({ curve: 'ed25519' });
-
-    const result = await restorePersistedSessionForSigningCommand(
-      ed25519RestoreInput(),
-      {
-        listExactSealedSessionsForWallet: async () => [
-          {
-            ...ed25519Record,
-            ed25519Restore: {
-              ...ed25519Record.ed25519Restore!,
-              authSubjectId: 'legacy-auth-subject',
-            },
-          },
-        ],
-        restoreSealedRecordForWallet: async () => 'restored',
-        onRejectedRecord: ({ rejection }) => {
-          rejections.push(rejection.reason);
-        },
-      },
-    );
-
-    expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
-    expect(rejections).toEqual(['invalid_identity']);
-  });
-
   test('rejects stale ECDSA sealed-record signing-root siblings before restore', async () => {
     const rejections: string[] = [];
 
@@ -643,7 +395,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       {
         listExactSealedSessionsForWallet: async () => [
           {
-            ...makeSealedRecord({ curve: 'ecdsa' }),
+            ...makeSealedRecord({}),
             signingRootId: 'legacy-root',
           },
         ],
@@ -756,129 +508,6 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     expect(restoreCalls).toBe(2);
   });
 
-  test('restores Ed25519 intent from an ECDSA-primary companion sealed record', async () => {
-    let restoreCalls = 0;
-    let restoredRecord: SealedRecoveryRecord | null = null;
-    const companionRecord = makeEd25519RecordWithEcdsaCompanion({
-      thresholdSessionId: 'tsess-ed25519-companion',
-      signingGrantId: 'wsess-companion',
-      ecdsaThresholdSessionId: 'tsess-ecdsa-companion',
-    });
-
-    const result = await restorePersistedSessionForSigningCommand(
-      ed25519RestoreInput({
-        thresholdSessionId: 'tsess-ed25519-companion',
-        signingGrantId: 'wsess-companion',
-      }),
-      {
-        listExactSealedSessionsForWallet: async ({ curve }) =>
-          curve === 'ed25519' ? [companionRecord] : [],
-        restoreSealedRecordForWallet: async ({ record }) => {
-          restoreCalls += 1;
-          restoredRecord = record;
-          return 'restored';
-        },
-      },
-    );
-
-    expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
-    expect(restoreCalls).toBe(1);
-    expect(restoredRecord).toMatchObject({
-      authMethod: 'email_otp',
-      curve: 'ed25519',
-      thresholdSessionId: 'tsess-ed25519-companion',
-      companionEcdsaRecovery: {
-        thresholdSessionId: 'tsess-ecdsa-companion',
-      },
-    });
-  });
-
-  test('passes Ed25519 purpose through to the restore port for an ECDSA-primary companion record', async () => {
-    const companionRecord = makeEd25519RecordWithEcdsaCompanion({
-      thresholdSessionId: 'tsess-ed25519-purpose',
-      signingGrantId: 'wsess-companion-purpose',
-      ecdsaThresholdSessionId: 'tsess-ecdsa-primary',
-    });
-    const restoredPurposes: unknown[] = [];
-
-    const result = await restorePersistedSessionForSigningCommand(
-      ed25519RestoreInput({
-        signingGrantId: 'wsess-companion-purpose',
-        thresholdSessionId: 'tsess-ed25519-purpose',
-      }),
-      {
-        listExactSealedSessionsForWallet: async (filter) =>
-          filter.curve === 'ed25519' ? [companionRecord] : [],
-        restoreSealedRecordForWallet: async ({ purpose }) => {
-          restoredPurposes.push(purpose);
-          return 'restored';
-        },
-      },
-    );
-
-    expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
-    expect(restoredPurposes).toEqual([
-      {
-        walletId: 'restore.testnet',
-        authMethod: 'email_otp',
-        curve: 'ed25519',
-        chain: 'near',
-        signingGrantId: 'wsess-companion-purpose',
-        thresholdSessionId: 'tsess-ed25519-purpose',
-        reason: 'transaction',
-      },
-    ]);
-  });
-
-  test('matches Ed25519 signing purpose from an Email OTP ECDSA sealed record with Ed25519 companion metadata', async () => {
-    let restoreCalls = 0;
-    let restoredPurpose: unknown = null;
-    let restoredRecord: SealedRecoveryRecord | null = null;
-    const ecdsaPrimaryRecord = makeEcdsaRecordWithEd25519Companion({
-      thresholdSessionId: 'tsess-ecdsa-primary',
-      signingGrantId: 'wsess-ecdsa-primary',
-      ed25519ThresholdSessionId: 'tsess-ed25519-companion',
-    });
-
-    const result = await restorePersistedSessionForSigningCommand(
-      ed25519RestoreInput({
-        signingGrantId: 'wsess-ecdsa-primary',
-        thresholdSessionId: 'tsess-ed25519-companion',
-      }),
-      {
-        listExactSealedSessionsForWallet: async ({ curve }) =>
-          curve === 'ed25519' ? [ecdsaPrimaryRecord] : [],
-        restoreSealedRecordForWallet: async ({ purpose, record }) => {
-          restoreCalls += 1;
-          restoredPurpose = purpose;
-          restoredRecord = record;
-          return 'restored';
-        },
-      },
-    );
-
-    expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
-    expect(restoreCalls).toBe(1);
-    expect(restoredPurpose).toEqual({
-      walletId: 'restore.testnet',
-      authMethod: 'email_otp',
-      curve: 'ed25519',
-      chain: 'near',
-      signingGrantId: 'wsess-ecdsa-primary',
-      thresholdSessionId: 'tsess-ed25519-companion',
-      reason: 'transaction',
-    });
-    expect(restoredRecord).toMatchObject({
-      authMethod: 'email_otp',
-      curve: 'ed25519',
-      signingGrantId: 'wsess-ecdsa-primary',
-      thresholdSessionId: 'tsess-ed25519-companion',
-      materialCache: {
-        ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
-        materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
-      },
-    });
-  });
 });
 
 test.describe('discoverPersistedSessionsForWalletCommand', () => {
@@ -945,88 +574,4 @@ test.describe('discoverPersistedSessionsForWalletCommand', () => {
     expect(restoreCalls).toBe(0);
   });
 
-  test('enumerates passkey Ed25519 and ECDSA lanes for account startup discovery', async () => {
-    const records = [
-      makeSealedRecord({
-        authMethod: 'passkey',
-        curve: 'ed25519',
-        thresholdSessionId: 'tsess-passkey-ed25519',
-      }),
-      makeSealedRecord({
-        authMethod: 'passkey',
-        curve: 'ecdsa',
-        chain: 'tempo',
-        thresholdSessionId: 'tsess-passkey-tempo',
-      }),
-      makeSealedRecord({
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-        chain: 'tempo',
-        thresholdSessionId: 'tsess-email-tempo',
-      }),
-    ];
-    let restoreCalls = 0;
-
-    const result = await discoverPersistedSessionsForWalletCommand(
-      {
-        kind: 'discover_wallet_all_signing_sessions',
-        walletId: 'restore.testnet',
-        ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
-        authMethod: 'passkey',
-        maxRecords: 10,
-      },
-      {
-        listExactSealedSessionsForWallet: async (filter) =>
-          records.filter((record) => {
-            if (record.authMethod !== filter.authMethod) return false;
-            if (record.curve !== filter.curve) return false;
-            if (filter.curve === 'ecdsa') {
-              return record.ecdsaRestore?.chainTarget?.kind === filter.chainTarget.kind;
-            }
-            return true;
-          }),
-      },
-    );
-
-    expect(result).toMatchObject({
-      listed: 2,
-      discovered: 2,
-      truncated: 0,
-    });
-    expect(restoreCalls).toBe(0);
-  });
-
-  test('discovers separate account work items for a multi-curve sealed record', async () => {
-    const companionRecord = makeEd25519RecordWithEcdsaCompanion({
-      thresholdSessionId: 'tsess-ed25519-account',
-      signingGrantId: 'wsess-account-companion',
-      ecdsaThresholdSessionId: 'tsess-ecdsa-account',
-    });
-    let restoreCalls = 0;
-
-    const result = await discoverPersistedSessionsForWalletCommand(
-      {
-        kind: 'discover_wallet_all_signing_sessions',
-        walletId: 'restore.testnet',
-        ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
-        authMethod: 'email_otp',
-        maxRecords: 10,
-      },
-      {
-        listExactSealedSessionsForWallet: async (filter) => {
-          if (filter.curve === 'ed25519') return [companionRecord];
-          if (filter.curve === 'ecdsa' && filter.chainTarget.kind === 'tempo') {
-            return [companionRecord];
-          }
-          return [];
-        },
-      },
-    );
-
-    expect(result).toMatchObject({
-      discovered: 2,
-      truncated: 0,
-    });
-    expect(restoreCalls).toBe(0);
-  });
 });

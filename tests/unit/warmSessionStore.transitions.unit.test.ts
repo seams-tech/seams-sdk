@@ -1,14 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { toAccountId } from '@/core/types/accountIds';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
-import {
-  buildNearTransactionSigningLane,
-  readSigningCapabilityRecord,
-} from '@/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
 import {
   createWarmSessionStatusReader,
@@ -90,114 +81,12 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       after: {
         capabilities: {
           ed25519: {
-            state: 'material_pending',
+            state: 'ready',
             thresholdSessionId: sessionId,
             prfClaimState: 'warm',
           },
         },
       },
-    });
-  });
-
-  test('keeps Ed25519 provisioning without worker material pending and unselectable', async () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const accountId = toAccountId('transition-ed25519-pending.testnet');
-    const walletId = toWalletId(accountId);
-    const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
-      'scope-transition-ed25519-pending',
-    );
-    const sessionId = 'ed25519-pending-material-session';
-    const signingGrantId = 'wsess-ed25519-pending-material';
-    const expiresAtMs = Date.now() + 120_000;
-    const store = createWarmSessionTestServices({
-      touchConfirm: createWarmSessionStatusReader({
-        [sessionId]: {
-          state: 'warm',
-          remainingUses: 7,
-          expiresAtMs,
-        },
-      }),
-      provisionThresholdEd25519Session: async ({ nearAccountId }) => {
-        seedEd25519WarmSessionRecord({
-          nearAccountId: String(nearAccountId),
-          thresholdSessionId: sessionId,
-          signingGrantId,
-          walletSessionJwt: `jwt:${sessionId}`,
-          runtimePolicyScope: {
-            orgId: 'org-transition',
-            projectId: 'transition-ed25519-pending',
-            envId: 'dev',
-            signingRootVersion: 'default',
-          },
-          routerAbNormalSigning: {
-            kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-            signingWorkerId: 'signing-worker-transition',
-          },
-          materialState: 'auth_ready_material_pending',
-          remainingUses: 7,
-          expiresAtMs,
-          source: 'login',
-        });
-        return {
-          ok: true,
-          sessionId,
-          signingGrantId,
-          jwt: `jwt:${sessionId}`,
-          remainingUses: 7,
-          expiresAtMs,
-        };
-      },
-    });
-
-    await store.provisionEd25519Capability({
-      kind: 'fresh_ed25519_provisioning',
-      walletId,
-      nearAccountId: accountId,
-      nearEd25519SigningKeyId,
-      relayerKeyId: 'rk-ed25519-pending-material',
-      participantIds: [1, 2],
-      sessionKind: 'jwt',
-      signerSlot: 1,
-      source: 'login',
-    });
-
-    const warmSession = await store.getWarmSession(walletId);
-    expect(warmSession.capabilities.ed25519).toMatchObject({
-      state: 'material_pending',
-      record: {
-        thresholdSessionId: sessionId,
-        signingGrantId,
-      },
-    });
-
-    const lane = buildNearTransactionSigningLane({
-      walletId,
-      nearAccountId: accountId,
-      nearEd25519SigningKeyId,
-      signerSlot: 1,
-      auth: {
-        kind: 'passkey',
-        rpId: 'localhost' as any,
-        credentialIdB64u: 'credential-ed25519-pending-material',
-      },
-      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-      storageSource: 'login',
-    });
-    const signingCapability = readSigningCapabilityRecord(
-      {
-        readEd25519SessionRecordByThresholdSessionId: () => warmSession.capabilities.ed25519.record,
-      },
-      lane,
-    );
-
-    expect(signingCapability).toMatchObject({
-      ok: false,
-      code: 'record_mismatch',
-      message:
-        'Selected Ed25519 session record is not Router A/B signable: missing_material_handle',
     });
   });
 

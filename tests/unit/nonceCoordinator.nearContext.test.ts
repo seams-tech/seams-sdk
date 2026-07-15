@@ -23,6 +23,7 @@ import {
 function createFakeEvmNonceBackend(): EvmNonceBackend {
   return {
     fetchChainNonce: async () => 0n,
+    fetchBroadcastTransactionStatus: async () => ({ kind: 'missing' }),
   };
 }
 
@@ -59,10 +60,7 @@ type MutableNearNonce = {
   value: number;
 };
 
-function createMutableNearClient(args: {
-  nonce: MutableNearNonce;
-  calls: string[];
-}): NearClient {
+function createMutableNearClient(args: { nonce: MutableNearNonce; calls: string[] }): NearClient {
   return {
     viewAccessKey: async () => {
       args.calls.push(`viewAccessKey:${args.nonce.value}`);

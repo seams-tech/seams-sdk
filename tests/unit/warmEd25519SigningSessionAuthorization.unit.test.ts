@@ -86,8 +86,6 @@ function ed25519Record(
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
     signerSlot: 1,
-    keyVersion: 'threshold-ed25519-hss-v1',
-    materialState: 'auth_ready_material_pending',
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
     ...overrides,
@@ -106,7 +104,7 @@ function ed25519Record(
 }
 
 test.describe('warm Ed25519 signing session authorization', () => {
-  test('accepts material-pending passkey unlock authorization', () => {
+  test('accepts a Router A/B Yao passkey Wallet Session', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record(),
       walletId: WALLET_ID,
@@ -121,77 +119,13 @@ test.describe('warm Ed25519 signing session authorization', () => {
       ok: true,
       value: {
         kind: 'warm_ed25519_signing_session_authorized',
-        materialState: 'material_pending',
-        persistedMaterialState: 'auth_ready_material_pending',
-        materialPendingReason: 'worker_material_missing',
+        curve: 'ed25519',
         signingGrantId: 'signing-grant-1',
         signingWorkerId: 'signing-worker-a',
         prfClaim: {
           kind: 'hot_prf_claim',
           availableUses: 3,
         },
-      },
-    });
-  });
-
-  test('accepts ready material records without exposing material fields as unlock authorization', () => {
-    const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
-      record: ed25519Record({
-        materialState: 'material_ready',
-        clientVerifyingShareB64u: 'client-verifier',
-        ed25519WorkerMaterialHandle: 'ed25519-material-handle',
-        ed25519WorkerMaterialBindingDigest: 'binding-digest',
-        sealedWorkerMaterialRef: 'sealed-material-ref',
-        sealedWorkerMaterialB64u: 'sealed-material-blob',
-        materialFormatVersion: 'ed25519_worker_material_v1',
-        materialKeyId: 'material-key-id',
-        materialCreatedAtMs: 1_800_000_000_000,
-      }),
-      walletId: WALLET_ID,
-      nearAccountId: ACCOUNT_ID,
-      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
-      authMethod: 'passkey',
-      signingSessionStatus: activeStatus(),
-      nowMs: 1_800_000_000_000,
-    });
-
-    expect(result).toMatchObject({
-      ok: true,
-      value: {
-        materialState: 'material_ready',
-        persistedMaterialState: 'material_ready',
-      },
-    });
-    expect(result.ok && 'ed25519WorkerMaterialHandle' in result.value).toBe(false);
-    expect(result.ok && 'clientVerifyingShareB64u' in result.value).toBe(false);
-    expect(result.ok && 'xClientBaseB64u' in result.value).toBe(false);
-  });
-
-  test('keeps restorable material distinct from missing worker material', () => {
-    const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
-      record: ed25519Record({
-        materialState: 'restore_available',
-        clientVerifyingShareB64u: 'client-verifier',
-        ed25519WorkerMaterialBindingDigest: 'binding-digest',
-        sealedWorkerMaterialRef: 'sealed-material-ref',
-        materialFormatVersion: 'ed25519_worker_material_v1',
-        materialKeyId: 'material-key-id',
-        materialCreatedAtMs: 1_800_000_000_000,
-      }),
-      walletId: WALLET_ID,
-      nearAccountId: ACCOUNT_ID,
-      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
-      authMethod: 'passkey',
-      signingSessionStatus: activeStatus(),
-      nowMs: 1_800_000_000_000,
-    });
-
-    expect(result).toMatchObject({
-      ok: true,
-      value: {
-        materialState: 'material_pending',
-        persistedMaterialState: 'restore_available',
-        materialPendingReason: 'restore_available',
       },
     });
   });
@@ -235,7 +169,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
 
     expect(result).toMatchObject({
       ok: false,
-      reason: 'material_identity_invalid',
+      reason: 'session_identity_invalid',
       details: {
         authorityReason: 'wallet_binding_mismatch',
       },

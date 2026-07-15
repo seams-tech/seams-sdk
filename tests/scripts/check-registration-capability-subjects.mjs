@@ -122,7 +122,7 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
   );
   const activationPreparePayload = extractSourceBlock(
     messages,
-    'export interface PMRegistrationActivationPreparePayload {',
+    'export interface PMRegistrationActivationPreparePayload extends RegistrationActivationMessageIdentity {',
     '\n}',
     'registration activation prepare payload',
   );
@@ -189,64 +189,9 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
   );
 }
 
-function checkRegistrationSuccessBuildsActiveStateWithoutPersistedLaneInventory() {
-  const registration = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  );
-  assertSourceHasAll(
-    registration,
-    [
-      'buildRegistrationActiveRuntimeState',
-      "'registration_active_runtime_state_v1'",
-      'identity: ExactEd25519SigningLaneIdentity;',
-      'identities: readonly [ExactEcdsaSigningLaneIdentity, ...ExactEcdsaSigningLaneIdentity[]];',
-      'exactEd25519SigningLaneIdentity({',
-      'exactEcdsaSigningLaneIdentity({',
-      'registration_active_runtime_state_constructed',
-    ],
-    'registration active state',
-  );
-  assertNotContains(registration, 'assertImmediateRegistrationSigningLanes', 'registration');
-  assertNotContains(registration, 'readPersistedAvailableSigningLanes', 'registration');
-}
-
-function checkRegistrationPersistencePlanCarriesExplicitWriteSubjects() {
-  const registration = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  );
-  assertSourceHasAll(
-    registration,
-    [
-      'type RegistrationPersistenceWriteSubjects =',
-      "'registration_persistence_write_subjects_v1'",
-      'walletProfile: RegistrationPersistenceWalletProfileSubject;',
-      'authMethod: RegistrationPersistenceAuthMethodSubject;',
-      'RegistrationPersistenceSignerActivationSubject,',
-      'RegistrationPersistenceKeyMaterialSubject,',
-      'RegistrationPersistenceRuntimeSessionSubject,',
-      'selectedWalletState: RegistrationPersistenceSelectedWalletStateSubject;',
-      'function buildRegistrationPersistencePlan(args: {',
-      'writeSubjects: buildRegistrationPersistenceWriteSubjects(args)',
-      'const persistencePlan = buildRegistrationPersistencePlan({',
-    ],
-    'registration persistence plan',
-  );
-  assertNotContains(
-    registration,
-    'const persistencePlan: RegistrationPersistencePlan = {',
-    'registration persistence plan',
-  );
-}
-
-function checkPostPrepareRegistrationRoutesUseStoredPreparedState() {
+function checkPostStartRegistrationRoutesUseStoredPreparedState() {
   const service = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts',
-  );
-  const prepareBlock = extractSourceBlock(
-    service,
-    '  async prepareWalletRegistration(',
-    '  async startWalletRegistration(',
-    'prepareWalletRegistration',
   );
   const startBlock = extractSourceBlock(
     service,
@@ -264,7 +209,6 @@ function checkPostPrepareRegistrationRoutesUseStoredPreparedState() {
   assert.ok(finalizeStart >= 0, 'missing finalizeWalletRegistration');
   const finalizeBlock = service.slice(finalizeStart);
 
-  assertContains(prepareBlock, 'parseD1RegistrationIntent(request.intent)', 'prepare block');
   assertContains(startBlock, 'parseD1RegistrationIntent(request.intent)', 'start block');
   assertNotContains(respondBlock, 'parseD1RegistrationIntent', 'respond block');
   assertNotContains(finalizeBlock, 'parseD1RegistrationIntent', 'finalize block');
@@ -278,47 +222,13 @@ function checkPostPrepareRegistrationRoutesUseStoredPreparedState() {
     'registrationSignerBranchesFromPlan(ceremony.signerPlan)',
     'finalize block',
   );
-  assertContains(startBlock, 'preparedRegistrationState.preparation.signerPlan', 'start block');
   assertContains(
     startBlock,
-    'preparedRegistrationState.preparation.preparedContext',
+    'resolveRegistrationPreparedContextFromPlan({',
     'start block',
   );
-}
-
-function checkRegistrationPrecomputeOwnershipIsScopeChecked() {
-  const registration = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  );
-  const googleEmailOtpFlow = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
-  );
-
-  assertSourceHasAll(
-    registration,
-    [
-      'type RegisterWalletPrecomputeMode =',
-      "kind: 'start_inside_register_wallet'",
-      "kind: 'use_started_precompute'",
-      'assertWalletRegistrationPrecomputeScopeMatches({',
-      'Started wallet registration precompute scope mismatch',
-      'export async function registerWallet(',
-      "precomputeMode: { kind: 'start_inside_register_wallet' }",
-      'export async function registerWalletWithStartedPrecompute(',
-      "kind: 'use_started_precompute'",
-    ],
-    'registration precompute ownership',
-  );
-  assertSourceHasAll(
-    googleEmailOtpFlow,
-    [
-      'const precompute = deps.startWalletRegistrationPrecompute(registrationArgs);',
-      'deps.registerWalletWithStartedPrecompute({',
-      "precompute.kind === 'started'",
-      'disposeWalletRegistrationPrecompute(precompute.handle)',
-    ],
-    'Google Email OTP registration precompute',
-  );
+  assertContains(startBlock, 'signerPlan: branches.value.plan', 'start block');
+  assertContains(startBlock, 'preparedContext: preparedContext.preparedContext', 'start block');
 }
 
 function checkRegistrationIntentDigestVerificationStaysAtResponseBoundary() {
@@ -363,14 +273,6 @@ function checkRegistrationTimingKeepsTailBucketsObservational() {
     'registration critical path bucket list',
   );
   const zeroInitializedBuckets = [
-    'thresholdEd25519SessionPersistenceMs',
-    'thresholdEd25519KeyMaterialPersistenceMs',
-    'thresholdEd25519SessionNormalizeMs',
-    'thresholdEd25519WarmMaterialValidationMs',
-    'thresholdEd25519WarmCapabilityPersistenceMs',
-    'thresholdEd25519WorkerMaterialPersistenceMs',
-    'thresholdEd25519SigningSessionHydrationMs',
-    'thresholdEd25519SealedSessionPersistenceMs',
     'ecdsaRegistrationPersistenceMs',
     'ecdsaRegistrationSessionFinalizeMs',
     'ecdsaRegistrationLocalRecordPersistenceMs',
@@ -396,11 +298,8 @@ function checkRegistrationTimingKeepsTailBucketsObservational() {
     'ecdsaRegistrationWarmSessionSealRegisterMs',
     'ecdsaRegistrationWarmSessionSealVerifyReadMs',
     'ecdsaRegistrationEmailOtpSessionCommitMs',
-    'walletStateActivationMs',
-    'immediateSigningLaneAssertionMs',
   ];
   const observationalBuckets = [
-    'thresholdEd25519SessionPersistenceMs',
     'ecdsaRegistrationSessionFinalizeMs',
     'ecdsaRegistrationLocalRecordPersistenceMs',
     'ecdsaRegistrationTargetCount',
@@ -439,47 +338,6 @@ function checkRegistrationTimingKeepsTailBucketsObservational() {
   }
   assertContains(registration, 'registration_critical_path_summary_v1', 'registration');
   assertContains(registration, 'JSON.stringify(summary)', 'registration');
-  assertNotContains(
-    registration,
-    'threshold_ed25519_warm_material_reconstruction_started',
-    'registration',
-  );
-}
-
-function checkRegistrationWorkerMaterialIsStoredFromFinalizedHssReport() {
-  const bootstrap = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
-  );
-  const passkeyRegistrationStore = extractSourceBlock(
-    bootstrap,
-    'async function persistPasskeyRegisteredThresholdEd25519WorkerMaterial(args: {',
-    '\n}\n\nasync function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial',
-    'passkey registration worker material persistence',
-  );
-  const emailOtpRegistrationStore = extractSourceBlock(
-    bootstrap,
-    'async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {',
-    '\n}\n\nexport async function reconstructThresholdEd25519SigningMaterialFromWarmSession',
-    'Email OTP registration worker material persistence',
-  );
-
-  for (const block of [passkeyRegistrationStore, emailOtpRegistrationStore]) {
-    assertContains(
-      block,
-      'storeThresholdEd25519WorkerMaterialFromFinalizedHssReport',
-      'registration worker material persistence',
-    );
-    assertNotContains(
-      block,
-      'runThresholdEd25519HssCeremonyWithMaterialHandle',
-      'registration worker material persistence',
-    );
-    assertContains(
-      block,
-      'finalizedRegistrationHssMaterial',
-      'registration worker material persistence',
-    );
-  }
 }
 
 function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
@@ -491,9 +349,6 @@ function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
   );
   const ecdsaPublication = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
-  );
-  const sealedRestore = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
   );
   const ed25519CurrentCommit = extractSourceBlock(
     warmPersistence,
@@ -507,38 +362,19 @@ function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
     'export function upsertThresholdEcdsaSessionFact',
     'ECDSA current session commit',
   );
-  const exactSealedRestore = extractSourceBlock(
-    sealedRestore,
-    'function upsertEd25519SessionRecordFromExactSealedWorkerMaterial',
-    'export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSealedWorkerMaterial',
-    'exact sealed restore',
-  );
-  const reusableSealedRestore = extractSourceBlock(
-    sealedRestore,
-    'function upsertEd25519SessionRecordFromReusableSealedWorkerMaterial',
-    'export async function resolveReusableEd25519WorkerMaterialForLoginSession',
-    'reusable sealed restore',
-  );
-  const reusableLoginMaterialPersistence = extractSourceBlock(
-    sealedRestore,
-    'export function persistEd25519LoginSessionFromReusableWorkerMaterial',
-    'type Ed25519DurableRestoreLookupResult',
-    'reusable login material persistence',
-  );
-
   assertContains(
     ed25519CurrentCommit,
-    'buildOperationUsableThresholdEd25519SessionRecord',
+    'upsertThresholdEd25519SessionFact({',
+    'Ed25519 current warm-session commit',
+  );
+  assertNotContains(
+    ed25519CurrentCommit,
+    'WorkerMaterial',
     'Ed25519 current warm-session commit',
   );
   assertContains(
-    ed25519CurrentCommit,
-    'commitCurrentThresholdEd25519Session({',
-    'Ed25519 current warm-session commit',
-  );
-  assertContains(
-    ed25519CurrentCommit,
-    "source === 'email_otp' ? 'step_up' : 'wallet_unlock'",
+    warmPersistence,
+    "curve: 'ed25519'",
     'Ed25519 current warm-session commit',
   );
   assertContains(
@@ -563,213 +399,16 @@ function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
     'ECDSA publication',
   );
   assertNotContains(ecdsaPublication, 'upsertThresholdEcdsaSessionFact', 'ECDSA publication');
-  assertContains(exactSealedRestore, 'upsertThresholdEd25519SessionFact({', 'exact sealed restore');
-  assertNotContains(
-    exactSealedRestore,
-    'commitCurrentThresholdEd25519Session',
-    'exact sealed restore',
-  );
-  assertContains(
-    reusableSealedRestore,
-    'upsertThresholdEd25519SessionFact({',
-    'reusable sealed restore',
-  );
-  assertNotContains(
-    reusableSealedRestore,
-    'commitCurrentThresholdEd25519Session',
-    'reusable sealed restore',
-  );
-  assertContains(
-    reusableLoginMaterialPersistence,
-    'upsertThresholdEd25519SessionFact({',
-    'reusable login material persistence',
-  );
-  assertNotContains(
-    reusableLoginMaterialPersistence,
-    'commitCurrentThresholdEd25519Session',
-    'reusable login material persistence',
-  );
-}
-
-function checkEmailOtpUnlockSuccessBuildsTypedActivationPlan() {
-  const seamsWeb = readRepoSource('packages/sdk-web/src/SeamsWeb/SeamsWeb.ts');
-  const provisioning = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts',
-  );
-  const ecdsaLogin = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
-  );
-  const ed25519Warmup = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts',
-  );
-  const ecdsaPublication = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
-  );
-  const ed25519UnlockDomain = extractSourceBlock(
-    seamsWeb,
-    '  private async loginWithEmailOtpEd25519CapabilityDomain',
-    '  private async loginWithEmailOtpEcdsaCapabilityDomain',
-    'Email OTP Ed25519 unlock domain',
-  );
-  const ecdsaUnlockDomain = extractSourceBlock(
-    seamsWeb,
-    '  private async loginWithEmailOtpEcdsaCapabilityDomain',
-    '  private async refreshEmailOtpSigningSessionDomain',
-    'Email OTP ECDSA unlock domain',
-  );
-  const ecdsaIframeUnlockDomain = extractSourceBlock(
-    ecdsaUnlockDomain,
-    '      if (this.walletIframe.shouldUseWalletIframe()) {',
-    '      const workerProgressPhases = new Set<UnlockEventPhase>();',
-    'Email OTP ECDSA iframe unlock domain',
-  );
-  const ecdsaLocalUnlockDomain = extractSourceBlock(
-    ecdsaUnlockDomain,
-    '      const workerProgressPhases = new Set<UnlockEventPhase>();',
-    '      return result;',
-    'Email OTP ECDSA local unlock domain',
-  );
-  const ed25519LoginInternal = extractSourceBlock(
-    ed25519Warmup,
-    '  async loginWithEd25519CapabilityInternal',
-    '  async loginForSigning',
-    'Email OTP Ed25519 internal login',
-  );
-
-  assertSourceHasAll(
-    seamsWeb,
-    [
-      'type EmailOtpUnlockActivationPlan =',
-      "'email_otp_unlock_activation_plan_v1'",
-      'activeSession: ActiveWalletSession;',
-      'type EmailOtpUnlockPrewarmSnapshot =',
-      'prewarm: EmailOtpUnlockPrewarmSnapshot;',
-      'emailOtpUnlockPrewarmSnapshot({',
-      "kind: 'prewarm_attempted'",
-      "kind: 'not_prewarmed'",
-      'buildEmailOtpUnlockActiveSession({',
-      'walletAuthAuthoritiesMatch(authority, ecdsaAuthority)',
-      "requireEmailOtpUnlockBearerJwt(record.walletSessionJwt, 'ECDSA');",
-      'buildEmailOtpEd25519UnlockActivationPlan({',
-      'buildEmailOtpEcdsaUnlockActivationPlan({',
-      'requireEmailOtpUnlockEcdsaCurrentRecords',
-      'warmCapabilities',
-      "'walletIframeRoundTripMs'",
-      "'emailOtpProofVerificationMs'",
-      "'appSessionExchangeMs'",
-      "'ed25519MaterialRestoreMs'",
-      "'ecdsaMaterialRestoreMs'",
-      "'signingSessionSealApplyMs'",
-      "'warmCapabilityPersistenceMs'",
-      "'activeRuntimeConstructionMs'",
-      'recordEmailOtpUnlockElapsedTiming(',
-      'result.timings.signingSessionSealApplyMs',
-      'result.timings.warmCapabilityPersistenceMs',
-      'result.timings.ed25519MaterialRestoreMs',
-      'logEmailOtpUnlockActivationPlan(',
-      'JSON.stringify(summary)',
-      'OperationUsableThresholdEd25519SessionRecord',
-      'OperationUsableThresholdEcdsaSessionRecord',
-    ],
-    'SeamsWeb Email OTP unlock activation plan',
-  );
-  assertNotContains(
-    seamsWeb,
-    'Email OTP unlock ECDSA current record bearer JWT mismatch',
-    'SeamsWeb Email OTP unlock activation plan',
-  );
-  assertSourceOrder(
-    ed25519UnlockDomain,
-    'logEmailOtpUnlockActivationPlan(',
-    'phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED',
-    'Email OTP Ed25519 unlock domain',
-  );
-  assertSourceOrder(
-    ed25519UnlockDomain,
-    'logEmailOtpUnlockActivationPlan(',
-    'phase: UnlockEventPhase.STEP_07_COMPLETED',
-    'Email OTP Ed25519 unlock domain',
-  );
-  assertSourceOrder(
-    ecdsaLocalUnlockDomain,
-    'logEmailOtpUnlockActivationPlan(',
-    'phase: UnlockEventPhase.STEP_07_COMPLETED',
-    'Email OTP ECDSA local unlock domain',
-  );
-  assertSourceOrder(
-    ecdsaIframeUnlockDomain,
-    'const result = await router.loginWithEmailOtpEcdsaCapability(iframeArgs);',
-    'phase: UnlockEventPhase.STEP_07_COMPLETED',
-    'Email OTP ECDSA iframe unlock domain',
-  );
-  assertSourceHasAll(
-    ecdsaLogin,
-    [
-      'timings: EmailOtpThresholdEcdsaLoginTimings;',
-      'createEmailOtpThresholdEcdsaLoginTimings()',
-      'mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings',
-      'const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;',
-      'const sessionMaterial = await ports.reconstructEd25519Session(',
-    ],
-    'Email OTP ECDSA login',
-  );
-  assertSourceOrder(
-    ecdsaLogin,
-    'const ed25519ReconstructionArgs: ReconstructEmailOtpEd25519SessionArgs = {',
-    'const sessionMaterial = await ports.reconstructEd25519Session(',
-    'Email OTP ECDSA login',
-  );
-  assertSourceHasAll(
-    ed25519Warmup,
-    [
-      'timings: EmailOtpThresholdEd25519LoginTimings;',
-      'createEmailOtpThresholdEd25519LoginTimings()',
-      'tryActivateEmailOtpEd25519UnlockFromSealedMaterial',
-      'canonicalizeLaneFacts(facts, emailOtpEd25519UnlockLaneInventoryAdapter)',
-      "operation: 'wallet_unlock'",
-      'mergeEmailOtpThresholdEd25519ProvisioningTimingsIntoLoginTimings',
-    ],
-    'Email OTP Ed25519 warmup',
-  );
-  assertSourceOrder(
-    ed25519LoginInternal,
-    'tryActivateEmailOtpEd25519UnlockFromSealedMaterial({',
-    'const provisioned = await this.reconstructSession({',
-    'Email OTP Ed25519 internal login',
-  );
-  assertSourceHasAll(
-    provisioning,
-    [
-      'record: OperationUsableThresholdEd25519SessionRecord;',
-      'buildOperationUsableThresholdEd25519SessionRecord(',
-      'reconstructionTimings: EmailOtpThresholdEd25519ProvisioningTimings;',
-    ],
-    'Email OTP Ed25519 provisioning',
-  );
-  assertSourceHasAll(
-    ecdsaPublication,
-    [
-      'type EmailOtpEcdsaPublicationTimings =',
-      'signingSessionSealApplyMs',
-      'warmCapabilityPersistenceMs',
-    ],
-    'Email OTP ECDSA publication',
-  );
 }
 
 function main() {
   checkRoleLocalEcdsaMaterialHandlesAreIdentityLocal();
   checkWalletScopedUnlockAvoidsCollapsedNearBindingError();
   checkVisibleIframePasskeyRegistrationUsesProvidedWalletId();
-  checkRegistrationSuccessBuildsActiveStateWithoutPersistedLaneInventory();
-  checkRegistrationPersistencePlanCarriesExplicitWriteSubjects();
-  checkPostPrepareRegistrationRoutesUseStoredPreparedState();
-  checkRegistrationPrecomputeOwnershipIsScopeChecked();
+  checkPostStartRegistrationRoutesUseStoredPreparedState();
   checkRegistrationIntentDigestVerificationStaysAtResponseBoundary();
   checkRegistrationTimingKeepsTailBucketsObservational();
-  checkRegistrationWorkerMaterialIsStoredFromFinalizedHssReport();
   checkEmailOtpUnlockCurrentSessionsUseCommitCommands();
-  checkEmailOtpUnlockSuccessBuildsTypedActivationPlan();
   console.log('[registration-capability-subjects] ok');
 }
 

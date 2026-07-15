@@ -164,6 +164,7 @@ test.describe('signing session PRF cache utilities', () => {
     const allClearBlock = source.slice(allClearStart, end);
 
     expect(allClearStart).toBeGreaterThan(0);
+    expect(allClearBlock).toContain('if (!this.worker && !this.initializationPromise) return;');
     expect(allClearBlock).toContain("type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL'");
     expect(allClearBlock).not.toContain('clearAllSealedSessions');
     expect(allClearBlock).not.toContain('deleteExactSealedSession');

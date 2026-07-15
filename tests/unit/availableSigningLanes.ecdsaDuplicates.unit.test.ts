@@ -11,6 +11,10 @@ import {
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
+  buildCurrentSealedSessionRecord,
+  type SigningSessionSealedStoreRecord,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -36,6 +40,130 @@ import {
   runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
 } from './helpers/availableSigningLanes.fixtures';
 
+function unsignedEcdsaWalletSessionJwt(args: {
+  walletId: string;
+  keyHandle: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+}): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+      keyScope: 'evm-family',
+      walletId: args.walletId,
+      keyHandle: args.keyHandle,
+      thresholdSessionId: args.thresholdSessionId,
+      signingGrantId: args.signingGrantId,
+    }),
+  ).toString('base64url');
+  return `e30.${payload}.signature`;
+}
+
+function sealedEmailOtpEcdsaRecord(args: {
+  chainTarget: typeof ECDSA_TARGET | typeof TEMPO_TARGET;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  updatedAtMs: number;
+}): SigningSessionSealedStoreRecord {
+  const runtimeRecord = runtimeEcdsaRecord({
+    authMethod: 'email_otp',
+    chainTarget: args.chainTarget,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+    ecdsaThresholdKeyId: 'shared-ecdsa-key',
+    keyHandle: TEST_ECDSA_KEY_HANDLE,
+    remainingUses: 3,
+    updatedAtMs: args.updatedAtMs,
+  });
+  const record = buildCurrentSealedSessionRecord({
+    curve: 'ecdsa',
+    authMethod: 'email_otp',
+    thresholdSessionId: args.thresholdSessionId,
+    thresholdSessionIds: { ecdsa: args.thresholdSessionId },
+    signingGrantId: args.signingGrantId,
+    sealedSecretB64u: `sealed-${args.thresholdSessionId}`,
+    keyVersion: 'seal-key-v1',
+    shamirPrimeB64u: 'shamir-prime',
+    walletId: String(runtimeRecord.key.walletId),
+    relayerUrl: 'https://relay.example.test',
+    ecdsaRestore: {
+      chainTarget: args.chainTarget,
+      source: 'email_otp',
+      evmFamilySigningKeySlotId: runtimeRecord.key.evmFamilySigningKeySlotId,
+      signingRootId: runtimeRecord.key.signingRootId,
+      signingRootVersion: runtimeRecord.key.signingRootVersion,
+      providerSubjectId: 'google:available-lanes',
+      emailHashHex: '11'.repeat(32),
+      walletSessionJwt: unsignedEcdsaWalletSessionJwt({
+        walletId: String(runtimeRecord.key.walletId),
+        keyHandle: String(runtimeRecord.keyHandle),
+        thresholdSessionId: args.thresholdSessionId,
+        signingGrantId: args.signingGrantId,
+      }),
+      sessionKind: 'jwt',
+      keyHandle: runtimeRecord.keyHandle,
+      ecdsaThresholdKeyId: runtimeRecord.key.ecdsaThresholdKeyId,
+      ethereumAddress: runtimeRecord.key.thresholdOwnerAddress,
+      relayerKeyId: 'relayer-key',
+      clientVerifyingShareB64u: Buffer.from(
+        new Uint8Array([2, ...Array(32).fill(3)]),
+      ).toString('base64url'),
+      thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      participantIds: [...runtimeRecord.key.participantIds],
+      routerAbEcdsaHssNormalSigning: {
+        kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+        scope: {
+          wallet_key_id: runtimeRecord.key.evmFamilySigningKeySlotId,
+          wallet_id: runtimeRecord.key.walletId,
+          ecdsa_threshold_key_id: runtimeRecord.key.ecdsaThresholdKeyId,
+          signing_root_id: runtimeRecord.key.signingRootId,
+          signing_root_version: runtimeRecord.key.signingRootVersion,
+          context: {
+            application_binding_digest_b64u: Buffer.from(new Uint8Array(32).fill(6)).toString(
+              'base64url',
+            ),
+          },
+          public_identity: {
+            context_binding_b64u: Buffer.from(new Uint8Array(32).fill(5)).toString('base64url'),
+            client_public_key33_b64u: Buffer.from(
+              new Uint8Array([2, ...Array(32).fill(3)]),
+            ).toString('base64url'),
+            server_public_key33_b64u: Buffer.from(
+              new Uint8Array([2, ...Array(32).fill(2)]),
+            ).toString('base64url'),
+            threshold_public_key33_b64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+            ethereum_address20_b64u: Buffer.from(new Uint8Array(20).fill(0xef)).toString(
+              'base64url',
+            ),
+            client_share_retry_counter: 0,
+            server_share_retry_counter: 0,
+          },
+          signing_worker: {
+            server_id: 'signing-worker-test',
+            key_epoch: 'worker-epoch-test',
+            recipient_encryption_key:
+              'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          },
+          activation_epoch: args.thresholdSessionId,
+        },
+      },
+      runtimePolicyScope: {
+        orgId: 'org-test',
+        projectId: 'sr-test',
+        envId: 'dev',
+        signingRootVersion: 'default',
+      },
+    },
+    issuedAtMs: args.updatedAtMs,
+    expiresAtMs: EXPIRES_AT_MS,
+    remainingUses: 3,
+    updatedAtMs: args.updatedAtMs,
+  });
+  if (!record) throw new Error(`failed to build ${args.thresholdSessionId}`);
+  return record;
+}
+
 function expectEcdsaLaneAuthMethod(
   lane: AvailableEcdsaSigningLane | undefined,
   authMethod: 'email_otp' | 'passkey',
@@ -48,6 +176,89 @@ function expectEcdsaLaneAuthMethod(
 }
 
 test.describe('ECDSA available signing lane duplicate normalization', () => {
+  test('keeps both exact durable Email OTP target authorities after refresh', async () => {
+    const signingGrantId = 'wsess-email-otp-durable-family';
+    for (const updateOrder of [
+      { tempoUpdatedAtMs: 700, arcUpdatedAtMs: 800 },
+      { tempoUpdatedAtMs: 800, arcUpdatedAtMs: 700 },
+    ]) {
+      const tempoRecord = sealedEmailOtpEcdsaRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'tsess-email-otp-durable-tempo',
+        signingGrantId,
+        updatedAtMs: updateOrder.tempoUpdatedAtMs,
+      });
+      const arcRecord = sealedEmailOtpEcdsaRecord({
+        chainTarget: ECDSA_TARGET,
+        thresholdSessionId: 'tsess-email-otp-durable-arc',
+        signingGrantId,
+        updatedAtMs: updateOrder.arcUpdatedAtMs,
+      });
+
+      for (const ecdsaChainTargets of [
+        [TEMPO_TARGET, ECDSA_TARGET],
+        [ECDSA_TARGET, TEMPO_TARGET],
+      ] as const) {
+        const availableLanes = await readAvailableLanes({
+          sealedRecords: [tempoRecord, arcRecord],
+          ecdsaChainTargets: [...ecdsaChainTargets],
+        });
+        const tempoLane = availableLanes.ecdsa.lanesByTarget[
+          thresholdEcdsaChainTargetKey(TEMPO_TARGET)
+        ];
+        const arcLane = availableLanes.ecdsa.lanesByTarget[
+          thresholdEcdsaChainTargetKey(ECDSA_TARGET)
+        ];
+
+        expectEcdsaLaneAuthMethod(tempoLane, 'email_otp');
+        expectEcdsaLaneAuthMethod(arcLane, 'email_otp');
+        expect(tempoLane).toMatchObject({
+          source: 'durable_sealed_record',
+          chainTarget: TEMPO_TARGET,
+          thresholdSessionId: 'tsess-email-otp-durable-tempo',
+          signingGrantId,
+        });
+        expect(arcLane).toMatchObject({
+          source: 'durable_sealed_record',
+          chainTarget: ECDSA_TARGET,
+          thresholdSessionId: 'tsess-email-otp-durable-arc',
+          signingGrantId,
+        });
+      }
+    }
+  });
+
+  test('projects one durable Email OTP family authority to either missing target order', async () => {
+    const arcRecord = sealedEmailOtpEcdsaRecord({
+      chainTarget: ECDSA_TARGET,
+      thresholdSessionId: 'tsess-email-otp-durable-arc-source',
+      signingGrantId: 'wsess-email-otp-durable-arc-source',
+      updatedAtMs: 800,
+    });
+
+    for (const ecdsaChainTargets of [
+      [TEMPO_TARGET, ECDSA_TARGET],
+      [ECDSA_TARGET, TEMPO_TARGET],
+    ] as const) {
+      const availableLanes = await readAvailableLanes({
+        sealedRecords: [arcRecord],
+        ecdsaChainTargets: [...ecdsaChainTargets],
+      });
+      const tempoLane = availableLanes.ecdsa.lanesByTarget[
+        thresholdEcdsaChainTargetKey(TEMPO_TARGET)
+      ];
+
+      expectEcdsaLaneAuthMethod(tempoLane, 'email_otp');
+      expect(tempoLane).toMatchObject({
+        source: 'evm_family_shared_key',
+        sourceChainTarget: ECDSA_TARGET,
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'tsess-email-otp-durable-arc-source',
+        signingGrantId: 'wsess-email-otp-durable-arc-source',
+      });
+    }
+  });
+
   test('collapses duplicate exhausted Email OTP runtime lanes by shared key identity', async () => {
     const availableLanes = await readAvailableLanes({
       runtimeEcdsaRecords: [
@@ -119,6 +330,49 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       state: 'expired',
       signingGrantId: 'wsess-runtime-expired-2',
       thresholdSessionId: 'tsess-runtime-expired-2',
+    });
+  });
+
+  test('projects a canonical EVM-family authority after discarding an unusable target-local lane', async () => {
+    const availableLanes = await readAvailableLanes({
+      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
+      runtimeEcdsaRecords: [
+        runtimeEcdsaRecord({
+          authMethod: 'email_otp',
+          chainTarget: ECDSA_TARGET,
+          thresholdSessionId: 'tsess-email-otp-exhausted-source',
+          signingGrantId: 'wsess-email-otp-exhausted-source',
+          thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+          ecdsaThresholdKeyId: 'shared-ecdsa-key',
+          keyHandle: TEST_ECDSA_KEY_HANDLE,
+          remainingUses: 0,
+          updatedAtMs: 900,
+        }),
+        runtimeEcdsaRecord({
+          authMethod: 'passkey',
+          chainTarget: TEMPO_TARGET,
+          thresholdSessionId: 'tsess-passkey-deferred-tempo',
+          signingGrantId: 'wsess-passkey-deferred-tempo',
+          thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+          ecdsaThresholdKeyId: 'shared-ecdsa-key',
+          keyHandle: TEST_ECDSA_KEY_HANDLE,
+          remainingUses: 2,
+          updatedAtMs: 800,
+        }),
+      ],
+    });
+
+    const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
+    const tempoLane = availableLanes.ecdsa.lanesByTarget[tempoTargetKey];
+    expectEcdsaLaneAuthMethod(tempoLane, 'email_otp');
+    expect(tempoLane).toMatchObject({
+      source: 'evm_family_shared_key',
+      sourceChainTarget: ECDSA_TARGET,
+      chainTarget: TEMPO_TARGET,
+      state: 'exhausted',
+      remainingUses: 0,
+      thresholdSessionId: 'tsess-email-otp-exhausted-source',
+      signingGrantId: 'wsess-email-otp-exhausted-source',
     });
   });
 
@@ -215,6 +469,59 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       source: 'evm_family_shared_key',
       state: 'ready',
       thresholdSessionId: tempoThresholdSessionId,
+    });
+  });
+
+  test('preserves a durable-policy Tempo restorable state in the shared Arc projection', async () => {
+    const thresholdSessionId = 'tsess-email-otp-tempo-restorable';
+    const signingGrantId = 'wsess-email-otp-tempo-restorable';
+    const tempoRecord = runtimeEcdsaRecord({
+      authMethod: 'email_otp',
+      chainTarget: TEMPO_TARGET,
+      thresholdSessionId,
+      signingGrantId,
+      thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+      ecdsaThresholdKeyId: 'shared-ecdsa-key',
+      keyHandle: TEST_ECDSA_KEY_HANDLE,
+      remainingUses: 2,
+      updatedAtMs: 700,
+    });
+    const tempoAdvisoryKey = runtimeEcdsaRecordAdvisoryKey(tempoRecord);
+    if (!tempoAdvisoryKey) throw new Error('Tempo runtime record advisory key missing');
+
+    const availableLanes = await readAvailableLanes({
+      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
+      runtimeEcdsaRecords: [tempoRecord],
+      warmEcdsaAdvisories: new Map([
+        [
+          tempoAdvisoryKey,
+          {
+            kind: 'durable_policy',
+            thresholdSessionId,
+            remainingUses: 2,
+            expiresAtMs: EXPIRES_AT_MS,
+            state: 'restorable',
+          },
+        ],
+      ]),
+    });
+
+    const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
+    const arcTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
+    expect(availableLanes.ecdsa.lanesByTarget[tempoTargetKey]).toMatchObject({
+      source: 'runtime_session_record',
+      chainTarget: TEMPO_TARGET,
+      state: 'restorable',
+      thresholdSessionId,
+      signingGrantId,
+    });
+    expect(availableLanes.ecdsa.lanesByTarget[arcTargetKey]).toMatchObject({
+      source: 'evm_family_shared_key',
+      sourceChainTarget: TEMPO_TARGET,
+      chainTarget: ECDSA_TARGET,
+      state: 'restorable',
+      thresholdSessionId,
+      signingGrantId,
     });
   });
 

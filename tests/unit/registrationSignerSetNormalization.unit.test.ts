@@ -14,7 +14,7 @@ function makeNearEd25519SignerFields(signerSlot: number): Record<string, unknown
     signerSlot,
     participantIds: [1, '2', 0, -1, 2.5, 'three'],
     keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
+    keyVersion: 'router-ab-ed25519-yao-v1',
     derivationVersion: '1',
   };
 }
@@ -69,7 +69,7 @@ test.describe('registration signer-set normalization', () => {
           signerSlot: 1,
           participantIds: [1, 2],
           keyPurpose: 'near_tx',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          keyVersion: 'router-ab-ed25519-yao-v1',
           derivationVersion: 1,
         },
         {

@@ -58,7 +58,6 @@ const retainedBoundaryAuditRows = [
     'tests/unit/profileAccountProjection.generic.unit.test.ts',
     'tests/unit/progressBus.overlayIntentResolver.test.ts',
     'tests/unit/recoveryCodesModal.behavior.unit.test.ts',
-    'tests/unit/routerAbEd25519.walletSessionState.unit.test.ts',
     'tests/unit/safari-fallbacks.test.ts',
     'tests/unit/sealedRefresh.parity.unit.test.ts',
     'tests/unit/sealedSessionStore.unit.test.ts',
@@ -305,12 +304,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'loads retained recovery codes from local wallet storage',
         'wallet iframe recovery-code command never sends recovery keys to the host',
         'SeamsAuthMenu prompts rotation after recovery consumes a code',
-    ],
-    'tests/unit/routerAbEd25519.walletSessionState.unit.test.ts': [
-        'Router A/B Ed25519 Wallet Session state',
-        'resolves canonical Router A/B-ready state from the warm-session record',
-        'accepts Router A/B Ed25519 signing when wallet and NEAR identities differ',
-        'rejects persisted Ed25519 material without material identity',
     ],
     'tests/unit/safari-fallbacks.test.ts': [
         'Safari WebAuthn fallbacks - cancellation and timeout behavior',

@@ -1,0 +1,8 @@
+{
+  "schema": "seams-yaos-ab-local-product-test-slice-v1",
+  "test_files": [
+    "e2e/intended-behaviours/passkey.ed25519-yao-local.contract.test.ts",
+    "e2e/intended-behaviours/passkey.registration.contract.test.ts",
+    "e2e/intended-behaviours/passkey.unlock.contract.test.ts"
+  ]
+}

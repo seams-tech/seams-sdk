@@ -2,7 +2,7 @@ import {
   test as base,
   type APIRequestContext,
   type BrowserContext,
-  type Frame,
+  type FrameLocator,
   type Page,
   type Response,
   type Route,
@@ -11,24 +11,46 @@ import {
 import * as ed25519 from '@noble/ed25519';
 import { base58Decode } from '@shared/utils/encoders';
 import { createReadableWalletId } from '@shared/utils/registrationIntent';
+import {
+  ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+} from '@shared/utils/routerAbEd25519Yao';
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { getAddress, parseTransaction, recoverAddress, recoverTransactionAddress } from 'viem';
+import {
+  getAddress,
+  parseTransaction,
+  recoverAddress,
+  recoverTransactionAddress,
+  serializeTransaction,
+} from 'viem';
 
 export type IntendedLifecycleFlow =
   | 'passkey.registration'
   | 'passkey.unlock'
   | 'email_otp.registration'
-  | 'email_otp.unlock'
-  | 'recovery.email';
+  | 'email_otp.unlock';
 
 export type IntendedChainTarget = 'near' | 'tempo' | 'arc_evm';
 
-export type IntendedSigningStage = 'post_registration' | 'post_unlock' | 'after_step_up';
+export type IntendedSigningStage =
+  | 'post_registration'
+  | 'post_unlock'
+  | 'after_refresh_recovery'
+  | 'after_step_up';
 
 type IntendedHarnessAction =
   | 'registerPasskeyWallet'
+  | 'registerPasskeyEd25519YaoWallet'
+  | 'registerPreparedIframePasskeyEd25519YaoWallet'
+  | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
@@ -36,9 +58,7 @@ type IntendedHarnessAction =
   | 'signTempoTransaction'
   | 'signArcEvmTransaction'
   | 'exportEd25519Key'
-  | 'exportEcdsaKey'
-  | 'startEmailRecovery'
-  | 'finalizeEmailRecovery';
+  | 'exportEcdsaKey';
 
 type TraceEntry = {
   atMs: number;
@@ -47,6 +67,32 @@ type TraceEntry = {
   url?: string;
   status?: number;
 };
+
+const ROUTER_AB_ED25519_SIGNING_PATHS = [
+  '/router-ab/ed25519/sign/prepare',
+  '/router-ab/ed25519/sign',
+] as const;
+
+const ROUTER_AB_ED25519_YAO_REGISTRATION_PATHS = [
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+] as const;
+
+const ROUTER_AB_ED25519_YAO_RECOVERY_PATHS = [
+  ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+] as const;
+
+const ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS = [
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+  ...ROUTER_AB_ED25519_YAO_RECOVERY_PATHS,
+] as const;
+
+const ROUTER_AB_ED25519_YAO_EXPORT_PATHS = [
+  ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+] as const;
 
 type IntendedHarnessConfig = {
   appUrl: string;
@@ -172,6 +218,14 @@ type PasskeyRegistrationResultSnapshot = {
   operationalPublicKey: string;
 } & EcdsaEnabledSnapshot;
 
+type Ed25519AddSignerResultSnapshot = {
+  kind: 'near_ed25519_signer_added';
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  operationalPublicKey: string;
+};
+
 type EmailOtpRegistrationCoreSnapshot = {
   kind: 'email_otp_registration_success';
   initialWalletId: string;
@@ -184,7 +238,9 @@ type EmailOtpRegistrationCoreSnapshot = {
 
 type EmailOtpRegistrationResultSnapshot = EmailOtpRegistrationCoreSnapshot & EcdsaEnabledSnapshot;
 
-type RegisteredWalletSnapshot = PasskeyRegistrationResultSnapshot | EmailOtpRegistrationResultSnapshot;
+type RegisteredWalletSnapshot =
+  | PasskeyRegistrationResultSnapshot
+  | EmailOtpRegistrationResultSnapshot;
 
 type NearSigningResultSnapshot = {
   kind: 'near_sign_success';
@@ -230,36 +286,21 @@ type ArcEvmSigningResultSnapshot = {
   rawTxHex: `0x${string}`;
 };
 
-type Ed25519ExportResultSnapshot = {
-  kind: 'ed25519_export_success';
-  walletId: string;
-  nearAccountId: string;
-};
-
 type EcdsaExportResultSnapshot = {
   kind: 'ecdsa_export_success';
   walletId: string;
   chainId: number;
 };
 
-type EmailRecoveryStartResultSnapshot = {
-  kind: 'email_recovery_start_success';
+type Ed25519ExportResultSnapshot = {
+  kind: 'ed25519_export_success';
   walletId: string;
   nearAccountId: string;
-  nearPublicKey: string;
-  mailtoUrl: string;
-  ecdsaTargetKeys: EcdsaTargetKeysSnapshot;
-};
-
-type EmailRecoveryFinalizeResultSnapshot = {
-  kind: 'email_recovery_finalize_success';
-  walletId: string;
-  nearAccountId: string;
-  nearPublicKey: string;
 };
 
 type IntendedActionResultSnapshot =
   | PasskeyRegistrationResultSnapshot
+  | Ed25519AddSignerResultSnapshot
   | EmailOtpRegistrationResultSnapshot
   | NearSigningResultSnapshot
   | PasskeyUnlockResultSnapshot
@@ -267,9 +308,7 @@ type IntendedActionResultSnapshot =
   | TempoSigningResultSnapshot
   | ArcEvmSigningResultSnapshot
   | Ed25519ExportResultSnapshot
-  | EcdsaExportResultSnapshot
-  | EmailRecoveryStartResultSnapshot
-  | EmailRecoveryFinalizeResultSnapshot;
+  | EcdsaExportResultSnapshot;
 
 type IntendedPageSnapshot = {
   action: IntendedPageActionSnapshot;
@@ -290,45 +329,6 @@ type IntendedLifecycleTracePayload = {
   trace: readonly TraceEntry[];
   violations: readonly string[];
 };
-
-type RegistrationHssFinalizeSource =
-  | 'durable_advanced_eval'
-  | 'durable_finalized_report'
-  | 'serialized_replay';
-
-type RegistrationHssAdvanceSource = 'durable_workerd_wasm';
-
-type RegistrationHssAdvanceProvenance =
-  | {
-      kind: 'not_ed25519_registration';
-      source?: never;
-    }
-  | {
-      kind: 'missing_ed25519_advance_source';
-      source?: never;
-    }
-  | {
-      kind: 'ed25519_advance_source';
-      source: RegistrationHssAdvanceSource;
-    };
-
-type RegistrationHssFinalizeProvenance =
-  | {
-      kind: 'not_ed25519_registration';
-      source?: never;
-    }
-  | {
-      kind: 'missing_ed25519_finalize_source';
-      source?: never;
-    }
-  | {
-      kind: 'durable_registration_hss';
-      source: Exclude<RegistrationHssFinalizeSource, 'serialized_replay'>;
-    }
-  | {
-      kind: 'serialized_registration_hss_replay';
-      source: 'serialized_replay';
-    };
 
 type WalletIframeAutoConfirmDiagnostics = {
   attempts: number;
@@ -454,7 +454,6 @@ const SIGNING_THRESHOLD_SESSION_RECONNECT_SUCCEEDED =
   'signing.threshold_session.reconnect.succeeded';
 const KEY_EXPORT_AUTH_PASSKEY_PROMPT_STARTED = 'key_export.auth.passkey.prompt.started';
 const KEY_EXPORT_AUTH_PASSKEY_PROMPT_SUCCEEDED = 'key_export.auth.passkey.prompt.succeeded';
-const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
 
 const LIFECYCLE_FAILURE_MATCHER_TABLE_VERSION = 'refactor-88-2026-07-04';
 
@@ -517,7 +516,9 @@ function intendedLifecycleTraceFilePath(args: {
   testInfo: TestInfo;
   payload: IntendedLifecycleTracePayload;
 }): string {
-  const walletId = args.payload.walletId ? safeTraceFileSegment(args.payload.walletId) : 'no-wallet';
+  const walletId = args.payload.walletId
+    ? safeTraceFileSegment(args.payload.walletId)
+    : 'no-wallet';
   const flow = safeTraceFileSegment(args.payload.flow);
   const fileName = `${Date.now()}-${flow}-${walletId}-intended-lifecycle-trace.json`;
   return path.join(intendedLifecycleTraceDirectory(args.testInfo), fileName);
@@ -560,6 +561,19 @@ function intendedPageActionStartedOrCompleted(expectedAction: string): boolean {
   );
 }
 
+function nearDemoSignButtonIsActionable(): boolean {
+  const buttons = Array.from(document.querySelectorAll('button'));
+  for (const button of buttons) {
+    if (button.textContent?.trim() !== 'Sign on NEAR') continue;
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }
+  return false;
+}
+
+function ignoreNearDemoStatusReadError(): null {
+  return null;
+}
+
 export class IntendedBehaviourHarness {
   readonly flow: IntendedLifecycleFlow;
 
@@ -592,7 +606,7 @@ export class IntendedBehaviourHarness {
 
   private registeredWallet: RegisteredWalletSnapshot | null = null;
 
-  private readonly recoveredNearPublicKeys = new Set<string>();
+  private nearSignerSlot = 1;
 
   private currentWarmSigningStage: IntendedSigningStage = 'post_registration';
 
@@ -636,11 +650,96 @@ export class IntendedBehaviourHarness {
       throw new Error('Passkey registration did not emit structured lifecycle events');
     }
     this.registeredWallet = result;
+    this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
     this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
     this.recordService(
       `passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
+    );
+  }
+
+  async registerPasskeyEd25519YaoWallet(): Promise<void> {
+    this.recordStage('register_passkey_ed25519_yao_wallet');
+    const snapshot = await this.runIntendedPageAction(
+      'registerPasskeyEd25519YaoWallet',
+      'intended-register-passkey-ed25519-yao',
+    );
+    const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
+    if (result.ecdsaTargetProfile !== 'none' || result.ecdsaTargetKeys.kind !== 'none') {
+      throw new Error('Ed25519 Yao registration unexpectedly provisioned an ECDSA signer');
+    }
+    if (snapshot.events.length === 0) {
+      throw new Error('Ed25519 Yao passkey registration did not emit lifecycle events');
+    }
+    this.registeredWallet = result;
+    this.nearSignerSlot = 1;
+    this.currentWarmSigningStage = 'post_registration';
+    this.postExhaustionStepUpSatisfied = false;
+    this.passkeyPromptCount += 1;
+    this.recordService(
+      `Ed25519 Yao passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
+    );
+  }
+
+  async registerPreparedIframePasskeyEd25519YaoWallet(): Promise<void> {
+    this.recordStage('register_prepared_iframe_passkey_ed25519_yao_wallet');
+    const snapshot = await this.runIntendedPageAction(
+      'registerPreparedIframePasskeyEd25519YaoWallet',
+      'intended-register-prepared-iframe-passkey-ed25519-yao',
+    );
+    const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
+    if (result.ecdsaTargetProfile !== 'none' || result.ecdsaTargetKeys.kind !== 'none') {
+      throw new Error('Prepared iframe Ed25519 Yao registration provisioned an ECDSA signer');
+    }
+    if (snapshot.events.length === 0) {
+      throw new Error('Prepared iframe Ed25519 Yao registration did not emit lifecycle events');
+    }
+    this.registeredWallet = result;
+    this.nearSignerSlot = 1;
+    this.currentWarmSigningStage = 'post_registration';
+    this.postExhaustionStepUpSatisfied = false;
+    this.passkeyPromptCount += 1;
+    this.recordService(
+      `prepared iframe Ed25519 Yao registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
+    );
+  }
+
+  async addPasskeyEd25519YaoWalletSigner(): Promise<void> {
+    this.recordStage('add_passkey_ed25519_yao_wallet_signer');
+    const previous = requirePasskeyRegisteredWalletSnapshot(
+      this.requireRegisteredWalletForSigning(),
+    );
+    const snapshot = await this.runIntendedPageAction(
+      'addPasskeyEd25519YaoWalletSigner',
+      'intended-add-passkey-ed25519-yao-signer',
+    );
+    const result = requireEd25519AddSignerResult(snapshot, this.walletId);
+    if (
+      result.nearAccountId === previous.nearAccountId ||
+      result.nearEd25519SigningKeyId === previous.nearEd25519SigningKeyId ||
+      result.operationalPublicKey === previous.operationalPublicKey
+    ) {
+      throw new Error('Ed25519 add-signer did not create a distinct signer identity');
+    }
+    if (snapshot.events.length === 0) {
+      throw new Error('Ed25519 add-signer did not emit structured lifecycle events');
+    }
+    this.registeredWallet = {
+      kind: 'passkey_registration_success',
+      walletId: result.walletId,
+      nearAccountId: result.nearAccountId,
+      nearEd25519SigningKeyId: result.nearEd25519SigningKeyId,
+      operationalPublicKey: result.operationalPublicKey,
+      ecdsaTargetProfile: 'none',
+      ecdsaTargetKeys: { kind: 'none' },
+    };
+    this.nearSignerSlot = 2;
+    this.currentWarmSigningStage = 'post_registration';
+    this.postExhaustionStepUpSatisfied = false;
+    this.passkeyPromptCount += 1;
+    this.recordService(
+      `Ed25519 Yao signer added wallet=${result.walletId} near=${result.nearAccountId}`,
     );
   }
 
@@ -656,6 +755,7 @@ export class IntendedBehaviourHarness {
     }
     this.walletId = result.walletId;
     this.registeredWallet = result;
+    this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
     this.postExhaustionStepUpSatisfied = false;
     this.emailOtpVerificationCount += 1;
@@ -668,6 +768,7 @@ export class IntendedBehaviourHarness {
     this.recordStage('unlock_passkey_wallet');
     const registration = this.requireRegisteredWalletForSigning();
     await this.resetRuntimeOnlyState();
+    const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction(
       'unlockPasskeyWallet',
       'intended-unlock-passkey',
@@ -680,6 +781,7 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey unlock did not emit structured lifecycle events');
     }
+    this.assertRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Passkey unlock');
     this.currentWarmSigningStage = 'post_unlock';
     this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
@@ -693,6 +795,7 @@ export class IntendedBehaviourHarness {
     const registration = this.requireRegisteredWalletForSigning();
     const emailOtpRegistration = requireEmailOtpRegisteredWalletSnapshot(registration);
     await this.resetRuntimeOnlyState();
+    const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction(
       'unlockEmailOtpWallet',
       'intended-unlock-email-otp',
@@ -701,6 +804,7 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Email OTP unlock did not emit structured lifecycle events');
     }
+    this.assertRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Email OTP cold unlock');
     this.currentWarmSigningStage = 'post_unlock';
     this.postExhaustionStepUpSatisfied = false;
     this.emailOtpVerificationCount += 1;
@@ -712,6 +816,7 @@ export class IntendedBehaviourHarness {
   async signNearTransaction(stage: IntendedSigningStage): Promise<SigningAuthEventSummary> {
     this.recordStage(`${stage}:near.sign`);
     const registration = this.requireRegisteredWalletForSigning();
+    const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction('signNearTransaction', 'intended-sign-near', {
       nearAccountId: registration.nearAccountId,
     });
@@ -724,11 +829,57 @@ export class IntendedBehaviourHarness {
       throw new Error('NEAR signing did not emit structured lifecycle events');
     }
     const summary = this.assertSigningAuthEvents(snapshot, stage, 'NEAR signing');
+    if (stage === 'after_refresh_recovery') {
+      this.assertRouterAbEd25519YaoWarmRecoveryRoutes(traceStartIndex);
+    }
+    this.assertRouterAbEd25519SigningRoutes(traceStartIndex);
+    this.assertNoEd25519YaoRegistrationRoutes(traceStartIndex);
     this.recordSigningRemainingUses(summary);
     this.recordService(
       `near signing signature verified wallet=${result.walletId} near=${result.nearAccountId} bytes=${result.signedTransactionByteLength}`,
     );
     return summary;
+  }
+
+  async refreshPagePreservingWalletStorage(): Promise<void> {
+    this.recordStage('page_refresh_preserving_wallet_storage');
+    this.latestPageSnapshot = null;
+    await this.page.reload({ waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('intended-e2e-page').waitFor({
+      state: 'visible',
+      timeout: 15_000,
+    });
+    this.intendedPageReady = true;
+    this.reloadIntendedPageBeforeNextAction = false;
+    this.recordService('page refreshed preserving wallet storage');
+  }
+
+  async assertNearDemoSigningActionable(): Promise<void> {
+    this.recordStage('post_registration:near.demo_actionable');
+    await this.page.evaluate(navigateWithinSite, '/wallet');
+    this.intendedPageReady = false;
+    try {
+      await this.page.waitForFunction(nearDemoSignButtonIsActionable, undefined, {
+        timeout: 20_000,
+      });
+    } catch (error) {
+      const statusText = await this.page
+        .locator('.near-funding-status')
+        .textContent({ timeout: 1_000 })
+        .catch(ignoreNearDemoStatusReadError);
+      throw new Error(
+        `NEAR demo signing remained unavailable after registration: ${String(statusText || 'no readiness status')}`,
+        { cause: error },
+      );
+    }
+    this.recordService('public React wallet projection enabled the NEAR demo signing control');
+    await this.page.evaluate(navigateWithinSite, this.intendedPageUrl().href);
+    await this.page.getByTestId('intended-e2e-page').waitFor({
+      state: 'visible',
+      timeout: 15_000,
+    });
+    this.intendedPageReady = true;
+    this.reloadIntendedPageBeforeNextAction = false;
   }
 
   async signTempoTransaction(stage: IntendedSigningStage): Promise<SigningAuthEventSummary> {
@@ -777,6 +928,16 @@ export class IntendedBehaviourHarness {
     return summary;
   }
 
+  async consumeSharedRegistrationSigningBudget(): Promise<void> {
+    const near = await this.signNearTransaction('post_registration');
+    assertSigningRemainingUses(near, 2, 'NEAR registration-budget sign');
+    const tempo = await this.signTempoTransaction('post_registration');
+    assertSigningRemainingUses(tempo, 1, 'Tempo registration-budget sign');
+    const arc = await this.signArcEvmTransaction('post_registration');
+    assertSigningRemainingUses(arc, 0, 'Arc/EVM registration-budget sign');
+    this.postExhaustionStepUpSatisfied = false;
+  }
+
   async exhaustSigningBudget(): Promise<void> {
     this.recordStage('remaining_spend.exhaust');
     if (this.latestSigningRemainingUses === 0) {
@@ -800,30 +961,6 @@ export class IntendedBehaviourHarness {
     );
   }
 
-  async exportEd25519Key(): Promise<void> {
-    this.recordStage('ed25519.export');
-    const registration = this.requireRegisteredWalletForSigning();
-    const snapshot = await this.runIntendedPageAction(
-      'exportEd25519Key',
-      'intended-export-ed25519',
-      {
-        nearAccountId: registration.nearAccountId,
-      },
-    );
-    const result = requireEd25519ExportResult(snapshot, {
-      walletId: this.walletId,
-      nearAccountId: registration.nearAccountId,
-    });
-    if (snapshot.events.length === 0) {
-      throw new Error('Ed25519 export did not emit structured lifecycle events');
-    }
-    this.recordExportAuthCounters(this.assertKeyExportAuthEvents(snapshot, 'Ed25519 export'));
-    await this.closeExportViewerIfOpen();
-    this.recordService(
-      `ed25519 export succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
-    );
-  }
-
   async exportEcdsaKey(): Promise<void> {
     this.recordStage('ecdsa.export');
     const snapshot = await this.runIntendedPageAction('exportEcdsaKey', 'intended-export-ecdsa');
@@ -841,43 +978,26 @@ export class IntendedBehaviourHarness {
     );
   }
 
-  async recoverEmailToSigning(): Promise<void> {
-    this.recordStage('email_recovery.start');
-    const registration = this.requireRegisteredWalletForSigning();
-    const startSnapshot = await this.runIntendedPageAction(
-      'startEmailRecovery',
-      'intended-start-email-recovery',
+  async exportEd25519Key(): Promise<void> {
+    this.recordStage('ed25519.export');
+    const traceStartIndex = this.trace.length;
+    const snapshot = await this.runIntendedPageAction(
+      'exportEd25519Key',
+      'intended-export-ed25519',
     );
-    const start = requireEmailRecoveryStartResult(startSnapshot, {
+    const registration = this.requireRegisteredWalletForSigning();
+    const result = requireEd25519ExportResult(snapshot, {
       walletId: this.walletId,
       nearAccountId: registration.nearAccountId,
     });
-    if (startSnapshot.events.length === 0) {
-      throw new Error('Email recovery start did not emit structured lifecycle events');
+    if (snapshot.events.length === 0) {
+      throw new Error('Ed25519 export did not emit structured lifecycle events');
     }
-    this.recoveredNearPublicKeys.add(start.nearPublicKey);
-    this.passkeyPromptCount += 1;
+    this.recordExportAuthCounters(this.assertKeyExportAuthEvents(snapshot, 'Ed25519 export'));
+    this.assertRouterAbEd25519YaoExportRoutes(traceStartIndex);
+    await this.closeExportViewerIfOpen();
     this.recordService(
-      `email recovery start succeeded wallet=${start.walletId} near=${start.nearAccountId}`,
-    );
-
-    this.recordStage('email_recovery.finalize');
-    const finalizeSnapshot = await this.runIntendedPageAction(
-      'finalizeEmailRecovery',
-      'intended-finalize-email-recovery',
-    );
-    const finalize = requireEmailRecoveryFinalizeResult(finalizeSnapshot, start);
-    if (finalizeSnapshot.events.length === 0) {
-      throw new Error('Email recovery finalize did not emit structured lifecycle events');
-    }
-    this.registeredWallet = recoveredWalletSnapshot({
-      registration,
-      recovery: start,
-    });
-    this.currentWarmSigningStage = 'post_unlock';
-    this.postExhaustionStepUpSatisfied = false;
-    this.recordService(
-      `email recovery finalized wallet=${finalize.walletId} near=${finalize.nearAccountId}`,
+      `ed25519 export succeeded wallet=${result.walletId} nearAccountId=${result.nearAccountId}`,
     );
   }
 
@@ -920,8 +1040,8 @@ export class IntendedBehaviourHarness {
   private async installFailureCollectors(): Promise<void> {
     this.page.on('console', this.handleConsoleMessage.bind(this));
     this.page.on('pageerror', this.handlePageError.bind(this));
-    this.page.on('requestfailed', this.handleRequestFailed.bind(this));
-    this.page.on('response', this.handleResponse.bind(this));
+    this.context.on('requestfailed', this.handleRequestFailed.bind(this));
+    this.context.on('response', this.handleResponse.bind(this));
   }
 
   private async installSigningSessionDebugFlag(): Promise<void> {
@@ -975,21 +1095,24 @@ export class IntendedBehaviourHarness {
     this.recordService('site and router ready');
   }
 
-  private async openIntendedPage(): Promise<void> {
+  private intendedPageUrl(): URL {
     const url = new URL('/__intended-e2e', this.config.appUrl);
     url.searchParams.set('flow', this.flow);
     url.searchParams.set('walletId', this.walletId);
     if (this.registeredWallet) {
       url.searchParams.set('nearAccountId', this.registeredWallet.nearAccountId);
+      url.searchParams.set('nearSignerSlot', String(this.nearSignerSlot));
     }
     if (this.config.googleIdToken) {
       url.searchParams.set('googleIdToken', this.config.googleIdToken);
     }
     url.searchParams.set('passkeyEcdsaTargetProfile', this.config.passkeyEcdsaTargetProfile);
-    url.searchParams.set(
-      'emailOtpEcdsaTargetProfile',
-      this.config.emailOtpEcdsaTargetProfile,
-    );
+    url.searchParams.set('emailOtpEcdsaTargetProfile', this.config.emailOtpEcdsaTargetProfile);
+    return url;
+  }
+
+  private async openIntendedPage(): Promise<void> {
+    const url = this.intendedPageUrl();
     await this.page.goto(url.href, { waitUntil: 'domcontentloaded' });
     await this.page.getByTestId('intended-e2e-page').waitFor({
       state: 'visible',
@@ -1137,7 +1260,7 @@ export class IntendedBehaviourHarness {
       await route.continue();
       return;
     }
-    await fulfillExternalStub(route, this.config, this.recoveredNearPublicKeys);
+    await fulfillExternalStub(route, this.config);
   }
 
   private handleConsoleMessage(message: { type(): string; text(): string }): void {
@@ -1147,10 +1270,6 @@ export class IntendedBehaviourHarness {
       kind: 'console',
       message: `${message.type()}: ${text}`,
     });
-    const registrationTimingViolation = registrationTimingViolationFromConsoleMessage(text);
-    if (registrationTimingViolation) {
-      this.violations.push(registrationTimingViolation);
-    }
     this.recordViolationIfNeeded(text);
   }
 
@@ -1177,7 +1296,29 @@ export class IntendedBehaviourHarness {
 
   private handleResponse(response: Response): void {
     const status = response.status();
-    if (status < 400) return;
+    const signingPath = routerAbEd25519SigningPath(response.url(), this.config.routerUrl);
+    const yaoRegistrationPath = routerAbEd25519YaoRegistrationPath(
+      response.url(),
+      this.config.routerUrl,
+    );
+    const yaoRecoveryPath = routerAbEd25519YaoWarmRecoveryPath(
+      response.url(),
+      this.config.routerUrl,
+    );
+    const yaoExportPath = routerAbEd25519YaoExportPath(response.url(), this.config.routerUrl);
+    if (status < 400) {
+      const observedPath = signingPath ?? yaoRegistrationPath ?? yaoRecoveryPath ?? yaoExportPath;
+      if (observedPath) {
+        this.trace.push({
+          atMs: Date.now(),
+          kind: 'response',
+          message: `HTTP ${status} ${observedPath}`,
+          status,
+          url: response.url(),
+        });
+      }
+      return;
+    }
     this.trace.push({
       atMs: Date.now(),
       kind: 'response',
@@ -1204,6 +1345,87 @@ export class IntendedBehaviourHarness {
 
   private recordStage(message: string): void {
     this.trace.push({ atMs: Date.now(), kind: 'stage', message });
+  }
+
+  private assertRouterAbEd25519SigningRoutes(traceStartIndex: number): void {
+    const observedPaths = new Set(
+      this.trace
+        .slice(traceStartIndex)
+        .map((entry) => routerAbEd25519SigningPath(entry.url, this.config.routerUrl))
+        .filter((path): path is (typeof ROUTER_AB_ED25519_SIGNING_PATHS)[number] => !!path),
+    );
+    for (const expectedPath of ROUTER_AB_ED25519_SIGNING_PATHS) {
+      if (!observedPaths.has(expectedPath)) {
+        throw new Error(`NEAR signing did not traverse ${expectedPath}`);
+      }
+    }
+    this.recordService('NEAR signing traversed Router A/B Ed25519 prepare and finalize routes');
+  }
+
+  private assertNoEd25519YaoRegistrationRoutes(traceStartIndex: number): void {
+    const observedPaths = this.trace
+      .slice(traceStartIndex)
+      .map((entry) => routerAbEd25519YaoRegistrationPath(entry.url, this.config.routerUrl))
+      .filter((path): path is (typeof ROUTER_AB_ED25519_YAO_REGISTRATION_PATHS)[number] => !!path);
+    if (observedPaths.length > 0) {
+      throw new Error(
+        `Ordinary NEAR signing invoked Ed25519 Yao activation routes: ${observedPaths.join(', ')}`,
+      );
+    }
+    this.recordService('ordinary NEAR signing made zero Ed25519 Yao activation route calls');
+  }
+
+  private assertRouterAbEd25519YaoRecoveryRoutes(
+    traceStartIndex: number,
+    flowLabel: 'Passkey unlock' | 'Email OTP cold unlock',
+  ): void {
+    const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_RECOVERY_PATHS)[number]>();
+    for (const entry of this.trace.slice(traceStartIndex)) {
+      const path = routerAbEd25519YaoRecoveryPath(entry.url, this.config.routerUrl);
+      if (path) observedPaths.add(path);
+    }
+    for (const expectedPath of ROUTER_AB_ED25519_YAO_RECOVERY_PATHS) {
+      if (!observedPaths.has(expectedPath)) {
+        throw new Error(`${flowLabel} did not traverse ${expectedPath}`);
+      }
+    }
+    this.recordService(`${flowLabel} traversed all Router A/B Yao recovery routes`);
+  }
+
+  private assertRouterAbEd25519YaoWarmRecoveryRoutes(traceStartIndex: number): void {
+    const observedPaths = new Set<
+      (typeof ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS)[number]
+    >();
+    for (const entry of this.trace.slice(traceStartIndex)) {
+      const path = routerAbEd25519YaoWarmRecoveryPath(entry.url, this.config.routerUrl);
+      if (path) observedPaths.add(path);
+    }
+    if (observedPaths.size === 0) {
+      this.recordService('Post-refresh NEAR signing reused the active wallet-worker Yao capability');
+      return;
+    }
+    for (const expectedPath of ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS) {
+      if (!observedPaths.has(expectedPath)) {
+        throw new Error(`Post-refresh NEAR signing did not traverse ${expectedPath}`);
+      }
+    }
+    this.recordService(
+      'Post-refresh NEAR signing used authenticated warm bootstrap and all Yao recovery routes',
+    );
+  }
+
+  private assertRouterAbEd25519YaoExportRoutes(traceStartIndex: number): void {
+    const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_EXPORT_PATHS)[number]>();
+    for (const entry of this.trace.slice(traceStartIndex)) {
+      const path = routerAbEd25519YaoExportPath(entry.url, this.config.routerUrl);
+      if (path) observedPaths.add(path);
+    }
+    for (const expectedPath of ROUTER_AB_ED25519_YAO_EXPORT_PATHS) {
+      if (!observedPaths.has(expectedPath)) {
+        throw new Error(`Ed25519 export did not traverse ${expectedPath}`);
+      }
+    }
+    this.recordService('Ed25519 export traversed all strict Router A/B Yao export routes');
   }
 
   private recordService(message: string): void {
@@ -1272,11 +1494,35 @@ export class IntendedBehaviourHarness {
   }
 }
 
+function navigateWithinSite(targetHref: string): void {
+  const target = new URL(targetHref, window.location.origin);
+  if (target.origin !== window.location.origin) {
+    throw new Error(`Refusing cross-origin client navigation to ${target.origin}`);
+  }
+  const relativeHref = `${target.pathname}${target.search}${target.hash}`;
+  window.history.pushState({}, '', relativeHref);
+  window.dispatchEvent(new Event('site:navigate'));
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+}
+
 function requireEmailOtpRegisteredWalletSnapshot(
   registration: RegisteredWalletSnapshot,
 ): EmailOtpRegistrationResultSnapshot {
   if (registration.kind === 'email_otp_registration_success') return registration;
   throw new Error('Email OTP unlock requires an Email OTP registration snapshot');
+}
+
+function requirePasskeyRegisteredWalletSnapshot(
+  registration: RegisteredWalletSnapshot,
+): PasskeyRegistrationResultSnapshot {
+  switch (registration.kind) {
+    case 'passkey_registration_success':
+      return registration;
+    case 'email_otp_registration_success':
+      throw new Error('Passkey signer addition requires a passkey-registered wallet');
+    default:
+      return assertNever(registration);
+  }
 }
 
 export const intendedTest = base.extend<{
@@ -1345,6 +1591,7 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
   const normalized = filePath.replaceAll('\\', '/');
   if (
     normalized.endsWith('passkey.registration.contract.test.ts') ||
+    normalized.endsWith('passkey.ed25519-yao-local.contract.test.ts') ||
     normalized.endsWith('passkey.registration.benchmark.test.ts')
   ) {
     return 'passkey.registration';
@@ -1362,7 +1609,6 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
   ) {
     return 'email_otp.unlock';
   }
-  if (normalized.endsWith('recovery.email.contract.test.ts')) return 'recovery.email';
   throw new Error(`Unknown intended lifecycle contract file: ${filePath}`);
 }
 
@@ -1410,11 +1656,7 @@ function isExternalStubHost(hostname: string): boolean {
   return EXTERNAL_HOST_PATTERNS.some((pattern) => pattern.test(hostname));
 }
 
-async function fulfillExternalStub(
-  route: Route,
-  config: IntendedHarnessConfig,
-  recoveredNearPublicKeys: ReadonlySet<string>,
-): Promise<void> {
+async function fulfillExternalStub(route: Route, config: IntendedHarnessConfig): Promise<void> {
   const request = route.request();
   const url = new URL(request.url());
   if (url.hostname.includes('googleapis.com') || url.hostname.includes('accounts.google.com')) {
@@ -1431,11 +1673,11 @@ async function fulfillExternalStub(
     return;
   }
   if (url.hostname.endsWith('near.org')) {
-    await fulfillNearRpcStub(route, recoveredNearPublicKeys);
+    await fulfillNearRpcStub(route);
     return;
   }
   if (url.hostname.endsWith('fastnear.com')) {
-    await fulfillNearRpcStub(route, recoveredNearPublicKeys);
+    await fulfillNearRpcStub(route);
     return;
   }
   await route.fulfill({
@@ -1445,10 +1687,7 @@ async function fulfillExternalStub(
   });
 }
 
-async function fulfillNearRpcStub(
-  route: Route,
-  recoveredNearPublicKeys: ReadonlySet<string>,
-): Promise<void> {
+async function fulfillNearRpcStub(route: Route): Promise<void> {
   const request = parseJsonRpcRequest(route.request().postData() || '{}');
   await route.fulfill({
     status: 200,
@@ -1456,7 +1695,7 @@ async function fulfillNearRpcStub(
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: request.id,
-      result: nearRpcStubResult(request, recoveredNearPublicKeys),
+      result: nearRpcStubResult(request),
     }),
   });
 }
@@ -1477,13 +1716,10 @@ function parseJsonRpcRequest(body: string): { id: unknown; method: string; param
   }
 }
 
-function nearRpcStubResult(
-  request: { method: string; params: unknown },
-  recoveredNearPublicKeys: ReadonlySet<string>,
-): unknown {
+function nearRpcStubResult(request: { method: string; params: unknown }): unknown {
   switch (request.method) {
     case 'query':
-      return nearRpcQueryStubResult(request.params, recoveredNearPublicKeys);
+      return nearRpcQueryStubResult(request.params);
     case 'block':
       return {
         author: 'intended-e2e',
@@ -1515,10 +1751,7 @@ function compactResponseBodyForTrace(body: string): string {
   return trimmed.length <= 2_000 ? trimmed : `${trimmed.slice(0, 2_000)}...<truncated>`;
 }
 
-function nearRpcQueryStubResult(
-  params: unknown,
-  recoveredNearPublicKeys: ReadonlySet<string>,
-): unknown {
+function nearRpcQueryStubResult(params: unknown): unknown {
   if (!isRecord(params)) return {};
   const requestType = params.request_type;
   switch (requestType) {
@@ -1530,11 +1763,11 @@ function nearRpcQueryStubResult(
       };
     case 'view_access_key_list':
       return {
-        keys: Array.from(recoveredNearPublicKeys).map(nearAccessKeyStub),
+        keys: [],
       };
     case 'view_account':
       return {
-        amount: '0',
+        amount: '1000000000000000000000000',
         locked: '0',
         code_hash: NEAR_STUB_BLOCK_HASH,
         storage_usage: 0,
@@ -1542,19 +1775,16 @@ function nearRpcQueryStubResult(
         block_height: 1,
         block_hash: NEAR_STUB_BLOCK_HASH,
       };
+    case 'call_function':
+      return {
+        result: Array.from(new TextEncoder().encode(JSON.stringify('Hello from local NEAR'))),
+        logs: [],
+        block_height: 1,
+        block_hash: NEAR_STUB_BLOCK_HASH,
+      };
     default:
       return {};
   }
-}
-
-function nearAccessKeyStub(publicKey: string): Record<string, unknown> {
-  return {
-    public_key: publicKey,
-    access_key: {
-      nonce: 1,
-      permission: 'FullAccess',
-    },
-  };
 }
 
 function signingAuthExpectationForStage(
@@ -1565,6 +1795,7 @@ function signingAuthExpectationForStage(
   switch (stage) {
     case 'post_registration':
     case 'post_unlock':
+    case 'after_refresh_recovery':
       return 'warm_session';
     case 'after_step_up':
       if (flow.startsWith('passkey')) {
@@ -1928,6 +2159,17 @@ function minimumRemainingUse(summary: SigningAuthEventSummary): number | null {
   return Math.min(...summary.remainingUses);
 }
 
+function assertSigningRemainingUses(
+  summary: SigningAuthEventSummary,
+  expected: number,
+  label: string,
+): void {
+  const actual = minimumRemainingUse(summary);
+  if (actual !== expected) {
+    throw new Error(`${label} expected remainingUses=${expected}; received ${String(actual)}`);
+  }
+}
+
 function signingEventPhase(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
   const phase = payload.phase;
@@ -1960,169 +2202,6 @@ function eventAuthMethod(payload: unknown): SigningAuthMethod | null {
   return null;
 }
 
-function registrationTimingViolationFromConsoleMessage(text: string): string | null {
-  const summary = parseRegistrationTimingSummaryConsoleMessage(text);
-  if (!summary) return null;
-  const advanceProvenance = registrationHssAdvanceProvenanceFromTimingSummary(summary);
-  switch (advanceProvenance.kind) {
-    case 'not_ed25519_registration':
-    case 'ed25519_advance_source':
-      break;
-    case 'missing_ed25519_advance_source':
-      return 'registration_hss_advance_provenance_missing: successful Ed25519 registration did not report HSS advance provenance';
-    default:
-      return assertNever(advanceProvenance);
-  }
-  const finalizeProvenance = registrationHssFinalizeProvenanceFromTimingSummary(summary);
-  switch (finalizeProvenance.kind) {
-    case 'not_ed25519_registration':
-    case 'durable_registration_hss':
-      return null;
-    case 'missing_ed25519_finalize_source':
-      return 'registration_hss_finalize_provenance_missing: successful Ed25519 registration did not report HSS finalize provenance';
-    case 'serialized_registration_hss_replay':
-      return 'registration_hss_serialized_replay: successful Ed25519 registration used serialized HSS replay';
-    default:
-      return assertNever(finalizeProvenance);
-  }
-}
-
-function parseRegistrationTimingSummaryConsoleMessage(text: string): Record<string, unknown> | null {
-  const labelIndex = text.indexOf(REGISTRATION_TIMING_LABEL);
-  if (labelIndex < 0) return null;
-  const jsonStart = text.indexOf('{', labelIndex + REGISTRATION_TIMING_LABEL.length);
-  if (jsonStart < 0) return null;
-  try {
-    const parsed = JSON.parse(text.slice(jsonStart));
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function registrationHssFinalizeProvenanceFromTimingSummary(
-  summary: Record<string, unknown>,
-): RegistrationHssFinalizeProvenance {
-  if (!registrationTimingSummaryRequiresEd25519FinalizeSource(summary)) {
-    return { kind: 'not_ed25519_registration' };
-  }
-  const sources = registrationFinalizeHssSourcesFromTimingSummary(summary);
-  if (sources.includes('serialized_replay')) {
-    return { kind: 'serialized_registration_hss_replay', source: 'serialized_replay' };
-  }
-  const durableSource = sources.find(isDurableRegistrationHssFinalizeSource);
-  if (durableSource) {
-    return { kind: 'durable_registration_hss', source: durableSource };
-  }
-  return { kind: 'missing_ed25519_finalize_source' };
-}
-
-function registrationHssAdvanceProvenanceFromTimingSummary(
-  summary: Record<string, unknown>,
-): RegistrationHssAdvanceProvenance {
-  if (!registrationTimingSummaryRequiresEd25519FinalizeSource(summary)) {
-    return { kind: 'not_ed25519_registration' };
-  }
-  const sources = registrationAdvanceHssSourcesFromTimingSummary(summary);
-  const source = sources[0];
-  if (source) {
-    return { kind: 'ed25519_advance_source', source };
-  }
-  return { kind: 'missing_ed25519_advance_source' };
-}
-
-function registrationTimingSummaryRequiresEd25519FinalizeSource(
-  summary: Record<string, unknown>,
-): boolean {
-  if (summary.kind !== 'registration_timing_summary_v1') return false;
-  if (summary.status !== 'succeeded') return false;
-  const timings = summary.timings;
-  if (!isRecord(timings)) return false;
-  const ed25519 = timings.ed25519;
-  if (!isRecord(ed25519)) return false;
-  return ed25519.kind === 'ed25519_enabled';
-}
-
-function registrationAdvanceHssSourcesFromTimingSummary(
-  summary: Record<string, unknown>,
-): RegistrationHssAdvanceSource[] {
-  const relayDiagnostics = summary.relayDiagnostics;
-  if (!Array.isArray(relayDiagnostics)) return [];
-  const sources: RegistrationHssAdvanceSource[] = [];
-  for (const diagnostics of relayDiagnostics) {
-    const source = registrationAdvanceHssSourceFromRouteDiagnostics(diagnostics);
-    if (source) sources.push(source);
-  }
-  return sources;
-}
-
-function registrationFinalizeHssSourcesFromTimingSummary(
-  summary: Record<string, unknown>,
-): RegistrationHssFinalizeSource[] {
-  const relayDiagnostics = summary.relayDiagnostics;
-  if (!Array.isArray(relayDiagnostics)) return [];
-  const sources: RegistrationHssFinalizeSource[] = [];
-  for (const diagnostics of relayDiagnostics) {
-    const source = registrationFinalizeHssSourceFromRouteDiagnostics(diagnostics);
-    if (source) sources.push(source);
-  }
-  return sources;
-}
-
-function registrationAdvanceHssSourceFromRouteDiagnostics(
-  raw: unknown,
-): RegistrationHssAdvanceSource | null {
-  if (!isRecord(raw)) return null;
-  if (raw.route !== 'wallets_register_hss_advance_state') return null;
-  const ed25519HssAdvance = raw.ed25519HssAdvance;
-  if (!isRecord(ed25519HssAdvance)) return null;
-  return parseRegistrationHssAdvanceSource(ed25519HssAdvance.source);
-}
-
-function registrationFinalizeHssSourceFromRouteDiagnostics(
-  raw: unknown,
-): RegistrationHssFinalizeSource | null {
-  if (!isRecord(raw)) return null;
-  if (raw.route !== 'wallets_register_finalize') return null;
-  const ed25519HssFinalize = raw.ed25519HssFinalize;
-  if (!isRecord(ed25519HssFinalize)) return null;
-  return parseRegistrationHssFinalizeSource(ed25519HssFinalize.source);
-}
-
-function parseRegistrationHssAdvanceSource(raw: unknown): RegistrationHssAdvanceSource | null {
-  switch (raw) {
-    case 'durable_workerd_wasm':
-      return raw;
-    default:
-      return null;
-  }
-}
-
-function parseRegistrationHssFinalizeSource(raw: unknown): RegistrationHssFinalizeSource | null {
-  switch (raw) {
-    case 'durable_advanced_eval':
-    case 'durable_finalized_report':
-    case 'serialized_replay':
-      return raw;
-    default:
-      return null;
-  }
-}
-
-function isDurableRegistrationHssFinalizeSource(
-  source: RegistrationHssFinalizeSource,
-): source is Exclude<RegistrationHssFinalizeSource, 'serialized_replay'> {
-  switch (source) {
-    case 'durable_advanced_eval':
-    case 'durable_finalized_report':
-      return true;
-    case 'serialized_replay':
-      return false;
-    default:
-      return assertNever(source);
-  }
-}
-
 function requirePasskeyRegistrationResult(
   snapshot: IntendedPageSnapshot,
   expectedWalletId: string,
@@ -2145,6 +2224,26 @@ function requirePasskeyRegistrationResult(
   }
   if (!result.operationalPublicKey) {
     throw new Error('Passkey registration result is missing operationalPublicKey');
+  }
+  return result;
+}
+
+function requireEd25519AddSignerResult(
+  snapshot: IntendedPageSnapshot,
+  expectedWalletId: string,
+): Ed25519AddSignerResultSnapshot {
+  if (snapshot.action.status !== 'success') {
+    throw new Error(`Ed25519 add-signer did not succeed: ${snapshot.action.status}`);
+  }
+  const result = snapshot.action.result;
+  if (result.kind !== 'near_ed25519_signer_added') {
+    throw new Error(`Ed25519 add-signer returned unexpected result kind: ${result.kind}`);
+  }
+  if (result.walletId !== expectedWalletId) {
+    throw new Error(`Ed25519 add-signer wallet mismatch: ${result.walletId}`);
+  }
+  if (!result.nearAccountId || !result.nearEd25519SigningKeyId || !result.operationalPublicKey) {
+    throw new Error('Ed25519 add-signer result is missing signer identity');
   }
   return result;
 }
@@ -2430,29 +2529,6 @@ function requireArcEvmSigningResult(
   return result;
 }
 
-function requireEd25519ExportResult(
-  snapshot: IntendedPageSnapshot,
-  expected: {
-    walletId: string;
-    nearAccountId: string;
-  },
-): Ed25519ExportResultSnapshot {
-  if (snapshot.action.status !== 'success') {
-    throw new Error(`Ed25519 export did not succeed: ${snapshot.action.status}`);
-  }
-  const result = snapshot.action.result;
-  if (result.kind !== 'ed25519_export_success') {
-    throw new Error(`Ed25519 export returned unexpected result kind: ${result.kind}`);
-  }
-  if (result.walletId !== expected.walletId) {
-    throw new Error(`Ed25519 export wallet mismatch: ${result.walletId}`);
-  }
-  if (result.nearAccountId !== expected.nearAccountId) {
-    throw new Error(`Ed25519 export NEAR account mismatch: ${result.nearAccountId}`);
-  }
-  return result;
-}
-
 function requireEcdsaExportResult(
   snapshot: IntendedPageSnapshot,
   expected: {
@@ -2476,93 +2552,27 @@ function requireEcdsaExportResult(
   return result;
 }
 
-function requireEmailRecoveryStartResult(
+function requireEd25519ExportResult(
   snapshot: IntendedPageSnapshot,
   expected: {
     walletId: string;
     nearAccountId: string;
   },
-): EmailRecoveryStartResultSnapshot {
+): Ed25519ExportResultSnapshot {
   if (snapshot.action.status !== 'success') {
-    throw new Error(`Email recovery start did not succeed: ${snapshot.action.status}`);
+    throw new Error(`Ed25519 export did not succeed: ${snapshot.action.status}`);
   }
   const result = snapshot.action.result;
-  if (result.kind !== 'email_recovery_start_success') {
-    throw new Error(`Email recovery start returned unexpected result kind: ${result.kind}`);
+  if (result.kind !== 'ed25519_export_success') {
+    throw new Error(`Ed25519 export returned unexpected result kind: ${result.kind}`);
   }
   if (result.walletId !== expected.walletId) {
-    throw new Error(`Email recovery start wallet mismatch: ${result.walletId}`);
+    throw new Error(`Ed25519 export wallet mismatch: ${result.walletId}`);
   }
   if (result.nearAccountId !== expected.nearAccountId) {
-    throw new Error(`Email recovery start NEAR account mismatch: ${result.nearAccountId}`);
-  }
-  if (!result.nearPublicKey) {
-    throw new Error('Email recovery start did not return nearPublicKey');
-  }
-  if (!result.mailtoUrl.startsWith('mailto:')) {
-    throw new Error(`Email recovery start returned invalid mailtoUrl: ${result.mailtoUrl}`);
+    throw new Error(`Ed25519 export NEAR account mismatch: ${result.nearAccountId}`);
   }
   return result;
-}
-
-function requireEmailRecoveryFinalizeResult(
-  snapshot: IntendedPageSnapshot,
-  expected: EmailRecoveryStartResultSnapshot,
-): EmailRecoveryFinalizeResultSnapshot {
-  if (snapshot.action.status !== 'success') {
-    throw new Error(`Email recovery finalize did not succeed: ${snapshot.action.status}`);
-  }
-  const result = snapshot.action.result;
-  if (result.kind !== 'email_recovery_finalize_success') {
-    throw new Error(`Email recovery finalize returned unexpected result kind: ${result.kind}`);
-  }
-  if (result.walletId !== expected.walletId) {
-    throw new Error(`Email recovery finalize wallet mismatch: ${result.walletId}`);
-  }
-  if (result.nearAccountId !== expected.nearAccountId) {
-    throw new Error(`Email recovery finalize NEAR account mismatch: ${result.nearAccountId}`);
-  }
-  if (result.nearPublicKey !== expected.nearPublicKey) {
-    throw new Error('Email recovery finalize NEAR public key mismatch');
-  }
-  return result;
-}
-
-function recoveredWalletSnapshot(args: {
-  registration: RegisteredWalletSnapshot;
-  recovery: EmailRecoveryStartResultSnapshot;
-}): RegisteredWalletSnapshot {
-  switch (args.registration.ecdsaTargetProfile) {
-    case 'none':
-      if (args.recovery.ecdsaTargetKeys.kind !== 'none') {
-        throw new Error('Recovered wallet ECDSA target profile mismatch: none');
-      }
-      return {
-        ...args.registration,
-        operationalPublicKey: args.recovery.nearPublicKey,
-        ecdsaTargetKeys: args.recovery.ecdsaTargetKeys,
-      };
-    case 'tempo':
-      if (args.recovery.ecdsaTargetKeys.kind !== 'tempo') {
-        throw new Error('Recovered wallet ECDSA target profile mismatch: tempo');
-      }
-      return {
-        ...args.registration,
-        operationalPublicKey: args.recovery.nearPublicKey,
-        ecdsaTargetKeys: args.recovery.ecdsaTargetKeys,
-      };
-    case 'tempo_arc':
-      if (args.recovery.ecdsaTargetKeys.kind !== 'tempo_arc') {
-        throw new Error('Recovered wallet ECDSA target profile mismatch: tempo_arc');
-      }
-      return {
-        ...args.registration,
-        operationalPublicKey: args.recovery.nearPublicKey,
-        ecdsaTargetKeys: args.recovery.ecdsaTargetKeys,
-      };
-    default:
-      return assertNever(args.registration);
-  }
 }
 
 async function verifyNearEd25519Signature(args: {
@@ -2637,7 +2647,7 @@ async function verifyArcEvmSignature(args: {
     throw new Error(`Arc/EVM raw transaction chainId mismatch: ${String(transaction.chainId)}`);
   }
   const recovered = await recoverTransactionAddress({
-    serializedTransaction: args.result.rawTxHex,
+    serializedTransaction: serializeTransaction(transaction),
   });
   assertSameEcdsaAddress({
     actual: recovered,
@@ -2991,6 +3001,20 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         ),
         ...parseEcdsaEnabledSnapshot(record, 'passkey registration'),
       };
+    case 'near_ed25519_signer_added':
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'Ed25519 add-signer walletId'),
+        nearAccountId: requireString(record.nearAccountId, 'Ed25519 add-signer nearAccountId'),
+        nearEd25519SigningKeyId: requireString(
+          record.nearEd25519SigningKeyId,
+          'Ed25519 add-signer nearEd25519SigningKeyId',
+        ),
+        operationalPublicKey: requireString(
+          record.operationalPublicKey,
+          'Ed25519 add-signer operationalPublicKey',
+        ),
+      };
     case 'near_sign_success':
       return {
         kind,
@@ -3072,49 +3096,27 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         txHashHex: requireHexString(record.txHashHex, 'Arc/EVM signing txHashHex'),
         rawTxHex: requireHexString(record.rawTxHex, 'Arc/EVM signing rawTxHex'),
       };
-    case 'ed25519_export_success':
-      return {
-        kind,
-        walletId: requireString(record.walletId, 'Ed25519 export walletId'),
-        nearAccountId: requireString(record.nearAccountId, 'Ed25519 export nearAccountId'),
-      };
     case 'ecdsa_export_success':
       return {
         kind,
         walletId: requireString(record.walletId, 'ECDSA export walletId'),
         chainId: requirePositiveInteger(record.chainId, 'ECDSA export chainId'),
       };
-    case 'email_recovery_start_success':
+    case 'ed25519_export_success':
       return {
         kind,
-        walletId: requireString(record.walletId, 'Email recovery start walletId'),
-        nearAccountId: requireString(record.nearAccountId, 'Email recovery start nearAccountId'),
-        nearPublicKey: requireString(record.nearPublicKey, 'Email recovery start nearPublicKey'),
-        mailtoUrl: requireString(record.mailtoUrl, 'Email recovery start mailtoUrl'),
-        ecdsaTargetKeys: parseEcdsaTargetKeys(
-          record.ecdsaTargetKeys,
-          'Email recovery start',
-        ),
-      };
-    case 'email_recovery_finalize_success':
-      return {
-        kind,
-        walletId: requireString(record.walletId, 'Email recovery finalize walletId'),
-        nearAccountId: requireString(
-          record.nearAccountId,
-          'Email recovery finalize nearAccountId',
-        ),
-        nearPublicKey: requireString(
-          record.nearPublicKey,
-          'Email recovery finalize nearPublicKey',
-        ),
+        walletId: requireString(record.walletId, 'Ed25519 export walletId'),
+        nearAccountId: requireString(record.nearAccountId, 'Ed25519 export nearAccountId'),
       };
     default:
       throw new Error(`Unknown intended action result kind: ${kind}`);
   }
 }
 
-function parseEcdsaEnabledSnapshot(raw: Record<string, unknown>, label: string): EcdsaEnabledSnapshot {
+function parseEcdsaEnabledSnapshot(
+  raw: Record<string, unknown>,
+  label: string,
+): EcdsaEnabledSnapshot {
   const profile = parseEcdsaTargetProfileName(recordValue(raw, 'ecdsaTargetProfile'), label);
   const ecdsaTargetKeys = parseEcdsaTargetKeys(raw.ecdsaTargetKeys, label);
   switch (profile) {
@@ -3186,11 +3188,7 @@ function parseEcdsaTargetKeys(raw: unknown, label: string): EcdsaTargetKeysSnaps
       return {
         kind: 'tempo_arc',
         tempo: parseEcdsaTargetKey(record.tempo, 'tempo', `${label} Tempo ECDSA target key`),
-        arcEvm: parseEcdsaTargetKey(
-          record.arcEvm,
-          'arc_evm',
-          `${label} Arc/EVM ECDSA target key`,
-        ),
+        arcEvm: parseEcdsaTargetKey(record.arcEvm, 'arc_evm', `${label} Arc/EVM ECDSA target key`),
       };
     default:
       return assertNever(kind);
@@ -3220,6 +3218,9 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
   const action = requireString(raw, 'intended action');
   switch (action) {
     case 'registerPasskeyWallet':
+    case 'registerPasskeyEd25519YaoWallet':
+    case 'registerPreparedIframePasskeyEd25519YaoWallet':
+    case 'addPasskeyEd25519YaoWalletSigner':
     case 'registerEmailOtpWallet':
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
@@ -3228,12 +3229,100 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'signArcEvmTransaction':
     case 'exportEd25519Key':
     case 'exportEcdsaKey':
-    case 'startEmailRecovery':
-    case 'finalizeEmailRecovery':
       return action;
     default:
       throw new Error(`Unknown intended action: ${action}`);
   }
+}
+
+function routerAbEd25519SigningPath(
+  rawUrl: string | undefined,
+  routerUrl: string,
+): (typeof ROUTER_AB_ED25519_SIGNING_PATHS)[number] | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(routerUrl).origin) return null;
+  for (const path of ROUTER_AB_ED25519_SIGNING_PATHS) {
+    if (url.pathname === path) return path;
+  }
+  return null;
+}
+
+function routerAbEd25519YaoRegistrationPath(
+  rawUrl: string | undefined,
+  routerUrl: string,
+): (typeof ROUTER_AB_ED25519_YAO_REGISTRATION_PATHS)[number] | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(routerUrl).origin) return null;
+  for (const path of ROUTER_AB_ED25519_YAO_REGISTRATION_PATHS) {
+    if (url.pathname === path) return path;
+  }
+  return null;
+}
+
+function routerAbEd25519YaoRecoveryPath(
+  rawUrl: string | undefined,
+  routerUrl: string,
+): (typeof ROUTER_AB_ED25519_YAO_RECOVERY_PATHS)[number] | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(routerUrl).origin) return null;
+  for (const path of ROUTER_AB_ED25519_YAO_RECOVERY_PATHS) {
+    if (url.pathname === path) return path;
+  }
+  return null;
+}
+
+function routerAbEd25519YaoWarmRecoveryPath(
+  rawUrl: string | undefined,
+  routerUrl: string,
+): (typeof ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS)[number] | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(routerUrl).origin) return null;
+  for (const path of ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS) {
+    if (url.pathname === path) return path;
+  }
+  return null;
+}
+
+function routerAbEd25519YaoExportPath(
+  rawUrl: string | undefined,
+  routerUrl: string,
+): (typeof ROUTER_AB_ED25519_YAO_EXPORT_PATHS)[number] | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(routerUrl).origin) return null;
+  for (const path of ROUTER_AB_ED25519_YAO_EXPORT_PATHS) {
+    if (url.pathname === path) return path;
+  }
+  return null;
 }
 
 function requireRecord(raw: unknown, label: string): Record<string, unknown> {
@@ -3299,7 +3388,7 @@ function recordAutoConfirmMark(
 
 async function fillWalletIframeEmailOtpIfAvailable(
   page: Page,
-  frame: Frame,
+  frame: FrameLocator,
   opts?: {
     timeoutMs?: number;
     diagnostics?: WalletIframeAutoConfirmDiagnostics;
@@ -3426,8 +3515,7 @@ async function clickWalletIframeConfirm(
       .catch(() => false);
     if (!attached) return false;
     recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstIframeAttachedMs');
-    const frame = await iframeEl.contentFrame();
-    if (!frame) return false;
+    const frame = iframeEl.contentFrame();
     recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstFrameResolvedMs');
 
     const otpFilled = await fillWalletIframeEmailOtpIfAvailable(page, frame, {

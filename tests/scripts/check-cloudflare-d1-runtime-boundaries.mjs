@@ -28,14 +28,6 @@ function expect(actual, message) {
   };
 }
 
-function extractDelimitedSource(source, startToken, endToken) {
-  const start = source.indexOf(startToken);
-  if (start < 0) return '';
-  const end = source.indexOf(endToken, start + startToken.length);
-  if (end < 0) return source.slice(start);
-  return source.slice(start, end);
-}
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,8 +66,11 @@ const observabilityDocPaths = [
 ];
 const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
 const walletRegistrationRoutesPath = 'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts';
-const thresholdSigningServicePath = 'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts';
-const thresholdServiceSchemesTypesPath = 'packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts';
+const syncAccountRequestValidationPath = 'packages/sdk-server-ts/src/router/syncAccountRequestValidation.ts';
+const authServicePortPath = 'packages/sdk-server-ts/src/router/authServicePort.ts';
+const authServiceWebAuthnPath = 'packages/sdk-server-ts/src/core/authService/webauthn.ts';
+const d1WebAuthnAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnAuthService.ts';
+const sdkWebSyncAccountPath = 'packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts';
 const sdkServerCoreTypesPath = 'packages/sdk-server-ts/src/core/types.ts';
 const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/routeDefinitions.ts';
 const routeExecutionContextPath = 'packages/sdk-server-ts/src/router/routeExecutionContext.ts';
@@ -641,16 +636,11 @@ const activeRouterApiTextPaths = [
     'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiOidc.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiRegistrationCeremony.unit.test.ts',
-    'tests/unit/cloudflareD1RouterApiRegistrationPolicy.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiServiceSurface.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts',
     'tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts',
     'voiceId/README.md',
-    'voiceId/server/src/sdkRouterApiExtension.ts',
     'voiceId/docs/voiceId-mvp-1-tasks.md',
-    'voiceId/docs/voiceId-mvp-2.md',
-    'voiceId/docs/voiceId-normal-sdk-transaction-signing.md',
-    'voiceId/docs/voiceId-sdk-auth-method-integration.md',
     'packages/console-server-ts/wrangler.d1-staging-console.toml.example',
     'packages/console-server-ts/wrangler.d1-staging-router-api.toml.example',
     'wasm/near_signer/src/types/signing.rs',
@@ -849,15 +839,15 @@ const registrationSignerFilenameScanRoots = [
 ];
 const forbiddenPublicRegistrationLegacySelectionTokens = [
     {
-        token: 'ed25519_and_ecdsa',
+        token: "mode: 'ed25519_and_ecdsa'",
         message: 'constructs legacy combined registration signer selection',
     },
     {
-        token: 'ed25519_only',
+        token: "mode: 'ed25519_only'",
         message: 'constructs legacy Ed25519-only registration signer selection',
     },
     {
-        token: 'ecdsa_only',
+        token: "mode: 'ecdsa_only'",
         message: 'constructs legacy ECDSA-only registration signer selection',
     },
     {
@@ -2150,221 +2140,17 @@ function d1LocalDevRouterApiRoutePrefixViolations() {
     return violations.sort();
 }
 
-function ed25519RegistrationAuthorityBoundaryViolations() {
+function syncAccountSessionPolicyInputViolations() {
     const violations = [];
-    const thresholdSigningService = readSource(thresholdSigningServicePath);
-    const thresholdServiceSchemesTypes = readSource(thresholdServiceSchemesTypesPath);
-    const coreTypes = readSource(sdkServerCoreTypesPath);
-    if (/mintEd25519SessionFromRegistration\s*\(\s*input:\s*\{[^}]*authorityScope:/s.test(thresholdSigningService)) {
-        violations.push(`${thresholdSigningServicePath}: mintEd25519SessionFromRegistration accepts authorityScope instead of WalletAuthAuthority`);
-    }
-    if (/ThresholdEd25519RegistrationKeygenRequest\s*=\s*\{[^}]*authorityScope:/s.test(thresholdServiceSchemesTypes)) {
-        violations.push(`${thresholdServiceSchemesTypesPath}: registration keygen request accepts authorityScope instead of WalletAuthAuthority`);
-    }
-    if (/interface\s+ThresholdEd25519HssFinalizeForRegistrationRequest\s*\{[^}]*authorityScope:/s.test(coreTypes)) {
-        violations.push(`${sdkServerCoreTypesPath}: HSS registration finalize request accepts authorityScope instead of WalletAuthAuthority`);
-    }
-    if (!thresholdSigningService.includes('walletAuthAuthoritiesMatch(policyAuthority, authority)')) {
-        violations.push(`${thresholdSigningServicePath}: registration session mint does not compare the full wallet authority`);
-    }
-    return violations.sort();
-}
-function durableEd25519HssCeremonyStoreViolations() {
-    const violations = [];
-    const localWorker = readSource(cloudflareD1LocalDevWorkerPath);
-    const stagingWorker = readSource(cloudflareD1RouterApiStagingWorkerPath);
-    const thresholdFactory = readSource('packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts');
-    const doStore = readSource('packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts');
-    const forbiddenWorkerTokens = [
-        'LOCAL_D1_ED25519_HSS_CEREMONY_STORE',
-        'STAGING_D1_ED25519_HSS_CEREMONY_STORE',
-        'ed25519HssCeremonyStore:',
-    ];
-    for (const token of forbiddenWorkerTokens) {
-        if (localWorker.includes(token)) {
-            violations.push(`${cloudflareD1LocalDevWorkerPath}: contains ${token}`);
-        }
-        if (stagingWorker.includes(token)) {
-            violations.push(`${cloudflareD1RouterApiStagingWorkerPath}: contains ${token}`);
-        }
-    }
-    if (!thresholdFactory.includes('ed25519Stores.ed25519HssCeremonyStore')) {
-        violations.push('Cloudflare threshold factory does not wire the DO-backed Ed25519 HSS store');
-    }
-    const requiredDoStoreTokens = [
-        'class CloudflareDurableObjectThresholdEd25519HssCeremonyStore',
-        'durable Ed25519 HSS ceremony cannot store preparedSessionHandle',
-        'durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle',
-        'durable Ed25519 HSS evaluationResult artifact is required',
-        'durable Ed25519 HSS evaluationResult add-stage request is required',
-        'base64UrlEncode(preparedServerSession.evaluatorDriverStateBytes)',
-        "op: 'getdel'",
-    ];
-    for (const token of requiredDoStoreTokens) {
-        if (!doStore.includes(token)) {
-            violations.push(`Cloudflare DO store missing Ed25519 HSS durable ceremony token: ${token}`);
-        }
-    }
-    return violations.sort();
-}
-function d1WalletRegistrationSerializedReplayViolations() {
-    const source = readSource(d1WalletRegistrationServicePath);
-    const violations = [];
-    const forbiddenPatterns = [
-        {
-            pattern: /serverEvalSource\s*:\s*\{\s*kind:\s*['"]serialized_replay['"]\s*\}/,
-            message: 'passes serialized replay into registration HSS finalize',
-        },
-        {
-            pattern: /hssFinalizeSource\s*=\s*['"]serialized_replay['"]/,
-            message: 'records serialized replay as a normal registration HSS finalize source',
-        },
-    ];
-    for (const { pattern, message } of forbiddenPatterns) {
-        if (pattern.test(source)) {
-            violations.push(`${d1WalletRegistrationServicePath}: ${message}`);
-        }
-    }
-    return violations.sort();
-}
-function ed25519HssSessionAdvanceViolations() {
-    const thresholdService = readSource(thresholdSigningServicePath);
-    const cloudflareRoute = readSource('packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts');
-    const hssLifecycle = readSource('packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts');
-    const emailOtpWorkerPath = 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts';
-    const emailOtpWorker = readSource(emailOtpWorkerPath);
-    const doStore = readSource('packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts');
-    const highLevelEd25519HssSources = [
-        'packages/sdk-web/src/core/signingEngine/threshold/ed25519/public.ts',
-        'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts',
-        'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
-        'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
-        'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-        'packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts',
-    ].map((filePath) => [filePath, readSource(filePath)]);
-    const violations = [];
-    const requiredTokens = [
-        [thresholdSigningServicePath, thresholdService, 'advanceWithSession'],
-        [thresholdSigningServicePath, thresholdService, 'hss_advance_required'],
-        [thresholdSigningServicePath, thresholdService, "serverEvalSource: { kind: 'durable_advanced_eval', advancedServerEval }"],
-        ['packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts', cloudflareRoute, 'ROUTER_AB_ED25519_HSS_ADVANCE_PATH'],
-        ['packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts', cloudflareRoute, 'parseThresholdEd25519HssAdvanceWithSessionRouteRequest'],
-        ['packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts', hssLifecycle, 'advanceThresholdEd25519HssServerCeremonyWithSession'],
-        [emailOtpWorkerPath, emailOtpWorker, 'advanceThresholdEd25519HssServerCeremonyWithSession'],
-        ['packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts', hssLifecycle, "addStageVerification: 'required'"],
-        ['packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts', doStore, 'advancedServerEvalStateB64u'],
-        ['packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts', doStore, 'finalizeContextB64u'],
-    ];
-    for (const [filePath, source, token] of requiredTokens) {
-        if (!source.includes(token)) {
-            violations.push(`${filePath}: missing session HSS advance token ${token}`);
-        }
-    }
-    const finalizeWithSessionBlock = extractDelimitedSource(
-        thresholdService,
-        'private async ed25519HssFinalizeWithSession',
-        'private async registrationResultFromDurableFinalizedReport',
-    );
-    if (/serverEvalSource\s*:\s*\{\s*kind:\s*['"]serialized_replay['"]\s*\}/.test(finalizeWithSessionBlock)) {
-        violations.push(`${thresholdSigningServicePath}: session HSS finalize still permits serialized replay`);
-    }
-    const emailOtpSeedExportBlock = extractDelimitedSource(
-        emailOtpWorker,
-        'async function runThresholdEd25519SeedExportFromPrfFirst',
-        'async function buildEmailOtpEcdsaClientRootProof',
-    );
-    const emailOtpSeedExportTokens = [
-        'respondThresholdEd25519HssServerCeremonyWithSession',
-        'threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact',
-        'advanceThresholdEd25519HssServerCeremonyWithSession',
-        'finalizeThresholdEd25519HssServerCeremonyWithSession',
-    ];
-    let previousOffset = -1;
-    for (const token of emailOtpSeedExportTokens) {
-        const offset = emailOtpSeedExportBlock.indexOf(token);
-        if (offset === -1) {
-            violations.push(`${emailOtpWorkerPath}: Email OTP Ed25519 export missing ${token}`);
-            continue;
-        }
-        if (offset <= previousOffset) {
-            violations.push(`${emailOtpWorkerPath}: Email OTP Ed25519 export calls ${token} out of order`);
-        }
-        previousOffset = offset;
-    }
-    for (const [filePath, source] of highLevelEd25519HssSources) {
-        if (/addStageVerification\s*:\s*['"]skip['"]/.test(source)) {
-            violations.push(`${filePath}: high-level Ed25519 HSS path permits skipped add-stage verification`);
-        }
-        if (/\bkind\s*:\s*['"]fused['"]/.test(source)) {
-            violations.push(`${filePath}: high-level Ed25519 HSS path permits fused artifact construction`);
-        }
-    }
-    return violations.sort();
-}
-function d1WalletRegistrationEd25519HssWorkerWasmViolations() {
-    const routeSource = readSource(d1WalletRegistrationServicePath);
-    const authServiceSource = readSource(cloudflareD1RouterApiAuthServicePath);
-    const authConfigSource = readSource('packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts');
-    const stagingWorkerSource = readSource(cloudflareD1RouterApiStagingWorkerPath);
-    const violations = [];
-    if (!routeSource.includes('threshold.ed25519Hss.advanceForRegistration')) {
-        violations.push(`${d1WalletRegistrationServicePath}: does not advance registration Ed25519 HSS through the Worker WASM threshold service`);
-    }
-    if (!routeSource.includes("source: 'durable_workerd_wasm'")) {
-        violations.push(`${d1WalletRegistrationServicePath}: does not stamp Worker WASM advance provenance`);
-    }
-    const retiredTokens = [
-        'getEd25519HssNativeServicePort',
-        'warmD1RegistrationEd25519Hss',
-        'warmWalletRegistrationHss',
-        'wallets_register_hss_warmup',
-        'registrationHssWarmupMs',
-        'Ed25519HssNativeServicePort',
-        'ed25519HssNativeService',
-        'ED25519_HSS_NATIVE_SERVICE',
-        "source: 'native_service'",
-    ];
-    for (const [relativePath, source] of [
-        [d1WalletRegistrationServicePath, routeSource],
-        [cloudflareD1RouterApiAuthServicePath, authServiceSource],
-        ['packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts', authConfigSource],
-        [cloudflareD1RouterApiStagingWorkerPath, stagingWorkerSource],
+    for (const relativePath of [
+        syncAccountRequestValidationPath,
+        authServicePortPath,
+        authServiceWebAuthnPath,
+        d1WebAuthnAuthServicePath,
+        sdkWebSyncAccountPath,
     ]) {
-        for (const token of retiredTokens) {
-            if (source.includes(token)) {
-                violations.push(`${relativePath}: contains retired registration HSS native/warmup token ${token}`);
-            }
-        }
-    }
-    return violations.sort();
-}
-function d1RegistrationEd25519HssProcessHandlePersistenceViolations() {
-    const durableRegistrationPaths = [
-        d1RegistrationCeremonyRecordsPath,
-        d1RegistrationCeremonyStorePath,
-        d1RegistrationCeremonyDoPath,
-    ];
-    const forbiddenPatterns = [
-        {
-            pattern: /\bpreparedSessionHandle\b/,
-            message: 'persists process-local prepared HSS session handles',
-        },
-        {
-            pattern: /\bstagedEvaluatorArtifactHandle\b/,
-            message: 'persists process-local staged evaluator artifact handles',
-        },
-        {
-            pattern: /\b(?:native|process|wasm)(?:Session|Artifact|Eval)?Handle\b/,
-            message: 'persists native/process/WASM HSS handles',
-        },
-    ];
-    const violations = [];
-    for (const relativePath of durableRegistrationPaths) {
-        const source = readSource(relativePath);
-        for (const { pattern, message } of forbiddenPatterns) {
-            if (pattern.test(source)) {
-                violations.push(`${relativePath}: ${message}`);
-            }
+        if (readSource(relativePath).includes('threshold_ed25519')) {
+            violations.push(`${relativePath}: exposes the removed sync-account threshold session-policy input`);
         }
     }
     return violations.sort();
@@ -2549,26 +2335,6 @@ test('local D1 Worker forwards Router API route prefixes', () => {
     const violations = d1LocalDevRouterApiRoutePrefixViolations();
     expect(violations, violations.join('\n')).toEqual([]);
 });
-test('Ed25519 HSS session ceremony state is DO-backed in Cloudflare D1 workers', () => {
-    const violations = durableEd25519HssCeremonyStoreViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('Cloudflare D1 wallet registration does not silently choose Ed25519 HSS serialized replay', () => {
-    const violations = d1WalletRegistrationSerializedReplayViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('Ed25519 HSS session ceremonies require durable advance before finalize', () => {
-    const violations = ed25519HssSessionAdvanceViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('Cloudflare D1 wallet registration advances Ed25519 HSS through Worker WASM only', () => {
-    const violations = d1WalletRegistrationEd25519HssWorkerWasmViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
-test('Cloudflare D1 wallet registration never persists Ed25519 HSS process-local handles', () => {
-    const violations = d1RegistrationEd25519HssProcessHandlePersistenceViolations();
-    expect(violations, violations.join('\n')).toEqual([]);
-});
 test('Cloudflare D1 runtime does not revive legacy registration modes', () => {
     const violations = cloudflareRuntimeLegacyRegistrationModeViolations();
     expect(violations, violations.join('\n')).toEqual([]);
@@ -2629,8 +2395,8 @@ test('SDK registration helper files use signer-set filenames', () => {
     const violations = removedRegistrationSignerSelectionFilenameViolations();
     expect(violations, violations.join('\n')).toEqual([]);
 });
-test('Ed25519 registration session authority boundaries use WalletAuthAuthority', () => {
-    const violations = ed25519RegistrationAuthorityBoundaryViolations();
+test('sync-account exposes only verified identity and Yao recovery inputs', () => {
+    const violations = syncAccountSessionPolicyInputViolations();
     expect(violations, violations.join('\n')).toEqual([]);
 });
 

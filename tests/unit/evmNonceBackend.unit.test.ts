@@ -40,13 +40,15 @@ test.describe('EvmNonceBackend', () => {
           },
         });
 
-        const nonce = await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
-          chain: 'evm',
-          networkKey: 'ethereum-sepolia',
-          chainId: 11155111,
-          sender: sender as `0x${string}`,
-          walletId: 'alice.testnet',
-        }));
+        const nonce = await backend.fetchChainNonce(
+          mod.reserveNonceInputFromBoundary({
+            chain: 'evm',
+            networkKey: 'ethereum-sepolia',
+            chainId: 11155111,
+            sender: sender as `0x${string}`,
+            walletId: 'alice.testnet',
+          }),
+        );
 
         return {
           nonce: nonce.toString(),
@@ -70,9 +72,7 @@ test.describe('EvmNonceBackend', () => {
     ]);
   });
 
-  test('routes duplicate chain ids by requested chain family and network key', async ({
-    page,
-  }) => {
+  test('routes duplicate chain ids by requested chain family and network key', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, sender }) => {
         const mod = await import(paths.nonceBackend);
@@ -101,34 +101,37 @@ test.describe('EvmNonceBackend', () => {
           },
         });
 
-        await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
-          chain: 'tempo',
-          networkKey: 'tempo-testnet',
-          chainId: 42431,
-          sender: sender as `0x${string}`,
-          nonceKey: 0n,
-          walletId: 'alice.testnet',
-        }));
-        await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
-          chain: 'evm',
-          networkKey: 'ethereum-sepolia',
-          chainId: 42431,
-          sender: sender as `0x${string}`,
-          walletId: 'alice.testnet',
-        }));
+        await backend.fetchChainNonce(
+          mod.reserveNonceInputFromBoundary({
+            chain: 'tempo',
+            networkKey: 'tempo-testnet',
+            chainId: 42431,
+            sender: sender as `0x${string}`,
+            nonceKey: 0n,
+            walletId: 'alice.testnet',
+          }),
+        );
+        await backend.fetchChainNonce(
+          mod.reserveNonceInputFromBoundary({
+            chain: 'evm',
+            networkKey: 'ethereum-sepolia',
+            chainId: 42431,
+            sender: sender as `0x${string}`,
+            walletId: 'alice.testnet',
+          }),
+        );
 
         return urls;
       },
       { paths: IMPORT_PATHS, sender: TEST_SENDER },
     );
 
-    expect(result).toEqual([
-      'https://tempo-rpc.example.test',
-      'https://sepolia-rpc.example.test',
-    ]);
+    expect(result).toEqual(['https://tempo-rpc.example.test', 'https://sepolia-rpc.example.test']);
   });
 
-  test('backend instances expose only fetch-chain-nonce behavior', async ({ page }) => {
+  test('backend instances expose chain nonce and broadcast transaction reconciliation', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths, sender }) => {
         const mod = await import(paths.nonceBackend);
@@ -148,17 +151,23 @@ test.describe('EvmNonceBackend', () => {
             }),
         });
 
-        const nonce = await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
+        const reservationInput = mod.reserveNonceInputFromBoundary({
           chain: 'tempo',
           networkKey: ' Tempo-Testnet ' as any,
           chainId: 42431,
           sender: sender.toUpperCase() as `0x${string}`,
           nonceKey: '7' as any,
           walletId: 'alice.testnet',
-        }));
+        });
+        const nonce = await backend.fetchChainNonce(reservationInput);
+        const broadcastStatus = await backend.fetchBroadcastTransactionStatus({
+          ...reservationInput,
+          txHash: `0x${'ab'.repeat(32)}`,
+        });
 
         return {
           nonce: nonce.toString(),
+          broadcastStatus,
           backendKeys: Object.keys(backend).sort(),
           moduleKeys: Object.keys(mod).sort(),
         };
@@ -168,7 +177,8 @@ test.describe('EvmNonceBackend', () => {
 
     expect(result).toEqual({
       nonce: '5',
-      backendKeys: ['fetchChainNonce'],
+      broadcastStatus: { kind: 'missing' },
+      backendKeys: ['fetchBroadcastTransactionStatus', 'fetchChainNonce'],
       moduleKeys: [
         'createEvmNonceBackend',
         'fromManagedNonceReservationSnapshot',
@@ -176,6 +186,76 @@ test.describe('EvmNonceBackend', () => {
         'toManagedNonceReservationSnapshot',
       ],
     });
+  });
+
+  test('classifies mined and pending broadcast transactions from RPC state', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths, sender }) => {
+        const mod = await import(paths.nonceBackend);
+        const requests: Array<{ method: string; txHash: string }> = [];
+        const minedTxHash = `0x${'ab'.repeat(32)}` as `0x${string}`;
+        const pendingTxHash = `0x${'cd'.repeat(32)}` as `0x${string}`;
+        const backend = mod.createEvmNonceBackend({
+          chains: [
+            {
+              network: 'tempo-testnet',
+              rpcUrl: 'https://tempo-rpc.example.test',
+              explorerUrl: 'https://tempo-explorer.example.test',
+              chainId: 42431,
+            },
+          ],
+          fetchImpl: async (_url: string, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body || '{}')) as {
+              method: string;
+              params: string[];
+            };
+            const txHash = body.params[0] || '';
+            requests.push({ method: body.method, txHash });
+            const result =
+              body.method === 'eth_getTransactionReceipt'
+                ? txHash === minedTxHash
+                  ? { transactionHash: txHash, blockNumber: '0x1' }
+                  : null
+                : txHash === pendingTxHash
+                  ? { hash: txHash, blockNumber: null }
+                  : null;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', id: '1', result }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          },
+        });
+        const reservationInput = mod.reserveNonceInputFromBoundary({
+          chain: 'tempo',
+          networkKey: 'tempo-testnet',
+          chainId: 42431,
+          sender: sender as `0x${string}`,
+          nonceKey: 7n,
+          walletId: 'alice.testnet',
+        });
+
+        return {
+          mined: await backend.fetchBroadcastTransactionStatus({
+            ...reservationInput,
+            txHash: minedTxHash,
+          }),
+          pending: await backend.fetchBroadcastTransactionStatus({
+            ...reservationInput,
+            txHash: pendingTxHash,
+          }),
+          requests,
+        };
+      },
+      { paths: IMPORT_PATHS, sender: TEST_SENDER },
+    );
+
+    expect(result.mined).toEqual({ kind: 'finalized' });
+    expect(result.pending).toEqual({ kind: 'pending' });
+    expect(result.requests).toEqual([
+      { method: 'eth_getTransactionReceipt', txHash: `0x${'ab'.repeat(32)}` },
+      { method: 'eth_getTransactionReceipt', txHash: `0x${'cd'.repeat(32)}` },
+      { method: 'eth_getTransactionByHash', txHash: `0x${'cd'.repeat(32)}` },
+    ]);
   });
 
   test('managed nonce snapshots fail closed on unknown chain families', async ({ page }) => {

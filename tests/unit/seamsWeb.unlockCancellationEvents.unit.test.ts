@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { unlock } from '@/SeamsWeb/operations/auth/login';
-import {
-  resolveNearAccountIdForWalletAuthUnlockRecord,
-} from '@/SeamsWeb/operations/auth/walletAuth';
+import { resolveNearAccountIdForWalletAuthUnlockRecord } from '@/SeamsWeb/operations/auth/walletAuth';
 import { resolveNearEd25519WalletUnlockSubject } from '@/SeamsWeb/operations/auth/walletUnlockSubject';
 import { SeamsWeb } from '@/SeamsWeb';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -167,7 +165,9 @@ test.describe('SeamsWeb unlock cancellation events', () => {
           message: "Login was cancelled. Please try again when you're ready to authenticate.",
         },
       });
-      expect(getStoredThresholdEd25519SessionRecordForAccount(UNLOCK_NEAR_ACCOUNT_ID)).toMatchObject({
+      expect(
+        getStoredThresholdEd25519SessionRecordForAccount(UNLOCK_NEAR_ACCOUNT_ID),
+      ).toMatchObject({
         walletId: UNLOCK_WALLET_ID,
         nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
@@ -212,7 +212,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
               };
             },
             setLastUser: async () => undefined,
-            updateLastLogin: async () => undefined,
             getNonceCoordinator: () => ({
               recoverDurableLeases: async () => undefined,
             }),

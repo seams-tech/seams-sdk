@@ -67,10 +67,6 @@ test.describe('step-up authorization builders', () => {
       challengeId: 'otp-1',
       otpCode: '123456',
       emailHint: 'a***@x.test',
-      ed25519MaterialRestoreAuthorization: {
-        kind: 'ed25519_email_otp_material_unseal_authorization_unavailable',
-        reason: 'no_recovery_code_material',
-      },
     });
   });
 

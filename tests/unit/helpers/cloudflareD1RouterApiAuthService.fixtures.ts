@@ -6,11 +6,11 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse
+  EcdsaHssServerBootstrapResponse,
 } from '../../../packages/sdk-server-ts/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPreparePayload
+  WalletRegistrationEcdsaPreparePayload,
 } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
 import type { ThresholdSigningService } from '../../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
@@ -20,7 +20,6 @@ import type {
 import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
-import { buildD1ThresholdEd25519RegistrationSessionPolicy } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
@@ -71,7 +70,6 @@ export type WebAuthnAssertionFixture = {
 
 export const TEST_COMBINED_NEAR_ACCOUNT_ID =
   '0000000000000000000000000000000000000000000000000000000000000001';
-export const TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 export function googleEmailOtpD1RegistrationAttemptBoundaryFixture(input: {
   readonly authProvider: string;
@@ -105,34 +103,6 @@ export function googleEmailOtpD1RegistrationAttemptBoundaryFixture(input: {
       projectId: 'project-google-email-otp-boundary',
       envId: 'env-google-email-otp-boundary',
       signingRootVersion: 'root-google-email-otp-boundary',
-    },
-  };
-}
-
-export function testEd25519PreparedServerState() {
-  return {
-    context: {
-      applicationBindingDigestB64u: TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U,
-      participantIds: [1, 2],
-    },
-    preparedServerSession: {
-      evaluatorDriverStateB64u: 'AQ',
-      garblerDriverStateB64u: 'Ag',
-    },
-    serverInputs: {
-      yRelayerB64u: 'Aw',
-      tauRelayerB64u: 'BA',
-    },
-  };
-}
-
-export function testEd25519RespondedServerState() {
-  const prepared = testEd25519PreparedServerState();
-  return {
-    context: prepared.context,
-    preparedServerSession: {
-      ...prepared.preparedServerSession,
-      serverEvalStateB64u: '',
     },
   };
 }
@@ -209,6 +179,21 @@ export class ThrowingDurableObjectNamespace implements CloudflareDurableObjectNa
 export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLike {
   readonly requests: Record<string, unknown>[] = [];
   readonly values = new Map<string, unknown>();
+  private readonly rejectedSetKeys = new Set<string>();
+  private readonly rejectedGetDelKeys = new Set<string>();
+  private readonly rejectedDeleteKeys = new Set<string>();
+
+  rejectNextSet(key: string): void {
+    this.rejectedSetKeys.add(key);
+  }
+
+  rejectNextGetDel(key: string): void {
+    this.rejectedGetDelKeys.add(key);
+  }
+
+  rejectNextDelete(key: string): void {
+    this.rejectedDeleteKeys.add(key);
+  }
 
   async fetch(_input: RequestInfo, init?: RequestInit): Promise<Response> {
     const request = parseRecordingDurableObjectRequest(init?.body);
@@ -219,9 +204,6 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     if (op === 'getdel') return this.handleGetDel(request);
     if (op === 'del') return this.handleDel(request);
     if (op === 'authReserveReplayGuard') return this.handleReserveReplayGuard(request);
-    if (op === 'registrationHssAdvanceClaimTransition') {
-      return this.handleRegistrationHssAdvanceClaimTransition(request);
-    }
     return recordingDurableObjectJson({
       ok: false,
       code: 'unsupported_op',
@@ -231,6 +213,13 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
 
   private handleSet(request: Record<string, unknown>): Response {
     const key = String(request.key || '').trim();
+    if (this.rejectedSetKeys.delete(key)) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'injected_set_failure',
+        message: 'Injected Durable Object set failure',
+      });
+    }
     this.values.set(key, request.value);
     return recordingDurableObjectJson({ ok: true, value: true });
   }
@@ -245,6 +234,13 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
 
   private handleGetDel(request: Record<string, unknown>): Response {
     const key = String(request.key || '').trim();
+    if (this.rejectedGetDelKeys.delete(key)) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'injected_getdel_failure',
+        message: 'Injected Durable Object getdel failure',
+      });
+    }
     const value = this.values.get(key) ?? null;
     this.values.delete(key);
     return recordingDurableObjectJson({ ok: true, value });
@@ -252,6 +248,13 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
 
   private handleDel(request: Record<string, unknown>): Response {
     const key = String(request.key || '').trim();
+    if (this.rejectedDeleteKeys.delete(key)) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'injected_delete_failure',
+        message: 'Injected Durable Object delete failure',
+      });
+    }
     return recordingDurableObjectJson({ ok: true, value: this.values.delete(key) });
   }
 
@@ -268,78 +271,6 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     }
     this.values.set(key, { expiresAtMs });
     return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
-  }
-
-  private handleRegistrationHssAdvanceClaimTransition(request: Record<string, unknown>): Response {
-    const key = String(request.key || '').trim();
-    const transition = isSqliteJsonRow(request.transition) ? request.transition : {};
-    const value = isSqliteJsonRow(request.value) ? request.value : {};
-    if (!key) {
-      return recordingDurableObjectJson({
-        ok: false,
-        code: 'invalid_body',
-        message: 'Missing key',
-      });
-    }
-    const kind = String(transition.kind || '').trim();
-    if (kind === 'start') return this.handleRegistrationHssAdvanceClaimStart(key, value);
-    if (kind === 'fulfill' || kind === 'fail') {
-      return this.handleRegistrationHssAdvanceClaimComplete(key, transition, value, kind);
-    }
-    return recordingDurableObjectJson({
-      ok: false,
-      code: 'invalid_body',
-      message: 'Invalid HSS advance claim transition',
-    });
-  }
-
-  private handleRegistrationHssAdvanceClaimStart(
-    key: string,
-    value: Record<string, unknown>,
-  ): Response {
-    const existing = this.values.get(key);
-    if (!isSqliteJsonRow(existing)) {
-      this.values.set(key, value);
-      return recordingDurableObjectJson({ ok: true, value: { status: 'started', record: value } });
-    }
-    const state = String(existing.state || '').trim();
-    if (state === 'fulfilled') {
-      return recordingDurableObjectJson({
-        ok: true,
-        value: { status: 'fulfilled', record: existing },
-      });
-    }
-    if (state === 'in_flight') {
-      return recordingDurableObjectJson({
-        ok: true,
-        value: { status: 'in_flight', record: existing },
-      });
-    }
-    this.values.set(key, value);
-    return recordingDurableObjectJson({ ok: true, value: { status: 'started', record: value } });
-  }
-
-  private handleRegistrationHssAdvanceClaimComplete(
-    key: string,
-    transition: Record<string, unknown>,
-    value: Record<string, unknown>,
-    state: 'fulfill' | 'fail',
-  ): Response {
-    const existing = this.values.get(key);
-    if (!isSqliteJsonRow(existing)) {
-      return recordingDurableObjectJson({ ok: true, value: { status: 'not_found' } });
-    }
-    if (String(existing.claimId || '').trim() !== String(transition.expectedClaimId || '').trim()) {
-      return recordingDurableObjectJson({
-        ok: true,
-        value: { status: 'claim_mismatch', record: existing },
-      });
-    }
-    this.values.set(key, value);
-    return recordingDurableObjectJson({
-      ok: true,
-      value: { status: state === 'fulfill' ? 'fulfilled' : 'failed', record: value },
-    });
   }
 }
 
@@ -466,7 +397,7 @@ export function requireNestedRecordingDurableObjectRecord(input: {
 }
 
 export function testEcdsaClientBootstrap(
-  prepare: WalletRegistrationEcdsaPreparePayload['prepare'],
+  prepare: WalletRegistrationEcdsaPreparePayload['targets'][number]['prepare'],
 ): WalletRegistrationEcdsaClientBootstrap {
   return {
     formatVersion: prepare.formatVersion,
@@ -500,9 +431,7 @@ export function requireSingleEcdsaPrepare(
   return ecdsa.targets[0].prepare;
 }
 
-export function testEcdsaClientBootstrapTargets(
-  ecdsa: WalletRegistrationEcdsaPreparePayload,
-): {
+export function testEcdsaClientBootstrapTargets(ecdsa: WalletRegistrationEcdsaPreparePayload): {
   chainTarget: WalletRegistrationEcdsaPreparePayload['targets'][number]['chainTarget'];
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
 }[] {
@@ -548,63 +477,6 @@ export function testEcdsaServerBootstrapResponse(
   };
 }
 
-export async function testEd25519PrepareForRegistration() {
-  return {
-    ok: true as const,
-    ceremonyHandle: 'ed25519-ceremony-handle',
-    preparedSession: {
-      contextBindingB64u: 'ed25519-context-binding',
-      evaluatorDriverStateB64u: 'ed25519-evaluator-driver-state',
-    },
-    clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
-    serverState: testEd25519PreparedServerState(),
-  };
-}
-
-export async function testEd25519RespondForRegistration() {
-  return {
-    ok: true as const,
-    contextBindingB64u: 'ed25519-context-binding',
-    serverInputDeliveryB64u: 'ed25519-server-input-delivery',
-    serverState: testEd25519RespondedServerState(),
-  };
-}
-
-export async function testEd25519AdvanceForRegistration(request: {
-  readonly request: {
-    readonly addStageRequestMessageB64u: string;
-    readonly projectionMode: 'registration_seed_and_output' | 'registration_output_only';
-  };
-}) {
-  return {
-    ok: true as const,
-    contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
-    advancedServerEvalStateB64u: base64UrlEncode(utf8Bytes('advanced-server-eval-state')),
-    finalizeContextB64u: base64UrlEncode(utf8Bytes('finalize-context')),
-    priorStageResponseMessageB64u: base64UrlEncode(utf8Bytes('prior-stage-response-message')),
-    addStageRequestDigestB64u: base64UrlEncode(
-      await sha256(base64UrlDecode(request.request.addStageRequestMessageB64u)),
-    ),
-    projectionMode: request.request.projectionMode,
-  };
-}
-
-export async function testEd25519FinalizeForRegistration() {
-  return {
-    ok: true as const,
-    publicKey: 'ed25519:combined-test-public-key',
-    nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
-    relayerKeyId: 'combined-test-relayer-key',
-    finalizedServerOutputMessageB64u: base64UrlEncode(utf8Bytes('finalized-server-output')),
-    finalizedReport: {
-      kind: 'threshold_ed25519_hss_finalized_report_v1',
-      contextBindingB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
-      clientOutputMessageB64u: base64UrlEncode(utf8Bytes('finalized-client-output')),
-      seedOutputMessageB64u: base64UrlEncode(utf8Bytes('finalized-seed-output')),
-    },
-  };
-}
-
 export async function testEd25519RegistrationKeygenFromRegistrationMaterial() {
   return {
     ok: true as const,
@@ -613,7 +485,7 @@ export async function testEd25519RegistrationKeygenFromRegistrationMaterial() {
     participantIds: [1, 2],
     relayerKeyId: 'combined-test-relayer-key',
     publicKey: 'ed25519:combined-test-public-key',
-    keyVersion: 'threshold-ed25519-hss-v1',
+    keyVersion: 'router-ab-ed25519-yao-v1',
     recoveryExportCapable: true as const,
     relayerVerifyingShareB64u: 'combined-test-relayer-verifying-share',
   };
@@ -648,12 +520,6 @@ export async function testThresholdSchemeSession() {
 }
 
 export const testCombinedRegistrationThresholdSigningService = {
-  ed25519Hss: {
-    prepareForRegistration: testEd25519PrepareForRegistration,
-    respondForRegistration: testEd25519RespondForRegistration,
-    advanceForRegistration: testEd25519AdvanceForRegistration,
-    finalizeForRegistration: testEd25519FinalizeForRegistration,
-  },
   ecdsaHssRoleLocalBootstrap: testEcdsaHssRoleLocalBootstrap,
   getSchemeModule: testGetCombinedRegistrationSchemeModule,
 } as unknown as ThresholdSigningService;

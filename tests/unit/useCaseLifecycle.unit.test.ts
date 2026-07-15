@@ -4,8 +4,6 @@ import {
   activateSigningSessionTerminalStates,
   ecdsaProvisioningAllowedTransitions,
   ecdsaProvisioningTerminalStates,
-  exportKeysAllowedTransitions,
-  exportKeysTerminalStates,
   registerWalletAllowedTransitions,
   registerWalletTerminalStates,
   restorePersistedSessionsAllowedTransitions,
@@ -54,11 +52,6 @@ const lifecycleTables: readonly {
     name: 'sign NEAR',
     transitions: signNearAllowedTransitions,
     terminalStates: signNearTerminalStates,
-  },
-  {
-    name: 'export keys',
-    transitions: exportKeysAllowedTransitions,
-    terminalStates: exportKeysTerminalStates,
   },
   {
     name: 'restore persisted sessions',

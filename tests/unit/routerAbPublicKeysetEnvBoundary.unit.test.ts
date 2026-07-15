@@ -50,18 +50,18 @@ test.describe('Router A/B public keyset env boundary', () => {
     const body = extractFunctionBody(source, 'resolveCanonicalRouterAbPublicKeysetFromEnv');
 
     for (const required of [
-      'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY',
-      'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+      'ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+      'ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
       'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
-      'ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX',
-      'ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX',
+      'ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX',
+      'ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX',
     ]) {
       expect(body).toContain(required);
     }
 
     for (const legacyAliasUsage of [
-      "requireEnv(env, 'SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY')",
-      "requireEnv(env, 'SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY')",
+      "requireEnv(env, 'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY')",
+      "requireEnv(env, 'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY')",
       "requireEnv(env, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY')",
       "requireEnv(env, 'DERIVER_A_PEER_VERIFYING_KEY')",
       "requireEnv(env, 'DERIVER_B_PEER_VERIFYING_KEY')",

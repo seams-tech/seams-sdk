@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as EthSignerWasm from '../../wasm/eth_signer/pkg/eth_signer.js';
-import * as HssClientSignerWasm from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import * as EcdsaClientSignerWasm from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
 import {
   prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest,
   sdkEcdsaHssApplicationBindingDigestB64u,
@@ -11,14 +11,14 @@ const ETH_SIGNER_WASM_URL = new URL(
   '../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
   import.meta.url,
 );
-const HSS_CLIENT_SIGNER_WASM_URL = new URL(
-  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+const ECDSA_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
   import.meta.url,
 );
 const FIXTURE_URL = new URL('../../crates/ecdsa-hss/fixtures/role_local_v2.json', import.meta.url);
 
 let ethSignerWasmInitialized = false;
-let hssClientSignerWasmInitialized = false;
+let ecdsaClientSignerWasmInitialized = false;
 
 function ensureEthSignerWasm(): void {
   if (ethSignerWasmInitialized) return;
@@ -26,10 +26,10 @@ function ensureEthSignerWasm(): void {
   ethSignerWasmInitialized = true;
 }
 
-function ensureHssClientSignerWasm(): void {
-  if (hssClientSignerWasmInitialized) return;
-  HssClientSignerWasm.initSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
-  hssClientSignerWasmInitialized = true;
+function ensureEcdsaClientSignerWasm(): void {
+  if (ecdsaClientSignerWasmInitialized) return;
+  EcdsaClientSignerWasm.initSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_URL) });
+  ecdsaClientSignerWasmInitialized = true;
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -94,7 +94,7 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
   });
 
   test('client bundle does not expose relayer or joined-root HSS helpers', () => {
-    const clientExports = HssClientSignerWasm as Record<string, unknown>;
+    const clientExports = EcdsaClientSignerWasm as Record<string, unknown>;
     expect('threshold_ecdsa_hss_role_local_client_bootstrap' in clientExports).toBe(false);
     expect('threshold_ecdsa_hss_role_local_prepare_client_bootstrap' in clientExports).toBe(
       false,
@@ -120,7 +120,7 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
 
   test('relayer bootstrap FFI accepts fixture little-endian scalars and compressed SEC1 public keys', () => {
     ensureEthSignerWasm();
-    ensureHssClientSignerWasm();
+    ensureEcdsaClientSignerWasm();
     const fixture = readRoleLocalFixture();
     const relayerContext = contextPayload(fixture);
     const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
@@ -159,7 +159,7 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     ensureEthSignerWasm();
     const fixture = readRoleLocalFixture();
     const relayerContext = contextPayload(fixture);
-    ensureHssClientSignerWasm();
+    ensureEcdsaClientSignerWasm();
     const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: fixture.context,
       clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),

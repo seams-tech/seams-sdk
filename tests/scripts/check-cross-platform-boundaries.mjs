@@ -15,10 +15,7 @@ const guardedRoots = [
   'packages/sdk-web/src/core/signingEngine/useCases',
 ];
 
-const activeCoreSigningRoots = [
-  ...guardedRoots,
-  'packages/sdk-web/src/core/signingEngine/chains',
-];
+const activeCoreSigningRoots = [...guardedRoots, 'packages/sdk-web/src/core/signingEngine/chains'];
 
 const platformBoundaryFiles = guardBoundaryFiles([
   {
@@ -85,7 +82,7 @@ const platformBoundaryFiles = guardBoundaryFiles([
 
 const rawHssBoundaryFiles = guardBoundaryFiles([]);
 const rawDbRecordBoundaryFiles = guardBoundaryFiles([]);
-const hssClientWorkerConstructionBoundaryFiles = guardBoundaryFiles([]);
+const ecdsaHssClientWorkerConstructionBoundaryFiles = guardBoundaryFiles([]);
 const secretSourceCastBoundaryFiles = new Set([
   'packages/sdk-web/src/core/platform/types.typecheck.ts',
 ]);
@@ -129,10 +126,7 @@ const rawHssPatterns = [
   /\bclientPublicKey33B64u\b/,
 ];
 
-const rawClientRootSharePatterns = [
-  /\bclientRootShare32\b/,
-  /\bclientRootShare32B64u\b/,
-];
+const rawClientRootSharePatterns = [/\bclientRootShare32\b/, /\bclientRootShare32B64u\b/];
 
 const secretSourceCastPatterns = [
   /\bas\s+ClientSecretSource\b/,
@@ -150,7 +144,7 @@ const rawDbRecordPatterns = [
   /\bcurrent_unbranched_ready_record_v1\b/,
 ];
 
-const hssClientWorkerConstructionPatterns = [
+const ecdsaHssClientWorkerConstructionPatterns = [
   /\bWorkerRequestType\.BuildThresholdEcdsaHssRoleLocalClientBootstrap\b/,
   /\bbuildThresholdEcdsaHssRoleLocalClientBootstrapWasm\b/,
   /\bThresholdEcdsaHssRoleLocalClientBootstrap\b/,
@@ -358,8 +352,14 @@ function collectRoleLocalParserViolations() {
 
   if (pathExists(platformTypes)) {
     const source = readRepoFile(platformTypes);
-    if (/\bexport function parse|\bfunction parseRaw|\bfrom ['"].*\/persistence\/records['"]/.test(source)) {
-      violations.push(`${platformTypes}: parser implementation belongs in the persistence boundary`);
+    if (
+      /\bexport function parse|\bfunction parseRaw|\bfrom ['"].*\/persistence\/records['"]/.test(
+        source,
+      )
+    ) {
+      violations.push(
+        `${platformTypes}: parser implementation belongs in the persistence boundary`,
+      );
     }
   }
 
@@ -380,8 +380,8 @@ function collectRoleLocalParserViolations() {
 function collectHssClientWorkerConstructionViolations() {
   return collectPatternViolations(
     listTypeScriptFilesInRoots(activeCoreSigningRoots),
-    hssClientWorkerConstructionBoundaryFiles,
-    hssClientWorkerConstructionPatterns,
+    ecdsaHssClientWorkerConstructionBoundaryFiles,
+    ecdsaHssClientWorkerConstructionPatterns,
     'HSS client bootstrap worker construction outside signer adapter',
   );
 }
@@ -391,14 +391,14 @@ function collectLegacyRootShareFfiViolations() {
   const emailOtpWorkerSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
-  const clientDts = readRepoFile('wasm/hss_client_signer/pkg/hss_client_signer.d.ts');
+  const clientDts = readRepoFile('wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.d.ts');
   const legacyFfi = 'threshold_ecdsa_hss_role_local_prepare_client_bootstrap';
 
   if (emailOtpWorkerSource.includes(legacyFfi)) {
     violations.push('email-otp.worker.ts contains legacy root-share ECDSA prepare FFI');
   }
   if (clientDts.includes(legacyFfi)) {
-    violations.push('hss_client_signer.d.ts contains legacy root-share ECDSA prepare FFI');
+    violations.push('ecdsa_client_signer.d.ts contains legacy root-share ECDSA prepare FFI');
   }
 
   return violations;
@@ -429,7 +429,9 @@ function collectEmailOtpRegistrationPrepViolations() {
     violations.push('registration.ts transports enrollment.clientRootShare32B64u');
   }
   if (emailOtpSource.includes('clientRootShare32B64u: string;')) {
-    violations.push('emailOtp/prewarmedRegistrationMaterial.ts exposes clientRootShare32B64u as a string');
+    violations.push(
+      'emailOtp/prewarmedRegistrationMaterial.ts exposes clientRootShare32B64u as a string',
+    );
   }
   if (workerTypesSource.includes('clientRootShare32B64u: string;')) {
     violations.push('workerTypes.ts exposes clientRootShare32B64u as a string');
@@ -465,9 +467,6 @@ function collectEmailOtpEd25519ExportMaterialViolations() {
   const exportRecoverySource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
   );
-  const nearExportSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
-  );
 
   if (workerTypesSource.includes('recoverEmailOtpEd25519ExportPrfFirst')) {
     violations.push('workerTypes.ts exposes recoverEmailOtpEd25519ExportPrfFirst');
@@ -478,10 +477,6 @@ function collectEmailOtpEd25519ExportMaterialViolations() {
   if (exportRecoverySource.includes('prfFirstB64u: string')) {
     violations.push('emailOtp/exportRecovery.ts exposes prfFirstB64u as a string');
   }
-  if (nearExportSource.includes('recoverEd25519ExportPrfFirst')) {
-    violations.push('nearEd25519ExportFlow.ts exposes recoverEd25519ExportPrfFirst');
-  }
-
   return violations;
 }
 

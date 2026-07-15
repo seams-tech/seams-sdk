@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
+import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdServiceTestUtils';
 import type {
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
@@ -13,11 +13,11 @@ import {
   parseEcdsaHssClientBootstrapRequest,
   parseEcdsaHssExportShareRequest,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { initSync as initEcdsaClientSignerWasmSync } from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
-const HSS_CLIENT_SIGNER_WASM_URL = new URL(
-  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+const ECDSA_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
   import.meta.url,
 );
 const THRESHOLD_ECDSA_ROUTE_URL = new URL(
@@ -27,12 +27,12 @@ const THRESHOLD_ECDSA_ROUTE_URL = new URL(
 const EXPORT_CONFIRMATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-confirmation:v2';
 const EXPORT_AUTHORIZATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-authorization:v2';
 
-let hssClientSignerWasmInitialized = false;
+let ecdsaClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
-  if (hssClientSignerWasmInitialized) return;
-  initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
-  hssClientSignerWasmInitialized = true;
+  if (ecdsaClientSignerWasmInitialized) return;
+  initEcdsaClientSignerWasmSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_URL) });
+  ecdsaClientSignerWasmInitialized = true;
 }
 
 function bytesB64u(bytes: Uint8Array): string {
@@ -61,7 +61,7 @@ async function digestB64u(value: unknown): Promise<string> {
 
 async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number }) {
   ensureHssClientSignerWasm();
-  const { svc } = createThresholdSigningServiceForUnitTests({
+  const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({
     config: {
       ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'unit-signing-worker',
     },
@@ -92,7 +92,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     clientRootShare32B64u: bytesB64u(clientRootShare32),
   });
 
-  const bootstrap = await svc.ecdsaHssRoleLocalBootstrap({
+  const bootstrap = await routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId,
     evmFamilySigningKeySlotId,
@@ -232,7 +232,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   }
 
   return {
-    svc,
+    routerAbEcdsaBootstrapExportRuntime,
     keyHandle: bootstrapValue.keyHandle,
     claims,
     publicIdentity: bootstrapValue.publicIdentity,
@@ -328,11 +328,13 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
         ...patch,
       };
 
-      const result = await fixture.svc.ecdsaHssRoleLocalExportShare({
-        request,
-        keyHandle: fixture.keyHandle,
-        claims: fixture.claims,
-      });
+      const result = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare(
+        {
+          request,
+          keyHandle: fixture.keyHandle,
+          claims: fixture.claims,
+        },
+      );
 
       expect(result, name).toMatchObject({
         ok: false,
@@ -346,7 +348,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     const fixture = await createRoleLocalExportFixture();
     const nonce = bytesB64u(Buffer.alloc(32, 15));
     const request = await fixture.makeExportRequest({ nonce });
-    const result = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const result = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request,
       keyHandle: fixture.keyHandle,
       claims: {
@@ -361,11 +363,12 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     });
     expect('value' in result ? result.value.serverExportShare32B64u : undefined).toBeUndefined();
 
-    const retryWithSameNonce = await fixture.svc.ecdsaHssRoleLocalExportShare({
-      request: await fixture.makeExportRequest({ nonce }),
-      keyHandle: fixture.keyHandle,
-      claims: fixture.claims,
-    });
+    const retryWithSameNonce =
+      await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
+        request: await fixture.makeExportRequest({ nonce }),
+        keyHandle: fixture.keyHandle,
+        claims: fixture.claims,
+      });
     expect(retryWithSameNonce).toMatchObject({
       ok: false,
       code: 'export_nonce_replay',
@@ -381,7 +384,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       },
     });
 
-    const result = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const result = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request,
       keyHandle: fixture.keyHandle,
       claims: fixture.claims,
@@ -402,7 +405,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       nonce,
     });
 
-    const result = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const result = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request,
       keyHandle: fixture.keyHandle,
       claims: fixture.claims,
@@ -414,11 +417,12 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     });
     expect('value' in result ? result.value.serverExportShare32B64u : undefined).toBeUndefined();
 
-    const retryWithSameNonce = await fixture.svc.ecdsaHssRoleLocalExportShare({
-      request: await fixture.makeExportRequest({ nonce }),
-      keyHandle: fixture.keyHandle,
-      claims: fixture.claims,
-    });
+    const retryWithSameNonce =
+      await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
+        request: await fixture.makeExportRequest({ nonce }),
+        keyHandle: fixture.keyHandle,
+        claims: fixture.claims,
+      });
     expect(retryWithSameNonce).toMatchObject({
       ok: false,
       code: 'export_nonce_replay',
@@ -436,7 +440,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       },
     });
 
-    const result = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const result = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request,
       keyHandle: fixture.keyHandle,
       claims: fixture.claims,
@@ -448,11 +452,12 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     });
     expect('value' in result ? result.value.serverExportShare32B64u : undefined).toBeUndefined();
 
-    const retryWithSameNonce = await fixture.svc.ecdsaHssRoleLocalExportShare({
-      request: await fixture.makeExportRequest({ nonce }),
-      keyHandle: fixture.keyHandle,
-      claims: fixture.claims,
-    });
+    const retryWithSameNonce =
+      await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
+        request: await fixture.makeExportRequest({ nonce }),
+        keyHandle: fixture.keyHandle,
+        claims: fixture.claims,
+      });
     expect(retryWithSameNonce).toMatchObject({
       ok: false,
       code: 'export_nonce_replay',
@@ -465,7 +470,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       nonce: bytesB64u(Buffer.alloc(32, 10)),
     });
 
-    const first = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const first = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request,
       keyHandle: fixture.keyHandle,
       claims: fixture.claims,
@@ -474,7 +479,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     if (!first.ok) throw new Error(first.message);
     expect(first.value.serverExportShare32B64u).toBeTruthy();
 
-    const replay = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const replay = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request,
       keyHandle: fixture.keyHandle,
       claims: fixture.claims,
@@ -492,7 +497,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     try {
       const fixture = await createRoleLocalExportFixture({ bootstrapTtlMs: 2 * 60 * 60_000 });
       const nonce = bytesB64u(Buffer.alloc(32, 18));
-      const first = await fixture.svc.ecdsaHssRoleLocalExportShare({
+      const first = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
         request: await fixture.makeExportRequest({ nonce }),
         keyHandle: fixture.keyHandle,
         claims: fixture.claims,
@@ -500,11 +505,12 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       expect(first.ok).toBe(true);
 
       nowMs += 2 * 60_000;
-      const replayWithFreshAuthorization = await fixture.svc.ecdsaHssRoleLocalExportShare({
-        request: await fixture.makeExportRequest({ nonce }),
-        keyHandle: fixture.keyHandle,
-        claims: fixture.claims,
-      });
+      const replayWithFreshAuthorization =
+        await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
+          request: await fixture.makeExportRequest({ nonce }),
+          keyHandle: fixture.keyHandle,
+          claims: fixture.claims,
+        });
       expect(replayWithFreshAuthorization).toMatchObject({
         ok: false,
         code: 'export_nonce_replay',
@@ -522,11 +528,12 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       })),
       authorizationDigest32B64u: bytesB64u(Buffer.alloc(32, 12)),
     };
-    const invalidDigest = await fixture.svc.ecdsaHssRoleLocalExportShare({
-      request: invalidDigestRequest,
-      keyHandle: fixture.keyHandle,
-      claims: fixture.claims,
-    });
+    const invalidDigest =
+      await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
+        request: invalidDigestRequest,
+        keyHandle: fixture.keyHandle,
+        claims: fixture.claims,
+      });
     expect(invalidDigest).toMatchObject({
       ok: false,
       code: 'export_authorization_invalid',
@@ -539,7 +546,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       nonce: bytesB64u(Buffer.alloc(32, 13)),
       expiresAtUnixMs: Date.now() - 1_000,
     });
-    const expired = await fixture.svc.ecdsaHssRoleLocalExportShare({
+    const expired = await fixture.routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalExportShare({
       request: expiredRequest,
       keyHandle: fixture.keyHandle,
       claims: fixture.claims,

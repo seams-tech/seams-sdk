@@ -43,10 +43,11 @@ import {
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
-import {
-  buildEcdsaHssExportAuthorizationDigestInput,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport';
+import { buildEcdsaHssExportAuthorizationDigestInput } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
+import { exportEcdsaKeyWithDurableAuthorization } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery';
+import { buildEmailOtpSigningSessionRoutePlan } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan';
+import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
@@ -64,7 +65,9 @@ const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const PASSKEY_EXPORT_CREDENTIAL_ID_B64U = 'export-passkey-credential';
-const HSS_CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(Uint8Array.from([2, ...Array(32).fill(1)]));
+const ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(
+  Uint8Array.from([2, ...Array(32).fill(1)]),
+);
 const RELAYER_PUBLIC_KEY_B64U = base64UrlEncode(Uint8Array.from([3, ...Array(32).fill(2)]));
 const CONTEXT_BINDING_32_B64U = base64UrlEncode(new Uint8Array(32).fill(5));
 const APPLICATION_BINDING_DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(7));
@@ -130,7 +133,7 @@ function makeRouterAbEcdsaHssNormalSigningState(record: {
       },
       public_identity: {
         context_binding_b64u: CONTEXT_BINDING_32_B64U,
-        client_public_key33_b64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+        client_public_key33_b64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
         server_public_key33_b64u: RELAYER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: PUBLIC_KEY_B64U,
         ethereum_address20_b64u: ethereumAddress20B64u(OWNER_ADDRESS),
@@ -223,7 +226,7 @@ function makeReadyRecordForExport(record: {
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
-      hssClientSharePublicKey33B64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: PUBLIC_KEY_B64U,
       ethereumAddress: OWNER_ADDRESS,
@@ -242,9 +245,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     providerUserId: 'google:alice',
   });
   const thresholdEcdsaPublicKeyB64u =
-    'thresholdEcdsaPublicKeyB64u' in input
-      ? input.thresholdEcdsaPublicKeyB64u
-      : PUBLIC_KEY_B64U;
+    'thresholdEcdsaPublicKeyB64u' in input ? input.thresholdEcdsaPublicKeyB64u : PUBLIC_KEY_B64U;
   const thresholdSessionId = input.thresholdSessionId ?? 'threshold-session-1';
   const signingGrantId = input.signingGrantId ?? 'signing-grant-1';
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-export');
@@ -264,7 +265,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+    clientVerifyingShareB64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_B64U,
     clientAdditiveShareHandle: {
       kind: 'email_otp_worker_session' as const,
@@ -322,7 +323,7 @@ function makePasskeyRecord(input: PasskeyExportRecordFixtureInput = {}): Passkey
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+    clientVerifyingShareB64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_B64U,
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt' as const,
@@ -471,7 +472,7 @@ test.describe('ECDSA export material', () => {
       signingRootVersion: String(record.signingRootVersion),
       contextBinding32B64u: CONTEXT_BINDING_32_B64U,
       publicIdentity: {
-        hssClientSharePublicKey33B64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+        hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
         relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_B64U,
         groupPublicKey33B64u: PUBLIC_KEY_B64U,
         ethereumAddress: OWNER_ADDRESS,
@@ -538,6 +539,33 @@ test.describe('ECDSA export material', () => {
     expect(material.cachedExportArtifact).toEqual(cachedExportArtifact);
   });
 
+  test('expired passkey export material exposes only the bootstrap context needed after approval', async () => {
+    const record: PasskeyEcdsaSessionRecord = {
+      ...makePasskeyRecord(),
+      expiresAtMs: 1,
+    };
+    const material = await resolveEcdsaExportMaterialForLane(
+      depsForRecord(record),
+      await exactExportLane(record),
+    );
+
+    expect(material.kind).toBe('fresh_passkey_needs_authorization');
+    if (material.kind !== 'fresh_passkey_needs_authorization') {
+      throw new Error(`expected fresh passkey export material, got ${material.kind}`);
+    }
+    expect(material.bootstrap).toEqual({
+      source: 'registration',
+      relayerUrl: record.relayerUrl,
+      relayerKeyId: record.relayerKeyId,
+      ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+      evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      participantIds: record.participantIds,
+    });
+    expect('record' in material).toBe(false);
+  });
+
   test('fresh Email OTP export material uses route auth when runtime auth is available', async () => {
     const record = makeRecord();
     const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
@@ -553,14 +581,17 @@ test.describe('ECDSA export material', () => {
     expect(material.publicFacts.publicKeyB64u).toBe(PUBLIC_KEY_B64U);
     expect(material.publicFacts.participantIds.map(Number)).toEqual([1, 2]);
     expect(material.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
-    expect(material.committedLane.authLane.kind).toBe('signing_session');
-    if (material.committedLane.authLane.kind !== 'signing_session') {
-      throw new Error(
-        `expected signing-session auth lane, got ${material.committedLane.authLane.kind}`,
-      );
+    expect(material.authorization.kind).toBe('record_backed');
+    if (material.authorization.kind !== 'record_backed') {
+      throw new Error(`expected record-backed authorization, got ${material.authorization.kind}`);
     }
-    expect(material.committedLane.authLane.thresholdSessionId).toBe(record.thresholdSessionId);
-    expect(material.committedLane.record).toBe(record);
+    const committedLane = material.authorization.committedLane;
+    expect(committedLane.authLane.kind).toBe('signing_session');
+    if (committedLane.authLane.kind !== 'signing_session') {
+      throw new Error(`expected signing-session auth lane, got ${committedLane.authLane.kind}`);
+    }
+    expect(committedLane.authLane.thresholdSessionId).toBe(record.thresholdSessionId);
+    expect(committedLane.record).toBe(record);
     expect(material.runtimePolicyScope.orgId).toBe('org-export');
     expect('publicKey' in material).toBe(false);
     expect('participantIds' in material).toBe(false);
@@ -579,7 +610,10 @@ test.describe('ECDSA export material', () => {
     if (material.kind !== 'fresh_email_otp_route_auth_ready') {
       throw new Error(`expected route-auth-ready fresh material, got ${material.kind}`);
     }
-    const { authLane } = material.committedLane;
+    if (material.authorization.kind !== 'record_backed') {
+      throw new Error(`expected record-backed authorization, got ${material.authorization.kind}`);
+    }
+    const { authLane } = material.authorization.committedLane;
     const challengeRequests: unknown[] = [];
     const exportRequests: unknown[] = [];
     const confirmationRequests: unknown[] = [];
@@ -607,8 +641,8 @@ test.describe('ECDSA export material', () => {
             challengeRequests.push(request);
             return { challengeId: 'export-challenge-1' };
           },
-          exportEcdsaKeyWithFreshEmailOtpLane: async () => {
-            throw new Error('unexpected fresh-lane export');
+          exportEcdsaKeyWithDurableAuthorization: async () => {
+            throw new Error('unexpected durable-authority export');
           },
           exportEcdsaKeyWithAuthorization: async (request) => {
             exportOrder.push('material-export');
@@ -669,26 +703,64 @@ test.describe('ECDSA export material', () => {
     );
   });
 
-  test('fresh Email OTP export material can challenge from exact no-route-auth runtime records', async () => {
-    const record = makeRecord({
-      walletSessionJwt: undefined,
-      thresholdSessionKind: 'cookie',
-    });
-    const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
-      depsForRecord(record),
-      await exactExportLane(record),
+  test('durable Email OTP ECDSA export bootstraps from exact signing-session authority', async () => {
+    const record = makeRecord();
+    const authorityResolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(record);
+    if (authorityResolution.kind !== 'ready') {
+      throw new Error(`expected signing-session authority, got ${authorityResolution.kind}`);
+    }
+    const runtimePolicyScope = record.runtimePolicyScope;
+    if (!runtimePolicyScope) throw new Error('expected runtime policy scope');
+    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
+    let loginRequest: unknown = null;
+    const artifact = await exportEcdsaKeyWithDurableAuthorization(
+      {
+        requireRelayUrl: () => record.relayerUrl,
+        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
+      },
+      {
+        walletSession: {
+          walletId: record.walletId,
+          walletSessionUserId: String(record.walletId),
+        },
+        chainTarget: record.chainTarget,
+        challengeId: 'durable-export-challenge',
+        otpCode: '123456',
+        publicFacts,
+        runtimePolicyScope,
+        signingSessionAuthority: authorityResolution.authority,
+        loginWithEcdsaCapabilityInternal: async (request) => {
+          loginRequest = request;
+          return {
+            bootstrap: {
+              thresholdEcdsaKeyRef: {
+                ecdsaHssExportArtifact: {
+                  publicKeyHex: '02',
+                  privateKeyHex: '01',
+                  ethereumAddress: OWNER_ADDRESS,
+                },
+              },
+            },
+          };
+        },
+      },
     );
 
-    expect(material.kind).toBe('fresh_email_otp_needs_challenge');
-    if (material.kind !== 'fresh_email_otp_needs_challenge') {
-      throw new Error(`expected needs-challenge fresh material, got ${material.kind}`);
-    }
-    expect(material.providerIdentityMode).toBe('explicit_provider_user');
-    if (material.providerIdentityMode !== 'explicit_provider_user') {
-      throw new Error(`expected explicit provider user, got ${material.providerIdentityMode}`);
-    }
-    expect(material.providerUserId).toBe('google:alice');
-    expect(material.runtimePolicyScope.projectId).toBe('project-export');
+    expect(artifact.ethereumAddress).toBe(OWNER_ADDRESS);
+    expect(loginRequest).toMatchObject({
+      challengeId: 'durable-export-challenge',
+      otpCode: '123456',
+      operation: 'export_key',
+      routePlan: {
+        routeFamily: 'signing_session',
+        authLane: authorityResolution.authority.authLane,
+      },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        providerUserId: 'google:alice',
+      },
+      includeEcdsaExportArtifact: true,
+    });
   });
 
   test('fresh Email OTP export material rejects missing verified public key facts', async () => {

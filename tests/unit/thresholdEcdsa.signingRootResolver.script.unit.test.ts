@@ -9,7 +9,7 @@ import {
   type SealedSigningRootShare,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
-import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { initSync as initEcdsaClientSignerWasmSync } from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
@@ -36,8 +36,8 @@ type ThresholdPrfFixtureCorpus = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
-const HSS_CLIENT_SIGNER_WASM_URL = new URL(
-  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+const ECDSA_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
   import.meta.url,
 );
 const PROJECT_ID = 'project-alpha';
@@ -67,12 +67,12 @@ const ECDSA_CONTEXT = {
   keyVersion: 'v1',
 };
 const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.walletId;
-let hssClientSignerWasmInitialized = false;
+let ecdsaClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
-  if (hssClientSignerWasmInitialized) return;
-  initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
-  hssClientSignerWasmInitialized = true;
+  if (ecdsaClientSignerWasmInitialized) return;
+  initEcdsaClientSignerWasmSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_URL) });
+  ecdsaClientSignerWasmInitialized = true;
 }
 
 function loadFixtureCorpus(): ThresholdPrfFixtureCorpus {
@@ -198,7 +198,7 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
       decryptCalls,
     }),
   };
-  const service = createThresholdSigningService({
+  const { thresholdSigningService: service } = createThresholdSigningService({
     authService: createAuthServiceMock(),
     thresholdStore: thresholdConfig,
     isNode: true,
@@ -232,7 +232,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
       shareWireHex: share.wire_hex,
     })),
   });
-  const service = createThresholdSigningService({
+  const { thresholdSigningService: service } = createThresholdSigningService({
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',
@@ -261,7 +261,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const decryptCalls: number[] = [];
   const vector = vectorForPurpose('ecdsa-hss/y_server');
 
-  const service = createThresholdSigningService({
+  const { thresholdSigningService: service } = createThresholdSigningService({
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',

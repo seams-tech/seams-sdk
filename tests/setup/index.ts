@@ -154,7 +154,7 @@ export async function setupBasicPasskeyTest(
               if (
                 filename === 'passkey-confirm.worker.js' ||
                 filename === 'near-signer.worker.js' ||
-                filename === 'hss-client.worker.js'
+                filename === 'ecdsa-hss-client.worker.js'
               ) {
                 const patchedPath = `/sdk/workers/${filename}`;
                 return new URL(patchedPath + u.search + u.hash, frameOrigin).toString();

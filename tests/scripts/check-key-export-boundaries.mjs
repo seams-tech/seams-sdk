@@ -10,6 +10,14 @@ const accountMenuPath = 'packages/sdk-web/src/react/components/AccountMenuButton
 const exportModalPath =
   'packages/sdk-web/src/react/components/AccountMenuButton/ExportKeyTypeModal.tsx';
 const reactStylesPath = 'packages/sdk-web/src/react/styles.css';
+const keyExportFlowPath =
+  'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts';
+const ed25519YaoExportFlowPath =
+  'packages/sdk-web/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
+const ed25519YaoClientPath =
+  'packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient.ts';
+const passkeyConfirmWorkerPath =
+  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -36,7 +44,48 @@ function collectCanonicalExportApiViolations() {
   const accountMenu = readRepoSource(accountMenuPath);
 
   requireContains(accountMenu, '.keys.exportKeypairWithUI(', accountMenuPath, violations);
-  requireContains(accountMenu, "chain: 'near'", accountMenuPath, violations);
+  requireContains(accountMenu, "kind: 'ecdsa'", accountMenuPath, violations);
+  requireContains(accountMenu, "kind: 'ed25519'", accountMenuPath, violations);
+  requireAbsent(accountMenu, "kind: 'near'", accountMenuPath, violations);
+
+  return violations;
+}
+
+function collectEd25519YaoExportViolations() {
+  const violations = [];
+  const keyExportFlow = readRepoSource(keyExportFlowPath);
+  const ed25519YaoExportFlow = readRepoSource(ed25519YaoExportFlowPath);
+  const ed25519YaoClient = readRepoSource(ed25519YaoClientPath);
+  const passkeyConfirmWorker = readRepoSource(passkeyConfirmWorkerPath);
+  const modal = readRepoSource(exportModalPath);
+
+  requireContains(keyExportFlow, "kind: 'ed25519'", keyExportFlowPath, violations);
+  requireContains(keyExportFlow, 'nearAccount: NearAccountRef', keyExportFlowPath, violations);
+  requireContains(keyExportFlow, 'chainTarget?: never', keyExportFlowPath, violations);
+  requireContains(modal, "onSelectChain('near')", exportModalPath, violations);
+  requireContains(modal, 'NEAR Ed25519', exportModalPath, violations);
+  requireContains(
+    ed25519YaoClient,
+    'redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>',
+    ed25519YaoClientPath,
+    violations,
+  );
+  requireContains(
+    ed25519YaoClient,
+    'buildRouterAbEd25519YaoExportAdmissionBodyV1',
+    ed25519YaoClientPath,
+    violations,
+  );
+  requireAbsent(
+    ed25519YaoClient,
+    'webauthn_authentication: args.webauthnAuthentication',
+    ed25519YaoClientPath,
+    violations,
+  );
+  requireAbsent(ed25519YaoClient, 'seedB64u', ed25519YaoClientPath, violations);
+  requireAbsent(passkeyConfirmWorker, 'seedB64u', passkeyConfirmWorkerPath, violations);
+  requireAbsent(ed25519YaoExportFlow, 'ed25519-hss', ed25519YaoExportFlowPath, violations);
+  requireAbsent(ed25519YaoExportFlow, "kind: 'near'", ed25519YaoExportFlowPath, violations);
 
   return violations;
 }
@@ -54,7 +103,12 @@ function collectEmailOtpRestrictionViolations() {
     accountMenuPath,
     violations,
   );
-  requireContains(accountMenu, 'if (exportRestrictionMessage) return;', accountMenuPath, violations);
+  requireContains(
+    accountMenu,
+    'if (exportRestrictionMessage) return;',
+    accountMenuPath,
+    violations,
+  );
   requireContains(modal, 'restrictionMessage', exportModalPath, violations);
   requireContains(modal, 'disabled={isBusy || isRestricted}', exportModalPath, violations);
 
@@ -100,6 +154,7 @@ function collectReactStylesViolations() {
 function main() {
   const violations = [
     ...collectCanonicalExportApiViolations(),
+    ...collectEd25519YaoExportViolations(),
     ...collectEmailOtpRestrictionViolations(),
     ...collectPortalHostViolations(),
     ...collectReactStylesViolations(),

@@ -2,12 +2,10 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   createHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
-  deriveEd25519HssServerInputsFromSigningRootShareResolver,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import { MissingSigningRootKekError } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootKekProvider';
 import type {
@@ -16,7 +14,6 @@ import type {
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import {
   deriveEcdsaHssYRelayerFromSigningRootShares,
-  deriveEd25519HssServerInputsFromSigningRootShares,
   parseSigningRootShareWire,
   type ThresholdPrfPolicy,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
@@ -36,10 +33,7 @@ type ThresholdPrfFixtureVector = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(
-  __dirname,
-  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
-);
+const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
 const PROJECT_ID = 'project-alpha:dev';
 const SIGNING_ROOT_VERSION = 'root-v1';
 const ECDSA_HSS_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
@@ -236,45 +230,6 @@ test('hosted signing-root resolver reports missing KEK with the fail-closed erro
   if (result.ok) throw new Error('missing KEK resolver result must fail');
   expect(result.code).toBe('missing_signing_root_kek');
   expect(result.message).toContain('kek-share-1');
-});
-
-test('self-host signing-root resolver derives Ed25519 HSS inputs through policy-shaped shares', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
-  const policy = policyForVector(vector);
-  const preferredShareIds = [1, 2] as const;
-  const context = {
-    applicationBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
-    participantIds: [1, 2],
-  };
-  const resolver = createSelfHostedSigningRootShareResolver({
-    signingRootId: PROJECT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
-    policy,
-    shares: vector.shares.map((share) => ({
-      shareId: share.id,
-      shareWireHex: share.wire_hex,
-    })),
-  });
-
-  const result = await deriveEd25519HssServerInputsFromSigningRootShareResolver({
-    signingRootId: PROJECT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
-    resolver,
-    preferredShareIds,
-    context,
-  });
-  const expected = await deriveEd25519HssServerInputsFromSigningRootShares({
-    policy,
-    shareWires: shareWires(vector, preferredShareIds),
-    context,
-  });
-
-  expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error(result.message);
-  expect(result.value.contextBindingB64u).toBe(base64UrlEncode(expected.contextBinding));
-  expect(result.value.yRelayerB64u).toBe(base64UrlEncode(expected.yRelayer));
-  expect(result.value.tauRelayerB64u).toBe(base64UrlEncode(expected.tauRelayer));
-  expect(result.value.participantIds).toEqual([1, 2]);
 });
 
 test('self-host signing-root resolver rejects wrong scope and duplicate shares', async () => {

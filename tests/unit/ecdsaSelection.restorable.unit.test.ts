@@ -182,7 +182,7 @@ function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate
 }
 
 function sharedTempoCandidate(): EcdsaLaneCandidate {
-  const base = candidate('deferred');
+  const base = candidate('restorable');
   return {
     ...base,
     chain: 'tempo',
@@ -288,7 +288,7 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
     listThresholdEcdsaSessionRecordsForSigning: () => [],
     listThresholdEcdsaKeyRefsForSigning: () => [],
     getThresholdEcdsaSessionRecordByKey: () => null,
-    resolveEmailOtpEcdsaSigningSessionAuthority: ({ lane }) => ({
+    resolveDurableEmailOtpEcdsaSigningSessionAuthority: ({ lane }) => ({
       authLane: {
         kind: 'signing_session',
         jwt: makeWalletSessionJwt({
@@ -559,7 +559,7 @@ test.describe('ECDSA restorable lane selection', () => {
     });
   });
 
-  test('uses source material for deferred shared EVM-family lanes without passkey reauth', async () => {
+  test('uses source material for restorable shared EVM-family lanes without passkey reauth', async () => {
     const tempoCandidate = sharedTempoCandidate();
     const sourceRecord = recordForChainTarget(tempoCandidate, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
@@ -608,7 +608,7 @@ test.describe('ECDSA restorable lane selection', () => {
     });
   });
 
-  test('requires source restore for a shared Tempo passkey lane without runtime material', async () => {
+  test('requires exact source-target restore for a restorable shared Tempo passkey lane', async () => {
     const tempoCandidate = sharedTempoCandidate();
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -679,7 +679,7 @@ test.describe('ECDSA restorable lane selection', () => {
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
-      resolveEmailOtpEcdsaSigningSessionAuthority: ({ lane, chain }) => {
+      resolveDurableEmailOtpEcdsaSigningSessionAuthority: ({ lane, chain }) => {
         resolverCalls += 1;
         expect(chain).toBe('evm');
         return {
@@ -855,7 +855,7 @@ test.describe('ECDSA restorable lane selection', () => {
       resolveEvmFamilyEcdsaSigningSelection({
         deps: {
           ...selectionDeps(),
-          resolveEmailOtpEcdsaSigningSessionAuthority: () => null,
+          resolveDurableEmailOtpEcdsaSigningSessionAuthority: () => null,
         },
         walletId,
         chain: 'tempo',
@@ -891,7 +891,7 @@ test.describe('ECDSA restorable lane selection', () => {
     };
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      resolveEmailOtpEcdsaSigningSessionAuthority: ({ lane, chain }) => {
+      resolveDurableEmailOtpEcdsaSigningSessionAuthority: ({ lane, chain }) => {
         expect(chain).toBe('evm');
         expect(lane.thresholdSessionId).toBe(
           SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
@@ -925,6 +925,8 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.kind).toBe('reauth_required');
     if (selection.kind !== 'reauth_required') return;
     expect(selection.authMethod).toBe('email_otp');
+    expect(selection.committedLane.source).toBe('durable_authority_backed');
+    expect(selection.committedLane.durableRestore).toBe('sealed_record_authority');
     expect(selection.committedLane.authLane).toBe(durableAuthLane);
     expect(selection.committedLane.walletSessionAuthority).toMatchObject({
       kind: 'wallet_session_authority',

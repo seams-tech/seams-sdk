@@ -91,16 +91,6 @@ test.describe('route definition scaffolding', () => {
     expect(new Set(ids).size).toBe(ids.length);
 
     expect(routes.find((route) => route.id === 'registration_bootstrap')).toBeUndefined();
-    expect(
-      routes.find((route) => route.id === 'registration_threshold_ed25519_hss_prepare'),
-    ).toBeUndefined();
-    expect(
-      routes.find((route) => route.id === 'registration_threshold_ed25519_hss_respond'),
-    ).toBeUndefined();
-    expect(
-      routes.find((route) => route.id === 'registration_threshold_ed25519_hss_finalize'),
-    ).toBeUndefined();
-
     const walletRegistrationIntent = routes.find(
       (route) => route.id === 'wallet_registration_intent',
     );

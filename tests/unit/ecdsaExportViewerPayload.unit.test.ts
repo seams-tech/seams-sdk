@@ -9,6 +9,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
+import { resolveEmailOtpAuthLane } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -124,6 +125,16 @@ test.describe('threshold ECDSA export viewer payload', () => {
     let capturedPayloadWalletId = '';
     let capturedChallengeKind = '';
 
+    const authLane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
+      thresholdSessionId: 'threshold-session-1',
+      authorizingSigningGrantId: 'signing-grant-1',
+      curve: 'ecdsa',
+      chainTarget: EVM_TARGET,
+    });
+    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ecdsa') {
+      throw new Error('expected ECDSA signing-session auth lane');
+    }
     const authorization = await requestEmailOtpKeyExportAuthorization(
       {
         touchConfirm: {
@@ -157,14 +168,14 @@ test.describe('threshold ECDSA export viewer payload', () => {
         chain: 'evm',
         publicKey: '0x02abcdef',
         curve: 'ecdsa',
-        challengeAuthority: { kind: 'fresh_login' },
+        challengeAuthority: { kind: 'signing_session', authLane },
       },
     );
 
     expect(authorization.walletSessionUserId).toBe('frost-vermillion-k7p9m2');
     expect(authorization.challengeId).toBe('email-otp-export-1');
     expect(authorization.otpCode).toBe('123456');
-    expect(capturedChallengeKind).toBe('wallet_session_fresh_login_challenge');
+    expect(capturedChallengeKind).toBe('wallet_session_challenge');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedPayloadWalletId).toBe('frost-vermillion-k7p9m2');
   });

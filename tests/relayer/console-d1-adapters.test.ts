@@ -114,6 +114,7 @@ import {
   readTableColumnNames,
   readUserTableCount,
 } from '../helpers/sqliteD1';
+import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 
 type SqliteJsonRow = Record<string, unknown>;
 type ErrorWithCode = { readonly code?: unknown };
@@ -645,8 +646,8 @@ class AtomicD1SponsoredRecordBuilder {
       prepaidReservationId: input.prepaidSettlement?.reservationId || null,
       charged: Boolean(
         input.prepaidSettlement &&
-          !input.prepaidSettlement.released &&
-          input.prepaidSettlement.settledSpendMinor > 0,
+        !input.prepaidSettlement.released &&
+        input.prepaidSettlement.settledSpendMinor > 0,
       ),
       chargedReason: input.prepaidSettlement
         ? input.prepaidSettlement.released
@@ -943,8 +944,7 @@ function buildRawD1PasskeyAuthMethodInsertInput(input: {
     walletId,
     rpId,
     kind: 'passkey',
-    walletAuthMethodId:
-      input.walletAuthMethodId ?? `passkey:${rpId}:${credentialIdB64u || ''}`,
+    walletAuthMethodId: input.walletAuthMethodId ?? `passkey:${rpId}:${credentialIdB64u || ''}`,
     authIdentifierKey: input.authIdentifierKey ?? credentialIdB64u ?? '',
     credentialIdB64u,
     credentialPublicKeyB64u:
@@ -970,14 +970,12 @@ function buildRawD1EmailOtpAuthMethodInsertInput(input: {
   readonly authIdentifierKey?: string;
 }): RawD1WalletAuthMethodInsertInput {
   const walletId = input.walletId ?? 'wallet-raw-email-otp';
-  const emailHashHex =
-    input.emailHashHex === undefined ? 'a'.repeat(64) : input.emailHashHex;
+  const emailHashHex = input.emailHashHex === undefined ? 'a'.repeat(64) : input.emailHashHex;
   return {
     walletId,
     rpId: input.rpId ?? '',
     kind: 'email_otp',
-    walletAuthMethodId:
-      input.walletAuthMethodId ?? `email_otp:${walletId}:${emailHashHex || ''}`,
+    walletAuthMethodId: input.walletAuthMethodId ?? `email_otp:${walletId}:${emailHashHex || ''}`,
     authIdentifierKey: input.authIdentifierKey ?? emailHashHex ?? '',
     credentialIdB64u: input.credentialIdB64u ?? null,
     credentialPublicKeyB64u: input.credentialPublicKeyB64u ?? null,
@@ -1563,7 +1561,8 @@ function buildRawD1EmailOtpRegistrationAttemptInsertInput(
   const appSessionVersion = input.appSessionVersion ?? 'app-session-raw-email-otp';
   const runtimeOrgId = input.runtimeOrgId ?? 'org-d1-email-otp-schema';
   const runtimePolicyKey =
-    input.runtimePolicyKey ?? 'org-d1-email-otp-schema\nproject-d1-email-otp-schema\nenv-production\n1';
+    input.runtimePolicyKey ??
+    'org-d1-email-otp-schema\nproject-d1-email-otp-schema\nenv-production\n1';
   const offerWalletIdsJson = input.offerWalletIdsJson ?? JSON.stringify([walletId]);
   return {
     namespace: input.namespace ?? 'd1-contracts',
@@ -1588,7 +1587,9 @@ function buildRawD1EmailOtpRegistrationAttemptInsertInput(
         email,
         walletId,
         offerId: 'offer-raw-email-otp',
-        offerCandidates: [{ candidateId: 'candidate-raw-email-otp', walletId, collisionCounter: 0 }],
+        offerCandidates: [
+          { candidateId: 'candidate-raw-email-otp', walletId, collisionCounter: 0 },
+        ],
         selectedCandidateId: 'candidate-raw-email-otp',
         appSessionVersion,
         authProvider: 'google',
@@ -2760,9 +2761,7 @@ async function expectRawD1WalletInsertRejected(
   database: D1DatabaseLike,
   input: RawD1WalletInsertInput,
 ): Promise<void> {
-  await expect(insertRawD1WalletRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
+  await expect(insertRawD1WalletRecord(database, input)).rejects.toThrow(/CHECK constraint failed/);
 }
 
 async function expectRawD1WalletSignerInsertRejected(
@@ -3134,9 +3133,7 @@ test.describe('D1 migration smoke', () => {
 
         await applyD1MigrationFiles(temp.database, migrationFiles);
 
-        await expect(readUserTableCount(temp.database)).resolves.toBe(
-          target.expectedTableCount,
-        );
+        await expect(readUserTableCount(temp.database)).resolves.toBe(target.expectedTableCount);
         if (target.directoryName === 'd1-signer') {
           const walletColumns = await readTableColumnNames(temp.database, 'wallets');
           const authMethodColumns = await readTableColumnNames(
@@ -3185,10 +3182,7 @@ test.describe('D1 migration smoke', () => {
         }),
       );
 
-      await insertRawD1WalletRecord(
-        temp.database,
-        buildRawD1WalletInsertInput({}),
-      );
+      await insertRawD1WalletRecord(temp.database, buildRawD1WalletInsertInput({}));
       const row = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM wallets')
         .first<{ record_count?: unknown }>();
@@ -3440,10 +3434,7 @@ test.describe('D1 migration smoke', () => {
           updatedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
         }),
       );
-      await insertRawD1IdentityLinkRecord(
-        temp.database,
-        buildRawD1IdentityLinkInsertInput({}),
-      );
+      await insertRawD1IdentityLinkRecord(temp.database, buildRawD1IdentityLinkInsertInput({}));
 
       await expectRawD1AppSessionVersionInsertRejected(
         temp.database,
@@ -3693,10 +3684,7 @@ test.describe('D1 migration smoke', () => {
           }),
         }),
       );
-      await insertRawD1EmailOtpGrantRecord(
-        temp.database,
-        buildRawD1EmailOtpGrantInsertInput({}),
-      );
+      await insertRawD1EmailOtpGrantRecord(temp.database, buildRawD1EmailOtpGrantInsertInput({}));
 
       await expectRawD1EmailOtpEnrollmentInsertRejected(
         temp.database,
@@ -4457,14 +4445,10 @@ test.describe('D1 adapter contracts', () => {
         'ACTIVE',
       ]);
 
-      const prodEnvironment = await service.updateEnvironment(
-        primaryCtx,
-        'project-d1-org:prod',
-        {
-          signingRootVersion: 'signing-root-d1-v2',
-          name: 'Production Root',
-        },
-      );
+      const prodEnvironment = await service.updateEnvironment(primaryCtx, 'project-d1-org:prod', {
+        signingRootVersion: 'signing-root-d1-v2',
+        name: 'Production Root',
+      });
       expect(prodEnvironment?.signingRootVersion).toBe('signing-root-d1-v2');
 
       await service.upsertOrganization(secondaryCtx, {
@@ -5257,9 +5241,7 @@ test.describe('D1 adapter contracts', () => {
         resolvedAt: null,
       });
 
-      await expect(
-        service.getApprovalRequest(secondaryCtx, keyExport.id),
-      ).resolves.toBeNull();
+      await expect(service.getApprovalRequest(secondaryCtx, keyExport.id)).resolves.toBeNull();
       await expect(
         service.approveApprovalRequest(secondaryCtx, keyExport.id, {
           reason: 'Cross-tenant approval',
@@ -5330,14 +5312,10 @@ test.describe('D1 adapter contracts', () => {
       ).resolves.toEqual([expect.objectContaining({ id: keyExport.id })]);
 
       nowMsValue = Date.parse('2026-06-27T02:32:00.000Z');
-      const finalApproval = await service.approveApprovalRequest(
-        finalApproverCtx,
-        keyExport.id,
-        {
-          reason: 'Second custody approval',
-          mfaVerified: true,
-        },
-      );
+      const finalApproval = await service.approveApprovalRequest(finalApproverCtx, keyExport.id, {
+        reason: 'Second custody approval',
+        mfaVerified: true,
+      });
       expect(finalApproval).toMatchObject({
         status: 'APPROVED',
         resolvedAt: '2026-06-27T02:32:00.000Z',
@@ -5554,9 +5532,9 @@ test.describe('D1 adapter contracts', () => {
         }),
       ).rejects.toMatchObject({ code: 'invalid_state' });
 
-      await expect(
-        service.listKeyExports(requesterCtx, { status: 'APPROVED' }),
-      ).resolves.toEqual([expect.objectContaining({ id: created.id })]);
+      await expect(service.listKeyExports(requesterCtx, { status: 'APPROVED' })).resolves.toEqual([
+        expect.objectContaining({ id: created.id }),
+      ]);
 
       clock.set('2026-06-27T02:43:00.000Z');
       const second = await service.createKeyExport(requesterCtx, {
@@ -5853,9 +5831,7 @@ test.describe('D1 adapter contracts', () => {
         attemptedCount: 0,
         skippedCount: 0,
       });
-      expect(retryHarness.requests.map(webhookDispatchEventId)).toEqual([
-        'evt-d1-webhook-retry',
-      ]);
+      expect(retryHarness.requests.map(webhookDispatchEventId)).toEqual(['evt-d1-webhook-retry']);
       await expect(service.listDeliveries(ctx, endpoint.id)).resolves.toMatchObject({
         items: [
           expect.objectContaining({
@@ -6033,9 +6009,7 @@ test.describe('D1 adapter contracts', () => {
         service: 'webhooks',
         bucketMinutes: 5,
       });
-      expect(
-        timeseries.buckets.filter((bucket) => bucket.requestCount > 0),
-      ).toEqual([
+      expect(timeseries.buckets.filter((bucket) => bucket.requestCount > 0)).toEqual([
         expect.objectContaining({
           errorCount: 1,
           requestCount: 1,
@@ -7375,17 +7349,40 @@ test.describe('D1 adapter contracts', () => {
         createdAtMs: 1000,
         updatedAtMs: 2000,
       });
+      const runtimePolicyScope = {
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+        signingRootVersion: 'signing-root-version-v1',
+      } as const;
+      const activeYao = buildEd25519YaoCapabilityFixture({
+        walletId,
+        nearAccountId: 'wallet-d1-metadata.testnet',
+        nearEd25519SigningKeyId: 'near-ed25519-key-1',
+        thresholdSessionId: 'threshold-session-d1-wallet',
+        signerSlot: 1,
+        signingWorkerId: 'signing-worker-d1-wallet',
+        participantIds: [1, 2],
+        runtimePolicyScope,
+        seed: 71,
+      });
       await walletStore.putSigner({
         version: 'wallet_signer_ed25519_v1',
         walletId,
         signerId: 'ed25519:wallet-d1-metadata:1',
         nearAccountId: 'wallet-d1-metadata.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-key-1',
+        thresholdSessionId: 'threshold-session-d1-wallet',
         signerSlot: 1,
-        publicKey: 'ed25519:public-key-1',
-        relayerKeyId: 'relayer-key-1',
+        publicKey: activeYao.publicKey,
+        signingWorkerId: 'signing-worker-d1-wallet',
         keyVersion: 'signer-key-v1',
         recoveryExportCapable: true,
+        participantIds: [1, 2],
+        signingRootId: 'project-d1-signer:env-production',
+        signingRootVersion: 'signing-root-version-v1',
+        runtimePolicyScope,
+        activeYaoCapability: activeYao.capability,
         createdAtMs: 1000,
         updatedAtMs: 2000,
       });
@@ -7708,9 +7705,8 @@ test.describe('D1 adapter contracts', () => {
       ).resolves.toEqual({ ok: true });
       await expect(identity.getUserIdBySubject('google:alice')).resolves.toBeNull();
 
-      const ensuredVersion = await identity.ensureAppSessionVersionByUserId(
-        'user-d1-identity-alice',
-      );
+      const ensuredVersion =
+        await identity.ensureAppSessionVersionByUserId('user-d1-identity-alice');
       expect(ensuredVersion).toEqual(expect.any(String));
       expect(ensuredVersion.length).toBeGreaterThan(20);
       await expect(
@@ -7719,14 +7715,13 @@ test.describe('D1 adapter contracts', () => {
       await expect(
         otherEnvIdentity.getAppSessionVersionByUserId('user-d1-identity-alice'),
       ).resolves.toBeNull();
-      const rotatedVersion = await identity.rotateAppSessionVersionByUserId(
-        'user-d1-identity-alice',
-      );
+      const rotatedVersion =
+        await identity.rotateAppSessionVersionByUserId('user-d1-identity-alice');
       expect(rotatedVersion).toEqual(expect.any(String));
       expect(rotatedVersion).not.toBe(ensuredVersion);
-      await expect(
-        identity.getAppSessionVersionByUserId('user-d1-identity-alice'),
-      ).resolves.toBe(rotatedVersion);
+      await expect(identity.getAppSessionVersionByUserId('user-d1-identity-alice')).resolves.toBe(
+        rotatedVersion,
+      );
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -7808,13 +7803,13 @@ test.describe('D1 adapter contracts', () => {
         status: 'prepared',
       });
       await expect(otherEnvSessionStore.get('recovery-session-d1')).resolves.toBeNull();
-      await expect(
-        sessionStore.listByNearAccountId('wallet-d1-recovery.testnet'),
-      ).resolves.toEqual([
-        expect.objectContaining({
-          sessionId: 'recovery-session-d1',
-        }),
-      ]);
+      await expect(sessionStore.listByNearAccountId('wallet-d1-recovery.testnet')).resolves.toEqual(
+        [
+          expect.objectContaining({
+            sessionId: 'recovery-session-d1',
+          }),
+        ],
+      );
 
       clock.set('2026-06-27T07:01:00.000Z');
       await expect(sessionStore.get('recovery-session-d1')).resolves.toBeNull();
@@ -7895,9 +7890,7 @@ test.describe('D1 adapter contracts', () => {
       });
 
       await preparationStore.put(activePreparation);
-      await expect(
-        preparationStore.get('email-recovery-preparation-d1'),
-      ).resolves.toMatchObject({
+      await expect(preparationStore.get('email-recovery-preparation-d1')).resolves.toMatchObject({
         requestId: 'email-recovery-preparation-d1',
         accountId: 'wallet-d1-email-recovery',
         rpId: 'app.seams.test',
@@ -8102,7 +8095,9 @@ test.describe('D1 adapter contracts', () => {
       await expect(
         unlockChallengeStore.consume('email-otp-unlock-challenge-d1'),
       ).resolves.toMatchObject({ challengeId: 'email-otp-unlock-challenge-d1' });
-      await expect(unlockChallengeStore.consume('email-otp-unlock-challenge-d1')).resolves.toBeNull();
+      await expect(
+        unlockChallengeStore.consume('email-otp-unlock-challenge-d1'),
+      ).resolves.toBeNull();
 
       const activeAttempt = buildD1EmailOtpRegistrationAttemptRecord({
         attemptId: 'email-otp-registration-active',
@@ -8325,12 +8320,7 @@ test.describe('D1 adapter contracts', () => {
       const namespace = 'd1-contracts';
       const orgId = 'org-d1-runtime-snapshot';
       const nowMs = Date.parse('2026-06-27T00:00:00.000Z');
-      const harness = new RuntimeSnapshotOutboxRaceHarness(
-        temp.database,
-        namespace,
-        orgId,
-        nowMs,
-      );
+      const harness = new RuntimeSnapshotOutboxRaceHarness(temp.database, namespace, orgId, nowMs);
       const service = await createD1ConsoleRuntimeSnapshotService({
         database: temp.database,
         namespace,

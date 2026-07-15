@@ -93,6 +93,7 @@ test.describe('UserConfirm – warm signing', () => {
         ctx.nonceCoordinator = nonceCoordinatorMod.createNonceCoordinator({
           evmNonceBackend: {
             fetchChainNonce: async () => 0n,
+            fetchBroadcastTransactionStatus: async () => ({ kind: 'missing' }),
           },
           nearClient: ctx.nearClient,
           onTrace: (event: any) => {

@@ -5,6 +5,24 @@ import { buildWalletServiceHtml, registerWalletServiceRoute } from '../wallet-if
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 
+function registrationActivationSignerSelection() {
+  return {
+    kind: 'signer_set' as const,
+    signers: [
+      {
+        kind: 'near_ed25519' as const,
+        accountProvisioning: {
+          kind: 'implicit_account' as const,
+          accountIdSource: 'ed25519_public_key' as const,
+        },
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    ],
+  };
+}
+
 const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
   const accountId = 'alice.testnet';
   const walletId = 'frost-orchid-k7p9m2';
@@ -298,7 +316,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
     page,
   }) => {
     const result = await page.evaluate(
-      async ({ walletOrigin }) => {
+      async ({ walletOrigin, signerSelection }) => {
         const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const pm = new SeamsWeb({
@@ -354,6 +372,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         };
         const surface = pm.registration.createPasskeyRegistrationActivationSurface({
           wallet: { kind: 'provided', walletId },
+          signerSelection,
           presentation: {
             kind: 'outline_overlay',
             label: 'Sign up with Passkey',
@@ -376,7 +395,10 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           duplicateMountedWalletId: duplicateTarget.getAttribute('data-mounted-wallet-id'),
         };
       },
-      { walletOrigin: WALLET_ORIGIN },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        signerSelection: registrationActivationSignerSelection(),
+      },
     );
 
     expect(result).toEqual({
@@ -394,7 +416,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
     page,
   }) => {
     const result = await page.evaluate(
-      async ({ walletOrigin }) => {
+      async ({ walletOrigin, signerSelection }) => {
         const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const transport =
@@ -441,6 +463,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         };
         const surface = pm.registration.createPasskeyRegistrationActivationSurface({
           wallet: { kind: 'provided', walletId },
+          signerSelection,
           presentation: {
             kind: 'outline_overlay',
             label: 'Sign up with Passkey',
@@ -457,12 +480,22 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         await new Promise((resolve) => window.setTimeout(resolve, 0));
         return { states, finalState: surface.state() };
       },
-      { walletOrigin: WALLET_ORIGIN },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        signerSelection: registrationActivationSignerSelection(),
+      },
     );
 
-    expect(result).toEqual({
-      states: [{ kind: 'cancelled', activationId: '', reason: 'target_unavailable' }],
-      finalState: { kind: 'cancelled', activationId: '', reason: 'target_unavailable' },
+    expect(result.states).toHaveLength(1);
+    expect(result.states[0]).toEqual({
+      kind: 'cancelled',
+      identity: {
+        activationId: expect.stringMatching(/^regact-init-/),
+        requestId: expect.stringMatching(/^regreq-init-/),
+        surfaceId: expect.stringMatching(/^regsurf-init-/),
+      },
+      reason: 'target_unavailable',
     });
+    expect(result.finalState).toEqual(result.states[0]);
   });
 });

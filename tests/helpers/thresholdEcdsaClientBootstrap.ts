@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import {
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
   prepare_ecdsa_client_bootstrap_v1,
-} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+} from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
 
 export type TestEcdsaClientBootstrapContext = {
   walletId: string;

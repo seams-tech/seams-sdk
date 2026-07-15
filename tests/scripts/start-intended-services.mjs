@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { prepareRouterAbD1LocalRuntimeConfig } from '../../crates/router-ab-dev/scripts/d1-local-runtime-config.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true });
@@ -14,8 +16,7 @@ const checkOnly = process.argv.includes('--check');
 const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:9444';
 const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:8443';
-const projectEnvironmentId =
-  process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
+const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost';
 const d1LocalPersistPath =
@@ -48,7 +49,11 @@ const requiredSdkDistArtifacts = [
   'packages/sdk-web/dist/esm/react/context/index.js',
   'packages/sdk-web/dist/esm/react/index.js',
   'packages/sdk-web/dist/esm/react/styles/styles.css',
+  'packages/sdk-web/dist/esm/sdk/router_ab_ed25519_yao_client_bg.wasm',
+  'packages/sdk-web/dist/esm/wasm/router_ab_ed25519_yao_client/pkg/router_ab_ed25519_yao_client.js',
+  'packages/sdk-web/dist/esm/wasm/router_ab_ed25519_yao_client/pkg/router_ab_ed25519_yao_client_bg.wasm',
   'packages/sdk-web/dist/esm/wasm/near_signer/pkg/wasm_signer_worker.js',
+  'packages/sdk-web/dist/workers/router_ab_ed25519_yao_client_bg.wasm',
   'packages/sdk-web/dist/workers/eth-signer.worker.js',
   'packages/sdk-web/dist/workers/near-signer.worker.js',
   'packages/sdk-web/dist/workers/tempo-signer.worker.js',
@@ -64,7 +69,6 @@ const requiredSiteModuleGraphArtifacts = [
   'packages/sdk-web/dist/esm/react/index.js',
   'packages/sdk-web/dist/esm/react/styles/styles.css',
 ];
-
 await main().catch(failStartup);
 
 async function main() {
@@ -87,6 +91,7 @@ async function main() {
   if (resetState) {
     resetLocalState();
   }
+  initializeRouterAbLocalEnv();
   prepareD1LocalWranglerRuntimeConfig();
 
   const router = startRouter();
@@ -158,9 +163,7 @@ function assertSdkDistArtifacts() {
   if (missingArtifacts.length > 0) {
     throw new Error(`SDK build did not emit required artifacts: ${missingArtifacts.join(', ')}`);
   }
-  console.log(
-    `[intended-services] verified ${requiredSdkDistArtifacts.length} SDK dist artifacts`,
-  );
+  console.log(`[intended-services] verified ${requiredSdkDistArtifacts.length} SDK dist artifacts`);
 }
 
 function clearTransientViteCaches() {
@@ -190,10 +193,14 @@ function runRequiredBuild(label, args, env = process.env) {
 
 function assertD1LocalWasmArtifacts() {
   console.log('[intended-services] verifying D1 local WASM artifacts');
-  runRequiredBuild('d1-local-wasm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
-    ...process.env,
-    SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
-  });
+  runRequiredBuild(
+    'd1-local-wasm',
+    ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'],
+    {
+      ...process.env,
+      SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
+    },
+  );
 }
 
 function removePath(relativePath) {
@@ -203,7 +210,9 @@ function removePath(relativePath) {
 
 function removeAbsolutePath(absolutePath) {
   if (!existsSync(absolutePath)) return;
-  console.log(`[intended-services] removing ${path.relative(repoRoot, absolutePath) || absolutePath}`);
+  console.log(
+    `[intended-services] removing ${path.relative(repoRoot, absolutePath) || absolutePath}`,
+  );
   rmSync(absolutePath, { recursive: true, force: true });
 }
 
@@ -221,7 +230,37 @@ function startSite() {
 }
 
 function startRouter() {
-  return spawnManaged('router', ['run', 'router', '--', '--fresh'], routerEnv());
+  return spawnManaged('router', ['run', 'router', '--', '--no-init'], routerEnv());
+}
+
+function initializeRouterAbLocalEnv() {
+  console.log('[intended-services] generating Router A/B local runtime identity');
+  const result = spawnSync(
+    'cargo',
+    [
+      'run',
+      '--quiet',
+      '--manifest-path',
+      'crates/router-ab-dev/Cargo.toml',
+      '--bin',
+      'router_ab_local_init',
+      '--',
+      '--root',
+      repoRoot,
+      '--force',
+    ],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: 'inherit',
+    },
+  );
+  if (result.error) {
+    throw new Error(`Router A/B local init failed to start: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`Router A/B local init exited with ${String(result.status ?? 'unknown')}`);
+  }
 }
 
 function seedLocalConsole() {
@@ -273,54 +312,15 @@ function routerEnv() {
 }
 
 function prepareD1LocalWranglerRuntimeConfig() {
-  mkdirSync(d1LocalWranglerRuntimeDir, { recursive: true });
-  const sourceConfigPath = path.join(repoRoot, 'packages/console-server-ts/wrangler.d1-local.toml');
-  const sourceConfig = readFileSync(sourceConfigPath, 'utf8');
-  const runtimeConfig = sourceConfig
-    .replace(
-      'main = "src/router/cloudflare/d1LocalDevWorker.ts"',
-      'main = "../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"',
-    )
-    .replace(
-      'migrations_dir = "migrations/d1-console"',
-      'migrations_dir = "../../packages/console-server-ts/migrations/d1-console"',
-    )
-    .replace(
-      'migrations_dir = "../sdk-server-ts/migrations/d1-signer"',
-      'migrations_dir = "../../packages/sdk-server-ts/migrations/d1-signer"',
-    );
-  writeFileSync(d1LocalWranglerConfigPath, runtimeConfig);
-
-  writeD1LocalWranglerRuntimeDevVars();
+  prepareRouterAbD1LocalRuntimeConfig({
+    repoRoot,
+    localEnvRoot: repoRoot,
+    outputConfigPath: d1LocalWranglerConfigPath,
+  });
 
   console.log(
     `[intended-services] prepared D1 local wrangler config at ${path.relative(repoRoot, d1LocalWranglerConfigPath)}`,
   );
-}
-
-function localD1SecretSourcePaths() {
-  return [
-    path.join(repoRoot, 'packages/sdk-server-ts/.dev.vars'),
-    path.join(repoRoot, 'packages/console-server-ts/.dev.vars'),
-  ];
-}
-
-function writeD1LocalWranglerRuntimeDevVars() {
-  const runtimeDevVarsPath = path.join(d1LocalWranglerRuntimeDir, '.dev.vars');
-  const sourcePaths = localD1SecretSourcePaths();
-  let source = '';
-  for (const sourcePath of sourcePaths) {
-    if (!existsSync(sourcePath)) continue;
-    source += `${readFileSync(sourcePath, 'utf8').trimEnd()}\n`;
-    console.log(
-      `[intended-services] copied D1 local env file ${path.relative(repoRoot, sourcePath)}`,
-    );
-  }
-  if (source) {
-    writeFileSync(runtimeDevVarsPath, source);
-    return;
-  }
-  rmSync(runtimeDevVarsPath, { force: true });
 }
 
 function spawnManaged(label, args, env) {
@@ -616,7 +616,9 @@ function isManagedProcessCommand(command) {
 }
 
 function isRouterDevWorkerCommand(command) {
-  return command.includes('crates/router-ab-dev/scripts/dev-local-workers.mjs --mode logs -- --fresh');
+  return command.includes(
+    'crates/router-ab-dev/scripts/dev-local-workers.mjs --mode logs -- --fresh',
+  );
 }
 
 function isWranglerD1Command(command) {

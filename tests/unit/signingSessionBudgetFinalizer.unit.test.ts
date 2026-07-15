@@ -445,6 +445,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const nonceCoordinator = createNonceCoordinator({
       evmNonceBackend: {
         fetchChainNonce: async () => 7n,
+        fetchBroadcastTransactionStatus: async () => ({ kind: 'missing' }),
       },
       onTrace(event) {
         nonceEvents.push(event);
@@ -757,6 +758,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const nonceCoordinator = createNonceCoordinator({
       evmNonceBackend: {
         fetchChainNonce: async () => 12n,
+        fetchBroadcastTransactionStatus: async () => ({ kind: 'missing' }),
       },
       onTrace(event) {
         nonceEvents.push(event);

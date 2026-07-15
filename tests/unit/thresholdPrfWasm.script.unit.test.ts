@@ -2,10 +2,8 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveEcdsaHssYRelayerFromSigningRootShares,
-  deriveEd25519HssServerInputsFromSigningRootShares,
   parseSigningRootShareWire,
   type SigningRootShareWire,
   type ThresholdPrfPolicy,
@@ -15,7 +13,6 @@ import {
   init_threshold_prf,
   threshold_prf_combine_verified_partials,
   threshold_prf_derive_ecdsa_hss_y_relayer,
-  threshold_prf_derive_ed25519_hss_server_inputs,
   threshold_prf_evaluate_partial_with_dleq_proof,
 } from '../../wasm/threshold_prf/pkg/threshold_prf.js';
 
@@ -36,10 +33,7 @@ type ThresholdPrfFixtureVector = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(
-  __dirname,
-  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
-);
+const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
 const THRESHOLD_PRF_WASM_PATH = resolve(
   __dirname,
   '../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
@@ -90,10 +84,7 @@ function shareWires(
   });
 }
 
-function flattenShareWires(
-  vector: ThresholdPrfFixtureVector,
-  ids: readonly number[],
-): Uint8Array {
+function flattenShareWires(vector: ThresholdPrfFixtureVector, ids: readonly number[]): Uint8Array {
   const chunks = ids.map((id) => {
     const share = vector.shares.find((candidate) => candidate.id === id);
     if (!share) throw new Error(`missing share ${id}`);
@@ -171,38 +162,6 @@ test('threshold-prf WASM wrapper derives ECDSA HSS y_server through policy-shape
   );
 
   expect(bytesToHex(yServer)).toBe(bytesToHex(expected));
-});
-
-test('threshold-prf WASM wrapper derives Ed25519 HSS server inputs through policy-shaped shares', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
-  const policy = policyForVector(vector);
-  const selectedIds = [1, 2] as const;
-  const applicationBindingDigest = new Uint8Array(32).fill(9);
-  const context = {
-    applicationBindingDigestB64u: base64UrlEncode(applicationBindingDigest),
-    participantIds: [1, 2],
-  };
-
-  const serverInputs = await deriveEd25519HssServerInputsFromSigningRootShares({
-    policy,
-    shareWires: shareWires(vector, selectedIds),
-    context,
-  });
-  const expected = threshold_prf_derive_ed25519_hss_server_inputs(
-    policy.threshold,
-    policy.shareCount,
-    flattenShareWires(vector, selectedIds),
-    applicationBindingDigest,
-  ) as {
-    contextBinding: Uint8Array;
-    yRelayer: Uint8Array;
-    tauRelayer: Uint8Array;
-  };
-
-  expect(base64UrlEncode(serverInputs.contextBinding)).toBe(base64UrlEncode(expected.contextBinding));
-  expect(base64UrlEncode(serverInputs.yRelayer)).toBe(base64UrlEncode(expected.yRelayer));
-  expect(base64UrlEncode(serverInputs.tauRelayer)).toBe(base64UrlEncode(expected.tauRelayer));
-  expect(serverInputs.participantIds).toEqual([1, 2]);
 });
 
 test('threshold-prf WASM wrapper rejects duplicate signing-root share ids', async () => {

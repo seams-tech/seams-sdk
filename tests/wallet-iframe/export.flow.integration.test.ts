@@ -7,51 +7,25 @@ import {
   captureOverlay,
 } from './harness';
 import {
-  nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
-  walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
-  exactEd25519SigningLaneIdentity,
-  nearEd25519SignerBindingFromBoundaryFields,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
-const ISOLATION_NEAR_ACCOUNT = nearAccountRefFromAccountId('isolation.testnet');
 const EXPORT_FLOW_SUBJECT_ID = toWalletId('export-flow.testnet');
-const ISOLATION_SUBJECT_ID = toWalletId('isolation.testnet');
-const ISOLATION_WALLET_SESSION = walletSessionRefFromSession({
-  walletId: ISOLATION_SUBJECT_ID,
-  walletSessionUserId: ISOLATION_SUBJECT_ID,
-});
-const ISOLATION_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
-  signer: nearEd25519SignerBindingFromBoundaryFields({
-    walletId: ISOLATION_SUBJECT_ID,
-    nearAccountId: 'isolation.testnet',
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('isolation.testnet'),
-    signerSlot: 1,
-  }),
-  auth: {
-    kind: 'passkey',
-    rpId: toRpId('example.test'),
-    credentialIdB64u: 'credential-isolation',
-  },
-  signingGrantId: 'grant-isolation-export',
-  thresholdSessionId: 'threshold-isolation-export',
-});
 const EXPORT_FLOW_EVM_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -381,7 +355,8 @@ test.describe('wallet-origin export flow integration', () => {
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const marks: Record<string, boolean> = {};
           let visibleAtStaleGenericClose = false;
@@ -496,15 +471,16 @@ test.describe('wallet-origin export flow integration', () => {
         waitForSource,
         captureOverlaySource,
         routerPath,
-        nearAccount,
+        walletId,
+        chainTarget,
         exportLaneIdentity,
-        walletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const marks: Record<string, boolean> = {};
           let exportRequestId = '';
@@ -534,12 +510,14 @@ test.describe('wallet-origin export flow integration', () => {
           await router.init();
 
           const exportPromise = router.exportKeypairWithUI({
-            kind: 'near',
-            walletSession,
-            nearAccount,
+            kind: 'ecdsa',
+            walletSession: {
+              walletId,
+              walletSessionUserId: walletId,
+            },
+            chainTarget,
             laneIdentity: exportLaneIdentity,
             options: {
-              chain: 'near',
               variant: 'drawer',
               theme: 'dark',
             },
@@ -596,9 +574,9 @@ test.describe('wallet-origin export flow integration', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
-        nearAccount: ISOLATION_NEAR_ACCOUNT,
-        exportLaneIdentity: ISOLATION_NEAR_EXPORT_LANE,
-        walletSession: ISOLATION_WALLET_SESSION,
+        walletId: EXPORT_FLOW_SUBJECT_ID,
+        chainTarget: EXPORT_FLOW_EVM_TARGET,
+        exportLaneIdentity: EXPORT_FLOW_ECDSA_EXPORT_LANE,
       },
     );
 

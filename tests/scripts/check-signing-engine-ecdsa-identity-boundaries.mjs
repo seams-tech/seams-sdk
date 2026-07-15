@@ -1023,7 +1023,7 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts',
   );
   const hssClientSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
+    'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts',
   );
   const offenders = [];
   const requiredRoleLocalBootstrapFields = [
@@ -1182,31 +1182,31 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     ...expectRequiredFields(
       ecdsaClientContextBlock,
       ['walletId', 'ecdsaThresholdKeyId', 'signingRootId', 'signingRootVersion'],
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'rpId',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'chainTarget',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'keyPurpose',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'keyVersion',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ),
     ...expectNoNearAccountId(
       ecdsaClientContextBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ),
   );
 
@@ -1217,7 +1217,7 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     ],
     [
       ecdsaClientContextBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
     ],
   ]) {
     for (const field of ['signingGrantId', 'thresholdSessionId']) {
@@ -1234,7 +1234,7 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
 }
 
 function checkEcdsaHssWasmPackageExportsStayRoleLocal() {
-  const clientDts = readRepoFile('wasm/hss_client_signer/pkg/hss_client_signer.d.ts');
+  const clientDts = readRepoFile('wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.d.ts');
   const serverDts = readRepoFile('wasm/eth_signer/pkg/eth_signer.d.ts');
   const nearWorkerDts = readRepoFile('wasm/near_signer/pkg/wasm_signer_worker.d.ts');
   const offenders = [];
