@@ -1,0 +1,9 @@
+{
+  "errors": [
+    {
+      "message": "Cannot query field memoryUsageBytesP999",
+      "path": ["viewer", "accounts", "workersInvocationsAdaptive", "quantiles"],
+      "extensions": { "code": "GRAPHQL_VALIDATION_FAILED" }
+    }
+  ]
+}

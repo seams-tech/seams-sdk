@@ -1,27 +1,27 @@
 use router_ab_core::{
     decode_ab_peer_message_payload_v1,
-    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
+    decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     decode_recipient_proof_bundle_ciphertext_v1, decode_router_to_signer_payload_v1,
     encode_recipient_proof_bundle_ciphertext_v1, execute_local_persistence_sql_seed_plan_v1,
     local_persistence_seed_sql_plan_v1, router_transcript_digest_v1, validate_local_env_keys_v1,
-    AbDerivationProofBatchPayloadV1, CanonicalWireBytesV1, EncryptedPayloadV1, ExpensiveWorkKindV1,
-    LifecycleScopeV1, LocalClientRouterRequestV1, LocalDeriverAEndpointV1, LocalDeriverAServiceV1,
-    LocalDeriverBEndpointV1, LocalDeriverBServiceV1, LocalDeterministicSignerEnvelopeDecryptorV1,
-    LocalEnvSnapshotV1, LocalHttpMethodV1, LocalHttpPathV1, LocalHttpRequestV1,
-    LocalPersistenceSeedV1, LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1,
-    LocalPersistenceSqlValueV1, LocalReplayCacheV1, LocalRouterEndpointV1, LocalRouterServiceV1,
-    LocalSealedRootShareRecordV1, LocalServiceEndpointV1, LocalServiceRoleV1, LocalServiceStackV1,
-    LocalServiceStartupV1, LocalSignerEnvelopeDecryptorV1, LocalSignerHandlerContextV1,
-    LocalSignerHandlerOutputV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
+    CanonicalWireBytesV1, EcdsaThresholdPrfProofBatchPayloadV1, EncryptedPayloadV1,
+    ExpensiveWorkKindV1, LifecycleScopeV1, LocalClientRouterRequestV1, LocalDeriverAEndpointV1,
+    LocalDeriverAServiceV1, LocalDeriverBEndpointV1, LocalDeriverBServiceV1,
+    LocalDeterministicSignerEnvelopeDecryptorV1, LocalEnvSnapshotV1, LocalHttpMethodV1,
+    LocalHttpPathV1, LocalHttpRequestV1, LocalPersistenceSeedV1, LocalPersistenceSqlSeedExecutorV1,
+    LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalReplayCacheV1,
+    LocalRouterEndpointV1, LocalRouterServiceV1, LocalSealedRootShareRecordV1,
+    LocalServiceEndpointV1, LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1,
+    LocalSignerEnvelopeDecryptorV1, LocalSignerHandlerContextV1, LocalSignerHandlerOutputV1,
+    LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
     LocalSigningWorkerRecipientProofBundleActivationV1, LocalTransportEnvelopeV1,
-    LocalTransportRouteV1, NormalSigningScopeV1, PublicRouterRequestV1,
-    RecipientProofBundleCiphertextV1, RoleEncryptedEnvelopeV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterTranscriptMetadataV1,
-    ServerIdentityV1, SignerIdentityV1, SignerSetV1, SigningWorkerActivationContextV1,
-    WireMessageKindV1, WireMessageV1,
+    LocalTransportRouteV1, NormalSigningScopeV1, RecipientProofBundleCiphertextV1,
+    RoleEncryptedEnvelopeV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
+    SignerSetV1, SigningWorkerActivationContextV1, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{
-    CandidateId, CorrectnessLevel, OpenedShareKind, PublicDigest32, Role, RootShareEpoch,
+    EcdsaThresholdPrfRequestV1, OpenedShareKind, PublicDigest32, Role, RootShareEpoch,
 };
 
 fn digest(seed: u8) -> PublicDigest32 {
@@ -105,14 +105,14 @@ fn malformed_router_to_signer_wire(
 
 fn decode_local_peer_proof_batch(
     envelope: &LocalTransportEnvelopeV1,
-) -> AbDerivationProofBatchPayloadV1 {
+) -> EcdsaThresholdPrfProofBatchPayloadV1 {
     let peer_payload = decode_ab_peer_message_payload_v1(envelope.message.payload.as_bytes())
         .expect("peer payload decodes");
     assert_eq!(
         peer_payload.transcript_digest,
         envelope.message.transcript_digest
     );
-    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1(&peer_payload)
+    decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1(&peer_payload)
         .expect("proof batch validates")
 }
 
@@ -174,7 +174,7 @@ fn assert_local_client_bundle(message: &WireMessageV1, signer_role: Role) {
         Role::Client,
         OpenedShareKind::XClientBase,
     );
-    let request = public_router_request();
+    let request = ecdsa_threshold_prf_request();
     let metadata = request
         .transcript_metadata()
         .expect("public request transcript metadata");
@@ -204,7 +204,7 @@ fn router_to_signer_wire(
     kind: WireMessageKindV1,
     transcript_digest: PublicDigest32,
 ) -> WireMessageV1 {
-    let request = public_router_request();
+    let request = ecdsa_threshold_prf_request();
     let (signer_a, signer_b) = request
         .to_signer_wire_messages()
         .expect("router-to-signer messages");
@@ -217,12 +217,11 @@ fn router_to_signer_wire(
     message
 }
 
-fn public_router_request() -> PublicRouterRequestV1 {
-    PublicRouterRequestV1::new(
+fn ecdsa_threshold_prf_request() -> EcdsaThresholdPrfRequestV1 {
+    EcdsaThresholdPrfRequestV1::new(
         "request-nonce-1",
         2_000,
         lifecycle_scope(),
-        CandidateId::MpcThresholdPrfV1,
         signer_set(),
         "near-testnet",
         "ed25519:local-dev-account-public-key",
@@ -241,8 +240,6 @@ fn local_valid_transcript_digest() -> PublicDigest32 {
         &lifecycle_scope(),
         &signer_set(),
         &transcript_metadata(),
-        CandidateId::MpcThresholdPrfV1,
-        CorrectnessLevel::MinimumLevelC,
         root_epoch(),
     )
     .expect("local transcript digest")
@@ -1453,7 +1450,7 @@ fn local_signer_handlers_return_peer_proof_batch_envelopes() {
 
 #[test]
 fn local_deterministic_decryptor_returns_bound_signer_input_plaintext() {
-    let request = public_router_request();
+    let request = ecdsa_threshold_prf_request();
     let (payload_a, _) = request.to_signer_payloads().expect("signer payloads");
     let context = signer_a_context();
     let plaintext = LocalDeterministicSignerEnvelopeDecryptorV1
@@ -1527,16 +1524,13 @@ fn local_signer_handler_rejects_payload_for_other_local_signer() {
         &lifecycle,
         &signer_set,
         &transcript_metadata(),
-        CandidateId::MpcThresholdPrfV1,
-        CorrectnessLevel::MinimumLevelC,
         root_epoch(),
     )
     .expect("custom signer-set transcript digest");
-    let public_request = PublicRouterRequestV1::new(
+    let public_request = EcdsaThresholdPrfRequestV1::new(
         "request-nonce-1",
         2_000,
         lifecycle,
-        CandidateId::MpcThresholdPrfV1,
         signer_set,
         "near-testnet",
         "ed25519:local-dev-account-public-key",

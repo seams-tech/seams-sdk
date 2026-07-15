@@ -1,0 +1,128 @@
+{
+  "schema": "seams-ed25519-yao-local-latency-report-v1",
+  "evidence_kind": "nonproduction_local_process",
+  "production_eligible": false,
+  "deployed_evidence": false,
+  "generated_at": "2026-07-13T06:31:21.883Z",
+  "samples_per_profile": 100,
+  "warmups_per_profile": 1,
+  "rust_build_profile": "release",
+  "percentile_method": "nearest_rank",
+  "statistically_sufficient_for_p99": true,
+  "profiles": [
+    {
+      "profile": "ed25519-yao-one-account",
+      "operations": {
+        "registration": {
+          "p50_microseconds": 94070,
+          "p95_microseconds": 100068,
+          "p99_microseconds": 102040,
+          "minimum_microseconds": 77275,
+          "maximum_microseconds": 103803
+        },
+        "recovery": {
+          "p50_microseconds": 64607,
+          "p95_microseconds": 70351,
+          "p99_microseconds": 72197,
+          "minimum_microseconds": 53862,
+          "maximum_microseconds": 75176
+        },
+        "refresh": {
+          "p50_microseconds": 64205,
+          "p95_microseconds": 72893,
+          "p99_microseconds": 74966,
+          "minimum_microseconds": 55234,
+          "maximum_microseconds": 75982
+        },
+        "export": {
+          "p50_microseconds": 19035,
+          "p95_microseconds": 23780,
+          "p99_microseconds": 24566,
+          "minimum_microseconds": 15511,
+          "maximum_microseconds": 25679
+        },
+        "ordinary_signing": {
+          "p50_microseconds": 2362,
+          "p95_microseconds": 2430,
+          "p99_microseconds": 2471,
+          "minimum_microseconds": 750,
+          "maximum_microseconds": 2550
+        }
+      },
+      "wire_bytes": {
+        "activation": {
+          "deriver_a_to_b": 2185420,
+          "deriver_b_to_a": 37164,
+          "total": 2222584
+        },
+        "export": {
+          "deriver_a_to_b": 82636,
+          "deriver_b_to_a": 20780,
+          "total": 103416
+        },
+        "ordinary_signing": {
+          "deriver_a_to_b": 0,
+          "deriver_b_to_a": 0,
+          "total": 0
+        }
+      }
+    },
+    {
+      "profile": "ed25519-yao-two-administrator",
+      "operations": {
+        "registration": {
+          "p50_microseconds": 94232,
+          "p95_microseconds": 99531,
+          "p99_microseconds": 100938,
+          "minimum_microseconds": 73613,
+          "maximum_microseconds": 101019
+        },
+        "recovery": {
+          "p50_microseconds": 63725,
+          "p95_microseconds": 71391,
+          "p99_microseconds": 73404,
+          "minimum_microseconds": 55915,
+          "maximum_microseconds": 74151
+        },
+        "refresh": {
+          "p50_microseconds": 63973,
+          "p95_microseconds": 71940,
+          "p99_microseconds": 76187,
+          "minimum_microseconds": 54025,
+          "maximum_microseconds": 76605
+        },
+        "export": {
+          "p50_microseconds": 18847,
+          "p95_microseconds": 23498,
+          "p99_microseconds": 24992,
+          "minimum_microseconds": 15136,
+          "maximum_microseconds": 25251
+        },
+        "ordinary_signing": {
+          "p50_microseconds": 2368,
+          "p95_microseconds": 2452,
+          "p99_microseconds": 2875,
+          "minimum_microseconds": 758,
+          "maximum_microseconds": 2970
+        }
+      },
+      "wire_bytes": {
+        "activation": {
+          "deriver_a_to_b": 2185420,
+          "deriver_b_to_a": 37164,
+          "total": 2222584
+        },
+        "export": {
+          "deriver_a_to_b": 82636,
+          "deriver_b_to_a": 20780,
+          "total": 103416
+        },
+        "ordinary_signing": {
+          "deriver_a_to_b": 0,
+          "deriver_b_to_a": 0,
+          "total": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,15 +1,13 @@
 use router_ab_cloudflare::{
     cloudflare_service_json_request_body_bytes_v1,
-    CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH, CLOUDFLARE_SIGNER_A_PEER_REQUEST_PATH,
-    CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH, CLOUDFLARE_SIGNER_B_PEER_REQUEST_PATH,
-    CLOUDFLARE_SIGNER_B_PRIVATE_REQUEST_PATH, CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
-    CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
+    CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH, CLOUDFLARE_DERIVER_A_PEER_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH, CLOUDFLARE_DERIVER_B_PEER_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH, CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
 };
 use router_ab_dev::{
-    run_example_local_router_ab_hss_dev_http_ceremony_v1, LOCAL_DERIVER_A_PEER_PATH,
+    run_example_local_router_ab_dev_http_ceremony_v1, LOCAL_DERIVER_A_PEER_PATH,
     LOCAL_DERIVER_A_PRIVATE_PATH, LOCAL_DERIVER_B_PEER_PATH, LOCAL_DERIVER_B_PRIVATE_PATH,
-    LOCAL_ROUTER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
+    LOCAL_ROUTER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
 };
 
 #[test]
@@ -20,23 +18,19 @@ fn local_worker_routes_match_cloudflare_worker_routes() {
     );
     assert_eq!(
         LOCAL_DERIVER_A_PRIVATE_PATH,
-        CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH
+        CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH
     );
     assert_eq!(
         LOCAL_DERIVER_B_PRIVATE_PATH,
-        CLOUDFLARE_SIGNER_B_PRIVATE_REQUEST_PATH
+        CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH
     );
     assert_eq!(
         LOCAL_DERIVER_A_PEER_PATH,
-        CLOUDFLARE_SIGNER_A_PEER_REQUEST_PATH
+        CLOUDFLARE_DERIVER_A_PEER_REQUEST_PATH
     );
     assert_eq!(
         LOCAL_DERIVER_B_PEER_PATH,
-        CLOUDFLARE_SIGNER_B_PEER_REQUEST_PATH
-    );
-    assert_eq!(
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
-        CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH
+        CLOUDFLARE_DERIVER_B_PEER_REQUEST_PATH
     );
     assert_eq!(
         LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
@@ -46,9 +40,7 @@ fn local_worker_routes_match_cloudflare_worker_routes() {
 
 #[test]
 fn local_http_wire_message_bodies_match_cloudflare_service_binding_bytes() {
-    let ceremony =
-        run_example_local_router_ab_hss_dev_http_ceremony_v1("derived-gamma", "split-epoch-1")
-            .expect("typed HTTP ceremony");
+    let ceremony = run_example_local_router_ab_dev_http_ceremony_v1().expect("typed HTTP ceremony");
     let cases = [
         (
             "Router to Deriver A request",
@@ -94,18 +86,14 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     router.assert_wrangler("name = \"router-ab-router\"");
     router.assert_wrangler("[env.staging]");
     router.assert_wrangler("name = \"router-ab-router-staging\"");
-    router.assert_wrangler("service = \"router-ab-signer-a-staging\"");
-    router.assert_wrangler("service = \"router-ab-signer-b-staging\"");
+    router.assert_wrangler("service = \"router-ab-deriver-a-staging\"");
+    router.assert_wrangler("service = \"router-ab-deriver-b-staging\"");
     router.assert_wrangler("service = \"router-ab-signing-worker-staging\"");
-    router.assert_wrangler("[env.production]");
-    router.assert_wrangler("name = \"router-ab-router-prod\"");
-    router.assert_wrangler("service = \"router-ab-signer-a-prod\"");
-    router.assert_wrangler("service = \"router-ab-signer-b-prod\"");
-    router.assert_wrangler("service = \"router-ab-signing-worker-prod\"");
+    router.assert_wrangler_absent("[env.production]");
     router.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     router.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
-    router.assert_wrangler("binding = \"SIGNER_A\"");
-    router.assert_wrangler("binding = \"SIGNER_B\"");
+    router.assert_wrangler("binding = \"DERIVER_A\"");
+    router.assert_wrangler("binding = \"DERIVER_B\"");
     router.assert_wrangler("binding = \"SIGNING_WORKER\"");
     router.assert_wrangler("ROUTER_REPLAY_DO_BINDING = \"ROUTER_REPLAY_DO\"");
     router.assert_wrangler("ROUTER_LIFECYCLE_DO_BINDING = \"ROUTER_LIFECYCLE_DO\"");
@@ -125,25 +113,24 @@ fn local_env_templates_match_wrangler_startup_manifests() {
 
     let deriver_a = ManifestPair {
         local: include_str!("../env/deriver-a.local.example"),
-        wrangler: include_str!("../../router-ab-cloudflare/wrangler.signer-a.toml"),
+        wrangler: include_str!("../../router-ab-cloudflare/wrangler.deriver-a.toml"),
     };
     deriver_a.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=deriver-a");
-    deriver_a.assert_wrangler("name = \"router-ab-signer-a\"");
-    deriver_a.assert_wrangler("name = \"router-ab-signer-a-staging\"");
-    deriver_a.assert_wrangler("service = \"router-ab-signer-b-staging\"");
-    deriver_a.assert_wrangler("name = \"router-ab-signer-a-prod\"");
-    deriver_a.assert_wrangler("service = \"router-ab-signer-b-prod\"");
+    deriver_a.assert_wrangler("name = \"router-ab-deriver-a\"");
+    deriver_a.assert_wrangler("name = \"router-ab-deriver-a-staging\"");
+    deriver_a.assert_wrangler("service = \"router-ab-deriver-b-staging\"");
+    deriver_a.assert_wrangler_absent("[env.production]");
     deriver_a.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     deriver_a.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
-    deriver_a.assert_wrangler("binding = \"SIGNER_B\"");
-    deriver_a.assert_wrangler("SIGNER_A_ROOT_SHARE_DO_BINDING = \"SIGNER_A_ROOT_SHARE_DO\"");
+    deriver_a.assert_wrangler("binding = \"DERIVER_B\"");
+    deriver_a.assert_wrangler("DERIVER_A_ROOT_SHARE_DO_BINDING = \"DERIVER_A_ROOT_SHARE_DO\"");
     deriver_a.assert_wrangler(
-        "SIGNER_A_ROOT_SHARE_WIRE_SECRET_BINDING = \"SIGNER_A_ROOT_SHARE_WIRE_SECRET\"",
+        "DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = \"DERIVER_A_ROOT_SHARE_WIRE_SECRET\"",
     );
     deriver_a.assert_wrangler(
-        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY\"",
+        "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY\"",
     );
-    deriver_a.assert_wrangler("SIGNER_A_PEER_SIGNING_KEY_BINDING = \"SIGNER_A_PEER_SIGNING_KEY\"");
+    deriver_a.assert_wrangler("DERIVER_A_PEER_SIGNING_KEY_BINDING = \"DERIVER_A_PEER_SIGNING_KEY\"");
     deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:9092");
     deriver_a.assert_local("DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_a.assert_local("DERIVER_A_ROOT_SHARE_WIRE_SECRET=");
@@ -157,25 +144,24 @@ fn local_env_templates_match_wrangler_startup_manifests() {
 
     let deriver_b = ManifestPair {
         local: include_str!("../env/deriver-b.local.example"),
-        wrangler: include_str!("../../router-ab-cloudflare/wrangler.signer-b.toml"),
+        wrangler: include_str!("../../router-ab-cloudflare/wrangler.deriver-b.toml"),
     };
     deriver_b.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=deriver-b");
-    deriver_b.assert_wrangler("name = \"router-ab-signer-b\"");
-    deriver_b.assert_wrangler("name = \"router-ab-signer-b-staging\"");
-    deriver_b.assert_wrangler("service = \"router-ab-signer-a-staging\"");
-    deriver_b.assert_wrangler("name = \"router-ab-signer-b-prod\"");
-    deriver_b.assert_wrangler("service = \"router-ab-signer-a-prod\"");
+    deriver_b.assert_wrangler("name = \"router-ab-deriver-b\"");
+    deriver_b.assert_wrangler("name = \"router-ab-deriver-b-staging\"");
+    deriver_b.assert_wrangler("service = \"router-ab-deriver-a-staging\"");
+    deriver_b.assert_wrangler_absent("[env.production]");
     deriver_b.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     deriver_b.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
-    deriver_b.assert_wrangler("binding = \"SIGNER_A\"");
-    deriver_b.assert_wrangler("SIGNER_B_ROOT_SHARE_DO_BINDING = \"SIGNER_B_ROOT_SHARE_DO\"");
+    deriver_b.assert_wrangler("binding = \"DERIVER_A\"");
+    deriver_b.assert_wrangler("DERIVER_B_ROOT_SHARE_DO_BINDING = \"DERIVER_B_ROOT_SHARE_DO\"");
     deriver_b.assert_wrangler(
-        "SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING = \"SIGNER_B_ROOT_SHARE_WIRE_SECRET\"",
+        "DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING = \"DERIVER_B_ROOT_SHARE_WIRE_SECRET\"",
     );
     deriver_b.assert_wrangler(
-        "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY\"",
+        "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY\"",
     );
-    deriver_b.assert_wrangler("SIGNER_B_PEER_SIGNING_KEY_BINDING = \"SIGNER_B_PEER_SIGNING_KEY\"");
+    deriver_b.assert_wrangler("DERIVER_B_PEER_SIGNING_KEY_BINDING = \"DERIVER_B_PEER_SIGNING_KEY\"");
     deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:9091");
     deriver_b.assert_local("DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_b.assert_local("DERIVER_B_ROOT_SHARE_WIRE_SECRET=");
@@ -194,7 +180,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     signing_worker.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=signing-worker");
     signing_worker.assert_wrangler("name = \"router-ab-signing-worker\"");
     signing_worker.assert_wrangler("name = \"router-ab-signing-worker-staging\"");
-    signing_worker.assert_wrangler("name = \"router-ab-signing-worker-prod\"");
+    signing_worker.assert_wrangler_absent("[env.production]");
     signing_worker.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     signing_worker.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     signing_worker.assert_wrangler(

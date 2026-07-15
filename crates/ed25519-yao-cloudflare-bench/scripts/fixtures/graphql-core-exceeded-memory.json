@@ -1,0 +1,51 @@
+{
+  "data": {
+    "viewer": {
+      "accounts": [
+        {
+          "aggregate": [
+            {
+              "sum": {
+                "requests": 1,
+                "errors": 1,
+                "subrequests": 0,
+                "clientDisconnects": 0,
+                "cpuTimeUs": 100000,
+                "requestDuration": 150000,
+                "wallTime": 150000,
+                "responseBodySize": 0
+              },
+              "quantiles": {
+                "cpuTimeP50": 100000,
+                "cpuTimeP90": 100000,
+                "cpuTimeP95": 100000,
+                "cpuTimeP99": 100000,
+                "cpuTimeP999": 100000,
+                "requestDurationP50": 150000,
+                "requestDurationP90": 150000,
+                "requestDurationP95": 150000,
+                "requestDurationP99": 150000,
+                "requestDurationP999": 150000,
+                "wallTimeP50": 150000,
+                "wallTimeP90": 150000,
+                "wallTimeP95": 150000,
+                "wallTimeP99": 150000,
+                "wallTimeP999": 150000
+              }
+            }
+          ],
+          "byColo": [
+            {
+              "sum": { "requests": 1, "errors": 1 },
+              "dimensions": {
+                "scriptName": "ed25519-yao-ab-benchmark-a-cross-account",
+                "coloCode": "NRT",
+                "status": "exceededMemory"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

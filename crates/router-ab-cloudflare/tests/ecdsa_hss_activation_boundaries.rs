@@ -322,8 +322,8 @@ fn ecdsa_hss_direct_activation_delivery_excludes_client_and_export_bundles() {
         "Role::Client",
         "OpenedShareKind::XClientBase",
         "cloudflare_ecdsa_hss_deriver_export_service_url",
-        "CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH",
-        "CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH",
+        "CLOUDFLARE_DERIVER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH",
+        "CLOUDFLARE_DERIVER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH",
     ] {
         assert!(
             !delivery_impl.contains(forbidden),

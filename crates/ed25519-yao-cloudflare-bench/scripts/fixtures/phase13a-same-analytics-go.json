@@ -1,0 +1,82 @@
+{
+  "benchmark": "phase9b-cloudflare-workers-analytics",
+  "benchmark_only": true,
+  "topology": "same-account-service-binding",
+  "region_label": "tokyo-runner-1",
+  "adaptive_sampling": true,
+  "memory_evidence_classification": "cloudflare-reservoir-sampled-shared-isolate-operational-proxy",
+  "exact_peak_proven": false,
+  "platform_copy_accounting": "unavailable",
+  "window": {
+    "start": "2026-07-13T00:02:00.000Z",
+    "end": "2026-07-13T01:00:00.000Z"
+  },
+  "a": {
+    "role": "deriver-a",
+    "script_name": "ed25519-yao-ab-benchmark-a",
+    "core": {
+      "available": true,
+      "sum": { "requests": 51, "errors": 0, "cpuTimeUs": 4080000 },
+      "quantiles": { "milliseconds": { "cpuTimeP95": 80, "cpuTimeP99": 85 } },
+      "by_colo": [{
+        "sum": { "requests": 51, "errors": 0 },
+        "dimensions": {
+          "scriptName": "ed25519-yao-ab-benchmark-a",
+          "coloCode": "NRT",
+          "status": "success"
+        }
+      }]
+    },
+    "memory": {
+      "available": true,
+      "quantiles_bytes": {
+        "memoryUsageBytesP50": 80000000,
+        "memoryUsageBytesP90": 90000000,
+        "memoryUsageBytesP99": 99000000,
+        "memoryUsageBytesP999": 100000000
+      }
+    },
+    "sampled_memory_gate": {
+      "threshold_bytes": 100663296,
+      "comparison": "memoryUsageBytesP999 < threshold_bytes",
+      "memory_usage_bytes_p999": 100000000,
+      "exceeded_memory_status_count": 0,
+      "exceeded_memory_status_observed": false,
+      "result": "pass"
+    }
+  },
+  "b": {
+    "role": "deriver-b",
+    "script_name": "ed25519-yao-ab-benchmark-b",
+    "core": {
+      "available": true,
+      "sum": { "requests": 51, "errors": 0, "cpuTimeUs": 3060000 },
+      "quantiles": { "milliseconds": { "cpuTimeP95": 60, "cpuTimeP99": 65 } },
+      "by_colo": [{
+        "sum": { "requests": 51, "errors": 0 },
+        "dimensions": {
+          "scriptName": "ed25519-yao-ab-benchmark-b",
+          "coloCode": "NRT",
+          "status": "success"
+        }
+      }]
+    },
+    "memory": {
+      "available": true,
+      "quantiles_bytes": {
+        "memoryUsageBytesP50": 80000000,
+        "memoryUsageBytesP90": 90000000,
+        "memoryUsageBytesP99": 99000000,
+        "memoryUsageBytesP999": 100000000
+      }
+    },
+    "sampled_memory_gate": {
+      "threshold_bytes": 100663296,
+      "comparison": "memoryUsageBytesP999 < threshold_bytes",
+      "memory_usage_bytes_p999": 100000000,
+      "exceeded_memory_status_count": 0,
+      "exceeded_memory_status_observed": false,
+      "result": "pass"
+    }
+  }
+}

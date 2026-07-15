@@ -5,10 +5,6 @@ use crate::suite::SuiteId;
 pub enum PrfPurpose {
     /// Server input for `ecdsa-hss`.
     EcdsaHssYServer,
-    /// Server root input for `ed25519-hss`.
-    Ed25519HssYServer,
-    /// Server rerandomization input for `ed25519-hss`.
-    Ed25519HssTauServer,
     /// Router/A/B client-base output.
     RouterAbXClientBaseV1,
     /// Router/A/B server-base output.
@@ -29,8 +25,6 @@ impl PrfPurpose {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::EcdsaHssYServer => b"ecdsa-hss/y_server",
-            Self::Ed25519HssYServer => b"ed25519-hss/y_server",
-            Self::Ed25519HssTauServer => b"ed25519-hss/tau_server",
             Self::RouterAbXClientBaseV1 => b"router-ab/x_client_base/v1",
             Self::RouterAbXServerBaseV1 => b"router-ab/x_server_base/v1",
         }
@@ -39,10 +33,10 @@ impl PrfPurpose {
     /// Returns the output encoding for this purpose.
     pub fn output_encoding(&self) -> PrfOutputEncoding {
         match self {
-            Self::EcdsaHssYServer | Self::Ed25519HssYServer => PrfOutputEncoding::Raw32,
-            Self::Ed25519HssTauServer
-            | Self::RouterAbXClientBaseV1
-            | Self::RouterAbXServerBaseV1 => PrfOutputEncoding::CanonicalEd25519Scalar32,
+            Self::EcdsaHssYServer => PrfOutputEncoding::Raw32,
+            Self::RouterAbXClientBaseV1 | Self::RouterAbXServerBaseV1 => {
+                PrfOutputEncoding::CanonicalEd25519Scalar32
+            }
         }
     }
 }

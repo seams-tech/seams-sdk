@@ -10,29 +10,20 @@ use local_dev_process::{
     LocalWorkerSpawnReceipt, LocalWorkerUrls, LOCAL_WORKER_PROCESS_SPECS,
 };
 use router_ab_core::{
-    LocalServiceRoleV1, NormalSigningResponseV1, NormalSigningRound1PrepareResponseV1,
-    NormalSigningSignatureSchemeV1, Role, RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+    LocalServiceRoleV1, Role, RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1, RouterAbEcdsaHssEvmDigestSigningRequestV1,
     RouterAbEcdsaHssEvmDigestSigningResponseV1, RouterAbEcdsaHssNormalSigningScopeV1,
     RouterAbEcdsaHssPublicIdentityV1, RouterAbEcdsaHssSignatureSchemeV1,
-    RouterAbEcdsaHssStableKeyContextV1, RouterAbEd25519NormalSigningPrepareRequestV2,
-    ServerIdentityV1,
+    RouterAbEcdsaHssStableKeyContextV1, ServerIdentityV1,
 };
 use router_ab_dev::{
-    build_local_normal_signing_delegate_action_prepare_request_v2,
-    build_local_normal_signing_finalize_request_v2,
-    build_local_normal_signing_near_transaction_prepare_request_v2,
-    build_local_normal_signing_nep413_prepare_request_v2,
-    build_local_router_ed25519_key_store_seed_v1, local_router_ab_internal_service_auth_secret_v1,
-    run_example_local_router_ab_hss_dev_http_ceremony_v1, LocalDeriverPeerMessageReceiptV1,
-    LocalNormalSigningSmokeFixtureV1, LocalRouterEd25519KeyStoreSeedV1,
-    LocalSigningWorkerActivationRouteReceiptV1,
+    local_router_ab_internal_service_auth_secret_v1,
+    run_example_local_router_ab_dev_http_ceremony_v1, LocalDeriverPeerMessageReceiptV1,
     LocalSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1,
     LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_B_PEER_PATH,
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH,
-    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH, LOCAL_ROUTER_NORMAL_SIGNING_PATH,
-    LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH, LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
+    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
 };
 use serde::Serialize;
@@ -67,9 +58,6 @@ struct SmokeSummary {
     setup_status: String,
     deriver_b_peer_status: String,
     deriver_a_peer_status: String,
-    signing_worker_activation_status: String,
-    normal_signing_status: String,
-    normal_signing_evidence_kind: String,
     ecdsa_hss_live_http_route_dispatch_status: String,
     ecdsa_hss_pool_fill_status: String,
     ecdsa_hss_prepare_status: String,
@@ -77,13 +65,9 @@ struct SmokeSummary {
     ecdsa_hss_replay_rejection_status: String,
     ecdsa_hss_signature_scheme: String,
     ecdsa_hss_evidence_kind: String,
-    deriver_a_normal_signing_requests: u32,
-    deriver_b_normal_signing_requests: u32,
     setup_elapsed_ms: u64,
     deriver_b_peer_elapsed_ms: u64,
     deriver_a_peer_elapsed_ms: u64,
-    signing_worker_activation_elapsed_ms: u64,
-    normal_signing_elapsed_ms: u64,
     ecdsa_hss_live_http_elapsed_ms: u64,
     total_elapsed_ms: u64,
 }
@@ -138,8 +122,7 @@ fn run_smoke(
 ) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
     let total_start = Instant::now();
     let setup_start = Instant::now();
-    let ceremony =
-        run_example_local_router_ab_hss_dev_http_ceremony_v1("derived-gamma", "split-epoch-1")?;
+    let ceremony = run_example_local_router_ab_dev_http_ceremony_v1()?;
     ceremony
         .core_http_ceremony
         .router_response
@@ -199,77 +182,7 @@ fn run_smoke(
     }
     let deriver_a_peer_elapsed_ms = elapsed_ms(deriver_a_start);
 
-    let activation_start = Instant::now();
-    let (activation_status, activation_body) = post_json_to_path(
-        &urls.signing_worker,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
-        &ceremony.core_http_ceremony.signing_worker_activation,
-    )?;
-    if activation_status != 200 {
-        return Err(format!(
-            "SigningWorker activation smoke returned HTTP {activation_status}: {activation_body}"
-        )
-        .into());
-    }
-    let activation_receipt: LocalSigningWorkerActivationRouteReceiptV1 =
-        serde_json::from_str(&activation_body)?;
-    if activation_receipt.receiver_role != LocalServiceRoleV1::SigningWorker
-        || activation_receipt.accepted_opened_share_kind != "x_server_base"
-        || activation_receipt.status != "accepted"
-    {
-        return Err("SigningWorker activation smoke receipt had the wrong role binding".into());
-    }
-    let signing_worker_activation_elapsed_ms = elapsed_ms(activation_start);
-
     let smoke_run_id = local_smoke_run_id()?;
-    let normal_fixture = local_normal_signing_smoke_fixture()?;
-    let normal_prepare_requests = vec![
-        build_local_normal_signing_near_transaction_prepare_request_v2(
-            &normal_fixture,
-            &format!("sign-smoke-near-transaction-{smoke_run_id}"),
-            &local_unsigned_transaction_borsh_v2(),
-        )?,
-        build_local_normal_signing_nep413_prepare_request_v2(
-            &normal_fixture,
-            &format!("sign-smoke-nep413-{smoke_run_id}"),
-            "Sign in to the local Router A/B smoke",
-            "wallet.local.test.near",
-            Some("https://local.example/callback".to_owned()),
-        )?,
-        build_local_normal_signing_delegate_action_prepare_request_v2(
-            &normal_fixture,
-            &format!("sign-smoke-delegate-action-{smoke_run_id}"),
-            &local_delegate_action_borsh_v2(),
-        )?,
-    ];
-    let normal_start = Instant::now();
-    let local_ed25519_seed = build_local_router_ed25519_key_store_seed_v1(
-        &normal_fixture,
-        "localhost",
-        "v1",
-        LOCAL_SMOKE_ED25519_SIGNING_GRANT_ID,
-        LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
-        LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES,
-    )?;
-    seed_local_ed25519_router_key_store_for_existing_topology(
-        &urls.router,
-        mode,
-        &local_ed25519_seed,
-    )?;
-    let local_ed25519_relayer_key_id = local_ed25519_seed.relayer_key_id.clone();
-    let mut normal_response = None;
-    for normal_prepare_request in normal_prepare_requests {
-        normal_response = Some(run_normal_signing_smoke_request(
-            &urls.router,
-            &normal_fixture,
-            &local_ed25519_relayer_key_id,
-            normal_prepare_request,
-        )?);
-    }
-    let normal_response =
-        normal_response.ok_or("Router normal-signing smoke did not execute any requests")?;
-    let normal_signing_elapsed_ms = elapsed_ms(normal_start);
-
     let ecdsa_start = Instant::now();
     let ecdsa_result = run_ecdsa_hss_live_http_smoke(root, &urls, &smoke_run_id)?;
     let ecdsa_hss_live_http_elapsed_ms = elapsed_ms(ecdsa_start);
@@ -283,9 +196,6 @@ fn run_smoke(
         setup_status: "accepted".to_owned(),
         deriver_b_peer_status: deriver_b_receipt.status,
         deriver_a_peer_status: deriver_a_receipt.status,
-        signing_worker_activation_status: activation_receipt.status,
-        normal_signing_status: normal_response.signature_scheme.as_str().to_owned(),
-        normal_signing_evidence_kind: "live_http_route_dispatch".to_owned(),
         ecdsa_hss_live_http_route_dispatch_status: "accepted".to_owned(),
         ecdsa_hss_pool_fill_status: ecdsa_result.pool_fill_status,
         ecdsa_hss_prepare_status: ecdsa_result.prepare_status,
@@ -293,89 +203,12 @@ fn run_smoke(
         ecdsa_hss_replay_rejection_status: ecdsa_result.replay_rejection_status,
         ecdsa_hss_signature_scheme: ecdsa_result.signature_scheme,
         ecdsa_hss_evidence_kind: "live_http_route_dispatch".to_owned(),
-        deriver_a_normal_signing_requests: 0,
-        deriver_b_normal_signing_requests: 0,
         setup_elapsed_ms,
         deriver_b_peer_elapsed_ms,
         deriver_a_peer_elapsed_ms,
-        signing_worker_activation_elapsed_ms,
-        normal_signing_elapsed_ms,
         ecdsa_hss_live_http_elapsed_ms,
         total_elapsed_ms: elapsed_ms(total_start),
     })
-}
-
-fn run_normal_signing_smoke_request(
-    router_url: &str,
-    fixture: &LocalNormalSigningSmokeFixtureV1,
-    relayer_key_id: &str,
-    normal_prepare_request: RouterAbEd25519NormalSigningPrepareRequestV2,
-) -> Result<NormalSigningResponseV1, Box<dyn std::error::Error>> {
-    let authorization = local_smoke_ed25519_wallet_session_authorization_v2(
-        &normal_prepare_request,
-        relayer_key_id,
-    )?;
-    let (prepare_status, prepare_body) = post_json_to_path_with_authorization(
-        router_url,
-        LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH,
-        authorization.as_str(),
-        &normal_prepare_request,
-    )?;
-    if prepare_status != 200 {
-        return Err(format!(
-            "Router normal-signing prepare expected HTTP 200, received {prepare_status}: {prepare_body}"
-        )
-        .into());
-    }
-    let prepare_value: Value = serde_json::from_str(&prepare_body)?;
-    let budget_reservation_id = required_json_string(
-        &prepare_value,
-        "budget_reservation_id",
-        "normal-signing prepare",
-    )?;
-    let budget_operation_id = required_json_string(
-        &prepare_value,
-        "budget_operation_id",
-        "normal-signing prepare",
-    )?;
-    let prepare_response: NormalSigningRound1PrepareResponseV1 =
-        serde_json::from_value(prepare_value)?;
-    let normal_request = build_local_normal_signing_finalize_request_v2(
-        fixture,
-        normal_prepare_request,
-        prepare_response,
-    )?;
-    let mut normal_request_body = serde_json::to_value(&normal_request)?;
-    let normal_request_object = normal_request_body
-        .as_object_mut()
-        .ok_or("normal-signing finalize request must serialize to an object")?;
-    normal_request_object.insert(
-        "budget_reservation_id".to_owned(),
-        Value::String(budget_reservation_id),
-    );
-    normal_request_object.insert(
-        "budget_operation_id".to_owned(),
-        Value::String(budget_operation_id),
-    );
-    let (normal_status, normal_body) = post_json_to_path_with_authorization(
-        router_url,
-        LOCAL_ROUTER_NORMAL_SIGNING_PATH,
-        authorization.as_str(),
-        &normal_request_body,
-    )?;
-    if normal_status != 200 {
-        return Err(format!(
-            "Router normal-signing smoke expected HTTP 200, received {normal_status}: {normal_body}"
-        )
-        .into());
-    }
-    let normal_response: NormalSigningResponseV1 = serde_json::from_str(&normal_body)?;
-    if normal_response.signature_scheme != NormalSigningSignatureSchemeV1::Ed25519V1
-        || normal_response.signature.as_bytes().len() != 64
-    {
-        return Err("Router normal-signing smoke did not return a SigningWorker signature".into());
-    }
-    Ok(normal_response)
 }
 
 fn required_json_string(
@@ -788,33 +621,6 @@ fn local_smoke_run_id() -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!("{}-{millis}", std::process::id()))
 }
 
-fn seed_local_ed25519_router_key_store_for_existing_topology(
-    router_url: &str,
-    mode: &str,
-    seed: &LocalRouterEd25519KeyStoreSeedV1,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if mode != "existing" {
-        return Ok(());
-    }
-    let internal_auth = local_router_ab_internal_service_auth_secret_v1();
-    let (status, body) = post_json_to_path_with_headers(
-        router_url,
-        LOCAL_ROUTER_AB_ED25519_SEED_PATH,
-        seed,
-        &[(
-            LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
-            internal_auth.as_str(),
-        )],
-    )?;
-    if status != 200 {
-        return Err(format!(
-            "local Ed25519 Router seed expected HTTP 200, received {status}: {body}"
-        )
-        .into());
-    }
-    Ok(())
-}
-
 fn seed_local_ecdsa_wallet_session(
     router_url: &str,
     fixture: &LocalEcdsaHssFixture,
@@ -855,14 +661,12 @@ fn seed_local_ecdsa_wallet_session(
 
 const LOCAL_SMOKE_JWT_SECRET: &[u8] =
     b"seams-local-d1-relay-session-secret-change-before-shared-dev";
-const LOCAL_ROUTER_AB_ED25519_SEED_PATH: &str = "/router-ab/dev/ed25519/normal-signing/seed";
 const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH: &str = "/router-ab/dev/ecdsa-hss/normal-signing/seed";
 const LOCAL_SMOKE_JWT_ISSUER: &str = "seams-local-d1-relay";
 const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
 const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;
 const LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS: u64 = 4_102_444_800_000;
 const LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES: u32 = 32;
-const LOCAL_SMOKE_ED25519_SIGNING_GRANT_ID: &str = "local-ed25519-signing-grant";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID: &str = "local-ecdsa-hss-signing-grant";
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID: &str = "local-ecdsa-hss-session";
 const LOCAL_SMOKE_ECDSA_HSS_WALLET_ID: &str = "wallet-ecdsa-hss-local";
@@ -871,63 +675,8 @@ const LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID: &str =
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_ID: &str = "signing-root-local";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_VERSION: &str = "root-v1";
-const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND: &str = "router_ab_ed25519_wallet_session_v1";
 const ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND: &str = "router_ab_ecdsa_hss_wallet_session_v1";
-const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND: &str = "router_ab_ed25519_normal_signing_v1";
 const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND: &str = "router_ab_ecdsa_hss_normal_signing_v1";
-const LOCAL_SMOKE_PASSKEY_RP_ID: &str = "localhost";
-const LOCAL_SMOKE_PASSKEY_CREDENTIAL_ID_B64U: &str = "local-router-ab-passkey-credential";
-
-fn local_smoke_ed25519_wallet_session_authorization_v2(
-    request: &RouterAbEd25519NormalSigningPrepareRequestV2,
-    relayer_key_id: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let authority = json!({
-        "walletId": request.scope.account_id,
-        "factor": {
-            "kind": "passkey",
-            "credentialIdB64u": LOCAL_SMOKE_PASSKEY_CREDENTIAL_ID_B64U
-        },
-        "verifier": {
-            "kind": "webauthn",
-            "rpId": LOCAL_SMOKE_PASSKEY_RP_ID
-        },
-        "bindingId": format!("passkey:{LOCAL_SMOKE_PASSKEY_RP_ID}:{LOCAL_SMOKE_PASSKEY_CREDENTIAL_ID_B64U}")
-    });
-    let authority_scope = json!({
-        "kind": "passkey_rp",
-        "rpId": LOCAL_SMOKE_PASSKEY_RP_ID
-    });
-    let claims = json!({
-        "sub": request.scope.account_id,
-        "kind": ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-        "walletId": request.scope.account_id,
-        "nearAccountId": request.scope.account_id,
-        "nearEd25519SigningKeyId": relayer_key_id,
-        "thresholdSessionId": request.scope.session_id,
-        "signingGrantId": LOCAL_SMOKE_ED25519_SIGNING_GRANT_ID,
-        "relayerKeyId": relayer_key_id,
-        "authority": authority,
-        "authorityScope": authority_scope,
-        "participantIds": [1, 2],
-        "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
-        "runtimePolicyScope": {
-            "orgId": "local-router-ab",
-            "projectId": "local-router-ab",
-            "envId": "dev",
-            "signingRootVersion": "default"
-        },
-        "routerAbNormalSigning": {
-            "kind": ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-            "signingWorkerId": request.scope.signing_worker_id
-        },
-        "iat": LOCAL_SMOKE_JWT_IAT,
-        "exp": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS / 1000,
-        "iss": LOCAL_SMOKE_JWT_ISSUER,
-        "aud": LOCAL_SMOKE_JWT_AUDIENCE
-    });
-    local_smoke_jwt_authorization(claims)
-}
 
 fn local_smoke_ecdsa_hss_wallet_session_authorization_v1(
     fixture: &LocalEcdsaHssFixture,
@@ -1008,59 +757,6 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
 
 fn elapsed_ms(start: Instant) -> u64 {
     start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
-}
-
-fn local_unsigned_transaction_borsh_v2() -> Vec<u8> {
-    let mut out = Vec::new();
-    push_borsh_string(&mut out, "gamma.test.near");
-    out.push(0);
-    out.extend_from_slice(&[0; 32]);
-    out.extend_from_slice(&7_u64.to_le_bytes());
-    push_borsh_string(&mut out, "local-router.test.near");
-    out.extend_from_slice(&[0x44; 32]);
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.push(2);
-    push_borsh_string(&mut out, "transfer");
-    push_borsh_bytes(&mut out, br#"{"amount":"1"}"#);
-    out.extend_from_slice(&30_000_000_000_000_u64.to_le_bytes());
-    out.extend_from_slice(&0_u128.to_le_bytes());
-    out
-}
-
-fn local_normal_signing_smoke_fixture(
-) -> Result<LocalNormalSigningSmokeFixtureV1, Box<dyn std::error::Error>> {
-    Ok(LocalNormalSigningSmokeFixtureV1::new(
-        "derived-gamma",
-        "split-epoch-1",
-        "gamma.test.near",
-        "session-1",
-        "local-signing-worker",
-    )?)
-}
-
-fn local_delegate_action_borsh_v2() -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(&1_073_742_190_u32.to_le_bytes());
-    push_borsh_string(&mut out, "gamma.test.near");
-    push_borsh_string(&mut out, "local-router.test.near");
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.push(3);
-    out.extend_from_slice(&1_u128.to_le_bytes());
-    out.extend_from_slice(&7_u64.to_le_bytes());
-    out.extend_from_slice(&2_000_000_u64.to_le_bytes());
-    out.push(0);
-    out.extend_from_slice(&[0; 32]);
-    out
-}
-
-fn push_borsh_string(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-    out.extend_from_slice(value.as_bytes());
-}
-
-fn push_borsh_bytes(out: &mut Vec<u8>, value: &[u8]) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-    out.extend_from_slice(value);
 }
 
 fn emit_summary(

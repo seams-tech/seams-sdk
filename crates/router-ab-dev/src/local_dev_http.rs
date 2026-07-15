@@ -6,23 +6,15 @@ use std::{
 };
 
 use super::{
-    handle_local_deriver_peer_message_json_v1, handle_local_signing_worker_activation_json_v1,
+    handle_local_deriver_peer_message_json_v1,
     handle_local_signing_worker_ecdsa_hss_finalize_json_v1,
     handle_local_signing_worker_ecdsa_hss_prepare_json_v1,
     handle_local_signing_worker_ecdsa_hss_presignature_pool_put_json_v1,
-    handle_local_signing_worker_normal_signing_json_v1,
-    handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1,
-    handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1,
-    handle_local_signing_worker_normal_signing_round1_prepare_json_v1,
     local_worker_health_response_json_v1, local_worker_owns_path_v1, LocalSigningWorkerConfigV1,
     LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_B_PEER_PATH,
-    LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH, LOCAL_WORKER_HEALTH_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH, LOCAL_WORKER_HEALTH_PATH,
     LOCAL_WORKER_READY_PATH,
 };
 
@@ -53,54 +45,6 @@ pub fn local_dev_http_handle_request_v1(
 
     if path == LOCAL_DERIVER_B_PEER_PATH {
         return local_dev_deriver_peer_route_v1(topology, request, LocalServiceRoleV1::DeriverB);
-    }
-
-    if path == LOCAL_SIGNING_WORKER_ACTIVATION_PATH {
-        return local_dev_signing_worker_activation_route_v1(topology, request);
-    }
-
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH {
-        return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
-            handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
-                signing_worker,
-                LocalServiceRoleV1::SigningWorker,
-                path,
-                &request.body,
-            )
-        });
-    }
-
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH {
-        return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
-            handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1(
-                signing_worker,
-                LocalServiceRoleV1::SigningWorker,
-                path,
-                &request.body,
-            )
-        });
-    }
-
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH {
-        return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
-            handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1(
-                signing_worker,
-                LocalServiceRoleV1::SigningWorker,
-                path,
-                &request.body,
-            )
-        });
-    }
-
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH {
-        return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
-            handle_local_signing_worker_normal_signing_json_v1(
-                signing_worker,
-                LocalServiceRoleV1::SigningWorker,
-                path,
-                &request.body,
-            )
-        });
     }
 
     if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH {
@@ -193,38 +137,6 @@ fn local_dev_deriver_peer_route_v1(
         route_role,
         path,
         handle_local_deriver_peer_message_json_v1(route_role, path, &request.body),
-    )
-}
-
-fn local_dev_signing_worker_activation_route_v1(
-    topology: LocalDevHttpTopologyV1<'_>,
-    request: &LocalDevHttpRequestPartsV1,
-) -> Result<(u16, String), Box<dyn std::error::Error>> {
-    let path = request.path.as_str();
-    if request.method != "POST" {
-        return local_dev_http_error_body_v1(
-            LocalServiceRoleV1::SigningWorker,
-            path,
-            405,
-            "method not allowed",
-        );
-    }
-    if local_dev_signing_worker_config_v1(topology).is_none() {
-        return local_dev_http_error_body_v1(
-            topology.local_http_error_role(),
-            path,
-            404,
-            "path is not owned by this worker",
-        );
-    }
-    local_dev_protocol_response_v1(
-        LocalServiceRoleV1::SigningWorker,
-        path,
-        handle_local_signing_worker_activation_json_v1(
-            LocalServiceRoleV1::SigningWorker,
-            path,
-            &request.body,
-        ),
     )
 }
 
@@ -350,7 +262,11 @@ pub fn require_local_dev_internal_service_auth_v1(
 ) -> Result<(), &'static str> {
     let expected = super::local_router_ab_internal_service_auth_secret_v1();
     match request.internal_service_auth.as_deref() {
-        Some(actual) if actual == expected => Ok(()),
+        Some(actual)
+            if super::local_router_ab_internal_service_auth_matches_v1(actual, &expected) =>
+        {
+            Ok(())
+        }
         Some(_) => Err("local Router A/B internal service-auth header is invalid"),
         None => Err("local Router A/B internal service-auth header is missing"),
     }

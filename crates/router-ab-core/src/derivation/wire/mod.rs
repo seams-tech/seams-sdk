@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-/// Wire-format version for split-derivation vectors and envelopes.
+/// Wire-format version for fixed ECDSA threshold-PRF vectors and envelopes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WireVersion {
-    /// Initial Router/A/B split-derivation wire format.
+    /// Initial Router/A/B ECDSA threshold-PRF wire format.
     V1,
 }
 

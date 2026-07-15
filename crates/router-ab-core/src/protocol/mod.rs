@@ -5,6 +5,8 @@
 //! inputs and call these typed APIs.
 
 mod ecdsa_hss;
+mod ecdsa_threshold_prf_request;
+mod ed25519_yao;
 mod engine;
 mod envelope;
 mod error;
@@ -15,7 +17,6 @@ mod local;
 mod normal_signing;
 mod output;
 mod payload;
-mod public_request;
 mod signer_input;
 mod vectors;
 mod wire;
@@ -44,6 +45,28 @@ pub use self::ecdsa_hss::{
     RouterAbEcdsaHssRegistrationBootstrapRequestV1, RouterAbEcdsaHssRequestKindV1,
     RouterAbEcdsaHssSignatureSchemeV1, RouterAbEcdsaHssStableKeyContextV1,
     ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1, ROUTER_AB_ECDSA_HSS_SECP256K1_PROTOCOL_VERSION_V1,
+};
+pub use self::ecdsa_threshold_prf_request::{
+    EcdsaThresholdPrfRequestContextV1, EcdsaThresholdPrfRequestV1,
+    EcdsaThresholdPrfRequestVersionV1,
+};
+pub use self::ed25519_yao::{
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoCircuitFamilyV1, Ed25519YaoDeriverRoleV1,
+    Ed25519YaoEncryptedInputV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoEpochTransitionV1,
+    Ed25519YaoInputKindV1, Ed25519YaoOperationV1, Ed25519YaoPackageKindV1,
+    Ed25519YaoRefreshBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
+    Ed25519YaoStableKeyContextBindingV1, Ed25519YaoStateEpochV1,
+    RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationExecuteRequestV1,
+    RouterAbEd25519YaoActivationKeysetV1, RouterAbEd25519YaoActivationPublicReceiptV1,
+    RouterAbEd25519YaoActivationResultV1, RouterAbEd25519YaoApplicationBindingFactsV1,
+    RouterAbEd25519YaoExportAdmissionReceiptV1, RouterAbEd25519YaoExportAdmissionRequestV1,
+    RouterAbEd25519YaoExportAuthorizationV1, RouterAbEd25519YaoExportBindingV1,
+    RouterAbEd25519YaoExportExecuteRequestV1, RouterAbEd25519YaoExportResultV1,
+    RouterAbEd25519YaoLifecycleScopeV1, RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    ED25519_YAO_CONTROL_CIPHERTEXT_MAX_BYTES_V1, ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+    ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+    ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+    ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine,
@@ -110,16 +133,15 @@ pub use self::normal_signing::{
     RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
 };
 pub use self::output::{
-    ab_derivation_proof_batch_recipient_view_v1,
     combine_mpc_prf_recipient_output_from_ab_proof_batches_v1,
     combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1,
     combine_mpc_prf_signing_worker_output_from_activation_context_v1,
     decode_recipient_output_ciphertext_v1, decode_recipient_proof_bundle_ciphertext_v1,
-    encode_recipient_output_ciphertext_aad_v1, encode_recipient_output_ciphertext_v1,
-    encode_recipient_proof_bundle_ciphertext_aad_v1, encode_recipient_proof_bundle_ciphertext_v1,
-    encrypt_recipient_proof_bundle_payload_v1, mpc_prf_batch_output_from_ab_proof_batch_v1,
-    recipient_output_ciphertext_aad_digest_v1, recipient_proof_bundle_ciphertext_aad_digest_v1,
-    recipient_proof_bundle_ciphertext_digest_v1,
+    ecdsa_threshold_prf_proof_batch_recipient_view_v1, encode_recipient_output_ciphertext_aad_v1,
+    encode_recipient_output_ciphertext_v1, encode_recipient_proof_bundle_ciphertext_aad_v1,
+    encode_recipient_proof_bundle_ciphertext_v1, encrypt_recipient_proof_bundle_payload_v1,
+    mpc_prf_batch_output_from_ab_proof_batch_v1, recipient_output_ciphertext_aad_digest_v1,
+    recipient_proof_bundle_ciphertext_aad_digest_v1, recipient_proof_bundle_ciphertext_digest_v1,
     recipient_proof_bundle_payload_from_ab_proof_batch_v1,
     recipient_proof_bundle_wire_message_from_ab_proof_batch_v1,
     verify_recipient_proof_bundle_ciphertext_payload_v1, RecipientOutputCiphertextV1,
@@ -129,24 +151,22 @@ pub use self::output::{
     RECIPIENT_OUTPUT_CIPHERTEXT_NONCE_LEN_V1,
 };
 pub use self::payload::{
-    ab_derivation_proof_batch_payload_digest_v1, ab_peer_message_authentication_input_digest_v1,
-    ab_peer_message_payload_digest_v1, build_mpc_prf_signer_partial_input_v1,
-    decode_ab_derivation_proof_batch_payload_v1, decode_ab_peer_message_payload_v1,
-    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
-    decode_recipient_proof_bundle_payload_v1, decode_router_to_signer_payload_v1,
-    encode_ab_derivation_proof_batch_payload_v1, encode_ab_peer_message_authentication_input_v1,
-    encode_ab_peer_message_payload_v1, encode_recipient_proof_bundle_payload_v1,
+    ab_peer_message_authentication_input_digest_v1, ab_peer_message_payload_digest_v1,
+    build_mpc_prf_signer_partial_input_v1, decode_ab_peer_message_payload_v1,
+    decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
+    decode_ecdsa_threshold_prf_proof_batch_payload_v1, decode_recipient_proof_bundle_payload_v1,
+    decode_router_to_signer_payload_v1, ecdsa_threshold_prf_proof_batch_payload_digest_v1,
+    encode_ab_peer_message_authentication_input_v1, encode_ab_peer_message_payload_v1,
+    encode_ecdsa_threshold_prf_proof_batch_payload_v1, encode_recipient_proof_bundle_payload_v1,
     encode_router_to_signer_payload_v1, recipient_proof_bundle_payload_digest_v1,
     router_to_signer_payload_digest_v1, router_transcript_binding_v1, router_transcript_digest_v1,
-    sign_ab_derivation_proof_batch_peer_payload_v1, sign_ab_peer_message_ed25519_authentication_v1,
+    sign_ab_peer_message_ed25519_authentication_v1,
+    sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     validate_signer_input_plaintext_binding_v1, verify_ab_peer_message_ed25519_signature_v1,
-    AbDerivationProofBatchPayloadV1, AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1,
-    AbPeerMessageSignatureSchemeV1, AbPeerMessageVerifyingKeyV1, RecipientProofBundlePayloadV1,
-    RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1, RouterTranscriptMetadataV1,
-    SigningWorkerActivationContextV1,
-};
-pub use self::public_request::{
-    PublicRouterRequestContextV1, PublicRouterRequestV1, PublicRouterRequestVersionV1,
+    AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1, AbPeerMessageSignatureSchemeV1,
+    AbPeerMessageVerifyingKeyV1, EcdsaThresholdPrfProofBatchPayloadV1,
+    RecipientProofBundlePayloadV1, RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1,
+    RouterTranscriptMetadataV1, SigningWorkerActivationContextV1,
 };
 pub use self::signer_input::build_mpc_prf_threshold_signer_batch_input_v1;
 pub use self::vectors::{

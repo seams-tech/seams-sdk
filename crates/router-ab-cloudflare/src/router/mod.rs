@@ -139,7 +139,7 @@ impl CloudflareRouterTrustedRequestMetadataV1 {
     /// Validates trusted metadata matches the normalized public request.
     pub fn validate_for_request(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;
@@ -488,7 +488,7 @@ impl CloudflareRouterAdmissionProviderOutputV1 {
     /// Validates provider output against the normalized public request.
     pub fn validate_for_request(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.metadata.validate_for_request(request)?;
         self.checks.validate()
@@ -500,7 +500,7 @@ pub trait CloudflareRouterAdmissionProviderV1 {
     /// Evaluates all server-owned admission checks for a normalized public request.
     fn evaluate_public_request_admission(
         &mut self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterAdmissionProviderOutputV1>;
 }
 
@@ -561,7 +561,7 @@ impl CloudflareRouterVerifiedJwtClaimsV1 {
     /// Converts verified claims into trusted Router metadata for this request.
     pub fn to_trusted_metadata(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
         self.validate()?;
         request.validate()?;
@@ -742,41 +742,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         Ok(())
     }
 
-    /// Validates that the Wallet Session authorizes a typed Ed25519 presign-pool refill request.
-    pub fn validate_for_normal_signing_presign_pool_prepare_request_v2(
-        &self,
-        request: &RouterAbEd25519PresignPoolPrepareRequestV2,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<()> {
-        self.validate_at(now_unix_ms)?;
-        request.validate_at(now_unix_ms)?;
-        if self.expires_at_ms < request.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Wallet Session expires before normal-signing presign-pool refill request",
-            ));
-        }
-        if self.account_id != request.scope.account_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session account_id does not match presign-pool refill scope",
-            ));
-        }
-        if self.threshold_session_id != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match presign-pool refill scope",
-            ));
-        }
-        if self.signing_worker_id != request.scope.signing_worker_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session signing_worker_id does not match presign-pool refill scope",
-            ));
-        }
-        Ok(())
-    }
-
     /// Validates that the Wallet Session authorizes a typed normal-signing finalize request.
     pub fn validate_for_normal_signing_finalize_request_v2(
         &self,
@@ -807,41 +772,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "Wallet Session signing_worker_id does not match normal-signing finalize scope",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Validates that the Wallet Session authorizes a typed Ed25519 pool-hit finalize request.
-    pub fn validate_for_normal_signing_presign_pool_hit_finalize_request_v2(
-        &self,
-        request: &RouterAbEd25519PresignPoolHitFinalizeRequestV2,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<()> {
-        self.validate_at(now_unix_ms)?;
-        request.validate_at(now_unix_ms)?;
-        if self.expires_at_ms < request.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Wallet Session expires before normal-signing pool-hit finalize request",
-            ));
-        }
-        if self.account_id != request.scope.account_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session account_id does not match pool-hit finalize scope",
-            ));
-        }
-        if self.threshold_session_id != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match pool-hit finalize scope",
-            ));
-        }
-        if self.signing_worker_id != request.scope.signing_worker_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session signing_worker_id does not match pool-hit finalize scope",
             ));
         }
         Ok(())
@@ -998,7 +928,7 @@ impl CloudflareRouterVerifiedPreAuthSessionV1 {
     /// Converts verified pre-auth session data into trusted Router metadata.
     pub fn to_trusted_metadata(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
         self.validate()?;
         request.validate()?;
@@ -1058,7 +988,7 @@ impl CloudflareRouterVerifiedSessionV1 {
     /// Converts the verified session branch into trusted Router metadata.
     pub fn to_trusted_metadata(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
         self.validate()?;
         match self {
@@ -1073,7 +1003,7 @@ pub trait CloudflareRouterSessionProviderV1 {
     /// Verifies auth/session state and derives trusted Router metadata.
     fn verify_public_request_session(
         &mut self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1>;
 }
 
@@ -1094,7 +1024,7 @@ impl CloudflareRouterVerifiedSessionProviderV1 {
 impl CloudflareRouterSessionProviderV1 for CloudflareRouterVerifiedSessionProviderV1 {
     fn verify_public_request_session(
         &mut self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
         self.session.to_trusted_metadata(request)
     }
@@ -1254,7 +1184,7 @@ impl CloudflareRouterJwtVerifierV1 for CloudflareRouterEd25519JwksJwtVerifierV1 
         &mut self,
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
@@ -1442,7 +1372,7 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
     fn validate_for_router_request(
         self,
         verifier: &CloudflareRouterJwtVerifierBindingV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
@@ -1621,7 +1551,7 @@ pub trait CloudflareRouterJwtVerifierV1 {
         &mut self,
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1>;
@@ -1671,7 +1601,7 @@ where
 {
     fn verify_public_request_session(
         &mut self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
         request.validate()?;
         let claims = self.verifier.verify_public_request_jwt(
@@ -1691,7 +1621,7 @@ pub trait CloudflareRouterProjectPolicyProviderV1 {
     fn evaluate_project_policy(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1>;
 }
 
@@ -1732,14 +1662,10 @@ impl CloudflareRouterProjectPolicyProviderV1
     fn evaluate_project_policy(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
         metadata.validate_for_request(request)?;
-        if self
-            .allowed_work_kinds
-            .iter()
-            .any(|work_kind| *work_kind == metadata.work_kind)
-        {
+        if self.allowed_work_kinds.contains(&metadata.work_kind) {
             return Ok(CloudflareRouterProjectPolicyV1::Allowed);
         }
         Ok(CloudflareRouterProjectPolicyV1::Rejected {
@@ -1755,7 +1681,7 @@ pub trait CloudflareRouterProjectPolicyStoreV1 {
         &mut self,
         binding: &CloudflareDurableObjectBindingV1,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1>;
 }
 
@@ -1795,7 +1721,7 @@ where
     fn evaluate_project_policy(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
         metadata.validate_for_request(request)?;
         self.store
@@ -1809,7 +1735,7 @@ pub trait CloudflareRouterAbuseProviderV1 {
     fn evaluate_abuse(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1>;
 }
 
@@ -1831,7 +1757,7 @@ impl CloudflareRouterAbuseProviderV1 for CloudflareRouterConfiguredAbuseProvider
     fn evaluate_abuse(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1> {
         metadata.validate_for_request(request)?;
         Ok(self.outcome.clone())
@@ -1845,7 +1771,7 @@ pub trait CloudflareRouterAbuseStoreV1 {
         &mut self,
         binding: &CloudflareDurableObjectBindingV1,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1>;
 }
 
@@ -1884,7 +1810,7 @@ where
     fn evaluate_abuse(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1> {
         metadata.validate_for_request(request)?;
         self.store
@@ -1898,7 +1824,7 @@ pub trait CloudflareRouterQuotaProviderV1 {
     fn evaluate_quota(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1>;
 }
 
@@ -1920,7 +1846,7 @@ impl CloudflareRouterQuotaProviderV1 for CloudflareRouterConfiguredQuotaProvider
     fn evaluate_quota(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
         metadata.validate_for_request(request)?;
         Ok(self.outcome.clone())
@@ -1934,7 +1860,7 @@ pub trait CloudflareRouterQuotaStoreV1 {
         &mut self,
         binding: &CloudflareDurableObjectBindingV1,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1>;
 }
 
@@ -1973,7 +1899,7 @@ where
     fn evaluate_quota(
         &mut self,
         metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
         metadata.validate_for_request(request)?;
         self.store
@@ -2035,7 +1961,7 @@ where
 {
     fn evaluate_public_request_admission(
         &mut self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<CloudflareRouterAdmissionProviderOutputV1> {
         request.validate()?;
         let metadata = self.session.verify_public_request_session(request)?;
@@ -2057,7 +1983,7 @@ where
 
 /// Derives trusted Router admission from a provider-owned admission boundary.
 pub fn derive_cloudflare_router_trusted_admission_from_provider_v1(
-    request: &PublicRouterRequestV1,
+    request: &EcdsaThresholdPrfRequestV1,
     provider: &mut impl CloudflareRouterAdmissionProviderV1,
 ) -> RouterAbProtocolResult<CloudflareRouterTrustedAdmissionV1> {
     request.validate()?;
@@ -2068,7 +1994,7 @@ pub fn derive_cloudflare_router_trusted_admission_from_provider_v1(
 
 /// Derives trusted Router admission from server-owned metadata and checks.
 pub fn derive_cloudflare_router_trusted_admission_v1(
-    request: &PublicRouterRequestV1,
+    request: &EcdsaThresholdPrfRequestV1,
     metadata: CloudflareRouterTrustedRequestMetadataV1,
     checks: CloudflareRouterAdmissionChecksV1,
 ) -> RouterAbProtocolResult<CloudflareRouterTrustedAdmissionV1> {
@@ -2112,7 +2038,7 @@ impl CloudflareRouterTrustedAdmissionV1 {
     /// Validates server-derived admission data against the normalized request.
     pub fn validate_for_request(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;
@@ -2170,7 +2096,7 @@ impl CloudflareRouterTrustedAdmissionV1 {
     /// Returns the lifecycle state that the Router should persist.
     pub fn lifecycle_state_for_request(
         &self,
-        request: &PublicRouterRequestV1,
+        request: &EcdsaThresholdPrfRequestV1,
     ) -> RouterAbProtocolResult<RouterAbLifecycleStateV1> {
         self.validate_for_request(request)?;
         RouterAbLifecycleStateV1::apply_gate_decision(

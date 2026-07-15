@@ -12,10 +12,11 @@ if (argv.includes('--help')) {
   console.log(`Usage:
   pnpm router:deploy:env-keygen
   pnpm router:deploy:env-keygen -- --env staging
-  pnpm router:deploy:env-keygen -- --env production --json
+  pnpm router:deploy:env-keygen -- --env staging --json
 
-Without --env, this generates split GitHub Environment values for both staging
-and production.
+Without --env, this generates the split staging GitHub Environment values.
+Production generation remains unavailable until Phase 6A selects the strict
+security and deployment profile.
 
 Each output block is self-contained and includes every variable/secret that the
 GitHub Environment must define. Manual placeholders are included for Cloudflare
@@ -58,18 +59,18 @@ function buildRouterEnvironment(envName, deployment, internalServiceAuthSecret) 
     {
       variables: {
         ROUTER_AB_JWT_ISSUER: routerJwtIssuerForEnv(envName),
-        ROUTER_AB_JWT_AUDIENCE: envName === 'production' ? 'router-ab' : `router-ab:${envName}`,
+        ROUTER_AB_JWT_AUDIENCE: `router-ab:${envName}`,
         ROUTER_AB_JWT_JWKS_URL: `${routerJwtIssuerForEnv(envName)}/.well-known/router-ab/jwks.json`,
-        ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:
-          deployment.variables.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
-        ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:
-          deployment.variables.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
+          deployment.variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
+          deployment.variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
           deployment.variables.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
-        ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX:
-          deployment.variables.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX,
-        ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX:
-          deployment.variables.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
+          deployment.variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
+          deployment.variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
       },
       secrets: buildBaseSecrets(internalServiceAuthSecret),
     },
@@ -81,19 +82,19 @@ function buildDeriverAEnvironment(envName, deployment, rootShares, internalServi
     `${envName}-deriver-a`,
     {
       variables: {
-        ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:
-          deployment.variables.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
-        ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX:
-          deployment.variables.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX,
-        ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX:
-          deployment.variables.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
+          deployment.variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
+          deployment.variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
+          deployment.variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
       },
       secrets: {
         ...buildBaseSecrets(internalServiceAuthSecret),
-        SIGNER_A_ROOT_SHARE_WIRE_SECRET:
-          rootShares.secrets.account1DeriverA.SIGNER_A_ROOT_SHARE_WIRE_SECRET,
-        SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY: deployment.secrets.SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY,
-        SIGNER_A_PEER_SIGNING_KEY: deployment.secrets.SIGNER_A_PEER_SIGNING_KEY,
+        DERIVER_A_ROOT_SHARE_WIRE_SECRET:
+          rootShares.secrets.account1DeriverA.DERIVER_A_ROOT_SHARE_WIRE_SECRET,
+        DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: deployment.secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY,
+        DERIVER_A_PEER_SIGNING_KEY: deployment.secrets.DERIVER_A_PEER_SIGNING_KEY,
       },
     },
   ];
@@ -104,19 +105,19 @@ function buildDeriverBEnvironment(envName, deployment, rootShares, internalServi
     `${envName}-deriver-b`,
     {
       variables: {
-        ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:
-          deployment.variables.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
-        ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX:
-          deployment.variables.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX,
-        ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX:
-          deployment.variables.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
+          deployment.variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
+          deployment.variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
+          deployment.variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
       },
       secrets: {
         ...buildBaseSecrets(internalServiceAuthSecret),
-        SIGNER_B_ROOT_SHARE_WIRE_SECRET:
-          rootShares.secrets.account2DeriverB.SIGNER_B_ROOT_SHARE_WIRE_SECRET,
-        SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: deployment.secrets.SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY,
-        SIGNER_B_PEER_SIGNING_KEY: deployment.secrets.SIGNER_B_PEER_SIGNING_KEY,
+        DERIVER_B_ROOT_SHARE_WIRE_SECRET:
+          rootShares.secrets.account2DeriverB.DERIVER_B_ROOT_SHARE_WIRE_SECRET,
+        DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: deployment.secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY,
+        DERIVER_B_PEER_SIGNING_KEY: deployment.secrets.DERIVER_B_PEER_SIGNING_KEY,
       },
     },
   ];
@@ -168,8 +169,6 @@ function routerJwtIssuerForEnv(envName) {
   switch (envName) {
     case 'staging':
       return 'https://staging.seams.sh';
-    case 'production':
-      return 'https://seams.sh';
     default:
       return `https://${envName}.seams.sh`;
   }
@@ -195,8 +194,10 @@ function printAssignments(values) {
 
 function readEnvironmentNames() {
   const envName = readOption('--env');
-  if (envName) return [envName];
-  return ['staging', 'production'];
+  if (envName && envName !== 'staging') {
+    throw new Error('only the staging deployment environment is available before Phase 6A');
+  }
+  return ['staging'];
 }
 
 function readOption(name) {

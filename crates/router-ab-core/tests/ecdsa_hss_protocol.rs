@@ -324,10 +324,10 @@ fn ecdsa_hss_registration_request_rejects_swapped_deriver_envelope() {
 }
 
 #[test]
-fn ecdsa_hss_registration_request_builds_generic_public_router_request() {
+fn ecdsa_hss_registration_request_builds_fixed_threshold_prf_request() {
     let request = registration_request();
     let public_request = request
-        .to_public_router_request()
+        .to_threshold_prf_request()
         .expect("public router request");
 
     public_request
@@ -651,10 +651,10 @@ fn ecdsa_hss_export_request_parses_and_binds_public_identity() {
 }
 
 #[test]
-fn ecdsa_hss_export_request_builds_generic_public_router_request() {
+fn ecdsa_hss_export_request_builds_fixed_threshold_prf_request() {
     let request = export_request();
     let public_request = request
-        .to_public_router_request()
+        .to_threshold_prf_request()
         .expect("public router request");
 
     public_request
@@ -736,10 +736,10 @@ fn ecdsa_hss_recovery_request_rejects_unknown_json_fields() {
 }
 
 #[test]
-fn ecdsa_hss_recovery_request_builds_generic_public_router_request() {
+fn ecdsa_hss_recovery_request_builds_fixed_threshold_prf_request() {
     let request = recovery_request();
     let public_request = request
-        .to_public_router_request()
+        .to_threshold_prf_request()
         .expect("public router request");
 
     public_request
@@ -811,10 +811,10 @@ fn ecdsa_hss_activation_refresh_request_rejects_unknown_json_fields() {
 }
 
 #[test]
-fn ecdsa_hss_activation_refresh_request_builds_generic_public_router_request() {
+fn ecdsa_hss_activation_refresh_request_builds_fixed_threshold_prf_request() {
     let request = activation_refresh_request();
     let public_request = request
-        .to_public_router_request()
+        .to_threshold_prf_request()
         .expect("public router request");
 
     public_request

@@ -5,11 +5,10 @@ protocol logic.
 
 It owns:
 
-- the selected `mpc_threshold_prf_v1` derivation backend
-- the `split_root_derivation_v1` comparison/prototype path
-- role-specific protocol types, transcript binding, envelopes, lifecycle
-  state, output packages, host traits, local simulation, vectors, and source
-  guards
+- the fixed 2-of-2 ECDSA threshold-PRF adapter
+- Deriver A share id `1` and Deriver B share id `2`
+- role-specific protocol types, transcript binding, output packages, host
+  traits, local simulation, committed vectors, and source guards
 
 Platform adapters live outside this crate. Cloudflare Workers, local SQLite
 tooling, and future server runtimes should inject time, randomness, storage,
@@ -30,13 +29,12 @@ claims enforceable.
 
 ## Current Scope
 
-- typed derivation contexts and selected Candidate A backend
+- typed fixed ECDSA threshold-PRF contexts and DLEQ proof bundles
 - transcript binding and canonical wire payloads
 - role-specific client-output and server-output packages
 - host traits and platform-neutral local simulation
-- committed derivation and protocol vectors
-- measurement gates and leakage checklist scaffolding
-- Verus and Lean folders for future proof work
+- committed protocol vectors
+- leakage checks plus Verus and Lean proof scaffolding
 
-See [`specs/implementation-plan.md`](specs/implementation-plan.md) for the full
-implementation plan.
+See [`specs/ecdsa-threshold-prf.md`](specs/ecdsa-threshold-prf.md) for the fixed
+construction and boundary contract.

@@ -1,0 +1,19 @@
+{
+  "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
+  "name": "ed25519-yao-ab-benchmark-a-fault-request-disconnect",
+  "main": "build/fault-request-disconnect-a/index.js",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
+    "BENCHMARK_CLASSIFICATION": "NON_PRODUCTION_FAULT_INJECTION",
+    "BENCHMARK_TOPOLOGY": "SAME_ACCOUNT_SERVICE_BINDING"
+  },
+  "build": {
+    "command": "worker-build --release --out-dir build/fault-request-disconnect-a --features deriver-a,fault-request-disconnect-after-base-choices",
+    "watch_dir": "src"
+  },
+  "services": [{ "binding": "DERIVER_B", "service": "ed25519-yao-ab-benchmark-b" }],
+  "observability": { "enabled": true, "logs": { "enabled": true }, "traces": { "enabled": true } }
+}

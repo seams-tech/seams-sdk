@@ -32,8 +32,6 @@ pub enum RouterAbProtocolErrorCode {
     ExpiredLocalRequest,
     /// A local request nonce was replayed.
     ReplayedLocalRequest,
-    /// A client-required derivation mode would be downgraded or unsupported.
-    DowngradeRejected,
     /// A local transport route did not match its wire message.
     InvalidLocalRoute,
     /// A wire payload was malformed.

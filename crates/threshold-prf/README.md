@@ -61,8 +61,8 @@ Current status:
 
 - prototype Rust implementation exists
 - formal verification has a Verus abstract threshold-policy model
-- HSS integration contexts are frozen for the current `ecdsa-hss` and
-  `ed25519-hss` mappings
+- the ECDSA-HSS integration context and generic canonical Ed25519 scalar output
+  encoding are frozen
 - committed JSON vectors exist for configurable coverage
 - DLEQ partial-authenticity proof generation and verification exists
 - DLEQ proof generation rejects and retries zero nonces; nonce uniqueness

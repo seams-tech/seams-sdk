@@ -1,6 +1,6 @@
 //! Verus abstract spec model for `router-ab-core`.
 //!
-//! The first model slice tracks roles, opened values, and forbidden joined
-//! state. Candidate formulas should land after the Rust decision gate closes.
+//! The model tracks roles, fixed threshold-PRF partials, opened values, and
+//! forbidden joined state.
 
 pub mod model;

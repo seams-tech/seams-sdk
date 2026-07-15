@@ -1,0 +1,44 @@
+[package]
+name = "ed25519-yao-cloudflare-bench"
+version = "0.1.0"
+edition = "2021"
+description = "Isolated Cloudflare streaming benchmark for Ed25519 Yao Derivers A and B"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "ed25519_yao_cloudflare_bench"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+deriver-a = []
+deriver-a-cross-account = []
+deriver-b = []
+deriver-b-cross-account = []
+fault-fragmentation = []
+fault-request-disconnect-after-base-choices = []
+fault-response-disconnect-after-offer = []
+fault-trailing-after-terminal = []
+fault-short-timeout = []
+fault-stall-after-offer = []
+fault-wrong-role-offer-tag = []
+fault-session-mismatch = []
+
+[dependencies]
+bytes = "1.10"
+ed25519-yao = { path = "../ed25519-yao", features = ["phase9-role-benchmark"] }
+futures-channel = { version = "0.3.31", features = ["sink"] }
+futures-core = "0.3.31"
+futures-util = { version = "0.3.31", features = ["sink"] }
+getrandom = { version = "=0.2.17", features = ["js"] }
+http = "1.3"
+http-body = "1.0"
+http-body-util = "0.1.3"
+serde_json = "1.0"
+worker = { version = "=0.8.5", features = ["http"] }
+worker-sys = "=0.8.5"
+wasm-streams = "=0.6.0"
+url = "2.5"
+zeroize = "1.8"

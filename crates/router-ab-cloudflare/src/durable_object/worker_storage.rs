@@ -713,58 +713,6 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 single_index_cleanup_report_v1(cleanup.now_unix_ms, records_removed)?,
             )?
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolPut { record } => {
-            record.validate()?;
-            let stored = validate_idempotent_put_record_v1(
-                worker_storage_get::<CloudflareSigningWorkerEd25519PresignPoolRecordV1>(
-                    storage,
-                    &storage_key,
-                    call.operation_kind(),
-                )
-                .await?,
-                record,
-                CloudflareSigningWorkerEd25519PresignPoolRecordV1::validate,
-                "SigningWorker Ed25519 presign-pool id is already stored for different material",
-            )?;
-            if stored {
-                worker_storage_put(storage, &storage_key, record.clone(), call.operation_kind())
-                    .await?;
-            }
-            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_put(
-                CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1::from_record(record, stored)?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolTake { lookup } => {
-            lookup.validate()?;
-            let record = require_existing_record_v1(
-                worker_storage_get::<CloudflareSigningWorkerEd25519PresignPoolRecordV1>(
-                    storage,
-                    &storage_key,
-                    call.operation_kind(),
-                )
-                .await?,
-                "SigningWorker Ed25519 presign-pool material is missing",
-            )?;
-            record.validate_for_lookup(lookup)?;
-            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
-            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_take(record)?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolCleanupExpired {
-            cleanup,
-        } => {
-            cleanup.validate()?;
-            let records_removed = worker_storage_cleanup_expired_values(
-                storage,
-                &call.signing_worker_ed25519_presign_pool_storage_prefix(),
-                cleanup.now_unix_ms,
-                call.operation_kind(),
-                cloudflare_signing_worker_ed25519_presign_pool_expires_at_ms_v1,
-            )
-            .await?;
-            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_cleanup_expired(
-                single_index_cleanup_report_v1(cleanup.now_unix_ms, records_removed)?,
-            )?
-        }
         CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
             record.validate()?;
             let stored = validate_idempotent_put_record_v1(

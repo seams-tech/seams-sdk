@@ -13,7 +13,7 @@ pub enum LeakageQuestionId {
     OpenedValueScope,
 }
 
-/// Leakage-analysis question tracked during candidate comparison.
+/// Leakage-analysis question for the fixed ECDSA threshold-PRF construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeakageQuestion {
     /// Stable question identifier.
@@ -30,27 +30,27 @@ pub fn default_leakage_questions() -> Vec<LeakageQuestion> {
         LeakageQuestion {
             id: LeakageQuestionId::JoinedDServerSide,
             question: "Does any single server-side role hold enough state to reconstruct joined d?",
-            release_gate: "answer must be no for the selected candidate",
+            release_gate: "answer must be no for the fixed construction",
         },
         LeakageQuestion {
             id: LeakageQuestionId::JoinedAServerSide,
             question: "Does any single server-side role hold enough state to reconstruct joined a?",
-            release_gate: "answer must be no for the selected candidate",
+            release_gate: "answer must be no for the fixed construction",
         },
         LeakageQuestion {
             id: LeakageQuestionId::JoinedXClientBaseServerSide,
             question: "Does any single server-side role hold enough state to reconstruct joined x_client_base?",
-            release_gate: "answer must be no for the selected candidate",
+            release_gate: "answer must be no for the fixed construction",
         },
         LeakageQuestion {
             id: LeakageQuestionId::JoinedServerMaterialClientSide,
             question: "Does the client hold enough state to reconstruct joined y_server or tau_server?",
-            release_gate: "answer must be no for the selected candidate",
+            release_gate: "answer must be no for the fixed construction",
         },
         LeakageQuestion {
             id: LeakageQuestionId::OpenedValueScope,
             question: "Are opened values limited to x_client_base for the client and x_server_base for the server?",
-            release_gate: "answer must be yes for the selected candidate",
+            release_gate: "answer must be yes for the fixed construction",
         },
     ]
 }

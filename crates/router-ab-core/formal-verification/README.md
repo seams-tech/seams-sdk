@@ -1,6 +1,7 @@
 # `router-ab-core` Formal Verification
 
-This directory tracks formal verification for the split-derivation primitive.
+This directory tracks formal verification for the fixed Router A/B ECDSA
+threshold-PRF construction.
 
 The intended structure follows the existing `threshold-prf` and `ecdsa-hss`
 tracks:
@@ -17,15 +18,14 @@ tracks:
   derivation-state invariants
 - use committed Rust vectors as anti-drift fixtures
 - use Lean for the execution-state privacy model
-- consider Aeneas boundary extraction only after the Rust API and selected
-  candidate formula are stable
+- consider Aeneas boundary extraction after the fixed Rust API is stable
 
 ## First Proof Slice
 
 The first useful proof slice should model:
 
 - role identities
-- candidate identifiers
+- fixed Deriver A/B share identifiers
 - opened-value kinds
 - forbidden joined-state kinds
 - which roles may observe which opened-value kinds

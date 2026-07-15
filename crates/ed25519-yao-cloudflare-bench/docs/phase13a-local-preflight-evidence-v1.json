@@ -1,0 +1,193 @@
+{
+  "schema": "phase13a-local-preflight-evidence-v1",
+  "recorded_at": "2026-07-14",
+  "scope": "local-evidence-only",
+  "phase13a_decision": "unavailable",
+  "production_eligible": false,
+  "validated_inputs": {
+    "schema": "ed25519_yao_local_readiness_inputs_v1",
+    "file_count": 2238,
+    "total_bytes": 36116920,
+    "sha256": "05b3cd278f63cf7667ec4ff6b3cdb836ea60d155f85bdd2a8cbfc2b5ad74479b"
+  },
+  "phase9c_validation": {
+    "receipt_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
+    "gate": "validate:yaos-ab-local",
+    "result": "pass",
+    "production_eligible": false,
+    "profile_count": 2,
+    "lifecycle_vector_count": 6
+  },
+  "incoming_secret_buffer_disposal": "rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled",
+  "benchmark": {
+    "id": "phase9b-cloudflare-activation-128kib",
+    "topology": "same-account-service-binding-local-workerd",
+    "sample_count": 51,
+    "warm_sample_count": 50,
+    "failure_count": 0,
+    "table_payload_bytes": 2104960,
+    "client_wall_p95_ms": 147.64,
+    "client_wall_p99_ms": 149.819,
+    "protocol_p95_ms": 145,
+    "protocol_p99_ms": 147,
+    "table_stream_acceptance_p95_ms": 105,
+    "table_stream_acceptance_p99_ms": 107
+  },
+  "activation_128kib_wire_profile": {
+    "table_payload_bytes": 2104960,
+    "body_bytes": 2106524,
+    "frame_count": 17,
+    "table_framing_payload_bytes": 1564,
+    "table_protocol_bytes": 2106772,
+    "ot_payload_bytes": 82112,
+    "ot_message_count": 4,
+    "ot_sequential_round_count": 4,
+    "other_control_payload_bytes": 33300,
+    "envelope_header_bytes": 400,
+    "table_transport_bytes": 2107060,
+    "control_transport_bytes": 115524,
+    "deriver_a_to_b_transport_bytes": 2185420,
+    "deriver_b_to_a_transport_bytes": 37164,
+    "total_ab_transport_bytes": 2222584,
+    "transport_message_count": 25,
+    "client_package_bytes": 216,
+    "signing_worker_package_bytes": 216
+  },
+  "local_compute": {
+    "scope": "local-lower-bound-not-cloudflare-worker-evidence",
+    "native_activation_128kib": {
+      "warm_sample_count": 20,
+      "wall_p95_ms": 68.026,
+      "deriver_a_cpu_p95_ms": 30,
+      "deriver_b_cpu_p95_ms": 50,
+      "combined_cpu_p95_ms": 80,
+      "deriver_a_rss_p95_bytes": 5275648,
+      "deriver_b_rss_p95_bytes": 5259264
+    },
+    "wasm_activation_128kib": {
+      "warm_sample_count": 20,
+      "wall_p95_ms": 132.156,
+      "deriver_a_synchronous_p95_ms": 84.612,
+      "deriver_b_synchronous_p95_ms": 45.44,
+      "combined_role_synchronous_p95_ms": 130.052,
+      "linear_memory_peak_bytes": 4390912,
+      "deriver_a_peak_arena_bytes": 115345,
+      "deriver_b_peak_arena_bytes": 115345,
+      "deriver_a_peak_table_buffer_bytes": 131072,
+      "deriver_b_peak_table_buffer_bytes": 131072,
+      "peak_rust_frame_bytes": 131164,
+      "peak_js_live_wire_bytes": 262328
+    }
+  },
+  "benchmark_isolation": {
+    "schema": "ed25519_yao_benchmark_isolation_audit_v1",
+    "status": "pass",
+    "production_reachable": false,
+    "authorized_core_dependents": 5,
+    "benchmark_dependents": 0,
+    "product_files_scanned": 4281,
+    "product_references": 0,
+    "benchmark_wrangler_configs": 19,
+    "production_routes": 0
+  },
+  "stream_kat_cases": [
+    {
+      "name": "activation-64kib",
+      "and_gates": 65780,
+      "table_bytes": 2104960,
+      "body_bytes": 2107996,
+      "frame_count": 33,
+      "chunk_bytes": 65536
+    },
+    {
+      "name": "export-256kib",
+      "and_gates": 1275,
+      "table_bytes": 40800,
+      "body_bytes": 40892,
+      "frame_count": 1,
+      "chunk_bytes": 262144
+    }
+  ],
+  "validation": {
+    "command": "npm run validate:local-readiness",
+    "result": "pass",
+    "rust_unit_tests": 18,
+    "source_guard_tests": 12,
+    "normal_role_artifacts": 4,
+    "fault_artifacts": 9,
+    "wrangler_dry_run_artifacts": 4,
+    "core_passive_rust_tests": 99,
+    "independent_python_tests": 186,
+    "deterministic_differential_cases": 128,
+    "phase5_stream_kat_drift_tests": 1,
+    "strict_core_clippy_targets": 3,
+    "wasm_stream_profiles": 6,
+    "wasm_stream_modes": 2,
+    "formal_parity_production_rust_tests": 80,
+    "formal_parity_generator_rust_tests": 418,
+    "formal_parity_circuit_rust_tests": 25,
+    "formal_parity_artifact_filesystem_tests": 3,
+    "local_native_compute_profiles": 2,
+    "local_wasm_compute_profiles": 2,
+    "local_compute_samples_per_profile": 21
+  },
+  "artifacts": [
+    {
+      "path": "crates/ed25519-yao/artifacts/passive-benchmark-v1/phase5-stream-wire-kats-v1.json",
+      "sha256": "500e8bc465fdc52d9b90253b9ed042afd9a23ea5113e0641fe008e42e9282cdd"
+    },
+    {
+      "path": "crates/ed25519-yao/artifacts/passive-benchmark-v1/phase5-stream-wire-kats-v1.bin",
+      "sha256": "d707aafac2e4dd9bc89e2843ff4d40937d0195d10dad39567ac1b003fb00d77d"
+    },
+    {
+      "path": "crates/ed25519-yao/docs/phase3-passive-benchmark-report.md",
+      "sha256": "920ee01a722c43f9950b8e5a8418fb40647c22b2804cf7c6ca2655099db0c21f"
+    },
+    {
+      "path": "crates/ed25519-yao/docs/phase4-role-separated-report.md",
+      "sha256": "e4b82e5214e551f8ccf636a0c60e3d6e5382b3231e371029dd39c7711295a674"
+    },
+    {
+      "path": "crates/ed25519-yao/docs/phase5-streaming-report.md",
+      "sha256": "5ae90a84952be24d07db4ab5049be28c6767d3ec2988ed18fc987b966420386a"
+    },
+    {
+      "path": "crates/ed25519-yao/docs/phase13a-local-compute-report.md",
+      "sha256": "6252b8dab12988f7680f66b2b0cab609d36ccb2d7b39701887bb949679cbbf24"
+    },
+    {
+      "path": "crates/ed25519-yao-cloudflare-bench/docs/phase13a-isolation-audit-v1.md",
+      "sha256": "3cfcf3daad0008ab27760e0eceae6addf52bebbd7b32dc622f024f3b16f66294"
+    },
+    {
+      "path": "crates/ed25519-yao-cloudflare-bench/docs/phase9b-same-account-report-v085.md",
+      "sha256": "3fc8434aeb947ef6bba628f2c7156d81f34611d969fa6b5f3617c3b85ca13849"
+    },
+    {
+      "path": "crates/ed25519-yao-cloudflare-bench/tests/source_guards.rs",
+      "sha256": "aad5f48a2d1623b1cc26dde448ccde1d08f3599acfbf0a0238b22bd9bbd74977"
+    },
+    {
+      "path": "crates/ed25519-yao-cloudflare-bench/Cargo.toml",
+      "sha256": "8ee61044cba3ff5571f7c385875395f6bfe7821244f58fe0be3b6a35bddee793"
+    },
+    {
+      "path": "crates/router-ab-dev/reports/ed25519-yao-local-latency-v1.json",
+      "sha256": "2648b6ec685a6d745e823d3cd88177d140014702e4c76e7e1ca9f04b23db6bf7"
+    }
+  ],
+  "deployed_evidence_unavailable": [
+    "same_account_http_benchmark",
+    "same_account_worker_analytics",
+    "same_account_fresh_version_first_request_proxy",
+    "same_account_measured_cost",
+    "cross_account_https_benchmark",
+    "cross_account_worker_analytics",
+    "cross_account_fresh_version_first_request_proxy",
+    "cross_account_measured_cost",
+    "worker_isolate_memory",
+    "deployed_placement_and_connection",
+    "operational_cost_and_topology_acceptance"
+  ]
+}

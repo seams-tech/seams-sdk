@@ -10,15 +10,11 @@ name = "router_ab_cloudflare"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
-[[bench]]
-name = "router_latency"
-harness = false
-
 [features]
 default = []
 strict-worker-router-entrypoint = ["workers-rs"]
-strict-worker-signer-a-entrypoint = ["workers-rs"]
-strict-worker-signer-b-entrypoint = ["workers-rs"]
+strict-worker-deriver-a-entrypoint = ["workers-rs"]
+strict-worker-deriver-b-entrypoint = ["workers-rs"]
 strict-worker-signing-worker-entrypoint = ["workers-rs"]
 workers-rs = [
     "dep:wasm-bindgen",
@@ -29,8 +25,8 @@ workers-rs = [
 base64 = "0.22"
 bs58 = "0.5"
 ecdsa-hss = { path = "../ecdsa-hss" }
-ed25519-hss = { path = "../ed25519-hss" }
 ed25519-dalek = { version = "2.1", default-features = false }
+frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
 futures = "0.3"
 getrandom = { version = "0.2.17", features = ["js"] }
 hpke-ng = { version = "=0.1.0", default-features = false }
@@ -40,11 +36,11 @@ router-ab-core = { path = "../router-ab-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-signer-core = { path = "../signer-core", default-features = false, features = ["threshold-ecdsa"] }
+signer-core = { path = "../signer-core", default-features = false, features = ["near-threshold-ed25519", "threshold-ecdsa"] }
 wasm-bindgen = { version = "0.2", optional = true }
 worker = { version = "=0.8.4", optional = true }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", default-features = false }
+rand_chacha = "0.3"
 wasm-bindgen-test = "0.3"

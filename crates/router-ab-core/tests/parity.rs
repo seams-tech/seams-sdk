@@ -1,14 +1,11 @@
 use router_ab_core::{
-    context_digest_v1, AccountScope, CandidateId, CorrectnessLevel, DerivationContext,
-    PublicDigest32, QuorumPolicy, RequestKind, RootShareEpoch, RouterAbDerivationErrorCode,
-    SignerSetBinding, TranscriptBinding,
+    context_digest_v1, AccountScope, DerivationContext, QuorumPolicy, RequestKind, RootShareEpoch,
+    RouterAbDerivationErrorCode, SignerSetBinding,
 };
 
-fn sample_context(candidate_id: CandidateId) -> DerivationContext {
+fn sample_context() -> DerivationContext {
     DerivationContext::new(
-        candidate_id,
         RequestKind::Registration,
-        CorrectnessLevel::MinimumLevelC,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
@@ -19,10 +16,6 @@ fn sample_context(candidate_id: CandidateId) -> DerivationContext {
         "ceremony-1",
     )
     .expect("context")
-}
-
-fn digest(seed: u8) -> PublicDigest32 {
-    PublicDigest32::new([seed; 32])
 }
 
 fn sample_signer_set() -> SignerSetBinding {
@@ -38,7 +31,7 @@ fn sample_signer_set() -> SignerSetBinding {
 
 #[test]
 fn context_encoding_is_stable_for_same_context() {
-    let context = sample_context(CandidateId::MpcThresholdPrfV1);
+    let context = sample_context();
 
     assert_eq!(
         context.encode_context_v1().expect("left"),
@@ -48,7 +41,7 @@ fn context_encoding_is_stable_for_same_context() {
 
 #[test]
 fn context_digest_is_stable_for_same_context() {
-    let context = sample_context(CandidateId::MpcThresholdPrfV1);
+    let context = sample_context();
 
     assert_eq!(
         context_digest_v1(&context).expect("left"),

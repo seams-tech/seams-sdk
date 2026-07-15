@@ -1,7 +1,6 @@
 import initThresholdPrfWasm, {
   init_threshold_prf,
   threshold_prf_derive_ecdsa_hss_y_server,
-  threshold_prf_derive_ed25519_hss_server_inputs,
 } from "../vendor/threshold_prf/threshold_prf.js";
 import thresholdPrfWasmModule from "../vendor/threshold_prf/threshold_prf_bg.wasm";
 
@@ -28,14 +27,6 @@ const ECDSA_CONTEXT = Object.freeze({
   signingRootVersion: "root-v1",
   keyPurpose: "wallet",
   keyVersion: "v1",
-});
-
-const ED25519_CONTEXT = Object.freeze({
-  signingRootId: "project-alpha:dev",
-  accountId: "alice.near",
-  keyPurpose: "wallet",
-  keyVersion: "v1",
-  derivationVersion: 1,
 });
 
 let firstRequestInIsolate = true;
@@ -82,12 +73,6 @@ export default {
           iterations,
           warmup,
           benchmarkEcdsaYServer,
-        ),
-        measureSync(
-          "threshold_prf_derive_ed25519_hss_server_inputs",
-          iterations,
-          warmup,
-          benchmarkEd25519ServerInputs,
         ),
       ];
 
@@ -171,20 +156,6 @@ function benchmarkEcdsaYServer() {
     ECDSA_CONTEXT.keyVersion,
   );
   return output[0];
-}
-
-function benchmarkEd25519ServerInputs() {
-  const output = threshold_prf_derive_ed25519_hss_server_inputs(
-    THRESHOLD_PRF_THRESHOLD,
-    THRESHOLD_PRF_SHARE_COUNT,
-    shareWires(),
-    ED25519_CONTEXT.signingRootId,
-    ED25519_CONTEXT.accountId,
-    ED25519_CONTEXT.keyPurpose,
-    ED25519_CONTEXT.keyVersion,
-    ED25519_CONTEXT.derivationVersion,
-  );
-  return output.yServer[0] ^ output.tauServer[0];
 }
 
 function shareWires() {

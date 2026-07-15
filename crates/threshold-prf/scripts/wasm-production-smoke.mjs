@@ -71,21 +71,6 @@ assertSameBytes(
 );
 checkedOutputs += 2;
 
-const ed25519Output = wasm.threshold_prf_derive_ed25519_hss_server_inputs(
-  hssVector.policy.threshold,
-  hssVector.policy.share_count,
-  hssShareWires,
-  "project-alpha",
-  "alice.near",
-  "wallet",
-  "v1",
-  1,
-);
-assertByteLength(ed25519Output.contextBinding, 32, "ed25519 context binding");
-assertByteLength(ed25519Output.yServer, 32, "ed25519 y_server");
-assertByteLength(ed25519Output.tauServer, 32, "ed25519 tau_server");
-checkedOutputs += 3;
-
 for (const vector of wireCorpus.vectors) {
   const proofBundle = concatBytes([
     hexToBytes(vector.partial.wire_hex),

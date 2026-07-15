@@ -477,41 +477,6 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 storage.cleanup_expired_signing_worker_round1_records(cleanup.now_unix_ms)?,
             )?
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolPut { record } => {
-            record.validate()?;
-            let stored = validate_idempotent_put_record_v1(
-                storage.signing_worker_ed25519_presign_pool(&storage_key)?,
-                record,
-                CloudflareSigningWorkerEd25519PresignPoolRecordV1::validate,
-                "SigningWorker Ed25519 presign-pool id is already stored for different material",
-            )?;
-            if stored {
-                storage.put_signing_worker_ed25519_presign_pool(&storage_key, record.clone())?;
-            }
-            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_put(
-                CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1::from_record(record, stored)?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolTake { lookup } => {
-            lookup.validate()?;
-            let record = require_existing_record_v1(
-                storage.signing_worker_ed25519_presign_pool(&storage_key)?,
-                "SigningWorker Ed25519 presign-pool material is missing",
-            )?;
-            record.validate_for_lookup(lookup)?;
-            storage.take_signing_worker_ed25519_presign_pool(&storage_key)?;
-            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_take(record)?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolCleanupExpired {
-            cleanup,
-        } => {
-            cleanup.validate()?;
-            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_cleanup_expired(
-                storage.cleanup_expired_signing_worker_ed25519_presign_pool_records(
-                    cleanup.now_unix_ms,
-                )?,
-            )?
-        }
         CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
             record.validate()?;
             let stored = validate_idempotent_put_record_v1(

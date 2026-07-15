@@ -1,6 +1,5 @@
 use router_ab_core::{
-    AccountScope, CandidateId, CorrectnessLevel, DerivationContext, RequestKind, RootShareEpoch,
-    RouterAbDerivationErrorCode,
+    AccountScope, DerivationContext, RequestKind, RootShareEpoch, RouterAbDerivationErrorCode,
 };
 
 #[test]
@@ -13,9 +12,7 @@ fn root_share_epoch_is_required() {
 #[test]
 fn refresh_context_requires_ceremony_id() {
     let err = DerivationContext::new(
-        CandidateId::MpcThresholdPrfV1,
         RequestKind::Refresh,
-        CorrectnessLevel::MinimumLevelC,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
