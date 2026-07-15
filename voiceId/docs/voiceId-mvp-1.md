@@ -1,685 +1,318 @@
-# VoiceID MVP 1
+# VoiceID MVP 1: E0 Evidence Service
 
-Status: exploratory implementation spec.
+Status: active implementation specification.
 
-This document scopes phase 1 to browser-captured, server-scored VoiceID. It
-does not include robotics, MPC signing, x402, face recognition, or audio-visual
-liveness. Those remain separate follow-on tracks.
+Normative signing requirements:
+[VoiceID Signing Security Profile](voiceId-signing-security-profile.md).
 
-Follow-on plan: [VoiceID MVP 2](voiceId-mvp-2.md) covers the next stage:
-ECAPA-backed verification, quality-first gating, expanded calibration fixtures,
-intent binding, and wallet/robot policy integration. Audio-visual PAD is tracked
-separately in
-[Audio-Visual PAD Future Plan](voiceId-camera-liveness-future.md).
-Signing eligibility and the target recording protocol are defined in
-[VoiceID Signing Security Profile](voiceId-signing-security-profile.md). This
-MVP remains
-experimental and cannot emit E2 signing-candidate evidence.
+Implementation plan:
+[VoiceID MVP 1 Tasks](voiceId-mvp-1-tasks.md).
 
 ## Purpose
 
-Build a standalone VoiceID MVP that can:
+MVP 1 is a standalone browser-captured voice evidence service. It establishes a
+clean recording ceremony, typed lifecycle state, verifier boundaries, durable
+template protection, and honest E0 output. Wallet signing, Router admission,
+and global authentication-method integration are outside this milestone.
 
-1. Establish a VoiceID enrollment from one guided browser capture segmented
-   into prompt-aligned speech evidence.
-2. Verify one future browser capture against that enrollment.
-3. Return typed `accepted`, `rejected`, or `uncertain` results.
-4. Stay isolated from the wallet/auth SDK until the VoiceID lifecycle and API
-   shape are stable.
+The service answers a narrow research question: can the current phrase,
+quality, and speaker-verification stack produce useful measurements from a
+single coherent enrollment and verification experience?
 
-The first implementation should live under a dedicated `voiceId` folder so it
-can move independently. After the MVP works, the wallet/auth SDK should expose a
-module interface so VoiceID can plug into client capture, server routes, and
-future auth policy without hard-coded VoiceID imports throughout the wallet
-stack.
+## Security Classification
 
-## Non-Goals
+Every successful browser result has this classification:
 
-1. Training a speaker-verification model.
-2. Shipping VoiceID as a signing-session authenticator.
-3. Solving replay, deepfake, presentation attacks, or capture provenance beyond
-   basic research heuristics.
-4. Storing raw audio permanently.
-5. Adding robotics/Reachy dependencies.
-6. Refactoring all wallet auth flows before the VoiceID MVP proves useful.
-
-## Security Posture
-
-Phase 1 is **speaker verification**, not liveness. It verifies that a browser
-recording is similar to the enrolled speaker and that the spoken phrase matches
-the expected phrase. It should not be used alone as signing authority.
-
-Known gaps:
-
-1. Replay resistance is limited to prompt freshness and attempt limits.
-2. Deepfake and voice-conversion detection are out of scope.
-3. Browser microphone input can be virtualized or tampered with on a compromised
-   client.
-4. A successful result is a recoverable policy signal, not a cryptographic
-   authenticator.
-
-Phase 1 output may be used for product experiments, recovery UX research, and
-step-up policy simulations. Browser wallet signing always pairs this evidence
-with a user-verified passkey. A future direct R1 path requires the complete E2,
-PAD, calibration, and Router grant profile.
-
-## MVP Behavior
-
-Enrollment:
-
-```text
-authenticated user
-  -> browser asks for microphone permission
-  -> user completes one guided recording ceremony
-  -> client or server segments prompted speech into several windows
-  -> server validates audio quality
-  -> server extracts speaker embeddings
-  -> server stores encrypted voice template
+```ts
+type VoiceIdExperimentalBrowserEvidence = {
+  kind: 'experimental_browser_evidence';
+  verificationId: VoiceIdVerificationId;
+  enrollmentId: VoiceIdEnrollmentId;
+  observedChecks: VoiceIdObservedChecks;
+  modelVersion: VoiceIdModelVersion;
+  thresholdVersion: VoiceIdThresholdVersion;
+  completedAt: IsoDateTime;
+  signingAuthorization?: never;
+};
 ```
 
-Verification:
+The evidence records independent accepted phrase, speaker, and quality checks.
+It also records these browser limits explicitly:
+
+- capture freshness is a browser timing observation with
+  `serverVerifiedFreshness: false`;
+- PAD is unavailable;
+- capture source is ordinary `MediaRecorder`;
+- microphone integrity is unverified.
+
+The API capability and health response publish `signingEligible: false`.
+Successful evidence cannot construct a wallet authorization or signing
+continuation.
+
+## Trust Boundaries
+
+The browser owns `Blob`, `MediaRecorder`, and microphone permission. Multipart
+request parsing converts audio bytes and metadata into `VoiceIdAudioInput` once.
+Core service methods accept branded identity and lifecycle types.
+
+The following browser fields are advisory observations:
+
+- MIME type and recorder label;
+- capture timestamp;
+- reported sample rate and channel count;
+- reported duration.
+
+The decoder and verifier own authoritative media and quality decisions. Raw
+audio crosses the route boundary, transcript provider, and verifier boundary
+during the request. It is excluded from persistence and audit records.
+Route and sidecar boundaries reject empty audio and encoded media above 32 MiB.
+Decoder probing and conversion use bounded execution time and reject decoded
+audio beyond 30 seconds.
+
+## Enrollment Ceremony
+
+Enrollment uses one continuous recording:
+
+- four server-owned prompt segments;
+- 12 seconds minimum reported duration;
+- 18 seconds target duration;
+- 30 seconds maximum capture duration;
+- one multipart upload;
+- one final phrase and quality decision;
+- one atomic template commit from the service perspective.
+
+The active implementation combines the four prompts for ordered phrase
+matching and passes the complete recording to one atomic verifier operation.
+The verifier probes the source stream, validates media claims, decodes canonical
+mono 16 kHz samples, runs VAD, rejects invalid or incoherent windows, and builds
+one normalized quality-weighted template. Raw embeddings never cross the
+verifier boundary.
+
+Enrollment lifecycle:
 
 ```text
-authenticated user
-  -> server creates a short unpredictable phrase challenge
-  -> browser records user saying the phrase
-  -> server checks phrase match
-  -> server extracts speaker embedding
-  -> server compares embedding to stored template
-  -> server returns experimental accepted / rejected / uncertain
+pending_continuous_recording
+  -> analyzing_continuous_recording
+       -> enrolled
+            -> disabled
+       -> failed
+
+pending_continuous_recording
+  -> failed
 ```
 
-Browser capture should use standard browser APIs:
+`pending_continuous_recording` carries the prompt sequence, expiry, duration
+gates, model version, and no template fields. The service atomically moves it to
+`analyzing_continuous_recording` before transcription or model work and records
+a bounded analysis lease. `enrolled` requires encrypted template, model,
+template, and threshold versions. `failed` contains a precise failure reason and
+no partial template. `disabled` preserves the encrypted template fields for
+record integrity and blocks verification.
 
-1. `navigator.mediaDevices.getUserMedia({ audio: true })` for microphone access.
-2. `MediaRecorder` for short enrollment and verification clips.
-3. `AudioWorklet` later if low-latency streaming or client-side quality checks
-   become necessary.
+The default enrollment analysis lease is 60 seconds. Recovery converts an
+expired claim to `failed` with `analysis_timeout`; it never reuses the capture.
+
+Failure reasons:
+
+```text
+expired
+capture_too_short
+capture_too_long
+phrase_rejected
+transcript_uncertain
+decoder_failure
+metadata_mismatch
+interrupted_capture
+insufficient_speech
+insufficient_windows
+duplicate_windows
+multi_speaker
+clipped_audio
+low_snr
+incoherent_windows
+template_build_failed
+analysis_timeout
+verifier_unavailable
+```
+
+Enrollment, replacement, restoration, and adaptation require independent
+user-verified authorization in a future authenticator integration. The E0 lab
+route accepts a research `userId` and carries no production identity claim.
+
+## Verification Ceremony
+
+Verification uses one continuous 3–5 second recording. The server creates:
+
+- `verificationId`;
+- unpredictable challenge nonce;
+- prompt base selected from server configuration;
+- nonce-derived spoken fragment;
+- creation and expiry times.
+
+The client submits `userId`, `enrollmentId`, `verificationId`, audio bytes, and
+audio metadata. It cannot choose the expected phrase, transcript, challenge,
+policy, score, or signing context.
+
+Verification lifecycle:
+
+```text
+issued
+  -> analyzing
+       -> evidence_observed
+       -> rejected
+       -> uncertain
+       -> analysis_failed
+  -> expired
+```
+
+Each result-bearing terminal record requires a matching result branch. The
+service claims `analyzing` through a datastore compare-and-swap before calling
+the transcript or speaker providers. Concurrent losers receive `invalid_state`
+without repeating model work. A stale lease becomes `analysis_failed` with
+`analysis_timeout`; the capture is never replayed.
+
+The default verification analysis lease is 30 seconds.
+
+Result evaluation order:
+
+1. audio-quality rejection or uncertainty;
+2. phrase rejection;
+3. speaker rejection;
+4. phrase or speaker uncertainty;
+5. E0 evidence construction after every observed check accepts.
+
+An expired or completed verification cannot be reused. A future quality retry
+must issue a new challenge and verification id.
+
+## Capture UX Requirements
+
+The capture UI exists to produce valid, measurable recordings:
+
+- keep the current prompt visible for the complete recording interval;
+- show microphone permission, ready, recording, processing, accepted,
+  uncertain, rejected, and expired states explicitly;
+- derive enrollment progress from prompt coverage, usable speech, quality, and
+  accepted windows instead of elapsed time alone;
+- provide a clear cancel action that discards the current capture;
+- issue a fresh challenge and verification id for every quality retry;
+- keep status, prompts, errors, and controls available to keyboard and assistive
+  technology users;
+- avoid exposing model scores, thresholds, or diagnostics as user instructions.
+
+Wallet confirmation, device-binding settings, SDK components, and
+authenticator-management UI remain outside the active engine specification.
+
+## Active HTTP Contract
+
+```text
+GET  /voice-id/health
+POST /voice-id/evidence/enrollment/start
+POST /voice-id/evidence/enrollment/recording
+POST /voice-id/evidence/enrollment/disable
+POST /voice-id/evidence/verification/start
+POST /voice-id/evidence/verification/recording
+```
+
+JSON start and disable requests are parsed at the route boundary. Recording
+requests use multipart form data:
+
+```text
+audio     Blob
+metadata  JSON VoiceIdAudioMetadata
+fields    JSON identity fields
+```
+
+There is no separate finalization request. The enrollment recording request
+either commits a complete template or moves the record to `failed`.
+
+Public response DTOs omit encrypted templates and persistence records. The
+browser client parses each response into exact branded and discriminated types
+at the fetch boundary; unexpected fields fail closed.
+
+## Verifier And Transcript Providers
+
+Provider selection is explicit:
+
+```text
+VOICEID_VERIFIER_TRANSPORT = fake | python-subprocess | python-http
+VOICEID_TRANSCRIPT_PROVIDER = fake | cloudflare-workers-ai
+```
+
+Missing or invalid selections fail configuration. Development launchers choose
+fake providers explicitly. Deployment-shaped tests choose the Python transport
+and transcript provider explicitly.
+
+Cloudflare storage selection is also explicit. `memory` is for isolated
+research processes; durable experiments select `cloudflare-d1` and template
+wrapping configuration.
+
+Hosted browser access requires an exact origin allowlist. Wildcard CORS is
+prohibited. Requests carrying an unapproved `Origin` fail before route
+dispatch.
+
+The TypeScript verifier adapter validates Python responses once and converts
+them to exact result unions. Transport failures map to uncertainty or failed
+enrollment; they never produce evidence.
+
+The Python v2 verifier surface contains only:
+
+```text
+POST /voice-id/verifier/build-enrollment-template
+POST /voice-id/verifier/verify-speaker
+```
+
+Enrollment audio and internal embeddings remain inside one atomic sidecar
+operation. The transport has no embedding export or separate template-build
+operation.
+
+## Persistence And Privacy
+
+Stores persist complete enrollment and verification union values. Cloudflare D1
+uses v4 tables with indexed identity and lifecycle fields plus a parsed
+`recordJson` payload.
+The parser verifies that indexes match the record body.
+
+Durable enrollment storage wraps verifier templates with AES-GCM-256. Key id,
+rotation version, AAD label, user id, enrollment id, model version, template
+version, and threshold version are authenticated as associated data.
+
+Ordinary audit events contain lifecycle result kinds and coarse score bands.
+They exclude raw audio, embeddings, complete transcripts, and raw model output.
+Diagnostic audio retention is disabled unless a bounded research configuration
+enables it explicitly.
 
 ## Acceptance Criteria
 
-Enrollment acceptance:
-
-1. The UI performs one guided capture session and submits server-configured
-   prompt segments.
-2. The provisional experiment target is 12 seconds of usable speech across at
-   least three accepted, non-duplicate segments.
-3. Each segment passes decoded-duration, detected-speech, clipping, saturation,
-   and noise checks.
-4. Finalization rejects duplicate, outlier, multi-speaker, or incoherent
-   enrollment segments.
-5. Required evidence is configured in usable speech and coherent segment terms.
-   A raw UI recording count is not a security threshold.
-
-Verification acceptance:
-
-1. Same-user fixtures in normal room conditions return experimental
-   `accepted`.
-2. Different-user samples return `rejected` in the basic test set.
-3. Matching speaker with wrong phrase returns `rejected`.
-4. Low-quality runtime audio returns `uncertain`.
-5. Expired prompts return `rejected`.
-6. A single accepted 3-5 second capture completes verification. Additional
-   captures are quality retries and cannot vote an uncertain result into an
-   accepted result.
-
-Metric gate:
-
-1. Record score distributions for same-user and independent-human different-
-   user fixtures with speaker-disjoint evaluation splits.
-2. Pick a provisional threshold from validation fixtures.
-3. Report false accept and false reject counts for the fixture set.
-4. Do not tune thresholds per user to force acceptance.
-
-## Speaker Verification Pipeline
-
-Server verifier flow:
-
-```text
-audio clip
-  -> normalize / resample
-  -> voice activity detection
-  -> log-mel or MFCC-like features
-  -> speaker embedding model
-  -> compare runtime embedding against enrollment template
-  -> threshold decision
-```
-
-Implementation notes:
-
-1. Use a pretrained speaker-verification model for MVP.
-2. Store model and threshold versions with every enrollment.
-3. Store encrypted embeddings/templates, not raw enrollment audio.
-4. Use cosine similarity first unless the selected model recommends a different
-   scorer.
-5. Add PLDA-style or calibrated neural scoring only after baseline metrics show
-   cosine scoring is insufficient.
-
-## Phrase And Speaker Checks
-
-Phrase verification and speaker verification are separate checks:
-
-```ts
-type VoiceIdVerificationChecks = {
-  phrase: VoiceIdPhraseMatchResult;
-  speaker: VoiceIdSpeakerMatchResult;
-  quality: VoiceIdAudioQualityResult;
-};
-```
-
-Rules:
-
-1. A correct speaker saying the wrong phrase is rejected.
-2. A correct phrase spoken by the wrong speaker is rejected.
-3. Low audio quality produces `uncertain` unless phrase mismatch or policy
-   denial is already clear.
-4. Phrase matching should normalize digit variants such as "one one six" to
-   `116`, and reject ambiguous words when confidence is low.
-
-## Verifier Spike
-
-Before building deep SDK integration, run a short verifier spike:
-
-```text
-voiceId/verifier-spike/
-  README.md
-  pyproject.toml
-  compare_models.py
-  fixtures/
-```
-
-Spike goals:
-
-1. Compare 2-3 pretrained speaker-verification models.
-2. Test browser-recorded enrollment and verification clips.
-3. Measure latency for embedding extraction and scoring.
-4. Measure same-user vs different-user score separation.
-5. Choose the first model, threshold policy, and audio quality gates.
-
-The spike should write a short result summary before productionizing the
-verifier boundary.
-
-## Domain State
-
-Use explicit lifecycle unions. Core logic must not accept raw request bodies,
-raw strings, or broad partial objects.
-
-```ts
-type VoiceIdEnrollmentState =
-  | {
-      kind: 'not_enrolled';
-      userId: UserId;
-      enrollmentId?: never;
-      templateVersion?: never;
-    }
-  | {
-      kind: 'enrollment_pending';
-      userId: UserId;
-      enrollmentId: VoiceIdEnrollmentId;
-      promptSetId: VoiceIdPromptSetId;
-      evidenceTarget: {
-        usableSpeechMs: number;
-        promptSegmentCount: number;
-      };
-      evidenceProgress: {
-        usableSpeechMs: number;
-        acceptedPromptSegmentCount: number;
-      };
-      captureAttemptCount: number;
-      expiresAt: IsoDateTime;
-      templateVersion?: never;
-    }
-  | {
-      kind: 'enrolled';
-      userId: UserId;
-      enrollmentId: VoiceIdEnrollmentId;
-      modelVersion: VoiceIdModelVersion;
-      templateVersion: VoiceIdTemplateVersion;
-      assurance: 'research';
-      enrolledAt: IsoDateTime;
-      disabledAt?: never;
-    }
-  | {
-      kind: 'disabled';
-      userId: UserId;
-      enrollmentId: VoiceIdEnrollmentId;
-      modelVersion: VoiceIdModelVersion;
-      templateVersion: VoiceIdTemplateVersion;
-      assurance: 'research';
-      disabledAt: IsoDateTime;
-    };
-```
-
-```ts
-type VoiceIdMvpVerificationResult =
-  | {
-      kind: 'experimental_accepted';
-      evidence: VoiceIdExperimentalBrowserEvidence;
-    }
-  | {
-      kind: 'rejected';
-      verificationId: VoiceIdVerificationId;
-      reason: VoiceIdMvpRejectionReason;
-      observedChecks: VoiceIdObservedChecks;
-      evidence?: never;
-    }
-  | {
-      kind: 'uncertain';
-      verificationId: VoiceIdVerificationId;
-      reason: VoiceIdMvpUncertainReason;
-      observedChecks: VoiceIdObservedChecks;
-      evidence?: never;
-    }
-  | {
-      kind: 'expired';
-      verificationId: VoiceIdVerificationId;
-      observedChecks?: never;
-      evidence?: never;
-    };
-```
-
-## Standalone Scaffold
-
-Create a dedicated folder first:
-
-```text
-voiceId/
-  README.md
-  package.json
-  tsconfig.json
-
-  client/
-    src/
-      capture/
-        microphone.ts
-        mediaRecorder.ts
-        audioBlob.ts
-      enrollment/
-        prompts.ts
-        enrollmentClient.ts
-      verification/
-        verificationClient.ts
-      domain/
-        types.ts
-        parsers.ts
-        assertNever.ts
-
-  shared/
-    src/
-      types.ts
-      parsers.ts
-      result.ts
-      prompts.ts
-      assertNever.ts
-
-  server/
-    src/
-      VoiceIdService.ts
-      VoiceIdEnrollmentStore.ts
-      VoiceIdVerifier.ts
-      routes.ts
-      domain/
-        types.ts
-        parsers.ts
-        assertNever.ts
-
-  verifier/
-    README.md
-    pyproject.toml
-    voiceid_verifier/
-      __init__.py
-      app.py
-      audio_quality.py
-      embeddings.py
-      scoring.py
-
-  verifier-spike/
-    README.md
-    pyproject.toml
-    compare_models.py
-
-  demo/
-    src/
-      index.html
-      main.ts
-      styles.css
-
-  fixtures/
-    prompts.json
-    verification-results.json
-
-  tests/
-    enrollment.typecheck.ts
-    verification.typecheck.ts
-    enrollment.unit.test.ts
-    verification.unit.test.ts
-```
-
-Rationale:
-
-1. `voiceId/client` proves browser capture without touching the wallet SDK.
-2. `voiceId/shared` keeps client and server domain types aligned.
-3. `voiceId/server` proves lifecycle, stores, routes, and policy boundaries.
-4. `voiceId/verifier` isolates model/runtime dependencies. Python is acceptable
-   here because speaker-verification model tooling is strongest in Python.
-5. `voiceId/demo` exposes a tiny enroll/verify UI before wallet integration.
-6. The folder can later be split into package exports or merged into existing
-   SDK/server boundaries after the API stabilizes.
-
-## API Draft
-
-Enrollment endpoints:
-
-```http
-POST /voice-id/enrollment/start
-POST /voice-id/enrollment/capture
-POST /voice-id/enrollment/finalize
-POST /voice-id/enrollment/disable
-```
-
-Verification endpoints:
-
-```http
-POST /voice-id/verification/start
-POST /voice-id/verification/capture
-```
-
-Request boundary rules:
-
-1. Route handlers parse multipart audio and JSON metadata once.
-2. Route handlers convert raw request data into precise internal types.
-3. Core services accept `VoiceIdEnrollmentCapture` and
-   `VoiceIdVerificationCapture`, not raw bodies or raw blobs.
-4. Verifier vendor/model responses are parsed once into
-   `VoiceIdSpeakerMatchResult`.
-
-## Client MVP
-
-Browser client responsibilities:
-
-1. Request microphone permission.
-2. Record one guided enrollment session and one short verification clip.
-3. Display prompted phrases.
-4. Upload audio as `Blob` plus structured metadata.
-5. Surface quality feedback: too quiet, too short, too noisy, retry.
-6. Never store raw enrollment audio beyond the active browser session.
-
-Standalone demo page:
-
-```text
-voiceId/demo
-  -> Enroll VoiceID
-  -> Verify VoiceID
-  -> Show phrase result, speaker score, threshold, and final decision
-```
-
-The demo should make model quality visible before any wallet/auth integration.
-
-Initial capture path:
-
-```text
-getUserMedia
-  -> MediaRecorder
-  -> Blob
-  -> upload multipart/form-data
-```
-
-Future capture path:
-
-```text
-getUserMedia
-  -> AudioWorklet
-  -> deterministic PCM analysis derivative and capture settings
-  -> local VAD / quality hints / prompt segmentation
-  -> streaming upload
-```
-
-Client capture metadata is diagnostic. The server computes duration and quality
-from decoded audio. Browser device ids and timestamps do not prove trusted
-microphone provenance. The upload preserves and hashes the original bytes
-emitted by the capture API; analysis derivatives never upgrade browser evidence
-beyond E0.
-
-## Server MVP
-
-Server responsibilities:
-
-1. Issue and persist enrollment and verification challenges, prompts, expiry,
-   and expected capture profile.
-2. Track enrollment and verification attempt state.
-3. Validate audio quality before model inference.
-4. Call the verifier runtime.
-5. Store encrypted speaker templates.
-6. Apply attempt limits, expiry, and rate limits.
-7. Return typed result unions.
-8. Delete raw audio after extraction/verification unless diagnostics are
-   explicitly enabled.
-9. Recompute the exact original-audio hash and treat client timestamps, MIME,
-   device labels, and source claims as advisory.
-
-Privacy and retention requirements:
-
-1. Raw enrollment audio is deleted after embedding extraction.
-2. Raw verification audio is deleted after the result is computed.
-3. Embeddings and templates are encrypted at rest.
-4. Diagnostic retention requires explicit opt-in and a retention window.
-5. Audit logs store score bands and result kinds, not raw audio or raw model
-   tensors.
-
-Storage tables or records:
-
-```ts
-type VoiceIdEnrollmentRecord = {
-  userId: UserId;
-} & (
-  | {
-      state: 'pending';
-      enrollmentId: VoiceIdEnrollmentId;
-      modelVersion: VoiceIdModelVersion;
-      createdAt: IsoDateTime;
-      expiresAt: IsoDateTime;
-      templateVersion?: never;
-      encryptedTemplate?: never;
-      enrolledAt?: never;
-      disabledAt?: never;
-    }
-  | {
-      state: 'enrolled';
-      enrollmentId: VoiceIdEnrollmentId;
-      modelVersion: VoiceIdModelVersion;
-      templateVersion: VoiceIdTemplateVersion;
-      assurance: 'research';
-      encryptedTemplate: EncryptedBytes;
-      createdAt: IsoDateTime;
-      enrolledAt: IsoDateTime;
-      disabledAt?: never;
-    }
-  | {
-      state: 'disabled';
-      enrollmentId: VoiceIdEnrollmentId;
-      modelVersion: VoiceIdModelVersion;
-      templateVersion: VoiceIdTemplateVersion;
-      assurance: 'research';
-      encryptedTemplate: EncryptedBytes;
-      createdAt: IsoDateTime;
-      enrolledAt: IsoDateTime;
-      disabledAt: IsoDateTime;
-    }
-);
-```
-
-```ts
-type VoiceIdVerificationRecord = {
-  userId: UserId;
-  enrollmentId: VoiceIdEnrollmentId;
-  challengeId: VoiceIdChallengeId;
-  expectedPhrase: VoiceIdPromptPhrase;
-} & (
-  | {
-      state: 'issued';
-      verificationId: VoiceIdVerificationId;
-      createdAt: IsoDateTime;
-      expiresAt: IsoDateTime;
-      completedAt?: never;
-      result?: never;
-    }
-  | {
-      state: 'experimental_accepted' | 'rejected' | 'uncertain';
-      verificationId: VoiceIdVerificationId;
-      createdAt: IsoDateTime;
-      expiresAt: IsoDateTime;
-      completedAt: IsoDateTime;
-      result: VoiceIdMvpVerificationResult;
-    }
-  | {
-      state: 'expired';
-      verificationId: VoiceIdVerificationId;
-      createdAt: IsoDateTime;
-      expiresAt: IsoDateTime;
-      completedAt: IsoDateTime;
-      result?: never;
-    }
-);
-```
-
-## Verifier MVP
-
-The verifier should be a narrow internal service or local process. It should
-expose only stable typed operations:
-
-```text
-extractEnrollmentSegments(capture, promptTimeline) -> normalized embeddings + quality + coherence
-buildTemplate(acceptedSegments) -> normalized weighted template + quality
-verifyPhrase(capture, storedChallenge) -> phrase result
-verifySpeaker(capture, template) -> speaker result
-```
-
-The first verifier can be Python-backed:
-
-1. Normalize/resample audio.
-2. Run voice activity detection.
-3. Extract log-mel/MFCC-like features.
-4. Extract speaker embedding with a pretrained model.
-5. Compare with cosine similarity.
-6. Return score, threshold, model version, and quality metadata.
-
-Do not leak raw model outputs into core server logic.
-
-Python verifier rationale:
-
-1. The strongest pretrained speaker-verification tooling is currently in
-   Python/PyTorch.
-2. Python keeps model selection, VAD, feature extraction, and checkpoint loading
-   isolated from TypeScript lifecycle code.
-3. The server receives typed verifier results only.
-4. The boundary can later swap to a Rust verifier, vendor API, or browser/WASM
-   verifier without changing VoiceID lifecycle state.
-
-## SDK Integration Plan
-
-After the standalone MVP proves the lifecycle:
-
-1. Add a module boundary to the wallet/auth SDK.
-2. Integrate `voiceId/client` as a per-operation evidence capability.
-3. Integrate `voiceId/server` routes through a server capability module.
-4. Keep VoiceID-specific lifecycle under the VoiceID module.
-5. Let browser wallet UI consume E0 only and authorize the transaction through
-   passkey.
-6. Defer global wallet-auth-method unions and account projection until an E2
-   product decision requires them.
-
-Current test target: feed the experimental normal-SDK result into policy
-shadowing without calling signing. The relay/module path can mount VoiceID
-routes and exercise enrollment and verification. Browser signing is added only
-through passkey admission for the same server-owned Router operation.
-
-Target client module shape:
-
-```ts
-type VoiceEvidenceCapability = {
-  beginTransactionAuthorization(
-    input: VoiceIdTransactionAuthorizationInput,
-  ): Promise<VoiceIdTransactionAuthorizationStartResult>;
-};
-```
-
-Target registration shape:
-
-```ts
-type VoiceIdRouterApiModule = {
-  kind: 'voice_id_router_api_module';
-  routes: VoiceIdRoutes;
-};
-```
-
-Module integration rules:
-
-1. VoiceID routes register through a server module, not by editing unrelated
-   server routers directly.
-2. VoiceID capture registers through `VoiceEvidenceCapability`, without adding
-   VoiceID to global auth-method state.
-3. Browser policy consumes `VoiceIdExperimentalBrowserEvidence` and exposes
-   passkey as the authorizing continuation.
-4. VoiceID lifecycle, stores, and verifier code stay under the VoiceID module.
-5. E0/E1 never carry a grant, admission, or signing continuation.
-
-## Validation
-
-MVP type fixtures:
-
-1. `enrollmentId` cannot appear on `not_enrolled`.
-2. `templateVersion` cannot appear on `enrollment_pending`.
-3. `disabledAt` cannot appear on `enrolled`.
-4. `experimental_accepted` verification requires complete observed phrase,
-   speaker, and quality results and carries E0 only.
-5. `rejected` verification requires a rejection reason.
-6. Core services reject raw request bodies.
-7. `pending` enrollment records cannot contain encrypted templates.
-8. `issued` verification records cannot contain completed results.
-9. E0/E1 cannot construct a grant, reserved admission, or signing continuation.
-
-MVP runtime tests:
-
-1. Enrollment rejects insufficient usable speech.
-2. Enrollment rejects low-quality, duplicate, multi-speaker, and incoherent
-   segments.
-3. Finalize rejects insufficient prompt coverage or template coherence.
-4. Verification rejects expired prompts.
-5. Verification rejects phrase mismatch.
-6. Verification rejects speaker mismatch.
-7. Verification returns uncertain for low-quality runtime audio.
-8. Verification accepts matching speaker and phrase.
-
-Phase gates:
-
-1. **Gate 1**: fake verifier enrollment/verification state machines pass type
-   fixtures and unit tests.
-2. **Gate 2**: browser demo captures audio and completes fake enrollment and
-   verification.
-3. **Gate 3**: verifier spike shows usable same-user/different-user score
-   separation.
-4. **Gate 4**: Python verifier works through the typed server boundary.
-5. **Gate 5**: encrypted template storage and retention rules are tested.
-6. **Gate 6**: route integration into the existing server is added.
-7. **Gate 7**: wallet/auth SDK module registration is added.
-8. **Gate 8**: browser transaction UX signs only after passkey user verification
-   for the same Router operation.
-9. **Gate 9**: E2 remains disabled until an approved embedded capture and PAD
-   profile passes the signing security gates.
-
-## Implementation Order
-
-1. Create `voiceId/` scaffold with domain types and fake verifier.
-2. Add `voiceId/shared` for shared domain types and parsers.
-3. Implement browser capture and upload against the fake server.
-4. Implement the standalone demo page.
-5. Implement server enrollment and verification state machines.
-6. Add type fixtures for lifecycle guarantees.
-7. Add fake verifier tests for all result branches.
-8. Run the verifier spike and choose the first model.
-9. Add Python verifier proof of concept behind the verifier boundary.
-10. Add encrypted template storage and retention tests.
-11. Add route integration into existing server after standalone tests pass.
-12. Add SDK module registration points.
-13. Wire `voiceId/client` into the SDK as a per-operation
-    `VoiceEvidenceCapability` without widening global wallet auth-method unions.
+- TypeScript rejects invalid enrollment, verification, evidence, and signing
+  combinations through discriminated unions and static fixtures.
+- Enrollment presents four prompts in one recording ceremony.
+- A failed enrollment persists no template or embedding collection.
+- Verification prompts and nonce material originate on the server.
+- The client request surface carries no expected phrase or signing state.
+- Successful verification returns E0 evidence with signing eligibility fixed to
+  false.
+- Missing provider configuration fails closed.
+- Durable parsers reject schema and index mismatches.
+- Tests cover success, quality failure, phrase mismatch, expiry, replay,
+  provider parsing, pre-computation claims, stale-lease recovery, persistence,
+  and template wrapping.
+- Architecture guards reject reintroduction of authorization code into active
+  VoiceID sources.
+
+## Active Engine Milestones
+
+1. Produce one subject-disjoint benchmark for accuracy, stage latency, memory,
+   resource use, uncertainty, and failure rate.
+2. Feed phrase, speaker, PAD, and template processing from one canonical decode
+   and shared VAD result in persistent workers.
+3. Select and calibrate the speaker model, constrained expected-phrase scorer,
+   and PAD model on held-out subjects and attacks.
+4. Improve continuous-enrollment aggregation and cross-session template
+   stability.
+5. Qualify optimized server, embedded, and iOS research builds with decision
+   regressions, crash tests, overload tests, fuzzing, and soak tests.
+
+The implementation checklist and exit gates are maintained in
+[VoiceID MVP 1 Tasks](voiceId-mvp-1-tasks.md). Cross-origin iframe,
+authenticator hardware, WebAuthn/CTAP2, wallet, and Router work are deferred
+until the engine meets its frozen accuracy and runtime budgets.

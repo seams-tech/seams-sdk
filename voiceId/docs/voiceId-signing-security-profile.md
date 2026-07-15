@@ -5,11 +5,7 @@ Status: normative security profile and phased implementation plan.
 Related implementation documents:
 
 - [VoiceID MVP 1](voiceId-mvp-1.md)
-- [VoiceID MVP 2](voiceId-mvp-2.md)
-- [Voice biometrics design](voice-biometrics.md)
-- [SDK auth-method integration](voiceId-sdk-auth-method-integration.md)
-- [Normal SDK transaction signing](voiceId-normal-sdk-transaction-signing.md)
-- [Router admission adapter](voiceId-router-policy-issuer.md)
+- [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
 - [Router A/B signer architecture](../../docs/router-a-b-SPEC.md)
 
 This document is the authority for deciding whether VoiceID evidence may reach
@@ -19,53 +15,61 @@ signing-eligibility rules differ from this profile, this profile takes
 precedence.
 
 The current browser MVP is E0 experimental evidence under this profile. No
-current browser VoiceID result is eligible for direct signing.
+current browser VoiceID result is eligible for direct signing. The direct
+VoiceID target is a local user-verifying authenticator as defined by the
+platform plan.
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**,
 and **MAY** describe requirements for conformance to this profile.
 
 ## Security Objective
 
-VoiceID may supply probabilistic owner-presence evidence for one short-lived,
-canonical operation. Router policy remains the signing admission boundary, and
-the active SigningWorker remains the MPC participant.
+VoiceID evidence and VoiceID signing authorization are disjoint. Browser,
+server-scored, App Attest, and TPM/IMA paths may produce evidence for research,
+policy shadowing, passkey step-up, and robot authority policy. Only an approved
+local VoiceID authenticator may perform user verification and return a signed
+assertion for a wallet operation. Router policy remains the signing admission
+boundary, and the active SigningWorker remains the MPC participant.
 
-The complete authorization chain is:
+The target VoiceID authenticator chain is:
 
 ```text
-server-canonical Router intent and signing payload
-  -> server-issued unpredictable voice challenge
-  -> one continuous device-bound audio capture
-  -> speaker + phrase + quality + freshness + PAD verification
-  -> risk policy
-  -> one-use grant for the exact Router digest tuple
-  -> atomic Router reservation
+server-canonical Router intent and WebAuthn challenge
+  -> protected local microphone capture
+  -> authenticator derives the fresh phrase from clientDataHash
+  -> local speaker + phrase + quality + freshness + PAD verification
+  -> protected local rate limit and credential-key release
+  -> signed UP + UV assertion for the Router digest tuple
+  -> Router assertion verification and atomic admission
   -> existing Router A/B MPC signing flow
 ```
 
 Every arrow is a security boundary. Success at one boundary MUST NOT imply
-success at another.
-
-This is a custom risk-based R1 control. It does not claim that remote voice
-comparison is a NIST-conformant authenticator. NIST SP 800-63B-4 excludes voice
-biometric comparison from its biometric authenticator model. Browser and R2/R3
-wallet flows use passkey user verification.
+success at another. The local authenticator path may become a direct alternative
+only after the exact hardware, firmware, capture path, matcher, PAD, enrollment,
+recovery, and credential-release system passes this profile and the
+platform-plan release gates.
 
 The following invariants apply:
 
 1. VoiceID MUST NOT create a general signing session or reusable bearer
    credential.
-2. Browser-captured experimental evidence MUST NOT issue or consume a signing
-   grant.
+2. E0, E1, and E2 evidence MUST NOT construct or consume wallet signing
+   authorization.
 3. Client-reported timestamps, microphone labels, source trust, replay risk,
    transcripts, or policy choices MUST NOT establish signing eligibility.
-4. A signing candidate MUST contain accepted speaker, phrase, quality, capture
-   freshness, PAD, device-proof, capture-profile, and intent-binding results.
+4. Evidence policy MUST keep speaker, phrase, quality, capture freshness, PAD,
+   device-proof, capture-profile, and intent-binding results independent.
 5. Missing, rejected, expired, or uncertain checks fail closed or require an
    independent step-up factor.
-6. One challenge binds one capture. One accepted capture may issue one grant.
-   One grant may reserve one Router request.
-7. MPC protects key custody and produces the signature. It cannot repair an
+6. One challenge binds one capture. Evidence replay or reuse cannot create
+   signing authority.
+7. An iframe, app attestation, TPM quote, protected key, or local matcher alone
+   MUST NOT be represented as authenticator user verification.
+8. A direct VoiceID assertion MUST come from an approved authenticator whose
+   protected boundary owns capture, matching, PAD, rate limits, templates, and
+   credential-key release.
+9. MPC protects key custody and produces the signature. It cannot repair an
    incorrect biometric or policy decision.
 
 ## Threat Assumptions
@@ -73,7 +77,7 @@ The following invariants apply:
 The profile assumes an attacker can obtain recordings of the owner, generate
 targeted synthetic or converted speech, replay or relay media, inject audio into
 ordinary browser capture, control browser application code, mutate client
-requests, observe prompts, submit many attempts, and race or replay grants. A
+requests, observe prompts, submit many attempts, and race or replay assertions. A
 stolen or revoked enrolled device is also an expected policy input.
 
 The server challenge service, Router admission boundary, active SigningWorker,
@@ -95,8 +99,8 @@ policy MUST represent the following checks separately.
 | Capture freshness                   | The capture responds to a live, unexpired, server-owned challenge and arrives within its one-use timing window.                                                                                     | Freshness resists cached fixed-phrase replay. It does not stop prompt-targeted synthesis or live relay.                                             |
 | Presentation attack detection (PAD) | A probabilistic authenticity decision for the attack classes covered by the active PAD calibration, including replay, synthesis, voice conversion, splicing, and digital injection where supported. | PAD only covers measured attacks and capture profiles. It is never described as proof of a live human.                                              |
 | Device proof                        | A signature from an enrolled device key over the challenge, Router binding, prompt hash, exact uploaded-audio hash, capture interval, and capture profile.                                          | It proves key participation and byte binding. It is not microphone attestation unless the approved profile supplies independent sensor attestation. |
-| Canonical intent binding            | The VoiceID challenge, device proof, grant, Router request, and prepared signing payload carry the same Router-derived digest tuple.                                                                | Spoken text and a client-created digest cannot substitute for Router canonicalization.                                                              |
-| MPC signing                         | The existing Router A/B and active SigningWorker flow produces a signature after admission.                                                                                                         | MPC is downstream of VoiceID and must receive only an admitted, reserved operation.                                                                 |
+| Canonical intent binding            | The VoiceID challenge, device proof, authenticator assertion, Router request, and prepared signing payload carry the same Router-derived digest tuple.                                              | Spoken text and a client-created digest cannot substitute for Router canonicalization.                                                              |
+| MPC signing                         | The existing Router A/B and active SigningWorker flow produces a signature after admission.                                                                                                         | MPC is downstream of VoiceID and must receive only a cryptographically admitted operation.                                                          |
 
 An audit or UI layer MAY summarize the ceremony as “voice verification.”
 Internal policy MUST consume the separate results.
@@ -106,11 +110,14 @@ Internal policy MUST consume the separate results.
 VoiceID evidence has three tiers. A higher tier requires a distinct typed
 construction path; runtime flags MUST NOT upgrade a lower-tier object.
 
-| Tier                      | Meaning                                                                                                                    | Permitted use                                                                                    |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| E0 — experimental browser | Audio came from an ordinary browser capture path, or freshness/source/PAD claims remain client-reported or uncalibrated.   | Research, UX evaluation, verifier fixtures, and policy shadowing only.                           |
-| E1 — step-up-only         | The server verified useful voice evidence, while at least one signing requirement or approved capture guarantee is absent. | Offer or inform an independent passkey or equivalent step-up. It confers no signing authority.   |
-| E2 — signing candidate    | Every required check is server-verified and accepted under an approved capture, model, threshold, PAD, and policy version. | Input to Router risk policy for one exact operation. Router may still reject or require step-up. |
+| Tier                      | Meaning                                                                                                                  | Permitted use                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| E0 — experimental browser | Audio came from an ordinary browser capture path, or freshness/source/PAD claims remain client-reported or uncalibrated. | Research, UX evaluation, verifier fixtures, and policy shadowing.                                            |
+| E1 — step-up-only         | The server verified useful voice evidence, while an approved capture guarantee is absent.                                | Offer or inform an independent passkey or equivalent step-up.                                                |
+| E2 — attested evidence    | Every required evidence check is server-verified under an approved capture, model, threshold, PAD, and policy version.   | Authenticator research, attack evaluation, robot authority policy, and passkey-backed wallet policy context. |
+
+Every tier is signing-ineligible. Higher-quality evidence cannot be promoted to
+wallet authorization by risk policy, a feature flag, or a server-issued token.
 
 `MediaRecorder`, Web Audio, browser `deviceId`, browser timestamps, and a
 browser-held application key remain E0 inputs. A passkey performed after an E0
@@ -123,30 +130,35 @@ The target domain split is:
 export type VoiceIdEvidence =
   | VoiceIdExperimentalBrowserEvidence
   | VoiceIdStepUpOnlyEvidence
-  | VoiceIdSigningCandidateEvidence;
+  | VoiceIdAttestedEvidence;
 
 export type VoiceIdExperimentalBrowserEvidence = {
   kind: 'experimental_browser_evidence';
   verificationId: VoiceIdVerificationId;
+  enrollmentId: VoiceIdEnrollmentId;
   observedChecks: VoiceIdObservedChecks;
-  signingCandidate?: never;
-  signingGrant?: never;
+  modelVersion: VoiceIdModelVersion;
+  thresholdVersion: VoiceIdThresholdVersion;
+  completedAt: IsoDateTime;
+  signingAuthorization?: never;
 };
 
 export type VoiceIdStepUpOnlyEvidence = {
   kind: 'step_up_only_evidence';
   verificationId: VoiceIdVerificationId;
-  routerBinding: RouterVoiceIntentBinding;
-  reason: VoiceIdStepUpReason;
-  signingCandidate?: never;
-  signingGrant?: never;
+  reason:
+    | 'browser_capture_boundary'
+    | 'pad_unavailable'
+    | 'device_proof_unavailable';
+  source: VoiceIdExperimentalBrowserEvidence;
+  signingAuthorization?: never;
 };
 
-export type VoiceIdSigningCandidateEvidence = {
-  kind: 'signing_candidate_evidence';
+export type VoiceIdAttestedEvidence = {
+  readonly [attestedEvidenceBrand]: true;
+  kind: 'attested_evidence';
   verificationId: VoiceIdVerificationId;
   enrollmentId: VoiceIdEnrollmentId;
-  routerBinding: RouterVoiceIntentBinding;
   speaker: VoiceIdAcceptedSpeaker;
   phrase: VoiceIdAcceptedPhrase;
   quality: VoiceIdAcceptedQuality;
@@ -155,22 +167,24 @@ export type VoiceIdSigningCandidateEvidence = {
   deviceProof: VoiceIdVerifiedDeviceProof;
   captureProfile: VoiceIdApprovedCaptureProfile;
   calibration: VoiceIdApprovedCalibration;
+  modelVersion: VoiceIdModelVersion;
+  thresholdVersion: VoiceIdThresholdVersion;
+  completedAt: IsoDateTime;
+  signingAuthorization?: never;
 };
 ```
 
-Only the narrow E2 type may enter grant policy:
+No evidence type may enter signing:
 
 ```ts
-declare function evaluateVoiceIdSigningPolicy(
-  evidence: VoiceIdSigningCandidateEvidence,
-  risk: VoiceIdRiskDecision,
-): VoiceIdSigningPolicyResult;
+declare function signAfterAdmissionAccepted(
+  authorization: WalletSigningAuthorization,
+): Promise<NormalSigningReceipt>;
 
-declare const browserEvidence: VoiceIdExperimentalBrowserEvidence;
-declare const riskDecision: VoiceIdRiskDecision;
+declare const attestedEvidence: VoiceIdAttestedEvidence;
 
-// @ts-expect-error Browser evidence cannot enter signing policy.
-evaluateVoiceIdSigningPolicy(browserEvidence, riskDecision);
+// @ts-expect-error Attested evidence is not signing authorization.
+signAfterAdmissionAccepted(attestedEvidence);
 ```
 
 The cutover deletes branches such as `liveness: { kind: 'not_required' }` from
@@ -178,6 +192,36 @@ signing-facing types, tests, and fixtures. If persisted records require a data
 rewrite, that parser exists only at the storage boundary and is deleted after
 the rewrite completes. Untrusted current inputs parse directly to E0/E1,
 rejection, or uncertainty before core policy runs.
+
+## Signing Authorization Classes
+
+The signing boundary accepts one of two disjoint admitted states:
+
+```ts
+export type WalletSigningAuthorization =
+  | PasskeyAdmittedTransaction
+  | VoiceIdAuthenticatorAdmittedTransaction;
+
+export type VoiceIdAuthenticatorAdmittedTransaction = {
+  kind: 'voice_id_authenticator_admitted_transaction';
+  routerBinding: RouterVoiceIntentBinding;
+  credential: VerifiedVoiceIdCredential;
+  assertion: VerifiedVoiceIdUserVerificationAssertion;
+  authenticator: ApprovedVoiceIdAuthenticator;
+};
+```
+
+`VoiceIdAuthenticatorAdmittedTransaction` is the direct alternative. A trusted
+boundary parser verifies the signed assertion, RP ID, origin, challenge, UP and
+UV flags, counter policy, credential state, approved authenticator identity,
+and exact Router binding before constructing it. The approved authenticator
+registry proves that the attested model performs voice UV; client metadata
+cannot choose that classification.
+
+Browser evidence, App Attest payloads, TPM quotes, raw verifier results, and E2
+evidence are structurally unable to construct the authenticator branch. The
+platform plan defines the browser, embedded Linux, external hardware, and iOS
+implementation requirements.
 
 ## Server-Owned Intent And Challenge
 
@@ -338,10 +382,9 @@ hash, prompt hash, timing, device, and capture profile.
 Enrollment SHOULD use one guided continuous recording instead of several
 button-driven clips:
 
-1. The server issues three to five randomized, phonetically varied prompt
-   fragments.
-2. The user completes one recording with an initial target of 10–15 seconds of
-   usable speech.
+1. The server issues four randomized, phonetically varied prompt fragments.
+2. The user completes one recording with a 12-second minimum, an 18-second
+   usable-speech target, and a 30-second wall-clock capture cap.
 3. VAD segments the recording into non-overlapping speech windows.
 4. The server checks prompt coverage, single-speaker consistency, quality, PAD,
    duplicate fingerprints, and embedding coherence.
@@ -389,7 +432,7 @@ NOT update it during the research, shadow, or step-up phases.
 Later adaptation MAY be enabled by a separately versioned policy after an
 adaptation-poisoning evaluation passes. Each candidate update MUST:
 
-- come from an E2 capture followed by successful independent passkey owner
+- come from an E2 attested capture followed by successful passkey owner
   verification;
 - come from a different session and satisfy minimum elapsed-time and channel
   diversity rules;
@@ -411,15 +454,15 @@ strongly authenticated enrollment ceremony.
 Component results MUST be parsed once at verifier, device, ASR, storage, and
 Router boundaries. Core policy receives precise internal types. It MUST NOT
 accept raw model scores, raw strings, partial records, client diagnostics, or
-compatibility objects.
+request-boundary objects.
 
 An exhaustive verification result should have this shape:
 
 ```ts
 export type VoiceIdVerificationResult =
   | {
-      kind: 'signing_candidate';
-      evidence: VoiceIdSigningCandidateEvidence;
+      kind: 'attested_evidence';
+      evidence: VoiceIdAttestedEvidence;
     }
   | {
       kind: 'step_up_required';
@@ -449,107 +492,23 @@ export function assertNever(value: never): never {
 Speaker mismatch, phrase mismatch, failed device proof, hash mismatch, replay,
 and PAD rejection produce `rejected`. Low quality, unavailable calibrated
 models, borderline scores, and unsupported capture conditions produce
-`uncertain`. Neither branch may carry a Router continuation or grant.
+`uncertain`. No branch may carry a Router continuation or signing authorization.
 
-## Risk Tiers
+## Wallet Signing Eligibility
 
-Risk is server-derived after E2 construction. Client labels are display hints.
-Limits, allowlists, anomaly rules, and monetary conversions MUST be versioned
-server policy.
-
-| Tier                      | Typical operations                                                                                                                                                                  | VoiceID result                                                                                    |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| R0 — no signing authority | Read-only queries, local UI commands, research simulations                                                                                                                          | No signing grant.                                                                                 |
-| R1 — voice eligible       | Low-value transfer below conservative per-operation and rolling caps, established recipient, healthy enrolled device/session, approved capture profile                              | E2 may issue one exact-operation grant after Router policy accepts.                               |
-| R2 — independent step-up  | New or recently changed recipient, elevated value, unusual location/device/session, degraded sensors, recent failures, policy anomaly                                               | Passkey or equivalent cryptographic user verification is required. Voice may supply context only. |
-| R3 — voice prohibited     | Key export, wallet recovery, device enrollment or replacement, biometric reset, policy/admin changes, security-factor changes, uncapped sessions, and safety-critical robot actions | Voice cannot unlock or reduce the required factors.                                               |
-
-Uncertainty, missing telemetry, policy-version mismatch, clock anomalies, model
-outage, or a stricter overlapping rule can only raise the tier. Repeated attempts
-MUST raise the tier or lock VoiceID for a bounded period. Recipient age, value
-caps, and anomaly thresholds are deployment policy; they require explicit
-values before an R1 pilot.
-
-Robot command authorization additionally requires an independent safety
-controller. Voice admission MUST NOT bypass workspace, motion, force, tool,
-proximity, or emergency-stop policy.
-
-## One-Use Signing Grant
-
-An E2 result remains evidence until risk policy accepts it. The issued grant is
-a server-side record or a signed reference backed by a server-side one-use
-record. A self-contained bearer token alone is insufficient.
-
-The grant MUST bind:
-
-- grant, verification, enrollment, user, wallet, account, device, session,
-  project, environment, and policy identifiers;
-- the complete `RouterVoiceIntentBinding`;
-- capture, speaker, phrase, quality, PAD, model, threshold, calibration, and
-  capture-profile versions;
-- issue and expiry times;
-- maximum risk tier `R1`;
-- exactly one Router request digest once reserved.
-
-Grant state is a discriminated union:
-
-```ts
-export type VoiceIdSigningGrantState =
-  | {
-      kind: 'issued';
-      grant: VoiceIdSigningGrant;
-      reservation?: never;
-      terminal?: never;
-    }
-  | {
-      kind: 'reserved';
-      grant: VoiceIdSigningGrant;
-      reservation: VoiceIdRouterReservation;
-      terminal?: never;
-    }
-  | {
-      kind: 'consumed';
-      grant: VoiceIdSigningGrant;
-      reservation: VoiceIdRouterReservation;
-      terminal: VoiceIdSigningReceipt;
-    }
-  | {
-      kind: 'failed_closed';
-      grant: VoiceIdSigningGrant;
-      reservation: VoiceIdRouterReservation;
-      terminal: VoiceIdTerminalFailure;
-    }
-  | {
-      kind: 'expired';
-      grant: VoiceIdSigningGrant;
-      reservation?: never;
-      terminal: VoiceIdTerminalReason;
-    }
-  | {
-      kind: 'revoked';
-      grant: VoiceIdSigningGrant;
-      reservation?: never;
-      terminal: VoiceIdTerminalReason;
-    };
-```
-
-Router admission MUST perform one atomic compare-and-set transaction that:
-
-1. loads the `issued` grant;
-2. verifies expiry, revocation, user/session/account scope, policy versions,
-   Router digest tuple, request digest, risk tier, and replay state;
-3. transitions `issued` to `reserved` with the exact Router request digest.
-
-Only the process holding that reservation may call the SigningWorker. A
-reserved grant never returns to `issued`. Successful finalization transitions
-to `consumed`. Timeout, worker failure, response loss, or cancellation
-transitions to `failed_closed`; a retry starts a new VoiceID challenge. This
-rule prefers an extra owner ceremony over replayable authorization.
+Wallet signing requires either a verified passkey admission or a verified
+VoiceID authenticator admission. E0/E1/E2 evidence may influence whether the UI
+offers a passkey, locks VoiceID research, or rejects a session. It cannot reduce
+the cryptographic authorization requirement.
 
 The Router and SigningWorker MUST independently validate the Router digest
 tuple and normal-signing transcript fields already required by the Router A/B
 specification. The VoiceID layer MUST NOT call Deriver roles or handle signing
 shares.
+
+Robot command authorization additionally requires an independent safety
+controller. Voice authority MUST NOT bypass workspace, motion, force, tool,
+proximity, or emergency-stop policy.
 
 ## Calibration And Release Gates
 
@@ -598,21 +557,21 @@ PAD evaluation MUST include bona-fide captures and, at minimum:
 Reports MUST show attack-presentation acceptance and bona-fide rejection by
 attack class and capture profile, plus the combined end-to-end unauthorized
 acceptance rate. The 95% upper confidence bound of the combined result MUST fit
-the explicit R1 per-operation risk budget. A pooled average cannot hide a
+the approved evidence or authenticator attack budget. A pooled average cannot hide a
 failing device, language, demographic, or attack cohort.
 
 ### Operational gate
 
-E2 remains disabled until all of these hold:
+E2 attested evidence remains disabled until all of these hold:
 
 - the exact build passes speaker, phrase, PAD, device-proof, intent-mutation,
-  replay, grant-race, and deletion tests;
+  replay, and deletion tests;
 - a shadow deployment reproduces expected score and latency distributions;
-- rate limits, value caps, allowlists, monitoring, step-up, revocation, and a
-  kill switch work end to end;
+- rate limits, allowlists, monitoring, step-up, revocation, and a kill switch
+  work end to end;
 - model, threshold, policy, capture, and calibration versions appear in audit
   records;
-- an independent security review approves the R1 scope.
+- an independent security review approves the evidence scope.
 
 A model, threshold, preprocessing, prompt, capture-agent, device-key, retry,
 or risk-policy change invalidates the affected approval until the relevant
@@ -622,7 +581,7 @@ gates rerun. A failing cohort disables that capture profile or scope.
 
 Voice recordings and templates are biometric personal data. They MUST remain
 outside logs, analytics events, crash reports, traces, support payloads, and
-signing grants.
+signing authorization records.
 
 Production rules are:
 
@@ -645,7 +604,8 @@ Production rules are:
 6. Audit records store identifiers, policy/model versions, coarse score bands,
    reason codes, digests, timing bands, and deletion receipts. They exclude
    audio, embeddings, full transcripts, and raw model responses.
-7. Enrollment disablement immediately revokes pending challenges and grants.
+7. Enrollment disablement immediately revokes pending challenges and registered
+   VoiceID credentials.
    Deletion removes active templates, prior adapted versions, quarantined
    candidates, and diagnostic media through an idempotent workflow.
 8. Backup expiry and vendor deletion schedules MUST be documented. The user
@@ -658,6 +618,14 @@ production enrollment audio.
 
 ## Phased Rollout Plan
 
+This rollout is deferred while the standalone engine follows the active plan
+in [VoiceID MVP 1 Tasks](voiceId-mvp-1-tasks.md). This profile is the single
+long-term source for browser containment, attested evidence, protected
+authenticator, WebAuthn/CTAP2, Router, wallet, recovery, and rollout
+requirements. The current work establishes the reproducible benchmark, shared
+inference runtime, selected models, PAD, template stability, optimized builds,
+and runtime resilience required before a platform rollout begins.
+
 ### Phase 0 — Contract correction
 
 - Replace the ambiguous core `liveness` acceptance branch with separate
@@ -665,12 +633,11 @@ production enrollment audio.
 - Introduce E0/E1/E2 evidence types and compile-time fixtures that reject
   cross-tier construction, broad object spreads, invalid branches, and
   `not_required` signing evidence.
+- Delete every server evidence-to-signing continuation and its Router adapter.
 - Make the server own challenge creation and Router typed canonicalization.
 - Bind device proof to the exact audio hash and Router digest tuple.
-- Add atomic grant-state storage and concurrency tests.
 
-Exit gate: all browser paths produce E0, and no E0/E1 value can call a signing
-continuation.
+Exit gate: no E0/E1/E2 value can call a signing continuation.
 
 ### Phase 1 — Recording and enrollment redesign
 
@@ -710,33 +677,47 @@ and release gates. Browser evidence remains E0.
 Exit gate: the shadow period meets the approved reliability, privacy, latency,
 and attack-monitoring criteria with no unresolved high-severity finding.
 
-### Phase 4 — Capped R1 pilot
+### Phase 4 — Embedded attested evidence shadow
 
-- Enable E2 for an allowlisted user cohort, approved devices, established
-  recipients, explicit low per-operation and rolling value caps, and a short
-  grant lifetime.
-- Keep new recipients, elevated value, anomalous sessions, and security changes
-  in R2/R3.
-- Monitor by capture profile and policy version. Any gate regression activates
-  the kill switch and returns the flow to step-up-only.
+- Enable E2 evidence for an allowlisted device cohort while passkey authorizes
+  every wallet operation.
+- Measure capture, PAD, device, model, privacy, and reliability performance by
+  profile and policy version.
+- Keep E2 structurally outside Router and SigningWorker admission.
 
-Exit gate: a time-bounded pilot stays within its approved fraud, false-reject,
-privacy, and operational risk budgets.
+Exit gate: the shadow supplies the evidence needed to design and evaluate the
+protected local authenticator.
 
 ### Phase 5 — Controlled expansion and adaptation study
 
 - Expand only cohorts and capture profiles that independently pass the gates.
-- Re-run red-team, calibration, and grant-race testing on every material change.
+- Re-run red-team and calibration testing on every material change.
 - Study progressive adaptation with passkey-confirmed, quarantined candidates;
-  keep it disabled for signing until its poisoning and rollback gates pass.
-- Maintain permanent R2/R3 step-up rules and an independent robot safety case.
+  keep it disabled for authenticator templates until its poisoning and rollback
+  gates pass.
+- Maintain passkey step-up rules and an independent robot safety case.
+
+### Phase 6 — Voice user-verifying authenticator
+
+- Build the dedicated microphone/MCU/secure-element CTAP2 authenticator from
+  the platform plan, or qualify an equivalent production TEE with a protected
+  microphone path.
+- Keep capture, templates, speaker/phrase/PAD decisions, attempt counters, and
+  credential-key release inside the evaluated boundary.
+- Verify attestation identity and signed UP + UV assertions at Router admission.
+- Complete independent biometric, presentation-attack, hardware, firmware,
+  protocol, enrollment, recovery, and supply-chain review.
+- Enable `VoiceIdAuthenticatorAdmittedTransaction` only for approved hardware
+  and firmware allowlists after every release gate passes.
+
+Exit gate: a compromised host cannot obtain an assertion without a successful
+current voice ceremony, and the measured end-to-end unauthorized-signing risk
+meets the approved platform-biometric comparator budget.
 
 ## External Assurance Baseline
 
 The implementation and release review use these external baselines:
 
-- [NIST SP 800-63B-4, Authentication and Authenticator Management](https://pages.nist.gov/800-63-4/sp800-63b/authenticators/)
-  for authenticator, biometric, rate-limit, and replay-resistance posture;
 - [FIDO Biometrics Requirements 4.1](https://fidoalliance.org/specs/biometric/requirements/Biometrics-Requirements-v4.1-fd-20250106.html)
   for biometric performance, presentation-attack, and protected-boundary
   expectations;
@@ -744,6 +725,9 @@ The implementation and release review use these external baselines:
   presentation-attack testing and reporting;
 - [WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/) for browser passkey user
   verification and exact-operation challenge binding;
+- [Apple platform biometric security](https://support.apple.com/guide/security/face-id-touch-id-passcodes-and-passwords-sec9479035f1/web)
+  as a comparator for protected local matching, failure limits, and measured
+  system-level biometric performance;
 - [ASVspoof 5 evaluation plan](https://www.asvspoof.org/file/ASVspoof5___Evaluation_Plan_Phase2.pdf)
   for speaker-verification spoof and deepfake evaluation structure.
 
@@ -755,7 +739,10 @@ a release gate by itself.
 
 A deployment conforms to this profile only when:
 
-- [ ] browser evidence is structurally unable to issue a signing grant;
+- [ ] E0/E1/E2 evidence is structurally unable to construct wallet signing
+      authorization;
+- [ ] direct VoiceID admission accepts only a verified assertion from an
+      allowlisted voice-UV authenticator model;
 - [ ] the server creates the challenge after fixing the canonical Router intent
       and signing payload;
 - [ ] the device signature covers the exact uploaded-audio hash, prompt, timing,
@@ -766,9 +753,6 @@ A deployment conforms to this profile only when:
       challenge;
 - [ ] enrollment uses one continuous segmented recording and records its
       assurance class;
-- [ ] risk policy permits embedded VoiceID admission only for explicit R1
-      scope;
-- [ ] Router reserves each grant atomically and terminal failures cannot replay;
 - [ ] calibration and PAD gates pass for the exact deployed versions and
       capture profile;
 - [ ] raw media deletion, template encryption, consent, revocation, and audit

@@ -17,6 +17,7 @@
     "aws:guard": "node scripts/assertAwsDeploymentPackaging.mjs",
     "nitro:guard": "node scripts/assertNitroBridgePackaging.mjs",
     "robot:guard": "node scripts/assertRobotSidecarPackaging.mjs",
+    "signing-architecture:guard": "node scripts/assertSigningArchitecture.mjs",
     "container:build:cloudflare": "docker build -f deploy/cloudflare/verifier-container/Dockerfile -t voiceid-verifier:local .",
     "smoke:python-http": "node scripts/smokePythonHttpApi.mjs",
     "fixtures:validate": "python3 verifier-spike/compare_models.py --manifest fixtures/voiceid-fixture-manifest.json",
