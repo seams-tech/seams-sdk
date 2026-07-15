@@ -37,38 +37,8 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Ok(now_unix_ms) => now_unix_ms,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-            let handler = CloudflareRoleSeparatedEd25519NormalSigningHandlerV1;
+            let handler = CloudflareEd25519YaoNormalSigningHandlerV1;
             handle_cloudflare_signing_worker_normal_signing_round1_prepare_private_fetch_v1(
-                request,
-                &env,
-                &runtime,
-                &handler,
-                now_unix_ms,
-            )
-            .await
-        }
-        CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH => {
-            let now_unix_ms = match cloudflare_now_unix_ms_v1() {
-                Ok(now_unix_ms) => now_unix_ms,
-                Err(err) => return cloudflare_protocol_error_response_v1(err),
-            };
-            let handler = CloudflareRoleSeparatedEd25519NormalSigningHandlerV1;
-            handle_cloudflare_signing_worker_normal_signing_presign_pool_prepare_private_fetch_v1(
-                request,
-                &env,
-                &runtime,
-                &handler,
-                now_unix_ms,
-            )
-            .await
-        }
-        CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH => {
-            let now_unix_ms = match cloudflare_now_unix_ms_v1() {
-                Ok(now_unix_ms) => now_unix_ms,
-                Err(err) => return cloudflare_protocol_error_response_v1(err),
-            };
-            let handler = CloudflareRoleSeparatedEd25519NormalSigningHandlerV1;
-            handle_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_private_fetch_v1(
                 request,
                 &env,
                 &runtime,
@@ -82,7 +52,7 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Ok(now_unix_ms) => now_unix_ms,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-            let handler = CloudflareRoleSeparatedEd25519NormalSigningHandlerV1;
+            let handler = CloudflareEd25519YaoNormalSigningHandlerV1;
             handle_cloudflare_signing_worker_normal_signing_private_fetch_v1(
                 request,
                 &env,

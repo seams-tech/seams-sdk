@@ -1,0 +1,20 @@
+{
+  "data": {
+    "viewer": {
+      "accounts": [
+        {
+          "workersInvocationsAdaptive": [
+            {
+              "quantiles": {
+                "memoryUsageBytesP50": 67108864,
+                "memoryUsageBytesP90": 83886080,
+                "memoryUsageBytesP99": 94371840,
+                "memoryUsageBytesP999": 100663295
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

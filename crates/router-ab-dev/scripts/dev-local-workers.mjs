@@ -7,6 +7,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
+import { prepareRouterAbD1LocalRuntimeConfig } from './d1-local-runtime-config.mjs';
+
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 dotenv.config({ path: join(repoRoot, '.env.intended.local') });
 const workerBinary = join(
@@ -98,6 +100,13 @@ const workerRoles = [
 const argv = process.argv.slice(2);
 const options = parseArgs(argv);
 const root = resolvePath(options.root);
+const d1LocalPersistPath = resolvePath(
+  process.env.SEAMS_D1_LOCAL_PERSIST_TO || join(root, '.runtime', 'router-d1-local'),
+);
+const d1LocalWranglerConfigPath = resolvePath(
+  process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG ||
+    join(root, '.runtime', 'wrangler-d1-local', 'wrangler.d1-local.toml'),
+);
 const displayMode = options.mode === 'multiplex' && process.stdout.isTTY ? 'multiplex' : 'logs';
 const labelWidth = Math.max('router-server'.length, ...workerRoles.map((role) => role.role.length));
 const routerServerPane = {
@@ -154,6 +163,7 @@ try {
   process.once('SIGINT', () => shutdown(130));
   process.once('SIGTERM', () => shutdown(143));
   ensureLocalEnv();
+  prepareD1LocalRouterConfig();
   await stopStaleLocalWorkers();
   buildWorkerBinary();
   await assertWorkerPortsAvailable();
@@ -210,6 +220,14 @@ function ensureLocalEnv() {
     args.push('--ephemeral-ports');
   }
   run('cargo', args);
+}
+
+function prepareD1LocalRouterConfig() {
+  prepareRouterAbD1LocalRuntimeConfig({
+    repoRoot,
+    localEnvRoot: root,
+    outputConfigPath: d1LocalWranglerConfigPath,
+  });
 }
 
 function collectInvalidLocalEnvFiles() {
@@ -435,6 +453,8 @@ async function ensureRouterServer() {
     cwd: repoRoot,
     env: {
       ...process.env,
+      SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
+      SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
       ROUTER_AB_SIGNING_WORKER_URL: signingWorkerUrl,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:
         process.env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET || 'dev-router-ab-internal-service-auth',

@@ -13,20 +13,12 @@ fn normal_signing_routes_do_not_invoke_ab_derivation_handlers() {
     for function_name in [
         "handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2",
         "handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2",
-        "handle_cloudflare_router_normal_signing_presign_pool_prepare_authenticated_public_request_v2",
-        "handle_cloudflare_router_normal_signing_presign_pool_hit_finalize_authenticated_public_request_v2",
         "handle_cloudflare_signing_worker_normal_signing_prepare_private_request_v2",
         "handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2",
-        "handle_cloudflare_signing_worker_normal_signing_presign_pool_prepare_private_request_v2",
-        "handle_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_private_request_v2",
         "handle_cloudflare_signing_worker_normal_signing_round1_prepare_private_fetch_v1",
         "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
-        "handle_cloudflare_signing_worker_normal_signing_presign_pool_prepare_private_fetch_v1",
-        "handle_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_private_fetch_v1",
         "execute_cloudflare_signing_worker_normal_signing_prepare_service_call_v2",
         "execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2",
-        "execute_cloudflare_signing_worker_normal_signing_presign_pool_prepare_service_call_v2",
-        "execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2",
     ] {
         let body = extract_function_body(&lib_rs, function_name);
         for forbidden in [
@@ -39,7 +31,7 @@ fn normal_signing_routes_do_not_invoke_ab_derivation_handlers() {
             "recipient_proof_bundle_wire_message_from_ab_proof_batch_v1",
             "DeriverAEngine",
             "DeriverBEngine",
-            "AbDerivationProofBatchPayloadV1",
+            "EcdsaThresholdPrfProofBatchPayloadV1",
         ] {
             assert!(
                 !body.contains(forbidden),
@@ -157,11 +149,11 @@ fn strict_signing_worker_handler_is_protocol_aware() {
     );
     let prepare_handler_body = extract_braced_block_after_marker(
         &lib_rs,
-        "impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2\n    for CloudflareRoleSeparatedEd25519NormalSigningHandlerV1",
+        "impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2\n    for CloudflareEd25519YaoNormalSigningHandlerV1",
     );
     let finalize_handler_body = extract_braced_block_after_marker(
         &lib_rs,
-        "impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2\n    for CloudflareRoleSeparatedEd25519NormalSigningHandlerV1",
+        "impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2\n    for CloudflareEd25519YaoNormalSigningHandlerV1",
     );
     let ecdsa_finalize_handler_body = extract_braced_block_after_marker(
         &lib_rs,
@@ -173,7 +165,7 @@ fn strict_signing_worker_handler_is_protocol_aware() {
         "strict SigningWorker normal-signing handler must not return the old config stub"
     );
     assert!(
-        route_body.contains("CloudflareRoleSeparatedEd25519NormalSigningHandlerV1"),
+        route_body.contains("CloudflareEd25519YaoNormalSigningHandlerV1"),
         "strict SigningWorker entrypoint must use the production normal-signing handler"
     );
     assert!(
@@ -181,7 +173,7 @@ fn strict_signing_worker_handler_is_protocol_aware() {
         "strict SigningWorker entrypoint must use the production ECDSA-HSS finalize handler"
     );
     assert!(
-        prepare_handler_body.contains("prepare_role_separated_ed25519_round1_v1"),
+        prepare_handler_body.contains("prepare_cloudflare_ed25519_round1_v1"),
         "strict SigningWorker normal-signing prepare handler must create server round-1 material"
     );
     assert!(
@@ -206,8 +198,8 @@ fn strict_signing_worker_handler_is_protocol_aware() {
         "strict SigningWorker normal-signing handler must consume server round-1 state"
     );
     assert!(
-        finalize_handler_body.contains("finalize_role_separated_ed25519_server_signature_v1"),
-        "strict SigningWorker normal-signing handler must finalize through the role-separated HSS API"
+        finalize_handler_body.contains("aggregate_signature"),
+        "strict SigningWorker normal-signing handler must aggregate standard FROST shares"
     );
     for required in [
         "threshold_ecdsa_finalize_signature",
@@ -326,7 +318,7 @@ fn production_normal_signing_paths_do_not_import_joined_hss_state() {
     let lib_rs = read_src_file("lib.rs");
     let handler_body = extract_braced_block_after_marker(
         &lib_rs,
-        "for CloudflareRoleSeparatedEd25519NormalSigningHandlerV1",
+        "for CloudflareEd25519YaoNormalSigningHandlerV1",
     );
     for pattern in forbidden {
         assert!(

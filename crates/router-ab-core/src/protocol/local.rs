@@ -1,7 +1,7 @@
 use crate::derivation::{
-    CandidateId, MpcPrfOutputRequestV1, MpcPrfSigningRootShareWireV1, MpcPrfSuiteId,
-    MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, Role, RootShareEpoch,
-    RouterAbDerivationError, SignerInputPlaintextV1, SignerInputQuorumPolicyV1,
+    MpcPrfOutputRequestV1, MpcPrfSigningRootShareWireV1, MpcPrfThresholdSignerBatchOutputV1,
+    OpenedShareKind, PublicDigest32, Role, RootShareEpoch, RouterAbDerivationError,
+    SignerInputPlaintextV1, SignerInputQuorumPolicyV1,
 };
 use rand_core::{CryptoRng, Error as RandError, RngCore};
 use serde::{Deserialize, Serialize};
@@ -23,10 +23,11 @@ use crate::protocol::output::{
 };
 use crate::protocol::payload::{
     decode_ab_peer_message_payload_v1,
-    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
+    decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     decode_recipient_proof_bundle_payload_v1, decode_router_to_signer_payload_v1,
-    sign_ab_derivation_proof_batch_peer_payload_v1, validate_signer_input_plaintext_binding_v1,
-    AbDerivationProofBatchPayloadV1, RouterToSignerPayloadV1, SigningWorkerActivationContextV1,
+    sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
+    validate_signer_input_plaintext_binding_v1, EcdsaThresholdPrfProofBatchPayloadV1,
+    RouterToSignerPayloadV1, SigningWorkerActivationContextV1,
 };
 use crate::protocol::signer_input::build_mpc_prf_threshold_signer_batch_input_v1;
 use crate::protocol::wire::{CanonicalWireBytesV1, WireMessageKindV1, WireMessageV1};
@@ -1009,8 +1010,6 @@ impl LocalSignerEnvelopeDecryptorV1 for LocalDeterministicSignerEnvelopeDecrypto
         let assignment = payload.assignment();
         let signer_set = payload.signer_set();
         SignerInputPlaintextV1::new(
-            CandidateId::MpcThresholdPrfV1,
-            MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
             payload.lifecycle().primitive_request_kind,
             payload.lifecycle().lifecycle_id.clone(),
             signer_set.signer_set_id.clone(),
@@ -2097,7 +2096,7 @@ fn local_peer_message(
     plaintext: &SignerInputPlaintextV1,
 ) -> RouterAbProtocolResult<LocalTransportEnvelopeV1> {
     let batch_output = local_mpc_prf_batch_output(&from, payload, plaintext)?;
-    let peer_payload = sign_ab_derivation_proof_batch_peer_payload_v1(
+    let peer_payload = sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1(
         &local_dev_peer_signing_key_bytes(&from),
         from,
         to,
@@ -2164,7 +2163,7 @@ fn local_recipient_proof_bundle_responses_from_peer_messages(
 
 fn local_recipient_proof_bundle_response_from_ab_proof_batch_v1(
     router_payload: &RouterToSignerPayloadV1,
-    proof_batch: AbDerivationProofBatchPayloadV1,
+    proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
     encryptor: &mut impl RecipientProofBundleEncryptorV1,
 ) -> RouterAbProtocolResult<LocalSignerRecipientProofBundleResponseV1> {
     router_payload.validate()?;
@@ -2203,7 +2202,7 @@ fn local_recipient_proof_bundle_response_from_ab_proof_batch_v1(
 fn local_decode_peer_proof_batch(
     envelope: &LocalTransportEnvelopeV1,
     expected_route: LocalTransportRouteV1,
-) -> RouterAbProtocolResult<AbDerivationProofBatchPayloadV1> {
+) -> RouterAbProtocolResult<EcdsaThresholdPrfProofBatchPayloadV1> {
     require_route(envelope, expected_route)?;
     let peer_payload = decode_ab_peer_message_payload_v1(envelope.message.payload.as_bytes())?;
     if peer_payload.transcript_digest != envelope.message.transcript_digest {
@@ -2212,7 +2211,7 @@ fn local_decode_peer_proof_batch(
             "local A/B proof-batch peer payload transcript does not match wire message",
         ));
     }
-    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1(&peer_payload)
+    decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1(&peer_payload)
 }
 
 fn decode_local_recipient_proof_bundle_wire_v1(
@@ -2612,7 +2611,7 @@ fn local_dev_mpc_signing_root_share_wire_v1(
 ) -> crate::derivation::RouterAbDerivationResult<MpcPrfSigningRootShareWireV1> {
     let (share_id, scalar_byte) = match signer_role {
         Role::SignerA => (1u16, 11u8),
-        Role::SignerB => (3u16, 29u8),
+        Role::SignerB => (2u16, 29u8),
         _ => {
             return Err(RouterAbDerivationError::new(
                 crate::derivation::RouterAbDerivationErrorCode::SignerIdentityMismatch,
@@ -2620,7 +2619,7 @@ fn local_dev_mpc_signing_root_share_wire_v1(
             ));
         }
     };
-    // Candidate A v1 envelopes now carry threshold-prf share wires: u16 share id + scalar.
+    // ECDSA threshold-PRF envelopes carry share wires: u16 share id + scalar.
     let mut bytes = vec![0u8; 34];
     bytes[0..2].copy_from_slice(&share_id.to_be_bytes());
     bytes[2] = scalar_byte;

@@ -34,7 +34,8 @@ impl ExpensiveWorkKindV1 {
     pub fn primitive_request_kind(self) -> RequestKind {
         match self {
             Self::RegistrationPrepare => RequestKind::Registration,
-            Self::KeyExport | Self::Recovery => RequestKind::Export,
+            Self::KeyExport => RequestKind::Export,
+            Self::Recovery => RequestKind::Recovery,
             Self::ServerShareRefresh => RequestKind::Refresh,
         }
     }

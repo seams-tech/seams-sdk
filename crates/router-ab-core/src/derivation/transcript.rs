@@ -245,7 +245,7 @@ impl<'de> Deserialize<'de> for SignerSetBinding {
     }
 }
 
-/// Transcript data bound into split-derivation outputs.
+/// Transcript data bound into fixed ECDSA threshold-PRF outputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TranscriptBinding {
     /// Canonical derivation context.

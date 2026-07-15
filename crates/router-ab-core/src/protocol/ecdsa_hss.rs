@@ -1,4 +1,7 @@
-use crate::derivation::{CandidateId, PublicDigest32, Role};
+use crate::derivation::{PublicDigest32, Role};
+use crate::protocol::ecdsa_threshold_prf_request::{
+    EcdsaThresholdPrfRequestContextV1, EcdsaThresholdPrfRequestV1,
+};
 use crate::protocol::envelope::{role_encrypted_envelope_digest_v1, RoleEncryptedEnvelopeV1};
 use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
@@ -6,7 +9,6 @@ use crate::protocol::error::{
 use crate::protocol::gate::ExpensiveWorkKindV1;
 use crate::protocol::identity::{ServerIdentityV1, SignerIdentityV1, SignerSetV1};
 use crate::protocol::lifecycle::LifecycleScopeV1;
-use crate::protocol::public_request::{PublicRouterRequestContextV1, PublicRouterRequestV1};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -963,13 +965,12 @@ impl RouterAbEcdsaHssRegistrationBootstrapRequestV1 {
     }
 
     /// Converts this typed request into the shared Router A/B proof-bundle transport.
-    pub fn to_public_router_request(&self) -> RouterAbProtocolResult<PublicRouterRequestV1> {
+    pub fn to_threshold_prf_request(&self) -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
         self.validate()?;
-        let context = PublicRouterRequestContextV1::new(
+        let context = EcdsaThresholdPrfRequestContextV1::new(
             self.replay_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.client_public_key33_b64u.clone(),
@@ -977,11 +978,10 @@ impl RouterAbEcdsaHssRegistrationBootstrapRequestV1 {
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
         )?;
-        PublicRouterRequestV1::new(
+        EcdsaThresholdPrfRequestV1::new(
             self.replay_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.client_public_key33_b64u.clone(),
@@ -1140,13 +1140,12 @@ impl RouterAbEcdsaHssExplicitExportRequestV1 {
     }
 
     /// Converts this typed request into the shared Router A/B proof-bundle transport.
-    pub fn to_public_router_request(&self) -> RouterAbProtocolResult<PublicRouterRequestV1> {
+    pub fn to_threshold_prf_request(&self) -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
         self.validate()?;
-        let context = PublicRouterRequestContextV1::new(
+        let context = EcdsaThresholdPrfRequestContextV1::new(
             self.export_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
@@ -1154,11 +1153,10 @@ impl RouterAbEcdsaHssExplicitExportRequestV1 {
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
         )?;
-        PublicRouterRequestV1::new(
+        EcdsaThresholdPrfRequestV1::new(
             self.export_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
@@ -1293,13 +1291,12 @@ impl RouterAbEcdsaHssRecoveryRequestV1 {
     }
 
     /// Converts this typed request into the shared Router A/B proof-bundle transport.
-    pub fn to_public_router_request(&self) -> RouterAbProtocolResult<PublicRouterRequestV1> {
+    pub fn to_threshold_prf_request(&self) -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
         self.validate()?;
-        let context = PublicRouterRequestContextV1::new(
+        let context = EcdsaThresholdPrfRequestContextV1::new(
             self.recovery_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
@@ -1307,11 +1304,10 @@ impl RouterAbEcdsaHssRecoveryRequestV1 {
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
         )?;
-        PublicRouterRequestV1::new(
+        EcdsaThresholdPrfRequestV1::new(
             self.recovery_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
@@ -1468,13 +1464,12 @@ impl RouterAbEcdsaHssActivationRefreshRequestV1 {
     }
 
     /// Converts this typed request into the shared Router A/B proof-bundle transport.
-    pub fn to_public_router_request(&self) -> RouterAbProtocolResult<PublicRouterRequestV1> {
+    pub fn to_threshold_prf_request(&self) -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
         self.validate()?;
-        let context = PublicRouterRequestContextV1::new(
+        let context = EcdsaThresholdPrfRequestContextV1::new(
             self.refresh_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
@@ -1482,11 +1477,10 @@ impl RouterAbEcdsaHssActivationRefreshRequestV1 {
             self.client_id.clone(),
             self.signing_worker_ephemeral_public_key.clone(),
         )?;
-        PublicRouterRequestV1::new(
+        EcdsaThresholdPrfRequestV1::new(
             self.refresh_nonce.clone(),
             self.expires_at_ms,
             self.lifecycle.clone(),
-            CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),

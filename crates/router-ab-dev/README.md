@@ -6,9 +6,27 @@ This crate owns developer-only helpers that are intentionally outside the
 transport-neutral `router-ab-core` crate:
 
 - local SQLite seed and startup checks,
-- committed Ed25519-HSS parity fixtures,
+- local Ed25519 Yao lifecycle and performance harnesses,
 - local Router/Deriver/SigningWorker config parsing,
 - private-worker local harness support.
+
+Run the complete local Ed25519 Yao lifecycle in both fixed development
+profiles:
+
+```sh
+pnpm router:yao-smoke
+```
+
+Run the complete local validation gate:
+
+```sh
+pnpm validate:yaos-ab-local
+```
+
+The profile-specific commands are `pnpm router:yao-smoke:one-account` and
+`pnpm router:yao-smoke:two-administrator`. Use
+`pnpm router:yao-measure-local` for optimized local latency and byte evidence.
+These commands do not deploy Cloudflare Workers.
 
 Initialize generated local env files and state directories:
 

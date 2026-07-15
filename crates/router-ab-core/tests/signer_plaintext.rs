@@ -1,7 +1,7 @@
 use router_ab_core::{
-    decode_signer_input_plaintext_v1, CandidateId, MpcPrfOutputRequestV1, MpcPrfSuiteId,
-    OpenedShareKind, PublicDigest32, RequestKind, Role, RootShareEpoch,
-    RouterAbDerivationErrorCode, SignerInputPlaintextV1, SignerInputQuorumPolicyV1,
+    decode_signer_input_plaintext_v1, MpcPrfOutputRequestV1, OpenedShareKind, PublicDigest32,
+    RequestKind, Role, RootShareEpoch, RouterAbDerivationErrorCode, SignerInputPlaintextV1,
+    SignerInputQuorumPolicyV1,
 };
 
 fn digest(seed: u8) -> PublicDigest32 {
@@ -24,8 +24,6 @@ fn server_output() -> MpcPrfOutputRequestV1 {
 
 fn plaintext() -> SignerInputPlaintextV1 {
     SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -72,8 +70,6 @@ fn signer_input_plaintext_decoder_rejects_trailing_bytes() {
 #[test]
 fn signer_input_plaintext_rejects_duplicate_output_request() {
     let err = SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -100,8 +96,6 @@ fn signer_input_plaintext_rejects_server_recipient_mismatch() {
         MpcPrfOutputRequestV1::new(OpenedShareKind::XServerBase, Role::Server, "server-b")
             .expect("wrong server output");
     let err = SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -125,8 +119,6 @@ fn signer_input_plaintext_rejects_server_recipient_mismatch() {
 #[test]
 fn signer_input_plaintext_rejects_non_signer_recipient_role() {
     let err = SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",

@@ -1,8 +1,7 @@
 use crate::derivation::{
-    transcript_digest_v1, AccountScope, CandidateId, CorrectnessLevel, DerivationContext,
-    MpcPrfDleqProofWireV1, MpcPrfOutputRequestV1, MpcPrfPartialBindingV1,
-    MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1, MpcPrfShareCommitmentWireV1,
-    MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1, MpcPrfSuiteId,
+    transcript_digest_v1, AccountScope, DerivationContext, MpcPrfDleqProofWireV1,
+    MpcPrfOutputRequestV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1,
+    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1,
     MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, RequestKind, Role,
     RootShareEpoch, RouterAbDerivationError, SignerInputPlaintextV1, SignerSetBinding,
     TranscriptBinding,
@@ -29,8 +28,8 @@ const ROUTER_TO_SIGNER_PAYLOAD_VERSION_V1: &[u8] =
 const AB_PEER_MESSAGE_PAYLOAD_VERSION_V1: &[u8] = b"router-ab-protocol/ab-peer-message-payload/v1";
 const AB_PEER_MESSAGE_AUTHENTICATION_INPUT_VERSION_V1: &[u8] =
     b"router-ab-protocol/ab-peer-message-authentication-input/v1";
-const AB_DERIVATION_PROOF_BATCH_PAYLOAD_VERSION_V1: &[u8] =
-    b"router-ab-protocol/ab-derivation-proof-batch-payload/v1";
+const ECDSA_THRESHOLD_PRF_PROOF_BATCH_PAYLOAD_VERSION_V1: &[u8] =
+    b"router-ab-protocol/ecdsa-threshold-prf-proof-batch-payload/v1";
 const RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/recipient-proof-bundle-payload/v1";
 
@@ -149,17 +148,13 @@ pub fn router_transcript_binding_v1(
     lifecycle: &LifecycleScopeV1,
     signer_set: &SignerSetV1,
     transcript_metadata: &RouterTranscriptMetadataV1,
-    candidate_id: CandidateId,
-    correctness_level: CorrectnessLevel,
     root_share_epoch: RootShareEpoch,
 ) -> RouterAbProtocolResult<TranscriptBinding> {
     lifecycle.validate()?;
     signer_set.validate()?;
     transcript_metadata.validate()?;
     let context = DerivationContext::new(
-        candidate_id,
         lifecycle.primitive_request_kind,
-        correctness_level,
         AccountScope::new(
             transcript_metadata.network_id.clone(),
             lifecycle.account_id.clone(),
@@ -178,18 +173,10 @@ pub fn router_transcript_digest_v1(
     lifecycle: &LifecycleScopeV1,
     signer_set: &SignerSetV1,
     transcript_metadata: &RouterTranscriptMetadataV1,
-    candidate_id: CandidateId,
-    correctness_level: CorrectnessLevel,
     root_share_epoch: RootShareEpoch,
 ) -> RouterAbProtocolResult<PublicDigest32> {
-    let transcript = router_transcript_binding_v1(
-        lifecycle,
-        signer_set,
-        transcript_metadata,
-        candidate_id,
-        correctness_level,
-        root_share_epoch,
-    )?;
+    let transcript =
+        router_transcript_binding_v1(lifecycle, signer_set, transcript_metadata, root_share_epoch)?;
     transcript_digest_v1(&transcript).map_err(map_derivation_to_protocol_error)
 }
 
@@ -472,8 +459,6 @@ impl SigningWorkerActivationContextV1 {
             &self.lifecycle,
             &self.signer_set,
             &self.transcript_metadata,
-            CandidateId::MpcThresholdPrfV1,
-            CorrectnessLevel::MinimumLevelC,
             self.lifecycle.root_share_epoch.clone(),
         )?;
         if self.transcript_digest != expected_transcript_digest {
@@ -587,9 +572,9 @@ impl AbPeerMessagePayloadV1 {
     }
 }
 
-/// Inner A/B derivation payload carrying signer proof bundles.
+/// Inner A/B ECDSA threshold-PRF payload carrying Deriver proof bundles.
 #[derive(Clone, PartialEq, Eq)]
-pub struct AbDerivationProofBatchPayloadV1 {
+pub struct EcdsaThresholdPrfProofBatchPayloadV1 {
     /// Sender signer identity.
     pub from: SignerIdentityV1,
     /// Recipient signer identity.
@@ -602,9 +587,9 @@ pub struct AbDerivationProofBatchPayloadV1 {
     pub proof_bundles: Vec<MpcPrfPartialProofBundleV1>,
 }
 
-impl core::fmt::Debug for AbDerivationProofBatchPayloadV1 {
+impl core::fmt::Debug for EcdsaThresholdPrfProofBatchPayloadV1 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("AbDerivationProofBatchPayloadV1")
+        f.debug_struct("EcdsaThresholdPrfProofBatchPayloadV1")
             .field("from", &self.from)
             .field("to", &self.to)
             .field("transcript_digest", &self.transcript_digest)
@@ -614,8 +599,8 @@ impl core::fmt::Debug for AbDerivationProofBatchPayloadV1 {
     }
 }
 
-impl AbDerivationProofBatchPayloadV1 {
-    /// Creates a validated A/B proof-batch payload.
+impl EcdsaThresholdPrfProofBatchPayloadV1 {
+    /// Creates a validated A/B ECDSA threshold-PRF proof-batch payload.
     pub fn new(
         from: SignerIdentityV1,
         to: SignerIdentityV1,
@@ -644,14 +629,14 @@ impl AbDerivationProofBatchPayloadV1 {
             _ => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidRole,
-                    "A/B derivation proof batch must cross Signer A and Signer B",
+                    "A/B ECDSA threshold-PRF proof batch must cross Signer A and Signer B",
                 ));
             }
         }
         if self.proof_bundles.is_empty() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
-                "A/B derivation proof batch requires at least one proof bundle",
+                "A/B ECDSA threshold-PRF proof batch requires at least one proof bundle",
             ));
         }
         for (index, bundle) in self.proof_bundles.iter().enumerate() {
@@ -661,19 +646,19 @@ impl AbDerivationProofBatchPayloadV1 {
             {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidSignerIdentity,
-                    "A/B derivation proof bundle signer does not match sender",
+                    "A/B ECDSA threshold-PRF proof bundle signer does not match sender",
                 ));
             }
             if binding.transcript_digest != self.transcript_digest {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::MalformedWirePayload,
-                    "A/B derivation proof bundle transcript mismatch",
+                    "A/B ECDSA threshold-PRF proof bundle transcript mismatch",
                 ));
             }
             if binding.root_share_epoch != self.root_share_epoch {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                    "A/B derivation proof bundle root-share epoch mismatch",
+                    "A/B ECDSA threshold-PRF proof bundle root-share epoch mismatch",
                 ));
             }
             for prior in &self.proof_bundles[..index] {
@@ -684,7 +669,7 @@ impl AbDerivationProofBatchPayloadV1 {
                 {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::MalformedWirePayload,
-                        "A/B derivation proof batch contains duplicate output binding",
+                        "A/B ECDSA threshold-PRF proof batch contains duplicate output binding",
                     ));
                 }
             }
@@ -694,12 +679,12 @@ impl AbDerivationProofBatchPayloadV1 {
 
     /// Returns canonical bytes for this proof-batch payload.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        encode_ab_derivation_proof_batch_payload_v1(self)
+        encode_ecdsa_threshold_prf_proof_batch_payload_v1(self)
     }
 
     /// Returns the SHA-256 digest of canonical bytes.
     pub fn digest(&self) -> PublicDigest32 {
-        ab_derivation_proof_batch_payload_digest_v1(self)
+        ecdsa_threshold_prf_proof_batch_payload_digest_v1(self)
     }
 }
 
@@ -719,7 +704,7 @@ pub struct RecipientProofBundlePayloadV1 {
     /// Transcript digest shared by the enclosed proof bundle.
     pub transcript_digest: PublicDigest32,
     /// Recipient-scoped proof batch containing exactly one proof bundle.
-    pub proof_batch: AbDerivationProofBatchPayloadV1,
+    pub proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
 }
 
 impl core::fmt::Debug for RecipientProofBundlePayloadV1 {
@@ -746,7 +731,7 @@ impl RecipientProofBundlePayloadV1 {
         opened_share_kind: OpenedShareKind,
         recipient_identity: impl Into<String>,
         transcript_digest: PublicDigest32,
-        proof_batch: AbDerivationProofBatchPayloadV1,
+        proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
     ) -> RouterAbProtocolResult<Self> {
         let payload = Self {
             lifecycle_id: lifecycle_id.into(),
@@ -1034,12 +1019,12 @@ pub fn decode_ab_peer_message_payload_v1(
     )
 }
 
-/// Encodes an A/B derivation proof-batch payload with fixed field order.
-pub fn encode_ab_derivation_proof_batch_payload_v1(
-    payload: &AbDerivationProofBatchPayloadV1,
+/// Encodes an A/B ECDSA threshold-PRF proof-batch payload with fixed field order.
+pub fn encode_ecdsa_threshold_prf_proof_batch_payload_v1(
+    payload: &EcdsaThresholdPrfProofBatchPayloadV1,
 ) -> Vec<u8> {
     let mut out = Vec::new();
-    push_len32(&mut out, AB_DERIVATION_PROOF_BATCH_PAYLOAD_VERSION_V1);
+    push_len32(&mut out, ECDSA_THRESHOLD_PRF_PROOF_BATCH_PAYLOAD_VERSION_V1);
     push_signer_identity(&mut out, &payload.from);
     push_signer_identity(&mut out, &payload.to);
     push_public_digest(&mut out, payload.transcript_digest);
@@ -1051,14 +1036,14 @@ pub fn encode_ab_derivation_proof_batch_payload_v1(
     out
 }
 
-/// Decodes A/B derivation proof-batch canonical bytes.
-pub fn decode_ab_derivation_proof_batch_payload_v1(
+/// Decodes A/B ECDSA threshold-PRF proof-batch canonical bytes.
+pub fn decode_ecdsa_threshold_prf_proof_batch_payload_v1(
     bytes: &[u8],
-) -> RouterAbProtocolResult<AbDerivationProofBatchPayloadV1> {
+) -> RouterAbProtocolResult<EcdsaThresholdPrfProofBatchPayloadV1> {
     let mut decoder = PayloadDecoder::new(bytes);
     decoder.expect_bytes(
-        AB_DERIVATION_PROOF_BATCH_PAYLOAD_VERSION_V1,
-        "A/B derivation proof-batch payload version",
+        ECDSA_THRESHOLD_PRF_PROOF_BATCH_PAYLOAD_VERSION_V1,
+        "A/B ECDSA threshold-PRF proof-batch payload version",
     )?;
     let from = decoder.read_signer_identity()?;
     let to = decoder.read_signer_identity()?;
@@ -1071,7 +1056,7 @@ pub fn decode_ab_derivation_proof_batch_payload_v1(
         proof_bundles.push(decoder.read_mpc_prf_partial_proof_bundle()?);
     }
     decoder.finish()?;
-    AbDerivationProofBatchPayloadV1::new(
+    EcdsaThresholdPrfProofBatchPayloadV1::new(
         from,
         to,
         transcript_digest,
@@ -1081,25 +1066,26 @@ pub fn decode_ab_derivation_proof_batch_payload_v1(
 }
 
 /// Decodes and validates a proof batch inside an authenticated A/B peer payload.
-pub fn decode_and_validate_ab_derivation_proof_batch_peer_payload_v1(
+pub fn decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1(
     peer_payload: &AbPeerMessagePayloadV1,
-) -> RouterAbProtocolResult<AbDerivationProofBatchPayloadV1> {
+) -> RouterAbProtocolResult<EcdsaThresholdPrfProofBatchPayloadV1> {
     peer_payload.validate()?;
-    let proof_batch = decode_ab_derivation_proof_batch_payload_v1(peer_payload.payload.as_bytes())?;
+    let proof_batch =
+        decode_ecdsa_threshold_prf_proof_batch_payload_v1(peer_payload.payload.as_bytes())?;
     if proof_batch.from != peer_payload.from
         || proof_batch.to != peer_payload.to
         || proof_batch.transcript_digest != peer_payload.transcript_digest
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            "A/B derivation proof batch does not match authenticated peer envelope",
+            "A/B ECDSA threshold-PRF proof batch does not match authenticated peer envelope",
         ));
     }
     Ok(proof_batch)
 }
 
-/// Builds and signs an A/B derivation proof batch for peer delivery.
-pub fn sign_ab_derivation_proof_batch_peer_payload_v1(
+/// Builds and signs an A/B ECDSA threshold-PRF proof batch for peer delivery.
+pub fn sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1(
     signing_key_bytes: &[u8; 32],
     from: SignerIdentityV1,
     to: SignerIdentityV1,
@@ -1108,10 +1094,10 @@ pub fn sign_ab_derivation_proof_batch_peer_payload_v1(
     if batch_output.signer_role != from.role || batch_output.signer_identity != from.signer_id {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidSignerIdentity,
-            "A/B derivation proof batch output does not match sender identity",
+            "A/B ECDSA threshold-PRF proof batch output does not match sender identity",
         ));
     }
-    let proof_batch = AbDerivationProofBatchPayloadV1::new(
+    let proof_batch = EcdsaThresholdPrfProofBatchPayloadV1::new(
         from.clone(),
         to.clone(),
         batch_output.transcript_digest,
@@ -1135,11 +1121,11 @@ pub fn sign_ab_derivation_proof_batch_peer_payload_v1(
     )
 }
 
-/// Computes the public digest of A/B derivation proof-batch canonical bytes.
-pub fn ab_derivation_proof_batch_payload_digest_v1(
-    payload: &AbDerivationProofBatchPayloadV1,
+/// Computes the public digest of A/B ECDSA threshold-PRF proof-batch canonical bytes.
+pub fn ecdsa_threshold_prf_proof_batch_payload_digest_v1(
+    payload: &EcdsaThresholdPrfProofBatchPayloadV1,
 ) -> PublicDigest32 {
-    digest_bytes(&encode_ab_derivation_proof_batch_payload_v1(payload))
+    digest_bytes(&encode_ecdsa_threshold_prf_proof_batch_payload_v1(payload))
 }
 
 /// Encodes a recipient-scoped proof-bundle payload with fixed field order.
@@ -1174,7 +1160,7 @@ pub fn decode_recipient_proof_bundle_payload_v1(
     let recipient_identity = decoder.read_string("recipient_identity")?;
     let transcript_digest = decoder.read_public_digest("transcript_digest")?;
     let proof_batch =
-        decode_ab_derivation_proof_batch_payload_v1(decoder.read_bytes("proof_batch")?)?;
+        decode_ecdsa_threshold_prf_proof_batch_payload_v1(decoder.read_bytes("proof_batch")?)?;
     decoder.finish()?;
     RecipientProofBundlePayloadV1::new(
         lifecycle_id,
@@ -1273,7 +1259,7 @@ pub fn validate_signer_input_plaintext_binding_v1(
     require_plaintext_output_policy(&plaintext.output_requests)
 }
 
-/// Builds public Candidate A signer input after signer plaintext binding validation.
+/// Builds fixed ECDSA threshold-PRF input after plaintext binding validation.
 pub fn build_mpc_prf_signer_partial_input_v1(
     payload: &RouterToSignerPayloadV1,
     plaintext: &SignerInputPlaintextV1,
@@ -1290,8 +1276,6 @@ pub fn build_mpc_prf_signer_partial_input_v1(
         payload.lifecycle(),
         payload.signer_set(),
         payload.transcript_metadata(),
-        plaintext.candidate_id,
-        CorrectnessLevel::MinimumLevelC,
         plaintext.root_share_epoch.clone(),
     )?;
     if expected_transcript_digest != payload.transcript_digest()
@@ -1306,14 +1290,11 @@ pub fn build_mpc_prf_signer_partial_input_v1(
         payload.lifecycle(),
         payload.signer_set(),
         payload.transcript_metadata(),
-        plaintext.candidate_id,
-        CorrectnessLevel::MinimumLevelC,
         plaintext.root_share_epoch.clone(),
     )?;
     MpcPrfSignerPartialInputV1::new(
         transcript.context().clone(),
         transcript,
-        plaintext.mpc_prf_suite_id,
         plaintext.recipient_role,
         plaintext.recipient_signer_id.clone(),
         plaintext.root_share_epoch.clone(),
@@ -1600,7 +1581,7 @@ fn push_role_encrypted_envelope(out: &mut Vec<u8>, envelope: &RoleEncryptedEnvel
 
 fn push_mpc_prf_partial_proof_bundle(out: &mut Vec<u8>, bundle: &MpcPrfPartialProofBundleV1) {
     let binding = &bundle.signer_partial.binding;
-    push_len32(out, binding.suite_id.as_str().as_bytes());
+    push_len32(out, b"threshold_prf_ristretto255_sha512");
     push_public_digest(out, binding.transcript_digest);
     push_string(out, binding.root_share_epoch.as_str());
     push_len32(out, binding.opened_share_kind.as_str().as_bytes());
@@ -1796,7 +1777,13 @@ impl<'a> PayloadDecoder<'a> {
     fn read_mpc_prf_partial_proof_bundle(
         &mut self,
     ) -> RouterAbProtocolResult<MpcPrfPartialProofBundleV1> {
-        let suite_id = parse_mpc_prf_suite_id(&self.read_string("mpc_prf_suite_id")?)?;
+        let suite_label = self.read_string("mpc_prf_suite_id")?;
+        if suite_label != "threshold_prf_ristretto255_sha512" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "unexpected fixed ECDSA threshold-PRF suite label",
+            ));
+        }
         let transcript_digest = self.read_public_digest("mpc_prf_transcript_digest")?;
         let root_share_epoch = RootShareEpoch::new(self.read_string("mpc_prf_root_share_epoch")?)
             .map_err(map_derivation_to_protocol_error)?;
@@ -1816,7 +1803,6 @@ impl<'a> PayloadDecoder<'a> {
             MpcPrfDleqProofWireV1::new(self.read_bytes("mpc_prf_dleq_proof_wire")?.to_vec())
                 .map_err(map_derivation_to_protocol_error)?;
         let binding = MpcPrfPartialBindingV1 {
-            suite_id,
             transcript_digest,
             root_share_epoch,
             opened_share_kind,
@@ -1916,21 +1902,12 @@ fn parse_work_kind(value: &str) -> RouterAbProtocolResult<ExpensiveWorkKindV1> {
 fn parse_request_kind(value: &str) -> RouterAbProtocolResult<RequestKind> {
     match value {
         "registration" => Ok(RequestKind::Registration),
+        "recovery" => Ok(RequestKind::Recovery),
         "export" => Ok(RequestKind::Export),
         "refresh" => Ok(RequestKind::Refresh),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "unknown lifecycle primitive request kind",
-        )),
-    }
-}
-
-fn parse_mpc_prf_suite_id(value: &str) -> RouterAbProtocolResult<MpcPrfSuiteId> {
-    match value {
-        "threshold_prf_ristretto255_sha512" => Ok(MpcPrfSuiteId::ThresholdPrfRistretto255Sha512),
-        _ => Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "unknown MPC PRF suite id",
         )),
     }
 }

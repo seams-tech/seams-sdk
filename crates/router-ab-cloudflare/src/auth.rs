@@ -12,7 +12,7 @@ use sha2::{Digest as Sha2Digest, Sha256};
 use zeroize::Zeroize;
 
 #[cfg(feature = "workers-rs")]
-fn load_cloudflare_internal_service_auth_token_v1(
+fn load_cloudflare_internal_service_auth_secret_v1(
     env: &worker::Env,
 ) -> RouterAbProtocolResult<String> {
     let binding_name = env
@@ -40,10 +40,10 @@ fn load_cloudflare_internal_service_auth_token_v1(
         )
     })?;
     let mut secret_value = secret.to_string();
-    let token = secret_value.trim().to_owned();
+    let secret = secret_value.trim().to_owned();
     secret_value.zeroize();
-    require_non_empty("Router A/B internal service-auth token", &token)?;
-    Ok(token)
+    require_non_empty("Router A/B internal service-auth secret", &secret)?;
+    Ok(secret)
 }
 
 #[cfg(feature = "workers-rs")]
@@ -53,16 +53,16 @@ pub fn set_cloudflare_internal_service_auth_header_v1(
     request_kind: &str,
 ) -> RouterAbProtocolResult<()> {
     require_non_empty("Cloudflare service-auth request kind", request_kind)?;
-    let mut token = load_cloudflare_internal_service_auth_token_v1(env)?;
+    let mut secret = load_cloudflare_internal_service_auth_secret_v1(env)?;
     let result = headers
-        .set(ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, &token)
+        .set(ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, &secret)
         .map_err(|err| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 format!("{request_kind} service-auth header construction failed: {err}"),
             )
         });
-    token.zeroize();
+    secret.zeroize();
     result
 }
 
@@ -71,7 +71,7 @@ pub fn require_cloudflare_internal_service_auth_request_v1(
     request: &worker::Request,
     env: &worker::Env,
 ) -> RouterAbProtocolResult<()> {
-    let mut expected = load_cloudflare_internal_service_auth_token_v1(env)?;
+    let mut expected = load_cloudflare_internal_service_auth_secret_v1(env)?;
     let presented = request
         .headers()
         .get(ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1)

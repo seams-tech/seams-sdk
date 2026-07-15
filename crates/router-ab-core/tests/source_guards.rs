@@ -23,14 +23,14 @@ fn secret_material_does_not_derive_serialization() {
 
 #[test]
 fn mpc_prf_plaintext_partial_wire_does_not_derive_serialization() {
-    let candidate_rs = read_src_file("candidate_mpc_prf.rs");
+    let threshold_prf_rs = read_src_file("ecdsa_threshold_prf.rs");
     for struct_name in [
         "MpcPrfPartialWireV1",
         "MpcPrfSignerPartialV1",
         "MpcPrfPartialProofBundleV1",
         "MpcPrfVerifiedPartialV1",
     ] {
-        let block = extract_struct_block(&candidate_rs, struct_name);
+        let block = extract_struct_block(&threshold_prf_rs, struct_name);
         assert!(!block.contains("Serialize"), "{struct_name}");
         assert!(!block.contains("Deserialize"), "{struct_name}");
     }
@@ -38,7 +38,7 @@ fn mpc_prf_plaintext_partial_wire_does_not_derive_serialization() {
 
 #[test]
 fn mpc_prf_threshold_backend_secret_types_do_not_derive_serialization() {
-    let backend_rs = read_src_file("candidate_mpc_prf_threshold_backend.rs");
+    let backend_rs = read_src_file("ecdsa_threshold_prf_backend.rs");
     for struct_name in [
         "MpcPrfSigningRootShareWireV1",
         "MpcPrfThresholdSignerInputV1",
@@ -62,51 +62,6 @@ fn recipient_output_encryption_request_does_not_derive_serialization() {
 
     assert!(!block.contains("Serialize"));
     assert!(!block.contains("Deserialize"));
-}
-
-#[test]
-fn typed_envelope_and_verifier_inputs_do_not_deserialize_from_raw_boundaries() {
-    let envelope_rs = read_src_file("envelope.rs");
-    for struct_name in ["EnvelopeHeaderV1", "DeliveryPackageV1"] {
-        let block = extract_struct_block(&envelope_rs, struct_name);
-        assert!(!block.contains("Deserialize"), "{struct_name}");
-    }
-
-    let evidence_rs = read_src_file("evidence.rs");
-    let verification_input_block =
-        extract_struct_block(&evidence_rs, "MinimumLevelCVerificationInputV1");
-    assert!(!verification_input_block.contains("Deserialize"));
-    for struct_name in [
-        "AuthenticatedSignerReceiptV1",
-        "MinimumLevelCEvidenceV1",
-        "VerifiedMinimumLevelCEvidenceV1",
-    ] {
-        let block = extract_struct_block(&evidence_rs, struct_name);
-        assert!(!block.contains("Deserialize"), "{struct_name}");
-        assert!(
-            !block.contains("\n    pub "),
-            "{struct_name} must stay constructor/accessor-only"
-        );
-    }
-    for impl_name in ["AuthenticatedSignerReceiptV1", "MinimumLevelCEvidenceV1"] {
-        assert!(
-            evidence_rs.contains(&format!("impl<'de> Deserialize<'de> for {impl_name}")),
-            "{impl_name} must deserialize through its validating constructor"
-        );
-        assert!(
-            evidence_rs.contains(&format!("impl {impl_name} {{"))
-                && evidence_rs.contains("pub fn new("),
-            "{impl_name} must expose a validating constructor"
-        );
-    }
-    assert!(evidence_rs.contains("impl VerifiedMinimumLevelCEvidenceV1 {"));
-    assert!(evidence_rs.contains("pub fn evidence(&self) -> &MinimumLevelCEvidenceV1"));
-
-    let state_machine_rs = read_src_file("state_machine.rs");
-    for struct_name in ["CreateRoleEnvelopesInput", "RoleEnvelopesCreated"] {
-        let block = extract_struct_block(&state_machine_rs, struct_name);
-        assert!(!block.contains("Deserialize"), "{struct_name}");
-    }
 }
 
 #[test]
@@ -153,12 +108,12 @@ fn typed_context_and_transcript_use_validating_deserialize_impls() {
 }
 
 #[test]
-fn router_ab_core_keeps_ed25519_hss_behind_dev_adapter_boundary() {
+fn router_ab_core_rejects_deleted_ed25519_hss_dependencies() {
     let cargo_toml = read_manifest_file("Cargo.toml");
     for forbidden in ["ed25519-hss", "ed25519_hss"] {
         assert!(
             !cargo_toml.contains(forbidden),
-            "router-ab-core must not depend on `{forbidden}`; use router-ab-dev for HSS parity"
+            "router-ab-core must not depend on deleted backend `{forbidden}`"
         );
     }
 
@@ -227,7 +182,7 @@ fn forbidden_joined_state_names_stay_in_allowlisted_modules() {
 
 #[test]
 fn router_boundary_does_not_import_signer_plaintext_decoder() {
-    for relative_path in ["src/protocol/public_request.rs"] {
+    for relative_path in ["src/protocol/ecdsa_threshold_prf_request.rs"] {
         let source = read_manifest_file(relative_path);
         for forbidden in [
             "SignerInputPlaintextV1",
@@ -340,18 +295,51 @@ fn ab_peer_payloads_do_not_carry_combined_or_root_secret_material() {
 }
 
 #[test]
-fn stale_mpc_candidate_placeholder_is_not_public_api() {
+fn ecdsa_threshold_prf_has_no_candidate_selection_api() {
     let derivation_mod_rs = read_manifest_file("src/derivation/mod.rs");
-    let public_candidate_export_block =
-        extract_pub_use_block(&derivation_mod_rs, "candidate_mpc_prf");
-    let candidate_mpc_prf_rs = read_src_file("candidate_mpc_prf.rs");
+    let threshold_prf_rs = read_src_file("ecdsa_threshold_prf.rs");
+    let backend_rs = read_src_file("ecdsa_threshold_prf_backend.rs");
+    let context_rs = read_src_file("context.rs");
+    let signer_plaintext_rs = read_src_file("signer_plaintext.rs");
+    let request_rs = read_manifest_file("src/protocol/ecdsa_threshold_prf_request.rs");
+    let payload_rs = read_manifest_file("src/protocol/payload.rs");
+    let derivation_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("derivation");
 
-    assert!(!public_candidate_export_block.contains("evaluate_mpc_threshold_prf_candidate"));
-    assert!(!public_candidate_export_block.contains("MpcPrfCandidateInput"));
-    assert!(!public_candidate_export_block.contains("MpcPrfCandidateOutput"));
-    assert!(!candidate_mpc_prf_rs.contains("pub fn evaluate_mpc_threshold_prf_candidate"));
-    assert!(!candidate_mpc_prf_rs.contains("pub struct MpcPrfCandidateInput"));
-    assert!(!candidate_mpc_prf_rs.contains("pub struct MpcPrfCandidateOutput"));
+    assert!(!derivation_dir.join("candidate_mpc_prf.rs").exists());
+    assert!(!derivation_dir
+        .join("candidate_mpc_prf_threshold_backend.rs")
+        .exists());
+    for forbidden in [
+        "CandidateId",
+        "CorrectnessLevel",
+        "minimum_level_c",
+        "mpc_threshold_prf_v1",
+        "MpcPrfCandidateInput",
+        "MpcPrfCandidateOutput",
+        "evaluate_mpc_threshold_prf_candidate",
+        "AbDerivationProofBatchPayloadV1",
+        "ab_derivation_proof_batch",
+    ] {
+        for source in [
+            &derivation_mod_rs,
+            &threshold_prf_rs,
+            &backend_rs,
+            &context_rs,
+            &signer_plaintext_rs,
+            &request_rs,
+            &payload_rs,
+        ] {
+            assert!(!source.contains(forbidden), "{forbidden}");
+        }
+    }
+    for forbidden in ["from_u16s(2, 3)", "Role::SignerB => 3"] {
+        assert!(
+            !backend_rs.contains(forbidden),
+            "fixed ECDSA threshold PRF must reject legacy 2-of-3 policy `{forbidden}`"
+        );
+    }
 }
 
 #[test]
@@ -510,18 +498,6 @@ fn extract_function_signature(source: &str, function_name: &str) -> String {
         .find('{')
         .map(|offset| start + offset)
         .expect("function signature should end");
-    source[start..end].to_owned()
-}
-
-fn extract_pub_use_block(source: &str, module_name: &str) -> String {
-    let marker = format!("pub use self::{module_name}::{{");
-    let start = source
-        .find(&marker)
-        .expect("pub use block marker should exist");
-    let end = source[start..]
-        .find("};")
-        .map(|offset| start + offset + 2)
-        .expect("pub use block should end");
     source[start..end].to_owned()
 }
 

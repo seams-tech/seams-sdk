@@ -73,8 +73,8 @@ jobs:
           set -euo pipefail
           for feature in \
             strict-worker-router-entrypoint \
-            strict-worker-signer-a-entrypoint \
-            strict-worker-signer-b-entrypoint \
+            strict-worker-deriver-a-entrypoint \
+            strict-worker-deriver-b-entrypoint \
             strict-worker-signing-worker-entrypoint
           do
             cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"

@@ -186,8 +186,8 @@ Rationale:
 
 - The `2-of-3` path is about `0.10 ms` native and about `0.21 ms` in the
   local Node/V8 WASM proxy.
-- Existing ECDSA and Ed25519 HSS ceremony paths are tens to hundreds of
-  milliseconds, so threshold-prf derivation is not a first-order latency source.
+- Existing ECDSA bootstrap and Ed25519 Yao ceremony paths are tens to hundreds
+  of milliseconds, so threshold-prf derivation is not a first-order latency source.
 - Further threshold-prf micro-optimization should wait for deployed Worker
   measurements or a demonstrated hot path.
 - Real Cloudflare Worker runtime benchmarks are still required before making

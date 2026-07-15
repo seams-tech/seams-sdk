@@ -4,36 +4,34 @@ use std::path::Path;
 use ed25519_dalek::SigningKey;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
-use router_ab_core::PublicRouterRequestV1;
 use router_ab_core::{
-    ab_derivation_proof_batch_payload_digest_v1, ab_derivation_proof_batch_recipient_view_v1,
     ab_peer_message_authentication_input_digest_v1, build_mpc_prf_signer_partial_input_v1,
     build_mpc_prf_threshold_signer_batch_input_v1,
     combine_mpc_prf_recipient_output_from_ab_proof_batches_v1,
     combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1,
-    decode_ab_derivation_proof_batch_payload_v1,
-    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
-    decode_recipient_output_ciphertext_v1, decode_recipient_proof_bundle_ciphertext_v1,
-    decode_recipient_proof_bundle_payload_v1, decode_router_to_signer_payload_v1,
-    encode_ab_derivation_proof_batch_payload_v1, encode_recipient_output_ciphertext_aad_v1,
+    decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
+    decode_ecdsa_threshold_prf_proof_batch_payload_v1, decode_recipient_output_ciphertext_v1,
+    decode_recipient_proof_bundle_ciphertext_v1, decode_recipient_proof_bundle_payload_v1,
+    decode_router_to_signer_payload_v1, ecdsa_threshold_prf_proof_batch_payload_digest_v1,
+    ecdsa_threshold_prf_proof_batch_recipient_view_v1,
+    encode_ecdsa_threshold_prf_proof_batch_payload_v1, encode_recipient_output_ciphertext_aad_v1,
     encode_recipient_proof_bundle_ciphertext_aad_v1, encode_recipient_proof_bundle_ciphertext_v1,
     encode_recipient_proof_bundle_payload_v1, encode_wire_message_v1,
     encrypt_recipient_proof_bundle_payload_v1, recipient_output_ciphertext_aad_digest_v1,
     recipient_proof_bundle_ciphertext_aad_digest_v1, recipient_proof_bundle_payload_digest_v1,
     recipient_proof_bundle_payload_from_ab_proof_batch_v1,
     recipient_proof_bundle_wire_message_from_ab_proof_batch_v1, role_encrypted_envelope_digest_v1,
-    router_transcript_digest_v1, sign_ab_derivation_proof_batch_peer_payload_v1,
-    sign_ab_peer_message_ed25519_authentication_v1, validate_signer_input_plaintext_binding_v1,
-    verify_ab_peer_message_ed25519_signature_v1,
+    router_transcript_digest_v1, sign_ab_peer_message_ed25519_authentication_v1,
+    sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
+    validate_signer_input_plaintext_binding_v1, verify_ab_peer_message_ed25519_signature_v1,
     verify_recipient_proof_bundle_ciphertext_payload_v1, wire_message_digest_v1,
-    AbDerivationProofBatchPayloadV1, AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1,
-    AbPeerMessageSignatureSchemeV1, AbPeerMessageVerifyingKeyV1, AccountScope, AuditEventV1,
-    AuditSink, AuthorityVerifiedFallbackReasonV1, CandidateId, CanonicalWireBytesV1, Clock,
-    CorrectnessLevel, Csprng, DerivationContext, DeriverAEngine, DeriverBEngine,
-    EncryptedPayloadV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1, GateDeferReasonV1,
-    LifecycleScopeV1, MpcPrfOutputRequestV1, MpcPrfSignerPartialInputV1,
-    MpcPrfSigningRootShareWireV1, MpcPrfSuiteId, MpcPrfThresholdSignerBatchInputV1,
-    MpcPrfThresholdSignerBatchOutputV1, NormalSigningScopeV1, PeerTransport,
+    AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1, AbPeerMessageSignatureSchemeV1,
+    AbPeerMessageVerifyingKeyV1, AccountScope, AuthorityVerifiedFallbackReasonV1,
+    CanonicalWireBytesV1, DerivationContext, DeriverAEngine, DeriverBEngine,
+    EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
+    ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1, GateDeferReasonV1, LifecycleScopeV1,
+    MpcPrfOutputRequestV1, MpcPrfSignerPartialInputV1, MpcPrfSigningRootShareWireV1,
+    MpcPrfThresholdSignerBatchInputV1, MpcPrfThresholdSignerBatchOutputV1, NormalSigningScopeV1,
     RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
     RecipientOutputEncryptionRequestV1, RecipientProofBundleCiphertextV1,
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
@@ -41,8 +39,8 @@ use router_ab_core::{
     RoleEnvelopeAssignmentV1, RouterAbDerivationErrorCode, RouterAbLifecycleStateV1,
     RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEnvelopeDigestSetV1,
     RouterToSignerPayloadV1, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
-    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetBinding,
-    SignerSetV1, SigningRootShareStore, TranscriptBinding, WireMessageKindV1, WireMessageV1,
+    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerSetBinding, SignerSetV1,
+    TranscriptBinding, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch, SecretMaterial32};
 use threshold_prf::{
@@ -204,8 +202,6 @@ fn router_to_deriver_a_payload_with_reconstructed_transcript(
         &lifecycle,
         &signer_set,
         &transcript_metadata(),
-        CandidateId::MpcThresholdPrfV1,
-        CorrectnessLevel::MinimumLevelC,
         root_share_epoch,
     )?;
     RouterToSignerPayloadV1::signer_a(
@@ -230,9 +226,7 @@ fn server_output_request() -> MpcPrfOutputRequestV1 {
 
 fn mpc_context() -> DerivationContext {
     DerivationContext::new(
-        CandidateId::MpcThresholdPrfV1,
         RequestKind::Registration,
-        CorrectnessLevel::MinimumLevelC,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
@@ -275,7 +269,6 @@ fn mpc_signer_input(role: Role) -> MpcPrfSignerPartialInputV1 {
     MpcPrfSignerPartialInputV1::new(
         context.clone(),
         mpc_transcript(context),
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         role,
         signer_identity,
         root_epoch(),
@@ -291,7 +284,7 @@ fn seeded_rng(seed: u8) -> ChaCha20Rng {
 fn mpc_share_wires() -> [MpcPrfSigningRootShareWireV1; 2] {
     let mut setup_rng = seeded_rng(88);
     let root = generate_signing_root(&mut setup_rng);
-    let policy = ThresholdPolicy::from_u16s(2, 3).expect("2-of-3 policy");
+    let policy = ThresholdPolicy::from_u16s(2, 2).expect("2-of-2 policy");
     let shares = split_signing_root(&root, policy, &mut setup_rng).expect("split signing root");
     [
         MpcPrfSigningRootShareWireV1::new(
@@ -301,7 +294,7 @@ fn mpc_share_wires() -> [MpcPrfSigningRootShareWireV1; 2] {
         )
         .expect("signer a share wire"),
         MpcPrfSigningRootShareWireV1::new(
-            SigningRootShareWire::from_share(&shares[2])
+            SigningRootShareWire::from_share(&shares[1])
                 .to_bytes()
                 .to_vec(),
         )
@@ -322,23 +315,20 @@ fn deriver_a_mpc_batch() -> MpcPrfThresholdSignerBatchOutputV1 {
         .expect("signer A batch")
 }
 
-fn public_router_request_with_valid_transcript() -> PublicRouterRequestV1 {
+fn ecdsa_threshold_prf_request_with_valid_transcript() -> EcdsaThresholdPrfRequestV1 {
     let lifecycle = scope(ExpensiveWorkKindV1::RegistrationPrepare);
     let signer_set = signer_set();
     let transcript_digest = router_transcript_digest_v1(
         &lifecycle,
         &signer_set,
         &transcript_metadata(),
-        CandidateId::MpcThresholdPrfV1,
-        CorrectnessLevel::MinimumLevelC,
         root_epoch(),
     )
     .expect("public request transcript digest");
-    PublicRouterRequestV1::new(
+    EcdsaThresholdPrfRequestV1::new(
         "request-nonce-1",
         2_000,
         lifecycle,
-        CandidateId::MpcThresholdPrfV1,
         signer_set,
         "near-testnet",
         "ed25519:11111111111111111111111111111111",
@@ -365,10 +355,10 @@ fn scoped_test_role_envelope(role: Role, seed: u8) -> RoleEncryptedEnvelopeV1 {
 
 fn router_scoped_ab_proof_batches() -> (
     RouterToSignerPayloadV1,
-    AbDerivationProofBatchPayloadV1,
-    AbDerivationProofBatchPayloadV1,
+    EcdsaThresholdPrfProofBatchPayloadV1,
+    EcdsaThresholdPrfProofBatchPayloadV1,
 ) {
-    let request = public_router_request_with_valid_transcript();
+    let request = ecdsa_threshold_prf_request_with_valid_transcript();
     let (payload_a, payload_b) = request.to_signer_payloads().expect("signer payloads");
     let [share_a, share_b] = mpc_share_wires();
     let request_context_digest = request
@@ -386,7 +376,7 @@ fn router_scoped_ab_proof_batches() -> (
     let output_b = DeriverBEngine::new()
         .evaluate_mpc_prf_output_batch(input_b, &mut seeded_rng(32))
         .expect("signer b threshold output");
-    let proof_batch_a = AbDerivationProofBatchPayloadV1::new(
+    let proof_batch_a = EcdsaThresholdPrfProofBatchPayloadV1::new(
         payload_a.signer_set().signer_a.clone(),
         payload_a.signer_set().signer_b.clone(),
         output_a.transcript_digest,
@@ -394,7 +384,7 @@ fn router_scoped_ab_proof_batches() -> (
         output_a.proof_bundles,
     )
     .expect("signer a proof batch");
-    let proof_batch_b = AbDerivationProofBatchPayloadV1::new(
+    let proof_batch_b = EcdsaThresholdPrfProofBatchPayloadV1::new(
         payload_b.signer_set().signer_b.clone(),
         payload_b.signer_set().signer_a.clone(),
         output_b.transcript_digest,
@@ -406,7 +396,7 @@ fn router_scoped_ab_proof_batches() -> (
 }
 
 fn signed_proof_batch_peer_payload(
-    proof_batch: AbDerivationProofBatchPayloadV1,
+    proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
 ) -> AbPeerMessagePayloadV1 {
     let batch_output = MpcPrfThresholdSignerBatchOutputV1 {
         transcript_digest: proof_batch.transcript_digest,
@@ -415,7 +405,7 @@ fn signed_proof_batch_peer_payload(
         root_share_epoch: proof_batch.root_share_epoch,
         proof_bundles: proof_batch.proof_bundles,
     };
-    sign_ab_derivation_proof_batch_peer_payload_v1(
+    sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1(
         SigningKey::from_bytes(&[0xa1; 32]).as_bytes(),
         proof_batch.from,
         proof_batch.to,
@@ -432,8 +422,6 @@ fn signer_input_plaintext(
     let assignment = payload.assignment();
     let signer_set = payload.signer_set();
     SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         payload.lifecycle().primitive_request_kind,
         payload.lifecycle().lifecycle_id.clone(),
         signer_set.signer_set_id.clone(),
@@ -477,12 +465,12 @@ fn output_ciphertext(
 }
 
 #[test]
-fn recovery_lifecycle_maps_to_export_primitive() {
+fn recovery_lifecycle_uses_the_recovery_primitive() {
     let scope = scope(ExpensiveWorkKindV1::Recovery);
 
     assert_eq!(
         scope.primitive_request_kind,
-        router_ab_core::RequestKind::Export
+        router_ab_core::RequestKind::Recovery
     );
 }
 
@@ -1393,13 +1381,13 @@ fn ab_peer_message_ed25519_signature_rejects_wrong_key() {
 }
 
 #[test]
-fn ab_derivation_proof_batch_payload_round_trips_and_matches_peer_envelope() {
+fn ecdsa_threshold_prf_proof_batch_payload_round_trips_and_matches_peer_envelope() {
     let batch = deriver_a_mpc_batch();
     let deriver_a =
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b").expect("signer b identity");
-    let payload = AbDerivationProofBatchPayloadV1::new(
+    let payload = EcdsaThresholdPrfProofBatchPayloadV1::new(
         deriver_a,
         deriver_b,
         batch.transcript_digest,
@@ -1408,33 +1396,34 @@ fn ab_derivation_proof_batch_payload_round_trips_and_matches_peer_envelope() {
     )
     .expect("proof batch payload");
 
-    let encoded = encode_ab_derivation_proof_batch_payload_v1(&payload);
+    let encoded = encode_ecdsa_threshold_prf_proof_batch_payload_v1(&payload);
     let decoded =
-        decode_ab_derivation_proof_batch_payload_v1(&encoded).expect("decoded proof batch");
+        decode_ecdsa_threshold_prf_proof_batch_payload_v1(&encoded).expect("decoded proof batch");
     let peer_payload = signed_proof_batch_peer_payload(decoded.clone());
-    let from_peer = decode_and_validate_ab_derivation_proof_batch_peer_payload_v1(&peer_payload)
-        .expect("peer proof batch");
+    let from_peer =
+        decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1(&peer_payload)
+            .expect("peer proof batch");
 
     assert_eq!(decoded, payload);
     assert_eq!(from_peer, payload);
     assert_eq!(
-        ab_derivation_proof_batch_payload_digest_v1(&payload),
+        ecdsa_threshold_prf_proof_batch_payload_digest_v1(&payload),
         payload.digest()
     );
 }
 
 #[test]
-fn ab_derivation_proof_batch_recipient_view_keeps_only_requested_output() {
+fn ecdsa_threshold_prf_proof_batch_recipient_view_keeps_only_requested_output() {
     let (_, proof_batch_a, _) = router_scoped_ab_proof_batches();
 
-    let client_view = ab_derivation_proof_batch_recipient_view_v1(
+    let client_view = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch_a.clone(),
         OpenedShareKind::XClientBase,
         Role::Client,
         "client-1",
     )
     .expect("client proof-batch view");
-    let server_view = ab_derivation_proof_batch_recipient_view_v1(
+    let server_view = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch_a.clone(),
         OpenedShareKind::XServerBase,
         Role::Server,
@@ -1473,7 +1462,7 @@ fn ab_derivation_proof_batch_recipient_view_keeps_only_requested_output() {
         Role::Server
     );
 
-    let err = ab_derivation_proof_batch_recipient_view_v1(
+    let err = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch_a,
         OpenedShareKind::XClientBase,
         Role::Client,
@@ -1514,7 +1503,7 @@ fn recipient_proof_bundle_payload_round_trips_and_enforces_scope() {
 #[test]
 fn recipient_proof_bundle_payload_rejects_wrong_recipient_scope() {
     let (_, proof_batch_a, _) = router_scoped_ab_proof_batches();
-    let server_view = ab_derivation_proof_batch_recipient_view_v1(
+    let server_view = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch_a,
         OpenedShareKind::XServerBase,
         Role::Server,
@@ -1789,13 +1778,13 @@ fn mpc_prf_recipient_scoped_combine_rejects_missing_output_binding() {
 }
 
 #[test]
-fn ab_derivation_proof_batch_peer_payload_rejects_outer_transcript_mismatch() {
+fn ecdsa_threshold_prf_proof_batch_peer_payload_rejects_outer_transcript_mismatch() {
     let batch = deriver_a_mpc_batch();
     let deriver_a =
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b").expect("signer b identity");
-    let payload = AbDerivationProofBatchPayloadV1::new(
+    let payload = EcdsaThresholdPrfProofBatchPayloadV1::new(
         deriver_a.clone(),
         deriver_b.clone(),
         batch.transcript_digest,
@@ -1822,20 +1811,20 @@ fn ab_derivation_proof_batch_peer_payload_rejects_outer_transcript_mismatch() {
     )
     .expect("peer payload");
 
-    let err = decode_and_validate_ab_derivation_proof_batch_peer_payload_v1(&peer_payload)
+    let err = decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1(&peer_payload)
         .expect_err("inner and outer transcript mismatch must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 
 #[test]
-fn ab_derivation_proof_batch_rejects_wrong_sender_binding() {
+fn ecdsa_threshold_prf_proof_batch_rejects_wrong_sender_binding() {
     let batch = deriver_a_mpc_batch();
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b").expect("signer b identity");
     let deriver_a =
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
-    let err = AbDerivationProofBatchPayloadV1::new(
+    let err = EcdsaThresholdPrfProofBatchPayloadV1::new(
         deriver_b,
         deriver_a,
         batch.transcript_digest,
@@ -1848,14 +1837,14 @@ fn ab_derivation_proof_batch_rejects_wrong_sender_binding() {
 }
 
 #[test]
-fn ab_derivation_proof_batch_signer_refuses_batch_sender_mismatch() {
+fn ecdsa_threshold_prf_proof_batch_signer_refuses_batch_sender_mismatch() {
     let batch = deriver_a_mpc_batch();
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b").expect("signer b identity");
     let deriver_a =
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
 
-    let err = sign_ab_derivation_proof_batch_peer_payload_v1(
+    let err = sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1(
         SigningKey::from_bytes(&[0xb1; 32]).as_bytes(),
         deriver_b,
         deriver_a,
@@ -1864,58 +1853,6 @@ fn ab_derivation_proof_batch_signer_refuses_batch_sender_mismatch() {
     .expect_err("sender mismatch must fail before signing");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
-}
-
-#[derive(Debug, Clone)]
-struct DummyHost;
-
-impl Clock for DummyHost {
-    fn now_unix_ms(&self) -> u64 {
-        1_000
-    }
-}
-
-impl Csprng for DummyHost {
-    fn fill_random(&mut self, out: &mut [u8]) -> RouterAbProtocolResult<()> {
-        out.fill(0x42);
-        Ok(())
-    }
-}
-
-impl SignerKeyStore for DummyHost {
-    fn signer_identity(&self, role: Role) -> RouterAbProtocolResult<String> {
-        Ok(role.as_str().to_owned())
-    }
-
-    fn signer_verifying_key(
-        &self,
-        signer: &SignerIdentityV1,
-    ) -> RouterAbProtocolResult<AbPeerMessageVerifyingKeyV1> {
-        AbPeerMessageVerifyingKeyV1::new(
-            signer.clone(),
-            SigningKey::from_bytes(&[9u8; 32])
-                .verifying_key()
-                .to_bytes(),
-        )
-    }
-}
-
-impl SigningRootShareStore for DummyHost {
-    fn has_root_share(&self, _role: Role, _epoch: &RootShareEpoch) -> RouterAbProtocolResult<bool> {
-        Ok(true)
-    }
-}
-
-impl PeerTransport for DummyHost {
-    fn send_peer_message(&self, message: WireMessageV1) -> RouterAbProtocolResult<WireMessageV1> {
-        Ok(message)
-    }
-}
-
-impl AuditSink for DummyHost {
-    fn record_audit_event(&self, _event: AuditEventV1) -> RouterAbProtocolResult<()> {
-        Ok(())
-    }
 }
 
 #[test]

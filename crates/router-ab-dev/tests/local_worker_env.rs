@@ -1,12 +1,15 @@
 use router_ab_core::{
-    CanonicalWireBytesV1, LocalHttpPathV1, LocalServiceRoleV1, RouterAbProtocolErrorCode,
+    CanonicalWireBytesV1, Ed25519YaoDeriverRoleV1, Ed25519YaoPackageKindV1, LocalHttpPathV1,
+    LocalServiceRoleV1, RouterAbProtocolErrorCode,
 };
 use router_ab_dev::{
     local_env_materialization_plan_v1, local_http_service_binding_endpoint_v1,
     local_http_service_binding_path_v1, local_http_service_binding_url_v1,
     local_worker_bind_addr_v1, local_worker_health_response_json_v1, local_worker_owned_paths_v1,
-    local_worker_owns_path_v1, parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
+    local_worker_owns_path_v1, open_local_ed25519_yao_client_package_v1,
+    parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
     parse_local_worker_role_config_for_role_v1, parse_local_worker_role_config_v1,
+    seal_local_ed25519_yao_package_v1, LocalEd25519YaoRecipientPrivateKeyV1,
     LocalHttpServiceBindingClientV1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1, LOCAL_DERIVER_A_ENV_FILE_V1,
     LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
@@ -18,8 +21,7 @@ use router_ab_dev::{
     LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH,
     LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH,
     LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH, LOCAL_ROUTER_PUBLIC_URL_ENV_V1,
-    LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
+    LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
     LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
@@ -250,10 +252,6 @@ fn local_worker_route_ownership_uses_production_style_paths() {
         LocalServiceRoleV1::DeriverB,
         LOCAL_DERIVER_A_PRIVATE_PATH
     ));
-    assert!(local_worker_owns_path_v1(
-        LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH
-    ));
 }
 
 #[test]
@@ -307,7 +305,7 @@ fn local_http_service_binding_client_posts_canonical_wire_bytes() {
             .expect("request header terminator");
         let headers =
             std::str::from_utf8(&request[..header_end]).expect("request headers are UTF-8");
-        assert!(headers.starts_with("POST /router-ab/signer-a HTTP/1.1"));
+        assert!(headers.starts_with("POST /router-ab/deriver-a HTTP/1.1"));
         assert!(headers.contains(&format!(
             "content-type: {LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1}"
         )));
@@ -346,7 +344,7 @@ fn local_http_service_binding_client_posts_worker_shaped_json() {
             .expect("request header terminator");
         let headers =
             std::str::from_utf8(&request[..header_end]).expect("request headers are UTF-8");
-        assert!(headers.starts_with("POST /router-ab/signer-b/peer HTTP/1.1"));
+        assert!(headers.starts_with("POST /router-ab/deriver-b/peer HTTP/1.1"));
         assert!(headers.contains(&format!("content-type: {LOCAL_HTTP_JSON_CONTENT_TYPE_V1}")));
         let body: serde_json::Value =
             serde_json::from_slice(&request[header_end + 4..]).expect("request JSON parses");
@@ -399,10 +397,20 @@ fn local_env_materialization_plan_generates_parseable_role_env_files() {
     for file in &plan.files {
         assert!(!file.contents.contains("dev-only-deriver"));
         assert!(!file.contents.contains("dev-only-signing-worker"));
-        assert!(
-            file.contents.contains("dev-only-generated-")
-                || file.role == LocalServiceRoleV1::Router
-        );
+        match file.role {
+            LocalServiceRoleV1::DeriverA | LocalServiceRoleV1::DeriverB => {
+                assert!(file.contents.contains("dev-only-generated-"));
+            }
+            LocalServiceRoleV1::SigningWorker => {
+                assert!(!file
+                    .contents
+                    .contains("dev-only-signing-worker-server-output-hpke-private-key"));
+                assert!(!file.contents.contains(
+                    "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+                ));
+            }
+            LocalServiceRoleV1::Router => {}
+        }
         let config = parse_local_worker_role_config_for_role_v1(
             file.role,
             parse_local_env_file_contents_v1(&file.contents).expect("generated env parses"),
@@ -423,6 +431,70 @@ fn local_env_materialization_plan_is_seed_bound() {
 }
 
 #[test]
+fn local_env_materialization_exposes_only_public_keys_matching_role_private_keys() {
+    let plan = local_env_materialization_plan_v1(b"key-coherence-seed").expect("materialization");
+    let configs = plan
+        .files
+        .iter()
+        .map(|file| {
+            parse_local_worker_role_config_for_role_v1(
+                file.role,
+                parse_local_env_file_contents_v1(&file.contents).expect("env parses"),
+            )
+            .expect("config parses")
+        })
+        .collect::<Vec<_>>();
+    let router = configs
+        .iter()
+        .find_map(|config| match config {
+            LocalWorkerRoleConfigV1::Router(router) => Some(router),
+            _ => None,
+        })
+        .expect("Router config");
+    let deriver_a = configs
+        .iter()
+        .find_map(|config| match config {
+            LocalWorkerRoleConfigV1::DeriverA(deriver) => Some(deriver),
+            _ => None,
+        })
+        .expect("Deriver A config");
+    let deriver_b = configs
+        .iter()
+        .find_map(|config| match config {
+            LocalWorkerRoleConfigV1::DeriverB(deriver) => Some(deriver),
+            _ => None,
+        })
+        .expect("Deriver B config");
+    let signing_worker = configs
+        .iter()
+        .find_map(|config| match config {
+            LocalWorkerRoleConfigV1::SigningWorker(worker) => Some(worker),
+            _ => None,
+        })
+        .expect("SigningWorker config");
+
+    assert_hpke_key_pair(
+        &router.deriver_a_ed25519_yao_input_public_key,
+        &deriver_a.envelope_hpke_private_key,
+        Ed25519YaoDeriverRoleV1::DeriverA,
+    );
+    assert_hpke_key_pair(
+        &router.deriver_b_ed25519_yao_input_public_key,
+        &deriver_b.envelope_hpke_private_key,
+        Ed25519YaoDeriverRoleV1::DeriverB,
+    );
+    assert_eq!(
+        router.signing_worker_ed25519_yao_recipient_public_key,
+        signing_worker.server_output_hpke_public_key
+    );
+    assert_hpke_key_pair(
+        &router.signing_worker_ed25519_yao_recipient_public_key,
+        &signing_worker.server_output_hpke_private_key,
+        Ed25519YaoDeriverRoleV1::DeriverA,
+    );
+}
+
+#[test]
 fn local_env_materialization_plan_rejects_empty_seed() {
     let err = local_env_materialization_plan_v1(&[]).expect_err("empty seed rejected");
 
@@ -439,4 +511,34 @@ fn parse_template(contents: &str) -> Vec<(String, String)> {
             (key.to_owned(), value.to_owned())
         })
         .collect()
+}
+
+fn assert_hpke_key_pair(public_key: &str, private_key: &str, deriver: Ed25519YaoDeriverRoleV1) {
+    let public_key: [u8; 32] = hex::decode(
+        public_key
+            .strip_prefix("x25519:")
+            .expect("public key prefix"),
+    )
+    .expect("public key hex")
+    .try_into()
+    .expect("public key length");
+    let private_key: [u8; 32] = hex::decode(private_key)
+        .expect("private key hex")
+        .try_into()
+        .expect("private key length");
+    let envelope = seal_local_ed25519_yao_package_v1(
+        Ed25519YaoPackageKindV1::ActivationClient,
+        deriver,
+        [1; 32],
+        [2; 32],
+        public_key,
+        b"key-coherence",
+    )
+    .expect("seal with public key");
+    let opened = open_local_ed25519_yao_client_package_v1(
+        &envelope,
+        &LocalEd25519YaoRecipientPrivateKeyV1::from_bytes(private_key),
+    )
+    .expect("open with private key");
+    assert_eq!(opened.as_slice(), b"key-coherence");
 }

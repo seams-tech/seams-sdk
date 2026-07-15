@@ -21,7 +21,7 @@ fn work_kind_maps_to_router_ab_request_kind() {
     );
     assert_eq!(
         ExpensiveWorkKindV1::Recovery.primitive_request_kind(),
-        RequestKind::Export
+        RequestKind::Recovery
     );
     assert_eq!(
         ExpensiveWorkKindV1::ServerShareRefresh.primitive_request_kind(),

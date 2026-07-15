@@ -1,10 +1,12 @@
 use crate::*;
-use ed25519_hss::role_signing::{
-    finalize_role_separated_ed25519_server_signature_v1, prepare_role_separated_ed25519_round1_v1,
-    role_separated_ed25519_server_verifying_share_v1, RoleSeparatedEd25519CommitmentsV1,
-    RoleSeparatedEd25519ServerFinalizeRequestV1,
-};
+use std::collections::BTreeMap;
+
 use signer_core::error::{SignerCoreError, SignerCoreErrorCode};
+use signer_core::near_threshold_ed25519::{
+    aggregate_signature, build_signing_package, key_package_from_signing_share_bytes,
+    signature_share_from_b64u, verifying_share_bytes_from_signing_share_bytes,
+    verifying_share_from_b64u,
+};
 use signer_core::threshold_ecdsa::threshold_ecdsa_finalize_signature;
 
 /// Platform-neutral signer logic behind the Cloudflare transport wrapper.
@@ -32,15 +34,6 @@ pub trait CloudflareSigningWorkerNormalSigningPrepareHandlerV2 {
         &self,
         request: CloudflareSigningWorkerMaterializedNormalSigningPrepareRequestV2,
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningRound1PreparedV1>;
-}
-
-/// SigningWorker v2 presign-pool prepare logic behind the Cloudflare transport wrapper.
-pub trait CloudflareSigningWorkerNormalSigningPresignPoolPrepareHandlerV2 {
-    /// Handles one Router-admitted v2 presign-pool refill request.
-    fn handle_normal_signing_presign_pool_prepare_request_v2(
-        &self,
-        request: CloudflareSigningWorkerMaterializedNormalSigningPresignPoolPrepareRequestV2,
-    ) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningPresignPoolPreparedV2>;
 }
 
 /// SigningWorker v2 finalize logic behind the Cloudflare transport wrapper.
@@ -235,61 +228,6 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
     }
 }
 
-/// Router-admitted v2 Ed25519 presign-pool refill request sent to SigningWorker.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerAdmittedNormalSigningPresignPoolPrepareRequestV2 {
-    /// Typed public pool-refill request accepted by the Router.
-    pub request: RouterAbEd25519PresignPoolPrepareRequestV2,
-    /// Normalized Wallet Session that authorized the refill scope.
-    pub wallet_session: CloudflareRouterVerifiedWalletSessionV1,
-}
-
-impl CloudflareSigningWorkerAdmittedNormalSigningPresignPoolPrepareRequestV2 {
-    /// Creates a validated admitted v2 presign-pool refill service request.
-    pub fn new(
-        request: RouterAbEd25519PresignPoolPrepareRequestV2,
-        wallet_session: CloudflareRouterVerifiedWalletSessionV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let request = Self {
-            request,
-            wallet_session,
-        };
-        request.validate()?;
-        Ok(request)
-    }
-
-    /// Validates Router authentication accepted this exact refill request scope.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.request.validate()?;
-        self.wallet_session.validate()?;
-        if self.wallet_session.expires_at_ms < self.request.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Wallet Session expires before admitted presign-pool refill request",
-            ));
-        }
-        if self.wallet_session.account_id != self.request.scope.account_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "presign-pool refill Wallet Session account_id does not match scope",
-            ));
-        }
-        if self.wallet_session.threshold_session_id != self.request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "presign-pool refill Wallet Session session_id does not match scope",
-            ));
-        }
-        if self.wallet_session.signing_worker_id != self.request.scope.signing_worker_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "presign-pool refill Wallet Session signing_worker_id does not match scope",
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// Router-admitted v2 finalize request sent to SigningWorker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
@@ -325,53 +263,6 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
             RouterAbProtocolErrorCode::InvalidGateDecision,
             "SigningWorker normal-signing v2 finalize requires accepted Router admission",
         ))
-    }
-}
-
-/// Router-admitted v2 Ed25519 presign-pool-hit finalize request sent to SigningWorker.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerAdmittedNormalSigningPresignPoolHitFinalizeRequestV2 {
-    /// Typed public pool-hit finalize request accepted by the Router.
-    pub request: RouterAbEd25519PresignPoolHitFinalizeRequestV2,
-    /// Accepted Router store admission decision for the lowered finalize request.
-    pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
-}
-
-impl CloudflareSigningWorkerAdmittedNormalSigningPresignPoolHitFinalizeRequestV2 {
-    /// Creates a validated admitted v2 presign-pool-hit finalize service request.
-    pub fn new(
-        request: RouterAbEd25519PresignPoolHitFinalizeRequestV2,
-        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let request = Self {
-            request,
-            trusted_admission,
-        };
-        request.validate()?;
-        Ok(request)
-    }
-
-    /// Validates Router admission accepted this exact pool-hit finalize request.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.request.validate()?;
-        let lowered = self.request.to_normal_finalize_request_v2()?;
-        self.trusted_admission
-            .validate_for_finalize_request_v2(&lowered)?;
-        if self.trusted_admission.allows_signing_worker_forwarding()? {
-            return Ok(());
-        }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidGateDecision,
-            "SigningWorker pool-hit finalize requires accepted Router admission",
-        ))
-    }
-
-    /// Lowers this admitted pool-hit request into the existing normal finalize request.
-    pub fn to_normal_finalize_request_v2(
-        &self,
-    ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningFinalizeRequestV2> {
-        self.validate()?;
-        self.request.to_normal_finalize_request_v2()
     }
 }
 
@@ -429,62 +320,6 @@ impl CloudflareSigningWorkerMaterializedNormalSigningPrepareRequestV2 {
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             "SigningWorker v2 prepare material does not match active state",
-        ))
-    }
-}
-
-/// SigningWorker v2 presign-pool refill request after active material lookup.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerMaterializedNormalSigningPresignPoolPrepareRequestV2 {
-    /// Router-admitted v2 presign-pool refill request.
-    pub request: CloudflareSigningWorkerAdmittedNormalSigningPresignPoolPrepareRequestV2,
-    /// Active SigningWorker state selected by the Router.
-    pub active_signing_worker: ActiveSigningWorkerStateV1,
-    /// Active SigningWorker material opened during activation.
-    pub material: CloudflareServerOutputMaterialRecordV1,
-    /// Prepare timestamp in Unix milliseconds.
-    pub prepared_at_ms: u64,
-}
-
-impl CloudflareSigningWorkerMaterializedNormalSigningPresignPoolPrepareRequestV2 {
-    /// Creates a validated materialized v2 presign-pool refill request.
-    pub fn new(
-        request: CloudflareSigningWorkerAdmittedNormalSigningPresignPoolPrepareRequestV2,
-        active_signing_worker: ActiveSigningWorkerStateV1,
-        material: CloudflareServerOutputMaterialRecordV1,
-        prepared_at_ms: u64,
-    ) -> RouterAbProtocolResult<Self> {
-        let request = Self {
-            request,
-            active_signing_worker,
-            material,
-            prepared_at_ms,
-        };
-        request.validate()?;
-        Ok(request)
-    }
-
-    /// Validates forwarded v2 presign-pool refill request and active material agree.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.request.validate()?;
-        self.request.request.validate_at(self.prepared_at_ms)?;
-        self.active_signing_worker
-            .validate_for_scope(&self.request.request.scope)?;
-        self.material.validate()?;
-        require_positive_ms(
-            "normal-signing v2 presign-pool prepared_at_ms",
-            self.prepared_at_ms,
-        )?;
-        if self.material.transcript_digest
-            == self.active_signing_worker.activation_transcript_digest
-            && self.material.recipient_identity
-                == self.active_signing_worker.signing_worker.server_id
-        {
-            return Ok(());
-        }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker v2 presign-pool material does not match active state",
         ))
     }
 }
@@ -944,14 +779,10 @@ impl CloudflareSigningWorkerNormalSigningRound1PreparedV1 {
         self.response.validate()?;
         self.record.validate()?;
         let round1_binding_digest = request.request.round1_binding_digest()?;
-        let expected_commitments =
-            cloudflare_normal_signing_commitments_wire_from_role_separated_v1(
-                self.record.round1_state.commitments,
-            )?;
-        let expected_server_verifying_share = role_separated_ed25519_server_verifying_share_v1(
-            *request.material.output_material.as_bytes(),
-        )
-        .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)?;
+        let expected_commitments = self.record.round1_state.commitments.clone();
+        let expected_server_verifying_share = verifying_share_bytes_from_signing_share_bytes(
+            request.material.output_material.as_bytes(),
+        );
         if self.response.scope == request.request.scope
             && self.response.signing_payload_digest
                 == request.request.admission_candidate.signing_payload_digest
@@ -978,108 +809,12 @@ impl CloudflareSigningWorkerNormalSigningRound1PreparedV1 {
     }
 }
 
-/// SigningWorker-produced Ed25519 presign-pool records plus public refill response.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerNormalSigningPresignPoolPreparedV2 {
-    /// Public response returned to the client through Router.
-    pub response: RouterAbEd25519PresignPoolPrepareResponseV2,
-    /// Private unbound nonce records persisted by the SigningWorker Durable Object.
-    pub records: Vec<CloudflareSigningWorkerEd25519PresignPoolRecordV1>,
-}
-
-impl CloudflareSigningWorkerNormalSigningPresignPoolPreparedV2 {
-    /// Creates a validated presign-pool refill bundle.
-    pub fn new_v2(
-        response: RouterAbEd25519PresignPoolPrepareResponseV2,
-        records: Vec<CloudflareSigningWorkerEd25519PresignPoolRecordV1>,
-        request: &CloudflareSigningWorkerMaterializedNormalSigningPresignPoolPrepareRequestV2,
-    ) -> RouterAbProtocolResult<Self> {
-        let prepared = Self { response, records };
-        prepared.validate_for_v2_request(request)?;
-        Ok(prepared)
-    }
-
-    /// Validates the public response and private records bind to a materialized refill request.
-    pub fn validate_for_v2_request(
-        &self,
-        request: &CloudflareSigningWorkerMaterializedNormalSigningPresignPoolPrepareRequestV2,
-    ) -> RouterAbProtocolResult<()> {
-        request.validate()?;
-        self.response
-            .validate_for_request(&request.request.request)?;
-        if self.response.accepted.len() != self.records.len() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "SigningWorker presign-pool response and record count differ",
-            ));
-        }
-        for accepted in &self.response.accepted {
-            let offer = request
-                .request
-                .request
-                .client_offers
-                .iter()
-                .find(|offer| offer.client_presign_id == accepted.client_presign_id)
-                .ok_or_else(|| {
-                    RouterAbProtocolError::new(
-                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                        "accepted presign-pool entry has no originating offer",
-                    )
-                })?;
-            let record = self
-                .records
-                .iter()
-                .find(|record| {
-                    record.client_presign_id == accepted.client_presign_id
-                        && record.server_round1_handle == accepted.server_round1_handle
-                })
-                .ok_or_else(|| {
-                    RouterAbProtocolError::new(
-                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                        "accepted presign-pool entry has no matching durable record",
-                    )
-                })?;
-            record.validate()?;
-            let expected_server_commitments =
-                cloudflare_normal_signing_commitments_wire_from_role_separated_v1(
-                    record.server_round1_state.commitments,
-                )?;
-            if record.active_signing_worker_state == request.active_signing_worker
-                && record.scope == request.request.request.scope
-                && record.client_presign_id == offer.client_presign_id
-                && record.client_nonce_handle == offer.client_nonce_handle
-                && record.generation == request.request.request.generation
-                && record.pool_entry_binding_digest
-                    == request.request.request.pool_entry_binding_digest(offer)?
-                && record.client_commitments == offer.client_commitments
-                && record.client_verifying_share_b64u == offer.client_verifying_share_b64u
-                && record.created_at_ms == request.prepared_at_ms
-                && record.expires_at_ms == request.request.request.expires_at_ms
-                && accepted.generation == record.generation
-                && accepted.pool_entry_binding_digest == record.pool_entry_binding_digest
-                && accepted.signing_worker == request.active_signing_worker.signing_worker
-                && accepted.server_commitments == expected_server_commitments
-                && accepted.server_verifying_share_b64u == record.server_verifying_share_b64u
-                && accepted.prepared_at_ms == request.prepared_at_ms
-                && accepted.expires_at_ms == record.expires_at_ms
-            {
-                continue;
-            }
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "SigningWorker presign-pool record does not match accepted response entry",
-            ));
-        }
-        Ok(())
-    }
-}
-
-/// Production SigningWorker normal-signing handler for role-separated Ed25519-HSS.
+/// Production SigningWorker normal-signing handler for Yao-derived Ed25519 shares.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CloudflareRoleSeparatedEd25519NormalSigningHandlerV1;
+pub struct CloudflareEd25519YaoNormalSigningHandlerV1;
 
 impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2
-    for CloudflareRoleSeparatedEd25519NormalSigningHandlerV1
+    for CloudflareEd25519YaoNormalSigningHandlerV1
 {
     fn handle_normal_signing_prepare_request_v2(
         &self,
@@ -1087,8 +822,10 @@ impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningRound1PreparedV1> {
         request.validate()?;
         let mut rng = CloudflareSignerProofGetrandomRngV1;
-        let round1_state = prepare_role_separated_ed25519_round1_v1(&mut rng)
-            .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)?;
+        let round1_state = prepare_cloudflare_ed25519_round1_v1(
+            request.material.output_material.as_bytes(),
+            &mut rng,
+        )?;
         let mut handle_random = [0u8; 16];
         rand_core_06::RngCore::fill_bytes(&mut rng, &mut handle_random);
         let server_round1_handle = format!(
@@ -1096,13 +833,10 @@ impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2
             request.request.scope.request_id,
             encode_base64url_bytes_v1(&handle_random)
         );
-        let server_verifying_share = role_separated_ed25519_server_verifying_share_v1(
-            *request.material.output_material.as_bytes(),
-        )
-        .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)?;
-        let server_commitments = cloudflare_normal_signing_commitments_wire_from_role_separated_v1(
-            round1_state.commitments,
-        )?;
+        let server_verifying_share = verifying_share_bytes_from_signing_share_bytes(
+            request.material.output_material.as_bytes(),
+        );
+        let server_commitments = round1_state.commitments.clone();
         let round1_binding_digest = request.request.round1_binding_digest()?;
         let record = CloudflareSigningWorkerRound1RecordV1::new(
             request.active_signing_worker.clone(),
@@ -1129,85 +863,8 @@ impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2
     }
 }
 
-impl CloudflareSigningWorkerNormalSigningPresignPoolPrepareHandlerV2
-    for CloudflareRoleSeparatedEd25519NormalSigningHandlerV1
-{
-    fn handle_normal_signing_presign_pool_prepare_request_v2(
-        &self,
-        request: CloudflareSigningWorkerMaterializedNormalSigningPresignPoolPrepareRequestV2,
-    ) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningPresignPoolPreparedV2> {
-        request.validate()?;
-        let mut rng = CloudflareSignerProofGetrandomRngV1;
-        let server_verifying_share = role_separated_ed25519_server_verifying_share_v1(
-            *request.material.output_material.as_bytes(),
-        )
-        .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)?;
-        let server_verifying_share_b64u = encode_base64url_bytes_v1(&server_verifying_share);
-        let mut accepted = Vec::with_capacity(request.request.request.client_offers.len());
-        let mut records = Vec::with_capacity(request.request.request.client_offers.len());
-
-        for offer in &request.request.request.client_offers {
-            let round1_state = prepare_role_separated_ed25519_round1_v1(&mut rng)
-                .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)?;
-            let mut handle_random = [0u8; 16];
-            rand_core_06::RngCore::fill_bytes(&mut rng, &mut handle_random);
-            let server_round1_handle = format!(
-                "server-round1-pool/{}/{}/{}",
-                request.request.request.generation,
-                offer.client_presign_id,
-                encode_base64url_bytes_v1(&handle_random)
-            );
-            let pool_entry_binding_digest =
-                request.request.request.pool_entry_binding_digest(offer)?;
-            let server_commitments =
-                cloudflare_normal_signing_commitments_wire_from_role_separated_v1(
-                    round1_state.commitments,
-                )?;
-            let record = CloudflareSigningWorkerEd25519PresignPoolRecordV1::new(
-                request.active_signing_worker.clone(),
-                request.request.request.scope.clone(),
-                offer.client_presign_id.clone(),
-                offer.client_nonce_handle.clone(),
-                request.request.request.generation,
-                pool_entry_binding_digest,
-                server_round1_handle.clone(),
-                offer.client_commitments.clone(),
-                offer.client_verifying_share_b64u.clone(),
-                round1_state,
-                server_verifying_share_b64u.clone(),
-                request.prepared_at_ms,
-                request.request.request.expires_at_ms,
-            )?;
-            let accepted_entry = RouterAbEd25519PresignPoolAcceptedEntryV2::new(
-                offer.client_presign_id.clone(),
-                request.request.request.generation,
-                pool_entry_binding_digest,
-                request.active_signing_worker.signing_worker.clone(),
-                server_round1_handle,
-                server_commitments,
-                server_verifying_share_b64u.clone(),
-                NormalSigningSignatureSchemeV1::Ed25519V1,
-                request.prepared_at_ms,
-                request.request.request.expires_at_ms,
-            )?;
-            records.push(record);
-            accepted.push(accepted_entry);
-        }
-
-        let response = RouterAbEd25519PresignPoolPrepareResponseV2::new(
-            request.request.request.scope.clone(),
-            request.request.request.generation,
-            accepted,
-            vec![],
-        )?;
-        CloudflareSigningWorkerNormalSigningPresignPoolPreparedV2::new_v2(
-            response, records, &request,
-        )
-    }
-}
-
 impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2
-    for CloudflareRoleSeparatedEd25519NormalSigningHandlerV1
+    for CloudflareEd25519YaoNormalSigningHandlerV1
 {
     fn handle_normal_signing_finalize_request_v2(
         &self,
@@ -1218,48 +875,90 @@ impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2
         let RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
             protocol,
         ) = &finalize_request.protocol;
-        let server_commitments =
-            decode_cloudflare_normal_signing_commitments_v1(&protocol.server_commitments)?;
-        if server_commitments != request.server_round1.round1_state.commitments {
+        if protocol.server_commitments != request.server_round1.round1_state.commitments {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 "normal-signing v2 server commitments do not match stored round-1 material",
             ));
         }
-        let output = finalize_role_separated_ed25519_server_signature_v1(
-            RoleSeparatedEd25519ServerFinalizeRequestV1 {
-                x_server_base: *request.material.output_material.as_bytes(),
-                server_round1: &request.server_round1.round1_state,
-                group_public_key: decode_cloudflare_near_ed25519_public_key_v1(
-                    "active SigningWorker account_public_key",
-                    &request.active_signing_worker.account_public_key,
-                )?,
-                client_commitments: decode_cloudflare_normal_signing_commitments_v1(
-                    &protocol.client_commitments,
-                )?,
-                server_commitments,
-                client_verifying_share: decode_base64url_fixed_32_v1(
-                    "normal-signing v2 client_verifying_share_b64u",
-                    &protocol.client_verifying_share_b64u,
-                )?,
-                server_verifying_share: decode_base64url_fixed_32_v1(
-                    "normal-signing v2 server_verifying_share_b64u",
-                    &protocol.server_verifying_share_b64u,
-                )?,
-                client_signature_share: decode_base64url_fixed_32_v1(
-                    "normal-signing v2 client_signature_share_b64u",
-                    &protocol.client_signature_share_b64u,
-                )?,
-                signing_payload: request.server_round1.admitted_signing_digest.as_bytes(),
-            },
+        let server_commitments =
+            decode_cloudflare_normal_signing_commitments_v1(&protocol.server_commitments)?;
+        let group_public_key = decode_cloudflare_near_ed25519_public_key_v1(
+            "active SigningWorker account_public_key",
+            &request.active_signing_worker.account_public_key,
+        )?;
+        let expected_server_verifying_share = verifying_share_bytes_from_signing_share_bytes(
+            request.material.output_material.as_bytes(),
+        );
+        let supplied_server_verifying_share = decode_base64url_fixed_32_v1(
+            "normal-signing v2 server_verifying_share_b64u",
+            &protocol.server_verifying_share_b64u,
+        )?;
+        if supplied_server_verifying_share != expected_server_verifying_share {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "normal-signing server verifying share does not match active Yao material",
+            ));
+        }
+        let client_identifier = frost_ed25519::Identifier::try_from(1_u16)
+            .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+        let signing_worker_identifier = frost_ed25519::Identifier::try_from(2_u16)
+            .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+        let mut key_package = key_package_from_signing_share_bytes(
+            request.material.output_material.as_bytes(),
+            &group_public_key,
+            signing_worker_identifier,
         )
-        .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)?;
+        .map_err(map_cloudflare_signer_core_error_v1)?;
+        let signing_package = build_signing_package(
+            request.server_round1.admitted_signing_digest.as_bytes(),
+            BTreeMap::from([
+                (
+                    client_identifier,
+                    decode_cloudflare_normal_signing_commitments_v1(&protocol.client_commitments)?,
+                ),
+                (signing_worker_identifier, server_commitments),
+            ]),
+        );
+        let mut signing_nonces = request.server_round1.round1_state.signing_nonces()?;
+        let signing_worker_signature_share =
+            frost_ed25519::round2::sign(&signing_package, &signing_nonces, &key_package)
+                .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+        zeroize::Zeroize::zeroize(&mut signing_nonces);
+        zeroize::Zeroize::zeroize(&mut key_package);
+        let verifying_key = frost_ed25519::VerifyingKey::deserialize(&group_public_key)
+            .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+        let signature = aggregate_signature(
+            &signing_package,
+            verifying_key,
+            BTreeMap::from([
+                (
+                    client_identifier,
+                    verifying_share_from_b64u(&protocol.client_verifying_share_b64u)
+                        .map_err(map_cloudflare_signer_core_error_v1)?,
+                ),
+                (
+                    signing_worker_identifier,
+                    verifying_share_from_b64u(&protocol.server_verifying_share_b64u)
+                        .map_err(map_cloudflare_signer_core_error_v1)?,
+                ),
+            ]),
+            BTreeMap::from([
+                (
+                    client_identifier,
+                    signature_share_from_b64u(&protocol.client_signature_share_b64u)
+                        .map_err(map_cloudflare_signer_core_error_v1)?,
+                ),
+                (signing_worker_identifier, signing_worker_signature_share),
+            ]),
+        )
+        .map_err(map_cloudflare_signer_core_error_v1)?;
         NormalSigningResponseV1::new(
             finalize_request.scope.clone(),
             finalize_request.signing_payload_digest(),
             request.active_signing_worker.signing_worker.clone(),
             finalize_request.protocol.signature_scheme(),
-            CanonicalWireBytesV1::new(output.signature.to_vec())?,
+            CanonicalWireBytesV1::new(signature.to_vec())?,
             request.signed_at_ms,
         )
     }
@@ -1327,21 +1026,31 @@ impl CloudflareSigningWorkerEcdsaHssEvmDigestFinalizeHandlerV1
 
 fn decode_cloudflare_normal_signing_commitments_v1(
     commitments: &NormalSigningEd25519TwoPartyFrostCommitmentsV1,
-) -> RouterAbProtocolResult<RoleSeparatedEd25519CommitmentsV1> {
-    RoleSeparatedEd25519CommitmentsV1::new(
-        decode_base64url_fixed_32_v1("normal-signing commitments.hiding", &commitments.hiding)?,
-        decode_base64url_fixed_32_v1("normal-signing commitments.binding", &commitments.binding)?,
+) -> RouterAbProtocolResult<frost_ed25519::round1::SigningCommitments> {
+    let hiding = frost_ed25519::round1::NonceCommitment::deserialize(
+        &decode_base64url_fixed_32_v1("normal-signing commitments.hiding", &commitments.hiding)?,
     )
-    .map_err(map_cloudflare_ed25519_hss_normal_signing_error_v1)
+    .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+    let binding = frost_ed25519::round1::NonceCommitment::deserialize(
+        &decode_base64url_fixed_32_v1("normal-signing commitments.binding", &commitments.binding)?,
+    )
+    .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+    Ok(frost_ed25519::round1::SigningCommitments::new(
+        hiding, binding,
+    ))
 }
 
-pub(crate) fn cloudflare_normal_signing_commitments_wire_from_role_separated_v1(
-    commitments: RoleSeparatedEd25519CommitmentsV1,
-) -> RouterAbProtocolResult<NormalSigningEd25519TwoPartyFrostCommitmentsV1> {
-    NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
-        encode_base64url_bytes_v1(&commitments.hiding),
-        encode_base64url_bytes_v1(&commitments.binding),
-    )
+fn prepare_cloudflare_ed25519_round1_v1<Rng>(
+    signing_share_bytes: &[u8; 32],
+    rng: &mut Rng,
+) -> RouterAbProtocolResult<CloudflareEd25519Round1StateV1>
+where
+    Rng: rand_core_06::CryptoRng + rand_core_06::RngCore,
+{
+    let signing_share = frost_ed25519::keys::SigningShare::deserialize(signing_share_bytes)
+        .map_err(map_cloudflare_ed25519_frost_error_v1)?;
+    let (signing_nonces, commitments) = frost_ed25519::round1::commit(&signing_share, rng);
+    CloudflareEd25519Round1StateV1::new(signing_nonces, commitments)
 }
 
 fn decode_cloudflare_near_ed25519_public_key_v1(
@@ -1369,12 +1078,28 @@ fn decode_cloudflare_near_ed25519_public_key_v1(
     Ok(bytes)
 }
 
-fn map_cloudflare_ed25519_hss_normal_signing_error_v1(
-    err: ed25519_hss::shared::ProtoError,
-) -> RouterAbProtocolError {
+fn map_cloudflare_ed25519_frost_error_v1(error: impl core::fmt::Display) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::MalformedWirePayload,
-        format!("role-separated Ed25519-HSS normal signing failed: {err}"),
+        format!("Ed25519 FROST signing failed: {error}"),
+    )
+}
+
+fn map_cloudflare_signer_core_error_v1(error: SignerCoreError) -> RouterAbProtocolError {
+    let code = match error.code {
+        SignerCoreErrorCode::InvalidInput
+        | SignerCoreErrorCode::InvalidLength
+        | SignerCoreErrorCode::DecodeError
+        | SignerCoreErrorCode::Utf8Error
+        | SignerCoreErrorCode::Unsupported => RouterAbProtocolErrorCode::MalformedWirePayload,
+        SignerCoreErrorCode::EncodeError
+        | SignerCoreErrorCode::HkdfError
+        | SignerCoreErrorCode::CryptoError
+        | SignerCoreErrorCode::Internal => RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+    };
+    RouterAbProtocolError::new(
+        code,
+        format!("Ed25519 FROST signing failed: {}", error.message),
     )
 }
 

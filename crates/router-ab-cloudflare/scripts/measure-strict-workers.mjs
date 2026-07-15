@@ -10,14 +10,14 @@ const roles = [
     outDir: "build/router",
   },
   {
-    label: "signer-a",
-    feature: "strict-worker-signer-a-entrypoint",
-    outDir: "build/signer-a",
+    label: "deriver-a",
+    feature: "strict-worker-deriver-a-entrypoint",
+    outDir: "build/deriver-a",
   },
   {
-    label: "signer-b",
-    feature: "strict-worker-signer-b-entrypoint",
-    outDir: "build/signer-b",
+    label: "deriver-b",
+    feature: "strict-worker-deriver-b-entrypoint",
+    outDir: "build/deriver-b",
   },
   {
     label: "signing-worker",

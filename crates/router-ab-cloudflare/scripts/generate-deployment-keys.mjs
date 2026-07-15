@@ -23,7 +23,7 @@ Options:
                     Pass an explicit repository to gh.
 
 This command generates deployment identity keys only. It does not generate
-SIGNER_A_ROOT_SHARE_WIRE_SECRET or SIGNER_B_ROOT_SHARE_WIRE_SECRET.`);
+DERIVER_A_ROOT_SHARE_WIRE_SECRET or DERIVER_B_ROOT_SHARE_WIRE_SECRET.`);
   process.exit(envName ? 0 : 1);
 }
 
@@ -34,18 +34,18 @@ const deriverAPeer = generateEd25519KeyPair();
 const deriverBPeer = generateEd25519KeyPair();
 
 const variables = {
-  ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: deriverAEnvelope.publicKey,
-  ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: deriverBEnvelope.publicKey,
+  ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: deriverAEnvelope.publicKey,
+  ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: deriverBEnvelope.publicKey,
   ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: signingWorkerServerOutput.publicKey,
-  ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: deriverAPeer.publicKeyHex,
-  ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX: deriverBPeer.publicKeyHex,
+  ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: deriverAPeer.publicKeyHex,
+  ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: deriverBPeer.publicKeyHex,
 };
 
 const secrets = {
-  SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverAEnvelope.privateKeyHex}`,
-  SIGNER_A_PEER_SIGNING_KEY: deriverAPeer.signingSeedB64u,
-  SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBEnvelope.privateKeyHex}`,
-  SIGNER_B_PEER_SIGNING_KEY: deriverBPeer.signingSeedB64u,
+  DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverAEnvelope.privateKeyHex}`,
+  DERIVER_A_PEER_SIGNING_KEY: deriverAPeer.signingSeedB64u,
+  DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBEnvelope.privateKeyHex}`,
+  DERIVER_B_PEER_SIGNING_KEY: deriverBPeer.signingSeedB64u,
   SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: `hpke-x25519-server-output-private-v1:${signingWorkerServerOutput.privateKeyHex}`,
 };
 
@@ -54,7 +54,7 @@ const output = {
   generatedAt: new Date().toISOString(),
   variables,
   secrets: showSecrets ? secrets : redactObject(secrets),
-  notGenerated: ['SIGNER_A_ROOT_SHARE_WIRE_SECRET', 'SIGNER_B_ROOT_SHARE_WIRE_SECRET'],
+  notGenerated: ['DERIVER_A_ROOT_SHARE_WIRE_SECRET', 'DERIVER_B_ROOT_SHARE_WIRE_SECRET'],
 };
 
 if (apply) {

@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(feature = "strict-worker-signer-a-entrypoint")]
+#[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 pub(super) async fn handle_strict_deriver_a_fetch_v1(
     request: Request,
     env: Env,
@@ -16,90 +16,90 @@ pub(super) async fn handle_strict_deriver_a_fetch_v1(
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 enum StrictDeriverRuntimeV1 {
-    #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+    #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
     DeriverA(CloudflareDeriverAWorkerRuntimeV1),
-    #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
     DeriverB(CloudflareDeriverBWorkerRuntimeV1),
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 impl StrictDeriverRuntimeV1 {
     fn label(&self) -> &'static str {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(_) => "Deriver A",
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(_) => "Deriver B",
         }
     }
 
     fn worker_role(&self) -> CloudflareWorkerRoleV1 {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
-            Self::DeriverA(_) => CloudflareWorkerRoleV1::SignerA,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
-            Self::DeriverB(_) => CloudflareWorkerRoleV1::SignerB,
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(_) => CloudflareWorkerRoleV1::DeriverA,
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(_) => CloudflareWorkerRoleV1::DeriverB,
         }
     }
 
     fn protocol_role(&self) -> Role {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(_) => Role::SignerA,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(_) => Role::SignerB,
         }
     }
 
     fn bootstrap_private_path(&self) -> &'static str {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_SIGNER_B_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
         }
     }
 
     fn registration_private_path(&self) -> &'static str {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_SIGNER_A_ECDSA_HSS_REGISTRATION_PRIVATE_REQUEST_PATH,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_SIGNER_B_ECDSA_HSS_REGISTRATION_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_REGISTRATION_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_REGISTRATION_PRIVATE_REQUEST_PATH,
         }
     }
 
     fn export_private_path(&self) -> &'static str {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH,
         }
     }
 
     fn recovery_private_path(&self) -> &'static str {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_SIGNER_A_ECDSA_HSS_RECOVERY_PRIVATE_REQUEST_PATH,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_SIGNER_B_ECDSA_HSS_RECOVERY_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_RECOVERY_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_RECOVERY_PRIVATE_REQUEST_PATH,
         }
     }
 
     fn refresh_private_path(&self) -> &'static str {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_SIGNER_A_ECDSA_HSS_REFRESH_PRIVATE_REQUEST_PATH,
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_SIGNER_B_ECDSA_HSS_REFRESH_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_REFRESH_PRIVATE_REQUEST_PATH,
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_REFRESH_PRIVATE_REQUEST_PATH,
         }
     }
 
@@ -108,36 +108,36 @@ impl StrictDeriverRuntimeV1 {
         signer_set: &SignerSetV1,
     ) -> RouterAbProtocolResult<Vec<AbPeerMessageVerifyingKeyV1>> {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(runtime) => runtime.peer_verifying_keys_for_signer_set(signer_set),
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(runtime) => runtime.peer_verifying_keys_for_signer_set(signer_set),
         }
     }
 
     fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1 {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(runtime) => runtime.envelope_decrypt_key(),
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(runtime) => runtime.envelope_decrypt_key(),
         }
     }
 
     fn peer_signing_key(&self) -> &CloudflareSignerPeerSigningKeyBindingV1 {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(runtime) => runtime.peer_signing_key(),
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(runtime) => runtime.peer_signing_key(),
         }
     }
 
     fn signing_worker_peer(&self) -> &CloudflarePeerBindingV1 {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(runtime) => runtime.signing_worker_peer(),
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(runtime) => runtime.signing_worker_peer(),
         }
     }
@@ -148,11 +148,11 @@ impl StrictDeriverRuntimeV1 {
         input: CloudflareSignerHostPreloadInputV1,
     ) -> RouterAbProtocolResult<CloudflarePreloadedSignerHostV1> {
         match self {
-            #[cfg(feature = "strict-worker-signer-a-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(runtime) => {
                 preload_cloudflare_deriver_a_host_v1(env, runtime, input).await
             }
-            #[cfg(feature = "strict-worker-signer-b-entrypoint")]
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(runtime) => {
                 preload_cloudflare_deriver_b_host_v1(env, runtime, input).await
             }
@@ -173,8 +173,8 @@ impl StrictDeriverRuntimeV1 {
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 struct StrictDeriverPreloadedRequestV1 {
     host: CloudflarePreloadedSignerHostV1,
@@ -182,8 +182,8 @@ struct StrictDeriverPreloadedRequestV1 {
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 async fn handle_strict_deriver_fetch_v1(
     mut request: Request,
@@ -431,8 +431,8 @@ async fn handle_strict_deriver_fetch_v1(
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 async fn parse_strict_deriver_json_v1<T>(
     request: &mut Request,
@@ -451,8 +451,8 @@ where
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 async fn preload_strict_deriver_request_v1(
     env: &Env,
@@ -470,8 +470,8 @@ async fn preload_strict_deriver_request_v1(
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 async fn preload_strict_deriver_host_v1(
     env: &Env,
@@ -492,8 +492,8 @@ async fn preload_strict_deriver_host_v1(
 }
 
 #[cfg(any(
-    feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
 ))]
 async fn send_strict_deriver_direct_activation_delivery_v1(
     env: &Env,
@@ -519,7 +519,7 @@ async fn send_strict_deriver_direct_activation_delivery_v1(
     Ok(())
 }
 
-#[cfg(feature = "strict-worker-signer-b-entrypoint")]
+#[cfg(feature = "strict-worker-deriver-b-entrypoint")]
 pub(super) async fn handle_strict_deriver_b_fetch_v1(
     request: Request,
     env: Env,

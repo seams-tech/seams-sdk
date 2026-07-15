@@ -1,8 +1,9 @@
 use router_ab_core::{
-    CandidateId, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1, LocalServiceRoleV1,
-    MpcPrfOutputRequestV1, OpenedShareKind, PublicDigest32, PublicRouterRequestContextV1,
-    PublicRouterRequestV1, ServerIdentityV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
-    RouterAbProtocolErrorCode, SignerIdentityV1, SignerSetV1, SigningWorkerActivationContextV1,
+    EcdsaThresholdPrfRequestContextV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
+    ExpensiveWorkKindV1, LifecycleScopeV1, LocalServiceRoleV1, MpcPrfOutputRequestV1,
+    OpenedShareKind, PublicDigest32, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
+    RouterAbProtocolErrorCode, ServerIdentityV1, SignerIdentityV1, SignerSetV1,
+    SigningWorkerActivationContextV1,
 };
 
 fn digest(seed: u8) -> PublicDigest32 {
@@ -54,11 +55,10 @@ fn envelope(role: Role, seed: u8) -> RoleEncryptedEnvelopeV1 {
 }
 
 fn transcript_digest() -> PublicDigest32 {
-    PublicRouterRequestContextV1::new(
+    EcdsaThresholdPrfRequestContextV1::new(
         "nonce-1",
         2_000,
         lifecycle(),
-        CandidateId::MpcThresholdPrfV1,
         signer_set(),
         "near-mainnet",
         "ed25519:account-public-key",
@@ -71,12 +71,11 @@ fn transcript_digest() -> PublicDigest32 {
     .expect("transcript digest")
 }
 
-fn public_request() -> PublicRouterRequestV1 {
-    PublicRouterRequestV1::new(
+fn threshold_prf_request() -> EcdsaThresholdPrfRequestV1 {
+    EcdsaThresholdPrfRequestV1::new(
         "nonce-1",
         2_000,
         lifecycle(),
-        CandidateId::MpcThresholdPrfV1,
         signer_set(),
         "near-mainnet",
         "ed25519:account-public-key",
@@ -117,7 +116,7 @@ fn production_output_authorization_matches_fv_opened_value_model() {
 
 #[test]
 fn signing_worker_activation_context_matches_public_transcript_state() {
-    let request = public_request();
+    let request = threshold_prf_request();
     let (payload_a, payload_b) = request.to_signer_payloads().expect("signer payloads");
     let context_a = SigningWorkerActivationContextV1::from_router_payload(&payload_a)
         .expect("activation context from A payload");
@@ -137,7 +136,7 @@ fn signing_worker_activation_context_matches_public_transcript_state() {
 
 #[test]
 fn signing_worker_activation_context_rejects_digest_and_epoch_drift() {
-    let request = public_request();
+    let request = threshold_prf_request();
     let (payload_a, _) = request.to_signer_payloads().expect("signer payloads");
     let context = SigningWorkerActivationContextV1::from_router_payload(&payload_a)
         .expect("activation context");

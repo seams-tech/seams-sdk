@@ -1,0 +1,24 @@
+[package]
+name = "router-ab-ed25519-yao"
+version = "0.1.0"
+edition = "2021"
+description = "Transport-neutral Router A/B composition adapter for Ed25519 Yao"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "router_ab_ed25519_yao"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+ed25519-yao = { path = "../ed25519-yao", features = ["local-protocol"] }
+router-ab-core = { path = "../router-ab-core" }
+serde = { version = "1.0", features = ["derive"] }
+signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519"] }
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+bs58 = "0.5"
+ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
+frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }

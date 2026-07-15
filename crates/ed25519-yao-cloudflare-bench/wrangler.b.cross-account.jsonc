@@ -1,0 +1,29 @@
+{
+  "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
+  "name": "ed25519-yao-ab-benchmark-b-cross-account",
+  "main": "build/deriver-b-cross-account/index.js",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "vars": {
+    "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
+    "BENCHMARK_CLASSIFICATION": "NON_PRODUCTION",
+    "BENCHMARK_TOPOLOGY": "CROSS_ACCOUNT_HTTPS"
+  },
+  "build": {
+    "command": "worker-build --release --out-dir build/deriver-b-cross-account --features deriver-b-cross-account",
+    "watch_dir": "src"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  }
+}

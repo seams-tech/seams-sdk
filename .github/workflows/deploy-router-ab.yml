@@ -10,7 +10,6 @@ on:
         default: staging
         options:
           - staging
-          - production
       operation:
         description: Router A/B operation
         required: true
@@ -50,11 +49,11 @@ jobs:
       ROUTER_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
       ROUTER_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
       ROUTER_JWT_JWKS_URL: ${{ vars.ROUTER_AB_JWT_JWKS_URL }}
-      SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
-      SIGNER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX }}
-      SIGNER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -94,8 +93,8 @@ jobs:
           set -euo pipefail
           for feature in \
             strict-worker-router-entrypoint \
-            strict-worker-signer-a-entrypoint \
-            strict-worker-signer-b-entrypoint \
+            strict-worker-deriver-a-entrypoint \
+            strict-worker-deriver-b-entrypoint \
             strict-worker-signing-worker-entrypoint
           do
             cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"
@@ -222,12 +221,12 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
-      SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX }}
-      SIGNER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX }}
-      SIGNER_A_ROOT_SHARE_WIRE_SECRET: ${{ secrets.SIGNER_A_ROOT_SHARE_WIRE_SECRET }}
-      SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY }}
-      SIGNER_A_PEER_SIGNING_KEY: ${{ secrets.SIGNER_A_PEER_SIGNING_KEY }}
+      DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_A_ROOT_SHARE_WIRE_SECRET: ${{ secrets.DERIVER_A_ROOT_SHARE_WIRE_SECRET }}
+      DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY }}
+      DERIVER_A_PEER_SIGNING_KEY: ${{ secrets.DERIVER_A_PEER_SIGNING_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -261,24 +260,24 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_API_TOKEN is required"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_ACCOUNT_ID is required"; exit 1; }
           test -n "${ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:-}" || { echo "::error title=Missing GitHub secret::ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET is required"; exit 1; }
-          test -n "${SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
-          test -n "${SIGNER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
-          test -n "${SIGNER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
-          test -n "${SIGNER_A_ROOT_SHARE_WIRE_SECRET:-}" || { echo "::error title=Missing GitHub secret::SIGNER_A_ROOT_SHARE_WIRE_SECRET is required"; exit 1; }
-          test -n "${SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY:-}" || { echo "::error title=Missing GitHub secret::SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY is required"; exit 1; }
-          test -n "${SIGNER_A_PEER_SIGNING_KEY:-}" || { echo "::error title=Missing GitHub secret::SIGNER_A_PEER_SIGNING_KEY is required"; exit 1; }
+          test -n "${DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
+          test -n "${DERIVER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${DERIVER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${DERIVER_A_ROOT_SHARE_WIRE_SECRET:-}" || { echo "::error title=Missing GitHub secret::DERIVER_A_ROOT_SHARE_WIRE_SECRET is required"; exit 1; }
+          test -n "${DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY:-}" || { echo "::error title=Missing GitHub secret::DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY is required"; exit 1; }
+          test -n "${DERIVER_A_PEER_SIGNING_KEY:-}" || { echo "::error title=Missing GitHub secret::DERIVER_A_PEER_SIGNING_KEY is required"; exit 1; }
 
       - name: Put Deriver A secrets
         run: |
           set -euo pipefail
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.signer-a.toml --env "$WORKER_ENV"
-          printf '%s' "$SIGNER_A_ROOT_SHARE_WIRE_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNER_A_ROOT_SHARE_WIRE_SECRET --config wrangler.signer-a.toml --env "$WORKER_ENV"
-          printf '%s' "$SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.signer-a.toml --env "$WORKER_ENV"
-          printf '%s' "$SIGNER_A_PEER_SIGNING_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNER_A_PEER_SIGNING_KEY --config wrangler.signer-a.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+          printf '%s' "$DERIVER_A_ROOT_SHARE_WIRE_SECRET" \
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_ROOT_SHARE_WIRE_SECRET --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+          printf '%s' "$DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY" \
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+          printf '%s' "$DERIVER_A_PEER_SIGNING_KEY" \
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_PEER_SIGNING_KEY --config wrangler.deriver-a.toml --env "$WORKER_ENV"
 
       - name: Upload Deriver A version
         if: inputs.operation == 'upload-version'
@@ -292,11 +291,11 @@ jobs:
         if: inputs.operation == 'deploy'
         run: |
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
-            --config wrangler.signer-a.toml \
+            --config wrangler.deriver-a.toml \
             --env "$WORKER_ENV" \
-            --var "SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:${SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY}" \
-            --var "SIGNER_A_PEER_VERIFYING_KEY_HEX:${SIGNER_A_PEER_VERIFYING_KEY_HEX}" \
-            --var "SIGNER_B_PEER_VERIFYING_KEY_HEX:${SIGNER_B_PEER_VERIFYING_KEY_HEX}"
+            --var "DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY}" \
+            --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
+            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}"
 
       - name: Upload Deriver A report
         if: always()
@@ -326,12 +325,12 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
-      SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX }}
-      SIGNER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX }}
-      SIGNER_B_ROOT_SHARE_WIRE_SECRET: ${{ secrets.SIGNER_B_ROOT_SHARE_WIRE_SECRET }}
-      SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY }}
-      SIGNER_B_PEER_SIGNING_KEY: ${{ secrets.SIGNER_B_PEER_SIGNING_KEY }}
+      DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_ROOT_SHARE_WIRE_SECRET: ${{ secrets.DERIVER_B_ROOT_SHARE_WIRE_SECRET }}
+      DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY }}
+      DERIVER_B_PEER_SIGNING_KEY: ${{ secrets.DERIVER_B_PEER_SIGNING_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -365,24 +364,24 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_API_TOKEN is required"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_ACCOUNT_ID is required"; exit 1; }
           test -n "${ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:-}" || { echo "::error title=Missing GitHub secret::ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET is required"; exit 1; }
-          test -n "${SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
-          test -n "${SIGNER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
-          test -n "${SIGNER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
-          test -n "${SIGNER_B_ROOT_SHARE_WIRE_SECRET:-}" || { echo "::error title=Missing GitHub secret::SIGNER_B_ROOT_SHARE_WIRE_SECRET is required"; exit 1; }
-          test -n "${SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY:-}" || { echo "::error title=Missing GitHub secret::SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY is required"; exit 1; }
-          test -n "${SIGNER_B_PEER_SIGNING_KEY:-}" || { echo "::error title=Missing GitHub secret::SIGNER_B_PEER_SIGNING_KEY is required"; exit 1; }
+          test -n "${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
+          test -n "${DERIVER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${DERIVER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${DERIVER_B_ROOT_SHARE_WIRE_SECRET:-}" || { echo "::error title=Missing GitHub secret::DERIVER_B_ROOT_SHARE_WIRE_SECRET is required"; exit 1; }
+          test -n "${DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY:-}" || { echo "::error title=Missing GitHub secret::DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY is required"; exit 1; }
+          test -n "${DERIVER_B_PEER_SIGNING_KEY:-}" || { echo "::error title=Missing GitHub secret::DERIVER_B_PEER_SIGNING_KEY is required"; exit 1; }
 
       - name: Put Deriver B secrets
         run: |
           set -euo pipefail
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.signer-b.toml --env "$WORKER_ENV"
-          printf '%s' "$SIGNER_B_ROOT_SHARE_WIRE_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNER_B_ROOT_SHARE_WIRE_SECRET --config wrangler.signer-b.toml --env "$WORKER_ENV"
-          printf '%s' "$SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.signer-b.toml --env "$WORKER_ENV"
-          printf '%s' "$SIGNER_B_PEER_SIGNING_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNER_B_PEER_SIGNING_KEY --config wrangler.signer-b.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+          printf '%s' "$DERIVER_B_ROOT_SHARE_WIRE_SECRET" \
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_ROOT_SHARE_WIRE_SECRET --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+          printf '%s' "$DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY" \
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+          printf '%s' "$DERIVER_B_PEER_SIGNING_KEY" \
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_PEER_SIGNING_KEY --config wrangler.deriver-b.toml --env "$WORKER_ENV"
 
       - name: Upload Deriver B version
         if: inputs.operation == 'upload-version'
@@ -396,11 +395,11 @@ jobs:
         if: inputs.operation == 'deploy'
         run: |
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
-            --config wrangler.signer-b.toml \
+            --config wrangler.deriver-b.toml \
             --env "$WORKER_ENV" \
-            --var "SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:${SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
-            --var "SIGNER_A_PEER_VERIFYING_KEY_HEX:${SIGNER_A_PEER_VERIFYING_KEY_HEX}" \
-            --var "SIGNER_B_PEER_VERIFYING_KEY_HEX:${SIGNER_B_PEER_VERIFYING_KEY_HEX}"
+            --var "DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
+            --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
+            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}"
 
       - name: Upload Deriver B report
         if: always()
@@ -442,11 +441,11 @@ jobs:
       ROUTER_AB_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
       ROUTER_AB_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
       ROUTER_AB_JWT_JWKS_URL: ${{ vars.ROUTER_AB_JWT_JWKS_URL }}
-      SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
-      SIGNER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX }}
-      SIGNER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -483,11 +482,11 @@ jobs:
           test -n "${ROUTER_AB_JWT_ISSUER:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_JWT_ISSUER is required"; exit 1; }
           test -n "${ROUTER_AB_JWT_AUDIENCE:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_JWT_AUDIENCE is required"; exit 1; }
           test -n "${ROUTER_AB_JWT_JWKS_URL:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_JWT_JWKS_URL is required"; exit 1; }
-          test -n "${SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
-          test -n "${SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
+          test -n "${DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
+          test -n "${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY is required"; exit 1; }
           test -n "${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY is required"; exit 1; }
-          test -n "${SIGNER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
-          test -n "${SIGNER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${DERIVER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${DERIVER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
 
       - name: Put Router secrets
         run: |
@@ -512,10 +511,10 @@ jobs:
             --var "ROUTER_JWT_ISSUER:${ROUTER_AB_JWT_ISSUER}" \
             --var "ROUTER_JWT_AUDIENCE:${ROUTER_AB_JWT_AUDIENCE}" \
             --var "ROUTER_JWT_JWKS_URL:${ROUTER_AB_JWT_JWKS_URL}" \
-            --var "SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:${SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY}" \
-            --var "SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:${SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
-            --var "SIGNER_A_PEER_VERIFYING_KEY_HEX:${SIGNER_A_PEER_VERIFYING_KEY_HEX}" \
-            --var "SIGNER_B_PEER_VERIFYING_KEY_HEX:${SIGNER_B_PEER_VERIFYING_KEY_HEX}" \
+            --var "DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY}" \
+            --var "DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
+            --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
+            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}" \
             --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}"
 
       - name: Upload Router report

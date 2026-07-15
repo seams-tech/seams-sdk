@@ -19,8 +19,6 @@ pub struct CloudflareDurableObjectMemoryStorageV1 {
     >,
     active_signing_worker_states: BTreeMap<String, ActiveSigningWorkerStateV1>,
     signing_worker_round1_records: BTreeMap<String, CloudflareSigningWorkerRound1RecordV1>,
-    signing_worker_ed25519_presign_pool_records:
-        BTreeMap<String, CloudflareSigningWorkerEd25519PresignPoolRecordV1>,
     signing_worker_ecdsa_presignature_records:
         BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>,
     signing_worker_ecdsa_presignature_pool_records:
@@ -139,15 +137,6 @@ impl CloudflareDurableObjectMemoryStorageV1 {
         storage_key: &str,
     ) -> Option<&CloudflareSigningWorkerEcdsaPresignatureRecordV1> {
         self.signing_worker_ecdsa_presignature_records
-            .get(storage_key)
-    }
-
-    /// Reads a stored unbound Ed25519 presign-pool record for tests and local checks.
-    pub fn signing_worker_ed25519_presign_pool(
-        &self,
-        storage_key: &str,
-    ) -> Option<&CloudflareSigningWorkerEd25519PresignPoolRecordV1> {
-        self.signing_worker_ed25519_presign_pool_records
             .get(storage_key)
     }
 
@@ -435,54 +424,6 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         CloudflareExpiredStateCleanupReportV1::new(
             now_unix_ms,
             (before - self.signing_worker_round1_records.len()) as u64,
-            0,
-        )
-    }
-
-    fn signing_worker_ed25519_presign_pool(
-        &self,
-        storage_key: &str,
-    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEd25519PresignPoolRecordV1>> {
-        require_non_empty("storage_key", storage_key)?;
-        Ok(self
-            .signing_worker_ed25519_presign_pool_records
-            .get(storage_key)
-            .cloned())
-    }
-
-    fn put_signing_worker_ed25519_presign_pool(
-        &mut self,
-        storage_key: &str,
-        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
-    ) -> RouterAbProtocolResult<()> {
-        require_non_empty("storage_key", storage_key)?;
-        record.validate()?;
-        self.signing_worker_ed25519_presign_pool_records
-            .insert(storage_key.to_owned(), record);
-        Ok(())
-    }
-
-    fn take_signing_worker_ed25519_presign_pool(
-        &mut self,
-        storage_key: &str,
-    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEd25519PresignPoolRecordV1>> {
-        require_non_empty("storage_key", storage_key)?;
-        Ok(self
-            .signing_worker_ed25519_presign_pool_records
-            .remove(storage_key))
-    }
-
-    fn cleanup_expired_signing_worker_ed25519_presign_pool_records(
-        &mut self,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
-        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
-        let before = self.signing_worker_ed25519_presign_pool_records.len();
-        self.signing_worker_ed25519_presign_pool_records
-            .retain(|_, record| record.expires_at_ms > now_unix_ms);
-        CloudflareExpiredStateCleanupReportV1::new(
-            now_unix_ms,
-            (before - self.signing_worker_ed25519_presign_pool_records.len()) as u64,
             0,
         )
     }

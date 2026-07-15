@@ -1,0 +1,23 @@
+{
+  "benchmark": "phase9b-cloudflare-activation-128kib",
+  "benchmark_only": true,
+  "topology": "same-account-service-binding",
+  "region_label": "tokyo-runner-1",
+  "measurement_window": {
+    "start": "2026-07-13T00:10:00.000Z",
+    "end": "2026-07-13T00:20:00.000Z"
+  },
+  "requested_samples": 51,
+  "completed_samples": 51,
+  "success_count": 51,
+  "failure_count": 0,
+  "warm": {
+    "success_count": 50,
+    "metrics": {
+      "client_wall_ms": { "p95": 150, "p99": 170 }
+    }
+  },
+  "fixed_profile_ranges": {
+    "table_payload_bytes": { "min": 2104960, "max": 2104960 }
+  }
+}

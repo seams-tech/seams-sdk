@@ -61,9 +61,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
     if request.method() != Method::Post {
         return Response::error("Router A/B strict public route requires POST", 405);
     }
-    if path != CLOUDFLARE_ROUTER_SPLIT_DERIVATION_PUBLIC_REQUEST_PATH
-        && path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
-        && path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PUBLIC_REQUEST_PATH
+    if path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH
@@ -75,10 +73,8 @@ pub(super) async fn handle_strict_router_fetch_v1(
     {
         return Response::error(
             format!(
-                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
-                CLOUDFLARE_ROUTER_SPLIT_DERIVATION_PUBLIC_REQUEST_PATH,
+                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH,
@@ -176,44 +172,6 @@ pub(super) async fn handle_strict_router_fetch_v1(
         return router_json_cors_response_v1(response, &request, &env);
     }
 
-    if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict normal-signing v2 presign-pool prepare",
-        )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let prepare_request = match parse_router_public_body_v1(
-            &request_body,
-            parse_router_ab_ed25519_presign_pool_prepare_request_v2_json,
-            &request,
-            &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response = handle_cloudflare_router_normal_signing_presign_pool_prepare_authenticated_public_request_v2(
-            &env,
-            &runtime,
-            now_unix_ms,
-            prepare_request,
-            credential,
-            trusted_source_digest,
-            verifier,
-        )
-        .await;
-        return router_json_cors_response_v1(response, &request, &env);
-    }
-
     if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH {
         let request_body = match read_router_public_body_v1(
             &mut request,
@@ -225,57 +183,32 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(bytes) => bytes,
             Err(response) => return Ok(response),
         };
-        match parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json(&request_body) {
-            Ok((finalize_request, budget_metadata)) => {
-                let credential =
-                    match router_wallet_session_credential_v1(&authorization, &request, &env)? {
-                        Ok(credential) => credential,
-                        Err(response) => return Ok(response),
-                    };
-                let response = handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2(
-                    &env,
-                    &runtime,
-                    now_unix_ms,
-                    finalize_request,
-                    budget_metadata,
-                    credential,
-                    trusted_source_digest,
-                    verifier,
-                )
-                .await;
-                return router_json_cors_response_v1(response, &request, &env);
-            }
-            Err(finalize_err) => {
-                let pool_hit_request =
-                    match parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json(
-                        &request_body,
-                    ) {
-                        Ok(parsed) => parsed,
-                        Err(_) => {
-                            let response = cloudflare_protocol_error_response_v1(finalize_err)?;
-                            return cloudflare_router_normal_signing_response_v1(
-                                response, &request, &env,
-                            );
-                        }
-                    };
-                let credential =
-                    match router_wallet_session_credential_v1(&authorization, &request, &env)? {
-                        Ok(credential) => credential,
-                        Err(response) => return Ok(response),
-                    };
-                let response = handle_cloudflare_router_normal_signing_presign_pool_hit_finalize_authenticated_public_request_v2(
-                    &env,
-                    &runtime,
-                    now_unix_ms,
-                    pool_hit_request,
-                    credential,
-                    trusted_source_digest,
-                    verifier,
-                )
-                .await;
-                return router_json_cors_response_v1(response, &request, &env);
-            }
-        }
+        let (finalize_request, budget_metadata) =
+            match parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json(&request_body) {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    let response = cloudflare_protocol_error_response_v1(err)?;
+                    return cloudflare_router_normal_signing_response_v1(response, &request, &env);
+                }
+            };
+        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
+        {
+            Ok(credential) => credential,
+            Err(response) => return Ok(response),
+        };
+        let response =
+            handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2(
+                &env,
+                &runtime,
+                now_unix_ms,
+                finalize_request,
+                budget_metadata,
+                credential,
+                trusted_source_digest,
+                verifier,
+            )
+            .await;
+        return router_json_cors_response_v1(response, &request, &env);
     }
 
     if path == CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH {
@@ -489,29 +422,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
         return router_json_cors_response_v1(response, &request, &env);
     }
 
-    let public_request = match request.json::<PublicRouterRequestV1>().await {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            return Response::error(
-                format!("Router A/B strict public request JSON parse failed: {err}"),
-                400,
-            );
-        }
-    };
-    match handle_cloudflare_router_recipient_proof_bundle_authenticated_public_request_v1(
-        &env,
-        &runtime,
-        now_unix_ms,
-        public_request,
-        authorization,
-        trusted_source_digest,
-        verifier,
-    )
-    .await
-    {
-        Ok(response) => Response::from_json(&response),
-        Err(err) => cloudflare_protocol_error_response_v1(err),
-    }
+    Response::error("Router A/B strict public route is unavailable", 404)
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
@@ -595,7 +506,6 @@ fn is_cloudflare_router_public_keyset_path(path: &str) -> bool {
 fn is_cloudflare_router_normal_signing_public_path(path: &str) -> bool {
     let normalized = path.strip_suffix('/').unwrap_or(path);
     normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
-        || normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
 }

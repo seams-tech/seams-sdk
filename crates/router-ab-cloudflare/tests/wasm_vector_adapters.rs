@@ -3,21 +3,21 @@
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use router_ab_cloudflare::{
     open_cloudflare_recipient_proof_bundle_hpke_payload_v1,
-    validate_cloudflare_signer_peer_request_v1, validate_cloudflare_signer_private_request_v1,
+    validate_cloudflare_deriver_peer_request_v1, validate_cloudflare_signer_private_request_v1,
     CloudflareHpkeRecipientProofBundleEncryptorV1, CloudflareWorkerRoleV1,
 };
 use router_ab_core::{
     decode_ab_peer_message_payload_v1, decode_router_to_signer_payload_v1,
     parse_payload_vector_fixture_v1, parse_wire_vector_fixture_v1,
-    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1,
-    AbDerivationProofBatchPayloadV1, CanonicalWireBytesV1, EncryptedPayloadV1,
-    MpcPrfDleqProofWireV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1,
-    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialV1, MpcPrfSuiteId, OpenedShareKind,
-    PayloadVectorCaseV1, PublicDigest32, RecipientOutputEncryptionAlgorithmV1,
-    RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
-    RecipientProofBundleEncryptorV1, RecipientProofBundlePayloadV1, Role, RootShareEpoch,
-    SignerIdentityV1, WireMessageKindV1, WireMessageV1, MPC_PRF_COMMITMENT_WIRE_V1_LEN,
-    MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN, MPC_PRF_PARTIAL_WIRE_V1_LEN,
+    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1, CanonicalWireBytesV1,
+    EcdsaThresholdPrfProofBatchPayloadV1, EncryptedPayloadV1, MpcPrfDleqProofWireV1,
+    MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1,
+    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialV1, OpenedShareKind, PayloadVectorCaseV1,
+    PublicDigest32, RecipientOutputEncryptionAlgorithmV1, RecipientProofBundleCiphertextV1,
+    RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
+    RecipientProofBundlePayloadV1, Role, RootShareEpoch, SignerIdentityV1, WireMessageKindV1,
+    WireMessageV1, MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
+    MPC_PRF_PARTIAL_WIRE_V1_LEN,
 };
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -124,7 +124,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
             )
             .expect("wire message");
             validate_cloudflare_signer_private_request_v1(
-                CloudflareWorkerRoleV1::SignerA,
+                CloudflareWorkerRoleV1::DeriverA,
                 &message,
             )
             .expect("signer a private vector");
@@ -140,7 +140,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
             )
             .expect("wire message");
             validate_cloudflare_signer_private_request_v1(
-                CloudflareWorkerRoleV1::SignerB,
+                CloudflareWorkerRoleV1::DeriverB,
                 &message,
             )
             .expect("signer b private vector");
@@ -155,7 +155,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
                 payload,
             )
             .expect("wire message");
-            validate_cloudflare_signer_peer_request_v1(CloudflareWorkerRoleV1::SignerB, &message)
+            validate_cloudflare_deriver_peer_request_v1(CloudflareWorkerRoleV1::DeriverB, &message)
                 .expect("signer b peer vector");
             true
         }
@@ -168,7 +168,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
                 payload,
             )
             .expect("wire message");
-            validate_cloudflare_signer_peer_request_v1(CloudflareWorkerRoleV1::SignerA, &message)
+            validate_cloudflare_deriver_peer_request_v1(CloudflareWorkerRoleV1::DeriverA, &message)
                 .expect("signer a peer vector");
             true
         }
@@ -197,7 +197,7 @@ fn digest(seed: u8) -> PublicDigest32 {
 fn sample_recipient_proof_bundle_payload() -> RecipientProofBundlePayloadV1 {
     let transcript_digest = digest(0x77);
     let root_share_epoch = RootShareEpoch::new("epoch-1").expect("root epoch");
-    let proof_batch = AbDerivationProofBatchPayloadV1::new(
+    let proof_batch = EcdsaThresholdPrfProofBatchPayloadV1::new(
         signer(Role::SignerA, "signer-a"),
         signer(Role::SignerB, "signer-b"),
         transcript_digest,
@@ -230,6 +230,17 @@ fn signer(role: Role, signer_id: &str) -> SignerIdentityV1 {
     SignerIdentityV1::new(role, signer_id, "key-epoch-1").expect("signer identity")
 }
 
+fn fixed_share_wire_bytes(role: Role, fill: u8, len: usize) -> Vec<u8> {
+    let share_id = match role {
+        Role::SignerA => 1u16,
+        Role::SignerB => 2u16,
+        _ => panic!("fixed share wire requires a Deriver role"),
+    };
+    let mut bytes = vec![fill; len];
+    bytes[..2].copy_from_slice(&share_id.to_be_bytes());
+    bytes
+}
+
 #[allow(clippy::too_many_arguments)]
 fn sample_mpc_prf_proof_bundle(
     transcript_digest: PublicDigest32,
@@ -242,7 +253,6 @@ fn sample_mpc_prf_proof_bundle(
     seed: u8,
 ) -> MpcPrfPartialProofBundleV1 {
     let binding = MpcPrfPartialBindingV1 {
-        suite_id: MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         transcript_digest,
         root_share_epoch,
         opened_share_kind,
@@ -253,15 +263,21 @@ fn sample_mpc_prf_proof_bundle(
     };
     let signer_partial = MpcPrfSignerPartialV1::new(
         binding,
-        MpcPrfPartialWireV1::new(vec![seed; MPC_PRF_PARTIAL_WIRE_V1_LEN]).expect("partial wire"),
+        MpcPrfPartialWireV1::new(fixed_share_wire_bytes(
+            signer_role,
+            seed,
+            MPC_PRF_PARTIAL_WIRE_V1_LEN,
+        ))
+        .expect("partial wire"),
     )
     .expect("signer partial");
     MpcPrfPartialProofBundleV1::new(
         signer_partial,
-        MpcPrfShareCommitmentWireV1::new(vec![
-            seed.wrapping_add(1);
-            MPC_PRF_COMMITMENT_WIRE_V1_LEN
-        ])
+        MpcPrfShareCommitmentWireV1::new(fixed_share_wire_bytes(
+            signer_role,
+            seed.wrapping_add(1),
+            MPC_PRF_COMMITMENT_WIRE_V1_LEN,
+        ))
         .expect("commitment wire"),
         MpcPrfDleqProofWireV1::new(vec![seed.wrapping_add(2); MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN])
             .expect("DLEQ proof wire"),

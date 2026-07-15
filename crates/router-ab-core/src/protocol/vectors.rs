@@ -1,8 +1,8 @@
 use crate::derivation::{
     MpcPrfDleqProofWireV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1,
-    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialV1, MpcPrfSuiteId, OpenedShareKind,
-    PublicDigest32, Role, RootShareEpoch, MPC_PRF_COMMITMENT_WIRE_V1_LEN,
-    MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN, MPC_PRF_PARTIAL_WIRE_V1_LEN,
+    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialV1, OpenedShareKind, PublicDigest32, Role,
+    RootShareEpoch, MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
+    MPC_PRF_PARTIAL_WIRE_V1_LEN,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,8 +35,8 @@ use crate::protocol::output::{
 };
 use crate::protocol::payload::{
     ab_peer_message_authentication_input_digest_v1, encode_ab_peer_message_payload_v1,
-    encode_router_to_signer_payload_v1, AbDerivationProofBatchPayloadV1,
-    AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1, AbPeerMessageSignatureSchemeV1,
+    encode_router_to_signer_payload_v1, AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1,
+    AbPeerMessageSignatureSchemeV1, EcdsaThresholdPrfProofBatchPayloadV1,
     RecipientProofBundlePayloadV1, RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1,
     RouterTranscriptMetadataV1,
 };
@@ -809,7 +809,7 @@ fn sample_recipient_proof_bundle_payload() -> RecipientProofBundlePayloadV1 {
         "signer-a",
         0x77,
     );
-    let proof_batch = AbDerivationProofBatchPayloadV1::new(
+    let proof_batch = EcdsaThresholdPrfProofBatchPayloadV1::new(
         sample_signer_a(),
         sample_signer_b(),
         transcript_digest,
@@ -858,7 +858,6 @@ fn sample_mpc_prf_proof_bundle(
     seed: u8,
 ) -> MpcPrfPartialProofBundleV1 {
     let binding = MpcPrfPartialBindingV1 {
-        suite_id: MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         transcript_digest,
         root_share_epoch,
         opened_share_kind,
@@ -869,20 +868,37 @@ fn sample_mpc_prf_proof_bundle(
     };
     let signer_partial = MpcPrfSignerPartialV1::new(
         binding,
-        MpcPrfPartialWireV1::new(vec![seed; MPC_PRF_PARTIAL_WIRE_V1_LEN]).expect("partial wire"),
+        MpcPrfPartialWireV1::new(sample_fixed_share_wire_bytes(
+            signer_role,
+            seed,
+            MPC_PRF_PARTIAL_WIRE_V1_LEN,
+        ))
+        .expect("partial wire"),
     )
     .expect("signer partial");
     MpcPrfPartialProofBundleV1::new(
         signer_partial,
-        MpcPrfShareCommitmentWireV1::new(vec![
-            seed.wrapping_add(1);
-            MPC_PRF_COMMITMENT_WIRE_V1_LEN
-        ])
+        MpcPrfShareCommitmentWireV1::new(sample_fixed_share_wire_bytes(
+            signer_role,
+            seed.wrapping_add(1),
+            MPC_PRF_COMMITMENT_WIRE_V1_LEN,
+        ))
         .expect("commitment wire"),
         MpcPrfDleqProofWireV1::new(vec![seed.wrapping_add(2); MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN])
             .expect("DLEQ proof wire"),
     )
     .expect("proof bundle")
+}
+
+fn sample_fixed_share_wire_bytes(role: Role, fill: u8, len: usize) -> Vec<u8> {
+    let share_id = match role {
+        Role::SignerA => 1u16,
+        Role::SignerB => 2u16,
+        _ => panic!("fixed share wire requires a Deriver role"),
+    };
+    let mut bytes = vec![fill; len];
+    bytes[..2].copy_from_slice(&share_id.to_be_bytes());
+    bytes
 }
 
 fn sample_lifecycle_scope() -> LifecycleScopeV1 {

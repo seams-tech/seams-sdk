@@ -1,0 +1,29 @@
+{
+  "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
+  "name": "ed25519-yao-ab-benchmark-b",
+  "main": "build/deriver-b/index.js",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "vars": {
+    "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
+    "BENCHMARK_CLASSIFICATION": "NON_PRODUCTION",
+    "BENCHMARK_TOPOLOGY": "SAME_ACCOUNT_SERVICE_BINDING"
+  },
+  "build": {
+    "command": "worker-build --release --out-dir build/deriver-b --features deriver-b",
+    "watch_dir": "src"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  }
+}

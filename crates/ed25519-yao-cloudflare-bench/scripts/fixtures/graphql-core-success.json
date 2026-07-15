@@ -1,0 +1,51 @@
+{
+  "data": {
+    "viewer": {
+      "accounts": [
+        {
+          "aggregate": [
+            {
+              "sum": {
+                "requests": 51,
+                "errors": 0,
+                "subrequests": 51,
+                "clientDisconnects": 0,
+                "cpuTimeUs": 5100000,
+                "requestDuration": 7650000,
+                "wallTime": 7905000,
+                "responseBodySize": 51000
+              },
+              "quantiles": {
+                "cpuTimeP50": 100000,
+                "cpuTimeP90": 110000,
+                "cpuTimeP95": 115000,
+                "cpuTimeP99": 120000,
+                "cpuTimeP999": 125000,
+                "requestDurationP50": 145000,
+                "requestDurationP90": 155000,
+                "requestDurationP95": 160000,
+                "requestDurationP99": 165000,
+                "requestDurationP999": 170000,
+                "wallTimeP50": 150000,
+                "wallTimeP90": 160000,
+                "wallTimeP95": 165000,
+                "wallTimeP99": 170000,
+                "wallTimeP999": 175000
+              }
+            }
+          ],
+          "byColo": [
+            {
+              "sum": { "requests": 51, "errors": 0 },
+              "dimensions": {
+                "scriptName": "ed25519-yao-ab-benchmark-a-cross-account",
+                "coloCode": "NRT",
+                "status": "success"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

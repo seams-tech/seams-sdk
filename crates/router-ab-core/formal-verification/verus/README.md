@@ -1,7 +1,7 @@
 # `router-ab-core` Verus Track
 
-This Verus crate will hold the abstract proof model for the selected
-split-derivation primitive.
+This Verus crate holds the abstract proof model for the fixed Router A/B ECDSA
+threshold-PRF construction.
 
 Initial scope:
 
@@ -11,5 +11,5 @@ Initial scope:
 - output visibility model
 - context/transcript encoding model
 
-The candidate formula should be added only after vectors and leakage analysis
-select the production primitive.
+The remaining work binds the fixed 2-of-2 share ids, context encoding, and
+transcript fields to production Rust.

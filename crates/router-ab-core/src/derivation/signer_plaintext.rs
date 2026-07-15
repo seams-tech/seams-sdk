@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-use crate::derivation::candidate_mpc_prf::{MpcPrfOutputRequestV1, MpcPrfSuiteId};
-use crate::derivation::context::{CandidateId, RequestKind, RootShareEpoch};
+use crate::derivation::context::{RequestKind, RootShareEpoch};
+use crate::derivation::ecdsa_threshold_prf::MpcPrfOutputRequestV1;
 use crate::derivation::error::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
 };
 use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role};
 
 const SIGNER_INPUT_PLAINTEXT_VERSION_V1: &[u8] = b"router-ab-derivation/signer-input-plaintext/v1";
+const FIXED_ECDSA_THRESHOLD_PRF_SUITE_LABEL_V1: &[u8] = b"threshold_prf_ristretto255_sha512";
 
 /// V1 quorum policy carried by decrypted signer-input plaintext.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,11 +29,8 @@ impl SignerInputQuorumPolicyV1 {
 
 /// Strict post-decryption plaintext accepted from Router-to-signer envelopes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignerInputPlaintextV1 {
-    /// Selected derivation candidate.
-    pub candidate_id: CandidateId,
-    /// Selected Candidate A suite.
-    pub mpc_prf_suite_id: MpcPrfSuiteId,
     /// Primitive request kind.
     pub request_kind: RequestKind,
     /// Router lifecycle id.
@@ -67,8 +65,6 @@ impl SignerInputPlaintextV1 {
     /// Creates validated signer-input plaintext.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        candidate_id: CandidateId,
-        mpc_prf_suite_id: MpcPrfSuiteId,
         request_kind: RequestKind,
         lifecycle_id: impl Into<String>,
         signer_set_id: impl Into<String>,
@@ -85,8 +81,6 @@ impl SignerInputPlaintextV1 {
         output_requests: Vec<MpcPrfOutputRequestV1>,
     ) -> RouterAbDerivationResult<Self> {
         let plaintext = Self {
-            candidate_id,
-            mpc_prf_suite_id,
             request_kind,
             lifecycle_id: lifecycle_id.into(),
             signer_set_id: signer_set_id.into(),
@@ -108,12 +102,6 @@ impl SignerInputPlaintextV1 {
 
     /// Validates the strict public metadata and output-request allowlist.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
-        if self.candidate_id != CandidateId::MpcThresholdPrfV1 {
-            return Err(RouterAbDerivationError::new(
-                RouterAbDerivationErrorCode::UnsupportedCandidate,
-                "signer input plaintext requires mpc_threshold_prf_v1",
-            ));
-        }
         require_signer_role(self.recipient_role)?;
         require_non_empty("lifecycle_id", &self.lifecycle_id)?;
         require_non_empty("signer_set_id", &self.signer_set_id)?;
@@ -167,8 +155,7 @@ pub fn encode_signer_input_plaintext_v1(
     plaintext.validate()?;
     let mut out = Vec::new();
     push_len32(&mut out, SIGNER_INPUT_PLAINTEXT_VERSION_V1);
-    push_len32(&mut out, plaintext.candidate_id.as_str().as_bytes());
-    push_len32(&mut out, plaintext.mpc_prf_suite_id.as_str().as_bytes());
+    push_len32(&mut out, FIXED_ECDSA_THRESHOLD_PRF_SUITE_LABEL_V1);
     push_len32(&mut out, plaintext.request_kind.as_str().as_bytes());
     push_string(&mut out, &plaintext.lifecycle_id);
     push_string(&mut out, &plaintext.signer_set_id);
@@ -200,8 +187,10 @@ pub fn decode_signer_input_plaintext_v1(
         SIGNER_INPUT_PLAINTEXT_VERSION_V1,
         "signer input plaintext version",
     )?;
-    let candidate_id = parse_candidate_id(decoder.read_str("candidate id")?)?;
-    let mpc_prf_suite_id = parse_mpc_prf_suite_id(decoder.read_str("mpc prf suite id")?)?;
+    decoder.require_label(
+        FIXED_ECDSA_THRESHOLD_PRF_SUITE_LABEL_V1,
+        "threshold PRF suite label",
+    )?;
     let request_kind = parse_request_kind(decoder.read_str("request kind")?)?;
     let lifecycle_id = decoder.read_string("lifecycle id")?;
     let signer_set_id = decoder.read_string("signer set id")?;
@@ -229,8 +218,6 @@ pub fn decode_signer_input_plaintext_v1(
     }
     decoder.require_finished()?;
     SignerInputPlaintextV1::new(
-        candidate_id,
-        mpc_prf_suite_id,
         request_kind,
         lifecycle_id,
         signer_set_id,
@@ -352,33 +339,10 @@ impl<'a> SignerPlaintextDecoder<'a> {
     }
 }
 
-fn parse_candidate_id(value: &str) -> RouterAbDerivationResult<CandidateId> {
-    match value {
-        "mpc_threshold_prf_v1" => Ok(CandidateId::MpcThresholdPrfV1),
-        "split_root_derivation_v1" => Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::UnsupportedCandidate,
-            "signer input plaintext requires mpc_threshold_prf_v1",
-        )),
-        _ => Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::UnsupportedCandidate,
-            "unknown signer input plaintext candidate id",
-        )),
-    }
-}
-
-fn parse_mpc_prf_suite_id(value: &str) -> RouterAbDerivationResult<MpcPrfSuiteId> {
-    match value {
-        "threshold_prf_ristretto255_sha512" => Ok(MpcPrfSuiteId::ThresholdPrfRistretto255Sha512),
-        _ => Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::UnsupportedCandidate,
-            "unknown signer input plaintext MPC PRF suite id",
-        )),
-    }
-}
-
 fn parse_request_kind(value: &str) -> RouterAbDerivationResult<RequestKind> {
     match value {
         "registration" => Ok(RequestKind::Registration),
+        "recovery" => Ok(RequestKind::Recovery),
         "export" => Ok(RequestKind::Export),
         "refresh" => Ok(RequestKind::Refresh),
         _ => Err(RouterAbDerivationError::new(

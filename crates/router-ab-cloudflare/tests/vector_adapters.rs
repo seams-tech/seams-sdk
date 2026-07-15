@@ -1,5 +1,5 @@
 use router_ab_cloudflare::{
-    validate_cloudflare_signer_peer_request_v1, validate_cloudflare_signer_private_request_v1,
+    validate_cloudflare_deriver_peer_request_v1, validate_cloudflare_signer_private_request_v1,
     CloudflareWorkerRoleV1,
 };
 use router_ab_core::{
@@ -62,7 +62,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
             )
             .expect("wire message");
             validate_cloudflare_signer_private_request_v1(
-                CloudflareWorkerRoleV1::SignerA,
+                CloudflareWorkerRoleV1::DeriverA,
                 &message,
             )
             .expect("signer a private vector");
@@ -78,7 +78,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
             )
             .expect("wire message");
             validate_cloudflare_signer_private_request_v1(
-                CloudflareWorkerRoleV1::SignerB,
+                CloudflareWorkerRoleV1::DeriverB,
                 &message,
             )
             .expect("signer b private vector");
@@ -93,7 +93,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
                 payload,
             )
             .expect("wire message");
-            validate_cloudflare_signer_peer_request_v1(CloudflareWorkerRoleV1::SignerB, &message)
+            validate_cloudflare_deriver_peer_request_v1(CloudflareWorkerRoleV1::DeriverB, &message)
                 .expect("signer b peer vector");
             true
         }
@@ -106,7 +106,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
                 payload,
             )
             .expect("wire message");
-            validate_cloudflare_signer_peer_request_v1(CloudflareWorkerRoleV1::SignerA, &message)
+            validate_cloudflare_deriver_peer_request_v1(CloudflareWorkerRoleV1::DeriverA, &message)
                 .expect("signer a peer vector");
             true
         }

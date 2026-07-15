@@ -1,6 +1,6 @@
 use crate::derivation::{
-    combine_mpc_prf_proof_bundles_with_threshold_backend_v1, CandidateId, CorrectnessLevel,
-    MpcPrfPartialProofBundleV1, MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
+    combine_mpc_prf_proof_bundles_with_threshold_backend_v1, MpcPrfPartialProofBundleV1,
+    MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
     MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, Role,
     RouterAbDerivationError, SecretMaterial32,
 };
@@ -14,8 +14,9 @@ use crate::protocol::error::{
 use crate::protocol::identity::{SignerIdentityV1, SignerSetV1};
 use crate::protocol::lifecycle::LifecycleScopeV1;
 use crate::protocol::payload::{
-    router_transcript_binding_v1, AbDerivationProofBatchPayloadV1, RecipientProofBundlePayloadV1,
-    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, SigningWorkerActivationContextV1,
+    router_transcript_binding_v1, EcdsaThresholdPrfProofBatchPayloadV1,
+    RecipientProofBundlePayloadV1, RouterToSignerPayloadV1, RouterTranscriptMetadataV1,
+    SigningWorkerActivationContextV1,
 };
 use crate::protocol::wire::{CanonicalWireBytesV1, WireMessageKindV1, WireMessageV1};
 
@@ -426,9 +427,9 @@ pub trait RecipientProofBundleEncryptorV1 {
     ) -> RouterAbProtocolResult<RecipientProofBundleCiphertextV1>;
 }
 
-/// Converts a validated A/B proof-batch payload into a Candidate A signer batch output.
+/// Converts a validated A/B proof-batch payload into an ECDSA threshold-PRF batch output.
 pub fn mpc_prf_batch_output_from_ab_proof_batch_v1(
-    proof_batch: AbDerivationProofBatchPayloadV1,
+    proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
 ) -> RouterAbProtocolResult<MpcPrfThresholdSignerBatchOutputV1> {
     proof_batch.validate()?;
     Ok(MpcPrfThresholdSignerBatchOutputV1 {
@@ -441,16 +442,16 @@ pub fn mpc_prf_batch_output_from_ab_proof_batch_v1(
 }
 
 /// Returns a proof-batch view containing only one recipient output binding.
-pub fn ab_derivation_proof_batch_recipient_view_v1(
-    proof_batch: AbDerivationProofBatchPayloadV1,
+pub fn ecdsa_threshold_prf_proof_batch_recipient_view_v1(
+    proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
     recipient_role: Role,
     recipient_identity: &str,
-) -> RouterAbProtocolResult<AbDerivationProofBatchPayloadV1> {
+) -> RouterAbProtocolResult<EcdsaThresholdPrfProofBatchPayloadV1> {
     validate_recipient_output_binding(recipient_role, opened_share_kind)?;
     require_non_empty("recipient_identity", recipient_identity)?;
     proof_batch.validate()?;
-    let AbDerivationProofBatchPayloadV1 {
+    let EcdsaThresholdPrfProofBatchPayloadV1 {
         from,
         to,
         transcript_digest,
@@ -472,7 +473,7 @@ pub fn ab_derivation_proof_batch_recipient_view_v1(
             "recipient proof-batch view requires exactly one matching output binding",
         ));
     }
-    AbDerivationProofBatchPayloadV1::new(
+    EcdsaThresholdPrfProofBatchPayloadV1::new(
         from,
         to,
         transcript_digest,
@@ -484,12 +485,12 @@ pub fn ab_derivation_proof_batch_recipient_view_v1(
 /// Builds a recipient-scoped proof-bundle payload from a full signer proof batch.
 pub fn recipient_proof_bundle_payload_from_ab_proof_batch_v1(
     lifecycle_id: &str,
-    proof_batch: AbDerivationProofBatchPayloadV1,
+    proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
     recipient_role: Role,
     recipient_identity: &str,
 ) -> RouterAbProtocolResult<RecipientProofBundlePayloadV1> {
-    let proof_batch = ab_derivation_proof_batch_recipient_view_v1(
+    let proof_batch = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch,
         opened_share_kind,
         recipient_role,
@@ -519,7 +520,7 @@ pub fn encrypt_recipient_proof_bundle_payload_v1(
 /// Builds an encrypted recipient proof-bundle wire message from one signer proof batch.
 pub fn recipient_proof_bundle_wire_message_from_ab_proof_batch_v1(
     lifecycle_id: &str,
-    proof_batch: AbDerivationProofBatchPayloadV1,
+    proof_batch: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
     recipient_role: Role,
     recipient_identity: &str,
@@ -545,8 +546,8 @@ pub fn recipient_proof_bundle_wire_message_from_ab_proof_batch_v1(
 /// Combines exactly one recipient-scoped output from authenticated A/B proof batches.
 pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
     router_payload: &RouterToSignerPayloadV1,
-    proof_batch_a: AbDerivationProofBatchPayloadV1,
-    proof_batch_b: AbDerivationProofBatchPayloadV1,
+    proof_batch_a: EcdsaThresholdPrfProofBatchPayloadV1,
+    proof_batch_b: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
     recipient_role: Role,
     recipient_identity: &str,
@@ -698,8 +699,8 @@ fn combine_mpc_prf_recipient_output_from_public_context_v1(
     signer_set: &SignerSetV1,
     transcript_metadata: &RouterTranscriptMetadataV1,
     expected_transcript_digest: PublicDigest32,
-    proof_batch_a: AbDerivationProofBatchPayloadV1,
-    proof_batch_b: AbDerivationProofBatchPayloadV1,
+    proof_batch_a: EcdsaThresholdPrfProofBatchPayloadV1,
+    proof_batch_b: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
     recipient_role: Role,
     recipient_identity: &str,
@@ -709,13 +710,13 @@ fn combine_mpc_prf_recipient_output_from_public_context_v1(
     transcript_metadata.validate()?;
     validate_recipient_output_binding(recipient_role, opened_share_kind)?;
     require_non_empty("recipient_identity", recipient_identity)?;
-    let proof_batch_a = ab_derivation_proof_batch_recipient_view_v1(
+    let proof_batch_a = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch_a,
         opened_share_kind,
         recipient_role,
         recipient_identity,
     )?;
-    let proof_batch_b = ab_derivation_proof_batch_recipient_view_v1(
+    let proof_batch_b = ecdsa_threshold_prf_proof_batch_recipient_view_v1(
         proof_batch_b,
         opened_share_kind,
         recipient_role,
@@ -733,8 +734,6 @@ fn combine_mpc_prf_recipient_output_from_public_context_v1(
         lifecycle,
         signer_set,
         transcript_metadata,
-        CandidateId::MpcThresholdPrfV1,
-        CorrectnessLevel::MinimumLevelC,
         lifecycle.root_share_epoch.clone(),
     )?;
     let left = single_proof_bundle_v1("proof_batch_a", proof_batch_a.proof_bundles)?;
@@ -752,7 +751,7 @@ fn combine_mpc_prf_recipient_output_from_public_context_v1(
 
 fn require_proof_batch_role_v1(
     field: &str,
-    proof_batch: &AbDerivationProofBatchPayloadV1,
+    proof_batch: &EcdsaThresholdPrfProofBatchPayloadV1,
     expected_role: Role,
 ) -> RouterAbProtocolResult<()> {
     if proof_batch.from.role == expected_role {
@@ -767,8 +766,8 @@ fn require_proof_batch_role_v1(
 fn require_proof_batches_match_public_context_v1(
     lifecycle: &LifecycleScopeV1,
     expected_transcript_digest: PublicDigest32,
-    proof_batch_a: &AbDerivationProofBatchPayloadV1,
-    proof_batch_b: &AbDerivationProofBatchPayloadV1,
+    proof_batch_a: &EcdsaThresholdPrfProofBatchPayloadV1,
+    proof_batch_b: &EcdsaThresholdPrfProofBatchPayloadV1,
 ) -> RouterAbProtocolResult<()> {
     if proof_batch_a.transcript_digest != expected_transcript_digest
         || proof_batch_b.transcript_digest != expected_transcript_digest

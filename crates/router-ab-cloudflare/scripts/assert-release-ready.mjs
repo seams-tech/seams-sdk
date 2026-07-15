@@ -8,16 +8,65 @@ const repoRoot = join(scriptDir, '..', '..', '..');
 
 const blockers = [];
 
-const strictWorkerSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker.rs');
-const cloudflareSource = readRepoFile('crates/router-ab-cloudflare/src/lib.rs');
+const strictWorkerModuleSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker/mod.rs');
+const strictRouterSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker/router.rs');
+const strictDeriverSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker/deriver.rs');
+const strictSigningWorkerSource = readRepoFile(
+  'crates/router-ab-cloudflare/src/strict_worker/signing_worker.rs',
+);
+const strictWorkerSource = [
+  strictWorkerModuleSource,
+  strictRouterSource,
+  strictDeriverSource,
+  strictSigningWorkerSource,
+].join('\n');
+const cloudflareSource = [
+  readRepoFile('crates/router-ab-cloudflare/src/lib.rs'),
+  readRepoFile('crates/router-ab-cloudflare/src/router/mod.rs'),
+  readRepoFile('crates/router-ab-cloudflare/src/signing_worker/mod.rs'),
+].join('\n');
 const ecdsaProtocolSource = readRepoFile('crates/router-ab-core/src/protocol/ecdsa_hss.rs');
 const routerWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.router.toml');
-const signerAWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.signer-a.toml');
-const signerBWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.signer-b.toml');
+const deriverAWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.deriver-a.toml');
+const deriverBWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.deriver-b.toml');
 const signingWorkerWrangler = readRepoFile(
   'crates/router-ab-cloudflare/wrangler.signing-worker.toml',
 );
 const deployRouterAbWorkflow = readRepoFile('.github/workflows/deploy-router-ab.yml');
+const deploymentSources = [
+  routerWrangler,
+  deriverAWrangler,
+  deriverBWrangler,
+  signingWorkerWrangler,
+  deployRouterAbWorkflow,
+].join('\n');
+for (const forbidden of [
+  'strict-worker-signer-a-entrypoint',
+  'strict-worker-signer-b-entrypoint',
+  'wrangler.signer-a.toml',
+  'wrangler.signer-b.toml',
+  'router-ab-signer-a',
+  'router-ab-signer-b',
+  'SIGNER_A_',
+  'SIGNER_B_',
+]) {
+  if (deploymentSources.includes(forbidden)) {
+    blockers.push(`P1: legacy derivation Worker deployment symbol remains: ${forbidden}`);
+  }
+}
+for (const [label, source] of [
+  ['Router', routerWrangler],
+  ['Deriver A', deriverAWrangler],
+  ['Deriver B', deriverBWrangler],
+  ['SigningWorker', signingWorkerWrangler],
+]) {
+  if (source.includes('[env.production]')) {
+    blockers.push(`P1: ${label} still exposes an unselected production Wrangler branch`);
+  }
+}
+if (/^\s*- production\s*$/m.test(deployRouterAbWorkflow)) {
+  blockers.push('P1: deployment workflow still exposes the unselected production target');
+}
 if (strictWorkerSource.includes('strict SigningWorker normal-signing handler is not configured')) {
   blockers.push('P1: strict SigningWorker normal-signing handler is still fail-closed');
 }
@@ -58,7 +107,7 @@ requireSourceRangeIncludes(
 );
 requireSourceRangeIncludes(
   'P1: strict Cloudflare Router private grant route is missing internal service auth',
-  strictWorkerSource,
+  strictRouterSource,
   'CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH',
   'if request.method() == Method::Options',
   'require_cloudflare_internal_service_auth_request_v1',
@@ -79,7 +128,7 @@ requireSourceRangeIncludes(
 );
 requireSourceRangeIncludes(
   'P1: strict Cloudflare Wallet Budget status route is missing from strict Router dispatch',
-  strictWorkerSource,
+  strictRouterSource,
   'CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH',
   'if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH',
   'handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1',
@@ -99,12 +148,6 @@ for (const [label, startNeedle, endNeedle, requiredNeedle] of [
     'reserve_cloudflare_router_wallet_budget_v1',
   ],
   [
-    'P1: strict Ed25519 presign-pool prepare route does not check Wallet Session budget availability before SigningWorker forwarding',
-    'handle_cloudflare_router_normal_signing_presign_pool_prepare_authenticated_public_request_v2',
-    'execute_cloudflare_signing_worker_normal_signing_presign_pool_prepare_service_call_v2',
-    'require_cloudflare_router_wallet_budget_available_use_v1',
-  ],
-  [
     'P1: strict ECDSA-HSS prepare route does not reserve Wallet Session budget before SigningWorker forwarding',
     'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1',
     'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1',
@@ -122,12 +165,6 @@ for (const [label, startNeedle, endNeedle, requiredNeedle] of [
     'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
     'validate_cloudflare_router_wallet_budget_v1',
   ],
-  [
-    'P1: strict Ed25519 pool-hit finalize route does not reserve Wallet Session budget before SigningWorker forwarding',
-    'handle_cloudflare_router_normal_signing_presign_pool_hit_finalize_authenticated_public_request_v2',
-    'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
-    'reserve_cloudflare_router_wallet_budget_v1',
-  ],
 ]) {
   requireSourceRangeIncludes(label, cloudflareSource, startNeedle, endNeedle, requiredNeedle);
 }
@@ -140,11 +177,6 @@ for (const [label, startNeedle, endNeedle] of [
   [
     'P1: strict Ed25519 finalize route does not commit Wallet Session budget after SigningWorker success',
     'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
-    'CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)',
-  ],
-  [
-    'P1: strict Ed25519 pool-hit finalize route does not commit Wallet Session budget after SigningWorker success',
-    'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
     'CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)',
   ],
 ]) {
@@ -165,11 +197,6 @@ for (const [label, startNeedle, endNeedle] of [
   [
     'P1: strict Ed25519 finalize route does not release Wallet Session budget on SigningWorker failure',
     'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
-    'commit_cloudflare_router_wallet_budget_v1',
-  ],
-  [
-    'P1: strict Ed25519 pool-hit finalize route does not release Wallet Session budget on SigningWorker failure',
-    'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
     'commit_cloudflare_router_wallet_budget_v1',
   ],
 ]) {
@@ -200,8 +227,8 @@ for (const [label, needle] of [
   }
 }
 for (const [label, source] of [
-  ['Signer A', signerAWrangler],
-  ['Signer B', signerBWrangler],
+  ['Deriver A', deriverAWrangler],
+  ['Deriver B', deriverBWrangler],
   ['SigningWorker', signingWorkerWrangler],
 ]) {
   if (source.includes('workers_dev = true')) {
@@ -210,53 +237,49 @@ for (const [label, source] of [
 }
 for (const [label, source] of [
   ['Router', routerWrangler],
-  ['Signer A', signerAWrangler],
-  ['Signer B', signerBWrangler],
+  ['Deriver A', deriverAWrangler],
+  ['Deriver B', deriverBWrangler],
   ['SigningWorker', signingWorkerWrangler],
 ]) {
   if (!source.includes('ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING')) {
     blockers.push(`P1: strict ${label} Wrangler config is missing internal service auth binding`);
   }
 }
-for (const [label, startNeedle, endNeedle] of [
+for (const [label, source, startNeedle] of [
   [
-    'Signer A',
+    'Deriver A',
+    strictDeriverSource,
     'async fn handle_strict_deriver_a_fetch_v1',
-    'async fn handle_strict_signing_worker_fetch_v1',
   ],
   [
     'SigningWorker',
+    strictSigningWorkerSource,
     'async fn handle_strict_signing_worker_fetch_v1',
-    'async fn handle_strict_deriver_b_fetch_v1',
   ],
   [
-    'Signer B',
+    'Deriver B',
+    strictDeriverSource,
     'async fn handle_strict_deriver_b_fetch_v1',
-    'fn cloudflare_protocol_error_response_v1',
   ],
 ]) {
   requireSourceRangeIncludes(
     `P1: strict ${label} private dispatcher does not require internal service auth`,
-    strictWorkerSource,
+    source,
     startNeedle,
-    endNeedle,
+    'let runtime =',
     'require_cloudflare_internal_service_auth_request_v1',
   );
 }
 requireDeployWorkflowSplitEnvironmentBoundary(deployRouterAbWorkflow);
 for (const functionName of [
-  'execute_cloudflare_signer_recipient_proof_bundle_service_call_v1',
   'execute_cloudflare_ecdsa_hss_deriver_registration_service_call_v1',
   'execute_cloudflare_ecdsa_hss_deriver_export_service_call_v1',
   'execute_cloudflare_ecdsa_hss_deriver_recovery_service_call_v1',
   'execute_cloudflare_ecdsa_hss_deriver_activation_refresh_service_call_v1',
-  'execute_cloudflare_signing_worker_recipient_proof_bundle_activation_service_call_v1',
   'execute_cloudflare_ecdsa_hss_signing_worker_activation_service_call_v1',
   'execute_cloudflare_ecdsa_hss_signing_worker_activation_refresh_service_call_v1',
   'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
-  'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
   'execute_cloudflare_signing_worker_normal_signing_prepare_service_call_v2',
-  'execute_cloudflare_signing_worker_normal_signing_presign_pool_prepare_service_call_v2',
   'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1',
   'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
 ]) {
@@ -301,33 +324,33 @@ for (const [label, source, needle] of [
     'execute_cloudflare_ecdsa_hss_deriver_export_service_call_v1',
   ],
   [
-    'P0: ECDSA-HSS Signer A export private Deriver route is missing',
+    'P0: ECDSA-HSS Deriver A export private Deriver route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
+    'CLOUDFLARE_DERIVER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
   ],
   [
-    'P0: ECDSA-HSS Signer B export private Deriver route is missing',
+    'P0: ECDSA-HSS Deriver B export private Deriver route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
+    'CLOUDFLARE_DERIVER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
   ],
   [
-    'P0: Signer A wrangler config is missing SIGNING_WORKER service binding',
-    signerAWrangler,
+    'P0: Deriver A wrangler config is missing SIGNING_WORKER service binding',
+    deriverAWrangler,
     'binding = "SIGNING_WORKER"',
   ],
   [
-    'P0: Signer B wrangler config is missing SIGNING_WORKER service binding',
-    signerBWrangler,
+    'P0: Deriver B wrangler config is missing SIGNING_WORKER service binding',
+    deriverBWrangler,
     'binding = "SIGNING_WORKER"',
   ],
   [
-    'P0: Signer A wrangler config is missing SIGNING_WORKER peer var',
-    signerAWrangler,
+    'P0: Deriver A wrangler config is missing SIGNING_WORKER peer var',
+    deriverAWrangler,
     'SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"',
   ],
   [
-    'P0: Signer B wrangler config is missing SIGNING_WORKER peer var',
-    signerBWrangler,
+    'P0: Deriver B wrangler config is missing SIGNING_WORKER peer var',
+    deriverBWrangler,
     'SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"',
   ],
 ]) {
@@ -336,17 +359,17 @@ for (const [label, source, needle] of [
   }
 }
 requireSourceRangeIncludes(
-  'P0: Signer A runtime does not carry a SigningWorker peer binding',
+  'P0: Deriver A runtime does not carry a SigningWorker peer binding',
   cloudflareSource,
-  'pub struct CloudflareSignerABindingsV1',
+  'pub struct CloudflareDeriverABindingsV1',
   '/// SigningWorker startup bindings.',
   'pub signing_worker: CloudflarePeerBindingV1',
 );
 requireSourceRangeIncludes(
-  'P0: Signer B runtime does not carry a SigningWorker peer binding',
+  'P0: Deriver B runtime does not carry a SigningWorker peer binding',
   cloudflareSource,
-  'pub struct CloudflareSignerBBindingsV1',
-  'impl CloudflareSignerBBindingsV1',
+  'pub struct CloudflareDeriverBBindingsV1',
+  'impl CloudflareDeriverBBindingsV1',
   'pub signing_worker: CloudflarePeerBindingV1',
 );
 for (const [label, needle] of [
@@ -433,41 +456,41 @@ function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource) {
     [
       'upload_or_deploy_router',
       [
-        'SIGNER_A_ROOT_SHARE_WIRE_SECRET',
-        'SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY',
-        'SIGNER_A_PEER_SIGNING_KEY',
-        'SIGNER_B_ROOT_SHARE_WIRE_SECRET',
-        'SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY',
-        'SIGNER_B_PEER_SIGNING_KEY',
+        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
+        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'DERIVER_A_PEER_SIGNING_KEY',
+        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
+        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'DERIVER_B_PEER_SIGNING_KEY',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
       ],
     ],
     [
       'upload_or_deploy_signing_worker',
       [
-        'SIGNER_A_ROOT_SHARE_WIRE_SECRET',
-        'SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY',
-        'SIGNER_A_PEER_SIGNING_KEY',
-        'SIGNER_B_ROOT_SHARE_WIRE_SECRET',
-        'SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY',
-        'SIGNER_B_PEER_SIGNING_KEY',
+        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
+        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'DERIVER_A_PEER_SIGNING_KEY',
+        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
+        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'DERIVER_B_PEER_SIGNING_KEY',
       ],
     ],
     [
       'upload_or_deploy_deriver_a',
       [
-        'SIGNER_B_ROOT_SHARE_WIRE_SECRET',
-        'SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY',
-        'SIGNER_B_PEER_SIGNING_KEY',
+        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
+        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'DERIVER_B_PEER_SIGNING_KEY',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
       ],
     ],
     [
       'upload_or_deploy_deriver_b',
       [
-        'SIGNER_A_ROOT_SHARE_WIRE_SECRET',
-        'SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY',
-        'SIGNER_A_PEER_SIGNING_KEY',
+        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
+        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'DERIVER_A_PEER_SIGNING_KEY',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
       ],
     ],

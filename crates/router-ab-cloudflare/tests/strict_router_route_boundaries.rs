@@ -3,28 +3,45 @@ mod support;
 use support::{extract_function_body, read_src_file};
 
 #[test]
-fn strict_router_route_derives_admission_from_bearer_jwt() {
+fn strict_router_exposes_no_generic_split_derivation_route() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for forbidden in [
+        "/router-ab/split-derivation",
+        "CLOUDFLARE_ROUTER_SPLIT_DERIVATION_PUBLIC_REQUEST_PATH",
+        "json::<PublicRouterRequestV1>",
         "CloudflareStrictRouterBootstrapRequestV1",
         "CloudflareRouterTrustedAdmissionV1",
         "trusted_admission",
         "handle_cloudflare_router_recipient_proof_bundle_public_request_v1",
-    ] {
-        assert!(
-            !body.contains(forbidden),
-            "strict Router route must not accept caller-supplied admission through `{forbidden}`"
-        );
-    }
-    for required in [
-        "parse_cloudflare_router_bearer_authorization_from_request_v1",
-        "load_cloudflare_router_ed25519_jwks_jwt_verifier_v1",
         "handle_cloudflare_router_recipient_proof_bundle_authenticated_public_request_v1",
     ] {
         assert!(
-            body.contains(required),
-            "strict Router route must derive admission through `{required}`"
+            !body.contains(forbidden),
+            "strict Router must not expose generic split derivation through `{forbidden}`"
+        );
+    }
+
+    let paths_rs = read_src_file("paths.rs");
+    assert!(
+        !paths_rs.contains("/router-ab/split-derivation")
+            && !paths_rs.contains("CLOUDFLARE_ROUTER_SPLIT_DERIVATION_PUBLIC_REQUEST_PATH"),
+        "the removed generic split-derivation route must remain absent from public paths"
+    );
+
+    let lib_rs = read_src_file("lib.rs");
+    for forbidden in [
+        "handle_cloudflare_router_recipient_proof_bundle_public_request_v1",
+        "handle_cloudflare_router_recipient_proof_bundle_authenticated_public_request_v1",
+        "CloudflareRouterRecipientProofBundleAdmissionResponseV1",
+        "execute_cloudflare_signer_recipient_proof_bundle_service_call_v1",
+        "execute_cloudflare_signing_worker_recipient_proof_bundle_activation_service_call_v1",
+        "cloudflare_signer_service_url",
+        "cloudflare_signing_worker_recipient_proof_bundle_activation_service_url",
+    ] {
+        assert!(
+            !lib_rs.contains(forbidden),
+            "removed generic split-derivation owner `{forbidden}` must stay absent"
         );
     }
 }

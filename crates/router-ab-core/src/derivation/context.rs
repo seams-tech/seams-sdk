@@ -6,25 +6,8 @@ use crate::derivation::error::{
 };
 use crate::derivation::material::PublicDigest32;
 
-const CONTEXT_VERSION: &[u8] = b"router-ab-derivation/context/v1";
-const CONTEXT_DIGEST_VERSION: &[u8] = b"router-ab-derivation/context-digest/v1";
-
-/// Candidate derivation family under evaluation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CandidateId {
-    /// Two signers evaluate a threshold PRF and combine output shares.
-    MpcThresholdPrfV1,
-}
-
-impl CandidateId {
-    /// Returns the canonical candidate label.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::MpcThresholdPrfV1 => "mpc_threshold_prf_v1",
-        }
-    }
-}
+const CONTEXT_VERSION: &[u8] = b"router-ab-ecdsa-threshold-prf/context/v1";
+const CONTEXT_DIGEST_VERSION: &[u8] = b"router-ab-ecdsa-threshold-prf/context-digest/v1";
 
 /// Router/A/B derivation request kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +15,8 @@ impl CandidateId {
 pub enum RequestKind {
     /// Initial account registration.
     Registration,
+    /// Same-root account recovery ceremony.
+    Recovery,
     /// Client or server export ceremony.
     Export,
     /// Root or role-share refresh ceremony.
@@ -43,28 +28,9 @@ impl RequestKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Registration => "registration",
+            Self::Recovery => "recovery",
             Self::Export => "export",
             Self::Refresh => "refresh",
-        }
-    }
-}
-
-/// Output correctness level required by the ceremony.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CorrectnessLevel {
-    /// Minimum Level C: transcript-bound server blindness with no public share relation check.
-    MinimumLevelC,
-    /// Later hardening path that binds public verifying shares.
-    PublicShareBindingV1,
-}
-
-impl CorrectnessLevel {
-    /// Returns the canonical correctness label.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::MinimumLevelC => "minimum_level_c",
-            Self::PublicShareBindingV1 => "public_share_binding_v1",
         }
     }
 }
@@ -165,15 +131,11 @@ impl<'de> Deserialize<'de> for AccountScope {
     }
 }
 
-/// Canonical derivation context shared by all candidate families.
+/// Canonical derivation context for the fixed ECDSA threshold-PRF construction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DerivationContext {
-    /// Candidate family being evaluated.
-    candidate_id: CandidateId,
     /// Request kind for this derivation ceremony.
     request_kind: RequestKind,
-    /// Output correctness level for this ceremony.
-    correctness_level: CorrectnessLevel,
     /// Account scope bound into derived material.
     account_scope: AccountScope,
     /// Epoch of A/B root material.
@@ -185,17 +147,13 @@ pub struct DerivationContext {
 impl DerivationContext {
     /// Creates a validated derivation context.
     pub fn new(
-        candidate_id: CandidateId,
         request_kind: RequestKind,
-        correctness_level: CorrectnessLevel,
         account_scope: AccountScope,
         root_share_epoch: RootShareEpoch,
         ceremony_id: impl Into<String>,
     ) -> RouterAbDerivationResult<Self> {
         let context = Self {
-            candidate_id,
             request_kind,
-            correctness_level,
             account_scope,
             root_share_epoch,
             ceremony_id: ceremony_id.into(),
@@ -204,19 +162,9 @@ impl DerivationContext {
         Ok(context)
     }
 
-    /// Candidate family.
-    pub fn candidate_id(&self) -> CandidateId {
-        self.candidate_id
-    }
-
     /// Request kind.
     pub fn request_kind(&self) -> RequestKind {
         self.request_kind
-    }
-
-    /// Correctness level.
-    pub fn correctness_level(&self) -> CorrectnessLevel {
-        self.correctness_level
     }
 
     /// Account scope.
@@ -248,9 +196,7 @@ impl DerivationContext {
 
         let mut out = Vec::new();
         push_field(&mut out, CONTEXT_VERSION);
-        push_field(&mut out, self.candidate_id.as_str().as_bytes());
         push_field(&mut out, self.request_kind.as_str().as_bytes());
-        push_field(&mut out, self.correctness_level.as_str().as_bytes());
         push_field(&mut out, self.account_scope.network_id.as_bytes());
         push_field(&mut out, self.account_scope.account_id.as_bytes());
         push_field(&mut out, self.account_scope.account_public_key.as_bytes());
@@ -259,7 +205,7 @@ impl DerivationContext {
         Ok(out)
     }
 
-    /// Computes the context digest specified by `encoding-and-transcript.md`.
+    /// Computes the fixed ECDSA threshold-PRF context digest.
     pub fn context_digest_v1(&self) -> RouterAbDerivationResult<PublicDigest32> {
         context_digest_v1(self)
     }
@@ -271,10 +217,9 @@ impl<'de> Deserialize<'de> for DerivationContext {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct Wire {
-            candidate_id: CandidateId,
             request_kind: RequestKind,
-            correctness_level: CorrectnessLevel,
             account_scope: AccountScope,
             root_share_epoch: RootShareEpoch,
             ceremony_id: String,
@@ -282,9 +227,7 @@ impl<'de> Deserialize<'de> for DerivationContext {
 
         let wire = Wire::deserialize(deserializer)?;
         Self::new(
-            wire.candidate_id,
             wire.request_kind,
-            wire.correctness_level,
             wire.account_scope,
             wire.root_share_epoch,
             wire.ceremony_id,

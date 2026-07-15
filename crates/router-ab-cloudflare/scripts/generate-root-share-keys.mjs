@@ -14,8 +14,8 @@ if (argv.includes('--help')) {
   pnpm router:deploy:root-share-keygen -- --json
 
 Generates a matched Router A/B MPC PRF root-share pair.
-Store SIGNER_A_ROOT_SHARE_WIRE_SECRET only in the Account-1 environment.
-Store SIGNER_B_ROOT_SHARE_WIRE_SECRET only in the Account-2 / Deriver-B environment.`);
+Store DERIVER_A_ROOT_SHARE_WIRE_SECRET only in the Account-1 environment.
+Store DERIVER_B_ROOT_SHARE_WIRE_SECRET only in the Account-2 / Deriver-B environment.`);
   process.exit(0);
 }
 
@@ -78,10 +78,10 @@ fn lower_hex(bytes: &[u8]) -> String {
 fn main() {
     let mut rng = OsRng;
     let root = generate_signing_root(&mut rng);
-    let policy = ThresholdPolicy::from_u16s(2, 3).expect("2-of-3 policy");
+    let policy = ThresholdPolicy::from_u16s(2, 2).expect("2-of-2 policy");
     let shares = split_signing_root(&root, policy, &mut rng).expect("split signing root");
     let share_a = SigningRootShareWire::from_share(&shares[0]).to_bytes();
-    let share_b = SigningRootShareWire::from_share(&shares[2]).to_bytes();
+    let share_b = SigningRootShareWire::from_share(&shares[1]).to_bytes();
 
     println!(
         "{}",
@@ -92,19 +92,19 @@ fn main() {
                 .as_millis(),
             "policy": {
                 "threshold": 2,
-                "shareCount": 3,
+                "shareCount": 2,
                 "deriverAShareId": 1,
-                "deriverBShareId": 3,
+                "deriverBShareId": 2,
             },
             "secrets": {
                 "account1DeriverA": {
-                    "SIGNER_A_ROOT_SHARE_WIRE_SECRET": format!(
+                    "DERIVER_A_ROOT_SHARE_WIRE_SECRET": format!(
                         "mpc-prf-root-share-wire-v1:{}",
                         lower_hex(&share_a)
                     )
                 },
                 "account2DeriverB": {
-                    "SIGNER_B_ROOT_SHARE_WIRE_SECRET": format!(
+                    "DERIVER_B_ROOT_SHARE_WIRE_SECRET": format!(
                         "mpc-prf-root-share-wire-v1:{}",
                         lower_hex(&share_b)
                     )
@@ -124,11 +124,11 @@ function printHumanOutput(result) {
   );
   console.log('\nAccount 1 / Deriver A secret:');
   console.log(
-    `SIGNER_A_ROOT_SHARE_WIRE_SECRET=${result.secrets.account1DeriverA.SIGNER_A_ROOT_SHARE_WIRE_SECRET}`,
+    `DERIVER_A_ROOT_SHARE_WIRE_SECRET=${result.secrets.account1DeriverA.DERIVER_A_ROOT_SHARE_WIRE_SECRET}`,
   );
   console.log('\nAccount 2 / Deriver B secret:');
   console.log(
-    `SIGNER_B_ROOT_SHARE_WIRE_SECRET=${result.secrets.account2DeriverB.SIGNER_B_ROOT_SHARE_WIRE_SECRET}`,
+    `DERIVER_B_ROOT_SHARE_WIRE_SECRET=${result.secrets.account2DeriverB.DERIVER_B_ROOT_SHARE_WIRE_SECRET}`,
   );
   console.log('\nStore these as a pair. Do not copy A into Account 2 or B into Account 1.');
 }
