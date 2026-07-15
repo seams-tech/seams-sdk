@@ -1,6 +1,10 @@
 import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/internal/router/routerAbPrivateSigningWorker';
 import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
-import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '@seams/sdk-server/internal/router/consoleAuth';
+import type {
+  ConsoleAuthAdapter,
+  ConsoleAuthClaims,
+  HeaderRecord,
+} from '@seams/sdk-server/internal/router/consoleAuth';
 import {
   createSigningRootSecretShareKekResolver,
   type SigningRootKekProvider,
@@ -17,7 +21,10 @@ import type {
   ThresholdPrfPolicy,
 } from '@seams/sdk-server/internal/core/ThresholdService/signingRootShareResolver';
 import { D1SigningRootSecretStore } from '@seams/sdk-server/internal/core/ThresholdService/stores/SigningRootSecretStore.d1';
-import type { CfExecutionContext, FetchHandler } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
+import type {
+  CfExecutionContext,
+  FetchHandler,
+} from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
 import { ThresholdStoreDurableObject } from '@seams/sdk-server/internal/router/cloudflare/durableObjects/thresholdStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
@@ -53,6 +60,19 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
 import { parseWebAuthnRpId } from '@seams-internal/shared-ts/utils/domainIds';
+import {
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  RouterAbEd25519YaoHttpRegistrationBackendStateV1,
+  createRouterAbEd25519YaoProductRegistrationCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationStateV1,
+  CloudflareD1WebAuthnAuthService,
+  CloudflareD1WebAuthnStore,
+  type RouterAbEd25519YaoProductRegistrationCompositionV1,
+  type RouterAbEd25519YaoProductRegistrationStateV1,
+} from '@seams/sdk-server/internal/router/cloudflare-adaptor';
+import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
+import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
 
 export { ThresholdStoreDurableObject };
 
@@ -80,21 +100,24 @@ interface LocalD1DevEnv {
   readonly GOOGLE_OIDC_CLIENT_IDS?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
   readonly ROUTER_AB_SIGNING_WORKER_URL?: string;
-  readonly ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL?: string;
   readonly SIGNING_WORKER_URL?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
-  readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
   readonly RELAY_SESSION_AUDIENCE?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
-  readonly SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH?: string;
-  readonly SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY?: string;
-  readonly SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH?: string;
-  readonly SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY?: string;
-  readonly SIGNER_A_PEER_VERIFYING_KEY_HEX?: string;
-  readonly SIGNER_B_PEER_VERIFYING_KEY_HEX?: string;
+  readonly DERIVER_A_URL?: string;
+  readonly DERIVER_B_URL?: string;
+  readonly SIGNING_WORKER_ID?: string;
+  readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
+  readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
+  readonly DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH?: string;
+  readonly DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY?: string;
+  readonly DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH?: string;
+  readonly DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY?: string;
+  readonly DERIVER_A_PEER_VERIFYING_KEY_HEX?: string;
+  readonly DERIVER_B_PEER_VERIFYING_KEY_HEX?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
@@ -774,7 +797,14 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     },
   });
   const sessionCookieName = localRouterApiSessionCookieName(env);
-  const routerApiService = createLocalD1RouterApiAuthService(env);
+  const session = createHmacSessionAdapter({
+    secret: localRouterApiSessionSecret(env),
+    cookieName: sessionCookieName,
+    issuer: localRouterApiSessionIssuer(env),
+    audience: localRouterApiSessionAudience(env),
+  });
+  const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session);
+  const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao);
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   return createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
@@ -782,12 +812,11 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     readyz: true,
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
     ...(routerAbPublicKeyset ? { routerAbPublicKeyset } : {}),
-    session: createHmacSessionAdapter({
-      secret: localRouterApiSessionSecret(env),
-      cookieName: sessionCookieName,
-      issuer: localRouterApiSessionIssuer(env),
-      audience: localRouterApiSessionAudience(env),
-    }),
+    session,
+    modules: ed25519Yao.kind === 'enabled' ? [ed25519Yao.composition.module] : [],
+    ...(ed25519Yao.kind === 'enabled'
+      ? { routerAbEd25519YaoProduct: ed25519Yao.composition.runtime }
+      : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
     emailRecovery: {
       kind: 'prepare_only',
@@ -808,14 +837,7 @@ function localThresholdStoreConfig(env: LocalD1DevEnv): ThresholdStoreConfigInpu
     ROUTER_AB_SIGNING_WORKER_URL:
       normalizeLocalString(env.ROUTER_AB_SIGNING_WORKER_URL) ||
       DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL,
-    ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL: normalizeLocalString(
-      env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
-    ),
-    SIGNING_WORKER_URL: normalizeLocalString(env.SIGNING_WORKER_URL),
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
-    ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: normalizeLocalString(
-      env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
-    ),
     signingRootShareResolverAdapters: createLocalD1SigningRootShareResolverAdapters(env),
   };
 }
@@ -836,6 +858,7 @@ function localSigningSessionSealOptions(
 
 function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
+  ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
 ): CloudflareD1RouterApiAuthServiceOptions {
   const relayerPrivateKey = env.RELAYER_PRIVATE_KEY || env.SEAMS_LOCAL_RELAYER_PRIVATE_KEY;
   const relayerPublicKey =
@@ -867,11 +890,126 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     thresholdStore: localThresholdStoreConfig(env),
+    ...(ed25519Yao.kind === 'enabled'
+      ? { ed25519YaoProductRegistration: ed25519Yao.composition.runtime }
+      : {}),
   };
 }
 
-function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
-  return createCloudflareD1RouterApiAuthService(localD1RouterApiAuthServiceOptions(env));
+type LocalEd25519YaoProductCompositionState =
+  | { readonly kind: 'disabled'; readonly composition?: never }
+  | {
+      readonly kind: 'enabled';
+      readonly composition: RouterAbEd25519YaoProductRegistrationCompositionV1;
+    };
+
+const localEd25519YaoProductStateByEnv = new WeakMap<
+  LocalD1DevEnv,
+  RouterAbEd25519YaoProductRegistrationStateV1
+>();
+
+const localEd25519YaoHttpBackendStateByEnv = new WeakMap<
+  LocalD1DevEnv,
+  RouterAbEd25519YaoHttpRegistrationBackendStateV1
+>();
+
+function localEd25519YaoProductState(
+  env: LocalD1DevEnv,
+): RouterAbEd25519YaoProductRegistrationStateV1 {
+  const existing = localEd25519YaoProductStateByEnv.get(env);
+  if (existing) return existing;
+  const state = createRouterAbEd25519YaoProductRegistrationStateV1();
+  localEd25519YaoProductStateByEnv.set(env, state);
+  return state;
+}
+
+function localEd25519YaoHttpBackendState(
+  env: LocalD1DevEnv,
+): RouterAbEd25519YaoHttpRegistrationBackendStateV1 {
+  const existing = localEd25519YaoHttpBackendStateByEnv.get(env);
+  if (existing) return existing;
+  const state = new RouterAbEd25519YaoHttpRegistrationBackendStateV1();
+  localEd25519YaoHttpBackendStateByEnv.set(env, state);
+  return state;
+}
+
+async function createLocalEd25519YaoProductComposition(
+  env: LocalD1DevEnv,
+  session: SessionAdapter,
+): Promise<LocalEd25519YaoProductCompositionState> {
+  const deriverAUrl = normalizeLocalString(env.DERIVER_A_URL);
+  const deriverBUrl = normalizeLocalString(env.DERIVER_B_URL);
+  if (!deriverAUrl && !deriverBUrl) return { kind: 'disabled' };
+  const signingWorkerId =
+    normalizeLocalString(env.SIGNING_WORKER_ID) ||
+    normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
+  const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+    env: {
+      DERIVER_A_URL: deriverAUrl,
+      DERIVER_B_URL: deriverBUrl,
+      SIGNING_WORKER_URL: normalizeLocalString(env.SIGNING_WORKER_URL),
+      SIGNING_WORKER_ID: signingWorkerId,
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: normalizeLocalString(
+        env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
+      ),
+      DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
+        env.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY,
+      ),
+      DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
+        env.DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY,
+      ),
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: normalizeLocalString(
+        env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
+      ),
+    },
+    fetch: globalThis.fetch,
+    state: localEd25519YaoHttpBackendState(env),
+  });
+  const walletStore = new D1WalletStore({
+    database: env.SIGNER_DB,
+    namespace: localTenantStorageNamespace(env),
+    orgId: localConsoleOrgId(env),
+    projectId: localConsoleProjectId(env),
+    envId: localConsoleEnvironmentId(env),
+    ensureSchema: false,
+  });
+  const composition = createRouterAbEd25519YaoProductRegistrationCompositionV1({
+    signingWorkerId,
+    backend,
+    session,
+    webAuthn: new CloudflareD1WebAuthnAuthService({
+      webAuthnStore: new CloudflareD1WebAuthnStore({
+        database: env.SIGNER_DB,
+        namespace: localTenantStorageNamespace(env),
+        orgId: localConsoleOrgId(env),
+        projectId: localConsoleProjectId(env),
+        envId: localConsoleEnvironmentId(env),
+      }),
+    }),
+    state: localEd25519YaoProductState(env),
+    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence(walletStore),
+  });
+  const signers = await walletStore.listEd25519Signers();
+  for (const signer of signers) {
+    const installed = composition.runtime.installPersistedActiveCapability(
+      signer.activeYaoCapability,
+    );
+    if (!installed.ok) {
+      throw new Error(
+        `local Ed25519 Yao capability hydration failed for ${signer.signerId}: ${installed.message}`,
+      );
+    }
+  }
+  return { kind: 'enabled', composition };
+}
+
+function createLocalD1RouterApiAuthService(
+  env: LocalD1DevEnv,
+  ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
+) {
+  return createCloudflareD1RouterApiAuthService(
+    localD1RouterApiAuthServiceOptions(env, ed25519Yao),
+  );
 }
 
 function createLocalD1EmailRecoveryAuthService(env: LocalD1DevEnv) {
@@ -1046,12 +1184,12 @@ function allLocalStringsEmpty(values: readonly unknown[]): boolean {
 
 function localRouterAbPublicKeyset(env: LocalD1DevEnv): RouterAbPublicKeysetV2 | undefined {
   const fields = [
-    env.SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH,
-    env.SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
-    env.SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH,
-    env.SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
-    env.SIGNER_A_PEER_VERIFYING_KEY_HEX,
-    env.SIGNER_B_PEER_VERIFYING_KEY_HEX,
+    env.DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH,
+    env.DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+    env.DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH,
+    env.DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+    env.DERIVER_A_PEER_VERIFYING_KEY_HEX,
+    env.DERIVER_B_PEER_VERIFYING_KEY_HEX,
     env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH,
     env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
   ];
@@ -1065,23 +1203,23 @@ function localRouterAbPublicKeyset(env: LocalD1DevEnv): RouterAbPublicKeysetV2 |
         deriver_a: {
           role: 'signer_a',
           key_epoch: requireLocalEnvString(
-            env.SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH,
-            'SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH',
+            env.DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH,
+            'DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH',
           ),
           public_key: requireLocalEnvString(
-            env.SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
-            'SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+            env.DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+            'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
           ),
         },
         deriver_b: {
           role: 'signer_b',
           key_epoch: requireLocalEnvString(
-            env.SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH,
-            'SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH',
+            env.DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH,
+            'DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH',
           ),
           public_key: requireLocalEnvString(
-            env.SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
-            'SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+            env.DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+            'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
           ),
         },
       },
@@ -1090,15 +1228,15 @@ function localRouterAbPublicKeyset(env: LocalD1DevEnv): RouterAbPublicKeysetV2 |
       deriver_a: {
         role: 'signer_a',
         verifying_key_hex: requireLocalEnvString(
-          env.SIGNER_A_PEER_VERIFYING_KEY_HEX,
-          'SIGNER_A_PEER_VERIFYING_KEY_HEX',
+          env.DERIVER_A_PEER_VERIFYING_KEY_HEX,
+          'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         ),
       },
       deriver_b: {
         role: 'signer_b',
         verifying_key_hex: requireLocalEnvString(
-          env.SIGNER_B_PEER_VERIFYING_KEY_HEX,
-          'SIGNER_B_PEER_VERIFYING_KEY_HEX',
+          env.DERIVER_B_PEER_VERIFYING_KEY_HEX,
+          'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         ),
       },
     },
@@ -1174,16 +1312,16 @@ function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): s
     input.requestId,
     input.signingWorkerId,
   ];
-  return input.curve === 'ecdsa-hss' ? [...base, input.keyHandle].join(':') : base.join(':');
+  return input.curve === 'ecdsa' ? [...base, input.keyHandle].join(':') : base.join(':');
 }
 
 function normalSigningAuthority(input: RouterAbNormalSigningAdmissionInput): string {
   switch (input.curve) {
     case 'ed25519':
-    return input.authorityScope.kind === 'passkey_rp'
-      ? `passkey_rp:${input.authorityScope.rpId}`
-      : `${input.authorityScope.kind}:${input.authorityScope.provider}:${input.authorityScope.providerUserId}`;
-    case 'ecdsa-hss':
+      return input.authorityScope.kind === 'passkey_rp'
+        ? `passkey_rp:${input.authorityScope.rpId}`
+        : `${input.authorityScope.kind}:${input.authorityScope.provider}:${input.authorityScope.providerUserId}`;
+    case 'ecdsa':
       return input.evmFamilySigningKeySlotId;
   }
   input satisfies never;
@@ -1245,14 +1383,18 @@ async function handleLocalRouterAbEd25519Seed(
     );
   }
   const service = createLocalD1RouterApiAuthService(env);
-  const threshold = service.thresholdRuntime.getThresholdSigningService();
-  if (!threshold) {
+  const seedRuntime = service.thresholdRuntime.getRouterAbLocalSigningSeedRuntime();
+  if (!seedRuntime) {
     return jsonResponse(
-      { ok: false, code: 'not_configured', message: 'threshold service is not configured' },
+      {
+        ok: false,
+        code: 'not_configured',
+        message: 'local Router A/B signing seed runtime is not configured',
+      },
       { status: 501 },
     );
   }
-  const seeded = await threshold.seedLocalRouterAbEd25519NormalSigningSession({
+  const seeded = await seedRuntime.seedLocalRouterAbEd25519NormalSigningSession({
     relayerKeyId: requireOptionalString(body.relayerKeyId, ''),
     walletId: requireOptionalString(body.walletId, ''),
     nearAccountId: requireOptionalString(body.nearAccountId, ''),
@@ -1262,6 +1404,7 @@ async function handleLocalRouterAbEd25519Seed(
     signingGrantId: requireOptionalString(body.signingGrantId, ''),
     publicKey: requireOptionalString(body.publicKey, ''),
     relayerSigningShareB64u: requireOptionalString(body.relayerSigningShareB64u, ''),
+    relayerVerifyingShareB64u: requireOptionalString(body.relayerVerifyingShareB64u, ''),
     keyVersion: requireOptionalString(body.keyVersion, ''),
     thresholdExpiresAtMs: Number(body.thresholdExpiresAtMs),
     participantIds: Array.isArray(body.participantIds) ? body.participantIds.map(Number) : [],
@@ -1299,14 +1442,18 @@ async function handleLocalRouterAbEcdsaHssSeed(
     );
   }
   const service = createLocalD1RouterApiAuthService(env);
-  const threshold = service.thresholdRuntime.getThresholdSigningService();
-  if (!threshold) {
+  const seedRuntime = service.thresholdRuntime.getRouterAbLocalSigningSeedRuntime();
+  if (!seedRuntime) {
     return jsonResponse(
-      { ok: false, code: 'not_configured', message: 'threshold service is not configured' },
+      {
+        ok: false,
+        code: 'not_configured',
+        message: 'local Router A/B signing seed runtime is not configured',
+      },
       { status: 501 },
     );
   }
-  const seeded = await threshold.seedLocalRouterAbEcdsaHssNormalSigningSession({
+  const seeded = await seedRuntime.seedLocalRouterAbEcdsaHssNormalSigningSession({
     walletId: requireOptionalString(body.walletId, ''),
     evmFamilySigningKeySlotId: requireOptionalString(body.evmFamilySigningKeySlotId, ''),
     ecdsaThresholdKeyId: requireOptionalString(body.ecdsaThresholdKeyId, ''),
