@@ -21,6 +21,8 @@ import {
   VoiceIdTemplateWrappingEnrollmentStore,
   type VoiceIdTemplateEncryptionSecretEnv,
 } from './store/VoiceIdTemplateEncryption.ts';
+import { createRandomId, parseVoiceIdChallengeNonce } from '../../shared/src/ids.ts';
+import { assertNever } from '../../shared/src/assertNever.ts';
 import {
   InMemoryVoiceIdEnrollmentStore,
   InMemoryVoiceIdVerificationStore,
@@ -45,6 +47,7 @@ import { PythonVoiceIdVerifier } from './verifier/PythonVoiceIdVerifier.ts';
 export type VoiceIdCloudflareEnv = {
   readonly AI?: VoiceIdCloudflareWorkersAiBinding;
   readonly VOICEID_PYTHON_VERIFIER_URL: string;
+  readonly VOICEID_ALLOWED_ORIGINS: string;
   readonly VOICEID_VERIFIER_TIMEOUT_MS?: string;
   readonly VOICEID_SPEAKER_SCORE_THRESHOLD?: string;
   readonly VOICEID_TRANSCRIPT_PROVIDER?: string;
@@ -61,26 +64,33 @@ export type VoiceIdCloudflareEnv = {
 } & VoiceIdTemplateEncryptionSecretEnv;
 
 export type VoiceIdCloudflareConfig = {
+  readonly http: {
+    readonly allowedOrigins: readonly string[];
+  };
   readonly verifier: {
     readonly kind: 'python_http';
     readonly baseUrl: string;
     readonly timeoutMs: number;
   };
   readonly speakerScoreThreshold: number;
-  readonly storage: {
-    readonly kind: 'memory';
-  } | {
-    readonly kind: 'cloudflare_d1';
-    readonly databaseBindingName: 'VOICEID_D1_DATABASE';
-    readonly templateKeyConfig: VoiceIdTemplateEncryptionKeyConfig;
-  };
-  readonly transcript: {
-    readonly kind: 'fake';
-  } | {
-    readonly kind: 'cloudflare_workers_ai';
-    readonly aiBindingName: 'AI';
-    readonly model: VoiceIdCloudflareWorkersAiAsrModel;
-  };
+  readonly storage:
+    | {
+        readonly kind: 'memory';
+      }
+    | {
+        readonly kind: 'cloudflare_d1';
+        readonly databaseBindingName: 'VOICEID_D1_DATABASE';
+        readonly templateKeyConfig: VoiceIdTemplateEncryptionKeyConfig;
+      };
+  readonly transcript:
+    | {
+        readonly kind: 'fake';
+      }
+    | {
+        readonly kind: 'cloudflare_workers_ai';
+        readonly aiBindingName: 'AI';
+        readonly model: VoiceIdCloudflareWorkersAiAsrModel;
+      };
 };
 
 export type VoiceIdCloudflareFactoryInput = {
@@ -96,7 +106,11 @@ export function createVoiceIdCloudflareFetchHandler(
   env: VoiceIdCloudflareEnv,
   input: VoiceIdCloudflareFactoryInput = {},
 ): VoiceIdFetchHandler {
-  return createVoiceIdFetchHandler(createVoiceIdCloudflareService(env, input));
+  const config = parseVoiceIdCloudflareEnv(env);
+  return createVoiceIdFetchHandler(
+    createVoiceIdCloudflareServiceFromConfig(env, config, input),
+    config.http,
+  );
 }
 
 export function createVoiceIdCloudflareService(
@@ -104,6 +118,14 @@ export function createVoiceIdCloudflareService(
   input: VoiceIdCloudflareFactoryInput = {},
 ): VoiceIdService {
   const config = parseVoiceIdCloudflareEnv(env);
+  return createVoiceIdCloudflareServiceFromConfig(env, config, input);
+}
+
+function createVoiceIdCloudflareServiceFromConfig(
+  env: VoiceIdCloudflareEnv,
+  config: VoiceIdCloudflareConfig,
+  input: VoiceIdCloudflareFactoryInput,
+): VoiceIdService {
   const auditEvents = input.auditEvents ?? [];
   const stores = createVoiceIdCloudflareStores(env, config);
   const transportConfig = {
@@ -118,19 +140,30 @@ export function createVoiceIdCloudflareService(
     verifier: new PythonVoiceIdVerifier({
       transport: new PythonHttpVoiceIdVerifierTransport(transportConfig),
     }),
-    transcriptProvider: input.transcriptProvider ?? createVoiceIdCloudflareTranscriptProvider(env, config),
+    transcriptProvider:
+      input.transcriptProvider ?? createVoiceIdCloudflareTranscriptProvider(env, config),
     config: defaultVoiceIdServiceConfig({
       speakerScoreThreshold: config.speakerScoreThreshold,
     }),
-    now: input.now ?? (() => new Date()),
-    emitAuditEvent: (event) => {
-      auditEvents.push(event);
-    },
+    now: input.now ?? currentDate,
+    createChallengeNonce: createCloudflareVoiceIdChallengeNonce,
+    emitAuditEvent: auditEvents.push.bind(auditEvents),
   });
+}
+
+function createCloudflareVoiceIdChallengeNonce() {
+  return parseVoiceIdChallengeNonce(createRandomId('voice_challenge'));
+}
+
+function currentDate(): Date {
+  return new Date();
 }
 
 export function parseVoiceIdCloudflareEnv(env: VoiceIdCloudflareEnv): VoiceIdCloudflareConfig {
   return {
+    http: {
+      allowedOrigins: parseAllowedOriginsEnv(env.VOICEID_ALLOWED_ORIGINS),
+    },
     verifier: {
       kind: 'python_http',
       baseUrl: parseHttpUrl(env.VOICEID_PYTHON_VERIFIER_URL, 'VOICEID_PYTHON_VERIFIER_URL'),
@@ -154,14 +187,17 @@ function createVoiceIdCloudflareTranscriptProvider(
   env: VoiceIdCloudflareEnv,
   config: VoiceIdCloudflareConfig,
 ): VoiceIdTranscriptProvider {
-  switch (config.transcript.kind) {
+  const transcript = config.transcript;
+  switch (transcript.kind) {
     case 'fake':
       return new FakeTranscriptProvider();
     case 'cloudflare_workers_ai':
       return new CloudflareWorkersAiTranscriptProvider({
         ai: requireCloudflareWorkersAiBinding(env.AI),
-        model: config.transcript.model,
+        model: transcript.model,
       });
+    default:
+      return assertNever(transcript);
   }
 }
 
@@ -172,7 +208,8 @@ function createVoiceIdCloudflareStores(
   enrollmentStore: VoiceIdEnrollmentStore;
   verificationStore: VoiceIdVerificationStore;
 } {
-  switch (config.storage.kind) {
+  const storage = config.storage;
+  switch (storage.kind) {
     case 'memory':
       return {
         enrollmentStore: new InMemoryVoiceIdEnrollmentStore(),
@@ -180,9 +217,9 @@ function createVoiceIdCloudflareStores(
       };
     case 'cloudflare_d1': {
       const database = requireD1Database(env.VOICEID_D1_DATABASE);
-      const secret = resolveVoiceIdTemplateEncryptionSecretFromEnv(config.storage.templateKeyConfig, env);
+      const secret = resolveVoiceIdTemplateEncryptionSecretFromEnv(storage.templateKeyConfig, env);
       const cipher = new VoiceIdAesGcmTemplateCipher({
-        keyConfig: config.storage.templateKeyConfig,
+        keyConfig: storage.templateKeyConfig,
         secret,
       });
       return {
@@ -193,6 +230,8 @@ function createVoiceIdCloudflareStores(
         verificationStore: new CloudflareD1VoiceIdVerificationStore(database),
       };
     }
+    default:
+      return assertNever(storage);
   }
 }
 
@@ -207,7 +246,29 @@ function parseHttpUrl(value: unknown, fieldName: string): string {
   return url.toString();
 }
 
-function parseOptionalPositiveInteger(value: unknown, fieldName: string, defaultValue: number): number {
+function parseAllowedOriginsEnv(value: unknown): readonly string[] {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('VOICEID_ALLOWED_ORIGINS must be a comma-separated origin list');
+  }
+  const origins: string[] = [];
+  for (const candidate of value.split(',')) {
+    const trimmed = candidate.trim();
+    if (trimmed.length === 0) throw new Error('VOICEID_ALLOWED_ORIGINS contains an empty origin');
+    const origin = new URL(trimmed).origin;
+    if (origin !== trimmed)
+      throw new Error(`VOICEID_ALLOWED_ORIGINS must contain canonical origins: ${trimmed}`);
+    if (origins.includes(origin))
+      throw new Error(`VOICEID_ALLOWED_ORIGINS contains a duplicate origin: ${origin}`);
+    origins.push(origin);
+  }
+  return origins;
+}
+
+function parseOptionalPositiveInteger(
+  value: unknown,
+  fieldName: string,
+  defaultValue: number,
+): number {
   if (value === undefined || value === '') {
     return defaultValue;
   }
@@ -221,15 +282,21 @@ function parseOptionalPositiveInteger(value: unknown, fieldName: string, default
   return parsed;
 }
 
-function parseOptionalSpeakerScoreThreshold(value: unknown, fieldName: string, defaultValue: number): number {
+function parseOptionalSpeakerScoreThreshold(
+  value: unknown,
+  fieldName: string,
+  defaultValue: number,
+): number {
   if (value === undefined || value === '') {
     return defaultValue;
   }
   return parseVoiceIdSpeakerScoreThreshold(value, fieldName);
 }
 
-function parseCloudflareStorageConfig(env: VoiceIdCloudflareEnv): VoiceIdCloudflareConfig['storage'] {
-  const storageKind = env.VOICEID_STORAGE_KIND ?? 'memory';
+function parseCloudflareStorageConfig(
+  env: VoiceIdCloudflareEnv,
+): VoiceIdCloudflareConfig['storage'] {
+  const storageKind = env.VOICEID_STORAGE_KIND;
   if (storageKind === 'memory') {
     return { kind: 'memory' };
   }
@@ -250,11 +317,13 @@ function parseCloudflareStorageConfig(env: VoiceIdCloudflareEnv): VoiceIdCloudfl
     };
   }
 
-  throw new Error("VOICEID_STORAGE_KIND must be 'memory' or 'cloudflare-d1'");
+  throw new Error("VOICEID_STORAGE_KIND must explicitly be 'memory' or 'cloudflare-d1'");
 }
 
-function parseCloudflareTranscriptConfig(env: VoiceIdCloudflareEnv): VoiceIdCloudflareConfig['transcript'] {
-  const provider = env.VOICEID_TRANSCRIPT_PROVIDER ?? 'fake';
+function parseCloudflareTranscriptConfig(
+  env: VoiceIdCloudflareEnv,
+): VoiceIdCloudflareConfig['transcript'] {
+  const provider = env.VOICEID_TRANSCRIPT_PROVIDER;
   if (provider === 'fake') {
     return { kind: 'fake' };
   }
@@ -267,7 +336,9 @@ function parseCloudflareTranscriptConfig(env: VoiceIdCloudflareEnv): VoiceIdClou
     };
   }
 
-  throw new Error("VOICEID_TRANSCRIPT_PROVIDER must be 'fake' or 'cloudflare-workers-ai'");
+  throw new Error(
+    "VOICEID_TRANSCRIPT_PROVIDER must explicitly be 'fake' or 'cloudflare-workers-ai'",
+  );
 }
 
 function requireD1Database(value: unknown): VoiceIdCloudflareD1Database {

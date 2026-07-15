@@ -3,7 +3,7 @@
 This folder holds a brief literature review and local PDF copies for the
 VoiceID MVP sanity check. The goal is to keep implementation decisions aligned
 with modern speaker-verification practice while preserving the product boundary:
-voice is an owner-presence signal, not a signing secret.
+ordinary voice capture produces signing-ineligible evidence.
 
 ## Research Inventory
 
@@ -54,10 +54,11 @@ Spoofing and deepfake work argues for a separate countermeasure layer. ASVspoof
 tracks logical access attacks, physical replay attacks, speech deepfakes, modern
 TTS/voice-conversion systems, and newer adversarial attacks. The literature also
 shows that generic countermeasures struggle to generalize to unseen vocoders,
-domains, codecs, and attack methods. For our product, that means audio-only
-VoiceID should remain an owner-presence signal that feeds policy. It should be
-combined with device-bound keys, intent binding, server/MPC policy, and, for
-robotics, audio-visual liveness.
+domains, codecs, and attack methods. For our product, audio-only VoiceID should
+remain evidence for research, UX, and passkey step-up.
+Direct authorization requires a protected user-verifying authenticator with
+challenge binding, rate limits, replay resistance, PAD, and credential-key
+release inside the same evaluated boundary.
 
 Audio-visual liveness is directionally correct for embedded robots. The
 audio-visual spoofing paper validates the idea of checking challenge-response

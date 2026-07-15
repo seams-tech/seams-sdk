@@ -1,6 +1,5 @@
 import type {
-  PythonBuildTemplateRequest,
-  PythonExtractEnrollmentEmbeddingRequest,
+  PythonBuildEnrollmentTemplateRequest,
   PythonVerifySpeakerRequest,
   PythonVoiceIdVerifierTransport,
 } from './PythonVoiceIdVerifier.ts';
@@ -11,8 +10,7 @@ export type PythonHttpVoiceIdVerifierFetch = (
 ) => Promise<Response>;
 
 export type PythonHttpVoiceIdVerifierPaths = {
-  readonly extractEnrollmentEmbedding: string;
-  readonly buildTemplate: string;
+  readonly buildEnrollmentTemplate: string;
   readonly verifySpeaker: string;
 };
 
@@ -38,17 +36,13 @@ export class PythonHttpVoiceIdVerifierTransport implements PythonVoiceIdVerifier
 
   constructor(config: PythonHttpVoiceIdVerifierTransportConfig) {
     this.baseUrl = normalizeBaseUrl(config.baseUrl);
-    this.fetchJson = config.fetchJson ?? ((input, init) => fetch(input, init));
+    this.fetchJson = config.fetchJson ?? defaultFetch;
     this.paths = config.paths ?? defaultPythonHttpVoiceIdVerifierPaths();
     this.timeoutMs = config.timeoutMs ?? 10_000;
   }
 
-  extractEnrollmentEmbedding(request: PythonExtractEnrollmentEmbeddingRequest): Promise<unknown> {
-    return this.postJson(this.paths.extractEnrollmentEmbedding, request);
-  }
-
-  buildTemplate(request: PythonBuildTemplateRequest): Promise<unknown> {
-    return this.postJson(this.paths.buildTemplate, request);
+  buildEnrollmentTemplate(request: PythonBuildEnrollmentTemplateRequest): Promise<unknown> {
+    return this.postJson(this.paths.buildEnrollmentTemplate, request);
   }
 
   verifySpeaker(request: PythonVerifySpeakerRequest): Promise<unknown> {
@@ -57,9 +51,7 @@ export class PythonHttpVoiceIdVerifierTransport implements PythonVoiceIdVerifier
 
   private async postJson(path: string, request: unknown): Promise<unknown> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.timeoutMs);
+    const timeout = setTimeout(controller.abort.bind(controller), this.timeoutMs);
 
     try {
       const response = await this.fetchJson(endpointUrl(this.baseUrl, path), {
@@ -101,8 +93,7 @@ export class PythonHttpVoiceIdVerifierTransport implements PythonVoiceIdVerifier
 
 export function defaultPythonHttpVoiceIdVerifierPaths(): PythonHttpVoiceIdVerifierPaths {
   return {
-    extractEnrollmentEmbedding: 'extract-enrollment-embedding',
-    buildTemplate: 'build-template',
+    buildEnrollmentTemplate: 'build-enrollment-template',
     verifySpeaker: 'verify-speaker',
   };
 }
@@ -119,6 +110,10 @@ function normalizeBaseUrl(baseUrl: string | URL): URL {
 function endpointUrl(baseUrl: URL, path: string): URL {
   const relativePath = path.startsWith('/') ? path.slice(1) : path;
   return new URL(relativePath, baseUrl);
+}
+
+function defaultFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
 }
 
 function isAbortError(error: unknown): boolean {

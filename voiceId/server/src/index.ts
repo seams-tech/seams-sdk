@@ -29,11 +29,16 @@ import {
 } from './verifier/PythonSubprocessVoiceIdVerifierTransport.ts';
 import { PythonVoiceIdVerifier } from './verifier/PythonVoiceIdVerifier.ts';
 import type { VoiceIdVerifier } from './verifier/VoiceIdVerifier.ts';
+import {
+  createRandomId,
+  parseVoiceIdChallengeNonce,
+  type VoiceIdChallengeNonce,
+} from '../../shared/src/ids.ts';
+import { assertNever } from '../../shared/src/assertNever.ts';
 
 export * from './VoiceIdService.ts';
 export * from './capability.ts';
 export * from './routes.ts';
-export * from './sdkRouterApiExtension.ts';
 export * from './store/VoiceIdStores.ts';
 export * from './store/CloudflareVoiceIdD1Stores.ts';
 export * from './store/CloudflareVoiceIdStorageRows.ts';
@@ -48,8 +53,6 @@ export * from './verifier/PythonHttpVoiceIdVerifierTransport.ts';
 export * from './verifier/PythonSubprocessVoiceIdVerifierTransport.ts';
 export * from './verifier/PythonVoiceIdVerifier.ts';
 export * from './verifier/VoiceIdVerifier.ts';
-export * from '../../shared/src/policy.ts';
-export { parseVoiceIdIntentDigest } from '../../shared/src/ids.ts';
 
 export type VoiceIdVerifierTransportMode =
   | 'fake'
@@ -62,23 +65,22 @@ export type VoiceIdTranscriptProviderMode =
 
 export function createDefaultVoiceIdService(input: {
   auditEvents?: VoiceIdAuditEvent[];
-  verifierMode?: VoiceIdVerifierTransportMode;
-} = {}): VoiceIdService {
+  verifierMode: VoiceIdVerifierTransportMode;
+  transcriptProviderMode: VoiceIdTranscriptProviderMode;
+}): VoiceIdService {
   const auditEvents = input.auditEvents ?? [];
-  const verifierMode = input.verifierMode ?? verifierTransportModeFromEnv();
   return new VoiceIdService({
     enrollmentStore: new InMemoryVoiceIdEnrollmentStore(),
     verificationStore: new InMemoryVoiceIdVerificationStore(),
-    verifier: createVoiceIdVerifierFromEnv(verifierMode),
-    transcriptProvider: createVoiceIdTranscriptProviderFromEnv(),
+    verifier: createVoiceIdVerifierFromEnv(input.verifierMode),
+    transcriptProvider: createVoiceIdTranscriptProviderFromEnv(input.transcriptProviderMode),
     config: voiceIdServiceConfigFromEnv({
       env: process.env,
-      verifierMode,
+      verifierMode: input.verifierMode,
     }),
-    now: () => new Date(),
-    emitAuditEvent: (event) => {
-      auditEvents.push(event);
-    },
+    now: currentDate,
+    createChallengeNonce: createDefaultVoiceIdChallengeNonce,
+    emitAuditEvent: auditEvents.push.bind(auditEvents),
   });
 }
 
@@ -117,19 +119,23 @@ export function createVoiceIdVerifierFromEnv(mode: VoiceIdVerifierTransportMode)
       return new PythonVoiceIdVerifier({
         transport: new PythonHttpVoiceIdVerifierTransport(pythonHttpConfigFromEnv()),
       });
+    default:
+      return assertNever(mode);
   }
 }
 
 export function verifierTransportModeFromEnv(): VoiceIdVerifierTransportMode {
-  const value = process.env.VOICEID_VERIFIER_TRANSPORT ?? 'fake';
+  const value = process.env.VOICEID_VERIFIER_TRANSPORT;
   if (value === 'fake' || value === 'python-subprocess' || value === 'python-http') {
     return value;
   }
-  throw new Error("VOICEID_VERIFIER_TRANSPORT must be 'fake', 'python-subprocess', or 'python-http'");
+  throw new Error("VOICEID_VERIFIER_TRANSPORT must explicitly be 'fake', 'python-subprocess', or 'python-http'");
 }
 
-export function createVoiceIdTranscriptProviderFromEnv(): VoiceIdTranscriptProvider {
-  switch (transcriptProviderModeFromEnv()) {
+export function createVoiceIdTranscriptProviderFromEnv(
+  mode: VoiceIdTranscriptProviderMode,
+): VoiceIdTranscriptProvider {
+  switch (mode) {
     case 'fake':
       return new FakeTranscriptProvider();
     case 'cloudflare-workers-ai':
@@ -144,15 +150,17 @@ export function createVoiceIdTranscriptProviderFromEnv(): VoiceIdTranscriptProvi
         }),
         model: parseCloudflareWorkersAiAsrModel(process.env.VOICEID_CLOUDFLARE_ASR_MODEL),
       });
+    default:
+      return assertNever(mode);
   }
 }
 
 export function transcriptProviderModeFromEnv(): VoiceIdTranscriptProviderMode {
-  const value = process.env.VOICEID_TRANSCRIPT_PROVIDER ?? 'fake';
+  const value = process.env.VOICEID_TRANSCRIPT_PROVIDER;
   if (value === 'fake' || value === 'cloudflare-workers-ai') {
     return value;
   }
-  throw new Error("VOICEID_TRANSCRIPT_PROVIDER must be 'fake' or 'cloudflare-workers-ai'");
+  throw new Error("VOICEID_TRANSCRIPT_PROVIDER must explicitly be 'fake' or 'cloudflare-workers-ai'");
 }
 
 function pythonSubprocessConfigFromEnv(): PythonSubprocessVoiceIdVerifierTransportConfig {
@@ -172,10 +180,18 @@ function pythonSubprocessConfigFromEnv(): PythonSubprocessVoiceIdVerifierTranspo
   };
 }
 
+function createDefaultVoiceIdChallengeNonce(): VoiceIdChallengeNonce {
+  return parseVoiceIdChallengeNonce(createRandomId('voice_challenge'));
+}
+
+function currentDate(): Date {
+  return new Date();
+}
+
 function pythonHttpConfigFromEnv(): PythonHttpVoiceIdVerifierTransportConfig {
   const timeoutMs = optionalPositiveIntegerEnv('VOICEID_VERIFIER_TIMEOUT_MS');
   return {
-    baseUrl: process.env.VOICEID_PYTHON_VERIFIER_URL ?? 'http://127.0.0.1:5051/voice-id/verifier/',
+    baseUrl: requiredEnv('VOICEID_PYTHON_VERIFIER_URL'),
     ...(timeoutMs !== null ? { timeoutMs } : {}),
   };
 }

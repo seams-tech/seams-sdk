@@ -2,50 +2,36 @@ import type { VoiceIdService } from './VoiceIdService.ts';
 import {
   createVoiceIdFetchHandler,
   type VoiceIdFetchHandler,
+  type VoiceIdHttpSecurityConfig,
 } from './routes.ts';
 
-export type VoiceIdCapabilityVersion = 'voice_id_server_capability_v1';
+export type VoiceIdCapabilityVersion = 'voice_id_e0_evidence_capability_v1';
 
 export type VoiceIdCapabilityRouteId =
   | 'voice_id_health'
-  | 'voice_id_enrollment_start'
-  | 'voice_id_enrollment_sample'
-  | 'voice_id_enrollment_finalize'
-  | 'voice_id_enrollment_disable'
-  | 'voice_id_verification_start'
-  | 'voice_id_verification_sample'
-  | 'voice_id_owner_presence_authorize';
-
-export type VoiceIdCapabilityRouteMethod = 'GET' | 'POST';
-
-export type VoiceIdCapabilityRouteBody =
-  | { kind: 'none' }
-  | { kind: 'json' }
-  | { kind: 'multipart_audio' };
+  | 'voice_id_evidence_enrollment_start'
+  | 'voice_id_evidence_enrollment_recording'
+  | 'voice_id_evidence_enrollment_disable'
+  | 'voice_id_evidence_verification_start'
+  | 'voice_id_evidence_verification_recording';
 
 export type VoiceIdCapabilityRoute = {
   id: VoiceIdCapabilityRouteId;
-  method: VoiceIdCapabilityRouteMethod;
+  method: 'GET' | 'POST';
   path: string;
-  body: VoiceIdCapabilityRouteBody;
+  body: { kind: 'none' } | { kind: 'json' } | { kind: 'multipart_audio' };
   summary: string;
+  evidenceTier: 'E0';
+  signingEligible: false;
 };
 
-export type VoiceIdRegisteredRouteHandler = (request: Request) => Promise<Response>;
-
 export type VoiceIdCapabilityRouteRegistry = {
-  register(route: VoiceIdCapabilityRoute, handler: VoiceIdRegisteredRouteHandler): void;
+  register(route: VoiceIdCapabilityRoute, handler: VoiceIdFetchHandler): void;
 };
 
 export type VoiceIdServerCapabilityInput =
-  | {
-      kind: 'service';
-      service: VoiceIdService;
-    }
-  | {
-      kind: 'fetch_handler';
-      fetchHandler: VoiceIdFetchHandler;
-    };
+  | { kind: 'service'; service: VoiceIdService; httpSecurity: VoiceIdHttpSecurityConfig }
+  | { kind: 'fetch_handler'; fetchHandler: VoiceIdFetchHandler };
 
 export type VoiceIdServerCapability = {
   kind: VoiceIdCapabilityVersion;
@@ -55,77 +41,71 @@ export type VoiceIdServerCapability = {
 };
 
 export const voiceIdCapabilityRoutes = Object.freeze([
-  {
-    id: 'voice_id_health',
-    method: 'GET',
-    path: '/voice-id/health',
-    body: { kind: 'none' },
-    summary: 'VoiceID health and route metadata',
-  },
-  {
-    id: 'voice_id_enrollment_start',
-    method: 'POST',
-    path: '/voice-id/enrollment/start',
-    body: { kind: 'json' },
-    summary: 'Start VoiceID enrollment',
-  },
-  {
-    id: 'voice_id_enrollment_sample',
-    method: 'POST',
-    path: '/voice-id/enrollment/sample',
-    body: { kind: 'multipart_audio' },
-    summary: 'Submit VoiceID enrollment sample',
-  },
-  {
-    id: 'voice_id_enrollment_finalize',
-    method: 'POST',
-    path: '/voice-id/enrollment/finalize',
-    body: { kind: 'json' },
-    summary: 'Finalize VoiceID enrollment',
-  },
-  {
-    id: 'voice_id_enrollment_disable',
-    method: 'POST',
-    path: '/voice-id/enrollment/disable',
-    body: { kind: 'json' },
-    summary: 'Disable VoiceID enrollment',
-  },
-  {
-    id: 'voice_id_verification_start',
-    method: 'POST',
-    path: '/voice-id/verification/start',
-    body: { kind: 'json' },
-    summary: 'Start VoiceID verification',
-  },
-  {
-    id: 'voice_id_verification_sample',
-    method: 'POST',
-    path: '/voice-id/verification/sample',
-    body: { kind: 'multipart_audio' },
-    summary: 'Submit VoiceID verification sample',
-  },
-  {
-    id: 'voice_id_owner_presence_authorize',
-    method: 'POST',
-    path: '/voice-id/owner-presence/authorize',
-    body: { kind: 'json' },
-    summary: 'Authorize VoiceID owner-presence evidence for an intent digest',
-  },
+  evidenceRoute('voice_id_health', 'GET', '/voice-id/health', { kind: 'none' }, 'VoiceID E0 health metadata'),
+  evidenceRoute(
+    'voice_id_evidence_enrollment_start',
+    'POST',
+    '/voice-id/evidence/enrollment/start',
+    { kind: 'json' },
+    'Start a continuous E0 enrollment recording',
+  ),
+  evidenceRoute(
+    'voice_id_evidence_enrollment_recording',
+    'POST',
+    '/voice-id/evidence/enrollment/recording',
+    { kind: 'multipart_audio' },
+    'Submit one continuous E0 enrollment recording',
+  ),
+  evidenceRoute(
+    'voice_id_evidence_enrollment_disable',
+    'POST',
+    '/voice-id/evidence/enrollment/disable',
+    { kind: 'json' },
+    'Disable an E0 VoiceID enrollment',
+  ),
+  evidenceRoute(
+    'voice_id_evidence_verification_start',
+    'POST',
+    '/voice-id/evidence/verification/start',
+    { kind: 'json' },
+    'Issue a server-owned E0 verification challenge',
+  ),
+  evidenceRoute(
+    'voice_id_evidence_verification_recording',
+    'POST',
+    '/voice-id/evidence/verification/recording',
+    { kind: 'multipart_audio' },
+    'Submit one E0 verification recording',
+  ),
 ] satisfies readonly VoiceIdCapabilityRoute[]);
 
 export function createVoiceIdServerCapability(input: VoiceIdServerCapabilityInput): VoiceIdServerCapability {
   const fetchHandler = input.kind === 'service'
-    ? createVoiceIdFetchHandler(input.service)
+    ? createVoiceIdFetchHandler(input.service, input.httpSecurity)
     : input.fetchHandler;
-
   return {
-    kind: 'voice_id_server_capability_v1',
+    kind: 'voice_id_e0_evidence_capability_v1',
     routes: voiceIdCapabilityRoutes,
     fetch: fetchHandler,
-    registerRoutes(registry) {
-      for (const route of voiceIdCapabilityRoutes) {
-        registry.register(route, async (request) => await fetchHandler(request));
-      }
-    },
+    registerRoutes: registerVoiceIdRoutes.bind(null, fetchHandler),
   };
+}
+
+function registerVoiceIdRoutes(
+  fetchHandler: VoiceIdFetchHandler,
+  registry: VoiceIdCapabilityRouteRegistry,
+): void {
+  for (const route of voiceIdCapabilityRoutes) {
+    registry.register(route, fetchHandler);
+  }
+}
+
+function evidenceRoute(
+  id: VoiceIdCapabilityRouteId,
+  method: VoiceIdCapabilityRoute['method'],
+  path: string,
+  body: VoiceIdCapabilityRoute['body'],
+  summary: string,
+): VoiceIdCapabilityRoute {
+  return { id, method, path, body, summary, evidenceTier: 'E0', signingEligible: false };
 }

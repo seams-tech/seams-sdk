@@ -71,7 +71,6 @@ export class CloudflareWorkersAiTranscriptProvider implements VoiceIdTranscriptP
   async matchPhrase(input: {
     audio: VoiceIdAudioInput;
     expectedPhrase: VoiceIdPromptPhrase;
-    spokenPhrase: VoiceIdPromptPhrase;
   }): Promise<VoiceIdPhraseMatchResult> {
     const expectedNormalized = normalizePromptPhrase(input.expectedPhrase);
     const transcript = parseCloudflareWorkersAiWhisperResponse(

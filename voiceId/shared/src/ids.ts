@@ -7,8 +7,7 @@ export type VoiceIdPromptSetId = Brand<string, 'VoiceIdPromptSetId'>;
 export type VoiceIdModelVersion = Brand<string, 'VoiceIdModelVersion'>;
 export type VoiceIdTemplateVersion = Brand<string, 'VoiceIdTemplateVersion'>;
 export type VoiceIdThresholdVersion = Brand<string, 'VoiceIdThresholdVersion'>;
-export type VoiceIdIntentDigest = Brand<string, 'VoiceIdIntentDigest'>;
-export type VoiceIdPolicyVersion = Brand<string, 'VoiceIdPolicyVersion'>;
+export type VoiceIdChallengeNonce = Brand<string, 'VoiceIdChallengeNonce'>;
 export type IsoDateTime = Brand<string, 'IsoDateTime'>;
 export type EncryptedBytes = Brand<string, 'EncryptedBytes'>;
 
@@ -51,14 +50,10 @@ export function parseThresholdVersion(value: unknown): VoiceIdThresholdVersion {
   return parseNonEmptyBrandedString(value, 'thresholdVersion');
 }
 
-export function parseVoiceIdPolicyVersion(value: unknown): VoiceIdPolicyVersion {
-  return parseNonEmptyBrandedString(value, 'policyVersion');
-}
-
-export function parseVoiceIdIntentDigest(value: unknown): VoiceIdIntentDigest {
-  const parsed = parseNonEmptyBrandedString<'VoiceIdIntentDigest'>(value, 'intentDigest');
-  if (!/^[A-Za-z0-9_-]{43}$/.test(parsed)) {
-    throw new Error('intentDigest must be an unpadded base64url-encoded 32-byte digest');
+export function parseVoiceIdChallengeNonce(value: unknown): VoiceIdChallengeNonce {
+  const parsed = parseNonEmptyBrandedString<'VoiceIdChallengeNonce'>(value, 'challengeNonce');
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(parsed)) {
+    throw new Error('challengeNonce must be 16-128 base64url characters');
   }
 
   return parsed;
@@ -77,19 +72,22 @@ export function parseIsoDateTime(value: unknown): IsoDateTime {
   return parsed;
 }
 
-export function createId<TId extends string>(prefix: string, random = cryptoRandomString): TId {
-  return `${prefix}_${random()}` as TId;
+export function createRandomId(prefix: string, random = cryptoRandomString): string {
+  return `${prefix}_${random()}`;
 }
 
 function cryptoRandomString(): string {
   const cryptoApi = globalThis.crypto;
-  if (cryptoApi) {
-    const bytes = new Uint8Array(16);
-    cryptoApi.getRandomValues(bytes);
-    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  if (cryptoApi === undefined) {
+    throw new Error('secure random number generator is unavailable');
   }
-
-  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const bytes = new Uint8Array(16);
+  cryptoApi.getRandomValues(bytes);
+  let encoded = '';
+  for (const byte of bytes) {
+    encoded += byte.toString(16).padStart(2, '0');
+  }
+  return encoded;
 }
 
 export function nowIsoDateTime(now = new Date()): IsoDateTime {

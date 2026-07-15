@@ -13,6 +13,7 @@ import {
   parseEnrollmentId,
   parseIsoDateTime,
   parseModelVersion,
+  parsePromptPhrase,
   parsePromptSetId,
   parseTemplateVersion,
   parseThresholdVersion,
@@ -82,7 +83,10 @@ test('template wrapping enrollment store persists wrapped templates and returns 
   const store = new VoiceIdTemplateWrappingEnrollmentStore(inner, newTestCipher());
   const record = enrolledRecord({ encryptedTemplate: parseEncryptedBytes('verifier-template-payload') });
 
-  await store.save(record);
+  const pending = pendingRecordFor(record);
+  assert.equal(await store.create(pending), true);
+  assert.equal(await store.claimPending(analyzingRecordFor(pending)), true);
+  assert.equal(await store.completeAnalysis(record), true);
 
   const persisted = await inner.getByEnrollmentId(record.enrollmentId);
   assert.equal(persisted?.state, 'enrolled');
@@ -107,6 +111,49 @@ function newTestCipher(): VoiceIdAesGcmTemplateCipher {
     secret: parseVoiceIdTemplateEncryptionSecret(base64Key),
     randomBytes: () => new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
   });
+}
+
+function pendingRecordFor(
+  record: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>,
+): Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }> {
+  return {
+    state: 'pending_continuous_recording',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    promptSetId: record.promptSetId,
+    promptSequence: [
+      parsePromptPhrase('Copper river carries morning light'),
+      parsePromptPhrase('Seven quiet lanterns cross the harbor'),
+      parsePromptPhrase('Bright cedar branches move in winter'),
+      parsePromptPhrase('A silver compass points toward home'),
+    ],
+    modelVersion: record.modelVersion,
+    createdAt: record.createdAt,
+    expiresAt: record.enrolledAt,
+    minimumCaptureMs: 12_000,
+    targetCaptureMs: 18_000,
+    maximumCaptureMs: 30_000,
+  };
+}
+
+function analyzingRecordFor(
+  record: Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }>,
+): Extract<VoiceIdEnrollmentRecord, { state: 'analyzing_continuous_recording' }> {
+  return {
+    state: 'analyzing_continuous_recording',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    promptSetId: record.promptSetId,
+    promptSequence: record.promptSequence,
+    modelVersion: record.modelVersion,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    minimumCaptureMs: record.minimumCaptureMs,
+    targetCaptureMs: record.targetCaptureMs,
+    maximumCaptureMs: record.maximumCaptureMs,
+    analysisStartedAt: record.createdAt,
+    analysisExpiresAt: record.expiresAt,
+  };
 }
 
 function enrolledRecord(

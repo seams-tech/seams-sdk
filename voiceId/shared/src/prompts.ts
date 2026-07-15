@@ -7,6 +7,13 @@ export type VoiceIdPrompt = {
   phrase: VoiceIdPromptPhrase;
 };
 
+export type VoiceIdEnrollmentPromptSequence = readonly [
+  VoiceIdPromptPhrase,
+  VoiceIdPromptPhrase,
+  VoiceIdPromptPhrase,
+  VoiceIdPromptPhrase,
+];
+
 const digitWords = new Map<string, string>([
   ['zero', '0'],
   ['oh', '0'],
@@ -46,4 +53,23 @@ export function normalizePromptPhrase(phrase: VoiceIdPromptPhrase | string): str
   }
 
   return normalizedWords.join(' ');
+}
+
+export function parseEnrollmentPromptSequence(value: unknown): VoiceIdEnrollmentPromptSequence {
+  if (!Array.isArray(value) || value.length !== 4) {
+    throw new Error('enrollment prompt sequence must contain exactly four phrases');
+  }
+
+  return [
+    parsePromptPhrase(value[0]),
+    parsePromptPhrase(value[1]),
+    parsePromptPhrase(value[2]),
+    parsePromptPhrase(value[3]),
+  ];
+}
+
+export function combineEnrollmentPromptSequence(
+  prompts: VoiceIdEnrollmentPromptSequence,
+): VoiceIdPromptPhrase {
+  return parsePromptPhrase(prompts.join('. '));
 }

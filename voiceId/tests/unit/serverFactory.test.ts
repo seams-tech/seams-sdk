@@ -7,13 +7,17 @@ import {
   voiceIdEcapaLocalDevSpeakerScoreThreshold,
   voiceIdFakeSpeakerScoreThreshold,
   voiceIdSpeakerScoreThresholdFromEnv,
+  transcriptProviderModeFromEnv,
   verifierTransportModeFromEnv,
 } from '../../server/src/index.ts';
 import { FakeVoiceIdVerifier } from '../../server/src/verifier/FakeVoiceIdVerifier.ts';
 
-test('verifier transport mode defaults to fake', () => {
+test('verifier and transcript modes require explicit configuration', () => {
   withEnv({ VOICEID_VERIFIER_TRANSPORT: null }, () => {
-    assert.equal(verifierTransportModeFromEnv(), 'fake');
+    assert.throws(() => verifierTransportModeFromEnv(), /must explicitly/);
+  });
+  withEnv({ VOICEID_TRANSCRIPT_PROVIDER: null }, () => {
+    assert.throws(() => transcriptProviderModeFromEnv(), /must explicitly/);
   });
 });
 
@@ -38,11 +42,16 @@ test('verifier transport mode rejects invalid values', () => {
 test('factory builds fake and Python verifier modes', () => {
   assert.ok(createVoiceIdVerifierFromEnv('fake') instanceof FakeVoiceIdVerifier);
   assert.ok(createVoiceIdVerifierFromEnv('python-subprocess') instanceof PythonVoiceIdVerifier);
-  assert.ok(createVoiceIdVerifierFromEnv('python-http') instanceof PythonVoiceIdVerifier);
+  withEnv({ VOICEID_PYTHON_VERIFIER_URL: 'http://127.0.0.1:5051/voice-id/verifier/' }, () => {
+    assert.ok(createVoiceIdVerifierFromEnv('python-http') instanceof PythonVoiceIdVerifier);
+  });
 });
 
 test('default service accepts explicit verifier mode override', () => {
-  const service = createDefaultVoiceIdService({ verifierMode: 'fake' });
+  const service = createDefaultVoiceIdService({
+    verifierMode: 'fake',
+    transcriptProviderMode: 'fake',
+  });
   assert.equal(typeof service.startEnrollment, 'function');
 });
 

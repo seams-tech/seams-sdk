@@ -44,6 +44,36 @@ needs machine-readable fixture inventory.
 Use `pnpm -C voiceId fixtures:report` to print the model-selection report
 template for the validated fixture set.
 
+## PAD Evaluation Manifest
+
+PAD experiments use a separate `voiceid-pad-evaluation.json` manifest. Each
+entry records a subject, session, frozen development or evaluation partition,
+bona-fide or attack presentation, exact attack class, capture profile, PAD
+score, and latency. Bona-fide entries carry a null attack class. Attack entries
+use one of:
+
+```text
+replay
+synthesis
+voice_conversion
+splice
+relay
+digital_injection
+```
+
+The parser rejects subjects shared by development and evaluation partitions.
+Run the dependency-free contract tests and evaluate frozen scores with:
+
+```sh
+pnpm -C voiceId pad:test
+pnpm -C voiceId pad:evaluate
+```
+
+The report includes BPCER, overall APCER, uncertainty, 95% Wilson intervals,
+APCER by attack class, APCER by capture profile, and missing attack species. A
+manifest cannot report `releaseReady: true` until every required attack class
+appears in the evaluation partition.
+
 ## Retention
 
 Keep fixture bundles local unless everyone recorded in the fixture set has

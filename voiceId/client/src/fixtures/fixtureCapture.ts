@@ -1,13 +1,13 @@
 import {
   buildVoiceIdFixtureManifest,
   buildVoiceIdFixtureManifestEntry,
-  createId,
+  createRandomId,
   nowIsoDateTime,
   type VoiceIdAudioMetadata,
   type VoiceIdFixtureExpectedRelation,
-  type VoiceIdFixtureId,
   type VoiceIdFixtureManifest,
   type VoiceIdFixtureManifestEntry,
+  parseVoiceIdFixtureId,
 } from '../../../shared/src/index.ts';
 
 export type CapturedVoiceIdFixture = {
@@ -24,7 +24,7 @@ export function createCapturedVoiceIdFixture(input: {
   readonly captureDevice: string;
   readonly environmentNotes: string;
 }): CapturedVoiceIdFixture {
-  const fixtureId = createId<VoiceIdFixtureId>('fixture');
+  const fixtureId = parseVoiceIdFixtureId(createRandomId('fixture'));
   const audioFileName = `voiceid-${fixtureId}.${audioFileExtension(input.blob.type)}`;
   return {
     blob: input.blob,

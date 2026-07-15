@@ -5,13 +5,17 @@ import {
   startVoiceIdClipRecording,
 } from '../../client/src/capture/mediaRecorder.ts';
 
+let recordingStartNotifications = 0;
+
 test('recordVoiceIdClip requests periodic chunks and returns useful recordings', async () => {
   const restore = installFakeBrowserRecording({ chunks: [new Blob([new Uint8Array(2048)])] });
+  recordingStartNotifications = 0;
   try {
     const result = await recordVoiceIdClip({
       stream: fakeMediaStream(),
       durationMs: 1,
       timeoutMs: 1000,
+      onRecordingStart: countRecordingStart,
     });
 
     assert.equal(result.kind, 'recorded');
@@ -21,6 +25,7 @@ test('recordVoiceIdClip requests periodic chunks and returns useful recordings',
     }
     assert.equal(FakeMediaRecorder.instances[0].startTimesliceMs, 250);
     assert.equal(FakeMediaRecorder.instances[0].requestDataCount, 1);
+    assert.equal(recordingStartNotifications, 1);
   } finally {
     restore();
   }
@@ -156,4 +161,8 @@ function installFakeBrowserRecording(input: FakeRecordingInput): () => void {
 
 function fakeMediaStream(): MediaStream {
   return {} as MediaStream;
+}
+
+function countRecordingStart(): void {
+  recordingStartNotifications += 1;
 }

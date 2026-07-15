@@ -1,193 +1,107 @@
-# VoiceID Nitro Enclave Bridge
+# VoiceID AWS Nitro Enclave Bridge
 
-Status: optional custody/policy hardening track; it does not raise VoiceID
-evidence assurance by itself.
+Status: optional key and evidence hardening boundary; no VoiceID user
+verification authority.
 
 Normative security requirements:
 [VoiceID Signing Security Profile](../../../docs/voiceId-signing-security-profile.md).
 
-This deployment uses AWS Nitro Enclaves for narrowly scoped template-key use,
-R1 policy evaluation, or SigningWorker share custody. Nitro Enclaves have no
-external networking, no persistent storage, and no direct interactive access.
-The parent EC2 instance owns network and storage calls. Small typed requests
-cross the parent-instance bridge over vsock.
+Nitro Enclaves have no microphone or direct peripheral path. They cannot own
+voice capture and cannot implement the VoiceID authenticator boundary. This
+deployment may protect template-key operations, validate typed evidence inputs,
+or host an existing SigningWorker role. E0/E1/E2 evidence remains
+signing-ineligible.
 
-Template/biometric policy and SigningWorker custody use separate enclave roles,
-images, keys, and request unions. No enclave instance receives both biometric
-template material and MPC share material.
-
-## Placement
+## Runtime Shape
 
 ```text
-browser, mobile, or robot
-  -> authenticated VoiceID API on parent-visible AWS service
-  -> server-owned Router binding and challenge
-  -> Python ECAPA/PAD services outside enclave
-  -> E0/E1 or E2 evidence builder
+browser, iOS app, or robot
+  -> ordinary VoiceID API and verifier
+  -> E0/E1/E2 evidence
   -> parent-instance bridge
-  -> Nitro Enclave key/policy/custody worker over vsock
-  -> trusted Router grant store and atomic reservation
+  -> vsock request to an attested enclave role
+  -> typed evidence or key-operation result
+
+wallet signing
+  -> verified passkey or VoiceIdAuthenticatorAdmittedTransaction
+  -> Router A/B admission
   -> active SigningWorker
 ```
 
-Raw audio never enters the enclave. ECAPA model runtime stays outside the
-enclave. PAD media inference also stays outside unless a separately measured
-enclave build and capture profile are approved. The enclave receives only
-parsed typed component results, `RouterVoiceIntentBinding`, version records,
-and authenticated state references.
+Raw audio never enters the enclave. The ECAPA model runtime stays outside the
+enclave. Neither an enclave signature nor Nitro attestation converts evidence
+into authenticator UV.
 
-Browser capture remains E0. Moving policy or key custody into an enclave cannot
-upgrade browser evidence to E2.
+## Enclave Constraints
 
-## Parent And Router Responsibilities
+Nitro Enclaves have no persistent storage and no external networking. The
+parent EC2 instance is the parent-instance bridge for vsock transport, KMS
+proxying, persistence, and service networking.
 
-The parent-visible service owns:
+The parent is untrusted for plaintext enclave secrets. Every request includes a
+fresh nonce, operation kind, caller workload identity, expiry, and complete
+request digest. The enclave verifies its role-specific allowlist before using a
+key.
 
-- HTTPS ingress and route-boundary parsing;
-- raw-media processing and deletion enforcement;
-- calls to ECAPA, ASR, and PAD providers;
-- construction and persistence of the Router binding and server challenge;
-- encrypted enrollment/template records;
-- device, model, threshold, calibration, and capture-profile revocation reads;
-- transport over vsock;
-- audit delivery without biometric payloads.
+## Supported Roles
 
-The trusted Router boundary owns durable grant state and the atomic
-`issued -> reserved` transition. D1/Durable Objects, DynamoDB conditional writes,
-or a transactional database may implement that state. The enclave cannot own
-one-use semantics because it has no persistent storage.
+### Evidence validation
 
-Treat the parent as an untrusted transport for enclave operations. The enclave
-verifies request digests, domain separators, nonces, versions, expiries,
-attestation context, and authenticated state proofs issued by the trusted API,
-Router, and grant store before using plaintext keys or returning an R1 risk
-decision. Hash consistency without a trusted issuer is insufficient.
+The enclave may parse a `VoiceIdAttestedEvidence` bundle and verify:
 
-## Enclave Operations
+- `RouterVoiceIntentBinding`, including `intentDigest`;
+- device proof and exact-media hash;
+- PAD, speaker, phrase, quality, freshness, capture-profile, model, threshold,
+  and calibration versions;
+- enclave request nonce, expiry, and workload identity.
 
-The enclave supports only narrow operations:
+The result is signing-ineligible evidence. It may be stored for audit, research,
+or passkey step-up policy.
 
-1. `template_key_unwrap`: use an encrypted template key under attested KMS
-   policy inside a dedicated biometric-processing enclave. Plaintext keys and
-   templates remain inside that enclave; it returns only a typed comparison or
-   newly encrypted template result.
-2. `r1_policy_decision`: verify a parsed
-   `VoiceIdSigningCandidateEvidence` bundle, the complete Router binding, risk
-   inputs, calibration approval, and revocation proofs; return an accepted,
-   step-up, or denied `VoiceIdRiskDecision`. It does not issue a bearer grant.
-3. `signing_worker_authorization`: when the enclave hosts SigningWorker custody,
-   verify a server-created `ReservedVoiceIdR1Grant` and the Router A/B request
-   transcript before share participation.
+### Template key unwrap
 
-The enclave keeps plaintext keys, policy material, and MPC share material in
-memory for one operation window. It returns no reusable signing authority.
+A `template_key_unwrap` request may unwrap an encrypted template data key after
+validating subject, enrollment, template, model, threshold, key version,
+purpose, caller role, and expiry. Plaintext key material remains inside the
+biometric enclave role.
 
-## Request Envelope
+### SigningWorker
 
-Use length-prefixed CBOR or a deterministic binary encoding over vsock for the
-production boundary. JSON is acceptable only for the first local transport
-spike. Parse the envelope once into a discriminated union.
+An existing SigningWorker enclave may receive only a verified
+`WalletSigningAuthorization` containing passkey admission or
+`VoiceIdAuthenticatorAdmittedTransaction`. Raw evidence and raw assertion bytes
+cannot enter that API.
 
-Illustrative R1 policy request:
+Use separate enclave roles and separate KMS keys. No enclave instance receives
+both biometric template material and MPC share material.
 
-```json
-{
-  "schemaVersion": 2,
-  "requestId": "voiceid-enclave-request-...",
-  "kind": "r1_policy_decision",
-  "issuedAt": "2026-07-11T00:00:00.000Z",
-  "expiresAt": "2026-07-11T00:00:10.000Z",
-  "nonce": "base64url-random-nonce",
-  "routerBinding": {
-    "operationId": "router-operation-...",
-    "intentDigest": "base64url-public-digest",
-    "signingPayloadDigest": "base64url-public-digest",
-    "admittedSigningDigest": "base64url-public-digest"
-  },
-  "signingCandidate": {
-    "kind": "signing_candidate_evidence",
-    "verificationId": "voiceid-verification-...",
-    "enrollmentId": "voiceid-enrollment-...",
-    "speaker": "accepted",
-    "phrase": "accepted",
-    "quality": "accepted",
-    "captureFreshness": "accepted",
-    "pad": "accepted",
-    "deviceProof": "verified",
-    "captureProfile": "approved",
-    "calibration": "approved"
-  },
-  "risk": {
-    "requestedTier": "R1",
-    "policyVersion": "voiceid-r1-policy-..."
-  }
-}
-```
+## Attestation And Key Policy
 
-Rules:
+- Pin PCR measurements for the enclave image and role.
+- Bind KMS key policy to the approved attestation document and workload role.
+- Include version, nonce, expiry, request digest, and response digest in every
+  vsock message.
+- Reject debug builds, stale measurements, replayed nonces, unknown callers,
+  and role mismatches.
+- Rotate template and SigningWorker keys independently.
 
-- `template_key_unwrap` includes encrypted key material, template version, KMS
-  key id, AAD digest, and attestation nonce.
-- `r1_policy_decision` requires E2. E0/E1, raw scores, partial checks, and
-  client-created identities or policy labels fail boundary parsing.
-- `signing_worker_authorization` requires the exact Router request digest,
-  reservation id, `ReservedVoiceIdR1Grant`, active SigningWorker id, expiry,
-  and replay nonce.
-- Responses include request id, exhaustive result kind, versions, reason code,
-  and digest of the accepted request.
-- Responses never include raw audio/video, embeddings, full transcripts,
-  plaintext template keys, private signing keys, or shares.
+## Failure Rules
 
-## Attestation And KMS
-
-The enclave generates an attestation document for sensitive operations. KMS
-policy can bind decrypt or signing-key use to expected enclave measurements,
-attestation nonce, image version, and parent-instance context.
-
-The parent forwards KMS calls or uses a KMS proxy. The enclave verifies that
-decrypted material matches the request AAD and digest, then erases plaintext at
-the end of the operation window.
-
-Attestation establishes the enclave build and key-release conditions. It does
-not prove physical microphone provenance, PAD success, user consent, or correct
-transaction display.
-
-## Router A/B And Grant Boundary
-
-E2 supplies evidence to R1 policy. An accepted risk decision causes the trusted
-server to create an `issued` grant for one exact `RouterVoiceIntentBinding`.
-Router atomically changes it to `reserved` before the first SigningWorker call.
-
-SigningWorker authorization binds:
-
-- grant and reservation ids;
-- exact Router request digest;
-- operation id and operation fingerprint;
-- Router intent, signing-payload, and admitted-signing digests;
-- subject, wallet, account, session, tenant, environment, network, and device;
-- evidence, model, threshold, PAD, capture-profile, calibration, and policy
-  versions;
-- expiry, active SigningWorker identity, and normal-signing transcript.
-
-Success transitions the grant to `consumed`. Timeout, cancellation, worker
-failure, or response loss transitions it to `failed_closed`. It never returns
-to `issued`.
+- Evidence validation failure returns rejected or uncertain evidence without a
+  signing continuation.
+- Template unwrap failure leaves the enrollment unavailable and may offer
+  passkey recovery.
+- SigningWorker failure closes the current Router attempt; retry requires a new
+  cryptographic authorization ceremony.
+- Parent disconnect, enclave restart, timeout, and response loss fail closed.
 
 ## Validation
 
-Run the local static guard:
-
-```sh
-pnpm -C voiceId nitro:guard
-```
-
-Run the existing sidecar smoke for the non-enclave verifier path:
-
-```sh
-pnpm -C voiceId smoke:python-http
-```
-
-Required tests cover envelope parsing, attestation/KMS failure, every field
-mutation, E0/E1 rejection, revocation, stale calibration, concurrent grant
-reservation, SigningWorker mismatch, terminal failure, and absence of biometric
-data from logs and responses.
+- Raw media and ECAPA dependencies are absent from the enclave image.
+- E0/E1/E2 cannot construct `WalletSigningAuthorization`.
+- Nitro attestation cannot claim VoiceID UV.
+- Template and SigningWorker roles use distinct images, policies, and KMS keys.
+- Wrong nonce, expiry, caller, PCR measurement, role, Router binding, device
+  proof, or evidence version fails closed.
+- Only passkey or approved VoiceID authenticator admission reaches Router A/B
+  and SigningWorker.

@@ -4,7 +4,6 @@ export function buildBrowserAudioMetadata(input: {
   blob: Blob;
   durationMs: number;
   recorder: string;
-  fixtureSpeakerLabel: string;
 }): VoiceIdAudioMetadata {
   return {
     mimeType: input.blob.type || 'audio/webm',
@@ -14,10 +13,6 @@ export function buildBrowserAudioMetadata(input: {
     byteLength: input.blob.size,
     capturedAt: nowIsoDateTime(),
     recorder: input.recorder,
-    fixtureBehavior: {
-      kind: 'speaker_label',
-      speakerLabel: input.fixtureSpeakerLabel,
-    },
   };
 }
 

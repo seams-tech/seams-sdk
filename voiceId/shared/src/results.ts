@@ -1,11 +1,10 @@
 import type { VoiceIdAudioQualityResult } from './audio.ts';
 import type {
-  VoiceIdEnrollmentId,
   VoiceIdModelVersion,
-  VoiceIdTemplateVersion,
   VoiceIdThresholdVersion,
   VoiceIdVerificationId,
 } from './ids.ts';
+import type { VoiceIdExperimentalBrowserEvidence } from './evidence.ts';
 
 export type VoiceIdPhraseMatchResult =
   | {
@@ -62,17 +61,8 @@ export type VoiceIdVerificationChecks = {
 
 export type VoiceIdVerificationResult =
   | {
-      kind: 'accepted';
-      enrollmentId: VoiceIdEnrollmentId;
-      verificationId: VoiceIdVerificationId;
-      templateVersion: VoiceIdTemplateVersion;
-      checks: {
-        phrase: Extract<VoiceIdPhraseMatchResult, { kind: 'accepted' }>;
-        speaker: Extract<VoiceIdSpeakerMatchResult, { kind: 'accepted' }>;
-        quality: Extract<VoiceIdAudioQualityResult, { kind: 'accepted' }>;
-      };
-      modelVersion: VoiceIdModelVersion;
-      thresholdVersion: VoiceIdThresholdVersion;
+      kind: 'evidence_observed';
+      evidence: VoiceIdExperimentalBrowserEvidence;
     }
   | {
       kind: 'rejected';
@@ -80,9 +70,7 @@ export type VoiceIdVerificationResult =
       reason:
         | 'phrase_mismatch'
         | 'speaker_mismatch'
-        | 'low_audio_quality'
-        | 'too_many_attempts'
-        | 'expired';
+        | 'low_audio_quality';
       checks: VoiceIdVerificationChecks;
     }
   | {

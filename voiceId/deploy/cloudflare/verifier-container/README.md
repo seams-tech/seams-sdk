@@ -1,6 +1,6 @@
 # VoiceID Cloudflare Verifier Container
 
-Status: speaker-component runtime; no E2 or grant authority.
+Status: speaker-component runtime; no E2 or signing authority.
 
 Normative security requirements:
 [VoiceID Signing Security Profile](../../../docs/voiceId-signing-security-profile.md).
@@ -11,7 +11,7 @@ for Cloudflare Containers. Cloudflare Workers call it through the existing
 
 ECAPA returns speaker, quality, and template component results. The container
 cannot establish phrase correctness, challenge freshness, PAD, device proof,
-capture provenance, E2, policy acceptance, or a signing grant.
+capture provenance, E2, authenticator UV, or signing authorization.
 
 The Worker must not import PyTorch, SpeechBrain, ffmpeg, or model weights. Those
 dependencies live in this container image.
@@ -71,6 +71,7 @@ The Cloudflare Worker entrypoint should use
 
 ```sh
 VOICEID_PYTHON_VERIFIER_URL=https://<container-service>/voice-id/verifier/
+VOICEID_ALLOWED_ORIGINS=https://<voice-capture-origin>
 VOICEID_VERIFIER_TIMEOUT_MS=10000
 # Local-development E0 threshold only; prohibited for E2.
 VOICEID_SPEAKER_SCORE_THRESHOLD=0.6352
@@ -92,10 +93,10 @@ transient and is deleted after the operation. Worker, proxy, container, and
 crash logs exclude audio, embeddings, templates, full transcripts, and raw model
 responses.
 
-The verifier exposes:
+The verifier exposes one atomic enrollment operation and one verification
+operation:
 
-- `POST /voice-id/verifier/extract-enrollment-embedding`
-- `POST /voice-id/verifier/build-template`
+- `POST /voice-id/verifier/build-enrollment-template`
 - `POST /voice-id/verifier/verify-speaker`
 - `GET /health`
 

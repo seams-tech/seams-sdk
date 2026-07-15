@@ -1,10 +1,19 @@
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
-import { createDefaultVoiceIdService } from './index.ts';
+import {
+  createDefaultVoiceIdService,
+  transcriptProviderModeFromEnv,
+  verifierTransportModeFromEnv,
+} from './index.ts';
 import { createVoiceIdFetchHandler } from './routes.ts';
 
-const service = createDefaultVoiceIdService();
-const handler = createVoiceIdFetchHandler(service);
+const service = createDefaultVoiceIdService({
+  verifierMode: verifierTransportModeFromEnv(),
+  transcriptProviderMode: transcriptProviderModeFromEnv(),
+});
+const handler = createVoiceIdFetchHandler(service, {
+  allowedOrigins: ['http://127.0.0.1:5050'],
+});
 const port = Number.parseInt(process.env.PORT ?? '5052', 10);
 
 createServer(async (incoming, outgoing) => {
