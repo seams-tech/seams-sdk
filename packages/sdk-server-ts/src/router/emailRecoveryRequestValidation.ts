@@ -8,7 +8,6 @@ export type PrepareEmailRecoveryRequest = {
   threshold_ecdsa_prepare: Record<string, unknown>;
   expected_origin: string;
   signer_slot?: number;
-  threshold_ed25519?: Record<string, unknown>;
 };
 
 export type RespondEmailRecoveryEcdsaRequest = {
@@ -17,16 +16,6 @@ export type RespondEmailRecoveryEcdsaRequest = {
     chainTarget: Record<string, unknown>;
     clientBootstrap: Record<string, unknown>;
   }>;
-};
-
-export type RespondEmailRecoveryEd25519Request = {
-  request_id: string;
-  clientRequest: Record<string, unknown>;
-};
-
-export type FinalizeEmailRecoveryEd25519Request = {
-  request_id: string;
-  evaluationResult: Record<string, unknown>;
 };
 
 export type EmailRecoveryRouteErrorBody = {
@@ -43,14 +32,11 @@ const PREPARE_KEYS = [
   'account_id',
   'request_id',
   'signer_slot',
-  'threshold_ed25519',
   'threshold_ecdsa_prepare',
   'rp_id',
   'webauthn_registration',
 ] as const;
 const RESPOND_ECDSA_KEYS = ['request_id', 'client_bootstraps'] as const;
-const RESPOND_ED25519_KEYS = ['request_id', 'client_request'] as const;
-const FINALIZE_ED25519_KEYS = ['request_id', 'evaluation_result'] as const;
 
 function invalidEmailRecoveryBody(message: string): EmailRecoveryRouteParseResult<never> {
   return {
@@ -218,58 +204,6 @@ export function parseRespondEmailRecoveryEcdsaRequest(
     request: {
       request_id: requestId.request,
       clientBootstraps: parsedClientBootstraps,
-    },
-  };
-}
-
-export function parseRespondEmailRecoveryEd25519Request(
-  raw: unknown,
-): EmailRecoveryRouteParseResult<RespondEmailRecoveryEd25519Request> {
-  const body = requireJsonObject(raw);
-  if (!body.ok) return body;
-  const keys = requireOnlyAllowedKeys(
-    body.request,
-    RESPOND_ED25519_KEYS,
-    'email-recovery Ed25519 respond',
-  );
-  if (!keys.ok) return keys;
-
-  const requestId = requireTrimmedField(body.request, 'request_id');
-  if (!requestId.ok) return requestId;
-  const clientRequest = parseRequiredObjectField(body.request, 'client_request');
-  if (!clientRequest.ok) return clientRequest;
-
-  return {
-    ok: true,
-    request: {
-      request_id: requestId.request,
-      clientRequest: clientRequest.request,
-    },
-  };
-}
-
-export function parseFinalizeEmailRecoveryEd25519Request(
-  raw: unknown,
-): EmailRecoveryRouteParseResult<FinalizeEmailRecoveryEd25519Request> {
-  const body = requireJsonObject(raw);
-  if (!body.ok) return body;
-  const keys = requireOnlyAllowedKeys(
-    body.request,
-    FINALIZE_ED25519_KEYS,
-    'email-recovery Ed25519 finalize',
-  );
-  if (!keys.ok) return keys;
-
-  const requestId = requireTrimmedField(body.request, 'request_id');
-  if (!requestId.ok) return requestId;
-  const evaluationResult = parseRequiredObjectField(body.request, 'evaluation_result');
-  if (!evaluationResult.ok) return evaluationResult;
-
-  return {
-    ok: true,
-    request: {
-      request_id: requestId.request,
-      evaluationResult: evaluationResult.request,
     },
   };
 }

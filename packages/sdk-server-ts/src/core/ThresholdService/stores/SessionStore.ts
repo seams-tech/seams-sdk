@@ -21,12 +21,9 @@ import {
   toThresholdEd25519PrefixFromBase,
   parseThresholdEd25519MpcSessionRecord,
   parseThresholdEcdsaMpcSessionRecord,
-  parseRouterAbEd25519PresignRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
   isObject,
-  thresholdEd25519AuthorityScopesMatch,
-  type ParsedRouterAbEd25519PresignRecord,
 } from '../validation';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
@@ -127,54 +124,6 @@ export type ThresholdEd25519CoordinatorSigningSessionRecord = {
   relayerVerifyingSharesById: Record<string, string>;
 };
 
-export type RouterAbEd25519PresignRecord = ParsedRouterAbEd25519PresignRecord;
-
-export type RouterAbEd25519PresignExpectedScope = {
-  thresholdSessionId: string;
-  signingGrantId: string;
-  relayerKeyId: string;
-  nearAccountId: string;
-  nearNetworkId: string;
-  signerPublicKey: string;
-  rpcPolicyId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  runtimePolicyScope: RouterAbEd25519PresignRecord['runtimePolicyScope'];
-  participantIds: readonly number[];
-  groupPublicKey: string;
-};
-
-export type RouterAbEd25519TakePresignForFinalizeResult =
-  | { ok: true; record: RouterAbEd25519PresignRecord }
-  | { ok: false; code: 'not_found' | 'expired' | 'scope_mismatch' | 'invalid_record' };
-
-export type RouterAbEd25519PresignCapacity = {
-  signingGrantMax: number;
-  globalMax: number;
-};
-
-export type RouterAbEd25519PutPresignWithCapacityResult =
-  | { ok: true }
-  | { ok: false; code: 'capacity_exceeded' };
-
-export type RouterAbEd25519CheckPresignCapacityResult =
-  | { ok: true }
-  | { ok: false; code: 'capacity_exceeded' };
-
-export type RouterAbEd25519PresignRefillRateLimitBucket = {
-  kind: 'wallet_signing_session' | 'threshold_session' | 'account_relayer_key' | 'request_origin';
-  key: string;
-};
-
-export type RouterAbEd25519PresignRefillRateLimitPolicy = {
-  windowMs: number;
-  maxCost: number;
-};
-
-type ThresholdSessionStoreConfigRecord = Record<string, unknown>;
-
-export type RouterAbEd25519ConsumePresignRefillRateLimitResult =
-  | { ok: true }
-  | { ok: false; code: 'rate_limited' };
 
 export interface ThresholdMpcSessionStore<TRecord extends ThresholdMpcSessionRecord> {
   putMpcSession(id: string, record: TRecord, ttlMs: number): Promise<void>;
@@ -199,76 +148,12 @@ export interface ThresholdEd25519SessionStore
   takeCoordinatorSigningSession(
     id: string,
   ): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null>;
-  putPresign(id: string, record: RouterAbEd25519PresignRecord, ttlMs: number): Promise<void>;
-  putPresignWithCapacity(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519PutPresignWithCapacityResult>;
-  checkPresignCapacity(
-    signingGrantId: string,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519CheckPresignCapacityResult>;
-  consumePresignRefillRateLimit(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-    cost: number,
-  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult>;
-  takePresignForFinalize(
-    id: string,
-    expectedScope: RouterAbEd25519PresignExpectedScope,
-  ): Promise<RouterAbEd25519TakePresignForFinalizeResult>;
 }
 
 export type ThresholdEcdsaSessionStore =
   ThresholdMpcSessionStore<ThresholdEcdsaMpcSessionRecord>;
 
-function runtimePolicyScopesMatch(
-  left: RouterAbEd25519PresignRecord['runtimePolicyScope'],
-  right: RouterAbEd25519PresignExpectedScope['runtimePolicyScope'],
-): boolean {
-  return (
-    left.orgId === right.orgId &&
-    left.projectId === right.projectId &&
-    left.envId === right.envId &&
-    left.signingRootVersion === right.signingRootVersion
-  );
-}
-
-function participantIdsMatch(left: readonly number[], right: readonly number[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
-function authorityScopesMatch(
-  left: ThresholdEd25519AuthorityScope,
-  right: ThresholdEd25519AuthorityScope,
-): boolean {
-  return thresholdEd25519AuthorityScopesMatch(left, right);
-}
-
-function presignRecordMatchesExpectedScope(
-  record: RouterAbEd25519PresignRecord,
-  expected: RouterAbEd25519PresignExpectedScope,
-): boolean {
-  return (
-    record.thresholdSessionId === expected.thresholdSessionId &&
-    record.signingGrantId === expected.signingGrantId &&
-    record.relayerKeyId === expected.relayerKeyId &&
-    record.nearAccountId === expected.nearAccountId &&
-    record.nearNetworkId === expected.nearNetworkId &&
-    record.signerPublicKey === expected.signerPublicKey &&
-    record.rpcPolicyId === expected.rpcPolicyId &&
-    authorityScopesMatch(record.authorityScope, expected.authorityScope) &&
-    record.groupPublicKey === expected.groupPublicKey &&
-    runtimePolicyScopesMatch(record.runtimePolicyScope, expected.runtimePolicyScope) &&
-    participantIdsMatch(record.participantIds, expected.participantIds)
-  );
-}
-
-function parseStoredPresignRecord(raw: unknown): RouterAbEd25519PresignRecord | null {
-  return parseRouterAbEd25519PresignRecord(raw);
-}
+type ThresholdSessionStoreConfigRecord = Record<string, unknown>;
 
 function parseRawJson(raw: string | null): unknown | null {
   if (!raw) return null;
@@ -283,38 +168,6 @@ function stableStoreVersion(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function positiveIntegerCapacity(value: number, fieldName: string): number {
-  const normalized = Math.floor(Number(value));
-  if (!Number.isSafeInteger(normalized) || normalized < 1) {
-    throw new Error(`${fieldName} must be a positive integer`);
-  }
-  return normalized;
-}
-
-function positiveIntegerLimit(value: number, fieldName: string): number {
-  const normalized = Math.floor(Number(value));
-  if (!Number.isSafeInteger(normalized) || normalized < 1) {
-    throw new Error(`${fieldName} must be a positive integer`);
-  }
-  return normalized;
-}
-
-function presignRateLimitWindowKey(input: {
-  prefix: string;
-  bucket: RouterAbEd25519PresignRefillRateLimitBucket;
-  policy: RouterAbEd25519PresignRefillRateLimitPolicy;
-  nowMs: number;
-}): string {
-  const key = toOptionalTrimmedString(input.bucket.key);
-  if (!key) throw new Error('presign refill rate limit bucket key is required');
-  const windowMs = positiveIntegerLimit(input.policy.windowMs, 'windowMs');
-  const windowStartMs = Math.floor(input.nowMs / windowMs) * windowMs;
-  return `${input.prefix}${input.bucket.kind}:${encodeURIComponent(key)}:${windowStartMs}`;
-}
-
-function ttlSeconds(ttlMs: number): number {
-  return Math.max(1, Math.ceil(Math.max(0, Number(ttlMs) || 0) / 1000));
-}
 
 type ThresholdMpcSessionRecordParser<TRecord extends ThresholdMpcSessionRecord> = (
   raw: unknown,
@@ -326,8 +179,6 @@ class InMemoryThresholdEd25519SessionStore<
   private readonly map = new Map<string, { value: unknown; expiresAtMs: number }>();
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly presignPrefix: string;
-  private readonly presignRateLimitPrefix: string;
   private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
   constructor(input: {
@@ -336,8 +187,6 @@ class InMemoryThresholdEd25519SessionStore<
   }) {
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.presignPrefix = `${this.keyPrefix}presign:`;
-    this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
     this.parseMpcSessionRecord =
       input.parseMpcSessionRecord ||
       (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
@@ -351,47 +200,6 @@ class InMemoryThresholdEd25519SessionStore<
     return `${this.coordinatorPrefix}${id}`;
   }
 
-  private presignKey(id: string): string {
-    return `${this.presignPrefix}${id}`;
-  }
-
-  private presignGlobalIndexKey(): string {
-    return `${this.presignPrefix}idx:global`;
-  }
-
-  private presignWalletIndexKey(signingGrantId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
-  }
-
-  private pruneExpiredPresigns(nowMs: number): void {
-    for (const [key, entry] of this.map.entries()) {
-      if (!key.startsWith(this.presignPrefix)) continue;
-      const parsed = parseStoredPresignRecord(entry.value);
-      if (!parsed || entry.expiresAtMs <= nowMs || parsed.expiresAtMs <= nowMs) {
-        this.map.delete(key);
-      }
-    }
-  }
-
-  private presignCounts(
-    signingGrantId: string,
-    nowMs: number,
-  ): {
-    wallet: number;
-    global: number;
-  } {
-    this.pruneExpiredPresigns(nowMs);
-    let wallet = 0;
-    let global = 0;
-    for (const [key, entry] of this.map.entries()) {
-      if (!key.startsWith(this.presignPrefix) || entry.expiresAtMs <= nowMs) continue;
-      const parsed = parseStoredPresignRecord(entry.value);
-      if (!parsed || parsed.expiresAtMs <= nowMs) continue;
-      global += 1;
-      if (parsed.signingGrantId === signingGrantId) wallet += 1;
-    }
-    return { wallet, global };
-  }
 
   private getRaw(key: string): unknown | null {
     const entry = this.map.get(key);
@@ -482,102 +290,6 @@ class InMemoryThresholdEd25519SessionStore<
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
   }
 
-  async putPresign(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const key = this.presignKey(id);
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    this.map.set(key, { value: { ...parsed, expiresAtMs }, expiresAtMs });
-  }
-
-  async putPresignWithCapacity(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
-    const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const counts = this.presignCounts(parsed.signingGrantId, Date.now());
-    if (counts.wallet >= walletMax || counts.global >= globalMax) {
-      return { ok: false, code: 'capacity_exceeded' };
-    }
-    await this.putPresign(id, parsed, ttlMs);
-    return { ok: true };
-  }
-
-  async checkPresignCapacity(
-    signingGrantId: string,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(signingGrantId);
-    if (!walletId) return { ok: false, code: 'capacity_exceeded' };
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const counts = this.presignCounts(walletId, Date.now());
-    return counts.wallet >= walletMax || counts.global >= globalMax
-      ? { ok: false, code: 'capacity_exceeded' }
-      : { ok: true };
-  }
-
-  async consumePresignRefillRateLimit(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-    cost: number,
-  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
-    const nowMs = Date.now();
-    const costInt = positiveIntegerLimit(cost, 'cost');
-    const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
-    const windowMs = positiveIntegerLimit(policy.windowMs, 'windowMs');
-    const key = presignRateLimitWindowKey({
-      prefix: this.presignRateLimitPrefix,
-      bucket,
-      policy,
-      nowMs,
-    });
-    const entry = this.map.get(key);
-    const current =
-      entry && entry.expiresAtMs > nowMs && typeof entry.value === 'number' ? entry.value : 0;
-    const next = current + costInt;
-    if (next > maxCost) return { ok: false, code: 'rate_limited' };
-    this.map.set(key, { value: next, expiresAtMs: nowMs + windowMs });
-    return { ok: true };
-  }
-
-  async takePresignForFinalize(
-    id: string,
-    expectedScope: RouterAbEd25519PresignExpectedScope,
-  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
-    const key = this.presignKey(id);
-    const entry = this.map.get(key);
-    if (!entry) return { ok: false, code: 'not_found' };
-    if (Date.now() > entry.expiresAtMs) {
-      this.map.delete(key);
-      return { ok: false, code: 'expired' };
-    }
-    const parsed = parseStoredPresignRecord(entry.value);
-    if (!parsed) {
-      this.map.delete(key);
-      return { ok: false, code: 'invalid_record' };
-    }
-    if (!presignRecordMatchesExpectedScope(parsed, expectedScope)) {
-      return { ok: false, code: 'scope_mismatch' };
-    }
-    this.map.delete(key);
-    return { ok: true, record: parsed };
-  }
 }
 
 class UpstashRedisRestThresholdEd25519SessionStore<
@@ -586,8 +298,6 @@ class UpstashRedisRestThresholdEd25519SessionStore<
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly presignPrefix: string;
-  private readonly presignRateLimitPrefix: string;
   private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
   constructor(input: {
@@ -603,8 +313,6 @@ class UpstashRedisRestThresholdEd25519SessionStore<
     this.client = new UpstashRedisRestClient({ url, token });
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.presignPrefix = `${this.keyPrefix}presign:`;
-    this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
     this.parseMpcSessionRecord =
       input.parseMpcSessionRecord ||
       (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
@@ -616,18 +324,6 @@ class UpstashRedisRestThresholdEd25519SessionStore<
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
-  }
-
-  private presignKey(id: string): string {
-    return `${this.presignPrefix}${id}`;
-  }
-
-  private presignGlobalIndexKey(): string {
-    return `${this.presignPrefix}idx:global`;
-  }
-
-  private presignWalletIndexKey(signingGrantId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
   }
 
   async putMpcSession(
@@ -713,172 +409,6 @@ class UpstashRedisRestThresholdEd25519SessionStore<
     const raw = await this.client.getdelJson(this.coordKey(k));
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
   }
-
-  async putPresign(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing presignId');
-    const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    await this.client.setJson(this.presignKey(k), { ...parsed, expiresAtMs }, ttlMs);
-  }
-
-  async putPresignWithCapacity(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
-    const k = id;
-    if (!k) throw new Error('Missing presignId');
-    const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const result = await this.client.eval(
-      [
-        'local presignKey = KEYS[1]',
-        'local walletIndexKey = KEYS[2]',
-        'local globalIndexKey = KEYS[3]',
-        'local recordJson = ARGV[1]',
-        'local ttlSeconds = tonumber(ARGV[2])',
-        'local expiresAtMs = tonumber(ARGV[3])',
-        'local nowMs = tonumber(ARGV[4])',
-        'local walletMax = tonumber(ARGV[5])',
-        'local globalMax = tonumber(ARGV[6])',
-        'local presignId = ARGV[7]',
-        "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
-        "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
-        "if redis.call('EXISTS', presignKey) == 0 then",
-        "  if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
-        "  if redis.call('ZCARD', globalIndexKey) >= globalMax then return 'capacity_exceeded' end",
-        'end',
-        "redis.call('SET', presignKey, recordJson, 'EX', ttlSeconds)",
-        "redis.call('ZADD', walletIndexKey, expiresAtMs, presignId)",
-        "redis.call('ZADD', globalIndexKey, expiresAtMs, presignId)",
-        "redis.call('EXPIRE', walletIndexKey, ttlSeconds)",
-        "redis.call('EXPIRE', globalIndexKey, ttlSeconds)",
-        "return 'ok'",
-      ].join('\n'),
-      [
-        this.presignKey(k),
-        this.presignWalletIndexKey(parsed.signingGrantId),
-        this.presignGlobalIndexKey(),
-      ],
-      [
-        JSON.stringify({ ...parsed, expiresAtMs }),
-        String(ttlSeconds(ttlMs)),
-        String(Math.floor(expiresAtMs)),
-        String(Date.now()),
-        String(walletMax),
-        String(globalMax),
-        k,
-      ],
-    );
-    return result === 'ok' ? { ok: true } : { ok: false, code: 'capacity_exceeded' };
-  }
-
-  async checkPresignCapacity(
-    signingGrantId: string,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(signingGrantId);
-    if (!walletId) return { ok: false, code: 'capacity_exceeded' };
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const result = await this.client.eval(
-      [
-        'local walletIndexKey = KEYS[1]',
-        'local globalIndexKey = KEYS[2]',
-        'local nowMs = tonumber(ARGV[1])',
-        'local walletMax = tonumber(ARGV[2])',
-        'local globalMax = tonumber(ARGV[3])',
-        "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
-        "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
-        "if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
-        "if redis.call('ZCARD', globalIndexKey) >= globalMax then return 'capacity_exceeded' end",
-        "return 'ok'",
-      ].join('\n'),
-      [this.presignWalletIndexKey(walletId), this.presignGlobalIndexKey()],
-      [String(Date.now()), String(walletMax), String(globalMax)],
-    );
-    return result === 'ok' ? { ok: true } : { ok: false, code: 'capacity_exceeded' };
-  }
-
-  async consumePresignRefillRateLimit(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-    cost: number,
-  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
-    const nowMs = Date.now();
-    const costInt = positiveIntegerLimit(cost, 'cost');
-    const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
-    const windowMs = positiveIntegerLimit(policy.windowMs, 'windowMs');
-    const key = presignRateLimitWindowKey({
-      prefix: this.presignRateLimitPrefix,
-      bucket,
-      policy,
-      nowMs,
-    });
-    const result = await this.client.eval(
-      [
-        "local current = redis.call('INCRBY', KEYS[1], ARGV[1])",
-        "if current == tonumber(ARGV[1]) then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end",
-        "if current > tonumber(ARGV[3]) then return 'rate_limited' end",
-        "return 'ok'",
-      ].join('\n'),
-      [key],
-      [String(costInt), String(windowMs), String(maxCost)],
-    );
-    return result === 'ok' ? { ok: true } : { ok: false, code: 'rate_limited' };
-  }
-
-  async takePresignForFinalize(
-    id: string,
-    expectedScope: RouterAbEd25519PresignExpectedScope,
-  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
-    const k = id;
-    if (!k) return { ok: false, code: 'not_found' };
-    const key = this.presignKey(k);
-    const raw = await this.client.getRaw(key);
-    const parsed = parseStoredPresignRecord(parseRawJson(typeof raw === 'string' ? raw : null));
-    if (!parsed) return { ok: false, code: 'not_found' };
-    if (Date.now() > parsed.expiresAtMs) {
-      await this.client.del(key);
-      await this.client.eval(
-        "redis.call('ZREM', KEYS[1], ARGV[1]); redis.call('ZREM', KEYS[2], ARGV[1]); return 'ok'",
-        [this.presignWalletIndexKey(parsed.signingGrantId), this.presignGlobalIndexKey()],
-        [k],
-      );
-      return { ok: false, code: 'expired' };
-    }
-    if (!presignRecordMatchesExpectedScope(parsed, expectedScope)) {
-      return { ok: false, code: 'scope_mismatch' };
-    }
-    const deleted = await this.client.eval(
-      "local v=redis.call('GET', KEYS[1]); if v == ARGV[1] then redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[2]); redis.call('ZREM', KEYS[3], ARGV[2]); return v else return nil end",
-      [
-        key,
-        this.presignWalletIndexKey(parsed.signingGrantId),
-        this.presignGlobalIndexKey(),
-      ],
-      [raw as string, k],
-    );
-    const deletedRaw = typeof deleted === 'string' ? deleted : null;
-    const deletedParsed = parseStoredPresignRecord(parseRawJson(deletedRaw));
-    return deletedParsed ? { ok: true, record: deletedParsed } : { ok: false, code: 'not_found' };
-  }
 }
 
 class RedisTcpThresholdEd25519SessionStore<
@@ -887,8 +417,6 @@ class RedisTcpThresholdEd25519SessionStore<
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly presignPrefix: string;
-  private readonly presignRateLimitPrefix: string;
   private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
   constructor(input: {
@@ -901,8 +429,6 @@ class RedisTcpThresholdEd25519SessionStore<
     this.client = new RedisTcpClient(url);
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.presignPrefix = `${this.keyPrefix}presign:`;
-    this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
     this.parseMpcSessionRecord =
       input.parseMpcSessionRecord ||
       (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
@@ -914,18 +440,6 @@ class RedisTcpThresholdEd25519SessionStore<
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
-  }
-
-  private presignKey(id: string): string {
-    return `${this.presignPrefix}${id}`;
-  }
-
-  private presignGlobalIndexKey(): string {
-    return `${this.presignPrefix}idx:global`;
-  }
-
-  private presignWalletIndexKey(signingGrantId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
   }
 
   async putMpcSession(
@@ -1009,186 +523,6 @@ class RedisTcpThresholdEd25519SessionStore<
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
   }
 
-  async putPresign(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing presignId');
-    const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    await redisSetJson(this.client, this.presignKey(k), { ...parsed, expiresAtMs }, ttlMs);
-  }
-
-  async putPresignWithCapacity(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
-    const k = id;
-    if (!k) throw new Error('Missing presignId');
-    const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const result = await redisEval(
-      this.client,
-      [
-        'local presignKey = KEYS[1]',
-        'local walletIndexKey = KEYS[2]',
-        'local globalIndexKey = KEYS[3]',
-        'local recordJson = ARGV[1]',
-        'local ttlSeconds = tonumber(ARGV[2])',
-        'local expiresAtMs = tonumber(ARGV[3])',
-        'local nowMs = tonumber(ARGV[4])',
-        'local walletMax = tonumber(ARGV[5])',
-        'local globalMax = tonumber(ARGV[6])',
-        'local presignId = ARGV[7]',
-        "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
-        "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
-        "if redis.call('EXISTS', presignKey) == 0 then",
-        "  if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
-        "  if redis.call('ZCARD', globalIndexKey) >= globalMax then return 'capacity_exceeded' end",
-        'end',
-        "redis.call('SET', presignKey, recordJson, 'EX', ttlSeconds)",
-        "redis.call('ZADD', walletIndexKey, expiresAtMs, presignId)",
-        "redis.call('ZADD', globalIndexKey, expiresAtMs, presignId)",
-        "redis.call('EXPIRE', walletIndexKey, ttlSeconds)",
-        "redis.call('EXPIRE', globalIndexKey, ttlSeconds)",
-        "return 'ok'",
-      ].join('\n'),
-      [
-        this.presignKey(k),
-        this.presignWalletIndexKey(parsed.signingGrantId),
-        this.presignGlobalIndexKey(),
-      ],
-      [
-        JSON.stringify({ ...parsed, expiresAtMs }),
-        String(ttlSeconds(ttlMs)),
-        String(Math.floor(expiresAtMs)),
-        String(Date.now()),
-        String(walletMax),
-        String(globalMax),
-        k,
-      ],
-    );
-    return result.type === 'bulk' && result.value === 'ok'
-      ? { ok: true }
-      : { ok: false, code: 'capacity_exceeded' };
-  }
-
-  async checkPresignCapacity(
-    signingGrantId: string,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(signingGrantId);
-    if (!walletId) return { ok: false, code: 'capacity_exceeded' };
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const result = await redisEval(
-      this.client,
-      [
-        'local walletIndexKey = KEYS[1]',
-        'local globalIndexKey = KEYS[2]',
-        'local nowMs = tonumber(ARGV[1])',
-        'local walletMax = tonumber(ARGV[2])',
-        'local globalMax = tonumber(ARGV[3])',
-        "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
-        "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
-        "if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
-        "if redis.call('ZCARD', globalIndexKey) >= globalMax then return 'capacity_exceeded' end",
-        "return 'ok'",
-      ].join('\n'),
-      [this.presignWalletIndexKey(walletId), this.presignGlobalIndexKey()],
-      [String(Date.now()), String(walletMax), String(globalMax)],
-    );
-    return result.type === 'bulk' && result.value === 'ok'
-      ? { ok: true }
-      : { ok: false, code: 'capacity_exceeded' };
-  }
-
-  async consumePresignRefillRateLimit(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-    cost: number,
-  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
-    const nowMs = Date.now();
-    const costInt = positiveIntegerLimit(cost, 'cost');
-    const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
-    const windowMs = positiveIntegerLimit(policy.windowMs, 'windowMs');
-    const key = presignRateLimitWindowKey({
-      prefix: this.presignRateLimitPrefix,
-      bucket,
-      policy,
-      nowMs,
-    });
-    const result = await redisEval(
-      this.client,
-      [
-        "local current = redis.call('INCRBY', KEYS[1], ARGV[1])",
-        "if current == tonumber(ARGV[1]) then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end",
-        "if current > tonumber(ARGV[3]) then return 'rate_limited' end",
-        "return 'ok'",
-      ].join('\n'),
-      [key],
-      [String(costInt), String(windowMs), String(maxCost)],
-    );
-    return result.type === 'bulk' && result.value === 'ok'
-      ? { ok: true }
-      : { ok: false, code: 'rate_limited' };
-  }
-
-  async takePresignForFinalize(
-    id: string,
-    expectedScope: RouterAbEd25519PresignExpectedScope,
-  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
-    const k = id;
-    if (!k) return { ok: false, code: 'not_found' };
-    const key = this.presignKey(k);
-    const raw = await redisGetRaw(this.client, key);
-    if (raw === null) return { ok: false, code: 'not_found' };
-    const parsed = parseStoredPresignRecord(parseRawJson(raw));
-    if (!parsed) return { ok: false, code: 'not_found' };
-    if (Date.now() > parsed.expiresAtMs) {
-      await redisEval(
-        this.client,
-        "redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[1]); redis.call('ZREM', KEYS[3], ARGV[1]); return nil",
-        [
-          key,
-          this.presignWalletIndexKey(parsed.signingGrantId),
-          this.presignGlobalIndexKey(),
-        ],
-        [k],
-      );
-      return { ok: false, code: 'expired' };
-    }
-    if (!presignRecordMatchesExpectedScope(parsed, expectedScope)) {
-      return { ok: false, code: 'scope_mismatch' };
-    }
-    const deleted = await redisEval(
-      this.client,
-      "local v=redis.call('GET', KEYS[1]); if v == ARGV[1] then redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[2]); redis.call('ZREM', KEYS[3], ARGV[2]); return v else return nil end",
-      [
-        key,
-        this.presignWalletIndexKey(parsed.signingGrantId),
-        this.presignGlobalIndexKey(),
-      ],
-      [raw, k],
-    );
-    const deletedRaw = deleted.type === 'bulk' ? deleted.value : null;
-    const deletedParsed = parseStoredPresignRecord(parseRawJson(deletedRaw));
-    return deletedParsed ? { ok: true, record: deletedParsed } : { ok: false, code: 'not_found' };
-  }
 }
 
 export function createThresholdEd25519SessionStore(input: {

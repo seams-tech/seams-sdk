@@ -17,6 +17,40 @@ import {
 import { isObject } from '@shared/utils/validation';
 import { createConfiguredSigningRootShareResolver } from './signingRootSecretConfig';
 import type { SigningRootShareResolver } from './signingRootShareResolver';
+import {
+  parseRouterAbNormalSigningRuntimeConfig,
+  RouterAbNormalSigningRuntime,
+} from '../routerAbSigning/RouterAbNormalSigningRuntime';
+import { RouterAbLocalSigningSeedRuntime } from '../routerAbSigning/RouterAbLocalSigningSeedRuntime';
+import {
+  RouterAbEcdsaBootstrapExportRuntime,
+  type RouterAbEcdsaBootstrapExportRuntimeState,
+} from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import { parseThresholdEd25519ParticipantIds2p } from './config';
+
+export type ThresholdSigningRuntimeBundle = {
+  readonly thresholdSigningService: ThresholdSigningService;
+  readonly routerAbNormalSigningRuntime: RouterAbNormalSigningRuntime;
+  readonly routerAbLocalSigningSeedRuntime: RouterAbLocalSigningSeedRuntime;
+  readonly routerAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntimeState;
+};
+
+export function createRouterAbEcdsaBootstrapExportRuntimeState(input: {
+  readonly runtimeInput: Omit<
+    ConstructorParameters<typeof RouterAbEcdsaBootstrapExportRuntime>[0],
+    'signingRootShareResolver'
+  >;
+  readonly signingRootShareResolver: SigningRootShareResolver | null;
+}): RouterAbEcdsaBootstrapExportRuntimeState {
+  if (!input.signingRootShareResolver) return { kind: 'unconfigured' };
+  return {
+    kind: 'configured',
+    runtime: new RouterAbEcdsaBootstrapExportRuntime({
+      ...input.runtimeInput,
+      signingRootShareResolver: input.signingRootShareResolver,
+    }),
+  };
+}
 
 function isNodeEnvironment(): boolean {
   const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } })
@@ -36,7 +70,7 @@ export function createThresholdSigningService(input: {
   signingRootShareResolver?: SigningRootShareResolver | null;
   logger?: Logger | null;
   isNode?: boolean;
-}): ThresholdSigningService {
+}): ThresholdSigningRuntimeBundle {
   const logger = coerceLogger(input.logger);
   const isNode = input.isNode ?? isNodeEnvironment();
   const env = isNode
@@ -68,12 +102,8 @@ export function createThresholdSigningService(input: {
         THRESHOLD_ED25519_RELAYER_COSIGNER_ID: env.THRESHOLD_ED25519_RELAYER_COSIGNER_ID,
         THRESHOLD_ED25519_RELAYER_COSIGNER_T: env.THRESHOLD_ED25519_RELAYER_COSIGNER_T,
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID,
-        ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL:
-          env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
         ROUTER_AB_SIGNING_WORKER_URL: env.ROUTER_AB_SIGNING_WORKER_URL,
-        SIGNING_WORKER_URL: env.SIGNING_WORKER_URL,
         ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
-        ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
       }
     : null;
 
@@ -115,7 +145,11 @@ export function createThresholdSigningService(input: {
   const keyStore = createThresholdEd25519KeyStore({ config, logger, isNode });
   const sessionStore = createThresholdEd25519SessionStore({ config, logger, isNode });
   const walletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
-  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({ config, logger, isNode });
+  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
+    config,
+    logger,
+    isNode,
+  });
 
   const ecdsaKeyStore = createThresholdEcdsaKeyStore({ config, logger, isNode });
   const ecdsaSessionStore = createThresholdEcdsaSessionStore({ config, logger, isNode });
@@ -128,12 +162,40 @@ export function createThresholdSigningService(input: {
     await input.authService.getRelayerAccount();
   };
 
-  return new ThresholdSigningService({
+  const routerAbNormalSigningRuntime = new RouterAbNormalSigningRuntime({
+    walletSessionStore,
+    ecdsaWalletSessionStore,
+    walletBudgetSessionStore,
+    config: parseRouterAbNormalSigningRuntimeConfig(isObject(config) ? config : {}),
+  });
+  const routerAbLocalSigningSeedRuntime = new RouterAbLocalSigningSeedRuntime({
+    ed25519KeyStore: keyStore,
+    ed25519WalletSessionStore: walletSessionStore,
+    ecdsaWalletSessionStore,
+    normalSigningRuntime: routerAbNormalSigningRuntime,
+  });
+  const participantIds = parseThresholdEd25519ParticipantIds2p(
+    isObject(config) ? config : {},
+  );
+  const routerAbEcdsaBootstrapExportRuntime =
+    createRouterAbEcdsaBootstrapExportRuntimeState({
+      signingRootShareResolver,
+      runtimeInput: {
+        ecdsaKeyStore,
+        ecdsaWalletSessionStore,
+        routerAbNormalSigningRuntime,
+        participantIds: [
+          participantIds.clientParticipantId,
+          participantIds.relayerParticipantId,
+        ],
+      },
+    });
+  const thresholdSigningService = new ThresholdSigningService({
     logger,
     keyStore,
     sessionStore,
     walletSessionStore,
-    walletBudgetSessionStore,
+    routerAbNormalSigningRuntime,
     ecdsaKeyStore,
     ecdsaSessionStore,
     ecdsaWalletSessionStore,
@@ -148,4 +210,10 @@ export function createThresholdSigningService(input: {
     dispatchNearTransaction: (request) =>
       input.authService.dispatchNearSignedTransactionBorsh(request),
   });
+  return {
+    thresholdSigningService,
+    routerAbNormalSigningRuntime,
+    routerAbLocalSigningSeedRuntime,
+    routerAbEcdsaBootstrapExportRuntime,
+  };
 }

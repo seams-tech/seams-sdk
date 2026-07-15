@@ -1,8 +1,6 @@
 #![forbid(unsafe_code)]
 
-use js_sys::{Object, Reflect, Uint8Array};
 use rand_core::OsRng;
-use sha2::{Digest, Sha256};
 use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
     combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof, PrfDleqProof,
@@ -40,8 +38,6 @@ fn validate_ascii_field<'a>(label: &str, value: &'a str) -> Result<&'a str, JsVa
 fn parse_prf_purpose(purpose: &str) -> Result<PrfPurpose, JsValue> {
     match purpose {
         "ecdsa-hss/y_server" => Ok(PrfPurpose::EcdsaHssYServer),
-        "ed25519-hss/y_server" => Ok(PrfPurpose::Ed25519HssYServer),
-        "ed25519-hss/tau_server" => Ok(PrfPurpose::Ed25519HssTauServer),
         "router-ab/x_client_base/v1" => Ok(PrfPurpose::RouterAbXClientBaseV1),
         "router-ab/x_server_base/v1" => Ok(PrfPurpose::RouterAbXServerBaseV1),
         _ => Err(js_error("unknown threshold-prf purpose")),
@@ -85,52 +81,6 @@ fn encode_ecdsa_hss_context_with_participants(
     for participant_id in participant_ids {
         out.extend_from_slice(&participant_id.to_be_bytes());
     }
-    Ok(out)
-}
-
-const ED25519_HSS_CONTEXT_VERSION: &str = "v2";
-const ED25519_HSS_SCHEME_ID: &str = "ed25519-hss-v2";
-const ED25519_HSS_CURVE: &str = "ed25519";
-const ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2: &[u8] =
-    b"succinct-garbling-proto/ed25519-hss/context-binding/v2";
-
-fn update_len32(hasher: &mut Sha256, value: &str) {
-    hasher.update((value.len() as u32).to_be_bytes());
-    hasher.update(value.as_bytes());
-}
-
-fn ed25519_hss_context_binding_v2_with_min_participants(
-    application_binding_digest: &[u8],
-    mut participant_ids: Vec<u16>,
-    min_participants: usize,
-) -> Result<[u8; 32], JsValue> {
-    if application_binding_digest.len() != 32 {
-        return Err(js_error("application_binding_digest must be 32 bytes"));
-    }
-
-    participant_ids.retain(|value| *value > 0);
-    participant_ids.sort_unstable();
-    participant_ids.dedup();
-    if participant_ids.len() < min_participants {
-        return Err(js_error(
-            "participant_ids must contain the required non-zero identifiers",
-        ));
-    }
-
-    let mut hasher = Sha256::new();
-    hasher.update(ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2);
-    update_len32(&mut hasher, ED25519_HSS_CONTEXT_VERSION);
-    update_len32(&mut hasher, ED25519_HSS_SCHEME_ID);
-    update_len32(&mut hasher, ED25519_HSS_CURVE);
-    hasher.update(application_binding_digest);
-    hasher.update((participant_ids.len() as u32).to_be_bytes());
-    for participant_id in participant_ids {
-        hasher.update(participant_id.to_be_bytes());
-    }
-
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
     Ok(out)
 }
 
@@ -288,28 +238,6 @@ fn sorted_share_ids(shares: &ValidatedThresholdSet<SigningRootShare>) -> Vec<u16
     ids
 }
 
-fn set_bytes_field(object: &Object, name: &str, bytes: &[u8]) -> Result<(), JsValue> {
-    Reflect::set(
-        object,
-        &JsValue::from_str(name),
-        &Uint8Array::from(bytes).into(),
-    )
-    .map(|_| ())
-    .map_err(|_| js_error(format!("failed to serialize ed25519-hss field: {name}")))
-}
-
-fn ed25519_hss_server_inputs_output(
-    binding: &[u8; 32],
-    y_relayer: &[u8],
-    tau_relayer: &[u8],
-) -> Result<JsValue, JsValue> {
-    let object = Object::new();
-    set_bytes_field(&object, "contextBinding", binding)?;
-    set_bytes_field(&object, "yRelayer", y_relayer)?;
-    set_bytes_field(&object, "tauRelayer", tau_relayer)?;
-    Ok(object.into())
-}
-
 #[wasm_bindgen]
 pub fn init_threshold_prf() {
     // Reserved for future logger/metrics initialization.
@@ -358,28 +286,6 @@ pub fn threshold_prf_evaluate_partial_with_dleq_proof(
     let bundle =
         evaluate_partial_with_dleq_proof(&share, &context, &mut rng).map_err(js_threshold_error)?;
     Ok(encode_proof_bundle(bundle))
-}
-
-#[wasm_bindgen]
-pub fn threshold_prf_derive_ed25519_hss_server_inputs(
-    threshold: u32,
-    share_count: u32,
-    share_wires: Vec<u8>,
-    application_binding_digest: Vec<u8>,
-) -> Result<JsValue, JsValue> {
-    let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
-    let participant_ids = sorted_share_ids(&shares);
-    let binding = ed25519_hss_context_binding_v2_with_min_participants(
-        &application_binding_digest,
-        participant_ids,
-        usize::from(shares.policy().threshold().get()),
-    )?;
-    let y_relayer =
-        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssYServer, binding.to_vec())?;
-    let tau_relayer =
-        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssTauServer, binding.to_vec())?;
-
-    ed25519_hss_server_inputs_output(&binding, &y_relayer, &tau_relayer)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

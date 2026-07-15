@@ -2,16 +2,17 @@ import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
   ThresholdEcdsaChainTarget,
-  ThresholdStoreConfigInput
+  ThresholdStoreConfigInput,
 } from './types';
+import type { WalletRegistrationEcdsaWalletKey, WalletId } from './registrationContracts';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
-  WalletRegistrationEcdsaWalletKey,
-  WalletId
-} from './registrationContracts';
-import {
-  THRESHOLD_DO_OBJECT_NAME_DEFAULT,
-  THRESHOLD_PREFIX_DEFAULT,
-} from './defaultConfigsServer';
+  RouterAbEd25519YaoActivationResultV1,
+  RouterAbEd25519YaoBytes32V1,
+  RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import { THRESHOLD_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { resolveD1DatabaseFromConfig } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
@@ -34,20 +35,41 @@ export type WalletRecord = {
   updatedAtMs: number;
 };
 
+export type WalletEd25519YaoActiveCapabilityRecord =
+  | {
+      readonly version: 'wallet_ed25519_yao_registration_capability_v1';
+      readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+      readonly nearAccountId: string;
+      readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      readonly activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>;
+      readonly runtimePolicyScope: RuntimePolicyScope;
+    }
+  | {
+      readonly version: 'wallet_ed25519_yao_recovery_capability_v1';
+      readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+      readonly nearAccountId: string;
+      readonly admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+      readonly activationResult: RouterAbEd25519YaoActivationResultV1<'recovery'>;
+      readonly runtimePolicyScope: RuntimePolicyScope;
+    };
+
 export type WalletEd25519SignerRecord = {
   version: 'wallet_signer_ed25519_v1';
   walletId: WalletId;
   signerId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  thresholdSessionId: string;
   signerSlot: number;
   publicKey: string;
-  relayerKeyId: string;
+  signingWorkerId: string;
   keyVersion: string;
   recoveryExportCapable: boolean;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  participantIds?: number[];
+  participantIds: readonly [number, number];
+  signingRootId: string;
+  signingRootVersion: string;
+  runtimePolicyScope: RuntimePolicyScope;
+  activeYaoCapability: WalletEd25519YaoActiveCapabilityRecord;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -64,9 +86,7 @@ export type WalletEcdsaSignerRecord = {
   updatedAtMs: number;
 };
 
-export type WalletSignerRecord =
-  | WalletEd25519SignerRecord
-  | WalletEcdsaSignerRecord;
+export type WalletSignerRecord = WalletEd25519SignerRecord | WalletEcdsaSignerRecord;
 
 export interface WalletStore {
   getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null>;
@@ -158,7 +178,13 @@ export function buildWalletEd25519SignerId(input: {
   nearAccountId: string;
   signerSlot: number;
 }): string {
-  return `ed25519:${String(input.nearAccountId || '').trim()}:${Math.max(1, Math.floor(Number(input.signerSlot) || 1))}`;
+  const nearAccountId = String(input.nearAccountId || '').trim();
+  const signerSlot = Number(input.signerSlot);
+  if (!nearAccountId) throw new Error('Ed25519 signer ID requires nearAccountId');
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+    throw new Error('Ed25519 signer ID requires an exact signerSlot');
+  }
+  return `ed25519:${nearAccountId}:${signerSlot}`;
 }
 
 class InMemoryWalletStore implements WalletStore {
@@ -196,11 +222,13 @@ type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Pr
 class CloudflareDurableObjectWalletStore implements WalletStore {
   private readonly stub: DurableObjectStubLike;
 
-  constructor(private readonly input: {
-    namespace: CloudflareDurableObjectNamespaceLike;
-    objectName: string;
-    prefix: string;
-  }) {
+  constructor(
+    private readonly input: {
+      namespace: CloudflareDurableObjectNamespaceLike;
+      objectName: string;
+      prefix: string;
+    },
+  ) {
     const id = input.namespace.idFromName(input.objectName);
     this.stub = input.namespace.get(id) as unknown as DurableObjectStubLike;
   }

@@ -1,5 +1,6 @@
 import type { NormalizedLogger } from '../../../core/logger';
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
+import type { WalletSigningBudgetBindings } from '../../../core/ThresholdService/stores/WalletSessionStore';
 
 export type SigningSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
@@ -137,11 +138,10 @@ export type SigningSessionSealThresholdSessionRecord =
   | SigningSessionSealEcdsaThresholdSessionRecord
   | SigningSessionSealEd25519ThresholdSessionRecord;
 
-export type SigningSessionSealThresholdSessionStatus =
-  SigningSessionSealThresholdSessionRecord & {
-    kind: 'wallet_session';
-    remainingUses: number;
-  };
+export type SigningSessionSealThresholdSessionStatus = SigningSessionSealThresholdSessionRecord & {
+  kind: 'wallet_session';
+  remainingUses: number;
+};
 
 export type SigningSessionSealWalletBudgetStatus = {
   kind: 'wallet_budget';
@@ -149,7 +149,7 @@ export type SigningSessionSealWalletBudgetStatus = {
   userId: string;
   expiresAtMs: number;
   relayerKeyId: string;
-  participantIds: readonly number[];
+  bindings: WalletSigningBudgetBindings;
   committedRemainingUses: number;
   reservedUses: number;
   availableUses: number;
@@ -184,7 +184,9 @@ export interface SigningSessionSealThresholdSessionPolicy {
   getWalletBudgetStatus?(
     input: SigningSessionSealWalletBudgetStatusLookup,
   ): Promise<SigningSessionSealWalletBudgetStatus | null>;
-  consumeUseCount?(input: SigningSessionSealThresholdStatusLookup): Promise<SigningSessionSealConsumeUseResult>;
+  consumeUseCount?(
+    input: SigningSessionSealThresholdStatusLookup,
+  ): Promise<SigningSessionSealConsumeUseResult>;
 }
 
 export interface SigningSessionSealCipherOperationInput {
@@ -201,7 +203,9 @@ export type SigningSessionSealCipherOperationResult =
   | { ok: false; code: string; message: string };
 
 export interface SigningSessionSealCipherAdapter {
-  run(input: SigningSessionSealCipherOperationInput): Promise<SigningSessionSealCipherOperationResult>;
+  run(
+    input: SigningSessionSealCipherOperationInput,
+  ): Promise<SigningSessionSealCipherOperationResult>;
 }
 
 export type SigningSessionSealConsumePolicy = 'never' | 'apply-only' | 'remove-only' | 'always';
@@ -212,7 +216,9 @@ export interface SigningSessionSealGuardInput {
   auth: SigningSessionSealAuthContext;
 }
 
-export type SigningSessionSealGuardResult = { ok: true } | { ok: false; code: string; message: string };
+export type SigningSessionSealGuardResult =
+  | { ok: true }
+  | { ok: false; code: string; message: string };
 
 export type SigningSessionSealGuard = (
   input: SigningSessionSealGuardInput,
@@ -227,7 +233,9 @@ export interface SigningSessionSealAuditEvent {
   durationMs: number;
 }
 
-export type SigningSessionSealAuditSink = (event: SigningSessionSealAuditEvent) => Promise<void> | void;
+export type SigningSessionSealAuditSink = (
+  event: SigningSessionSealAuditEvent,
+) => Promise<void> | void;
 
 export interface CreateSigningSessionSealServiceOptions {
   sessionPolicy: SigningSessionSealThresholdSessionPolicy;

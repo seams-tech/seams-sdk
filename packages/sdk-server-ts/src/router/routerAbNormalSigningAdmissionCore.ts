@@ -696,7 +696,7 @@ function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): st
   switch (input.curve) {
     case 'ed25519':
       return ed25519AdmissionAuthorityScopeKey(input.authorityScope);
-    case 'ecdsa-hss':
+    case 'ecdsa':
       return input.evmFamilySigningKeySlotId;
   }
   input satisfies never;
@@ -724,7 +724,7 @@ export function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): strin
     input.requestId,
     input.signingWorkerId,
   ];
-  if (input.curve === 'ecdsa-hss') {
+  if (input.curve === 'ecdsa') {
     return [...base, input.keyHandle].join('\x1f');
   }
   return base.join('\x1f');
@@ -748,7 +748,7 @@ export function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionIn
     input.requestId,
     input.signingWorkerId,
   ];
-  if (input.curve === 'ecdsa-hss') {
+  if (input.curve === 'ecdsa') {
     return [...base, input.keyHandle].join(':');
   }
   return base.join(':');

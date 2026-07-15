@@ -8,8 +8,8 @@ SDK-owned application binding digest for role-local derivation.
 
 ## Summary
 
-`ecdsa-hss` is a proposed sibling crate to
-[ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
+`ecdsa-hss` is the ECDSA-specific strict Router A/B construction. This
+historical plan predates the separate Ed25519 Streaming Yao architecture.
 
 Its purpose is to give the existing EVM-compatible threshold ECDSA signer a
 single canonical private-key lane that is:

@@ -1,11 +1,6 @@
 import type { NormalizedLogger } from './logger';
 import type {
   ThresholdEd25519AuthorityScope,
-  ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-  ThresholdEd25519HssRegistrationPreparedServerState,
-  ThresholdEd25519HssRegistrationRespondedServerState,
-  ThresholdEd25519RegistrationAccountScope,
   ThresholdEd25519BootstrapSession,
   ThresholdRuntimePolicyScope,
   ThresholdStoreConfigInput
@@ -14,7 +9,6 @@ import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaPrepareTarget
 } from './registrationContracts';
-import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
@@ -49,26 +43,6 @@ export type EmailRecoveryPreparedThresholdEd25519Record = {
   session?: ThresholdEd25519BootstrapSession;
 };
 
-export type EmailRecoveryPreparedThresholdEd25519HssRecord = {
-  orgId: string;
-  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  context: ThresholdEd25519HssCanonicalContext;
-  ceremonyHandle: string;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientOtOfferMessageB64u: string;
-  serverState: ThresholdEd25519HssRegistrationPreparedServerState;
-  requestedSessionPolicy?: Record<string, unknown>;
-};
-
-export type EmailRecoveryRespondedThresholdEd25519HssRecord = {
-  orgId: string;
-  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  context: ThresholdEd25519HssCanonicalContext;
-  ceremonyHandle: string;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
-};
-
 export type EmailRecoveryResolvedWalletBinding = {
   walletId: string;
   nearAccountId: string;
@@ -91,8 +65,6 @@ export type EmailRecoveryPreparationRecord = {
   createdAtMs: number;
   expiresAtMs: number;
   thresholdEd25519: EmailRecoveryPreparedThresholdEd25519Record;
-  thresholdEd25519Hss: EmailRecoveryPreparedThresholdEd25519HssRecord;
-  thresholdEd25519HssResponded?: EmailRecoveryRespondedThresholdEd25519HssRecord;
   ecdsa: WalletRegistrationEcdsaPreparePayload;
   existingRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 };
@@ -448,195 +420,6 @@ function parseEcdsaPrepareTarget(raw: unknown): WalletRegistrationEcdsaPrepareTa
   };
 }
 
-function parseHssCanonicalContext(raw: unknown): ThresholdEd25519HssCanonicalContext | null {
-  if (!isObject(raw)) return null;
-  const applicationBindingDigestB64u = toOptionalTrimmedString(raw.applicationBindingDigestB64u);
-  const participantIds = parseParticipantIds(raw.participantIds);
-  if (!applicationBindingDigestB64u || !participantIds) return null;
-  return { applicationBindingDigestB64u, participantIds };
-}
-
-function parseHssPreparedSession(raw: unknown): ThresholdEd25519HssPreparedSessionEnvelope | null {
-  if (!isObject(raw)) return null;
-  const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
-  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
-  if (!contextBindingB64u || !evaluatorDriverStateB64u) return null;
-  return { contextBindingB64u, evaluatorDriverStateB64u };
-}
-
-function parseHssPersistedPreparedServerSession(
-  raw: unknown,
-): ThresholdEd25519HssRegistrationPreparedServerState['preparedServerSession'] | null {
-  if (!isObject(raw)) return null;
-  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
-  const garblerDriverStateB64u = toOptionalTrimmedString(raw.garblerDriverStateB64u);
-  if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) return null;
-  return { evaluatorDriverStateB64u, garblerDriverStateB64u };
-}
-
-function parseHssPersistedRespondedServerSession(
-  raw: unknown,
-): ThresholdEd25519HssRegistrationRespondedServerState['preparedServerSession'] | null {
-  if (!isObject(raw)) return null;
-  const prepared = parseHssPersistedPreparedServerSession(raw);
-  const serverEvalStateB64u = toOptionalTrimmedString(raw.serverEvalStateB64u);
-  if (!prepared || !serverEvalStateB64u) return null;
-  return { ...prepared, serverEvalStateB64u };
-}
-
-function parseHssPersistedServerInputs(
-  raw: unknown,
-): ThresholdEd25519HssRegistrationPreparedServerState['serverInputs'] | null {
-  if (!isObject(raw)) return null;
-  const yRelayerB64u = toOptionalTrimmedString(raw.yRelayerB64u);
-  const tauRelayerB64u = toOptionalTrimmedString(raw.tauRelayerB64u);
-  if (!yRelayerB64u || !tauRelayerB64u) return null;
-  return { yRelayerB64u, tauRelayerB64u };
-}
-
-function parseNearEd25519SigningKeyIdBoundary(raw: unknown): ReturnType<
-  typeof nearEd25519SigningKeyIdFromString
-> | null {
-  const value = toOptionalTrimmedString(raw);
-  if (!value) return null;
-  try {
-    return nearEd25519SigningKeyIdFromString(value);
-  } catch {
-    return null;
-  }
-}
-
-function parseRegistrationAccountScope(
-  raw: unknown,
-): ThresholdEd25519RegistrationAccountScope | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalTrimmedString(raw.kind);
-  const walletId = toOptionalTrimmedString(raw.walletId);
-  const intentDigestB64u = toOptionalTrimmedString(raw.intentDigestB64u);
-  const signingRootId = toOptionalTrimmedString(raw.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
-  const nearEd25519SigningKeyId = parseNearEd25519SigningKeyIdBoundary(
-    raw.nearEd25519SigningKeyId,
-  );
-  const signerSlot = parsePositiveInteger(raw.signerSlot);
-  const keyPurpose = toOptionalTrimmedString(raw.keyPurpose);
-  const keyVersion = toOptionalTrimmedString(raw.keyVersion);
-  const derivationVersion = parsePositiveInteger(raw.derivationVersion);
-  const participantIds = parseParticipantIds(raw.participantIds);
-  if (
-    !walletId ||
-    !intentDigestB64u ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !nearEd25519SigningKeyId ||
-    !signerSlot ||
-    !keyPurpose ||
-    !keyVersion ||
-    !derivationVersion ||
-    !participantIds
-  ) {
-    return null;
-  }
-  const common = {
-    walletId,
-    intentDigestB64u,
-    signingRootId,
-    signingRootVersion,
-    nearEd25519SigningKeyId,
-    signerSlot,
-    keyPurpose,
-    keyVersion,
-    derivationVersion,
-    participantIds,
-  };
-  if (kind === 'known_account_registration_scope') {
-    const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
-    return nearAccountId ? { kind, ...common, nearAccountId } : null;
-  }
-  if (kind === 'sponsored_named_registration_scope') {
-    const requestedAccountId = toOptionalTrimmedString(raw.requestedAccountId);
-    return requestedAccountId ? { kind, ...common, requestedAccountId } : null;
-  }
-  return kind === 'generated_implicit_registration_scope' ? { kind, ...common } : null;
-}
-
-function parseHssPreparedServerState(
-  raw: unknown,
-): ThresholdEd25519HssRegistrationPreparedServerState | null {
-  if (!isObject(raw)) return null;
-  const context = parseHssCanonicalContext(raw.context);
-  const preparedServerSession = parseHssPersistedPreparedServerSession(
-    raw.preparedServerSession,
-  );
-  const serverInputs = parseHssPersistedServerInputs(raw.serverInputs);
-  if (!context || !preparedServerSession || !serverInputs) return null;
-  return { context, preparedServerSession, serverInputs };
-}
-
-function parseHssRespondedServerState(
-  raw: unknown,
-): ThresholdEd25519HssRegistrationRespondedServerState | null {
-  if (!isObject(raw)) return null;
-  const context = parseHssCanonicalContext(raw.context);
-  const preparedServerSession = parseHssPersistedRespondedServerSession(
-    raw.preparedServerSession,
-  );
-  if (!context || !preparedServerSession) return null;
-  return { context, preparedServerSession };
-}
-
-function parsePreparedThresholdEd25519Hss(
-  raw: unknown,
-): EmailRecoveryPreparedThresholdEd25519HssRecord | null {
-  if (!isObject(raw)) return null;
-  const orgId = toOptionalTrimmedString(raw.orgId);
-  const registrationAccountScope = parseRegistrationAccountScope(raw.registrationAccountScope);
-  const context = parseHssCanonicalContext(raw.context);
-  const ceremonyHandle = toOptionalTrimmedString(raw.ceremonyHandle);
-  const preparedSession = parseHssPreparedSession(raw.preparedSession);
-  const clientOtOfferMessageB64u = toOptionalTrimmedString(raw.clientOtOfferMessageB64u);
-  const serverState = parseHssPreparedServerState(raw.serverState);
-  const requestedSessionPolicy = isObject(raw.requestedSessionPolicy)
-    ? raw.requestedSessionPolicy
-    : undefined;
-  if (
-    !orgId ||
-    !registrationAccountScope ||
-    !context ||
-    !ceremonyHandle ||
-    !preparedSession ||
-    !clientOtOfferMessageB64u ||
-    !serverState
-  ) {
-    return null;
-  }
-  return {
-    orgId,
-    registrationAccountScope,
-    context,
-    ceremonyHandle,
-    preparedSession,
-    clientOtOfferMessageB64u,
-    serverState,
-    ...(requestedSessionPolicy ? { requestedSessionPolicy } : {}),
-  };
-}
-
-function parseRespondedThresholdEd25519Hss(
-  raw: unknown,
-): EmailRecoveryRespondedThresholdEd25519HssRecord | null {
-  if (!isObject(raw)) return null;
-  const orgId = toOptionalTrimmedString(raw.orgId);
-  const registrationAccountScope = parseRegistrationAccountScope(raw.registrationAccountScope);
-  const context = parseHssCanonicalContext(raw.context);
-  const ceremonyHandle = toOptionalTrimmedString(raw.ceremonyHandle);
-  const preparedSession = parseHssPreparedSession(raw.preparedSession);
-  const serverState = parseHssRespondedServerState(raw.serverState);
-  if (!orgId || !registrationAccountScope || !context || !ceremonyHandle || !preparedSession || !serverState) {
-    return null;
-  }
-  return { orgId, registrationAccountScope, context, ceremonyHandle, preparedSession, serverState };
-}
 
 function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPreparationRecord | null {
   if (!isObject(raw)) return null;
@@ -652,10 +435,6 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
   const createdAtMs = parsePositiveInteger(raw.createdAtMs);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
   const thresholdEd25519 = parsePreparedThresholdEd25519(raw.thresholdEd25519);
-  const thresholdEd25519Hss = parsePreparedThresholdEd25519Hss(raw.thresholdEd25519Hss);
-  const thresholdEd25519HssResponded = parseRespondedThresholdEd25519Hss(
-    raw.thresholdEd25519HssResponded,
-  );
   const ecdsa = parseEcdsaPreparePayload(raw.ecdsa);
   if (
     version !== 'email_recovery_preparation_v1' ||
@@ -670,7 +449,6 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
     !createdAtMs ||
     !expiresAtMs ||
     !thresholdEd25519 ||
-    !thresholdEd25519Hss ||
     !ecdsa
   ) {
     return null;
@@ -688,8 +466,6 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
     createdAtMs,
     expiresAtMs,
     thresholdEd25519,
-    thresholdEd25519Hss,
-    ...(thresholdEd25519HssResponded ? { thresholdEd25519HssResponded } : {}),
     ecdsa,
     ...(isObject(raw.existingRuntimePolicyScope)
       ? {

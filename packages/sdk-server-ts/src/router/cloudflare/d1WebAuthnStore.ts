@@ -15,6 +15,55 @@ import {
 
 type WebAuthnChallengeKind = 'login' | 'sync';
 
+export type D1WebAuthnStoreScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+export function prepareD1WebAuthnAuthenticatorPutStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WebAuthnStoreScope;
+  readonly userId: string;
+  readonly record: WebAuthnAuthenticatorRecord;
+}): D1PreparedStatementLike {
+  return input.database
+    .prepare(
+      `INSERT INTO webauthn_authenticators (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        counter,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
+      DO UPDATE SET
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        counter = MAX(webauthn_authenticators.counter, EXCLUDED.counter),
+        created_at_ms = MIN(webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = MAX(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.userId,
+      input.record.credentialIdB64u,
+      input.record.credentialPublicKeyB64u,
+      input.record.counter,
+      input.record.createdAtMs,
+      input.record.updatedAtMs,
+    );
+}
+
 export class CloudflareD1WebAuthnStore {
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
@@ -111,35 +160,17 @@ export class CloudflareD1WebAuthnStore {
     readonly userId: string;
     readonly record: WebAuthnAuthenticatorRecord;
   }): Promise<void> {
-    await this.prepare(
-      `INSERT INTO webauthn_authenticators (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        user_id,
-        credential_id_b64u,
-        credential_public_key_b64u,
-        counter,
-        created_at_ms,
-        updated_at_ms
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
-      DO UPDATE SET
-        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-        counter = MAX(webauthn_authenticators.counter, EXCLUDED.counter),
-        created_at_ms = MIN(webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = MAX(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)`,
-      [
-        input.userId,
-        input.record.credentialIdB64u,
-        input.record.credentialPublicKeyB64u,
-        input.record.counter,
-        input.record.createdAtMs,
-        input.record.updatedAtMs,
-      ],
-    ).run();
+    await prepareD1WebAuthnAuthenticatorPutStatement({
+      database: this.database,
+      scope: {
+        namespace: this.namespace,
+        orgId: this.orgId,
+        projectId: this.projectId,
+        envId: this.envId,
+      },
+      userId: input.userId,
+      record: input.record,
+    }).run();
   }
 
   async updateAuthenticatorCounter(input: {

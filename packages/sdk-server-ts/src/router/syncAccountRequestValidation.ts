@@ -6,19 +6,11 @@ export type SyncAccountOptionsRequest = {
   ttl_ms?: number;
 };
 
-export type SyncAccountVerifyRequest =
-  | {
-      challengeId: string;
-      webauthn_authentication: Record<string, unknown>;
-      expected_origin: string;
-      threshold_ed25519?: never;
-    }
-  | {
-      challengeId: string;
-      webauthn_authentication: Record<string, unknown>;
-      expected_origin: string;
-      threshold_ed25519: Record<string, unknown>;
-    };
+export type SyncAccountVerifyRequest = {
+  challengeId: string;
+  webauthn_authentication: Record<string, unknown>;
+  expected_origin: string;
+};
 
 export type SyncAccountRouteErrorBody = {
   ok: false;
@@ -31,11 +23,7 @@ export type SyncAccountRouteParseResult<T> =
   | { ok: false; status: 400; body: SyncAccountRouteErrorBody };
 
 const SYNC_ACCOUNT_OPTIONS_KEYS = ['rp_id', 'account_id', 'ttl_ms'] as const;
-const SYNC_ACCOUNT_VERIFY_KEYS = [
-  'challengeId',
-  'webauthn_authentication',
-  'threshold_ed25519',
-] as const;
+const SYNC_ACCOUNT_VERIFY_KEYS = ['challengeId', 'webauthn_authentication'] as const;
 
 function invalidSyncAccountBody(message: string): SyncAccountRouteParseResult<never> {
   return {
@@ -55,9 +43,10 @@ function unexpectedSyncAccountKey(
   return null;
 }
 
-function parseOptionalPositiveInteger(raw: unknown, fieldName: string):
-  | { ok: true; value?: number }
-  | { ok: false; message: string } {
+function parseOptionalPositiveInteger(
+  raw: unknown,
+  fieldName: string,
+): { ok: true; value?: number } | { ok: false; message: string } {
   if (raw == null) return { ok: true };
   const value = typeof raw === 'number' ? raw : Number(raw);
   if (!Number.isFinite(value) || value <= 0) {
@@ -116,21 +105,6 @@ export function parseSyncAccountVerifyRequest(input: {
   const expectedOrigin = toOptionalTrimmedString(input.origin);
   if (!expectedOrigin) {
     return invalidSyncAccountBody('Origin header is required');
-  }
-
-  if (Object.prototype.hasOwnProperty.call(input.body, 'threshold_ed25519')) {
-    if (!isPlainObject(input.body.threshold_ed25519)) {
-      return invalidSyncAccountBody('threshold_ed25519 must be an object');
-    }
-    return {
-      ok: true,
-      request: {
-        challengeId,
-        webauthn_authentication: input.body.webauthn_authentication,
-        expected_origin: expectedOrigin,
-        threshold_ed25519: input.body.threshold_ed25519,
-      },
-    };
   }
 
   return {

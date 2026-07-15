@@ -1,12 +1,9 @@
 import initThresholdPrfWasm, {
   init_threshold_prf,
   threshold_prf_derive_ecdsa_hss_y_relayer,
-  threshold_prf_derive_ed25519_hss_server_inputs,
 } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
 import type { InitInput } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
-import type { ThresholdEd25519HssCanonicalContext } from '../types';
 import type { ThresholdPrfPolicy } from './signingRootShareResolver';
-import { base64UrlDecode } from '@shared/utils/encoders';
 
 export type { ThresholdPrfPolicy } from './signingRootShareResolver';
 
@@ -177,13 +174,6 @@ function checkedBytes(label: string, value: Uint8Array, expectedLength: number):
   return value;
 }
 
-function checkedResultBytes(label: string, value: unknown): Uint8Array {
-  if (!(value instanceof Uint8Array)) {
-    throw new Error(`${label} must be a Uint8Array`);
-  }
-  return checkedBytes(label, value, 32).slice();
-}
-
 function requireU16(label: string, value: number): number {
   if (!Number.isInteger(value) || value < 1 || value > MAX_THRESHOLD_PRF_SHARE_COUNT) {
     throw new Error(`${label} must be an integer between 1 and ${MAX_THRESHOLD_PRF_SHARE_COUNT}`);
@@ -267,26 +257,6 @@ function flattenSigningRootShareWireSet(shareWires: SigningRootShareWireSet): Ui
   return out;
 }
 
-function sortedSigningRootShareWireSetIds(shareWires: SigningRootShareWireSet): number[] {
-  return shareWires.map(signingRootShareWireShareId).sort((a, b) => a - b);
-}
-
-function requireMatchingParticipantIds(input: {
-  readonly participantIds: readonly number[];
-  readonly shareIds: readonly number[];
-}): void {
-  const participantIds = input.participantIds.map((value) => requireU16('participantIds', value));
-  participantIds.sort((a, b) => a - b);
-  if (participantIds.length !== input.shareIds.length) {
-    throw new Error('participantIds must match the selected share ids');
-  }
-  for (let i = 0; i < input.shareIds.length; i += 1) {
-    if (participantIds[i] !== input.shareIds[i]) {
-      throw new Error('participantIds must match the selected share ids');
-    }
-  }
-}
-
 export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
   readonly policy: ThresholdPrfPolicy;
   readonly shareWires: readonly SigningRootShareWire[];
@@ -314,69 +284,4 @@ export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
     flattened.fill(0);
     for (const wire of shareWires) wire.fill(0);
   }
-}
-
-export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
-  readonly policy: ThresholdPrfPolicy;
-  readonly shareWires: readonly SigningRootShareWire[];
-  readonly context: ThresholdEd25519HssCanonicalContext;
-}): Promise<
-  ThresholdEd25519HssCanonicalContext & {
-    readonly contextBinding: Uint8Array;
-    readonly yRelayer: Uint8Array;
-    readonly tauRelayer: Uint8Array;
-  }
-> {
-  await ensureThresholdPrfWasm();
-  requireThresholdPrfWasmReady();
-
-  const policy = normalizeThresholdPrfPolicy(input.policy);
-  const shareWires = validateSigningRootShareWireSet(policy, input.shareWires);
-  const shareIds = sortedSigningRootShareWireSetIds(shareWires);
-  requireMatchingParticipantIds({
-    participantIds: input.context.participantIds,
-    shareIds,
-  });
-
-  const flattened = flattenSigningRootShareWireSet(shareWires);
-  const applicationBindingDigest = requireBase64UrlFixedBytes(
-    'applicationBindingDigestB64u',
-    input.context.applicationBindingDigestB64u,
-    32,
-  );
-  try {
-    const result = threshold_prf_derive_ed25519_hss_server_inputs(
-      policy.threshold,
-      policy.shareCount,
-      flattened,
-      applicationBindingDigest,
-    ) as {
-      contextBinding?: Uint8Array;
-      yRelayer?: Uint8Array;
-      tauRelayer?: Uint8Array;
-    };
-
-    return {
-      applicationBindingDigestB64u: input.context.applicationBindingDigestB64u,
-      participantIds: shareIds,
-      contextBinding: checkedResultBytes('contextBinding', result.contextBinding),
-      yRelayer: checkedResultBytes('yRelayer', result.yRelayer),
-      tauRelayer: checkedResultBytes('tauRelayer', result.tauRelayer),
-    };
-  } finally {
-    flattened.fill(0);
-    applicationBindingDigest.fill(0);
-    for (const wire of shareWires) wire.fill(0);
-  }
-}
-
-function requireBase64UrlFixedBytes(label: string, value: unknown, byteLength: number): Uint8Array {
-  const normalized = String(value || '').trim();
-  if (!normalized) throw new Error(`${label} is required`);
-  const decoded = base64UrlDecode(normalized);
-  if (decoded.length !== byteLength) {
-    decoded.fill(0);
-    throw new Error(`${label} must decode to ${byteLength} bytes`);
-  }
-  return decoded;
 }

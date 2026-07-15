@@ -29,16 +29,16 @@ pub(crate) fn derive_threshold_client_verifying_share_b64u_v1(
     .map_err(|e| e.to_string())
 }
 
-pub(crate) fn key_package_from_client_base_b64u(
-    x_client_base_b64u: &str,
+pub(crate) fn key_package_from_client_scalar_share_b64u(
+    client_scalar_share_b64u: &str,
     near_public_key_bytes: &[u8; 32],
     client_identifier: frost_ed25519::Identifier,
 ) -> Result<KeyPackage, String> {
-    let decoded = Base64UrlUnpadded::decode_vec(x_client_base_b64u)
-        .map_err(|e| format!("Invalid xClientBaseB64u: {e}"))?;
+    let decoded = Base64UrlUnpadded::decode_vec(client_scalar_share_b64u)
+        .map_err(|e| format!("Invalid clientScalarShareB64u: {e}"))?;
     let signing_share_bytes: [u8; 32] = decoded.as_slice().try_into().map_err(|_| {
         format!(
-            "xClientBaseB64u must decode to 32 bytes, got {}",
+            "clientScalarShareB64u must decode to 32 bytes, got {}",
             decoded.len()
         )
     })?;
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn key_package_from_client_base_matches_generic_constructor() {
+    fn key_package_from_client_scalar_share_matches_generic_constructor() {
         let signing_share_bytes = [7u8; 32];
         let near_public_key_bytes = (ED25519_BASEPOINT_POINT * CurveScalar::from(11u64))
             .compress()
@@ -105,12 +105,12 @@ mod tests {
         let client_identifier: frost_ed25519::Identifier =
             1u16.try_into().expect("valid identifier");
 
-        let from_b64u = key_package_from_client_base_b64u(
+        let from_b64u = key_package_from_client_scalar_share_b64u(
             &base64_url_encode(&signing_share_bytes),
             &near_public_key_bytes,
             client_identifier,
         )
-        .expect("client base should decode");
+        .expect("client scalar share should decode");
         let direct = signer_core::near_threshold_ed25519::key_package_from_signing_share_bytes(
             &signing_share_bytes,
             &near_public_key_bytes,

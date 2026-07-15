@@ -14,8 +14,8 @@ import { isPlainObject } from '@shared/utils/validation';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
   thresholdEcdsaChainTargetFromValue,
-  type ThresholdEcdsaChainTarget,
 } from '../../core/thresholdEcdsaChainTarget';
+import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 type SelfHostedCloudflareRouterApiContext = Parameters<typeof handleThresholdEd25519>[0];
 
@@ -36,23 +36,6 @@ export type SelfHostedSigningRootAdminRoutes = {
   readonly namespace: CloudflareDurableObjectNamespaceLike;
   readonly objectName?: string;
   readonly authenticate: SelfHostedSigningRootAdminAuthHook;
-};
-
-type SelfHostedEcdsaSigningRootWalletVerifier = {
-  readonly verifyEcdsaSigningRootWalletAddress: (input: {
-    readonly signingRootId: string;
-    readonly signingRootVersion: string;
-    readonly walletSessionUserId: string;
-    readonly walletId: WalletId;
-    readonly chainTarget: ThresholdEcdsaChainTarget;
-    readonly ecdsaThresholdKeyId: string;
-    readonly signingGrantId: string;
-    readonly thresholdSessionId: string;
-    readonly rpId: string;
-    readonly clientPublicKey33B64u: string;
-    readonly expectedEthereumAddress?: string;
-    readonly walletKeyVersion?: string;
-  }) => Promise<unknown>;
 };
 
 export type SelfHostedCloudflareSigningRouterOptions = {
@@ -172,15 +155,8 @@ function requireWalletId(body: unknown, name: string): WalletId | null {
 
 function resolveSelfHostedWalletVerifier(
   ctx: SelfHostedCloudflareRouterApiContext,
-): SelfHostedEcdsaSigningRootWalletVerifier | null {
-  const candidate = ctx.opts.threshold as unknown;
-  if (
-    isPlainObject(candidate) &&
-    typeof candidate.verifyEcdsaSigningRootWalletAddress === 'function'
-  ) {
-    return candidate as SelfHostedEcdsaSigningRootWalletVerifier;
-  }
-  return null;
+) {
+  return ctx.service.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime();
 }
 
 function selfHostedSigningRootResultStatus(result: unknown): number {
@@ -286,6 +262,12 @@ async function handleSigningRootAdminRoutes(
       ? thresholdEcdsaChainTargetFromValue(body.chainTarget)
       : null;
     const ecdsaThresholdKeyId = requireBodyString(body, 'ecdsaThresholdKeyId');
+    const parsedEvmFamilySigningKeySlotId = isPlainObject(body)
+      ? parseEvmFamilySigningKeySlotId(body.evmFamilySigningKeySlotId)
+      : null;
+    const evmFamilySigningKeySlotId = parsedEvmFamilySigningKeySlotId?.ok
+      ? parsedEvmFamilySigningKeySlotId.value
+      : null;
     const signingGrantId = requireBodyString(body, 'signingGrantId');
     const thresholdSessionId = requireBodyString(body, 'thresholdSessionId');
     const rpId = requireBodyString(body, 'rpId');
@@ -297,6 +279,7 @@ async function handleSigningRootAdminRoutes(
       !walletId ||
       !chainTarget ||
       !ecdsaThresholdKeyId ||
+      !evmFamilySigningKeySlotId ||
       !signingGrantId ||
       !thresholdSessionId ||
       !rpId ||
@@ -307,7 +290,7 @@ async function handleSigningRootAdminRoutes(
           ok: false,
           code: 'invalid_request',
           message:
-            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, signingGrantId, thresholdSessionId, rpId, and clientPublicKey33B64u are required',
+            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, evmFamilySigningKeySlotId, signingGrantId, thresholdSessionId, rpId, and clientPublicKey33B64u are required',
         },
         { status: 400 },
       );
@@ -329,13 +312,10 @@ async function handleSigningRootAdminRoutes(
     const result = await verifier.verifyEcdsaSigningRootWalletAddress({
       signingRootId,
       signingRootVersion,
-      walletSessionUserId,
       walletId,
       chainTarget,
       ecdsaThresholdKeyId,
-      signingGrantId,
-      thresholdSessionId,
-      rpId,
+      evmFamilySigningKeySlotId,
       clientPublicKey33B64u,
       ...(expectedEthereumAddress ? { expectedEthereumAddress } : {}),
       ...(walletKeyVersion ? { walletKeyVersion } : {}),

@@ -1,8 +1,4 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type {
-  WalletRegistrationPrepareRequest
-} from '../registrationContracts';
-import type { StoredRegistrationIntent } from '../RegistrationCeremonyStore';
 import {
   resolveSigningSessionSealRateLimitFromEnv,
   type SigningSessionSealRateLimiter,
@@ -20,16 +16,6 @@ export type RateLimitResult =
   | {
       ok: false;
       code: 'rate_limited';
-      message: string;
-      retryAfterMs?: number;
-      resetAtMs?: number;
-    };
-
-export type RegistrationPrepareRateLimitResult =
-  | { ok: true }
-  | {
-      ok: false;
-      code: 'rate_limited' | 'invalid_body';
       message: string;
       retryAfterMs?: number;
       resetAtMs?: number;
@@ -184,69 +170,6 @@ export async function consumeEmailOtpRateLimit(input: {
       nowMs: Date.now(),
     });
     if (!consumed.ok) return consumedRateLimitError('Email OTP rate limit exceeded', consumed);
-  }
-  return { ok: true };
-}
-
-function registrationPrepareRateLimitKeys(input: {
-  request: WalletRegistrationPrepareRequest;
-  storedIntent: StoredRegistrationIntent;
-  sourceIp: string;
-  policy: AuthRateLimitPolicy;
-}): readonly string[] {
-  const authMethod = input.storedIntent.intent.authMethod;
-  const email =
-    authMethod.kind === 'email_otp'
-      ? toOptionalTrimmedString(authMethod.email).toLowerCase()
-      : '';
-  const keySuffix = [
-    `limit=${input.policy.limit}`,
-    `windowMs=${input.policy.windowMs}`,
-    `auth=${authMethod.kind}`,
-    `work=${input.request.work.kind}`,
-  ].join(':');
-  return [
-    `scope=registration_prepare:${keySuffix}:ip:${input.sourceIp}`,
-    `scope=registration_prepare:${keySuffix}:org-ip:${input.storedIntent.orgId}:${input.sourceIp}`,
-    `scope=registration_prepare:${keySuffix}:wallet:${input.storedIntent.intent.walletId}`,
-    email ? `scope=registration_prepare:${keySuffix}:email:${email}` : '',
-  ].filter(Boolean);
-}
-
-export async function consumeRegistrationPrepareRateLimit(input: {
-  limiter: SigningSessionSealRateLimiter;
-  policy: AuthRateLimitPolicy;
-  request: WalletRegistrationPrepareRequest;
-  storedIntent: StoredRegistrationIntent;
-  production: boolean;
-}): Promise<RegistrationPrepareRateLimitResult> {
-  const gate = input.request.prepareGate;
-  if (gate.kind === 'source_unavailable') {
-    if (!input.production) return { ok: true };
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'registration prepare requires source IP context',
-    };
-  }
-
-  const keys = registrationPrepareRateLimitKeys({
-    request: input.request,
-    storedIntent: input.storedIntent,
-    sourceIp: gate.sourceIp,
-    policy: input.policy,
-  });
-  for (const key of keys) {
-    const consumed = await input.limiter.consume({
-      key,
-      limit: input.policy.limit,
-      windowMs: input.policy.windowMs,
-      nowMs: Date.now(),
-    });
-    if (!consumed.ok) {
-      const error = consumedRateLimitError('Registration prepare rate limit exceeded', consumed);
-      return error;
-    }
   }
   return { ok: true };
 }

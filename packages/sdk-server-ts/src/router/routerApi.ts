@@ -4,16 +4,6 @@ import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeI
 import type {
   ThresholdEd25519BootstrapSession,
   ThresholdEd25519AuthorityScope,
-  ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssFinalizeWithSessionRequest,
-  ThresholdEd25519HssFinalizeWithSessionResponse,
-  ThresholdEd25519HssAdvanceWithSessionRequest,
-  ThresholdEd25519HssAdvanceWithSessionResponse,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-  ThresholdEd25519HssPrepareWithSessionRequest,
-  ThresholdEd25519HssPrepareWithSessionResponse,
-  ThresholdEd25519HssRespondWithSessionRequest,
-  ThresholdEd25519HssRespondWithSessionResponse,
 } from '../core/types';
 import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
@@ -24,6 +14,7 @@ import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain'
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from './routerAbEd25519YaoProductRegistration';
 import type { EmailRecoveryService } from '../email-recovery';
 import type {
   RouterApiAuthenticatedPublishableCredential,
@@ -35,9 +26,7 @@ import type {
   RouterApiUsageMeterAdapter,
 } from './apiCredentialPorts';
 import type {
-  FinalizeEmailRecoveryEd25519Request,
   PrepareEmailRecoveryRequest,
-  RespondEmailRecoveryEd25519Request,
   RespondEmailRecoveryEcdsaRequest,
 } from './emailRecoveryRequestValidation';
 import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
@@ -139,24 +128,6 @@ export interface SessionAdapter {
 
 export interface ThresholdSigningAdapter {
   getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null;
-  ed25519Hss?: {
-    prepareWithSession(input: {
-      claims: SessionClaims;
-      request: ThresholdEd25519HssPrepareWithSessionRequest;
-    }): Promise<ThresholdEd25519HssPrepareWithSessionResponse>;
-    respondWithSession(input: {
-      claims: SessionClaims;
-      request: ThresholdEd25519HssRespondWithSessionRequest;
-    }): Promise<ThresholdEd25519HssRespondWithSessionResponse>;
-    advanceWithSession(input: {
-      claims: SessionClaims;
-      request: ThresholdEd25519HssAdvanceWithSessionRequest;
-    }): Promise<ThresholdEd25519HssAdvanceWithSessionResponse>;
-    finalizeWithSession(input: {
-      claims: SessionClaims;
-      request: ThresholdEd25519HssFinalizeWithSessionRequest;
-    }): Promise<ThresholdEd25519HssFinalizeWithSessionResponse>;
-  };
 }
 
 export type RouterApiRuntimePolicyScope = RuntimePolicyScope;
@@ -228,28 +199,12 @@ export type RouterApiEmailRecoveryResult =
         authorityScope: ThresholdEd25519AuthorityScope;
         participantIds?: number[];
         session?: ThresholdEd25519BootstrapSession;
-        hss?: {
-          ceremonyHandle?: string;
-          preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
-          clientOtOfferMessageB64u?: string;
-          context?: ThresholdEd25519HssCanonicalContext;
-          contextBindingB64u?: string;
-          serverInputDeliveryB64u?: string;
-        };
       };
     }
   | { ok: false; code: string; message: string };
 
 export interface RouterApiEmailRecoveryAuthService {
-  prepareEmailRecovery(
-    request: PrepareEmailRecoveryRequest,
-  ): Promise<RouterApiEmailRecoveryResult>;
-  respondEmailRecoveryEd25519(
-    request: RespondEmailRecoveryEd25519Request,
-  ): Promise<RouterApiEmailRecoveryResult>;
-  finalizeEmailRecoveryEd25519(
-    request: FinalizeEmailRecoveryEd25519Request,
-  ): Promise<RouterApiEmailRecoveryResult>;
+  prepareEmailRecovery(request: PrepareEmailRecoveryRequest): Promise<RouterApiEmailRecoveryResult>;
   respondEmailRecoveryEcdsa(
     request: RespondEmailRecoveryEcdsaRequest,
   ): Promise<RouterApiEmailRecoveryResult>;
@@ -505,6 +460,8 @@ export interface RouterApiOptions {
    * Router A/B normal-signing requests.
    */
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
+  /** Local product runtime used to restore an authenticated Ed25519 Yao capability. */
+  routerAbEd25519YaoProduct?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   /**
    * Optional route extensions mounted by the Router API router. Each extension declares
    * explicit runtime support so a Cloudflare Worker can expose Worker-native

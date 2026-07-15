@@ -7,11 +7,11 @@ import {
   threshold_ecdsa_hss_role_local_relayer_bootstrap,
 } from '../../../wasm/eth_signer/pkg/eth_signer.js';
 import {
-  initSync as initHssClientSignerSync,
+  initSync as initEcdsaClientSignerSync,
   build_ecdsa_role_local_export_artifact_v1,
   finalize_ecdsa_client_bootstrap_v1,
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
-} from '../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+} from '../../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,12 +25,12 @@ const ETH_SIGNER_WASM_PATH = path.join(
   'pkg',
   'eth_signer_bg.wasm',
 );
-const HSS_CLIENT_SIGNER_WASM_PATH = path.join(
+const ECDSA_CLIENT_SIGNER_WASM_PATH = path.join(
   REPO_ROOT,
   'wasm',
-  'hss_client_signer',
+  'ecdsa_client_signer',
   'pkg',
-  'hss_client_signer_bg.wasm',
+  'ecdsa_client_signer_bg.wasm',
 );
 
 let wasmReady = false;
@@ -38,7 +38,7 @@ let wasmReady = false;
 function ensureWasm() {
   if (wasmReady) return;
   initEthSignerSync({ module: readFileSync(ETH_SIGNER_WASM_PATH) });
-  initHssClientSignerSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_PATH) });
+  initEcdsaClientSignerSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_PATH) });
   wasmReady = true;
 }
 
@@ -323,7 +323,7 @@ function renderMarkdown(summary) {
   lines.push('# `ecdsa-hss` WASM Benchmark Summary');
   lines.push('');
   lines.push(`- Run ID: \`${summary.runId}\``);
-  lines.push('- Runtime: Node-hosted wasm (`wasm/eth_signer/pkg` + `wasm/hss_client_signer/pkg`)');
+  lines.push('- Runtime: Node-hosted wasm (`wasm/eth_signer/pkg` + `wasm/ecdsa_client_signer/pkg`)');
   lines.push('- Scope: active role-local client/server/bootstrap/export boundary');
   lines.push('');
   lines.push('| Path | Median | Mean | Min | Max |');
@@ -408,10 +408,10 @@ async function measureBrowserClientBootstrap(fixture) {
       const result = await page.evaluate(
         async ({ origin: pageOrigin, payload }) => {
           const mod = await import(
-            `${pageOrigin}/wasm/hss_client_signer/pkg/hss_client_signer.js`
+            `${pageOrigin}/wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js`
           );
           await mod.default(
-            `${pageOrigin}/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm`,
+            `${pageOrigin}/wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm`,
           );
           for (let i = 0; i < 20; i += 1) {
             mod.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(

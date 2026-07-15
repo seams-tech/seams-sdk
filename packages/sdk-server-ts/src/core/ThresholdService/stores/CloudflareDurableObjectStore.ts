@@ -16,7 +16,6 @@ import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
-  parseRouterAbEd25519PresignRecord,
   parseThresholdEd25519SigningSessionRecord,
   canonicalThresholdEd25519RelayerKeyId,
   toThresholdEcdsaWalletSessionPrefix,
@@ -55,41 +54,19 @@ import type {
   ThresholdEd25519ReadyKeyRecord,
   ThresholdEd25519KeyStore,
 } from './KeyStore';
-import type {
-  EcdsaHssRoleLocalKeyRecord,
-  ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-  ThresholdEd25519HssSessionOperation,
-  ThresholdEd25519HssStoredPreparedServerSession,
-  ThresholdEd25519HssStoredRespondedServerSession,
-  ThresholdEd25519HssStoredServerInputs,
-  ThresholdEd25519HssStoredStagedEvaluatorArtifact,
-} from '../../types';
-import type {
-  ThresholdEd25519HssCeremonyRecord,
-  ThresholdEd25519HssCeremonyStore,
-} from '../ThresholdSigningService';
+import type { EcdsaHssRoleLocalKeyRecord } from '../../types';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
   ThresholdEcdsaMpcSessionRecord,
   ThresholdEcdsaSessionStore,
   ThresholdMpcSessionRecord,
   ThresholdClaimMpcSessionResult,
-  RouterAbEd25519ConsumePresignRefillRateLimitResult,
   ThresholdEd25519MpcSessionRecord,
   ThresholdReadMpcSessionResult,
-  RouterAbEd25519PresignCapacity,
-  RouterAbEd25519CheckPresignCapacityResult,
-  RouterAbEd25519PresignExpectedScope,
-  RouterAbEd25519PresignRefillRateLimitBucket,
-  RouterAbEd25519PresignRefillRateLimitPolicy,
-  RouterAbEd25519PutPresignWithCapacityResult,
-  RouterAbEd25519PresignRecord,
   ThresholdEd25519ClaimMpcSessionResult,
   ThresholdEd25519ReadMpcSessionResult,
   ThresholdEd25519SessionStore,
   ThresholdEd25519SigningSessionRecord,
-  RouterAbEd25519TakePresignForFinalizeResult,
 } from './SessionStore';
 import type {
   RouterAbEcdsaHssPoolFillSessionCasResult,
@@ -226,36 +203,6 @@ type DoRouterAbEcdsaHssPoolFillLiveSessionDeleteRequest = {
   op: 'routerAbEcdsaHssPoolFillLiveSessionDelete';
   presignSessionId: string;
 };
-type DoEd25519PresignTakeRequest = {
-  op: 'ed25519PresignTake';
-  key: string;
-  presignId: string;
-  expectedScope: RouterAbEd25519PresignExpectedScope;
-  walletIndexKey: string;
-  globalIndexKey: string;
-};
-type DoEd25519PresignPutWithCapacityRequest = {
-  op: 'ed25519PresignPutWithCapacity';
-  key: string;
-  presignId: string;
-  value: RouterAbEd25519PresignRecord;
-  ttlMs: number;
-  capacity: RouterAbEd25519PresignCapacity;
-  walletIndexKey: string;
-  globalIndexKey: string;
-};
-type DoEd25519PresignCheckCapacityRequest = {
-  op: 'ed25519PresignCheckCapacity';
-  capacity: RouterAbEd25519PresignCapacity;
-  walletIndexKey: string;
-  globalIndexKey: string;
-};
-type DoEd25519PresignConsumeRateLimitRequest = {
-  op: 'ed25519PresignConsumeRateLimit';
-  key: string;
-  cost: number;
-  policy: RouterAbEd25519PresignRefillRateLimitPolicy;
-};
 type DoRequest =
   | DoGetRequest
   | DoSetRequest
@@ -283,10 +230,6 @@ type DoRequest =
   | DoRouterAbEcdsaHssPoolFillLiveSessionCreateRequest
   | DoRouterAbEcdsaHssPoolFillLiveSessionStepRequest
   | DoRouterAbEcdsaHssPoolFillLiveSessionDeleteRequest
-  | DoEd25519PresignCheckCapacityRequest
-  | DoEd25519PresignConsumeRateLimitRequest
-  | DoEd25519PresignPutWithCapacityRequest
-  | DoEd25519PresignTakeRequest;
 
 type DoAuthEntry<TRecord extends WalletSessionRecord> = {
   record: TRecord;
@@ -452,17 +395,6 @@ function computeKeyPrefix(config: Record<string, unknown>): string {
   return toThresholdEd25519KeyPrefix(
     explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'key'),
   );
-}
-
-function computeEd25519HssCeremonyPrefix(config: Record<string, unknown>): string {
-  const explicit = toOptionalTrimmedString(config.THRESHOLD_ED25519_HSS_CEREMONY_PREFIX);
-  if (explicit) return explicit.endsWith(':') ? explicit : `${explicit}:`;
-  const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
-  if (basePrefix) {
-    const base = basePrefix.endsWith(':') ? basePrefix : `${basePrefix}:`;
-    return `${base}ed25519-hss-ceremony:`;
-  }
-  return 'w3a:threshold-ed25519:hss-ceremony:';
 }
 
 function computeWalletSessionPrefixEcdsa(config: Record<string, unknown>): string {
@@ -742,8 +674,6 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly presignPrefix: string;
-  private readonly presignRateLimitPrefix: string;
   private readonly parseMpcSessionRecord: CloudflareDoMpcSessionRecordParser<TMpcRecord>;
 
   constructor(input: {
@@ -755,8 +685,6 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.keyPrefix = input.keyPrefix;
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.presignPrefix = `${this.keyPrefix}presign:`;
-    this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
     this.parseMpcSessionRecord =
       input.parseMpcSessionRecord ||
       (parseThresholdEd25519MpcSessionRecord as CloudflareDoMpcSessionRecordParser<TMpcRecord>);
@@ -770,31 +698,6 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
     return `${this.coordinatorPrefix}${id}`;
   }
 
-  private presignKey(id: string): string {
-    return `${this.presignPrefix}${id}`;
-  }
-
-  private presignGlobalIndexKey(): string {
-    return `${this.presignPrefix}idx:global`;
-  }
-
-  private presignWalletIndexKey(signingGrantId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
-  }
-
-  private presignRateLimitKey(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-  ): string {
-    const key = toOptionalTrimmedString(bucket.key);
-    if (!key) throw new Error('presign refill rate limit bucket key is required');
-    const windowMs = Math.floor(Number(policy.windowMs));
-    if (!Number.isSafeInteger(windowMs) || windowMs < 1) {
-      throw new Error('windowMs must be a positive integer');
-    }
-    const windowStartMs = Math.floor(Date.now() / windowMs) * windowMs;
-    return `${this.presignRateLimitPrefix}${bucket.kind}:${encodeURIComponent(key)}:${windowStartMs}`;
-  }
 
   async putMpcSession(id: string, record: TMpcRecord, ttlMs: number): Promise<void> {
     const resp = await callDo<void>(this.stub, {
@@ -885,89 +788,6 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
     return parseThresholdEd25519CoordinatorSigningSessionRecord(resp.value);
   }
 
-  async putPresign(id: string, record: RouterAbEd25519PresignRecord, ttlMs: number): Promise<void> {
-    const parsed = parseRouterAbEd25519PresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const resp = await callDo<void>(this.stub, {
-      op: 'set',
-      key: this.presignKey(id),
-      value: { ...parsed, expiresAtMs },
-      ttlMs,
-    });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-
-  async putPresignWithCapacity(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
-    const parsed = parseRouterAbEd25519PresignRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const value = { ...parsed, expiresAtMs };
-    const resp = await callDo<RouterAbEd25519PutPresignWithCapacityResult>(this.stub, {
-      op: 'ed25519PresignPutWithCapacity',
-      key: this.presignKey(id),
-      presignId: id,
-      value,
-      ttlMs,
-      capacity,
-      walletIndexKey: this.presignWalletIndexKey(parsed.signingGrantId),
-      globalIndexKey: this.presignGlobalIndexKey(),
-    });
-    if (!resp.ok) return { ok: false, code: 'capacity_exceeded' };
-    return resp.value;
-  }
-
-  async checkPresignCapacity(
-    signingGrantId: string,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(signingGrantId);
-    if (!walletId) return { ok: false, code: 'capacity_exceeded' };
-    const resp = await callDo<RouterAbEd25519CheckPresignCapacityResult>(this.stub, {
-      op: 'ed25519PresignCheckCapacity',
-      capacity,
-      walletIndexKey: this.presignWalletIndexKey(walletId),
-      globalIndexKey: this.presignGlobalIndexKey(),
-    });
-    if (!resp.ok) return { ok: false, code: 'capacity_exceeded' };
-    return resp.value;
-  }
-
-  async consumePresignRefillRateLimit(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-    cost: number,
-  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
-    const resp = await callDo<RouterAbEd25519ConsumePresignRefillRateLimitResult>(this.stub, {
-      op: 'ed25519PresignConsumeRateLimit',
-      key: this.presignRateLimitKey(bucket, policy),
-      cost,
-      policy,
-    });
-    if (!resp.ok) return { ok: false, code: 'rate_limited' };
-    return resp.value;
-  }
-
-  async takePresignForFinalize(
-    id: string,
-    expectedScope: RouterAbEd25519PresignExpectedScope,
-  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
-    const resp = await callDo<RouterAbEd25519TakePresignForFinalizeResult>(this.stub, {
-      op: 'ed25519PresignTake',
-      key: this.presignKey(id),
-      presignId: id,
-      expectedScope,
-      walletIndexKey: this.presignWalletIndexKey(expectedScope.signingGrantId),
-      globalIndexKey: this.presignGlobalIndexKey(),
-    });
-    if (!resp.ok) return { ok: false, code: 'not_found' };
-    return resp.value;
-  }
 }
 
 export class CloudflareDurableObjectThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
@@ -1004,378 +824,6 @@ export class CloudflareDurableObjectThresholdEd25519KeyStore implements Threshol
 
   async del(relayerKeyId: string): Promise<void> {
     const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
-    if (!id) return;
-    const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-}
-
-type DurableEd25519HssSessionCeremonyWireRecord = {
-  kind: 'session';
-  expiresAtMs: number;
-  relayerKeyId: string;
-  operation: ThresholdEd25519HssSessionOperation;
-  context: ThresholdEd25519HssCanonicalContext;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  preparedServerSession: {
-    evaluatorDriverStateB64u: string;
-    garblerDriverStateB64u: string;
-    serverEvalStateB64u?: string;
-  };
-  serverInputs?: {
-    yRelayerB64u: string;
-    tauRelayerB64u: string;
-  };
-  advancedServerEval?: {
-    contextBindingB64u: string;
-    addStageRequestDigestB64u: string;
-    advancedServerEvalStateB64u: string;
-    finalizeContextB64u: string;
-    priorStageResponseMessageB64u: string;
-  };
-  evaluationResult?: {
-    stagedEvaluatorArtifactB64u: string;
-    addStageRequestMessageB64u: string;
-  };
-};
-
-const ED25519_HSS_SESSION_OPERATIONS: ReadonlySet<string> = new Set([
-  'tx_signing',
-  'link_device',
-  'email_recovery',
-  'registration_material_restore',
-  'warm_session_reconstruction',
-  'explicit_key_export',
-]);
-
-function parseDurableEd25519HssSessionOperation(raw: unknown): ThresholdEd25519HssSessionOperation {
-  const value = toOptionalTrimmedString(raw);
-  if (!ED25519_HSS_SESSION_OPERATIONS.has(value)) {
-    throw new Error('durable Ed25519 HSS ceremony operation is invalid');
-  }
-  return value as ThresholdEd25519HssSessionOperation;
-}
-
-function parseDurableEd25519HssContext(raw: unknown): ThresholdEd25519HssCanonicalContext {
-  if (!isObject(raw)) throw new Error('durable Ed25519 HSS ceremony context is invalid');
-  const applicationBindingDigestB64u = toOptionalTrimmedString(raw.applicationBindingDigestB64u);
-  if (!applicationBindingDigestB64u) {
-    throw new Error('durable Ed25519 HSS ceremony context digest is required');
-  }
-  if (!Array.isArray(raw.participantIds)) {
-    throw new Error('durable Ed25519 HSS ceremony participantIds are required');
-  }
-  const participantIds = raw.participantIds.map((id) => Number(id));
-  if (
-    participantIds.length === 0 ||
-    participantIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
-  ) {
-    throw new Error('durable Ed25519 HSS ceremony participantIds are invalid');
-  }
-  return { applicationBindingDigestB64u, participantIds };
-}
-
-function parseDurableEd25519HssPreparedSession(
-  raw: unknown,
-): ThresholdEd25519HssPreparedSessionEnvelope {
-  if (!isObject(raw)) throw new Error('durable Ed25519 HSS preparedSession is invalid');
-  const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
-  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
-  if (!contextBindingB64u || !evaluatorDriverStateB64u) {
-    throw new Error('durable Ed25519 HSS preparedSession is incomplete');
-  }
-  return { contextBindingB64u, evaluatorDriverStateB64u };
-}
-
-function parseDurableEd25519HssPreparedServerSession(
-  raw: unknown,
-): ThresholdEd25519HssStoredPreparedServerSession | ThresholdEd25519HssStoredRespondedServerSession {
-  if (!isObject(raw)) {
-    throw new Error('durable Ed25519 HSS preparedServerSession is invalid');
-  }
-  if (toOptionalTrimmedString(raw.preparedSessionHandle)) {
-    throw new Error('durable Ed25519 HSS ceremony cannot store preparedSessionHandle');
-  }
-  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
-  const garblerDriverStateB64u = toOptionalTrimmedString(raw.garblerDriverStateB64u);
-  if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) {
-    throw new Error('durable Ed25519 HSS preparedServerSession is incomplete');
-  }
-  const serverEvalStateB64u =
-    typeof raw.serverEvalStateB64u === 'string' ? raw.serverEvalStateB64u.trim() : null;
-  return {
-    evaluatorDriverStateBytes: base64UrlDecode(evaluatorDriverStateB64u),
-    garblerDriverStateBytes: base64UrlDecode(garblerDriverStateB64u),
-    ...(serverEvalStateB64u !== null
-      ? { serverEvalStateBytes: base64UrlDecode(serverEvalStateB64u) }
-      : {}),
-  };
-}
-
-function parseDurableEd25519HssServerInputs(
-  raw: unknown,
-): ThresholdEd25519HssStoredServerInputs | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  if (!isObject(raw)) throw new Error('durable Ed25519 HSS serverInputs are invalid');
-  const yRelayerB64u = toOptionalTrimmedString(raw.yRelayerB64u);
-  const tauRelayerB64u = toOptionalTrimmedString(raw.tauRelayerB64u);
-  if (!yRelayerB64u || !tauRelayerB64u) {
-    throw new Error('durable Ed25519 HSS serverInputs are incomplete');
-  }
-  return {
-    yRelayerBytes: base64UrlDecode(yRelayerB64u),
-    tauRelayerBytes: base64UrlDecode(tauRelayerB64u),
-  };
-}
-
-function parseDurableEd25519HssEvaluationResult(
-  raw: unknown,
-): ThresholdEd25519HssStoredStagedEvaluatorArtifact | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  if (!isObject(raw)) throw new Error('durable Ed25519 HSS evaluationResult is invalid');
-  if (toOptionalTrimmedString(raw.stagedEvaluatorArtifactHandle)) {
-    throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
-  }
-  const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
-  const addStageRequestMessageB64u = toOptionalTrimmedString(raw.addStageRequestMessageB64u);
-  if (!stagedEvaluatorArtifactB64u) {
-    throw new Error('durable Ed25519 HSS evaluationResult artifact is required');
-  }
-  if (!addStageRequestMessageB64u) {
-    throw new Error('durable Ed25519 HSS evaluationResult add-stage request is required');
-  }
-  return {
-    stagedEvaluatorArtifactBytes: base64UrlDecode(stagedEvaluatorArtifactB64u),
-    addStageRequestMessageBytes: base64UrlDecode(addStageRequestMessageB64u),
-  };
-}
-
-function parseDurableEd25519HssAdvancedServerEval(raw: unknown):
-  | {
-      contextBindingB64u: string;
-      addStageRequestDigestB64u: string;
-      advancedServerEvalStateB64u: string;
-      finalizeContextB64u: string;
-      priorStageResponseMessageB64u: string;
-    }
-  | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  if (!isObject(raw)) throw new Error('durable Ed25519 HSS advancedServerEval is invalid');
-  const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
-  const addStageRequestDigestB64u = toOptionalTrimmedString(raw.addStageRequestDigestB64u);
-  const advancedServerEvalStateB64u = toOptionalTrimmedString(raw.advancedServerEvalStateB64u);
-  const finalizeContextB64u = toOptionalTrimmedString(raw.finalizeContextB64u);
-  const priorStageResponseMessageB64u = toOptionalTrimmedString(
-    raw.priorStageResponseMessageB64u,
-  );
-  if (
-    !contextBindingB64u ||
-    !addStageRequestDigestB64u ||
-    !advancedServerEvalStateB64u ||
-    !finalizeContextB64u ||
-    !priorStageResponseMessageB64u
-  ) {
-    throw new Error('durable Ed25519 HSS advancedServerEval is incomplete');
-  }
-  base64UrlDecode(contextBindingB64u);
-  base64UrlDecode(addStageRequestDigestB64u);
-  base64UrlDecode(advancedServerEvalStateB64u);
-  base64UrlDecode(finalizeContextB64u);
-  base64UrlDecode(priorStageResponseMessageB64u);
-  return {
-    contextBindingB64u,
-    addStageRequestDigestB64u,
-    advancedServerEvalStateB64u,
-    finalizeContextB64u,
-    priorStageResponseMessageB64u,
-  };
-}
-
-function isDurableEd25519HssRespondedServerSession(
-  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
-): preparedServerSession is ThresholdEd25519HssStoredRespondedServerSession {
-  return (
-    'serverEvalStateBytes' in preparedServerSession &&
-    preparedServerSession.serverEvalStateBytes instanceof Uint8Array
-  );
-}
-
-function durableEd25519HssPreparedServerSessionWire(
-  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
-): DurableEd25519HssSessionCeremonyWireRecord['preparedServerSession'] {
-  if (toOptionalTrimmedString(preparedServerSession.preparedSessionHandle)) {
-    throw new Error('durable Ed25519 HSS ceremony cannot store preparedSessionHandle');
-  }
-  const respondedFields = isDurableEd25519HssRespondedServerSession(preparedServerSession)
-    ? { serverEvalStateB64u: base64UrlEncode(preparedServerSession.serverEvalStateBytes) }
-    : {};
-  return {
-    evaluatorDriverStateB64u: base64UrlEncode(preparedServerSession.evaluatorDriverStateBytes),
-    garblerDriverStateB64u: base64UrlEncode(preparedServerSession.garblerDriverStateBytes),
-    ...respondedFields,
-  };
-}
-
-function durableEd25519HssServerInputsWire(
-  serverInputs: ThresholdEd25519HssStoredServerInputs | undefined,
-): DurableEd25519HssSessionCeremonyWireRecord['serverInputs'] {
-  if (!serverInputs) return undefined;
-  return {
-    yRelayerB64u: base64UrlEncode(serverInputs.yRelayerBytes),
-    tauRelayerB64u: base64UrlEncode(serverInputs.tauRelayerBytes),
-  };
-}
-
-function durableEd25519HssEvaluationResultWire(
-  evaluationResult: ThresholdEd25519HssStoredStagedEvaluatorArtifact | undefined,
-): DurableEd25519HssSessionCeremonyWireRecord['evaluationResult'] {
-  if (!evaluationResult) return undefined;
-  if (toOptionalTrimmedString(evaluationResult.stagedEvaluatorArtifactHandle)) {
-    throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
-  }
-  if (!evaluationResult.stagedEvaluatorArtifactBytes) {
-    throw new Error('durable Ed25519 HSS evaluationResult artifact is required');
-  }
-  if (!evaluationResult.addStageRequestMessageBytes) {
-    throw new Error('durable Ed25519 HSS evaluationResult add-stage request is required');
-  }
-  return {
-    stagedEvaluatorArtifactB64u: base64UrlEncode(evaluationResult.stagedEvaluatorArtifactBytes),
-    addStageRequestMessageB64u: base64UrlEncode(evaluationResult.addStageRequestMessageBytes),
-  };
-}
-
-function durableEd25519HssAdvancedServerEvalWire(
-  advancedServerEval: Extract<
-    ThresholdEd25519HssCeremonyRecord,
-    { kind: 'session' }
-  >['advancedServerEval'],
-): DurableEd25519HssSessionCeremonyWireRecord['advancedServerEval'] {
-  if (!advancedServerEval) return undefined;
-  return {
-    contextBindingB64u: advancedServerEval.contextBindingB64u,
-    addStageRequestDigestB64u: advancedServerEval.addStageRequestDigestB64u,
-    advancedServerEvalStateB64u: advancedServerEval.advancedServerEvalStateB64u,
-    finalizeContextB64u: advancedServerEval.finalizeContextB64u,
-    priorStageResponseMessageB64u: advancedServerEval.priorStageResponseMessageB64u,
-  };
-}
-
-function durableEd25519HssSessionCeremonyWire(
-  record: ThresholdEd25519HssCeremonyRecord,
-): DurableEd25519HssSessionCeremonyWireRecord {
-  if (record.kind !== 'session') {
-    throw new Error('durable Ed25519 HSS ceremony store only accepts session ceremonies');
-  }
-  const serverInputs = durableEd25519HssServerInputsWire(record.serverInputs);
-  const evaluationResult = durableEd25519HssEvaluationResultWire(record.evaluationResult);
-  const advancedServerEval = durableEd25519HssAdvancedServerEvalWire(record.advancedServerEval);
-  return {
-    kind: 'session',
-    expiresAtMs: record.expiresAtMs,
-    relayerKeyId: record.relayerKeyId,
-    operation: record.operation,
-    context: record.context,
-    preparedSession: record.preparedSession,
-    preparedServerSession: durableEd25519HssPreparedServerSessionWire(record.preparedServerSession),
-    ...(serverInputs ? { serverInputs } : {}),
-    ...(advancedServerEval ? { advancedServerEval } : {}),
-    ...(evaluationResult ? { evaluationResult } : {}),
-  };
-}
-
-function parseDurableEd25519HssSessionCeremonyWire(
-  raw: unknown,
-): ThresholdEd25519HssCeremonyRecord | null {
-  if (raw === undefined || raw === null) return null;
-  if (!isObject(raw)) throw new Error('durable Ed25519 HSS ceremony record is invalid');
-  if (raw.kind !== 'session') {
-    throw new Error('durable Ed25519 HSS ceremony record kind is invalid');
-  }
-  const expiresAtMs = Number(raw.expiresAtMs);
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
-    throw new Error('durable Ed25519 HSS ceremony expiry is invalid');
-  }
-  const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
-  if (!relayerKeyId) throw new Error('durable Ed25519 HSS ceremony relayerKeyId is required');
-  const serverInputs = parseDurableEd25519HssServerInputs(raw.serverInputs);
-  const advancedServerEval = parseDurableEd25519HssAdvancedServerEval(raw.advancedServerEval);
-  const evaluationResult = parseDurableEd25519HssEvaluationResult(raw.evaluationResult);
-  return {
-    kind: 'session',
-    expiresAtMs,
-    relayerKeyId,
-    operation: parseDurableEd25519HssSessionOperation(raw.operation),
-    context: parseDurableEd25519HssContext(raw.context),
-    preparedSession: parseDurableEd25519HssPreparedSession(raw.preparedSession),
-    preparedServerSession: parseDurableEd25519HssPreparedServerSession(raw.preparedServerSession),
-    ...(serverInputs ? { serverInputs } : {}),
-    ...(advancedServerEval ? { advancedServerEval } : {}),
-    ...(evaluationResult ? { evaluationResult } : {}),
-  };
-}
-
-export class CloudflareDurableObjectThresholdEd25519HssCeremonyStore implements ThresholdEd25519HssCeremonyStore {
-  private readonly stub: DurableObjectStubLike;
-  private readonly keyPrefix: string;
-
-  constructor(input: {
-    namespace: CloudflareDurableObjectNamespaceLike;
-    objectName: string;
-    keyPrefix: string;
-  }) {
-    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
-    this.keyPrefix = input.keyPrefix;
-  }
-
-  private key(handle: string): string {
-    return `${this.keyPrefix}${handle}`;
-  }
-
-  async cleanupExpired(_nowMs: number): Promise<void> {
-    return;
-  }
-
-  async put(handle: string, record: ThresholdEd25519HssCeremonyRecord): Promise<void> {
-    const id = toOptionalTrimmedString(handle);
-    if (!id) throw new Error('Missing Ed25519 HSS ceremony handle');
-    const ttlMs = Math.max(1, record.expiresAtMs - Date.now());
-    const resp = await callDo<void>(this.stub, {
-      op: 'set',
-      key: this.key(id),
-      value: durableEd25519HssSessionCeremonyWire(record),
-      ttlMs,
-    });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-
-  async get(handle: string): Promise<ThresholdEd25519HssCeremonyRecord | null> {
-    const id = toOptionalTrimmedString(handle);
-    if (!id) return null;
-    const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
-    if (!resp.ok) return null;
-    const record = parseDurableEd25519HssSessionCeremonyWire(resp.value);
-    if (!record) return null;
-    if (record.expiresAtMs <= Date.now()) {
-      await this.delete(id);
-      return null;
-    }
-    return record;
-  }
-
-  async take(handle: string): Promise<ThresholdEd25519HssCeremonyRecord | null> {
-    const id = toOptionalTrimmedString(handle);
-    if (!id) return null;
-    const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.key(id) });
-    if (!resp.ok) return null;
-    const record = parseDurableEd25519HssSessionCeremonyWire(resp.value);
-    if (!record) return null;
-    if (record.expiresAtMs <= Date.now()) return null;
-    return record;
-  }
-
-  async delete(handle: string): Promise<void> {
-    const id = toOptionalTrimmedString(handle);
     if (!id) return;
     const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
     if (!resp.ok) throw new Error(resp.message);
@@ -1799,7 +1247,6 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   keyStore: ThresholdEd25519KeyStore;
   sessionStore: ThresholdEd25519SessionStore;
   walletSessionStore: Ed25519WalletSessionStore;
-  ed25519HssCeremonyStore: ThresholdEd25519HssCeremonyStore;
 } | null {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const kind = toOptionalTrimmedString(config.kind);
@@ -1820,7 +1267,6 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   const walletSessionPrefix = computeWalletSessionPrefix(config);
   const sessionPrefix = computeSessionPrefix(config);
   const keyPrefix = computeKeyPrefix(config);
-  const ed25519HssCeremonyPrefix = computeEd25519HssCeremonyPrefix(config);
 
   input.logger.info(
     '[threshold-ed25519] Using Cloudflare Durable Object store for threshold session persistence',
@@ -1842,11 +1288,6 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
       objectName,
       keyPrefix: walletSessionPrefix,
       parseRecord: parseEd25519WalletSessionRecord,
-    }),
-    ed25519HssCeremonyStore: new CloudflareDurableObjectThresholdEd25519HssCeremonyStore({
-      namespace,
-      objectName,
-      keyPrefix: ed25519HssCeremonyPrefix,
     }),
   };
 }

@@ -1,17 +1,12 @@
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   deriveEcdsaHssYRelayerFromSigningRootShares,
-  deriveEd25519HssServerInputsFromSigningRootShares,
   parseSigningRootShareWire,
   type EcdsaHssStableKeyPrfContext,
   type SigningRootShareWireSet,
   type SigningRootShareWire,
 } from './thresholdPrfWasm';
-import type {
-  ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssServerInputs,
-} from '../types';
 import {
   MISSING_SIGNING_ROOT_KEK_CODE,
   zeroizeBytes,
@@ -94,14 +89,6 @@ export type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput = {
   readonly preferredShareIds?: readonly number[];
   readonly resolver: SigningRootShareResolver;
   readonly context: EcdsaHssStableKeyPrfContext;
-};
-
-export type DeriveEd25519HssServerInputsFromSigningRootShareResolverInput = {
-  readonly signingRootId: string;
-  readonly signingRootVersion?: string;
-  readonly preferredShareIds?: readonly number[];
-  readonly resolver: SigningRootShareResolver;
-  readonly context: ThresholdEd25519HssCanonicalContext;
 };
 
 function err<T>(
@@ -438,49 +425,6 @@ export async function deriveEcdsaHssYRelayerFromSigningRootShareResolver(
     return { ok: true, value: yRelayer };
   } catch (error) {
     return errorResult(error, 'failed to derive ecdsa-hss y_relayer');
-  } finally {
-    if (shareSet) zeroizeSigningRootShareSet(shareSet);
-  }
-}
-
-export async function deriveEd25519HssServerInputsFromSigningRootShareResolver(
-  input: DeriveEd25519HssServerInputsFromSigningRootShareResolverInput,
-): Promise<
-  SigningRootSecretShareWireResult<
-    ThresholdEd25519HssCanonicalContext &
-      ThresholdEd25519HssServerInputs & { contextBindingB64u: string }
-  >
-> {
-  let shareSet: SigningRootShareSet | null = null;
-  try {
-    shareSet = await input.resolver.resolveSigningRootShareSet({
-      signingRootId: input.signingRootId,
-      ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
-      ...(input.preferredShareIds ? { preferredShareIds: input.preferredShareIds } : {}),
-    });
-    const serverInputBytes = await deriveEd25519HssServerInputsFromSigningRootShares({
-      policy: input.resolver.policy,
-      shareWires: shareSet,
-      context: input.context,
-    });
-    try {
-      return {
-        ok: true,
-        value: {
-          applicationBindingDigestB64u: serverInputBytes.applicationBindingDigestB64u,
-          participantIds: serverInputBytes.participantIds,
-          contextBindingB64u: base64UrlEncode(serverInputBytes.contextBinding),
-          yRelayerB64u: base64UrlEncode(serverInputBytes.yRelayer),
-          tauRelayerB64u: base64UrlEncode(serverInputBytes.tauRelayer),
-        },
-      };
-    } finally {
-      zeroizeBytes(serverInputBytes.contextBinding);
-      zeroizeBytes(serverInputBytes.yRelayer);
-      zeroizeBytes(serverInputBytes.tauRelayer);
-    }
-  } catch (error) {
-    return errorResult(error, 'failed to derive ed25519-hss server inputs');
   } finally {
     if (shareSet) zeroizeSigningRootShareSet(shareSet);
   }

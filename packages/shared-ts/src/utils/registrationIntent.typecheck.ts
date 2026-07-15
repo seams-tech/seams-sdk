@@ -5,7 +5,7 @@ import {
   walletIdFromString,
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
-  type NearAccountOwnershipProofV1,
+  type AddSignerSelection,
   type RegistrationAuthMethodInput,
   type RegistrationAuthority,
   type RegistrationIntentV1,
@@ -36,36 +36,6 @@ const orgId = unwrapDomainId(parseOrgId('org_test'));
 const appSessionVersion = unwrapDomainId(parseAppSessionVersion('app-session-v1'));
 const namedNearAccountId = unwrapDomainId(parseNamedNearAccountId('alice.testnet'));
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
-
-void ({
-  version: 'near_account_ownership_proof_v1',
-  message: {
-    version: 'near_account_ownership_proof_message_v1',
-    walletId: walletIdFromString('wallet_alice'),
-    nearAccountId: 'alice.testnet',
-    publicKey: 'ed25519:public-key',
-    nonceB64u: 'nonce',
-    issuedAtMs: 1,
-    expiresAtMs: 2,
-  },
-  signatureB64u: 'signature',
-} satisfies NearAccountOwnershipProofV1);
-
-void ({
-  version: 'near_account_ownership_proof_v1',
-  message: {
-    version: 'near_account_ownership_proof_message_v1',
-    walletId: walletIdFromString('wallet_alice'),
-    // @ts-expect-error NEAR account ownership proof messages do not carry passkey RP scope.
-    rpId: 'wallet.example.test',
-    nearAccountId: 'alice.testnet',
-    publicKey: 'ed25519:public-key',
-    nonceB64u: 'nonce',
-    issuedAtMs: 1,
-    expiresAtMs: 2,
-  },
-  signatureB64u: 'signature',
-} satisfies NearAccountOwnershipProofV1);
 
 const passkeyAuthMethod = {
   kind: 'passkey',
@@ -229,7 +199,7 @@ void ({
       signerSlot: 1,
       participantIds: [1, 2],
       keyPurpose: 'near_tx',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
       derivationVersion: 1,
     },
   ],
@@ -347,6 +317,35 @@ void ({
   // @ts-expect-error add-signer intents do not carry root passkey RP scope.
   rpId: 'wallet.example.test',
 } satisfies AddSignerIntentV1);
+
+const sharedEd25519AddSignerSelection = {
+  mode: 'ed25519',
+  ed25519: {
+    mode: 'create_implicit_near_account',
+    signerSlot: 2,
+    participantIds: [1, 2],
+    keyPurpose: 'near_tx',
+    keyVersion: 'router-ab-ed25519-yao-v1',
+    derivationVersion: 1,
+  },
+} satisfies AddSignerSelection;
+void sharedEd25519AddSignerSelection;
+
+// @ts-expect-error Ed25519 add-signer selections require their Ed25519 branch.
+const missingEd25519AddSignerBranch: AddSignerSelection = {
+  mode: 'ed25519',
+};
+void missingEd25519AddSignerBranch;
+
+// @ts-expect-error Ed25519 add-signer selections cannot carry an ECDSA branch.
+const mixedEd25519AddSignerSelection: AddSignerSelection = {
+  ...sharedEd25519AddSignerSelection,
+  ecdsa: {
+    chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+    participantIds: [1, 2],
+  },
+};
+void mixedEd25519AddSignerSelection;
 
 void ({
   version: 'add_auth_method_intent_v1',

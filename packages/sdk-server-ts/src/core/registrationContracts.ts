@@ -3,6 +3,11 @@ import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsa
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
+  RouterAbEd25519YaoBytes32V1,
+  RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
   AddAuthMethodIntentV1,
@@ -11,12 +16,12 @@ import type {
   AddSignerSelection,
   EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
-  RegisterWalletInput,
   RegistrationNearAccountProvisioning,
-  ResolvedRegistrationNearAccount,
+  RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSetSelection,
+  ResolvedRegistrationNearAccount,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
   WalletAuthMethodTarget,
@@ -27,13 +32,9 @@ import type {
   EcdsaHssRoleLocalFormatVersion,
   EcdsaHssServerBootstrapResponse,
   EcdsaThresholdKeyId,
-  Ed25519SessionPolicy,
-  ThresholdEcdsaChainTarget,
   ThresholdEd25519AuthorityScope,
-  ThresholdEd25519BootstrapSession,
-  ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
+  ThresholdRuntimePolicyScope,
+  ThresholdEcdsaChainTarget,
   WebAuthnAuthenticationCredential,
   RegistrationPreparationId,
 } from './types';
@@ -292,17 +293,23 @@ export type WalletAddSignerStartRequest = {
 };
 
 export type WalletAddSignerStartResponse =
-  | {
+  | ({
       ok: true;
       addSignerCeremonyId: string;
       intent: AddSignerIntentV1;
-      ed25519?: {
-        ceremonyHandle: string;
-        preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-        clientOtOfferMessageB64u: string;
-      };
-      ecdsa?: WalletRegistrationEcdsaPreparePayload;
-    }
+    } &
+      (
+        | {
+            kind: 'near_ed25519';
+            ed25519: WalletRegistrationEd25519YaoStart;
+            ecdsa?: never;
+          }
+        | {
+            kind: 'evm_family_ecdsa';
+            ecdsa: WalletRegistrationEcdsaPreparePayload;
+            ed25519?: never;
+          }
+      ))
   | {
       ok: false;
       code: string;
@@ -311,10 +318,7 @@ export type WalletAddSignerStartResponse =
 
 export type WalletAddSignerHssRespondRequest = {
   addSignerCeremonyId: string;
-  ed25519?: {
-    clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
-  };
-  ecdsa?: {
+  ecdsa: {
     clientBootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
       clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
@@ -326,11 +330,7 @@ export type WalletAddSignerHssRespondResponse =
   | {
       ok: true;
       addSignerCeremonyId: string;
-      ed25519?: {
-        contextBindingB64u: string;
-        serverInputDeliveryB64u: string;
-      };
-      ecdsa?: {
+      ecdsa: {
         bootstraps: {
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: EcdsaHssServerBootstrapResponse;
@@ -345,38 +345,45 @@ export type WalletAddSignerHssRespondResponse =
 
 export type WalletAddSignerFinalizeRequest = {
   addSignerCeremonyId: string;
-  ed25519?: {
-    evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
-    sessionPolicy?: Ed25519SessionPolicy;
-    sessionKind?: 'jwt';
-  };
-  ecdsa?: {
-    expectedKeyHandles?: string[];
-  };
-};
+  idempotencyKey: string;
+} &
+  (
+    | {
+        kind: 'near_ed25519';
+        ed25519: WalletRegistrationEd25519YaoFinalize;
+        ecdsa?: never;
+      }
+    | {
+        kind: 'evm_family_ecdsa';
+        ecdsa: {
+          expectedKeyHandles?: string[];
+        };
+        ed25519?: never;
+      }
+  );
 
 export type WalletAddSignerFinalizeResponse =
-  | {
+  | ({
       ok: true;
       walletId: WalletId;
-      rpId?: string;
-      ed25519?: {
-        nearAccountId: string;
-        nearEd25519SigningKeyId: string;
-        publicKey: string;
-        relayerKeyId: string;
-        keyVersion: string;
-        recoveryExportCapable: true;
-        clientParticipantId?: number;
-        relayerParticipantId?: number;
-        participantIds?: number[];
-        session?: ThresholdEd25519BootstrapSession;
-        registrationWorkerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
-      };
-      ecdsa?: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
-    }
+    } &
+      (
+        | {
+            kind: 'near_ed25519';
+            rpId: string;
+            credentialIdB64u: string;
+            ed25519: WalletRegistrationEd25519YaoPublicResult;
+            ecdsa?: never;
+          }
+        | {
+            kind: 'evm_family_ecdsa';
+            rpId?: string;
+            ecdsa: {
+              walletKeys: WalletRegistrationEcdsaWalletKey[];
+            };
+            ed25519?: never;
+          }
+      ))
   | {
       ok: false;
       code: string;
@@ -387,30 +394,6 @@ type WalletRegistrationStartRequestBase = {
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
-};
-
-export type WalletRegistrationPrepareGateContext =
-  | {
-      kind: 'source_ip';
-      sourceIp: string;
-    }
-  | {
-      kind: 'source_unavailable';
-      reason: 'source_ip_unavailable' | 'direct_service_call';
-    };
-
-export type WalletRegistrationPrepareRequest = WalletRegistrationStartRequestBase & {
-  prepareGate: WalletRegistrationPrepareGateContext;
-  authority: WalletRegistrationStartAuthority;
-  work:
-    | {
-        kind: 'ed25519_hss';
-        ecdsa?: never;
-      }
-    | {
-        kind: 'ed25519_hss_and_ecdsa';
-        ecdsa?: never;
-      };
 };
 
 export type WalletRegistrationStartAuthority =
@@ -506,6 +489,58 @@ export type WalletRegistrationEcdsaWalletKey = {
   participantIds: number[];
 };
 
+export type WalletRegistrationEd25519YaoStart = {
+  admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+};
+
+export type WalletRegistrationStartSignerWork =
+  | {
+      kind: 'near_ed25519';
+      ed25519: WalletRegistrationEd25519YaoStart;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: WalletRegistrationEcdsaPreparePayload;
+      ed25519?: never;
+    }
+  | {
+      kind: 'near_ed25519_and_evm_family_ecdsa';
+      ed25519: WalletRegistrationEd25519YaoStart;
+      ecdsa: WalletRegistrationEcdsaPreparePayload;
+    };
+
+export type WalletRegistrationEd25519YaoActivationReference = {
+  kind: 'router_ab_ed25519_yao_activation_reference_v1';
+  lifecycle_id: string;
+  session_id: RouterAbEd25519YaoBytes32V1;
+};
+
+export type WalletRegistrationEd25519YaoFinalize = {
+  activationReference: WalletRegistrationEd25519YaoActivationReference;
+};
+
+export type WalletRegistrationEcdsaFinalize = {
+  expectedKeyHandles?: string[];
+};
+
+export type WalletRegistrationFinalizeSignerWork =
+  | {
+      kind: 'near_ed25519';
+      ed25519: WalletRegistrationEd25519YaoFinalize;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: WalletRegistrationEcdsaFinalize;
+      ed25519?: never;
+    }
+  | {
+      kind: 'near_ed25519_and_evm_family_ecdsa';
+      ed25519: WalletRegistrationEd25519YaoFinalize;
+      ecdsa: WalletRegistrationEcdsaFinalize;
+    };
+
 export type WalletRegistrationRouteTimingName =
   | 'registrationIntentLoadMs'
   | 'registrationIntentDigestMs'
@@ -516,70 +551,13 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationPreparationConsumeMs'
   | 'registrationPreparationScopeCheckMs'
   | 'registrationAuthorityVerifyMs'
-  | 'registrationHssPrepareMs'
-  | 'registrationPreauthHssPrepareMs'
-  | 'registrationHssServerInputDeriveMs'
-  | 'registrationHssServerSessionPrepareTotalMs'
-  | 'registrationHssPrepareSessionMs'
-  | 'registrationHssPrepareExtractDriverStatesMs'
-  | 'registrationHssPrepareClientOfferMessageMs'
-  | 'registrationHssPrepareCachePreparedSessionMs'
-  | 'registrationHssPrepareEncodeStatesMs'
   | 'registrationEcdsaPrepareMs'
   | 'registrationCeremonyPersistMs'
   | 'registerPrepareTotalMs'
   | 'registerStartTotalMs'
-  | 'registrationHssRespondMs'
-  | 'registrationHssRespondDecodeMessagesMs'
-  | 'registrationHssRespondMaterializeSessionMs'
-  | 'registrationHssRespondPrepareDeliveryMs'
-  | 'registrationHssRespondDeliveryOtOpenJoinMs'
-  | 'registrationHssRespondDeliveryServerInputOpenMs'
-  | 'registrationHssRespondDeliveryServerInputShareMs'
-  | 'registrationHssRespondDeliveryServerInputCommitmentMs'
-  | 'registrationHssRespondDeliveryServerInputTranscriptMs'
-  | 'registrationHssRespondDeliveryServerInputSealMs'
-  | 'registrationHssRespondEncodeDeliveryMs'
   | 'registrationEcdsaRespondMs'
-  | 'registerHssRespondTotalMs'
-  | 'registerHssWarmupTotalMs'
-  | 'registrationHssAdvanceStateCeremonyLoadMs'
-  | 'registrationHssAdvanceStateDigestMs'
-  | 'registrationHssAdvanceStateWasmMs'
-  | 'registrationHssAdvanceStateDecodeStateMs'
-  | 'registrationHssAdvanceStateSerializedSessionMaterializeMs'
-  | 'registrationHssAdvanceStateSerializedSessionDecodeMs'
-  | 'registrationHssAdvanceStateMaterializeRuntimeMs'
-  | 'registrationHssAdvanceStateMaterializeEvaluatorSessionMs'
-  | 'registrationHssAdvanceStateMaterializeGarblerSessionMs'
-  | 'registrationHssAdvanceStateAddStageResponseMs'
-  | 'registrationHssAdvanceStateMessageScheduleRoundsMs'
-  | 'registrationHssAdvanceStateRoundCoreRoundsMs'
-  | 'registrationHssAdvanceStateOutputProjectionMs'
-  | 'registrationHssAdvanceStateEncodeAdvancedStateMs'
-  | 'registrationHssAdvanceStatePersistenceMs'
-  | 'registerHssAdvanceStateTotalMs'
   | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
-  | 'registrationHssFinalizeMs'
-  | 'registrationHssFinalizeDecodeArtifactMs'
-  | 'registrationHssFinalizeSerializedSessionMaterializeMs'
-  | 'registrationHssFinalizeSerializedSessionDecodeMs'
-  | 'registrationHssFinalizeMaterializeRuntimeMs'
-  | 'registrationHssFinalizeMaterializeEvaluatorSessionMs'
-  | 'registrationHssFinalizeMaterializeGarblerSessionMs'
-  | 'registrationHssFinalizeAdvanceAddStageResponseMs'
-  | 'registrationHssFinalizeAdvanceMessageScheduleRoundsMs'
-  | 'registrationHssFinalizeAdvanceRoundCoreRoundsMs'
-  | 'registrationHssFinalizeAdvanceOutputProjectionMs'
-  | 'registrationHssFinalizeReportMs'
-  | 'registrationHssFinalizePacketAssemblyMs'
-  | 'registrationHssFinalizeEncodeReportMs'
-  | 'registrationHssFinalizeOpenServerOutputMs'
-  | 'registrationHssFinalizeOpenSeedOutputMs'
-  | 'registrationHssFinalizeDeriveSeedKeypairMs'
-  | 'registrationHssFinalizeDeriveRelayerVerifyingShareMs'
-  | 'registrationHssFinalizeKeyStorePutMs'
   | 'registrationEcdsaBootstrapVerifyMs'
   | 'sponsoredNearAccountCreateMs'
   | 'registrationKeygenMs'
@@ -590,67 +568,22 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationFinalizeReplayCacheMs'
   | 'registerFinalizeTotalMs';
 
-export type Ed25519HssFinalizeSource =
-  | 'durable_advanced_eval'
-  | 'durable_finalized_report'
-  | 'serialized_replay';
-
-export type Ed25519HssAdvanceSource = 'durable_workerd_wasm';
-
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route:
-    | 'wallets_register_prepare'
-    | 'wallets_register_start'
-    | 'wallets_register_hss_respond'
-    | 'wallets_register_hss_advance_state'
-    | 'wallets_register_finalize';
+  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
   }[];
-  ed25519HssAdvance?: {
-    source: Ed25519HssAdvanceSource;
-  };
-  ed25519HssFinalize?: {
-    source: Ed25519HssFinalizeSource;
-  };
 };
 
-export type WalletRegistrationPrepareResponse =
-  | {
-      ok: true;
-      state: 'prepared';
-      registrationPreparationId: RegistrationPreparationId;
-      expiresAtMs: number;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519: {
-        ceremonyHandle: string;
-        preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-        clientOtOfferMessageB64u: string;
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-      retryAfterMs?: number;
-      resetAtMs?: number;
-    };
-
 export type WalletRegistrationStartResponse =
-  | {
+  | ({
       ok: true;
       registrationCeremonyId: string;
       intent: RegistrationIntentV1;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519?: {
-        ceremonyHandle: string;
-        preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-        clientOtOfferMessageB64u: string;
-      };
-      ecdsa?: WalletRegistrationEcdsaPreparePayload;
-    }
+    } & WalletRegistrationStartSignerWork)
   | {
       ok: false;
       code: string;
@@ -659,10 +592,7 @@ export type WalletRegistrationStartResponse =
 
 export type WalletRegistrationHssRespondRequest = {
   registrationCeremonyId: string;
-  ed25519?: {
-    clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
-  };
-  ecdsa?: {
+  ecdsa: {
     clientBootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
       clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
@@ -675,11 +605,7 @@ export type WalletRegistrationHssRespondResponse =
       ok: true;
       registrationCeremonyId: string;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519?: {
-        contextBindingB64u: string;
-        serverInputDeliveryB64u: string;
-      };
-      ecdsa?: {
+      ecdsa: {
         bootstraps: {
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: EcdsaHssServerBootstrapResponse;
@@ -692,42 +618,9 @@ export type WalletRegistrationHssRespondResponse =
       message: string;
     };
 
-export type WalletRegistrationHssAdvanceStateRequest = {
-  registrationCeremonyId: string;
-  ed25519: {
-    addStageRequestMessageB64u: string;
-  };
-};
-
-export type WalletRegistrationHssAdvanceStateResponse =
-  | {
-      ok: true;
-      registrationCeremonyId: string;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519: {
-        contextBindingB64u: string;
-        addStageRequestDigestB64u: string;
-        projectionMode: 'registration_seed_and_output' | 'registration_output_only';
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-      retryAfterMs?: number;
-    };
-
-export type WalletRegistrationFinalizeRequest = {
+type WalletRegistrationFinalizeRequestBase = {
   registrationCeremonyId: string;
   idempotencyKey?: string;
-  ed25519?: {
-    evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
-    sessionPolicy?: Ed25519SessionPolicy;
-    sessionKind?: 'jwt';
-  };
-  ecdsa?: {
-    expectedKeyHandles?: string[];
-  };
   emailOtpEnrollment?: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
@@ -746,6 +639,9 @@ export type WalletRegistrationFinalizeRequest = {
   };
 };
 
+export type WalletRegistrationFinalizeRequest = WalletRegistrationFinalizeRequestBase &
+  WalletRegistrationFinalizeSignerWork;
+
 export type WalletRegistrationFinalizeAuthMethod =
   | {
       kind: 'passkey';
@@ -757,66 +653,88 @@ export type WalletRegistrationFinalizeAuthMethod =
       registrationAuthorityId: string;
     };
 
-export type ThresholdEd25519RegistrationWorkerMaterialReport = {
-  kind: 'threshold_ed25519_registration_worker_material_report_v1';
-  contextBindingB64u: string;
-  clientOutputMessageB64u: string;
-  seedOutputMessageB64u?: never;
+export type WalletRegistrationEd25519YaoBootstrapSession = {
+  sessionKind: 'jwt';
+  walletSessionJwt: string;
+  walletId: WalletId;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  expiresAtMs: number;
+  participantIds: readonly [number, number];
+  remainingUses: number;
+  signingRootId: string;
+  signingRootVersion: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
+export type WalletRegistrationEd25519YaoPublicResult = {
+  signerSlot: number;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  publicKey: string;
+  relayerKeyId: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
+  participantIds: readonly [number, number];
+  session: WalletRegistrationEd25519YaoBootstrapSession;
+};
+
+type WalletRegistrationFinalizeResponseBase = {
+  ok: true;
+  walletId: WalletId;
+  authority: WalletAuthAuthority;
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+};
+
+type WalletRegistrationFinalizeResponseAuthMethod =
+  | {
+      rpId: string;
+      authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'passkey' }>;
+    }
+  | {
+      authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'email_otp' }>;
+      rpId?: never;
+    };
+
+export type WalletRegistrationFinalizeSuccess = WalletRegistrationFinalizeResponseBase &
+  WalletRegistrationFinalizeResponseAuthMethod &
+  (
+    | {
+        kind: 'near_ed25519';
+        authorityScope: ThresholdEd25519AuthorityScope;
+        accountProvisioning: RegistrationNearAccountProvisioning;
+        resolvedAccount: ResolvedRegistrationNearAccount;
+        ed25519: WalletRegistrationEd25519YaoPublicResult;
+        ecdsa?: never;
+      }
+    | {
+        kind: 'evm_family_ecdsa';
+        ecdsa: {
+          walletKeys: WalletRegistrationEcdsaWalletKey[];
+        };
+        authorityScope?: never;
+        accountProvisioning?: never;
+        resolvedAccount?: never;
+        ed25519?: never;
+      }
+    | {
+        kind: 'near_ed25519_and_evm_family_ecdsa';
+        authorityScope: ThresholdEd25519AuthorityScope;
+        accountProvisioning: RegistrationNearAccountProvisioning;
+        resolvedAccount: ResolvedRegistrationNearAccount;
+        ed25519: WalletRegistrationEd25519YaoPublicResult;
+        ecdsa: {
+          walletKeys: WalletRegistrationEcdsaWalletKey[];
+        };
+      }
+  );
+
 export type WalletRegistrationFinalizeResponse =
-  | {
-      ok: true;
-      walletId: WalletId;
-      rpId?: string;
-      authority: WalletAuthAuthority;
-      authorityScope: ThresholdEd25519AuthorityScope;
-      authMethod: WalletRegistrationFinalizeAuthMethod;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519: {
-        nearAccountId: string;
-        nearEd25519SigningKeyId: string;
-        publicKey: string;
-        relayerKeyId: string;
-        keyVersion: string;
-        recoveryExportCapable: true;
-        clientParticipantId?: number;
-        relayerParticipantId?: number;
-        participantIds?: number[];
-        session?: ThresholdEd25519BootstrapSession;
-        registrationWorkerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
-      };
-      ecdsa?: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
-    }
-  | {
-      ok: true;
-      walletId: WalletId;
-      rpId?: string;
-      authority: WalletAuthAuthority;
-      authMethod: WalletRegistrationFinalizeAuthMethod;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ecdsa: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      ed25519?: never;
-    }
-  | {
-      ok: true;
-      kind: 'already_finalized_restore_required';
-      walletId: WalletId;
-      rpId?: string;
-      reason: 'replay_without_session_material';
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      authMethod?: never;
-      ed25519?: never;
-      ecdsa?: never;
-    }
+  | WalletRegistrationFinalizeSuccess
   | {
       ok: false;
       code: string;

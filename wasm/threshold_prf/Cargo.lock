@@ -430,10 +430,8 @@ name = "threshold_prf_wasm"
 version = "0.1.0"
 dependencies = [
  "getrandom",
- "js-sys",
  "rand_chacha",
  "rand_core",
- "sha2",
  "threshold-prf",
  "wasm-bindgen",
  "wasm-bindgen-test",

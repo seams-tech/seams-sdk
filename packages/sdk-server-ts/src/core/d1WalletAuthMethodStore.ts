@@ -6,7 +6,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { formatD1ExecStatement, parseD1JsonColumn } from '../storage/d1Sql';
-import type { D1DatabaseLike } from '../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
 
 export type WalletAuthMethodRecord = SharedWalletAuthMethodRecord;
 
@@ -48,7 +48,7 @@ type NormalizedD1WalletAuthMethodStoreOptions = {
   readonly ensureSchema: boolean;
 };
 
-type D1WalletAuthMethodStoreScope = {
+export type D1WalletAuthMethodStoreScope = {
   readonly namespace: string;
   readonly orgId: string;
   readonly projectId: string;
@@ -294,6 +294,78 @@ export function bindWalletAuthMethodIdentity(record: WalletAuthMethodRecord): {
   }
 }
 
+export function prepareD1WalletAuthMethodPutStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WalletAuthMethodStoreScope;
+  readonly record: WalletAuthMethodRecord;
+}): D1PreparedStatementLike {
+  const parsed = normalizeWalletAuthMethod(input.record);
+  if (!parsed) throw new Error('Invalid wallet auth method record');
+  const identity = bindWalletAuthMethodIdentity(parsed);
+  return input.database
+    .prepare(
+      `INSERT INTO wallet_auth_methods (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        rp_id,
+        kind,
+        status,
+        wallet_auth_method_id,
+        auth_identifier_key,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        email_hash_hex,
+        registration_authority_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, wallet_auth_method_id)
+      DO UPDATE SET
+        wallet_id = EXCLUDED.wallet_id,
+        rp_id = EXCLUDED.rp_id,
+        kind = EXCLUDED.kind,
+        status = EXCLUDED.status,
+        auth_identifier_key = EXCLUDED.auth_identifier_key,
+        credential_id_b64u = EXCLUDED.credential_id_b64u,
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        email_hash_hex = EXCLUDED.email_hash_hex,
+        registration_authority_id = EXCLUDED.registration_authority_id,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = MIN(
+          wallet_auth_methods.created_at_ms,
+          EXCLUDED.created_at_ms
+        ),
+        updated_at_ms = MAX(
+          wallet_auth_methods.updated_at_ms,
+          EXCLUDED.updated_at_ms
+        )`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      parsed.walletId,
+      identity.rpId,
+      parsed.kind,
+      parsed.status,
+      walletAuthMethodId(parsed),
+      identity.authIdentifierKey,
+      identity.credentialIdB64u,
+      identity.credentialPublicKeyB64u,
+      identity.emailHashHex,
+      identity.registrationAuthorityId,
+      JSON.stringify(parsed),
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    );
+}
+
 function assertNeverWalletAuthMethod(record: never): never {
   throw new Error(`Unexpected wallet auth method record: ${JSON.stringify(record)}`);
 }
@@ -325,72 +397,11 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
 
   async put(record: WalletAuthMethodRecord): Promise<void> {
     await this.ensureSchema();
-    const parsed = normalizeWalletAuthMethod(record);
-    if (!parsed) throw new Error('Invalid wallet auth method record');
-    const identity = bindWalletAuthMethodIdentity(parsed);
-    await this.database
-      .prepare(
-        `INSERT INTO wallet_auth_methods (
-          namespace,
-          org_id,
-          project_id,
-          env_id,
-          wallet_id,
-          rp_id,
-          kind,
-          status,
-          wallet_auth_method_id,
-          auth_identifier_key,
-          credential_id_b64u,
-          credential_public_key_b64u,
-          email_hash_hex,
-          registration_authority_id,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (namespace, org_id, project_id, env_id, wallet_auth_method_id)
-        DO UPDATE SET
-          wallet_id = EXCLUDED.wallet_id,
-          rp_id = EXCLUDED.rp_id,
-          kind = EXCLUDED.kind,
-          status = EXCLUDED.status,
-          auth_identifier_key = EXCLUDED.auth_identifier_key,
-          credential_id_b64u = EXCLUDED.credential_id_b64u,
-          credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-          email_hash_hex = EXCLUDED.email_hash_hex,
-          registration_authority_id = EXCLUDED.registration_authority_id,
-          record_json = EXCLUDED.record_json,
-          created_at_ms = MIN(
-            wallet_auth_methods.created_at_ms,
-            EXCLUDED.created_at_ms
-          ),
-          updated_at_ms = MAX(
-            wallet_auth_methods.updated_at_ms,
-            EXCLUDED.updated_at_ms
-          )`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        parsed.walletId,
-        identity.rpId,
-        parsed.kind,
-        parsed.status,
-        walletAuthMethodId(parsed),
-        identity.authIdentifierKey,
-        identity.credentialIdB64u,
-        identity.credentialPublicKeyB64u,
-        identity.emailHashHex,
-        identity.registrationAuthorityId,
-        JSON.stringify(parsed),
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      )
-      .run();
+    await prepareD1WalletAuthMethodPutStatement({
+      database: this.database,
+      scope: this.scope,
+      record,
+    }).run();
   }
 
   async getPasskey(input: {

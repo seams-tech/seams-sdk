@@ -12,6 +12,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
+  type WalletUnlockEd25519YaoRecoveryContext,
 } from '../../walletUnlockRouteHandlers';
 import {
   routerApiEmailOtpRouteService,
@@ -52,6 +53,7 @@ import {
   type ParseWalletSigningBudgetStatusResult,
 } from '../../signingBudgetStatus';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
+import { parseWalletUnlockEd25519YaoRequest } from '../../walletUnlockEd25519YaoRequestValidation';
 
 type VerifiedSigningBudgetStatus = Extract<
   ParseWalletSigningBudgetStatusResult,
@@ -1222,10 +1224,39 @@ export async function handleWalletUnlockVerify(
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/verify') return null;
   const body = await readJson(ctx.request);
+  const parsedYaoRecovery = parseWalletUnlockEd25519YaoRequest(body);
+  if (!parsedYaoRecovery.ok) {
+    return json(parsedYaoRecovery.body, { status: parsedYaoRecovery.status });
+  }
+  let ed25519YaoRecovery: WalletUnlockEd25519YaoRecoveryContext = {
+    kind: 'not_requested',
+  };
+  if (parsedYaoRecovery.request) {
+    const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
+    if (!yaoRuntime) {
+      return json(
+        {
+          ok: false,
+          code: 'not_configured',
+          message: 'Ed25519 Yao product registration is not configured',
+        },
+        { status: 500 },
+      );
+    }
+    ed25519YaoRecovery = {
+      kind: 'requested',
+      request: parsedYaoRecovery.request,
+      recoverWalletSession:
+        ctx.service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession.bind(
+          ctx.service.walletRegistration,
+        ),
+    };
+  }
   const response = await handleWalletUnlockVerifyRoute({
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: routerApiWalletUnlockRouteService(ctx.service),
+    ed25519YaoRecovery,
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,

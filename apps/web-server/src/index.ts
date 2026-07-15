@@ -757,9 +757,9 @@ async function main() {
   const sessionCookieName = String(env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
   const jwtSession = createJwtSession(sessionCookieName);
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
-  const {
-    consoleBillingStripeWebhookSecret,
-  } = resolveWebServerConsoleConfig(env as Record<string, unknown>);
+  const { consoleBillingStripeWebhookSecret } = resolveWebServerConsoleConfig(
+    env as Record<string, unknown>,
+  );
   const host =
     typeof env.HOST === 'string' && env.HOST.trim().length > 0 ? env.HOST.trim() : undefined;
   const config = {
@@ -835,12 +835,8 @@ async function main() {
     THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,
     THRESHOLD_ED25519_AUTH_PREFIX: env.THRESHOLD_ED25519_AUTH_PREFIX,
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID,
-    ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL:
-      env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
     ROUTER_AB_SIGNING_WORKER_URL: env.ROUTER_AB_SIGNING_WORKER_URL,
-    SIGNING_WORKER_URL: env.SIGNING_WORKER_URL,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
-    ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
   } as const;
 
   const googleClientIds = Array.from(

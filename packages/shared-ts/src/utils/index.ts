@@ -21,4 +21,5 @@ export * from './ecdsaKeyFactsInventory';
 export * from './secureRandomId';
 export * from './routerAbPublicKeyset';
 export * from './routerAbEcdsaHss';
+export * from './routerAbEd25519Yao';
 export * from './authenticatorOptions';

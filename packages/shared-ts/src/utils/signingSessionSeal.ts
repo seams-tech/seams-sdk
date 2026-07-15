@@ -7,16 +7,9 @@ export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND =
   'router_ab_ed25519_normal_signing_v1' as const;
 export const ROUTER_AB_ED25519_HEALTH_PATH = '/router-ab/ed25519/healthz' as const;
-export const ROUTER_AB_ED25519_WALLET_SESSION_PATH =
-  '/router-ab/wallet-session/ed25519' as const;
-export const ROUTER_AB_ED25519_HSS_PREPARE_PATH = '/router-ab/ed25519/hss/prepare' as const;
-export const ROUTER_AB_ED25519_HSS_RESPOND_PATH = '/router-ab/ed25519/hss/respond' as const;
-export const ROUTER_AB_ED25519_HSS_ADVANCE_PATH = '/router-ab/ed25519/hss/advance' as const;
-export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH = '/router-ab/ed25519/hss/finalize' as const;
+export const ROUTER_AB_ED25519_WALLET_SESSION_PATH = '/router-ab/wallet-session/ed25519' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH =
   '/router-ab/ed25519/sign/prepare' as const;
-export const ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH =
-  '/router-ab/ed25519/sign/presign-pool/prepare' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_PATH = '/router-ab/ed25519/sign' as const;
 export const WALLET_SESSION_SEAL_BASE_PATH = '/wallet-session/seal' as const;
 
@@ -31,7 +24,6 @@ export const PASSKEY_PRF_SECOND_SALT_V1 = new Uint8Array([
 ]);
 
 export const EMAIL_OTP_HKDF_SALTS = {
-  thresholdEd25519Hss: 'seams/email-otp/threshold-ed25519-hss/v1',
   signingSessionSecret: 'seams/email-otp/signing-session-secret/v1',
   signingSessionRestoreRoot: 'seams/signing-session/restore-root/v1',
   thresholdEcdsaClientRoot: 'seams/signing-session/threshold-ecdsa-client-root/v1',
@@ -147,13 +139,6 @@ type SealedSigningSessionEd25519RestoreMetadataBase = SealedSigningSessionWallet
   participantIds: number[];
   runtimePolicyScope?: unknown;
   clientVerifyingShareB64u?: string;
-  ed25519WorkerMaterialHandle?: string;
-  ed25519WorkerMaterialBindingDigest?: string;
-  sealedWorkerMaterialRef?: string;
-  sealedWorkerMaterialB64u?: string;
-  materialFormatVersion?: string;
-  materialKeyId?: string;
-  materialCreatedAtMs?: number;
   signerSlot: number;
   keyVersion?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
@@ -273,13 +258,6 @@ export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8A
     offset += chunk.bytes.length;
   }
   return out;
-}
-
-export function emailOtpThresholdEd25519HssInfoFields(args: {
-  walletId: string;
-  userId: string;
-}): string[] {
-  return ['threshold-ed25519-hss-client-seed', trimString(args.walletId), trimString(args.userId)];
 }
 
 export function emailOtpSigningSessionSecretInfoFields(

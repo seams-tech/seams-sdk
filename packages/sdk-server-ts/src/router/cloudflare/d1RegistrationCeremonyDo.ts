@@ -24,14 +24,6 @@ type CloudflareDoReserveReplayGuardRequest = {
   readonly expiresAtMs: number;
 };
 
-type CloudflareDoRegistrationHssAdvanceClaimTransitionRequest = {
-  readonly op: 'registrationHssAdvanceClaimTransition';
-  readonly key: string;
-  readonly transition: unknown;
-  readonly value: unknown;
-  readonly ttlMs?: number;
-};
-
 type CloudflareDoGetRequest = {
   readonly op: 'get';
   readonly key: string;
@@ -50,7 +42,6 @@ type CloudflareDoDelRequest = {
 type CloudflareRegistrationIntentDoRequest =
   | CloudflareDoSetRequest
   | CloudflareDoReserveReplayGuardRequest
-  | CloudflareDoRegistrationHssAdvanceClaimTransitionRequest
   | CloudflareDoGetRequest
   | CloudflareDoGetDelRequest
   | CloudflareDoDelRequest;

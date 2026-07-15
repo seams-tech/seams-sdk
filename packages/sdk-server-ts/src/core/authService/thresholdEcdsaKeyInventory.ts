@@ -4,7 +4,7 @@ import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
 } from '../thresholdEcdsaChainTarget';
-import type { ThresholdSigningService as ThresholdSigningServiceType } from '../ThresholdService';
+import type { RouterAbEcdsaBootstrapExportRuntime } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { NormalizedLogger } from '../logger';
 import { isObject } from './record';
 
@@ -103,8 +103,8 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
   userId: string;
   rpId: string;
   keyTargets: readonly unknown[];
-  threshold: ThresholdSigningServiceType | null;
-  logger: NormalizedLogger;
+  ecdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntime | null;
+  logger?: NormalizedLogger;
 }): Promise<{
   records: ThresholdEcdsaKeyInventoryRecord[];
   diagnostics: ThresholdEcdsaKeyInventoryDiagnostics;
@@ -115,14 +115,14 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     userId: userId || '',
     inputCount: input.keyTargets.length,
     returnedCount: 0,
-    thresholdServicePresent: Boolean(input.threshold),
+    thresholdServicePresent: Boolean(input.ecdsaBootstrapExportRuntime),
     rejected: {},
   };
   if (!userId || !rpId) {
     incrementCount(diagnostics.rejected, 'missing_scope');
     return { records: [], diagnostics };
   }
-  if (!input.threshold) {
+  if (!input.ecdsaBootstrapExportRuntime) {
     incrementCount(diagnostics.rejected, 'threshold_service_missing');
     return { records: [], diagnostics };
   }
@@ -142,7 +142,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
       continue;
     }
     seen.add(requestKey);
-    const identity = await input.threshold.getEcdsaKeyIdentityMetadata({
+    const identity = await input.ecdsaBootstrapExportRuntime.getEcdsaKeyIdentityMetadata({
       walletId: userId,
       keySelector: parsed.value.keySelector,
     });
@@ -189,6 +189,6 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     });
   }
   diagnostics.returnedCount = records.length;
-  input.logger.info('[threshold-ecdsa-key-inventory][diagnostic]', diagnostics);
+  input.logger?.info('[threshold-ecdsa-key-inventory][diagnostic]', diagnostics);
   return { records, diagnostics };
 }

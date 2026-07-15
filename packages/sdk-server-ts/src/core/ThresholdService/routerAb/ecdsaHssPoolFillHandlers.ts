@@ -87,6 +87,26 @@ type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
 
+type RouterAbEcdsaHssPoolFillInitClaims = Pick<
+  ThresholdEcdsaSessionClaims,
+  | 'walletId'
+  | 'evmFamilySigningKeySlotId'
+  | 'relayerKeyId'
+  | 'keyHandle'
+  | 'runtimePolicyScope'
+  | 'participantIds'
+  | 'thresholdExpiresAtMs'
+>;
+
+type RouterAbEcdsaHssPoolFillStepClaims = Pick<
+  ThresholdEcdsaSessionClaims,
+  | 'walletId'
+  | 'evmFamilySigningKeySlotId'
+  | 'relayerKeyId'
+  | 'participantIds'
+  | 'thresholdExpiresAtMs'
+>;
+
 const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARD_HOP_HEADER =
   'x-router-ab-ecdsa-hss-pool-fill-forward-hop';
 
@@ -380,11 +400,7 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
       scope.signing_root_id,
       expected.signingRootMetadata.signingRootId,
     ],
-    [
-      'poolFill.scope.signing_root_version',
-      scope.signing_root_version,
-      signingRootVersion,
-    ],
+    ['poolFill.scope.signing_root_version', scope.signing_root_version, signingRootVersion],
   ];
   for (const [field, actual, expectedValue] of contextChecks) {
     if (actual !== expectedValue) {
@@ -868,7 +884,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   }
 
   async routerAbEcdsaHssPresignaturePoolFillInit(input: {
-    claims: ThresholdEcdsaSessionClaims;
+    claims: RouterAbEcdsaHssPoolFillInitClaims;
     request: RouterAbEcdsaHssPoolFillInitRequest;
   }): Promise<RouterAbEcdsaHssPoolFillInitResponse> {
     if (this.nodeRole !== 'coordinator') {
@@ -1092,7 +1108,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   }
 
   async routerAbEcdsaHssPresignaturePoolFillStep(input: {
-    claims: ThresholdEcdsaSessionClaims;
+    claims: RouterAbEcdsaHssPoolFillStepClaims;
     request: RouterAbEcdsaHssPoolFillStepRequest;
     transport?: RouterAbEcdsaHssPoolFillStepTransport;
   }): Promise<RouterAbEcdsaHssPoolFillStepResponse> {
@@ -1189,7 +1205,9 @@ export class RouterAbEcdsaHssPoolFillHandlers {
 
       const claims = input.claims;
       const tokenUserId = toOptionalTrimmedString(claims?.walletId);
-      const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(claims?.evmFamilySigningKeySlotId);
+      const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(
+        claims?.evmFamilySigningKeySlotId,
+      );
       const tokenParticipantIds = normalizeThresholdEd25519ParticipantIds(claims?.participantIds);
       if (!tokenUserId || !tokenWalletKeyId || !tokenParticipantIds) {
         await maybeDeleteOwnedSession();
@@ -1291,10 +1309,13 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           perf.presign_stale_session_state = 1;
           perf.ownerForwardReason = 'missing_session_auth';
           perf.resultCode = 'stale_session_state';
-          this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward missing session auth headers', {
-            presignSessionId,
-            ownerInstanceId,
-          });
+          this.logger.warn(
+            '[router-ab-ecdsa-hss-pool-fill] owner-forward missing session auth headers',
+            {
+              presignSessionId,
+              ownerInstanceId,
+            },
+          );
           return {
             ok: false,
             code: 'stale_session_state',
@@ -1501,6 +1522,4 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       });
     }
   }
-
-
 }

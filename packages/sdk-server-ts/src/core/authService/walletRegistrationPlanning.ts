@@ -1,8 +1,3 @@
-import { computeSdkEd25519HssApplicationBindingDigestB64u } from '@shared/threshold/ed25519HssBinding';
-import {
-  parseSdkEcdsaHssSigningRootId,
-  parseSdkEcdsaHssSigningRootVersion,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import {
   computeRegistrationNearEd25519SigningKeyId,
@@ -30,8 +25,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../thresholdEcdsaChainTarget';
 import type {
-  ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519RegistrationAccountScope,
   ThresholdRuntimePolicyScope,
 } from '../types';
 import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
@@ -271,94 +264,6 @@ export function resolvedRegistrationNearAccount(input: {
   }
 }
 
-export function thresholdEd25519RegistrationAccountScope(input: {
-  walletId: WalletId;
-  intentDigestB64u: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  signerSlot: number;
-  keyPurpose: string;
-  keyVersion: string;
-  derivationVersion: number;
-  participantIds: number[];
-  accountProvisioning: RegistrationNearAccountProvisioning;
-}): ThresholdEd25519RegistrationAccountScope {
-  const common = {
-    walletId: String(input.walletId),
-    intentDigestB64u: input.intentDigestB64u,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-    signerSlot: input.signerSlot,
-    keyPurpose: input.keyPurpose,
-    keyVersion: input.keyVersion,
-    derivationVersion: input.derivationVersion,
-    participantIds: [...input.participantIds],
-  };
-  switch (input.accountProvisioning.kind) {
-    case 'implicit_account':
-      return {
-        kind: 'generated_implicit_registration_scope',
-        ...common,
-      };
-    case 'sponsored_named_account':
-      return {
-        kind: 'sponsored_named_registration_scope',
-        ...common,
-        requestedAccountId: String(input.accountProvisioning.requestedAccountId),
-      };
-    default:
-      return assertNever(input.accountProvisioning);
-  }
-}
-
-export function thresholdEd25519KnownAccountRegistrationScope(input: {
-  walletId: WalletId;
-  intentDigestB64u: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  nearAccountId: string;
-  signerSlot: number;
-  keyPurpose: string;
-  keyVersion: string;
-  derivationVersion: number;
-  participantIds: number[];
-}): Extract<
-  ThresholdEd25519RegistrationAccountScope,
-  { kind: 'known_account_registration_scope' }
-> {
-  const nearAccountId = String(input.nearAccountId);
-  const nearEd25519SigningKeyId =
-    knownAccountNearEd25519SigningKeyIdFromNearAccountId(nearAccountId);
-  return {
-    kind: 'known_account_registration_scope',
-    walletId: String(input.walletId),
-    intentDigestB64u: input.intentDigestB64u,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-    nearEd25519SigningKeyId,
-    signerSlot: input.signerSlot,
-    keyPurpose: input.keyPurpose,
-    keyVersion: input.keyVersion,
-    derivationVersion: input.derivationVersion,
-    participantIds: [...input.participantIds],
-    nearAccountId,
-  };
-}
-
-export async function thresholdEd25519HssContextFromRegistrationAccountScope(
-  scope: ThresholdEd25519RegistrationAccountScope,
-): Promise<ThresholdEd25519HssCanonicalContext> {
-  return {
-    applicationBindingDigestB64u: await computeSdkEd25519HssApplicationBindingDigestB64u({
-      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(scope.nearEd25519SigningKeyId),
-      signingRootId: parseSdkEcdsaHssSigningRootId(scope.signingRootId),
-      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(scope.signingRootVersion),
-    }),
-    participantIds: [...scope.participantIds],
-  };
-}
 
 export function registrationIntentSigningRootId(input: {
   signingRootId?: string;

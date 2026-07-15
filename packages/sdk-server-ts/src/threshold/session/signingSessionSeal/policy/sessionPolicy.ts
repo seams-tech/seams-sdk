@@ -10,6 +10,7 @@ import type {
   WalletSigningBudgetSessionStatus,
   WalletSigningBudgetSessionStore,
 } from '../../../../core/ThresholdService/stores/WalletSessionStore';
+import { WALLET_SIGNING_BUDGET_STATUS_AUTHORITY_ID } from '../../../../core/ThresholdService/stores/WalletSessionStore';
 import { walletSigningBudgetSessionId } from '../../../../core/ThresholdService/walletSigningBudget';
 import type {
   SigningSessionSealCurve,
@@ -28,13 +29,9 @@ function toNonNegativeInt(value: unknown): number | undefined {
   return Math.max(0, Math.floor(parsed));
 }
 
-type SigningSessionSealWalletSessionRecord =
-  | Ed25519WalletSessionRecord
-  | EcdsaWalletSessionRecord;
+type SigningSessionSealWalletSessionRecord = Ed25519WalletSessionRecord | EcdsaWalletSessionRecord;
 
-type SigningSessionSealWalletSessionStatus =
-  | Ed25519WalletSessionStatus
-  | EcdsaWalletSessionStatus;
+type SigningSessionSealWalletSessionStatus = Ed25519WalletSessionStatus | EcdsaWalletSessionStatus;
 
 type SigningSessionSealWalletSessionStore = {
   getSession(id: string): Promise<SigningSessionSealWalletSessionRecord | null>;
@@ -55,7 +52,12 @@ function normalizeSessionRecord(
   const participantIds = Array.isArray(raw.participantIds)
     ? raw.participantIds.map((value) => Math.floor(Number(value))).filter(Number.isFinite)
     : [];
-  if (!relayerKeyId || participantIds.length < 2 || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+  if (
+    !relayerKeyId ||
+    participantIds.length < 2 ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0
+  ) {
     return null;
   }
   const base = {
@@ -96,29 +98,20 @@ function normalizeWalletBudgetRecord(
   raw: WalletSigningBudgetSessionRecord | null,
 ): Pick<
   SigningSessionSealWalletBudgetStatus,
-  'userId' | 'expiresAtMs' | 'relayerKeyId' | 'participantIds'
+  'userId' | 'expiresAtMs' | 'relayerKeyId' | 'bindings'
 > | null {
   if (!raw) return null;
   const userId = String(raw.walletId || '').trim();
   const expiresAtMs = Number(raw.expiresAtMs);
-  const relayerKeyId = String(raw.relayerKeyId || '').trim();
-  const participantIds = Array.isArray(raw.participantIds)
-    ? raw.participantIds.map((value) => Math.floor(Number(value))).filter(Number.isFinite)
-    : [];
-  if (
-    !userId ||
-    !relayerKeyId ||
-    participantIds.length < 2 ||
-    !Number.isFinite(expiresAtMs) ||
-    expiresAtMs <= 0
-  ) {
+  const relayerKeyId = WALLET_SIGNING_BUDGET_STATUS_AUTHORITY_ID;
+  if (!userId || !relayerKeyId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     return null;
   }
   return {
     userId,
     expiresAtMs: Math.floor(expiresAtMs),
     relayerKeyId,
-    participantIds,
+    bindings: raw.bindings,
   };
 }
 
@@ -188,7 +181,10 @@ function normalizeStoreResult(
 ): Promise<SigningSessionSealThresholdSessionRecord | null> {
   return (async () => {
     for (const store of stores) {
-      const normalized = normalizeSessionRecord(input, await store.getSession(input.thresholdSessionId));
+      const normalized = normalizeSessionRecord(
+        input,
+        await store.getSession(input.thresholdSessionId),
+      );
       if (normalized) return normalized;
     }
     return null;

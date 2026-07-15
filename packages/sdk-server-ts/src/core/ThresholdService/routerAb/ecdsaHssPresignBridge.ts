@@ -33,8 +33,8 @@ export function buildRouterAbEcdsaHssPresignaturePoolPutRequest(
 }
 
 export type RouterAbEcdsaHssPresignaturePoolFillAuth = {
-  kind: 'internal_service_auth_token';
-  token: string;
+  kind: 'internal_service_auth_secret';
+  secret: string;
 };
 
 export type RouterAbEcdsaHssPresignaturePoolFillHttpInput = {
@@ -103,7 +103,7 @@ export async function putRouterAbEcdsaHssPresignaturePoolFill(
   const response = await postRouterAbInternalServiceJson({
     url,
     body: request,
-    authToken: input.auth.token,
+    authSecret: input.auth.secret,
     fetchImpl: input.fetchImpl,
   });
   if (!response.ok && response.code === 'network_error') {

@@ -6,13 +6,13 @@ export type RouterAbInternalServiceJsonResult =
   | { ok: false; code: 'http_error'; status: number; bodyText: string }
   | { ok: false; code: 'invalid_response'; status: number; bodyText: string; message: string };
 
-export function normalizeRouterAbInternalServiceAuthToken(input: string): string {
-  const token = input.trim();
-  if (!token) throw new Error('Router A/B internal service-auth token is required');
-  if (!/^[\x20-\x7e]+$/.test(token)) {
-    throw new Error('Router A/B internal service-auth token must be printable ASCII');
+export function normalizeRouterAbInternalServiceAuthSecret(input: string): string {
+  const secret = input.trim();
+  if (!secret) throw new Error('Router A/B internal service-auth secret is required');
+  if (!/^[\x20-\x7e]+$/.test(secret)) {
+    throw new Error('Router A/B internal service-auth secret must be printable ASCII');
   }
-  return token;
+  return secret;
 }
 
 function errorMessage(error: unknown): string {
@@ -26,7 +26,7 @@ function errorMessage(error: unknown): string {
 export async function postRouterAbInternalServiceJson(input: {
   url: string;
   body: unknown;
-  authToken: string;
+  authSecret: string;
   fetchImpl: typeof fetch;
 }): Promise<RouterAbInternalServiceJsonResult> {
   let response: Response;
@@ -35,8 +35,8 @@ export async function postRouterAbInternalServiceJson(input: {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]: normalizeRouterAbInternalServiceAuthToken(
-          input.authToken,
+        [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]: normalizeRouterAbInternalServiceAuthSecret(
+          input.authSecret,
         ),
       },
       body: JSON.stringify(input.body),

@@ -3,7 +3,6 @@ import { errorMessage } from '@shared/utils/errors';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { ThresholdEd25519AuthorityScope } from '../types';
-import type { ThresholdSigningService } from '../ThresholdService';
 import type { NormalizedLogger } from '../logger';
 import type {
   WebAuthnAuthenticatorRecord,
@@ -21,20 +20,8 @@ import type { WebAuthnAuthenticationCredential } from '../types';
 import {
   parseBoundaryWalletId,
   resolvedEd25519WalletBindingFromCredentialBinding,
-  resolveThresholdEd25519SessionPolicyForBinding,
 } from './webauthnWalletBinding';
-import {
-  passkeyThresholdEd25519AuthorityScope,
-  requireWebAuthnRpId,
-} from './webauthnAuthority';
-import {
-  normalizeThresholdRuntimePolicyScope,
-} from './thresholdRuntimePolicy';
-import {
-  parseThresholdEd25519RegistrationInput,
-  toThresholdEd25519BootstrapSession,
-  type ThresholdEd25519BootstrapSession,
-} from './registrationThresholdHelpers';
+import { passkeyThresholdEd25519AuthorityScope, requireWebAuthnRpId } from './webauthnAuthority';
 import {
   decodeBase64UrlOrBase64,
   isHostWithinRpId,
@@ -99,7 +86,6 @@ export type WebAuthnSyncAccountVerificationRequest = {
   challenge_id?: unknown;
   webauthn_authentication?: unknown;
   expected_origin?: string;
-  threshold_ed25519?: unknown;
 };
 
 export type WebAuthnSyncAccountVerificationResult =
@@ -126,7 +112,6 @@ export type WebAuthnSyncAccountVerificationResult =
         clientParticipantId?: number;
         relayerParticipantId?: number;
         participantIds?: number[];
-        session?: ThresholdEd25519BootstrapSession;
       };
     }
   | {
@@ -183,9 +168,9 @@ function randomWebAuthnB64u(byteLength: number): string {
   return base64UrlEncode(crypto.getRandomValues(new Uint8Array(byteLength)));
 }
 
-function credentialRawIdB64u(credential: Record<string, unknown>):
-  | { ok: true; credentialIdB64u: string }
-  | { ok: false; code: string; message: string } {
+function credentialRawIdB64u(
+  credential: Record<string, unknown>,
+): { ok: true; credentialIdB64u: string } | { ok: false; code: string; message: string } {
   const credentialId = readStringField(credential, 'id');
   const rawId = readStringField(credential, 'rawId');
   const chosen = rawId || credentialId;
@@ -212,9 +197,9 @@ function credentialRawIdB64u(credential: Record<string, unknown>):
   }
 }
 
-function credentialPublicKeyBytes(record: WebAuthnAuthenticatorRecord):
-  | { ok: true; bytes: Uint8Array }
-  | { ok: false; code: string; message: string } {
+function credentialPublicKeyBytes(
+  record: WebAuthnAuthenticatorRecord,
+): { ok: true; bytes: Uint8Array } | { ok: false; code: string; message: string } {
   try {
     return {
       ok: true,
@@ -655,14 +640,14 @@ export async function listWebAuthnAuthenticatorsForUserWithStores(input: {
     for (const binding of bindings) {
       merged.push(
         authenticatorListEntry({
-        binding: {
-          credentialIdB64u: String(binding.credentialIdB64u || '').trim(),
-          signerSlot: binding.signerSlot,
-          publicKey: binding.publicKey,
-          createdAtMs: binding.createdAtMs,
-          updatedAtMs: binding.updatedAtMs,
-        },
-        authenticator: authByCredentialId.get(String(binding.credentialIdB64u || '').trim()),
+          binding: {
+            credentialIdB64u: String(binding.credentialIdB64u || '').trim(),
+            signerSlot: binding.signerSlot,
+            publicKey: binding.publicKey,
+            createdAtMs: binding.createdAtMs,
+            updatedAtMs: binding.updatedAtMs,
+          },
+          authenticator: authByCredentialId.get(String(binding.credentialIdB64u || '').trim()),
         }),
       );
     }
@@ -823,7 +808,6 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
   syncChallengeStore: WebAuthnSyncChallengeStore;
   credentialBindingStore: WebAuthnCredentialBindingStore;
   authenticatorStore: WebAuthnAuthenticatorStore;
-  thresholdSigningService: ThresholdSigningService | null;
   logger: NormalizedLogger;
 }): Promise<WebAuthnSyncAccountVerificationResult> {
   try {
@@ -838,28 +822,6 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
         verified: false,
         code: 'challenge_expired_or_invalid',
         message: 'Sync challenge expired or invalid',
-      };
-    }
-
-    const thresholdEd25519Bootstrap = parseThresholdEd25519RegistrationInput(
-      request.threshold_ed25519,
-    );
-    const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
-    const thresholdEd25519SessionKind = thresholdEd25519Bootstrap.sessionKind;
-    if (thresholdEd25519SessionPolicy && !readRecord(thresholdEd25519SessionPolicy)) {
-      return {
-        ok: false,
-        verified: false,
-        code: 'invalid_body',
-        message: 'threshold_ed25519.session_policy is required',
-      };
-    }
-    if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
-      return {
-        ok: false,
-        verified: false,
-        code: 'invalid_body',
-        message: 'threshold_ed25519.session_kind must be jwt',
       };
     }
 
@@ -965,67 +927,6 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
         }
       : undefined;
 
-    let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
-    if (thresholdEd25519SessionPolicy) {
-      const thresholdService = input.thresholdSigningService;
-      if (!thresholdService) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'not_configured',
-          message: 'Threshold signing is not configured on this server',
-        };
-      }
-      const relayerKeyId = String(binding.relayerKeyId || '').trim();
-      if (!relayerKeyId) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'invalid_body',
-          message: 'Credential is not bound to threshold key material',
-        };
-      }
-      const resolvedSessionPolicy = resolveThresholdEd25519SessionPolicyForBinding({
-        requestedSessionPolicy: thresholdEd25519SessionPolicy,
-        binding: walletBinding,
-        relayerKeyId,
-        persistedRuntimePolicyScope: normalizeThresholdRuntimePolicyScope(
-          binding.runtimePolicyScope,
-        ),
-      });
-
-      const session = await thresholdService.mintEd25519SessionFromRegistration({
-        walletId: walletBinding.walletId,
-        nearAccountId: walletBinding.nearAccountId,
-        nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-        authority: resolvedSessionPolicy.sessionPolicy.authority,
-        relayerKeyId,
-        sessionPolicy: resolvedSessionPolicy.sessionPolicy,
-      });
-      if (
-        !session.ok ||
-        !session.thresholdSessionId ||
-        !Number.isFinite(Number(session.expiresAtMs))
-      ) {
-        return {
-          ok: false,
-          verified: false,
-          code: session.code || 'internal',
-          message: session.message || 'threshold-ed25519 session bootstrap failed',
-        };
-      }
-      const normalizedSession = toThresholdEd25519BootstrapSession(session);
-      if (!normalizedSession) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'internal',
-          message: 'threshold-ed25519 session bootstrap failed',
-        };
-      }
-      thresholdEd25519Session = normalizedSession;
-    }
-
     return {
       ok: true,
       verified: true,
@@ -1040,14 +941,7 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
       ...(binding.relayerKeyId ? { relayerKeyId: binding.relayerKeyId } : {}),
       credentialIdB64u: credentialId.credentialIdB64u,
       credentialPublicKeyB64u: auth.credentialPublicKeyB64u,
-      ...(thresholdEd25519
-        ? {
-            thresholdEd25519: {
-              ...thresholdEd25519,
-              ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
-            },
-          }
-        : {}),
+      ...(thresholdEd25519 ? { thresholdEd25519 } : {}),
     };
   } catch (e: unknown) {
     return {
@@ -1100,8 +994,8 @@ export async function verifyWebAuthnLoginWithStores(input: {
       userId: record.userId,
       rpId: requireWebAuthnRpId(record.rpId, 'login challenge rpId'),
       expectedChallenge: record.challengeB64u,
-      webauthnAuthentication:
-        input.request.webauthn_authentication as WebAuthnAuthenticationCredential,
+      webauthnAuthentication: input.request
+        .webauthn_authentication as WebAuthnAuthenticationCredential,
       expectedOrigin,
       authenticatorStore: input.authenticatorStore,
       logger: input.logger,

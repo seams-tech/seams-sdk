@@ -2,7 +2,7 @@ import {
   D1WalletAuthMethodStore,
   type WalletAuthMethodStore,
 } from '../../core/d1WalletAuthMethodStore';
-import { D1WalletStore, type WalletStore } from '../../core/d1WalletStore';
+import { D1WalletStore } from '../../core/d1WalletStore';
 import { D1IdentityStore } from '../../core/d1IdentityStore';
 import { D1EmailRecoveryPreparationStore } from '../../core/EmailRecoveryPreparationStore';
 import { D1RecoverySessionStore } from '../../core/RecoverySessionStore';
@@ -45,6 +45,7 @@ import { CloudflareD1OidcVerificationService } from './d1OidcVerificationService
 import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import { CloudflareD1WalletRegistrationService } from './d1WalletRegistrationService';
+import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
 import {
@@ -65,6 +66,11 @@ export type {
   CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
 
+export type CloudflareD1RouterApiAuthService = Omit<RouterApiServiceBag, 'thresholdRuntime'> & {
+  readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'] &
+    Pick<CloudflareD1ThresholdSigningRuntime, 'getRouterAbLocalSigningSeedRuntime'>;
+};
+
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
 
 type D1IdentityLinkInput = {
@@ -80,9 +86,8 @@ type SponsoredNamedNearAccountInput = {
 
 type CloudflareD1RouterApiLazyStoreState = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
-  walletStore: WalletStore | null;
+  walletStore: D1WalletStore | null;
   walletAuthMethodStore: WalletAuthMethodStore | null;
-  webAuthnCredentialBindingStore: D1WebAuthnCredentialBindingStore | null;
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
 
@@ -191,7 +196,6 @@ function createLazyStoreState(
     options,
     walletStore: null,
     walletAuthMethodStore: null,
-    webAuthnCredentialBindingStore: null,
     registrationCeremonyIntentStore: null,
   };
 }
@@ -221,7 +225,7 @@ function getWalletAuthMethodStoreForState(
   return state.walletAuthMethodStore;
 }
 
-function getWalletStoreForState(state: CloudflareD1RouterApiLazyStoreState): WalletStore {
+function getWalletStoreForState(state: CloudflareD1RouterApiLazyStoreState): D1WalletStore {
   if (state.walletStore) return state.walletStore;
   state.walletStore = new D1WalletStore({
     database: state.options.database,
@@ -232,21 +236,6 @@ function getWalletStoreForState(state: CloudflareD1RouterApiLazyStoreState): Wal
     ensureSchema: false,
   });
   return state.walletStore;
-}
-
-function getWebAuthnCredentialBindingStoreForState(
-  state: CloudflareD1RouterApiLazyStoreState,
-): D1WebAuthnCredentialBindingStore {
-  if (state.webAuthnCredentialBindingStore) return state.webAuthnCredentialBindingStore;
-  state.webAuthnCredentialBindingStore = new D1WebAuthnCredentialBindingStore({
-    database: state.options.database,
-    namespace: state.options.namespace,
-    orgId: state.options.orgId,
-    projectId: state.options.projectId,
-    envId: state.options.envId,
-    ensureSchema: false,
-  });
-  return state.webAuthnCredentialBindingStore;
 }
 
 function scopePrepareForOptions(
@@ -276,6 +265,10 @@ class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuth
       getThresholdSigningService: assembly.thresholdSigning.getThresholdSigningService.bind(
         assembly.thresholdSigning,
       ),
+      getRouterAbEcdsaBootstrapExportRuntime:
+        assembly.thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(
+          assembly.thresholdSigning,
+        ),
       getDefaultRuntimePolicyScope: () => ({
         orgId: options.orgId,
         projectId: options.projectId,
@@ -321,18 +314,6 @@ class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuth
     request: Parameters<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']>[0],
   ): ReturnType<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']> {
     return await this.operations.prepareEmailRecovery(request);
-  }
-
-  async respondEmailRecoveryEd25519(
-    request: Parameters<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEd25519']>[0],
-  ): ReturnType<RouterApiEmailRecoveryAuthService['respondEmailRecoveryEd25519']> {
-    return await this.operations.respondEmailRecoveryEd25519(request);
-  }
-
-  async finalizeEmailRecoveryEd25519(
-    request: Parameters<RouterApiEmailRecoveryAuthService['finalizeEmailRecoveryEd25519']>[0],
-  ): ReturnType<RouterApiEmailRecoveryAuthService['finalizeEmailRecoveryEd25519']> {
-    return await this.operations.finalizeEmailRecoveryEd25519(request);
   }
 
   async respondEmailRecoveryEcdsa(
@@ -411,10 +392,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   );
   const getWalletAuthMethodStore = getWalletAuthMethodStoreForState.bind(undefined, lazyStores);
   const getWalletStore = getWalletStoreForState.bind(undefined, lazyStores);
-  const getWebAuthnCredentialBindingStore = getWebAuthnCredentialBindingStoreForState.bind(
-    undefined,
-    lazyStores,
-  );
   const createSponsoredNamedNearAccount = createSponsoredNamedNearAccountForOptions.bind(
     undefined,
     options,
@@ -508,10 +485,17 @@ function createCloudflareD1RouterApiAuthAssembly(
     sha256Bytes: sha256BytesPortable,
     webAuthnStore,
   });
+  const walletRegistrationCommitStore = new CloudflareD1WalletRegistrationCommitStore({
+    database: options.database,
+    namespace: options.namespace,
+    orgId: options.orgId,
+    projectId: options.projectId,
+    envId: options.envId,
+  });
   const thresholdSigning = new CloudflareD1ThresholdSigningRuntime({
     relayerAccount: options.relayerAccount,
     relayerPublicKey: options.relayerPublicKey,
-    thresholdSigningService: options.thresholdSigningService,
+    thresholdSigningRuntimes: options.thresholdSigningRuntimes,
     thresholdStore: options.thresholdStore,
     auth: {
       verifyWebAuthnAuthenticationLite:
@@ -522,14 +506,22 @@ function createCloudflareD1RouterApiAuthAssembly(
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
-    getThresholdSigningService: thresholdSigning.getThresholdSigningService.bind(thresholdSigning),
+    getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
+    getRouterAbNormalSigningRuntime:
+      thresholdSigning.getRouterAbNormalSigningRuntime.bind(thresholdSigning),
+    getRouterAbEcdsaBootstrapExportRuntime:
+      thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(thresholdSigning),
     getWalletStore,
-    getWebAuthnCredentialBindingStore,
+    walletRegistrationCommitStore,
     walletAuthMethods,
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
-    getThresholdSigningService: thresholdSigning.getThresholdSigningService.bind(thresholdSigning),
+    getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
+    getRouterAbNormalSigningRuntime:
+      thresholdSigning.getRouterAbNormalSigningRuntime.bind(thresholdSigning),
+    getRouterAbEcdsaBootstrapExportRuntime:
+      thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(thresholdSigning),
     getWalletStore,
     walletAuthMethods,
   });
@@ -600,22 +592,23 @@ function createD1WalletRegistrationRouteService(
     cancelRegistrationIntent: assembly.registrationIntents.cancelRegistrationIntent.bind(
       assembly.registrationIntents,
     ),
-    prepareWalletRegistration: assembly.walletRegistrations.prepareWalletRegistration.bind(
-      assembly.walletRegistrations,
-    ),
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
     respondWalletRegistrationHss: assembly.walletRegistrations.respondWalletRegistrationHss.bind(
       assembly.walletRegistrations,
     ),
-    advanceWalletRegistrationHssState:
-      assembly.walletRegistrations.advanceWalletRegistrationHssState.bind(
-        assembly.walletRegistrations,
-      ),
     finalizeWalletRegistration: assembly.walletRegistrations.finalizeWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
+    refreshEd25519YaoWalletSession:
+      assembly.walletRegistrations.refreshEd25519YaoWalletSession.bind(
+        assembly.walletRegistrations,
+      ),
+    recoverEd25519YaoEmailOtpWalletSession:
+      assembly.walletRegistrations.recoverEd25519YaoEmailOtpWalletSession.bind(
+        assembly.walletRegistrations,
+      ),
   };
 }
 
@@ -825,7 +818,7 @@ function createD1SessionVersionRouteService(
 
 function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
-): RouterApiServiceBag['thresholdRuntime'] {
+): CloudflareD1RouterApiAuthService['thresholdRuntime'] {
   return {
     ecdsaHssRoleLocalBootstrap: assembly.thresholdSigning.ecdsaHssRoleLocalBootstrap.bind(
       assembly.thresholdSigning,
@@ -836,6 +829,15 @@ function createD1ThresholdRuntimeRouteService(
     getThresholdSigningService: assembly.thresholdSigning.getThresholdSigningService.bind(
       assembly.thresholdSigning,
     ),
+    getRouterAbNormalSigningRuntime: assembly.thresholdSigning.getRouterAbNormalSigningRuntime.bind(
+      assembly.thresholdSigning,
+    ),
+    getRouterAbEcdsaBootstrapExportRuntime:
+      assembly.thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(
+        assembly.thresholdSigning,
+      ),
+    getRouterAbLocalSigningSeedRuntime:
+      assembly.thresholdSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.thresholdSigning),
     listThresholdEcdsaKeyIdentityTargetsForUser:
       assembly.thresholdSigning.listThresholdEcdsaKeyIdentityTargetsForUser.bind(
         assembly.thresholdSigning,
@@ -893,7 +895,7 @@ function createD1RouterAccountRouteService(
 
 export function createCloudflareD1RouterApiAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
-): RouterApiServiceBag {
+): CloudflareD1RouterApiAuthService {
   const assembly = createCloudflareD1RouterApiAuthAssembly(input);
   return {
     walletRegistration: createD1WalletRegistrationRouteService(assembly),

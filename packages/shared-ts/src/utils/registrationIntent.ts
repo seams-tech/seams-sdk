@@ -330,43 +330,14 @@ export type ThresholdEcdsaRegistrationSpec = {
   participantIds: number[];
 };
 
-export type NearAccountOwnershipProofMessageV1 = {
-  version: 'near_account_ownership_proof_message_v1';
-  walletId: WalletId;
-  nearAccountId: string;
-  publicKey: string;
-  nonceB64u: string;
-  issuedAtMs: number;
-  expiresAtMs: number;
+export type ThresholdEd25519AddSignerSpec = {
+  mode: 'create_implicit_near_account';
+  signerSlot: number;
+  participantIds: number[];
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
 };
-
-export type NearAccountOwnershipProofV1 = {
-  version: 'near_account_ownership_proof_v1';
-  message: NearAccountOwnershipProofMessageV1;
-  signatureB64u: string;
-};
-
-export type ThresholdEd25519AddSignerSpec =
-  | {
-      mode: 'create_near_account';
-      nearAccountId: string;
-      signerSlot: number;
-      participantIds: number[];
-      keyPurpose: string;
-      keyVersion: string;
-      derivationVersion: number;
-      accountOwnershipProof?: never;
-    }
-  | {
-      mode: 'link_existing_near_account';
-      nearAccountId: string;
-      signerSlot: number;
-      participantIds: number[];
-      keyPurpose: string;
-      keyVersion: string;
-      derivationVersion: number;
-      accountOwnershipProof: NearAccountOwnershipProofV1;
-    };
 
 export type ThresholdEcdsaAddSignerSpec = {
   chainTargets: unknown[];
@@ -690,6 +661,32 @@ export async function computeGeneratedImplicitNearEd25519SigningKeyId(
   return nearEd25519SigningKeyIdFromString(`ed25519ks_${digest}`);
 }
 
+export async function computeAddSignerNearEd25519SigningKeyId(input: {
+  kind: 'wallet_add_signer_implicit_near_ed25519_key_v1';
+  walletId: WalletId;
+  signingRootId: string;
+  signingRootVersion: string;
+  signerSlot: number;
+  participantIds: readonly number[];
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
+}): Promise<NearEd25519SigningKeyId> {
+  const canonical = alphabetizeStringify({
+    kind: input.kind,
+    walletId: String(input.walletId),
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    signerSlot: input.signerSlot,
+    participantIds: [...input.participantIds],
+    keyPurpose: input.keyPurpose,
+    keyVersion: input.keyVersion,
+    derivationVersion: input.derivationVersion,
+  });
+  const digest = base64UrlEncode(await sha256BytesUtf8(canonical));
+  return nearEd25519SigningKeyIdFromString(`ed25519ks_${digest}`);
+}
+
 export type RegistrationEd25519AuthorityScope =
   | {
       kind: 'passkey';
@@ -839,12 +836,6 @@ export function serializeAddAuthMethodIntentV1(intent: AddAuthMethodIntentV1): s
   return alphabetizeStringify(intent);
 }
 
-export function serializeNearAccountOwnershipProofMessageV1(
-  message: NearAccountOwnershipProofMessageV1,
-): string {
-  return alphabetizeStringify(message);
-}
-
 export async function computeRegistrationIntentDigestB64u(
   intent: RegistrationIntentV1,
 ): Promise<string> {
@@ -859,14 +850,6 @@ export async function computeAddAuthMethodIntentDigestB64u(
   intent: AddAuthMethodIntentV1,
 ): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(serializeAddAuthMethodIntentV1(intent)));
-}
-
-export async function computeNearAccountOwnershipProofDigestB64u(
-  message: NearAccountOwnershipProofMessageV1,
-): Promise<string> {
-  return base64UrlEncode(
-    await sha256BytesUtf8(serializeNearAccountOwnershipProofMessageV1(message)),
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -951,7 +934,8 @@ export type RegistrationSignerSetSelectionFromPlanOptions = {
 };
 
 const REGISTRATION_NEAR_ED25519_KEY_PURPOSE = 'near_tx';
-const REGISTRATION_NEAR_ED25519_KEY_VERSION = 'threshold-ed25519-hss-v1';
+const REGISTRATION_NEAR_ED25519_KEY_VERSION = 'router-ab-ed25519-yao-v1';
+export const REGISTRATION_NEAR_ED25519_YAO_DERIVATION_VERSION = 1;
 
 export function registrationSignerBranchKeyFromString(value: string): RegistrationSignerBranchKey {
   const normalized = trimString(value);
@@ -1147,7 +1131,7 @@ function normalizeRegistrationNearEd25519SignerRequest(
     !accountProvisioning ||
     signerSlot < 1 ||
     participantIds.length === 0 ||
-    derivationVersion !== 1
+    derivationVersion !== REGISTRATION_NEAR_ED25519_YAO_DERIVATION_VERSION
   ) {
     return { ok: false, code: 'invalid_body', message: 'near_ed25519 signer spec is invalid' };
   }
@@ -1377,29 +1361,21 @@ function normalizeAddSignerEd25519Selection(
 ): NormalizeSignerSelectionResult<AddSignerSelection> {
   const ed25519Raw = isRecord(raw) ? raw : null;
   const ed25519Mode = trimString(ed25519Raw?.mode);
-  const nearAccountId = trimString(ed25519Raw?.nearAccountId);
   const signerSlot = normalizePositiveInteger(ed25519Raw?.signerSlot, 1);
   const keyPurpose = trimString(ed25519Raw?.keyPurpose);
   const keyVersion = trimString(ed25519Raw?.keyVersion);
   const derivationVersion = normalizePositiveInteger(ed25519Raw?.derivationVersion, 0);
   const participantIds = collectPositiveParticipantIds(ed25519Raw?.participantIds);
-  if (
-    !nearAccountId ||
-    !keyPurpose ||
-    !keyVersion ||
-    !derivationVersion ||
-    participantIds.length === 0
-  ) {
+  if (!keyPurpose || !keyVersion || !derivationVersion || participantIds.length === 0) {
     return { ok: false, code: 'invalid_body', message: 'ed25519 add-signer spec is invalid' };
   }
-  if (ed25519Mode === 'create_near_account') {
+  if (ed25519Mode === 'create_implicit_near_account') {
     return {
       ok: true,
       value: {
         mode: 'ed25519',
         ed25519: {
           mode: ed25519Mode,
-          nearAccountId,
           signerSlot,
           participantIds,
           keyPurpose,
@@ -1409,55 +1385,7 @@ function normalizeAddSignerEd25519Selection(
       },
     };
   }
-  if (ed25519Mode === 'link_existing_near_account') {
-    return normalizeAddSignerLinkedEd25519Selection({
-      raw: ed25519Raw,
-      nearAccountId,
-      signerSlot,
-      participantIds,
-      keyPurpose,
-      keyVersion,
-      derivationVersion,
-    });
-  }
   return { ok: false, code: 'invalid_body', message: 'unsupported add-signer mode' };
-}
-
-function normalizeAddSignerLinkedEd25519Selection(input: {
-  readonly raw: Record<string, unknown> | null;
-  readonly nearAccountId: string;
-  readonly signerSlot: number;
-  readonly participantIds: readonly number[];
-  readonly keyPurpose: string;
-  readonly keyVersion: string;
-  readonly derivationVersion: number;
-}): NormalizeSignerSelectionResult<AddSignerSelection> {
-  const accountOwnershipProof = normalizeNearAccountOwnershipProofV1(
-    input.raw?.accountOwnershipProof,
-  );
-  if (!accountOwnershipProof) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'ed25519 add-signer account ownership proof is required',
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      mode: 'ed25519',
-      ed25519: {
-        mode: 'link_existing_near_account',
-        nearAccountId: input.nearAccountId,
-        signerSlot: input.signerSlot,
-        participantIds: [...input.participantIds],
-        keyPurpose: input.keyPurpose,
-        keyVersion: input.keyVersion,
-        derivationVersion: input.derivationVersion,
-        accountOwnershipProof,
-      },
-    },
-  };
 }
 
 export function normalizeRegistrationAuthMethodInput(
@@ -1688,54 +1616,4 @@ export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegist
     };
   }
   return null;
-}
-
-function normalizeTimestampMs(value: unknown): number | null {
-  const numeric = Number(value);
-  if (!Number.isSafeInteger(numeric) || numeric <= 0) return null;
-  return numeric;
-}
-
-export function normalizeNearAccountOwnershipProofV1(
-  raw: unknown,
-): NearAccountOwnershipProofV1 | null {
-  if (!isRecord(raw)) return null;
-  const message = isRecord(raw.message) ? raw.message : null;
-  if (!message) return null;
-  const proofVersion = trimString(raw.version);
-  const messageVersion = trimString(message.version);
-  const walletId = parseWalletId(trimString(message.walletId));
-  const nearAccountId = trimString(message.nearAccountId);
-  const publicKey = trimString(message.publicKey);
-  const nonceB64u = trimString(message.nonceB64u);
-  const issuedAtMs = normalizeTimestampMs(message.issuedAtMs);
-  const expiresAtMs = normalizeTimestampMs(message.expiresAtMs);
-  const signatureB64u = trimString(raw.signatureB64u);
-  if (
-    proofVersion !== 'near_account_ownership_proof_v1' ||
-    messageVersion !== 'near_account_ownership_proof_message_v1' ||
-    Object.prototype.hasOwnProperty.call(message, 'rpId') ||
-    !walletId.ok ||
-    !nearAccountId ||
-    !publicKey ||
-    !nonceB64u ||
-    issuedAtMs === null ||
-    expiresAtMs === null ||
-    !signatureB64u
-  ) {
-    return null;
-  }
-  return {
-    version: 'near_account_ownership_proof_v1',
-    signatureB64u,
-    message: {
-      version: 'near_account_ownership_proof_message_v1',
-      walletId: walletId.value,
-      nearAccountId,
-      publicKey,
-      nonceB64u,
-      issuedAtMs,
-      expiresAtMs,
-    },
-  };
 }

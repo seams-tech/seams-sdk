@@ -4,24 +4,28 @@ import {
   findRegistrationSignerPlanNearEd25519Branch,
   nearEd25519SigningKeyIdFromString,
   registrationIntentGrantFromString,
+  registrationNearEd25519BranchKey,
   registrationSignerPlanFromSelection,
+  walletIdFromString,
   type RegistrationEvmFamilyEcdsaSignerPlan,
   type RegistrationIntentV1,
   type RegistrationNearAccountProvisioning,
   type RegistrationNearEd25519SignerPlan,
   type RegistrationSignerPlan,
   type ResolvedRegistrationNearAccount,
+  type WalletId,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  deriveSigningRootId,
+  signingRootScopeFromRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import {
-  AccountCreationResult,
-  ThresholdEd25519BootstrapSession,
-  type ThresholdEd25519HssRegistrationServerEvalSource,
-} from '../../core/types';
+import { AccountCreationResult } from '../../core/types';
 import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
@@ -29,45 +33,40 @@ import {
 import {
   registrationPreparationIdFromString,
   WalletRegistrationFinalizeRequest,
-  WalletRegistrationPrepareRequest,
-  WalletRegistrationPrepareResponse,
   WalletRegistrationFinalizeResponse,
-  WalletRegistrationHssAdvanceStateRequest,
-  WalletRegistrationHssAdvanceStateResponse,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
+  WalletRegistrationEcdsaPreparePayload,
+  WalletRegistrationEd25519YaoStart,
+  type WalletRegistrationEcdsaWalletKey,
+  type WalletRegistrationEd25519YaoPublicResult,
+  type WalletRegistrationFinalizeSuccess,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
-  type Ed25519HssAdvanceSource,
-  type Ed25519HssFinalizeSource,
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
-import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
-import type { WalletStore } from '../../core/d1WalletStore';
-import type { WebAuthnCredentialBindingStore } from '../../core/WebAuthnCredentialBindingStore';
+import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
+import type { RouterAbEcdsaBootstrapExportRuntime } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
 } from './d1RegistrationCeremonyStore';
 import {
   buildStoredWalletRegistrationPreparedContext,
-  buildStoredWalletRegistrationHssPreparationPrepared,
   buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
-  buildStoredWalletRegistrationNearEd25519PreparedBranch,
+  buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
   findStoredWalletRegistrationEvmFamilyEcdsaBranch,
-  findStoredWalletRegistrationNearEd25519Branch,
-  getPreparedWalletRegistrationHssPreparation,
+  findStoredWalletRegistrationNearEd25519YaoBranch,
   replaceStoredWalletRegistrationSignerBranch,
-  storedEd25519RegistrationPrepareScopesMatch,
+  type StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch,
+  type StoredWalletRegistrationSignerBranch,
   type StoredWalletRegistrationPreparedContext,
+  type StoredRegistrationAuthority,
 } from '../../core/RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
-  buildD1DurableEd25519HssAdvanceClaimRecord,
-  buildD1DurableEd25519HssAdvancedEvalRecord,
-  buildD1DurableEd25519HssFinalizedReportRecord,
   buildD1WalletEcdsaSignerRecords,
   buildD1WalletRecord,
   isMatchingD1EcdsaClientBootstrap,
@@ -75,33 +74,52 @@ import {
   parseD1RegistrationIntent,
   parseD1RuntimePolicyScope,
   toD1EcdsaHssClientBootstrapRequest,
-  type D1DurableEd25519HssAdvanceClaimRecord,
-  type D1DurableEd25519HssAdvancedEvalRecord,
 } from './d1RegistrationCeremonyRecords';
-import { walletRegistrationFinalizeAuthMethodFromAuthority } from './d1WalletAuthMethodBoundary';
+import {
+  walletAuthAuthorityFromRegistrationAuthority,
+  walletRegistrationFinalizeAuthMethodFromAuthority,
+} from './d1WalletAuthMethodBoundary';
 import { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from './d1EmailOtpRegistrationEnrollmentFinalizer';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
+import type { D1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
 import {
-  buildD1ThresholdEd25519RegistrationSessionPolicy,
-  buildD1WalletEd25519SignerRecord,
-  d1RegistrationAuthorityNearEd25519SigningKeyId,
-  d1RegistrationAuthorityThresholdEd25519AuthorityScope,
-  d1WalletAuthAuthorityFromRegistrationAuthority,
-  d1RegistrationIntentSigningRootId,
-  d1RegistrationIntentSigningRootVersion,
-  d1ThresholdEd25519RegistrationAccountScope,
-  prepareD1NearEd25519RegistrationHss,
-  resolveD1NearEd25519RegistrationPrepareScope,
-  respondD1NearEd25519RegistrationHss,
-  toD1ThresholdEd25519BootstrapSession,
-} from './d1NearEd25519RegistrationBranch';
+  resolveD1RegistrationSharedSigningBudget,
+  type D1RegistrationSharedSigningBudget,
+} from './d1RegistrationSharedSigningBudget';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
+import { alphabetizeStringify } from '@shared/utils/digests';
+import { type WalletEd25519SignerRecord, type WalletSignerRecord } from '../../core/WalletStore';
+import type { D1WalletStore } from '../../core/d1WalletStore';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../core/ThresholdService/validation';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  buildRouterAbEd25519YaoProductAdmissionRequestV1,
+  type RouterAbEd25519YaoProductRegistrationRuntimeV1,
+} from '../routerAbEd25519YaoProductRegistration';
+import {
+  buildRouterAbEd25519YaoRegistrationCapabilityRecordV1,
+  type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
+} from '../routerAbEd25519YaoRecovery';
+import type {
+  RouterAbEd25519YaoBudgetRefreshRequestV1,
+  RouterAbEd25519YaoBudgetRefreshResponseV1,
+  RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
+  RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1,
+} from '../routerAbEd25519YaoWalletSession';
+import {
+  buildYaoEd25519WalletSignerRecord,
+  ed25519NearPublicKeyFromBytes,
+  implicitNearAccountIdFromEd25519PublicKeyBytes,
+} from './d1Ed25519YaoWalletSigner';
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
-type PrepareWalletRegistrationInput = WalletRegistrationPrepareRequest;
 type RespondWalletRegistrationHssInput = WalletRegistrationHssRespondRequest;
-type AdvanceWalletRegistrationHssStateInput = WalletRegistrationHssAdvanceStateRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
 type EcdsaPreparedTarget = NonNullable<
@@ -114,9 +132,73 @@ type EcdsaServerBootstrapTarget = NonNullable<
   Extract<WalletRegistrationHssRespondResponse, { ok: true }>['ecdsa']
 >['bootstraps'][number];
 
-const ED25519_HSS_ADVANCE_CLAIM_LEASE_MS = 60_000;
-const ED25519_HSS_ADVANCE_FINALIZE_WAIT_MS = 5_000;
-const ED25519_HSS_ADVANCE_FINALIZE_POLL_MS = 100;
+type D1RegistrationEd25519SigningBudgetPlan =
+  | { readonly kind: 'generated_registration_signing_budget' }
+  | {
+      readonly kind: 'shared_registration_signing_budget';
+      readonly budget: D1RegistrationSharedSigningBudget;
+    };
+
+type D1RegistrationEcdsaFinalizeState =
+  | { readonly kind: 'ecdsa_registration_disabled' }
+  | {
+      readonly kind: 'ecdsa_registration_responded';
+      readonly state: StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch;
+    };
+
+type D1RegistrationEd25519WalletSessionIdentity = {
+  readonly walletId: WalletId;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly authority: WalletAuthAuthority;
+  readonly thresholdSessionId: string;
+  readonly participantIds: readonly [number, number];
+  readonly runtimePolicyScope: RuntimePolicyScope;
+};
+
+function assertNeverD1RegistrationEd25519SigningBudgetPlan(value: never): never {
+  throw new Error(`Unexpected registration signing-budget plan: ${String(value)}`);
+}
+
+function assertNeverD1RegistrationEcdsaFinalizeState(value: never): never {
+  throw new Error(`Unexpected registration ECDSA finalize state: ${String(value)}`);
+}
+
+async function mintD1RegistrationEd25519WalletSession(input: {
+  readonly runtime: RouterAbEd25519YaoProductRegistrationRuntimeV1;
+  readonly identity: D1RegistrationEd25519WalletSessionIdentity;
+  readonly signingBudget: D1RegistrationEd25519SigningBudgetPlan;
+}) {
+  switch (input.signingBudget.kind) {
+    case 'generated_registration_signing_budget':
+      return await input.runtime.mintWalletSession({
+        kind: 'registration_wallet_session_v1',
+        walletId: input.identity.walletId,
+        nearAccountId: input.identity.nearAccountId,
+        nearEd25519SigningKeyId: input.identity.nearEd25519SigningKeyId,
+        authority: input.identity.authority,
+        thresholdSessionId: input.identity.thresholdSessionId,
+        participantIds: input.identity.participantIds,
+        runtimePolicyScope: input.identity.runtimePolicyScope,
+      });
+    case 'shared_registration_signing_budget':
+      return await input.runtime.mintWalletSession({
+        kind: 'shared_registration_wallet_session_v1',
+        walletId: input.identity.walletId,
+        nearAccountId: input.identity.nearAccountId,
+        nearEd25519SigningKeyId: input.identity.nearEd25519SigningKeyId,
+        authority: input.identity.authority,
+        thresholdSessionId: input.identity.thresholdSessionId,
+        participantIds: input.identity.participantIds,
+        runtimePolicyScope: input.identity.runtimePolicyScope,
+        signingGrantId: input.signingBudget.budget.signingGrantId,
+        expiresAtMs: input.signingBudget.budget.expiresAtMs,
+        remainingUses: input.signingBudget.budget.remainingUses,
+      });
+    default:
+      return assertNeverD1RegistrationEd25519SigningBudgetPlan(input.signingBudget);
+  }
+}
 
 function ecdsaPreparedTargetForClientBootstrap(input: {
   readonly preparedTargets: readonly EcdsaPreparedTarget[];
@@ -164,9 +246,11 @@ function ecdsaTargetCoverageMatches(input: {
   return true;
 }
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
-type ThresholdSigningServiceProvider = () => ThresholdSigningService | null;
-type WalletStoreProvider = () => WalletStore;
-type WebAuthnCredentialBindingStoreProvider = () => WebAuthnCredentialBindingStore;
+type RouterAbEcdsaBootstrapExportRuntimeProvider = () => RouterAbEcdsaBootstrapExportRuntime | null;
+type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
+type WalletStoreProvider = () => D1WalletStore;
+type Ed25519YaoProductRegistrationProvider =
+  () => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
 type SponsoredNamedNearAccountCreator = (input: {
   readonly accountId: string;
   readonly publicKey: string;
@@ -174,6 +258,17 @@ type SponsoredNamedNearAccountCreator = (input: {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
+}
+
+async function cleanupFinalizedRegistrationCeremony(input: {
+  readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+  readonly registrationCeremonyId: string;
+}): Promise<void> {
+  try {
+    await input.store.deleteCeremony(input.registrationCeremonyId);
+  } catch {
+    // The replay record remains authoritative until the ceremony TTL expires.
+  }
 }
 
 type D1RegistrationRouteTimingMark = {
@@ -184,12 +279,6 @@ type D1RegistrationRouteTimingMark = {
 type D1RegistrationRouteTimingRecorder = {
   readonly route: WalletRegistrationRouteDiagnostics['route'];
   readonly entries: WalletRegistrationRouteDiagnostics['entries'];
-  ed25519HssAdvance?: {
-    source: Ed25519HssAdvanceSource;
-  };
-  ed25519HssFinalize?: {
-    source: Ed25519HssFinalizeSource;
-  };
 };
 
 function createD1RegistrationRouteTimingRecorder(
@@ -231,24 +320,6 @@ function appendD1RegistrationRouteTiming(
   });
 }
 
-function recordD1RegistrationEd25519HssFinalizeSource(input: {
-  readonly recorder: D1RegistrationRouteTimingRecorder;
-  readonly source: Ed25519HssFinalizeSource;
-}): void {
-  input.recorder.ed25519HssFinalize = {
-    source: input.source,
-  };
-}
-
-function recordD1RegistrationEd25519HssAdvanceSource(input: {
-  readonly recorder: D1RegistrationRouteTimingRecorder;
-  readonly source: Ed25519HssAdvanceSource;
-}): void {
-  input.recorder.ed25519HssAdvance = {
-    source: input.source,
-  };
-}
-
 function d1RegistrationRouteDiagnostics(
   recorder: D1RegistrationRouteTimingRecorder,
 ): WalletRegistrationRouteDiagnostics {
@@ -260,349 +331,7 @@ function d1RegistrationRouteDiagnostics(
       durationMs: entry.durationMs,
     })),
   };
-  if (recorder.ed25519HssAdvance) {
-    diagnostics.ed25519HssAdvance = recorder.ed25519HssAdvance;
-  }
-  if (recorder.ed25519HssFinalize) {
-    diagnostics.ed25519HssFinalize = recorder.ed25519HssFinalize;
-  }
   return diagnostics;
-}
-
-type ThresholdEd25519HssFinalizeForRegistrationTimings = NonNullable<
-  Extract<
-    Awaited<ReturnType<ThresholdSigningService['ed25519Hss']['finalizeForRegistration']>>,
-    { ok: true }
-  >['finalizeReportTimings']
->;
-
-type ThresholdEd25519HssAdvanceForRegistrationTimings = NonNullable<
-  Extract<
-    Awaited<ReturnType<ThresholdSigningService['ed25519Hss']['advanceForRegistration']>>,
-    { ok: true }
-  >['advanceServerEvalTimings']
->;
-
-function appendThresholdEd25519HssAdvanceRouteTimings(input: {
-  readonly recorder: D1RegistrationRouteTimingRecorder;
-  readonly timings: ThresholdEd25519HssAdvanceForRegistrationTimings;
-}): void {
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateDecodeStateMs',
-    input.timings.decodeStateMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateSerializedSessionMaterializeMs',
-    input.timings.serializedSessionMaterializeMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateSerializedSessionDecodeMs',
-    input.timings.serializedSessionDecodeMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateMaterializeRuntimeMs',
-    input.timings.materializeRuntimeMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateMaterializeEvaluatorSessionMs',
-    input.timings.materializeEvaluatorSessionMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateMaterializeGarblerSessionMs',
-    input.timings.materializeGarblerSessionMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateAddStageResponseMs',
-    input.timings.advanceAddStageResponseMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateMessageScheduleRoundsMs',
-    input.timings.advanceMessageScheduleRoundsMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateRoundCoreRoundsMs',
-    input.timings.advanceRoundCoreRoundsMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateOutputProjectionMs',
-    input.timings.advanceOutputProjectionMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssAdvanceStateEncodeAdvancedStateMs',
-    input.timings.encodeAdvancedStateMs,
-  );
-}
-
-function appendThresholdEd25519HssFinalizeRouteTimings(input: {
-  readonly recorder: D1RegistrationRouteTimingRecorder;
-  readonly timings: ThresholdEd25519HssFinalizeForRegistrationTimings;
-}): void {
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeDecodeArtifactMs',
-    input.timings.decodeArtifactMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeSerializedSessionMaterializeMs',
-    input.timings.serializedSessionMaterializeMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeSerializedSessionDecodeMs',
-    input.timings.serializedSessionDecodeMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeMaterializeRuntimeMs',
-    input.timings.materializeRuntimeMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeMaterializeEvaluatorSessionMs',
-    input.timings.materializeEvaluatorSessionMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeMaterializeGarblerSessionMs',
-    input.timings.materializeGarblerSessionMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeAdvanceAddStageResponseMs',
-    input.timings.advanceAddStageResponseMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeAdvanceMessageScheduleRoundsMs',
-    input.timings.advanceMessageScheduleRoundsMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeAdvanceRoundCoreRoundsMs',
-    input.timings.advanceRoundCoreRoundsMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeAdvanceOutputProjectionMs',
-    input.timings.advanceOutputProjectionMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeReportMs',
-    input.timings.finalizeReportMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizePacketAssemblyMs',
-    input.timings.finalizePacketAssemblyMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeEncodeReportMs',
-    input.timings.encodeReportMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeOpenServerOutputMs',
-    input.timings.openServerOutputMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeOpenSeedOutputMs',
-    input.timings.openSeedOutputMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeDeriveSeedKeypairMs',
-    input.timings.deriveSeedKeypairMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeDeriveRelayerVerifyingShareMs',
-    input.timings.deriveRelayerVerifyingShareMs,
-  );
-  appendD1RegistrationRouteTiming(
-    input.recorder,
-    'registrationHssFinalizeKeyStorePutMs',
-    input.timings.keyStorePutMs,
-  );
-}
-
-async function d1Ed25519HssAddStageRequestDigestB64u(input: {
-  readonly addStageRequestMessageB64u: string;
-}): Promise<string | null> {
-  const addStageRequestMessageB64u = toOptionalTrimmedString(input.addStageRequestMessageB64u);
-  if (!addStageRequestMessageB64u) return null;
-  try {
-    const bytes = base64UrlDecode(addStageRequestMessageB64u);
-    const digest = await sha256BytesPortable(bytes);
-    return base64UrlEncode(digest);
-  } catch {
-    return null;
-  }
-}
-
-type D1Ed25519HssDurableAdvancedEvalForFinalize =
-  | { readonly kind: 'ready'; readonly record: D1DurableEd25519HssAdvancedEvalRecord }
-  | {
-      readonly kind: 'in_flight';
-      readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
-      readonly retryAfterMs: number;
-    }
-  | {
-      readonly kind: 'failed';
-      readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }>;
-    }
-  | { readonly kind: 'missing' }
-  | { readonly kind: 'invalid_fulfilled_claim' };
-
-function buildD1Ed25519HssAdvanceInFlightClaim(input: {
-  readonly ceremonyHandle: string;
-  readonly addStageRequestDigestB64u: string;
-  readonly nowMs: number;
-  readonly expiresAtMs: number;
-}): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }> {
-  return buildD1DurableEd25519HssAdvanceClaimRecord({
-    state: 'in_flight',
-    ceremonyHandle: input.ceremonyHandle,
-    addStageRequestDigestB64u: input.addStageRequestDigestB64u,
-    claimId: `ehss-advclaim_${secureRandomBase64Url(24)}`,
-    leaseExpiresAtMs: input.nowMs + ED25519_HSS_ADVANCE_CLAIM_LEASE_MS,
-    attempt: {
-      route: 'wallets_register_hss_advance_state',
-      startedAtMs: input.nowMs,
-    },
-    createdAtMs: input.nowMs,
-    updatedAtMs: input.nowMs,
-    expiresAtMs: input.expiresAtMs,
-  });
-}
-
-function buildD1Ed25519HssAdvanceFulfilledClaim(input: {
-  readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
-  readonly nowMs: number;
-}): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'fulfilled' }> {
-  return buildD1DurableEd25519HssAdvanceClaimRecord({
-    state: 'fulfilled',
-    ceremonyHandle: input.claim.ceremonyHandle,
-    addStageRequestDigestB64u: input.claim.addStageRequestDigestB64u,
-    claimId: input.claim.claimId,
-    advancedEval: {
-      ceremonyHandle: input.claim.ceremonyHandle,
-      addStageRequestDigestB64u: input.claim.addStageRequestDigestB64u,
-    },
-    createdAtMs: input.claim.createdAtMs,
-    updatedAtMs: input.nowMs,
-    expiresAtMs: input.claim.expiresAtMs,
-  });
-}
-
-function buildD1Ed25519HssAdvanceFailedClaim(input: {
-  readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
-  readonly nowMs: number;
-  readonly code: string;
-  readonly message: string;
-}): Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'failed' }> {
-  return buildD1DurableEd25519HssAdvanceClaimRecord({
-    state: 'failed',
-    ceremonyHandle: input.claim.ceremonyHandle,
-    addStageRequestDigestB64u: input.claim.addStageRequestDigestB64u,
-    claimId: input.claim.claimId,
-    failure: {
-      code: input.code,
-      message: input.message,
-    },
-    createdAtMs: input.claim.createdAtMs,
-    updatedAtMs: input.nowMs,
-    expiresAtMs: input.claim.expiresAtMs,
-  });
-}
-
-async function failD1Ed25519HssAdvanceClaim(input: {
-  readonly store: CloudflareD1RegistrationCeremonyIntentStore;
-  readonly claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>;
-  readonly code: string;
-  readonly message: string;
-}): Promise<void> {
-  await input.store.failEd25519HssAdvanceClaim(
-    buildD1Ed25519HssAdvanceFailedClaim({
-      claim: input.claim,
-      nowMs: Date.now(),
-      code: input.code,
-      message: input.message,
-    }),
-  );
-}
-
-function d1Ed25519HssAdvanceRetryAfterMs(
-  claim: Extract<D1DurableEd25519HssAdvanceClaimRecord, { state: 'in_flight' }>,
-): number {
-  return Math.max(100, Math.min(1_000, claim.leaseExpiresAtMs - Date.now()));
-}
-
-async function resolveD1Ed25519HssDurableAdvancedEvalForFinalize(input: {
-  readonly store: CloudflareD1RegistrationCeremonyIntentStore;
-  readonly ceremonyHandle: string;
-  readonly addStageRequestDigestB64u: string;
-}): Promise<D1Ed25519HssDurableAdvancedEvalForFinalize> {
-  const deadlineMs = Date.now() + ED25519_HSS_ADVANCE_FINALIZE_WAIT_MS;
-  while (Date.now() <= deadlineMs) {
-    const ready = await input.store.getEd25519HssAdvancedEvalRecord({
-      ceremonyHandle: input.ceremonyHandle,
-      addStageRequestDigestB64u: input.addStageRequestDigestB64u,
-    });
-    if (ready) return { kind: 'ready', record: ready };
-    const claim = await input.store.getEd25519HssAdvanceClaimRecord({
-      ceremonyHandle: input.ceremonyHandle,
-      addStageRequestDigestB64u: input.addStageRequestDigestB64u,
-    });
-    if (!claim) return { kind: 'missing' };
-    switch (claim.state) {
-      case 'fulfilled':
-        await sleepMs(ED25519_HSS_ADVANCE_FINALIZE_POLL_MS);
-        break;
-      case 'failed':
-        return { kind: 'failed', claim };
-      case 'in_flight':
-        if (claim.leaseExpiresAtMs <= Date.now()) {
-          return {
-            kind: 'in_flight',
-            claim,
-            retryAfterMs: d1Ed25519HssAdvanceRetryAfterMs(claim),
-          };
-        }
-        await sleepMs(ED25519_HSS_ADVANCE_FINALIZE_POLL_MS);
-        break;
-    }
-  }
-  const claim = await input.store.getEd25519HssAdvanceClaimRecord({
-    ceremonyHandle: input.ceremonyHandle,
-    addStageRequestDigestB64u: input.addStageRequestDigestB64u,
-  });
-  if (claim?.state === 'in_flight') {
-    return {
-      kind: 'in_flight',
-      claim,
-      retryAfterMs: d1Ed25519HssAdvanceRetryAfterMs(claim),
-    };
-  }
-  return claim?.state === 'fulfilled' ? { kind: 'invalid_fulfilled_claim' } : { kind: 'missing' };
-}
-
-async function sleepMs(durationMs: number): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
 }
 
 function withD1RegistrationRouteDiagnostics(
@@ -620,17 +349,6 @@ function withD1RegistrationStartDiagnostics(
   response: WalletRegistrationStartResponse,
   recorder: D1RegistrationRouteTimingRecorder,
 ): WalletRegistrationStartResponse {
-  if (!response.ok) return response;
-  return {
-    ...response,
-    registrationDiagnostics: d1RegistrationRouteDiagnostics(recorder),
-  };
-}
-
-function withD1RegistrationHssAdvanceStateDiagnostics(
-  response: WalletRegistrationHssAdvanceStateResponse,
-  recorder: D1RegistrationRouteTimingRecorder,
-): WalletRegistrationHssAdvanceStateResponse {
   if (!response.ok) return response;
   return {
     ...response,
@@ -846,183 +564,405 @@ function sponsoredNamedRegistrationAccountId(
   }
 }
 
+function finalizeSignerWorkMatchesPlan(input: {
+  readonly request: FinalizeWalletRegistrationInput;
+  readonly hasNearEd25519: boolean;
+  readonly hasEvmFamilyEcdsa: boolean;
+}): boolean {
+  switch (input.request.kind) {
+    case 'near_ed25519':
+      return input.hasNearEd25519 && !input.hasEvmFamilyEcdsa;
+    case 'evm_family_ecdsa':
+      return !input.hasNearEd25519 && input.hasEvmFamilyEcdsa;
+    case 'near_ed25519_and_evm_family_ecdsa':
+      return input.hasNearEd25519 && input.hasEvmFamilyEcdsa;
+  }
+}
+
+function finalizePasskeyRpId(authority: StoredRegistrationAuthority): string {
+  if (authority.kind !== 'passkey') {
+    throw new Error('passkey finalize auth method requires a passkey registration authority');
+  }
+  return authority.rpId;
+}
+
 export class CloudflareD1WalletRegistrationService {
   private readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
-  private readonly getThresholdSigningService: ThresholdSigningServiceProvider;
+  private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
+  private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
+  private readonly getRouterAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntimeProvider;
   private readonly getWalletStore: WalletStoreProvider;
-  private readonly getWebAuthnCredentialBindingStore: WebAuthnCredentialBindingStoreProvider;
+  private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
   constructor(input: {
     readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
     readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
-    readonly getThresholdSigningService: ThresholdSigningServiceProvider;
+    readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
+    readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
+    readonly getRouterAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntimeProvider;
     readonly getWalletStore: WalletStoreProvider;
-    readonly getWebAuthnCredentialBindingStore: WebAuthnCredentialBindingStoreProvider;
+    readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
     this.createSponsoredNamedNearAccount = input.createSponsoredNamedNearAccount;
     this.emailOtpRegistrationEnrollmentFinalizer = input.emailOtpRegistrationEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
-    this.getThresholdSigningService = input.getThresholdSigningService;
+    this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
+    this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
+    this.getRouterAbEcdsaBootstrapExportRuntime = input.getRouterAbEcdsaBootstrapExportRuntime;
     this.getWalletStore = input.getWalletStore;
-    this.getWebAuthnCredentialBindingStore = input.getWebAuthnCredentialBindingStore;
+    this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
 
-  async prepareWalletRegistration(
-    request: PrepareWalletRegistrationInput,
-  ): Promise<WalletRegistrationPrepareResponse> {
+  async refreshEd25519YaoWalletSession(
+    request: RouterAbEd25519YaoBudgetRefreshRequestV1,
+  ): Promise<RouterAbEd25519YaoBudgetRefreshResponseV1> {
     try {
-      const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
-      const grant = registrationIntentGrantFromString(
-        toOptionalTrimmedString(request.registrationIntentGrant) || '',
-      );
-      if (!grant) {
-        return {
-          ok: false,
-          code: 'invalid_grant',
-          message: 'registration intent grant is required',
-        };
-      }
-      const storedIntent = await store.getIntent(grant);
-      if (!storedIntent) {
-        return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
-      }
-      const signerBranches = registrationIntentSignerBranches(storedIntent.intent);
-      if (!signerBranches.ok) return signerBranches;
-      const ed25519Selection = signerBranches.value.nearEd25519;
-      if (!ed25519Selection) {
+      const policy = request.sessionPolicy;
+      const authorization = request.authorization;
+      const authority = policy.authority;
+      const runtimePolicyScope = policy.runtimePolicyScope;
+      const routerAbNormalSigning = policy.routerAbNormalSigning;
+      const participantIds = normalizeThresholdEd25519ParticipantIds(policy.participantIds);
+      if (
+        request.kind !== 'router_ab_ed25519_yao_budget_refresh_v1' ||
+        !runtimePolicyScope ||
+        !routerAbNormalSigning ||
+        !participantIds ||
+        participantIds.length !== 2 ||
+        !walletAuthAuthoritiesMatch(authority, authorization.authority)
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'Ed25519 HSS preparation requires an Ed25519 registration branch',
+          message: 'Ed25519 Yao budget refresh policy is invalid',
         };
       }
-      const requestIntent = parseD1RegistrationIntent(request.intent);
-      if (!requestIntent) {
-        return { ok: false, code: 'invalid_body', message: 'registration intent is invalid' };
+      switch (authorization.kind) {
+        case 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1':
+          if (!isPasskeyWalletAuthAuthority(authority)) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Ed25519 Yao passkey budget refresh requires passkey authority',
+            };
+          }
+          break;
+        case 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1':
+          if (
+            !isEmailOtpWalletAuthAuthority(authority) ||
+            !Number.isSafeInteger(authorization.signerSlot) ||
+            authorization.signerSlot < 1 ||
+            !authorization.verifiedChallengeId.trim() ||
+            authorization.verifiedProviderUserId !== authority.factor.providerUserId ||
+            authorization.verifiedOrgId !== runtimePolicyScope.orgId
+          ) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Ed25519 Yao Email OTP budget refresh authorization is invalid',
+            };
+          }
+          break;
       }
-      const digestB64u = toOptionalTrimmedString(request.registrationIntentDigestB64u);
-      const requestDigest = await computeRegistrationIntentDigestB64u(requestIntent);
-      if (!digestB64u || digestB64u !== requestDigest || digestB64u !== storedIntent.digestB64u) {
-        return { ok: false, code: 'invalid_body', message: 'registration intent mismatch' };
-      }
-      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: storedIntent.intent })) {
+      const firstParticipantId = participantIds[0];
+      const secondParticipantId = participantIds[1];
+      if (firstParticipantId === undefined || secondParticipantId === undefined) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registration intent walletId mismatch',
+          message: 'Ed25519 Yao budget refresh requires exactly two participants',
         };
       }
-      const runtimePolicyScope = parseD1RuntimePolicyScope(storedIntent.intent.runtimePolicyScope);
-      const signingRootId =
-        storedIntent.signingRootId ||
-        (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
-      const signingRootVersion =
-        storedIntent.signingRootVersion || runtimePolicyScope?.signingRootVersion || 'default';
-      const preparedContext = resolveRegistrationPreparedContextFromPlan({
-        signerPlan: signerBranches.value.plan,
-        runtimePolicyScope,
-        signingRootId,
-        signingRootVersion,
+      const exactParticipantIds: readonly [number, number] = [
+        firstParticipantId,
+        secondParticipantId,
+      ];
+      const yaoRuntime = this.getEd25519YaoProductRegistration();
+      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
+      if (!yaoRuntime || !normalSigningRuntime) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Ed25519 Yao Wallet Session refresh is not configured',
+        };
+      }
+      const current =
+        authorization.kind === 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1'
+          ? authorization.currentSession
+          : null;
+      if (
+        policy.relayerKeyId !== yaoRuntime.signingWorkerId ||
+        routerAbNormalSigning.signingWorkerId !== yaoRuntime.signingWorkerId ||
+        (current !== null &&
+          (current.walletId !== authority.walletId ||
+            current.nearAccountId !== policy.nearAccountId ||
+            current.nearEd25519SigningKeyId !== policy.nearEd25519SigningKeyId ||
+            current.thresholdSessionId !== policy.thresholdSessionId ||
+            current.signingGrantId !== policy.signingGrantId ||
+            current.relayerKeyId !== policy.relayerKeyId ||
+            !walletAuthAuthoritiesMatch(authority, current.authority) ||
+            alphabetizeStringify(current.participantIds) !==
+              alphabetizeStringify(exactParticipantIds) ||
+            alphabetizeStringify(current.runtimePolicyScope) !==
+              alphabetizeStringify(runtimePolicyScope) ||
+            alphabetizeStringify(current.routerAbNormalSigning) !==
+              alphabetizeStringify(routerAbNormalSigning)))
+      ) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'Ed25519 Yao budget refresh does not match the active Wallet Session',
+        };
+      }
+      const activeAuthority =
+        authorization.kind === 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1'
+          ? await this.walletAuthMethods.verifyActivePasskeyAuthority(authorization.authority)
+          : await this.walletAuthMethods.verifyActiveEmailOtpAuthority(authorization.authority);
+      if (!activeAuthority.ok) return activeAuthority;
+      const signingRoot = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
+      const signingRootVersion = toOptionalTrimmedString(signingRoot.signingRootVersion);
+      if (!signingRootVersion) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Ed25519 Yao budget refresh requires a signing-root version',
+        };
+      }
+      const signer = await this.getWalletStore().getEd25519Signer({
+        walletId: authority.walletId,
+        nearAccountId: policy.nearAccountId,
+        nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
       });
-      if (!preparedContext.ok) return preparedContext;
-      const authority = request.authority;
-      if (!authority || (authority.kind !== 'passkey' && authority.kind !== 'email_otp')) {
+      if (
+        !signer ||
+        (authorization.kind === 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1' &&
+          signer.signerSlot !== authorization.signerSlot) ||
+        signer.signingWorkerId !== yaoRuntime.signingWorkerId ||
+        signer.thresholdSessionId !== policy.thresholdSessionId ||
+        alphabetizeStringify(signer.participantIds) !== alphabetizeStringify(exactParticipantIds) ||
+        signer.signingRootId !== signingRoot.signingRootId ||
+        signer.signingRootVersion !== signingRootVersion ||
+        alphabetizeStringify(signer.runtimePolicyScope) !== alphabetizeStringify(runtimePolicyScope)
+      ) {
         return {
           ok: false,
-          code: 'invalid_body',
-          message: 'registration authority is required',
+          code: 'not_found',
+          message: 'Registered Ed25519 Yao signer does not match the refresh policy',
         };
       }
-      const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin) || '';
-      if (authority.kind === 'passkey' && !storedExpectedOrigin) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'expected_origin is required for WebAuthn registration verification',
-        };
-      }
-      const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
-        orgId: storedIntent.orgId,
+      const refreshed = await normalSigningRuntime.refreshRouterAbEd25519YaoNormalSigningBudget({
+        kind: 'router_ab_ed25519_yao_normal_signing_budget_refresh_v1',
+        walletId: authority.walletId,
+        nearAccountId: policy.nearAccountId,
+        nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
+        authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+        thresholdSessionId: policy.thresholdSessionId,
+        signingGrantId: policy.signingGrantId,
+        signingWorkerId: yaoRuntime.signingWorkerId,
+        participantIds: exactParticipantIds,
+        ttlMs: policy.ttlMs,
+        remainingUses: policy.remainingUses,
+      });
+      if (!refreshed.ok) return refreshed;
+      const minted = await yaoRuntime.mintWalletSession({
+        kind: 'same_identity_budget_refresh_v1',
+        walletId: authority.walletId,
+        nearAccountId: policy.nearAccountId,
+        nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
         authority,
-        expectedDigestB64u: storedIntent.digestB64u,
-        expectedOrigin: storedExpectedOrigin,
-        intent: storedIntent.intent,
+        thresholdSessionId: refreshed.thresholdSessionId,
+        signingGrantId: refreshed.signingGrantId,
+        expiresAtMs: refreshed.expiresAtMs,
+        remainingUses: refreshed.remainingUses,
+        participantIds: exactParticipantIds,
+        runtimePolicyScope,
       });
-      if (!verifiedAuthority.ok) return verifiedAuthority;
-      const scope = await resolveD1NearEd25519RegistrationPrepareScope({
-        intent: storedIntent.intent,
-        authority: verifiedAuthority.authority,
-        nearEd25519: ed25519Selection,
-        registrationIntentDigestB64u: storedIntent.digestB64u,
-        orgId: storedIntent.orgId,
-        signingRootId,
-        signingRootVersion,
-        expectedOrigin: storedExpectedOrigin,
-      });
-      const prepared = await prepareD1NearEd25519RegistrationHss({
-        threshold: this.getThresholdSigningService(),
-        scope,
-        accountProvisioning: ed25519Selection.accountProvisioning,
-      });
-      if (!prepared.ok) {
-        return {
-          ok: false,
-          code: prepared.code || 'hss_prepare_failed',
-          message: prepared.message || 'Ed25519 HSS prepare failed',
-        };
-      }
-      const registrationPreparationId = registrationPreparationIdFromString(
-        `wrp_${secureRandomBase64Url(24)}`,
-      );
-      const expiresAtMs = Math.min(storedIntent.expiresAtMs, Date.now() + 10 * 60_000);
-      await store.putPreparation(
-        buildStoredWalletRegistrationHssPreparationPrepared({
-          registrationPreparationId,
-          registrationIntentGrant: grant,
-          registrationIntentDigestB64u: storedIntent.digestB64u,
-          intent: storedIntent.intent,
-          authority: verifiedAuthority.authority,
-          signerPlan: signerBranches.value.plan,
-          preparedContext: preparedContext.preparedContext,
-          orgId: storedIntent.orgId,
-          expectedOrigin: storedExpectedOrigin,
-          signingRootId,
-          signingRootVersion,
-          ed25519Scope: scope,
-          prepared: {
-            kind: 'ed25519_prepared',
-            ceremonyHandle: prepared.ceremonyHandle,
-            preparedSession: prepared.preparedSession,
-            clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
-            serverState: prepared.serverState,
-          },
-          createdAtMs: Date.now(),
-          expiresAtMs,
-        }),
-      );
+      if (!minted.ok) return minted;
+      const session = minted.session;
       return {
         ok: true,
-        state: 'prepared',
-        registrationPreparationId,
-        expiresAtMs,
-        ed25519: {
-          ceremonyHandle: prepared.ceremonyHandle,
-          preparedSession: prepared.preparedSession,
-          clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
-        },
+        walletId: session.walletId,
+        nearAccountId: session.nearAccountId,
+        nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
+        authorityScope: session.authorityScope,
+        thresholdSessionId: session.thresholdSessionId,
+        signingGrantId: session.signingGrantId,
+        expiresAtMs: session.expiresAtMs,
+        expiresAt: new Date(session.expiresAtMs).toISOString(),
+        participantIds: exactParticipantIds,
+        remainingUses: session.remainingUses,
+        runtimePolicyScope,
+        routerAbNormalSigning,
+        jwt: session.walletSessionJwt,
       };
     } catch (error: unknown) {
       return {
         ok: false,
         code: 'internal',
-        message: errorMessage(error) || 'Failed to prepare wallet registration',
+        message: errorMessage(error) || 'Ed25519 Yao Wallet Session refresh failed',
+      };
+    }
+  }
+
+  async recoverEd25519YaoEmailOtpWalletSession(
+    request: RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
+  ): Promise<RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1> {
+    try {
+      const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId);
+      const providerUserId = toOptionalTrimmedString(request.verifiedProviderUserId);
+      const verifiedChallengeId = toOptionalTrimmedString(request.verifiedChallengeId);
+      const signerSlot = Math.floor(Number(request.signerSlot));
+      const remainingUses = Math.floor(Number(request.remainingUses));
+      if (
+        request.kind !== 'router_ab_ed25519_yao_email_otp_recovery_session_v1' ||
+        !walletId ||
+        !orgId ||
+        !providerUserId ||
+        !verifiedChallengeId ||
+        !Number.isSafeInteger(signerSlot) ||
+        signerSlot < 1 ||
+        !Number.isSafeInteger(remainingUses) ||
+        remainingUses < 1
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP Ed25519 Yao recovery request is invalid',
+        };
+      }
+      const yaoRuntime = this.getEd25519YaoProductRegistration();
+      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
+      if (!yaoRuntime || !normalSigningRuntime) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Email OTP Ed25519 Yao recovery is not configured',
+        };
+      }
+      const authorityResult =
+        await this.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+          walletId,
+          providerUserId,
+        });
+      if (!authorityResult.ok) return authorityResult;
+      const authority = authorityResult.authority;
+      if (
+        String(authority.walletId) !== walletId ||
+        String(authority.factor.providerUserId) !== providerUserId
+      ) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'Verified Email OTP subject does not match the wallet authority',
+        };
+      }
+      const signer = await this.getWalletStore().getEd25519SignerBySlot({
+        walletId: walletIdFromString(walletId),
+        signerSlot,
+      });
+      const firstParticipantId = signer?.participantIds[0];
+      const secondParticipantId = signer?.participantIds[1];
+      if (
+        !signer ||
+        signer.walletId !== walletId ||
+        signer.signerSlot !== signerSlot ||
+        signer.signingWorkerId !== yaoRuntime.signingWorkerId ||
+        signer.runtimePolicyScope.orgId !== orgId ||
+        firstParticipantId === undefined ||
+        secondParticipantId === undefined
+      ) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'Registered Ed25519 Yao signer is unavailable for Email OTP recovery',
+        };
+      }
+      const participantIds: readonly [number, number] = [firstParticipantId, secondParticipantId];
+      const signingRoot = signingRootScopeFromRuntimePolicyScope(signer.runtimePolicyScope);
+      if (
+        signingRoot.signingRootId !== signer.signingRootId ||
+        signingRoot.signingRootVersion !== signer.signingRootVersion
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'Registered Ed25519 Yao signer has inconsistent signing-root scope',
+        };
+      }
+      const capability = yaoRuntime.resolveActiveCapability({
+        kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+        walletId,
+        nearAccountId: signer.nearAccountId,
+        nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+        signerSlot,
+        signingWorkerId: signer.signingWorkerId,
+        participantIds,
+      });
+      if (!capability.ok) return capability;
+      const descriptor = capability.capability;
+      if (
+        descriptor.applicationBinding.wallet_id !== walletId ||
+        descriptor.applicationBinding.near_ed25519_signing_key_id !==
+          signer.nearEd25519SigningKeyId ||
+        descriptor.applicationBinding.key_creation_signer_slot !== signerSlot ||
+        descriptor.applicationBinding.signing_root_id !== signer.signingRootId ||
+        descriptor.nearAccountId !== signer.nearAccountId ||
+        descriptor.lifecycle.accountId !== walletId ||
+        descriptor.lifecycle.signerSetId !== String(registrationNearEd25519BranchKey(signerSlot)) ||
+        descriptor.lifecycle.signingWorkerId !== signer.signingWorkerId ||
+        descriptor.lifecycle.rootShareEpoch !== signer.signingRootVersion ||
+        ed25519NearPublicKeyFromBytes(descriptor.registeredPublicKey) !== signer.publicKey ||
+        alphabetizeStringify(descriptor.participantIds) !== alphabetizeStringify(participantIds) ||
+        alphabetizeStringify(descriptor.runtimePolicyScope) !==
+          alphabetizeStringify(signer.runtimePolicyScope)
+      ) {
+        return {
+          ok: false,
+          code: 'capability_conflict',
+          message: 'Active Ed25519 Yao capability does not match the registered signer',
+        };
+      }
+      const minted = await yaoRuntime.mintWalletSession({
+        kind: 'email_otp_recovery_wallet_session_v1',
+        walletId: walletIdFromString(walletId),
+        nearAccountId: signer.nearAccountId,
+        nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+        authority,
+        thresholdSessionId: descriptor.lifecycle.walletSessionId,
+        participantIds,
+        runtimePolicyScope: signer.runtimePolicyScope,
+        remainingUses,
+      });
+      if (!minted.ok) return minted;
+      const session = minted.session;
+      const provisioned =
+        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
+          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
+          walletId,
+          nearAccountId: signer.nearAccountId,
+          nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+          authorityScope: session.authorityScope,
+          thresholdSessionId: session.thresholdSessionId,
+          signingGrantId: session.signingGrantId,
+          signingWorkerId: signer.signingWorkerId,
+          expiresAtMs: session.expiresAtMs,
+          participantIds,
+          remainingUses: session.remainingUses,
+        });
+      if (!provisioned.ok) return provisioned;
+      return { ok: true, session, capability: descriptor };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Email OTP Ed25519 Yao recovery failed',
       };
     }
   }
@@ -1030,8 +970,8 @@ export class CloudflareD1WalletRegistrationService {
   async startWalletRegistration(
     request: StartWalletRegistrationInput,
   ): Promise<WalletRegistrationStartResponse> {
-    const startTiming = createD1RegistrationRouteTimingRecorder('wallets_register_start');
-    const totalTiming = startD1RegistrationRouteTiming('registerStartTotalMs');
+    const timing = createD1RegistrationRouteTimingRecorder('wallets_register_start');
+    const total = startD1RegistrationRouteTiming('registerStartTotalMs');
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
@@ -1045,8 +985,8 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration intent grant is required',
         };
       }
-      const intentPreview = await store.getIntent(grant);
-      if (!intentPreview) {
+      const preview = await store.getIntent(grant);
+      if (!preview) {
         return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
       }
       const requestIntent = parseD1RegistrationIntent(request.intent);
@@ -1055,370 +995,178 @@ export class CloudflareD1WalletRegistrationService {
       }
       const digestB64u = toOptionalTrimmedString(request.registrationIntentDigestB64u);
       const requestDigest = await computeRegistrationIntentDigestB64u(requestIntent);
-      if (!digestB64u || digestB64u !== requestDigest || digestB64u !== intentPreview.digestB64u) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration intent digest mismatch',
-        };
+      if (!digestB64u || digestB64u !== requestDigest || digestB64u !== preview.digestB64u) {
+        return { ok: false, code: 'invalid_body', message: 'registration intent digest mismatch' };
       }
-      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: intentPreview.intent })) {
+      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: preview.intent })) {
         return {
           ok: false,
           code: 'invalid_body',
           message: 'registration intent walletId mismatch',
         };
       }
-      const previewBranches = registrationIntentSignerBranches(intentPreview.intent);
-      if (!previewBranches.ok) return previewBranches;
-      const previewNearEd25519 = previewBranches.value.nearEd25519;
-      const previewEvmFamilyEcdsa = previewBranches.value.evmFamilyEcdsa;
-      if (!previewNearEd25519 && request.registrationPreparationId) {
+      const branches = registrationIntentSignerBranches(preview.intent);
+      if (!branches.ok) return branches;
+      const nearEd25519Branch = branches.value.nearEd25519;
+      const ecdsaBranch = branches.value.evmFamilyEcdsa;
+      if (!nearEd25519Branch && !ecdsaBranch) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationPreparationId is not used when no Ed25519 branch is requested',
+          message: 'registration signer branch is required',
         };
       }
-      const runtimePolicyScope = parseD1RuntimePolicyScope(intentPreview.intent.runtimePolicyScope);
+      if (!request.authority) {
+        return { ok: false, code: 'invalid_body', message: 'registration authority is required' };
+      }
+      const expectedOrigin = toOptionalTrimmedString(preview.expectedOrigin);
+      const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+        orgId: preview.orgId,
+        authority: request.authority,
+        expectedDigestB64u: preview.digestB64u,
+        expectedOrigin: expectedOrigin || '',
+        intent: preview.intent,
+      });
+      if (!verifiedAuthority.ok) return verifiedAuthority;
+      const runtimePolicyScope = parseD1RuntimePolicyScope(preview.intent.runtimePolicyScope);
       const signingRootId =
-        intentPreview.signingRootId ||
+        preview.signingRootId ||
         (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
       const signingRootVersion =
-        toOptionalTrimmedString(intentPreview.signingRootVersion) ||
+        toOptionalTrimmedString(preview.signingRootVersion) ||
         runtimePolicyScope?.signingRootVersion ||
         'default';
-      if (previewEvmFamilyEcdsa && !signingRootId) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ECDSA registration requires a signing root',
-        };
+      if (!signingRootId) {
+        return { ok: false, code: 'invalid_body', message: 'registration requires a signing root' };
       }
-      const previewPreparedContext = resolveRegistrationPreparedContextFromPlan({
-        signerPlan: previewBranches.value.plan,
+      const preparedContext = resolveRegistrationPreparedContextFromPlan({
+        signerPlan: branches.value.plan,
         runtimePolicyScope,
         signingRootId,
         signingRootVersion,
       });
-      if (!previewPreparedContext.ok) return previewPreparedContext;
-      const threshold = this.getThresholdSigningService();
-      if (!threshold) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Threshold signing service is not configured on this server',
-        };
+      if (!preparedContext.ok) return preparedContext;
+      const storedIntent = await store.takeIntent(grant);
+      if (!storedIntent) {
+        return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
       }
-
-      const storedExpectedOrigin = toOptionalTrimmedString(intentPreview.expectedOrigin);
-      const preparedRegistration = !previewNearEd25519
-        ? null
-        : request.registrationPreparationId
-          ? await store.getPreparation(request.registrationPreparationId)
-          : null;
-      if (previewNearEd25519 && !preparedRegistration) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registrationPreparationId is required for Ed25519 registration',
-        };
-      }
-      const preparedRegistrationState = preparedRegistration
-        ? getPreparedWalletRegistrationHssPreparation(preparedRegistration)
-        : null;
-      if (preparedRegistrationState && !preparedRegistrationState.ok) {
-        return {
-          ok: false,
-          code: preparedRegistrationState.code,
-          message: preparedRegistrationState.message,
-        };
-      }
-      if (
-        preparedRegistrationState?.ok &&
-        !registrationPreparationWalletsMatch({
-          expectedWalletId: intentPreview.intent.walletId,
-          preparation: preparedRegistrationState.preparation,
-        })
-      ) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'registration preparation walletId mismatch',
-        };
-      }
-      const verifiedAuthority = preparedRegistrationState?.ok
-        ? { ok: true as const, authority: preparedRegistrationState.preparation.authority }
-        : request.authority
-          ? await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
-              orgId: intentPreview.orgId,
-              authority: request.authority,
-              expectedDigestB64u: intentPreview.digestB64u,
-              expectedOrigin: storedExpectedOrigin || '',
-              intent: intentPreview.intent,
-            })
-          : {
-              ok: false as const,
-              code: 'invalid_body',
-              message: 'registration authority is required',
-            };
-      if (!verifiedAuthority.ok) return verifiedAuthority;
-      const preparedScope = !previewNearEd25519
-        ? null
-        : await resolveD1NearEd25519RegistrationPrepareScope({
-            intent: intentPreview.intent,
-            authority: verifiedAuthority.authority,
-            nearEd25519: previewNearEd25519,
-            registrationIntentDigestB64u: intentPreview.digestB64u,
-            orgId: intentPreview.orgId,
-            signingRootId,
-            signingRootVersion,
-            expectedOrigin: storedExpectedOrigin || '',
-          });
-      if (
-        preparedRegistration &&
-        preparedRegistrationState?.ok &&
-        preparedScope &&
-        !(
-          preparedRegistration.registrationIntentGrant === grant &&
-          preparedRegistration.registrationIntentDigestB64u === intentPreview.digestB64u &&
-          storedEd25519RegistrationPrepareScopesMatch(
-            preparedRegistrationState.preparation.ed25519Scope,
-            preparedScope,
-          )
-        )
-      ) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'registration preparation scope does not match verified intent',
-        };
-      }
-      const storedIntentResult = !previewNearEd25519
-        ? await store.takeIntent(grant).then((intent) =>
-            intent
-              ? { ok: true as const, intent }
-              : {
-                  ok: false as const,
-                  code: 'invalid_grant' as const,
-                  message: 'registration intent grant expired',
-                },
-          )
-        : await store.consumeRegistrationIntentForPreparation({
-            registrationIntentGrant: grant,
-            registrationIntentDigestB64u: intentPreview.digestB64u,
-            registrationPreparationId: request.registrationPreparationId!,
-            authority: verifiedAuthority.authority,
-            signerPlan: preparedRegistrationState!.preparation.signerPlan,
-            preparedContext: preparedRegistrationState!.preparation.preparedContext,
-            ed25519Scope: preparedScope!,
-          });
-      if (!storedIntentResult.ok) return storedIntentResult;
-      const storedIntent = storedIntentResult.intent;
-      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: storedIntent.intent })) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration intent walletId mismatch',
-        };
-      }
-      const storedSignerPlan = preparedRegistrationState?.ok
-        ? preparedRegistrationState.preparation.signerPlan
-        : previewBranches.value.plan;
-      const storedPreparedContext = preparedRegistrationState?.ok
-        ? preparedRegistrationState.preparation.preparedContext
-        : previewPreparedContext.preparedContext;
-      const storedBranches = registrationSignerBranchesFromPlan(storedSignerPlan);
-      const storedNearEd25519 = storedBranches.nearEd25519;
-      const storedEvmFamilyEcdsa = storedBranches.evmFamilyEcdsa;
-      const storedEcdsaChainTargets =
-        registrationPreparedContextEcdsaChainTargets(storedPreparedContext);
-      if (storedEvmFamilyEcdsa && !storedEcdsaChainTargets) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'registration prepared context is missing ECDSA chain targets',
-        };
-      }
-      if (!storedEvmFamilyEcdsa && storedEcdsaChainTargets) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'registration prepared context has unexpected ECDSA chain targets',
-        };
-      }
-      const storedRuntimePolicyScope =
-        registrationPreparedContextRuntimePolicyScope(storedPreparedContext);
       const registrationCeremonyId = `wrc_${secureRandomBase64Url(24)}`;
-      if (!storedNearEd25519) {
-        if (!storedEvmFamilyEcdsa || !storedEcdsaChainTargets) {
+      const expiresAtMs = Math.min(storedIntent.expiresAtMs, Date.now() + 10 * 60_000);
+      const storedBranches: StoredWalletRegistrationSignerBranch[] = [];
+      let ed25519Start: WalletRegistrationEd25519YaoStart | null = null;
+      if (nearEd25519Branch) {
+        const yaoRuntime = this.getEd25519YaoProductRegistration();
+        if (!yaoRuntime) {
           return {
             ok: false,
-            code: 'invalid_state',
-            message: 'registration signer set requires a signer branch',
+            code: 'not_configured',
+            message: 'Ed25519 Yao product registration is not configured',
           };
         }
-        const ecdsaResult = await buildD1EvmFamilyEcdsaRegistrationPrepare({
+        const admissionRequest = await buildRouterAbEd25519YaoProductAdmissionRequestV1({
           registrationCeremonyId,
           walletId: storedIntent.intent.walletId,
           signingRootId,
           signingRootVersion,
-          chainTargets: storedEcdsaChainTargets,
-          participantIds: [...storedEvmFamilyEcdsa.participantIds],
-          ...(storedRuntimePolicyScope ? { runtimePolicyScope: storedRuntimePolicyScope } : {}),
-        });
-        if (!ecdsaResult.ok) return ecdsaResult;
-        const ecdsa = ecdsaResult.ecdsa;
-        await store.putCeremony({
-          registrationCeremonyId,
-          intent: storedIntent.intent,
-          digestB64u: storedIntent.digestB64u,
-          signerPlan: storedSignerPlan,
-          preparedContext: storedPreparedContext,
-          orgId: storedIntent.orgId,
-          signingRootId,
-          signingRootVersion,
-          ...(storedExpectedOrigin ? { expectedOrigin: storedExpectedOrigin } : {}),
-          expiresAtMs: Date.now() + 10 * 60_000,
           authority: verifiedAuthority.authority,
-          signerState: {
-            kind: 'signer_set_registration',
-            branches: [
-              buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
-                branchKey: storedEvmFamilyEcdsa.branchKey,
-                ecdsa,
-              }),
-            ],
-          },
+          branch: nearEd25519Branch,
+          signingWorkerId: yaoRuntime.signingWorkerId,
         });
-        finishD1RegistrationRouteTiming(startTiming, totalTiming);
-        return withD1RegistrationStartDiagnostics(
-          {
-            ok: true,
-            registrationCeremonyId,
-            intent: storedIntent.intent,
-            ecdsa,
-          },
-          startTiming,
+        const bound = await yaoRuntime.bindVerifiedIntent({
+          kind: 'verified_registration_intent',
+          registrationIntentGrant: storedIntent.grant,
+          intent: storedIntent.intent,
+          admissionRequest,
+          expiresAtMs,
+        });
+        if (!bound.ok) return bound;
+        ed25519Start = { admissionRequest };
+        storedBranches.push(
+          buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
+            branchKey: nearEd25519Branch.branchKey,
+            admissionRequest,
+          }),
         );
       }
-
-      if (!preparedRegistrationState?.ok) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Ed25519 registration preparation is required',
-        };
-      }
-      if (!storedNearEd25519) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Ed25519 registration branch is required',
-        };
-      }
-      const ed25519 = {
-        ceremonyHandle: preparedRegistrationState.preparation.prepared.ceremonyHandle,
-        preparedSession: preparedRegistrationState.preparation.prepared.preparedSession,
-        clientOtOfferMessageB64u:
-          preparedRegistrationState.preparation.prepared.clientOtOfferMessageB64u,
-      };
-      const storedEd25519 = {
-        ...ed25519,
-        serverState: preparedRegistrationState.preparation.prepared.serverState,
-      };
-      if (!storedEvmFamilyEcdsa) {
-        await store.putCeremony({
+      let ecdsaStart: WalletRegistrationEcdsaPreparePayload | null = null;
+      if (ecdsaBranch) {
+        const chainTargets = registrationPreparedContextEcdsaChainTargets(
+          preparedContext.preparedContext,
+        );
+        if (!chainTargets) {
+          return { ok: false, code: 'invalid_body', message: 'ECDSA chain targets are required' };
+        }
+        const prepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
           registrationCeremonyId,
-          intent: storedIntent.intent,
-          digestB64u: storedIntent.digestB64u,
-          signerPlan: storedSignerPlan,
-          preparedContext: storedPreparedContext,
-          orgId: storedIntent.orgId,
+          walletId: storedIntent.intent.walletId,
           signingRootId,
           signingRootVersion,
-          ...(storedExpectedOrigin ? { expectedOrigin: storedExpectedOrigin } : {}),
-          expiresAtMs: Date.now() + 10 * 60_000,
-          authority: verifiedAuthority.authority,
-          signerState: {
-            kind: 'signer_set_registration',
-            branches: [
-              buildStoredWalletRegistrationNearEd25519PreparedBranch({
-                branchKey: storedNearEd25519.branchKey,
-                prepared: storedEd25519,
-              }),
-            ],
-          },
+          chainTargets,
+          participantIds: [...ecdsaBranch.participantIds],
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         });
-        await store.takePreparation(request.registrationPreparationId!);
-        finishD1RegistrationRouteTiming(startTiming, totalTiming);
-        return withD1RegistrationStartDiagnostics(
-          {
-            ok: true,
-            registrationCeremonyId,
-            intent: storedIntent.intent,
-            ed25519,
-          },
-          startTiming,
+        if (!prepared.ok) return prepared;
+        ecdsaStart = prepared.ecdsa;
+        storedBranches.push(
+          buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
+            branchKey: ecdsaBranch.branchKey,
+            ecdsa: prepared.ecdsa,
+          }),
         );
       }
-      if (!storedEcdsaChainTargets) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ECDSA registration contains an invalid chain target',
-        };
-      }
-
-      const combinedEcdsaResult = await buildD1EvmFamilyEcdsaRegistrationPrepare({
-        registrationCeremonyId,
-        registrationPreparationId: request.registrationPreparationId,
-        walletId: storedIntent.intent.walletId,
-        signingRootId,
-        signingRootVersion,
-        chainTargets: storedEcdsaChainTargets,
-        participantIds: [...storedEvmFamilyEcdsa.participantIds],
-        ...(storedRuntimePolicyScope ? { runtimePolicyScope: storedRuntimePolicyScope } : {}),
-      });
-      if (!combinedEcdsaResult.ok) return combinedEcdsaResult;
-      const ecdsa = combinedEcdsaResult.ecdsa;
       await store.putCeremony({
         registrationCeremonyId,
         intent: storedIntent.intent,
         digestB64u: storedIntent.digestB64u,
-        signerPlan: storedSignerPlan,
-        preparedContext: storedPreparedContext,
+        signerPlan: branches.value.plan,
+        preparedContext: preparedContext.preparedContext,
         orgId: storedIntent.orgId,
         signingRootId,
         signingRootVersion,
-        ...(storedExpectedOrigin ? { expectedOrigin: storedExpectedOrigin } : {}),
-        expiresAtMs: Date.now() + 10 * 60_000,
+        ...(expectedOrigin ? { expectedOrigin } : {}),
+        expiresAtMs,
         authority: verifiedAuthority.authority,
         signerState: {
           kind: 'signer_set_registration',
-          branches: [
-            buildStoredWalletRegistrationNearEd25519PreparedBranch({
-              branchKey: storedNearEd25519.branchKey,
-              prepared: storedEd25519,
-            }),
-            buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
-              branchKey: storedEvmFamilyEcdsa.branchKey,
-              ecdsa,
-            }),
-          ],
+          branches: storedBranches,
         },
       });
-      await store.takePreparation(request.registrationPreparationId!);
-      finishD1RegistrationRouteTiming(startTiming, totalTiming);
+      finishD1RegistrationRouteTiming(timing, total);
+      if (ed25519Start && ecdsaStart) {
+        return withD1RegistrationStartDiagnostics(
+          {
+            ok: true,
+            kind: 'near_ed25519_and_evm_family_ecdsa',
+            registrationCeremonyId,
+            intent: storedIntent.intent,
+            ed25519: ed25519Start,
+            ecdsa: ecdsaStart,
+          },
+          timing,
+        );
+      }
+      if (ed25519Start) {
+        return withD1RegistrationStartDiagnostics(
+          {
+            ok: true,
+            kind: 'near_ed25519',
+            registrationCeremonyId,
+            intent: storedIntent.intent,
+            ed25519: ed25519Start,
+          },
+          timing,
+        );
+      }
+      if (!ecdsaStart) throw new Error('registration produced no signer work');
       return withD1RegistrationStartDiagnostics(
         {
           ok: true,
+          kind: 'evm_family_ecdsa',
           registrationCeremonyId,
           intent: storedIntent.intent,
-          ed25519,
-          ecdsa,
+          ecdsa: ecdsaStart,
         },
-        startTiming,
+        timing,
       );
     } catch (error: unknown) {
       return {
@@ -1454,66 +1202,13 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
-      const requestedNearEd25519 = signerBranches.nearEd25519;
       const requestedEvmFamilyEcdsa = signerBranches.evmFamilyEcdsa;
       let nextSignerState = ceremony.signerState;
       const response: Extract<WalletRegistrationHssRespondResponse, { ok: true }> = {
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
+        ecdsa: { bootstraps: [] },
       };
-      if (request.ed25519) {
-        if (!requestedNearEd25519) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'registration signer set does not accept Ed25519 HSS input',
-          };
-        }
-        const ed25519Branch = findStoredWalletRegistrationNearEd25519Branch(ceremony.signerState);
-        if (!ed25519Branch) {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'signer-set registration requires an Ed25519 branch',
-          };
-        }
-        if (ed25519Branch.kind !== 'near_ed25519_prepared') {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'Ed25519 HSS response already recorded',
-          };
-        }
-        const ed25519Response = await respondD1NearEd25519RegistrationHss({
-          threshold: this.getThresholdSigningService(),
-          ceremony,
-          nearEd25519: requestedNearEd25519,
-          preparedEd25519: {
-            kind: 'ed25519_prepared',
-            ceremonyHandle: ed25519Branch.ceremonyHandle,
-            preparedSession: ed25519Branch.preparedSession,
-            clientOtOfferMessageB64u: ed25519Branch.clientOtOfferMessageB64u,
-            serverState: ed25519Branch.serverState,
-          },
-          requestEd25519: request.ed25519,
-        });
-        if (!ed25519Response.ok) return ed25519Response;
-        nextSignerState = replaceStoredWalletRegistrationSignerBranch({
-          state: nextSignerState,
-          replacement: {
-            kind: 'near_ed25519_responded',
-            branchKey: ed25519Branch.branchKey,
-            ceremonyHandle: ed25519Branch.ceremonyHandle,
-            preparedSession: ed25519Branch.preparedSession,
-            clientOtOfferMessageB64u: ed25519Branch.clientOtOfferMessageB64u,
-            serverState: ed25519Response.serverState,
-            responded: ed25519Response.responded,
-          },
-        });
-        response.ed25519 = ed25519Response.responded;
-      } else if (requestedNearEd25519) {
-        return { ok: false, code: 'invalid_body', message: 'missing Ed25519 HSS response' };
-      }
       if (request.ecdsa) {
         if (!requestedEvmFamilyEcdsa) {
           return {
@@ -1550,8 +1245,8 @@ export class CloudflareD1WalletRegistrationService {
             message: 'ECDSA bootstrap target coverage mismatch',
           };
         }
-        const threshold = this.getThresholdSigningService();
-        if (!threshold) {
+        const runtime = this.getRouterAbEcdsaBootstrapExportRuntime();
+        if (!runtime) {
           return {
             ok: false,
             code: 'not_configured',
@@ -1577,7 +1272,7 @@ export class CloudflareD1WalletRegistrationService {
               message: 'ECDSA bootstrap identity mismatch',
             };
           }
-          const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
+          const bootstrap = await runtime.ecdsaHssRoleLocalBootstrap(
             toD1EcdsaHssClientBootstrapRequest(actual.clientBootstrap),
           );
           if (!bootstrap.ok) {
@@ -1608,13 +1303,6 @@ export class CloudflareD1WalletRegistrationService {
       } else if (requestedEvmFamilyEcdsa) {
         return { ok: false, code: 'invalid_body', message: 'missing ECDSA HSS response' };
       }
-      if (!response.ed25519 && !response.ecdsa) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration HSS response is required',
-        };
-      }
       await store.updateCeremony({
         ...ceremony,
         signerState: nextSignerState,
@@ -1625,293 +1313,6 @@ export class CloudflareD1WalletRegistrationService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to respond to wallet registration ceremony',
-      };
-    }
-  }
-
-  async advanceWalletRegistrationHssState(
-    request: AdvanceWalletRegistrationHssStateInput,
-  ): Promise<WalletRegistrationHssAdvanceStateResponse> {
-    const advanceTiming = createD1RegistrationRouteTimingRecorder(
-      'wallets_register_hss_advance_state',
-    );
-    const totalTiming = startD1RegistrationRouteTiming('registerHssAdvanceStateTotalMs');
-    try {
-      const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
-      const ceremonyLoadTiming = startD1RegistrationRouteTiming(
-        'registrationHssAdvanceStateCeremonyLoadMs',
-      );
-      let ceremony: Awaited<ReturnType<typeof store.getCeremony>>;
-      try {
-        ceremony = await store.getCeremony(request.registrationCeremonyId);
-      } finally {
-        finishD1RegistrationRouteTiming(advanceTiming, ceremonyLoadTiming);
-      }
-      if (!ceremony) {
-        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
-      }
-      if (!registrationCeremonyWalletsMatch({ ceremony })) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'registration ceremony walletId mismatch',
-        };
-      }
-      if (ceremony.signerState.kind !== 'signer_set_registration') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'signer-set registration state is required',
-        };
-      }
-      const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
-      const requestedNearEd25519 = signerBranches.nearEd25519;
-      if (!requestedNearEd25519) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration signer set does not accept Ed25519 HSS input',
-        };
-      }
-      const ed25519State = findStoredWalletRegistrationNearEd25519Branch(ceremony.signerState);
-      if (!ed25519State || ed25519State.kind !== 'near_ed25519_responded') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Ed25519 HSS response is required before advance-state',
-        };
-      }
-      const addStageRequestMessageB64u = toOptionalTrimmedString(
-        request.ed25519.addStageRequestMessageB64u,
-      );
-      if (!addStageRequestMessageB64u) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ed25519.addStageRequestMessageB64u is required',
-        };
-      }
-      const digestTiming = startD1RegistrationRouteTiming('registrationHssAdvanceStateDigestMs');
-      let addStageRequestDigestB64u: string | null;
-      try {
-        addStageRequestDigestB64u = await d1Ed25519HssAddStageRequestDigestB64u({
-          addStageRequestMessageB64u,
-        });
-      } finally {
-        finishD1RegistrationRouteTiming(advanceTiming, digestTiming);
-      }
-      if (!addStageRequestDigestB64u) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ed25519.addStageRequestMessageB64u is invalid',
-        };
-      }
-      const existing = await store.getEd25519HssAdvancedEvalRecord({
-        ceremonyHandle: ed25519State.ceremonyHandle,
-        addStageRequestDigestB64u,
-      });
-      if (existing) {
-        finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
-        return withD1RegistrationHssAdvanceStateDiagnostics(
-          {
-            ok: true,
-            registrationCeremonyId: ceremony.registrationCeremonyId,
-            ed25519: {
-              contextBindingB64u: existing.contextBindingB64u,
-              addStageRequestDigestB64u: existing.addStageRequestDigestB64u,
-              projectionMode: existing.projectionMode,
-            },
-          },
-          advanceTiming,
-        );
-      }
-      const threshold = this.getThresholdSigningService();
-      if (!threshold) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Threshold signing service is not configured on this server',
-        };
-      }
-      const nearEd25519SigningKeyId = await d1RegistrationAuthorityNearEd25519SigningKeyId({
-        intent: ceremony.intent,
-        authority: ceremony.authority,
-        nearEd25519: requestedNearEd25519,
-        signingRootId: ceremony.signingRootId,
-        signingRootVersion: ceremony.signingRootVersion,
-      });
-      const claim = buildD1Ed25519HssAdvanceInFlightClaim({
-        ceremonyHandle: ed25519State.ceremonyHandle,
-        addStageRequestDigestB64u,
-        nowMs: Date.now(),
-        expiresAtMs: ceremony.expiresAtMs,
-      });
-      const claimResult = await store.beginEd25519HssAdvanceClaim(claim);
-      switch (claimResult.status) {
-        case 'started':
-          break;
-        case 'in_flight':
-          finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
-          return withD1RegistrationHssAdvanceStateDiagnostics(
-            {
-              ok: false,
-              code: 'hss_advance_in_flight',
-              message: 'Ed25519 HSS advance is already in progress',
-              retryAfterMs: d1Ed25519HssAdvanceRetryAfterMs(claimResult.record),
-            },
-            advanceTiming,
-          );
-        case 'fulfilled': {
-          const fulfilled = await store.getEd25519HssAdvancedEvalRecord({
-            ceremonyHandle: claimResult.record.advancedEval.ceremonyHandle,
-            addStageRequestDigestB64u: claimResult.record.advancedEval.addStageRequestDigestB64u,
-          });
-          if (!fulfilled) {
-            return {
-              ok: false,
-              code: 'invalid_state',
-              message: 'Ed25519 HSS advance claim is fulfilled without durable advanced eval',
-            };
-          }
-          finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
-          return withD1RegistrationHssAdvanceStateDiagnostics(
-            {
-              ok: true,
-              registrationCeremonyId: ceremony.registrationCeremonyId,
-              ed25519: {
-                contextBindingB64u: fulfilled.contextBindingB64u,
-                addStageRequestDigestB64u: fulfilled.addStageRequestDigestB64u,
-                projectionMode: fulfilled.projectionMode,
-              },
-            },
-            advanceTiming,
-          );
-        }
-        case 'invalid_existing':
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'Ed25519 HSS advance claim state is invalid',
-          };
-      }
-      const wasmTiming = startD1RegistrationRouteTiming('registrationHssAdvanceStateWasmMs');
-      let advanced: Awaited<ReturnType<ThresholdSigningService['ed25519Hss']['advanceForRegistration']>>;
-      try {
-        advanced = await threshold.ed25519Hss.advanceForRegistration({
-          orgId: ceremony.orgId,
-          request: {
-            registrationAccountScope: d1ThresholdEd25519RegistrationAccountScope({
-              walletId: ceremony.intent.walletId,
-              intentDigestB64u: ceremony.digestB64u,
-              signingRootId: d1RegistrationIntentSigningRootId({
-                signingRootId: ceremony.signingRootId,
-                intent: ceremony.intent,
-              }),
-              signingRootVersion: d1RegistrationIntentSigningRootVersion({
-                signingRootVersion: ceremony.signingRootVersion,
-                intent: ceremony.intent,
-              }),
-              nearEd25519SigningKeyId,
-              signerSlot: requestedNearEd25519.signerSlot,
-              keyPurpose: requestedNearEd25519.keyPurpose,
-              keyVersion: requestedNearEd25519.keyVersion,
-              derivationVersion: requestedNearEd25519.derivationVersion,
-              participantIds: [...requestedNearEd25519.participantIds],
-              accountProvisioning: requestedNearEd25519.accountProvisioning,
-            }),
-            wallet_key_id: nearEd25519SigningKeyId,
-            ceremonyHandle: ed25519State.ceremonyHandle,
-            preparedSession: ed25519State.preparedSession,
-            serverState: ed25519State.serverState,
-            addStageRequestMessageB64u,
-            projectionMode: 'registration_seed_and_output',
-          },
-        });
-      } finally {
-        finishD1RegistrationRouteTiming(advanceTiming, wasmTiming);
-      }
-      recordD1RegistrationEd25519HssAdvanceSource({
-        recorder: advanceTiming,
-        source: 'durable_workerd_wasm',
-      });
-      if (!advanced.ok) {
-        await failD1Ed25519HssAdvanceClaim({
-          store,
-          claim: claimResult.record,
-          code: advanced.code || 'hss_advance_failed',
-          message: advanced.message || 'Ed25519 HSS advance-state failed',
-        });
-        return {
-          ok: false,
-          code: advanced.code || 'hss_advance_failed',
-          message: advanced.message || 'Ed25519 HSS advance-state failed',
-        };
-      }
-      if (advanced.addStageRequestDigestB64u !== addStageRequestDigestB64u) {
-        await failD1Ed25519HssAdvanceClaim({
-          store,
-          claim: claimResult.record,
-          code: 'digest_mismatch',
-          message: 'Ed25519 HSS add-stage digest mismatch',
-        });
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Ed25519 HSS add-stage digest mismatch',
-        };
-      }
-      if (advanced.advanceServerEvalTimings) {
-        appendThresholdEd25519HssAdvanceRouteTimings({
-          recorder: advanceTiming,
-          timings: advanced.advanceServerEvalTimings,
-        });
-      }
-      const persistenceTiming = startD1RegistrationRouteTiming(
-        'registrationHssAdvanceStatePersistenceMs',
-      );
-      try {
-        await store.putEd25519HssAdvancedEvalRecord(
-          buildD1DurableEd25519HssAdvancedEvalRecord({
-            ceremonyHandle: ed25519State.ceremonyHandle,
-            contextBindingB64u: advanced.contextBindingB64u,
-            addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
-            projectionMode: advanced.projectionMode,
-            advancedServerEvalStateB64u: advanced.advancedServerEvalStateB64u,
-            finalizeContextB64u: advanced.finalizeContextB64u,
-            priorStageResponseMessageB64u: advanced.priorStageResponseMessageB64u,
-            createdAtMs: Date.now(),
-            expiresAtMs: ceremony.expiresAtMs,
-          }),
-        );
-        await store.fulfillEd25519HssAdvanceClaim(
-          buildD1Ed25519HssAdvanceFulfilledClaim({
-            claim: claimResult.record,
-            nowMs: Date.now(),
-          }),
-        );
-      } finally {
-        finishD1RegistrationRouteTiming(advanceTiming, persistenceTiming);
-      }
-      finishD1RegistrationRouteTiming(advanceTiming, totalTiming);
-      return withD1RegistrationHssAdvanceStateDiagnostics(
-        {
-          ok: true,
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          ed25519: {
-            contextBindingB64u: advanced.contextBindingB64u,
-            addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
-            projectionMode: advanced.projectionMode,
-          },
-        },
-        advanceTiming,
-      );
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(error) || 'Failed to advance wallet registration HSS state',
       };
     }
   }
@@ -1937,6 +1338,10 @@ export class CloudflareD1WalletRegistrationService {
           finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
         }
         if (replay) {
+          await cleanupFinalizedRegistrationCeremony({
+            store,
+            registrationCeremonyId: request.registrationCeremonyId,
+          });
           finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
           return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
         }
@@ -1961,558 +1366,24 @@ export class CloudflareD1WalletRegistrationService {
       const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
       const requestedNearEd25519 = signerBranches.nearEd25519;
       const requestedEvmFamilyEcdsa = signerBranches.evmFamilyEcdsa;
-      if (requestedNearEd25519) {
-        if (!request.ed25519) {
-          return { ok: false, code: 'invalid_body', message: 'missing Ed25519 finalize input' };
-        }
-        if (request.ecdsa && !requestedEvmFamilyEcdsa) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'registration signer set does not accept ECDSA finalize input',
-          };
-        }
-        if (ceremony.signerState.kind !== 'signer_set_registration') {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'signer-set registration state is required',
-          };
-        }
-        const ed25519State = findStoredWalletRegistrationNearEd25519Branch(ceremony.signerState);
-        if (!ed25519State || ed25519State.kind !== 'near_ed25519_responded') {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'Ed25519 HSS response is required before finalize',
-          };
-        }
-        const ecdsaState = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
-        if (requestedEvmFamilyEcdsa) {
-          if (!request.ecdsa) {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: 'registration signer set requires ECDSA finalize input',
-            };
-          }
-          if (!ecdsaState || ecdsaState.kind !== 'evm_family_ecdsa_responded') {
-            return {
-              ok: false,
-              code: 'invalid_state',
-              message: 'registration signer set requires ECDSA HSS response before finalize',
-            };
-          }
-          const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
-          const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
-            String(entry.bootstrap.keyHandle || '').trim(),
-          );
-          if (hasEcdsaKeyHandleSetMismatch(expectedKeyHandles, actualKeyHandles)) {
-            return {
-              ok: false,
-              code: 'key_handle_mismatch',
-              message: 'ECDSA finalize expected key handle mismatch',
-            };
-          }
-        }
-        const threshold = this.getThresholdSigningService();
-        if (!threshold) {
-          return {
-            ok: false,
-            code: 'not_configured',
-            message: 'threshold signing is not configured on this server',
-          };
-        }
-        const ed25519 = requestedNearEd25519;
-        const nearEd25519SigningKeyId = await d1RegistrationAuthorityNearEd25519SigningKeyId({
-          intent: ceremony.intent,
-          authority: ceremony.authority,
-          nearEd25519: requestedNearEd25519,
-          signingRootId: ceremony.signingRootId,
-          signingRootVersion: ceremony.signingRootVersion,
-        });
-        const ed25519AuthorityScope = d1RegistrationAuthorityThresholdEd25519AuthorityScope(
-          ceremony.authority,
-        );
-        const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
-          ceremony.authority,
-        );
-        const addStageRequestDigestB64u = await d1Ed25519HssAddStageRequestDigestB64u({
-          addStageRequestMessageB64u: request.ed25519.evaluationResult.addStageRequestMessageB64u,
-        });
-        if (!addStageRequestDigestB64u) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'ed25519.evaluationResult.addStageRequestMessageB64u is invalid',
-          };
-        }
-        const durableFinalizedReport = await store.getEd25519HssFinalizedReportRecord({
-          ceremonyHandle: ed25519State.ceremonyHandle,
-          addStageRequestDigestB64u,
-        });
-        let hssFinalizeSource: Ed25519HssFinalizeSource = 'durable_finalized_report';
-        let serverEvalSource: ThresholdEd25519HssRegistrationServerEvalSource;
-        if (durableFinalizedReport) {
-          if (durableFinalizedReport.projectionMode !== 'registration_seed_and_output') {
-            return {
-              ok: false,
-              code: 'invalid_state',
-              message: 'Ed25519 HSS durable finalized report projection mode is invalid',
-            };
-          }
-          serverEvalSource = {
-            kind: 'durable_finalized_report',
-            finalizedReport: {
-              contextBindingB64u: durableFinalizedReport.contextBindingB64u,
-              addStageRequestDigestB64u: durableFinalizedReport.addStageRequestDigestB64u,
-              clientOutputMessageB64u:
-                durableFinalizedReport.finalizedReport.clientOutputMessageB64u,
-              serverOutputMessageB64u:
-                durableFinalizedReport.finalizedReport.serverOutputMessageB64u,
-              seedOutputMessageB64u: durableFinalizedReport.finalizedReport.seedOutputMessageB64u,
-            },
-          };
-        } else {
-          const durableAdvancedEvalResult =
-            await resolveD1Ed25519HssDurableAdvancedEvalForFinalize({
-              store,
-              ceremonyHandle: ed25519State.ceremonyHandle,
-              addStageRequestDigestB64u,
-            });
-          if (durableAdvancedEvalResult.kind === 'in_flight') {
-            return {
-              ok: false,
-              code: 'hss_advance_in_flight',
-              message: 'Ed25519 HSS advance is still in progress',
-              retryAfterMs: durableAdvancedEvalResult.retryAfterMs,
-            };
-          }
-          if (durableAdvancedEvalResult.kind === 'failed') {
-            return {
-              ok: false,
-              code: durableAdvancedEvalResult.claim.failure.code,
-              message: durableAdvancedEvalResult.claim.failure.message,
-            };
-          }
-          if (durableAdvancedEvalResult.kind === 'missing') {
-            return {
-              ok: false,
-              code: 'hss_advance_state_missing',
-              message: 'Ed25519 HSS durable advanced eval is unavailable',
-            };
-          }
-          if (durableAdvancedEvalResult.kind === 'invalid_fulfilled_claim') {
-            return {
-              ok: false,
-              code: 'invalid_state',
-              message: 'Ed25519 HSS advance claim is fulfilled without durable advanced eval',
-            };
-          }
-          const durableAdvancedEval = durableAdvancedEvalResult.record;
-          if (durableAdvancedEval.projectionMode !== 'registration_seed_and_output') {
-            return {
-              ok: false,
-              code: 'invalid_state',
-              message: 'Ed25519 HSS durable advanced eval projection mode is invalid',
-            };
-          }
-          hssFinalizeSource = 'durable_advanced_eval';
-          serverEvalSource = {
-            kind: 'durable_advanced_eval',
-            advancedServerEval: {
-              contextBindingB64u: durableAdvancedEval.contextBindingB64u,
-              addStageRequestDigestB64u: durableAdvancedEval.addStageRequestDigestB64u,
-              advancedServerEvalStateB64u: durableAdvancedEval.advancedServerEvalStateB64u,
-              finalizeContextB64u: durableAdvancedEval.finalizeContextB64u,
-              priorStageResponseMessageB64u: durableAdvancedEval.priorStageResponseMessageB64u,
-            },
-          };
-        }
-        const hssFinalizeTiming = startD1RegistrationRouteTiming('registrationHssFinalizeMs');
-        let finalized: Awaited<ReturnType<typeof threshold.ed25519Hss.finalizeForRegistration>>;
-        try {
-          finalized = await threshold.ed25519Hss.finalizeForRegistration({
-            orgId: ceremony.orgId,
-            request: {
-              registrationAccountScope: d1ThresholdEd25519RegistrationAccountScope({
-                walletId: ceremony.intent.walletId,
-                intentDigestB64u: ceremony.digestB64u,
-                signingRootId: d1RegistrationIntentSigningRootId({
-                  signingRootId: ceremony.signingRootId,
-                  intent: ceremony.intent,
-                }),
-                signingRootVersion: d1RegistrationIntentSigningRootVersion({
-                  signingRootVersion: ceremony.signingRootVersion,
-                  intent: ceremony.intent,
-                }),
-                nearEd25519SigningKeyId,
-                signerSlot: ed25519.signerSlot,
-                keyPurpose: ed25519.keyPurpose,
-                keyVersion: ed25519.keyVersion,
-                derivationVersion: ed25519.derivationVersion,
-                participantIds: [...ed25519.participantIds],
-                accountProvisioning: ed25519.accountProvisioning,
-              }),
-              wallet_key_id: nearEd25519SigningKeyId,
-              authority: walletAuthAuthority,
-              ceremonyHandle: ed25519State.ceremonyHandle,
-              preparedSession: ed25519State.preparedSession,
-              serverState: ed25519State.serverState,
-              serverEvalSource,
-              evaluationResult: request.ed25519.evaluationResult,
-              accountResolution: {
-                kind: 'registration_provisioning',
-                accountProvisioning: ed25519.accountProvisioning,
-              },
-            },
-          });
-        } finally {
-          finishD1RegistrationRouteTiming(finalizeTiming, hssFinalizeTiming);
-        }
-        if (!finalized.ok) {
-          return {
-            ok: false,
-            code: finalized.code || 'hss_finalize_failed',
-            message: finalized.message || 'Ed25519 HSS finalize failed',
-          };
-        }
-        recordD1RegistrationEd25519HssFinalizeSource({
-          recorder: finalizeTiming,
-          source: hssFinalizeSource,
-        });
-        if (finalized.finalizeReportTimings) {
-          appendThresholdEd25519HssFinalizeRouteTimings({
-            recorder: finalizeTiming,
-            timings: finalized.finalizeReportTimings,
-          });
-        }
-        const finalizedServerOutputMessageB64u = toOptionalTrimmedString(
-          finalized.finalizedServerOutputMessageB64u,
-        );
-        const finalizedSeedOutputMessageB64u = toOptionalTrimmedString(
-          finalized.finalizedReport.seedOutputMessageB64u,
-        );
-        if (!finalizedServerOutputMessageB64u || !finalizedSeedOutputMessageB64u) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'Ed25519 HSS finalized report is incomplete',
-          };
-        }
-        await store.putEd25519HssFinalizedReportRecord(
-          buildD1DurableEd25519HssFinalizedReportRecord({
-            ceremonyHandle: ed25519State.ceremonyHandle,
-            contextBindingB64u: finalized.finalizedReport.contextBindingB64u,
-            addStageRequestDigestB64u,
-            projectionMode: 'registration_seed_and_output',
-            finalizedReport: {
-              contextBindingB64u: finalized.finalizedReport.contextBindingB64u,
-              clientOutputMessageB64u: finalized.finalizedReport.clientOutputMessageB64u,
-              serverOutputMessageB64u: finalizedServerOutputMessageB64u,
-              seedOutputMessageB64u: finalizedSeedOutputMessageB64u,
-            },
-            createdAtMs: Date.now(),
-            expiresAtMs: ceremony.expiresAtMs,
-          }),
-        );
-        const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
-          ed25519.accountProvisioning,
-        );
-        let sponsoredTransactionHash: string | undefined;
-        if (sponsoredNamedAccountId) {
-          const sponsoredAccountTiming = startD1RegistrationRouteTiming(
-            'sponsoredNearAccountCreateMs',
-          );
-          let created: Awaited<ReturnType<typeof this.createSponsoredNamedNearAccount>>;
-          try {
-            created = await this.createSponsoredNamedNearAccount({
-              accountId: sponsoredNamedAccountId,
-              publicKey: finalized.publicKey,
-            });
-          } finally {
-            finishD1RegistrationRouteTiming(finalizeTiming, sponsoredAccountTiming);
-          }
-          if (!created.success) {
-            return {
-              ok: false,
-              code: 'account_creation_failed',
-              message: created.error || created.message || 'Failed to create NEAR account',
-            };
-          }
-          sponsoredTransactionHash = created.transactionHash;
-        }
-        const resolvedAccount = resolvedRegistrationNearAccount({
-          accountProvisioning: ed25519.accountProvisioning,
-          nearAccountId: finalized.nearAccountId,
-          nearEd25519SigningKeyId,
-          sponsoredTransactionHash,
-        });
-        if (!resolvedAccount.ok) return resolvedAccount;
-        const scheme = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
-        if (!scheme || scheme.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
-          return {
-            ok: false,
-            code: 'not_configured',
-            message: `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled`,
-          };
-        }
-        const keygenTiming = startD1RegistrationRouteTiming('registrationKeygenMs');
-        let keygen: Awaited<ReturnType<typeof scheme.registration.keygenFromRegistrationMaterial>>;
-        try {
-          keygen = await scheme.registration.keygenFromRegistrationMaterial({
-            walletId: ceremony.intent.walletId,
-            nearAccountId: finalized.nearAccountId,
-            nearEd25519SigningKeyId,
-            authority: walletAuthAuthority,
-            keyVersion: ed25519.keyVersion,
-            recoveryExportCapable: true,
-            publicKey: finalized.publicKey,
-            relayerKeyId: finalized.relayerKeyId,
-          });
-        } finally {
-          finishD1RegistrationRouteTiming(finalizeTiming, keygenTiming);
-        }
-        if (!keygen.ok) {
-          return {
-            ok: false,
-            code: keygen.code || 'keygen_failed',
-            message: keygen.message || 'Ed25519 registration keygen failed',
-          };
-        }
-        const now = Date.now();
-        const runtimePolicyScope = registrationPreparedContextRuntimePolicyScope(
-          ceremony.preparedContext,
-        );
-        const emailOtpEnrollmentTiming = startD1RegistrationRouteTiming(
-          'registrationEmailOtpEnrollmentPlanMs',
-        );
-        let emailOtpEnrollment: Awaited<
-          ReturnType<
-            typeof this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize
-          >
-        >;
-        try {
-          emailOtpEnrollment =
-            await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
-              authority: ceremony.authority,
-              request,
-              walletId: ceremony.intent.walletId,
-              orgId: ceremony.orgId,
-              nowMs: now,
-            });
-        } finally {
-          finishD1RegistrationRouteTiming(finalizeTiming, emailOtpEnrollmentTiming);
-        }
-        if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
-        let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
-        if (request.ed25519.sessionPolicy) {
-          const sessionKind = String(request.ed25519.sessionKind || 'jwt')
-            .trim()
-            .toLowerCase();
-          if (sessionKind !== 'jwt') {
-            return { ok: false, code: 'invalid_body', message: 'ed25519.sessionKind must be jwt' };
-          }
-          const requestedPolicy = request.ed25519.sessionPolicy as Record<string, unknown>;
-          const sessionPolicy = buildD1ThresholdEd25519RegistrationSessionPolicy({
-            requestedSessionPolicy: requestedPolicy,
-            walletId: String(ceremony.intent.walletId),
-            nearAccountId: finalized.nearAccountId,
-            nearEd25519SigningKeyId,
-            relayerKeyId: keygen.relayerKeyId,
-            authority: walletAuthAuthority,
-            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          });
-          if (!sessionPolicy.ok) return sessionPolicy;
-          const sessionMintTiming = startD1RegistrationRouteTiming('relaySessionMintMs');
-          let session: Awaited<ReturnType<typeof threshold.mintEd25519SessionFromRegistration>>;
-          try {
-            session = await threshold.mintEd25519SessionFromRegistration({
-              walletId: String(ceremony.intent.walletId),
-              nearAccountId: finalized.nearAccountId,
-              nearEd25519SigningKeyId,
-              authority: walletAuthAuthority,
-              relayerKeyId: keygen.relayerKeyId,
-              sessionPolicy: sessionPolicy.value,
-            });
-          } finally {
-            finishD1RegistrationRouteTiming(finalizeTiming, sessionMintTiming);
-          }
-          if (
-            !session.ok ||
-            !session.thresholdSessionId ||
-            !Number.isFinite(Number(session.expiresAtMs))
-          ) {
-            return {
-              ok: false,
-              code: session.code || 'internal',
-              message: session.message || 'threshold-ed25519 session bootstrap failed',
-            };
-          }
-          const normalizedSession = toD1ThresholdEd25519BootstrapSession({
-            walletId: session.walletId,
-            nearAccountId: session.nearAccountId,
-            nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
-            authorityScope: ed25519AuthorityScope,
-            thresholdSessionId: session.thresholdSessionId,
-            signingGrantId: session.signingGrantId,
-            expiresAtMs: session.expiresAtMs,
-            expiresAt: session.expiresAt,
-            participantIds: session.participantIds,
-            remainingUses: session.remainingUses,
-            runtimePolicyScope: session.runtimePolicyScope,
-            routerAbNormalSigning: session.routerAbNormalSigning,
-            jwt: session.jwt,
-          });
-          if (!normalizedSession) {
-            return {
-              ok: false,
-              code: 'internal',
-              message: 'threshold-ed25519 session bootstrap failed',
-            };
-          }
-          thresholdEd25519Session = normalizedSession;
-        }
-        const walletKeyResult =
-          ecdsaState && ecdsaState.kind === 'evm_family_ecdsa_responded'
-            ? buildD1EcdsaWalletKeysFromBootstrap({
-                bootstraps: ecdsaState.responded.bootstraps,
-                errorContext: 'combined ECDSA registration finalize',
-              })
-            : null;
-        if (walletKeyResult && !walletKeyResult.ok) return walletKeyResult;
-        const wallet = buildD1WalletRecord({
-          walletId: ceremony.intent.walletId,
-          now,
-        });
-        const walletSigners = [
-          buildD1WalletEd25519SignerRecord({
-            walletId: ceremony.intent.walletId,
-            nearAccountId: finalized.nearAccountId,
-            nearEd25519SigningKeyId,
-            signerSlot: ed25519.signerSlot,
-            keygen,
-            now,
-          }),
-          ...(walletKeyResult?.ok
-            ? buildD1WalletEcdsaSignerRecords({
-                walletId: ceremony.intent.walletId,
-                walletKeys: walletKeyResult.walletKeys,
-                now,
-              })
-            : []),
-        ];
-        const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
-        let deleted = false;
-        try {
-          if (emailOtpEnrollment.persistence) {
-            const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
-              emailOtpEnrollment.persistence,
-            );
-            if (!persisted.ok) return persisted;
-          }
-          const walletStore = this.getWalletStore();
-          await walletStore.putSubject(wallet);
-          await walletStore.putSigners(walletSigners);
-          await this.walletAuthMethods.persistAuthority({
-            authority: ceremony.authority,
-            now,
-          });
-          if (ceremony.authority.kind === 'passkey') {
-            await this.getWebAuthnCredentialBindingStore().put({
-              version: 'webauthn_credential_binding_v1',
-              rpId: ceremony.authority.rpId,
-              credentialIdB64u: ceremony.authority.credentialIdB64u,
-              userId: ceremony.intent.walletId,
-              nearAccountId: finalized.nearAccountId,
-              nearEd25519SigningKeyId,
-              signerSlot: ed25519.signerSlot,
-              publicKey: keygen.publicKey,
-              relayerKeyId: keygen.relayerKeyId,
-              keyVersion: keygen.keyVersion,
-              recoveryExportCapable: keygen.recoveryExportCapable,
-              clientParticipantId: keygen.clientParticipantId,
-              relayerParticipantId: keygen.relayerParticipantId,
-              participantIds: keygen.participantIds,
-              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-              createdAtMs: now,
-              updatedAtMs: now,
-            });
-          }
-          deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
-        } finally {
-          finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
-        }
-        if (!deleted) {
-          return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
-        }
-        const rpId = registrationIntentResponseRpId(ceremony.intent);
-        const ed25519Response: NonNullable<
-          Extract<WalletRegistrationFinalizeResponse, { ed25519: object }>['ed25519']
-        > = {
-          nearAccountId: finalized.nearAccountId,
-          nearEd25519SigningKeyId,
-          publicKey: keygen.publicKey,
-          relayerKeyId: keygen.relayerKeyId,
-          keyVersion: keygen.keyVersion,
-          recoveryExportCapable: keygen.recoveryExportCapable,
-          clientParticipantId: keygen.clientParticipantId,
-          relayerParticipantId: keygen.relayerParticipantId,
-          participantIds: keygen.participantIds,
-          registrationWorkerMaterialReport: {
-            kind: 'threshold_ed25519_registration_worker_material_report_v1',
-            contextBindingB64u: finalized.finalizedReport.contextBindingB64u,
-            clientOutputMessageB64u: finalized.finalizedReport.clientOutputMessageB64u,
-          },
-        };
-        if (thresholdEd25519Session) ed25519Response.session = thresholdEd25519Session;
-        const response: Extract<WalletRegistrationFinalizeResponse, { ed25519: object }> = {
-          ok: true,
-          walletId: ceremony.intent.walletId,
-          authority: walletAuthAuthority,
-          authorityScope: ed25519AuthorityScope,
-          authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
-          accountProvisioning: ed25519.accountProvisioning,
-          resolvedAccount: resolvedAccount.value,
-          ed25519: ed25519Response,
-        };
-        if (rpId) response.rpId = rpId;
-        if (walletKeyResult?.ok) response.ecdsa = { walletKeys: walletKeyResult.walletKeys };
-        if (idempotencyKey) {
-          const replayCacheTiming = startD1RegistrationRouteTiming(
-            'registrationFinalizeReplayCacheMs',
-          );
-          try {
-            await store.putFinalizeReplay({
-              kind: 'wallet_registration_finalize_replay_v1',
-              registrationCeremonyId: ceremony.registrationCeremonyId,
-              idempotencyKey,
-              response,
-              createdAtMs: now,
-              expiresAtMs: ceremony.expiresAtMs,
-            });
-          } finally {
-            finishD1RegistrationRouteTiming(finalizeTiming, replayCacheTiming);
-          }
-        }
-        finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
-        return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
-      }
-      if (!requestedEvmFamilyEcdsa) {
+      if (!requestedNearEd25519 && !requestedEvmFamilyEcdsa) {
         return {
           ok: false,
           code: 'invalid_state',
           message: 'registration signer set requires a signer branch',
         };
       }
-      if (!request.ecdsa) {
-        return { ok: false, code: 'invalid_body', message: 'missing ECDSA finalize input' };
-      }
-      if (request.ed25519) {
+      if (
+        !finalizeSignerWorkMatchesPlan({
+          request,
+          hasNearEd25519: requestedNearEd25519 !== null,
+          hasEvmFamilyEcdsa: requestedEvmFamilyEcdsa !== null,
+        })
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registration signer set does not accept Ed25519 finalize input',
+          message: 'registration finalize signer work does not match the admitted signer plan',
         };
       }
       if (ceremony.signerState.kind !== 'signer_set_registration') {
@@ -2522,38 +1393,49 @@ export class CloudflareD1WalletRegistrationService {
           message: 'signer-set registration state is required',
         };
       }
-      const ecdsaState = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
-      if (!ecdsaState || ecdsaState.kind !== 'evm_family_ecdsa_responded') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'ECDSA HSS response is required before finalize',
+      const ecdsaWalletKeys: WalletRegistrationEcdsaWalletKey[] = [];
+      let ecdsaFinalizeState: D1RegistrationEcdsaFinalizeState = {
+        kind: 'ecdsa_registration_disabled',
+      };
+      if (requestedEvmFamilyEcdsa) {
+        const ecdsaState = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
+        if (!ecdsaState || ecdsaState.kind !== 'evm_family_ecdsa_responded') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'ECDSA HSS response is required before finalize',
+          };
+        }
+        const expectedKeyHandles = request.ecdsa?.expectedKeyHandles || [];
+        const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
+          String(entry.bootstrap.keyHandle || '').trim(),
+        );
+        if (hasEcdsaKeyHandleSetMismatch(expectedKeyHandles, actualKeyHandles)) {
+          return {
+            ok: false,
+            code: 'key_handle_mismatch',
+            message: 'ECDSA finalize expected key handle mismatch',
+          };
+        }
+        const ecdsaVerifyTiming = startD1RegistrationRouteTiming(
+          'registrationEcdsaBootstrapVerifyMs',
+        );
+        let walletKeyResult: ReturnType<typeof buildD1EcdsaWalletKeysFromBootstrap>;
+        try {
+          walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
+            bootstraps: ecdsaState.responded.bootstraps,
+            errorContext: 'ECDSA registration finalize',
+          });
+        } finally {
+          finishD1RegistrationRouteTiming(finalizeTiming, ecdsaVerifyTiming);
+        }
+        if (!walletKeyResult.ok) return walletKeyResult;
+        ecdsaWalletKeys.push(...walletKeyResult.walletKeys);
+        ecdsaFinalizeState = {
+          kind: 'ecdsa_registration_responded',
+          state: ecdsaState,
         };
       }
-      const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
-      const actualKeyHandles = ecdsaState.responded.bootstraps.map((entry) =>
-        String(entry.bootstrap.keyHandle || '').trim(),
-      );
-      if (hasEcdsaKeyHandleSetMismatch(expectedKeyHandles, actualKeyHandles)) {
-        return {
-          ok: false,
-          code: 'key_handle_mismatch',
-          message: 'ECDSA finalize expected key handle mismatch',
-        };
-      }
-      const ecdsaVerifyTiming = startD1RegistrationRouteTiming(
-        'registrationEcdsaBootstrapVerifyMs',
-      );
-      let walletKeyResult: ReturnType<typeof buildD1EcdsaWalletKeysFromBootstrap>;
-      try {
-        walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
-          bootstraps: ecdsaState.responded.bootstraps,
-          errorContext: 'ECDSA registration finalize',
-        });
-      } finally {
-        finishD1RegistrationRouteTiming(finalizeTiming, ecdsaVerifyTiming);
-      }
-      if (!walletKeyResult.ok) return walletKeyResult;
 
       const now = Date.now();
       const emailOtpEnrollmentTiming = startD1RegistrationRouteTiming(
@@ -2576,20 +1458,225 @@ export class CloudflareD1WalletRegistrationService {
       }
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
 
+      const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(ceremony.authority);
+      let ed25519PublicResult: WalletRegistrationEd25519YaoPublicResult | null = null;
+      let resolvedNearAccount: ResolvedRegistrationNearAccount | null = null;
+      let ed25519SignerRecord: WalletEd25519SignerRecord | null = null;
+      let ed25519CapabilityInstallation: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 | null =
+        null;
+      if (requestedNearEd25519) {
+        const yaoRuntime = this.getEd25519YaoProductRegistration();
+        if (!yaoRuntime) {
+          return {
+            ok: false,
+            code: 'not_configured',
+            message: 'Ed25519 Yao product registration is not configured',
+          };
+        }
+        const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
+        if (!normalSigningRuntime) {
+          return {
+            ok: false,
+            code: 'not_configured',
+            message: 'Router A/B normal signing is not configured',
+          };
+        }
+        const storedYao = findStoredWalletRegistrationNearEd25519YaoBranch(ceremony.signerState);
+        if (!storedYao || !request.ed25519) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'authorized Ed25519 Yao registration is required before finalize',
+          };
+        }
+        if (ceremony.preparedContext.runtimePolicy.kind !== 'runtime_policy_scope') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Ed25519 Yao wallet session requires a runtime policy scope',
+          };
+        }
+        const runtimePolicyScope = ceremony.preparedContext.runtimePolicy.scope;
+        const activationReference = request.ed25519.activationReference;
+        const consumed = yaoRuntime.consumeActivated({
+          reference: {
+            lifecycleId: activationReference.lifecycle_id,
+            sessionId: activationReference.session_id,
+          },
+          consumerBinding: alphabetizeStringify(request),
+        });
+        if (!consumed.ok) {
+          return { ok: false, code: consumed.code, message: consumed.message };
+        }
+        if (
+          alphabetizeStringify(consumed.activation.admissionRequest) !==
+          alphabetizeStringify(storedYao.admissionRequest)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'activated Ed25519 Yao registration does not match the stored signer branch',
+          };
+        }
+        const firstParticipantId = requestedNearEd25519.participantIds[0];
+        const secondParticipantId = requestedNearEd25519.participantIds[1];
+        if (
+          requestedNearEd25519.participantIds.length !== 2 ||
+          firstParticipantId === undefined ||
+          secondParticipantId === undefined
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Ed25519 Yao registration requires exactly two participants',
+          };
+        }
+        const participantIds: readonly [number, number] = [firstParticipantId, secondParticipantId];
+        const publicKeyBytes = consumed.activation.result.public_receipt.registered_public_key;
+        const publicKey = ed25519NearPublicKeyFromBytes(publicKeyBytes);
+        let nearAccountId = implicitNearAccountIdFromEd25519PublicKeyBytes(publicKeyBytes);
+        let sponsoredTransactionHash: string | undefined;
+        const sponsoredAccountId = sponsoredNamedRegistrationAccountId(
+          requestedNearEd25519.accountProvisioning,
+        );
+        if (sponsoredAccountId) {
+          const created = await this.createSponsoredNamedNearAccount({
+            accountId: sponsoredAccountId,
+            publicKey,
+          });
+          if (!created.success) {
+            return {
+              ok: false,
+              code: 'account_creation_failed',
+              message:
+                created.message || created.error || 'Failed to create sponsored NEAR account',
+            };
+          }
+          nearAccountId = created.accountId || sponsoredAccountId;
+          sponsoredTransactionHash = created.transactionHash;
+        }
+        const resolved = resolvedRegistrationNearAccount({
+          accountProvisioning: requestedNearEd25519.accountProvisioning,
+          nearAccountId,
+          nearEd25519SigningKeyId:
+            consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
+          ...(sponsoredTransactionHash ? { sponsoredTransactionHash } : {}),
+        });
+        if (!resolved.ok) return resolved;
+        resolvedNearAccount = resolved.value;
+        ed25519CapabilityInstallation = {
+          kind: 'router_ab_ed25519_yao_registration_finalize_capability_v1',
+          activeCapabilityBinding: consumed.activation.result.binding.session_id,
+          nearAccountId,
+          registrationAdmissionRequest: consumed.activation.admissionRequest,
+          registrationResult: consumed.activation.result,
+          runtimePolicyScope,
+        };
+        const activeYaoCapability =
+          buildRouterAbEd25519YaoRegistrationCapabilityRecordV1(
+            ed25519CapabilityInstallation,
+          );
+        if (!activeYaoCapability.ok) {
+          return {
+            ok: false,
+            code: activeYaoCapability.code,
+            message: activeYaoCapability.message,
+          };
+        }
+        let signingBudget: D1RegistrationEd25519SigningBudgetPlan;
+        switch (ecdsaFinalizeState.kind) {
+          case 'ecdsa_registration_disabled':
+            signingBudget = { kind: 'generated_registration_signing_budget' };
+            break;
+          case 'ecdsa_registration_responded': {
+            const resolvedSigningBudget = await resolveD1RegistrationSharedSigningBudget({
+              walletId: ceremony.intent.walletId,
+              ecdsaState: ecdsaFinalizeState.state,
+              getWalletBudgetStatus:
+                normalSigningRuntime.getSigningGrantBudgetStatus.bind(normalSigningRuntime),
+            });
+            if (!resolvedSigningBudget.ok) return resolvedSigningBudget;
+            signingBudget = {
+              kind: 'shared_registration_signing_budget',
+              budget: resolvedSigningBudget.budget,
+            };
+            break;
+          }
+          default:
+            signingBudget = assertNeverD1RegistrationEcdsaFinalizeState(ecdsaFinalizeState);
+        }
+        const session = await mintD1RegistrationEd25519WalletSession({
+          runtime: yaoRuntime,
+          identity: {
+            walletId: ceremony.intent.walletId,
+            nearAccountId,
+            nearEd25519SigningKeyId:
+              consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
+            authority: walletAuthAuthority,
+            thresholdSessionId: consumed.activation.admissionRequest.scope.wallet_session_id,
+            participantIds,
+            runtimePolicyScope,
+          },
+          signingBudget,
+        });
+        if (!session.ok) return session;
+        const provisioned =
+          await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
+            kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
+            walletId: ceremony.intent.walletId,
+            nearAccountId,
+            nearEd25519SigningKeyId:
+              consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
+            authorityScope: session.session.authorityScope,
+            thresholdSessionId: session.session.thresholdSessionId,
+            signingGrantId: session.session.signingGrantId,
+            signingWorkerId: yaoRuntime.signingWorkerId,
+            expiresAtMs: session.session.expiresAtMs,
+            participantIds,
+            remainingUses: session.session.remainingUses,
+          });
+        if (!provisioned.ok) return provisioned;
+        ed25519PublicResult = {
+          signerSlot: requestedNearEd25519.signerSlot,
+          nearAccountId,
+          nearEd25519SigningKeyId:
+            consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
+          publicKey,
+          relayerKeyId: yaoRuntime.signingWorkerId,
+          keyVersion: requestedNearEd25519.keyVersion,
+          recoveryExportCapable: true,
+          participantIds,
+          session: session.session,
+        };
+        ed25519SignerRecord = buildYaoEd25519WalletSignerRecord({
+          walletId: ceremony.intent.walletId,
+          nearAccountId,
+          nearEd25519SigningKeyId: ed25519PublicResult.nearEd25519SigningKeyId,
+          thresholdSessionId: session.session.thresholdSessionId,
+          signerSlot: requestedNearEd25519.signerSlot,
+          publicKey,
+          signingWorkerId: yaoRuntime.signingWorkerId,
+          keyVersion: requestedNearEd25519.keyVersion,
+          participantIds,
+          signingRootId: ceremony.preparedContext.signingRootId,
+          signingRootVersion: ceremony.preparedContext.signingRootVersion,
+          runtimePolicyScope,
+          activeYaoCapability: activeYaoCapability.record,
+          now,
+        });
+      }
+
       const wallet = buildD1WalletRecord({
         walletId: ceremony.intent.walletId,
         now,
       });
-      const walletSigners = buildD1WalletEcdsaSignerRecords({
+      const walletSigners: WalletSignerRecord[] = buildD1WalletEcdsaSignerRecords({
         walletId: ceremony.intent.walletId,
-        walletKeys: walletKeyResult.walletKeys,
+        walletKeys: ecdsaWalletKeys,
         now,
       });
-      const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
-        ceremony.authority,
-      );
+      if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
-      let deleted = false;
       try {
         if (emailOtpEnrollment.persistence) {
           const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
@@ -2597,30 +1684,116 @@ export class CloudflareD1WalletRegistrationService {
           );
           if (!persisted.ok) return persisted;
         }
-        const walletStore = this.getWalletStore();
-        await walletStore.putSubject(wallet);
-        await walletStore.putSigners(walletSigners);
-        await this.walletAuthMethods.persistAuthority({
+        await this.walletRegistrationCommitStore.commit({
+          wallet,
+          walletSigners,
           authority: ceremony.authority,
           now,
         });
-        deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
       }
-      if (!deleted) {
-        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      if (ed25519CapabilityInstallation) {
+        const yaoRuntime = this.getEd25519YaoProductRegistration();
+        if (!yaoRuntime) {
+          return {
+            ok: false,
+            code: 'not_configured',
+            message: 'Ed25519 Yao product registration is not configured',
+          };
+        }
+        const installed = yaoRuntime.installRegistrationFinalizeCapability(
+          ed25519CapabilityInstallation,
+        );
+        if (!installed.ok) {
+          return {
+            ok: false,
+            code: installed.code,
+            message: installed.message,
+          };
+        }
       }
-      const response: Extract<WalletRegistrationFinalizeResponse, { ecdsa: object }> = {
-        ok: true,
-        walletId: ceremony.intent.walletId,
-        authority: walletAuthAuthority,
-        authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
-        ecdsa: {
-          walletKeys: walletKeyResult.walletKeys,
-        },
-      };
-      if (ceremony.authority.kind === 'passkey') response.rpId = ceremony.authority.rpId;
+      const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority);
+      let response: WalletRegistrationFinalizeSuccess;
+      if (ed25519PublicResult && requestedNearEd25519 && resolvedNearAccount) {
+        const authorityScope =
+          thresholdEd25519AuthorityScopeFromWalletAuthAuthority(walletAuthAuthority);
+        if (requestedEvmFamilyEcdsa) {
+          response =
+            authMethod.kind === 'passkey'
+              ? {
+                  ok: true,
+                  kind: 'near_ed25519_and_evm_family_ecdsa',
+                  walletId: ceremony.intent.walletId,
+                  authority: walletAuthAuthority,
+                  rpId: finalizePasskeyRpId(ceremony.authority),
+                  authMethod,
+                  authorityScope,
+                  accountProvisioning: requestedNearEd25519.accountProvisioning,
+                  resolvedAccount: resolvedNearAccount,
+                  ed25519: ed25519PublicResult,
+                  ecdsa: { walletKeys: ecdsaWalletKeys },
+                }
+              : {
+                  ok: true,
+                  kind: 'near_ed25519_and_evm_family_ecdsa',
+                  walletId: ceremony.intent.walletId,
+                  authority: walletAuthAuthority,
+                  authMethod,
+                  authorityScope,
+                  accountProvisioning: requestedNearEd25519.accountProvisioning,
+                  resolvedAccount: resolvedNearAccount,
+                  ed25519: ed25519PublicResult,
+                  ecdsa: { walletKeys: ecdsaWalletKeys },
+                };
+        } else {
+          response =
+            authMethod.kind === 'passkey'
+              ? {
+                  ok: true,
+                  kind: 'near_ed25519',
+                  walletId: ceremony.intent.walletId,
+                  authority: walletAuthAuthority,
+                  rpId: finalizePasskeyRpId(ceremony.authority),
+                  authMethod,
+                  authorityScope,
+                  accountProvisioning: requestedNearEd25519.accountProvisioning,
+                  resolvedAccount: resolvedNearAccount,
+                  ed25519: ed25519PublicResult,
+                }
+              : {
+                  ok: true,
+                  kind: 'near_ed25519',
+                  walletId: ceremony.intent.walletId,
+                  authority: walletAuthAuthority,
+                  authMethod,
+                  authorityScope,
+                  accountProvisioning: requestedNearEd25519.accountProvisioning,
+                  resolvedAccount: resolvedNearAccount,
+                  ed25519: ed25519PublicResult,
+                };
+        }
+      } else {
+        response =
+          authMethod.kind === 'passkey'
+            ? {
+                ok: true,
+                kind: 'evm_family_ecdsa',
+                walletId: ceremony.intent.walletId,
+                authority: walletAuthAuthority,
+                rpId: finalizePasskeyRpId(ceremony.authority),
+                authMethod,
+                ecdsa: { walletKeys: ecdsaWalletKeys },
+              }
+            : {
+                ok: true,
+                kind: 'evm_family_ecdsa',
+                walletId: ceremony.intent.walletId,
+                authority: walletAuthAuthority,
+                authMethod,
+                ecdsa: { walletKeys: ecdsaWalletKeys },
+              };
+      }
       if (idempotencyKey) {
         const replayCacheTiming = startD1RegistrationRouteTiming(
           'registrationFinalizeReplayCacheMs',
@@ -2637,6 +1810,15 @@ export class CloudflareD1WalletRegistrationService {
         } finally {
           finishD1RegistrationRouteTiming(finalizeTiming, replayCacheTiming);
         }
+      }
+      let deleted = false;
+      try {
+        deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
+      } catch (error: unknown) {
+        if (!idempotencyKey) throw error;
+      }
+      if (!deleted && !idempotencyKey) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
       finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
       return withD1RegistrationRouteDiagnostics(response, finalizeTiming);

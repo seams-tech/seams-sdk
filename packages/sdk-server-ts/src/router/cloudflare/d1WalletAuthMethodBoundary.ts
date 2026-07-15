@@ -9,6 +9,11 @@ import {
   type WebAuthnRpId,
   type WalletId,
 } from '@shared/utils/registrationIntent';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
   StoredWalletAddAuthMethodCeremony,
@@ -128,6 +133,27 @@ export function walletRegistrationFinalizeAuthMethodFromAuthority(
         kind: 'email_otp',
         registrationAuthorityId: authority.registrationAuthorityId,
       };
+  }
+  return unreachableRegistrationAuthority(authority);
+}
+
+export function walletAuthAuthorityFromRegistrationAuthority(
+  authority: RegistrationAuthority,
+): WalletAuthAuthority {
+  switch (authority.kind) {
+    case 'passkey':
+      return buildPasskeyWalletAuthAuthority({
+        walletId: authority.walletId,
+        rpId: authority.rpId,
+        credentialIdB64u: authority.credentialIdB64u,
+      });
+    case 'email_otp':
+      return buildEmailOtpWalletAuthAuthority({
+        walletId: authority.walletId,
+        provider: authority.proofKind === 'google_sso_registration' ? 'google' : 'email',
+        providerUserId: authority.providerSubject,
+        emailHashHex: authority.emailHashHex,
+      });
   }
   return unreachableRegistrationAuthority(authority);
 }

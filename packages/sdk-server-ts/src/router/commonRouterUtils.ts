@@ -17,6 +17,7 @@ import type {
 } from './routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -600,6 +601,12 @@ function buildRouterAbEd25519WalletSessionClaims(
   };
 }
 
+function requireEvmFamilySigningKeySlotId(value: unknown) {
+  const parsed = parseEvmFamilySigningKeySlotId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function buildRouterAbEcdsaHssWalletSessionClaims(
   input: RouterAbEcdsaHssWalletSessionClaimsBuildInput,
 ): RouterAbEcdsaHssWalletSessionClaims {
@@ -612,7 +619,9 @@ function buildRouterAbEcdsaHssWalletSessionClaims(
     keyScope: 'evm-family',
     keyHandle: input.keyHandle,
     relayerKeyId: input.base.relayerKeyId,
-    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+      input.evmFamilySigningKeySlotId,
+    ),
     routerAbEcdsaHssNormalSigning: input.binding.normalSigning,
     participantIds: input.base.participantIds,
     thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,

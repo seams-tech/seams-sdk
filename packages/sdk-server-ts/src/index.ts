@@ -29,7 +29,6 @@ export {
   createSelfHostedSigningRootShareResolver,
   ensureSigningRootSecretShareD1Schema,
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
-  deriveEd25519HssServerInputsFromSigningRootShareResolver,
   computeSigningRootMigrationBundleChecksumB64u,
   createSigningRootMigrationExportArtifact,
   createSigningRootMigrationWalletInventory,
@@ -38,7 +37,6 @@ export type {
   CreateHostedSigningRootShareResolverInput,
   CreateSelfHostedSigningRootShareResolverInput,
   DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
-  DeriveEd25519HssServerInputsFromSigningRootShareResolverInput,
   D1SigningRootSecretStoreOptions,
   D1SigningRootSecretStoreSchemaOptions,
   FixedSigningRootScope,
@@ -67,16 +65,6 @@ export {
   secp256k1PublicKey33ToEthereumAddress,
 } from './core/ThresholdService/ethSignerWasm';
 export type { ServerEip1559UnsignedTx } from './core/ThresholdService/ethSignerWasm';
-export {
-  ensureThresholdEd25519HssWasm,
-  deriveThresholdEd25519HssPublicKey,
-  finalizeThresholdEd25519HssServerCeremony,
-  openThresholdEd25519HssSeedOutput,
-  openThresholdEd25519HssServerOutput,
-  prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
-  prepareThresholdEd25519HssServerCeremony,
-  finalizeThresholdEd25519HssReport,
-} from './core/ThresholdService/ed25519HssWasm';
 export type {
   ThresholdEd25519KeyStore,
   ThresholdEd25519KeyRecord,

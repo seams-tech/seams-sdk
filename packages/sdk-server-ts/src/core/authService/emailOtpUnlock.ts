@@ -47,6 +47,8 @@ export type VerifyEmailOtpUnlockProofResult =
       verified: true;
       userId: string;
       walletId: string;
+      providerUserId: string;
+      orgId: string;
       unlockKeyVersion: string;
     }
   | { ok: false; verified: false; code: string; message: string };
@@ -332,6 +334,8 @@ export async function verifyEmailOtpUnlockProof(
       verified: true,
       userId: enrollment.walletId,
       walletId: enrollment.walletId,
+      providerUserId: enrollment.providerUserId,
+      orgId: enrollment.orgId,
       unlockKeyVersion: enrollment.unlockKeyVersion,
     };
   } catch (e: unknown) {
