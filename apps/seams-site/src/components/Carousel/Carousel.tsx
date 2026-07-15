@@ -1,109 +1,123 @@
 import React from 'react';
-import { useCarousel } from './CarouselProvider';
+import './CarouselStyles.css';
+
+export type CarouselPage = {
+  /** Stable identity (kept for readability; the component keys DOM by index). */
+  key: string;
+  title?: string;
+  disabled?: boolean;
+  element: React.ReactNode | (() => React.ReactNode);
+};
+
+/* Timing. The outgoing page stays mounted for HOLD_MS so its fade can finish;
+   the height eases over HEIGHT_MS. Both are shorter than HOLD_MS so the stage
+   settles before the outgoing page unmounts. */
+const HOLD_MS = 300;
+const HEIGHT_MS = 260;
 
 /**
- * Renders the active page and (when animating) the outgoing page layered.
- * Uses CSS classes and data-attributes to drive slide/fade animations.
+ * A minimal controlled carousel: shows `pages[index]`, cross-fades on change,
+ * and eases the container height between differently-sized pages.
+ *
+ * Geometry is deliberately fixed: pages stack in a single grid cell and the
+ * container width comes from `style` (the consumer's fixed width), never from
+ * content — so switching pages can't resize or re-center the card. The only
+ * animated dimension is height, driven imperatively in a layout effect.
+ *
+ * Enter/exit motion is pure CSS: the incoming page (keyed by index) mounts
+ * fresh and runs its keyframe; the outgoing page keeps the exact DOM that was
+ * on screen and fades out. No transition state machine.
  */
-export function Carousel({ style }: { style?: React.CSSProperties }) {
-  const { pages, index, transition, direction, rootStyle, nextSlide, prevSlide, isFirst, isLast } =
-    useCarousel();
+export function Carousel({
+  pages,
+  index,
+  className,
+  style,
+}: {
+  pages: CarouselPage[];
+  index: number;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
   const [leavingIndex, setLeavingIndex] = React.useState<number | null>(null);
-  const [stageKey, setStageKey] = React.useState(0);
-  const [activate, setActivate] = React.useState(false);
+  const prevIndexRef = React.useRef(index);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
   const enterRef = React.useRef<HTMLDivElement | null>(null);
   const exitRef = React.useRef<HTMLDivElement | null>(null);
 
-  const prevIndexRef = React.useRef(index);
-  const initialRef = React.useRef(true);
-
-  React.useEffect(() => {
-    if (index !== prevIndexRef.current) {
-      setLeavingIndex(prevIndexRef.current);
-      prevIndexRef.current = index;
-      // bump stage key to retrigger enter state
-      setActivate(false);
-      setStageKey((k) => k + 1);
-      const timeout = setTimeout(() => setLeavingIndex(null), 300); // match CSS slide duration
-      return () => clearTimeout(timeout);
-    }
+  // Begin a transition the instant the controlled index changes — before paint,
+  // so the outgoing copy is already mounted on the first painted frame (no
+  // hard-cut flash).
+  React.useLayoutEffect(() => {
+    if (index === prevIndexRef.current) return;
+    const prev = prevIndexRef.current;
+    prevIndexRef.current = index;
+    setLeavingIndex(prev);
+    const timeout = setTimeout(() => setLeavingIndex(null), HOLD_MS);
+    return () => clearTimeout(timeout);
   }, [index]);
 
-  // Toggle active/leaving classes in the next frame so transitions fire
-  React.useEffect(() => {
-    // First render: show content without animating in
-    if (initialRef.current && stageKey === 0) {
-      setActivate(true);
-      initialRef.current = false;
-      return;
-    }
-    setActivate(false);
-    const raf = requestAnimationFrame(() => setActivate(true));
-    return () => cancelAnimationFrame(raf);
-  }, [stageKey]);
+  // Ease the stage height from the outgoing page's height to the incoming
+  // one's, in the same pre-paint pass. Runs on [leavingIndex] so both nodes are
+  // guaranteed mounted and measurable. Freeze → animate → release.
+  React.useLayoutEffect(() => {
+    if (leavingIndex == null) return;
+    const stage = stageRef.current;
+    const enter = enterRef.current;
+    const exit = exitRef.current;
+    if (!stage || !enter || !exit) return;
+    const from = exit.offsetHeight;
+    const to = enter.offsetHeight;
+    if (!from || !to || Math.abs(from - to) < 1) return;
 
-  // Removed height animation: let the stage size naturally to content changes
+    stage.style.height = `${from}px`;
+    void stage.offsetHeight; // reflow to lock the start height
+    stage.style.transition = `height ${HEIGHT_MS}ms var(--site-ease)`;
+    stage.style.height = `${to}px`;
+
+    // Release to auto only after the outgoing page unmounts (HOLD_MS) — clearing
+    // earlier would resolve auto against the taller page for a frame.
+    const clear = () => {
+      stage.style.transition = '';
+      stage.style.height = '';
+    };
+    const timer = setTimeout(clear, HOLD_MS + 20);
+    return () => {
+      clearTimeout(timer);
+      clear();
+    };
+  }, [leavingIndex]);
+
+  const render = (page: CarouselPage | undefined): React.ReactNode =>
+    page ? (typeof page.element === 'function' ? page.element() : page.element) : null;
 
   const activePage = pages[index];
   const leavingPage = leavingIndex != null ? pages[leavingIndex] : null;
 
-  const mergedStyle = React.useMemo(
-    () => ({ ...(rootStyle || {}), ...(style || {}) }),
-    [rootStyle, style],
-  );
-
-  const renderPage = React.useCallback(
-    (page: (typeof pages)[number] | null) => {
-      if (!page) return null;
-      const el = page.element as any;
-      if (typeof el === 'function') {
-        // compute whether there is an enabled prev/next
-        let canPrev = false;
-        for (let i = index - 1; i >= 0; i--) {
-          if (!pages[i]?.disabled) {
-            canPrev = true;
-            break;
-          }
-        }
-        let canNext = false;
-        for (let i = index + 1; i < pages.length; i++) {
-          if (!pages[i]?.disabled) {
-            canNext = true;
-            break;
-          }
-        }
-        return el({ index, isFirst, isLast, canPrev, canNext, nextSlide, prevSlide });
-      }
-      return el;
-    },
-    [index, isFirst, isLast, nextSlide, prevSlide, pages],
-  );
-
   return (
     <div
-      className="carousel-root"
-      data-transition={transition}
-      data-dir={direction}
+      className={['carousel-root', className].filter(Boolean).join(' ')}
+      style={style}
       aria-live="polite"
-      style={mergedStyle}
     >
-      <div className="carousel-stage" key={stageKey} ref={stageRef}>
+      <div className="carousel-stage" ref={stageRef}>
         {leavingPage && (
           <div
+            key={`exit-${leavingIndex}`}
             ref={exitRef}
-            className={`carousel-page page--exit${activate ? ' page--leaving' : ''}`}
+            className="carousel-page page--exit"
             aria-hidden
           >
-            {renderPage(leavingPage)}
+            {render(leavingPage)}
           </div>
         )}
         {activePage && (
           <div
+            key={`enter-${index}`}
             ref={enterRef}
-            className={`carousel-page page--enter${activate ? ' page--active' : ''}`}
+            className={`carousel-page page--enter${leavingPage ? ' page--animating' : ''}`}
           >
-            {renderPage(activePage)}
+            {render(activePage)}
           </div>
         )}
       </div>

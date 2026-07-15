@@ -7,12 +7,20 @@ import {
   DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_OPTIONS,
+  DASHBOARD_PRODUCTS,
+  DEFAULT_DASHBOARD_PRODUCT_ID,
   DEFAULT_DASHBOARD_ROUTE,
   getRouteFromPathname,
   getViewForRoute,
   SIDEBAR_GROUPS,
 } from './dashboardConfig';
-import type { DashboardRoute, TopbarContextState, TopbarMenuKey, TopbarOption } from './types';
+import type {
+  DashboardProductId,
+  DashboardRoute,
+  TopbarContextState,
+  TopbarMenuKey,
+  TopbarOption,
+} from './types';
 import {
   DashboardConsoleSessionProvider,
   revokeDashboardConsoleSession,
@@ -157,6 +165,9 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     null,
   );
   const [onboardingGateEnabled, setOnboardingGateEnabled] = React.useState<boolean>(true);
+  const [selectedProductId, setSelectedProductId] = React.useState<DashboardProductId>(
+    DEFAULT_DASHBOARD_PRODUCT_ID,
+  );
   const [logoutPending, setLogoutPending] = React.useState<boolean>(false);
   const [logoutErrorMessage, setLogoutErrorMessage] = React.useState<string>('');
   const [contextActionErrorMessage, setContextActionErrorMessage] = React.useState<string>('');
@@ -1084,6 +1095,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         onToggleGroup={toggleGroup}
         linkProps={linkProps}
         homeProps={homeProps}
+        product={{
+          products: DASHBOARD_PRODUCTS,
+          currentId: selectedProductId,
+          onSelect: setSelectedProductId,
+        }}
         workspace={{
           options: dropdownOptions.organization,
           currentValue: selectedContext.organization,

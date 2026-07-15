@@ -4,10 +4,13 @@ import {
   useSeams,
   type GoogleEmailOtpWalletAuthEcdsaTargets,
   type RegistrationResult,
+  type RegistrationSignerSetSelection,
+  type WalletIframeRegistrationActivationSurface,
 } from '@seams/sdk/react';
 import {
   encodeSignedTransactionBase64,
   nearAccountRefFromAccountId,
+  parseWebAuthnRpId,
   toWalletId,
   type ThresholdEcdsaChainTarget,
   walletSessionRefFromSession,
@@ -15,6 +18,9 @@ import {
 
 type IntendedActionName =
   | 'registerPasskeyWallet'
+  | 'registerPasskeyEd25519YaoWallet'
+  | 'registerPreparedIframePasskeyEd25519YaoWallet'
+  | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
@@ -22,9 +28,7 @@ type IntendedActionName =
   | 'signTempoTransaction'
   | 'signArcEvmTransaction'
   | 'exportEd25519Key'
-  | 'exportEcdsaKey'
-  | 'startEmailRecovery'
-  | 'finalizeEmailRecovery';
+  | 'exportEcdsaKey';
 
 type IntendedLifecycleEvent = {
   index: number;
@@ -87,9 +91,10 @@ type IntendedEmailOtpEcdsaTargetProfile =
       chainTargets: readonly [ThresholdEcdsaChainTarget, ThresholdEcdsaChainTarget];
     };
 
-type IntendedPasskeyEcdsaTargetProfile = {
-  kind: IntendedEcdsaTargetProfileName;
-};
+type IntendedPasskeyEcdsaTargetProfile =
+  | { kind: 'none' }
+  | { kind: 'tempo' }
+  | { kind: 'tempo_arc' };
 
 type IntendedEcdsaSignerProvisioningDefaults = ReturnType<
   typeof useSeams
@@ -153,6 +158,14 @@ type PasskeyRegistrationCoreSummary = {
 
 type PasskeyRegistrationResultSummary = PasskeyRegistrationCoreSummary & IntendedEcdsaSummary;
 
+type Ed25519AddSignerResultSummary = {
+  kind: 'near_ed25519_signer_added';
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  operationalPublicKey: string;
+};
+
 type EmailOtpRegistrationCoreSummary = {
   kind: 'email_otp_registration_success';
   initialWalletId: string;
@@ -209,36 +222,21 @@ type ArcEvmSigningResultSummary = {
   rawTxHex: `0x${string}`;
 };
 
-type Ed25519ExportResultSummary = {
-  kind: 'ed25519_export_success';
-  walletId: string;
-  nearAccountId: string;
-};
-
 type EcdsaExportResultSummary = {
   kind: 'ecdsa_export_success';
   walletId: string;
   chainId: number;
 };
 
-type EmailRecoveryStartResultSummary = {
-  kind: 'email_recovery_start_success';
+type Ed25519ExportResultSummary = {
+  kind: 'ed25519_export_success';
   walletId: string;
   nearAccountId: string;
-  nearPublicKey: string;
-  mailtoUrl: string;
-  ecdsaTargetKeys: IntendedEcdsaTargetKeysSummary;
-};
-
-type EmailRecoveryFinalizeResultSummary = {
-  kind: 'email_recovery_finalize_success';
-  walletId: string;
-  nearAccountId: string;
-  nearPublicKey: string;
 };
 
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
+  | Ed25519AddSignerResultSummary
   | EmailOtpRegistrationResultSummary
   | NearSigningResultSummary
   | PasskeyUnlockResultSummary
@@ -246,16 +244,14 @@ type IntendedActionResult =
   | TempoSigningResultSummary
   | ArcEvmSigningResultSummary
   | Ed25519ExportResultSummary
-  | EcdsaExportResultSummary
-  | EmailRecoveryStartResultSummary
-  | EmailRecoveryFinalizeResultSummary;
+  | EcdsaExportResultSummary;
 
 type IntendedPageState = {
   action: IntendedActionState;
   events: readonly IntendedLifecycleEvent[];
   walletId: string;
   nearAccountId: string | null;
-  recoveryNearPublicKey: string | null;
+  nearSignerSlot: number;
 };
 
 type IntendedPageAction =
@@ -282,8 +278,8 @@ type IntendedPageQuery = {
   flow: string;
   walletId: string;
   nearAccountId: string | null;
+  nearSignerSlot: number;
   googleIdToken: string | null;
-  recoveryNearPublicKey: string | null;
   passkeyEcdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
   emailOtpEcdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
 };
@@ -291,8 +287,8 @@ type IntendedPageQuery = {
 type IntendedPageControllerArgs = {
   walletId: string;
   nearAccountId: string | null;
+  nearSignerSlot: number;
   googleIdToken: string | null;
-  recoveryNearPublicKey: string | null;
   passkeyEcdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
   emailOtpEcdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
   seams: ReturnType<typeof useSeams>['seams'];
@@ -320,9 +316,7 @@ type IntendedEmailOtpOutboxSuccess = {
 
 declare global {
   interface Window {
-    __seamsIntendedE2EReadEmailOtpCode?: (
-      input: IntendedEmailOtpCodeRequest,
-    ) => Promise<string>;
+    __seamsIntendedE2EReadEmailOtpCode?: (input: IntendedEmailOtpCodeRequest) => Promise<string>;
   }
 }
 
@@ -346,6 +340,66 @@ const INTENDED_MAX_PRIORITY_FEE_PER_GAS = 1n;
 const INTENDED_MAX_FEE_PER_GAS = 1n;
 const INTENDED_EVM_GAS_LIMIT = 21_000n;
 
+function intendedRegistrationRpId() {
+  const parsed = parseWebAuthnRpId(window.location.hostname);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
+}
+
+function intendedEd25519YaoSignerSelection(): RegistrationSignerSetSelection {
+  return {
+    kind: 'signer_set',
+    signers: [
+      {
+        kind: 'near_ed25519',
+        accountProvisioning: {
+          kind: 'implicit_account',
+          accountIdSource: 'ed25519_public_key',
+        },
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    ],
+  };
+}
+
+function resolveIntendedActivationPoll(resolve: () => void): void {
+  window.setTimeout(resolve, 25);
+}
+
+function waitForIntendedActivationPoll(): Promise<void> {
+  return new Promise(resolveIntendedActivationPoll);
+}
+
+async function waitForIntendedRegistrationActivation(
+  surface: WalletIframeRegistrationActivationSurface,
+): Promise<RegistrationResult> {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const state = surface.state();
+    switch (state.kind) {
+      case 'completed':
+        return state.result;
+      case 'cancelled':
+        throw new Error(`Prepared iframe registration was cancelled: ${state.reason}`);
+      case 'failed':
+        throw new Error(state.error);
+      case 'idle':
+      case 'mounting':
+      case 'ready':
+      case 'starting':
+        await waitForIntendedActivationPoll();
+        break;
+      default:
+        assertNever(state);
+    }
+  }
+  throw new Error('Prepared iframe registration timed out');
+}
+
 function intendedEcdsaChainTarget(
   chain: IntendedEcdsaTargetKeySummary['chain'],
 ): ThresholdEcdsaChainTarget {
@@ -365,23 +419,19 @@ function initialIntendedPageState(query: IntendedPageQuery): IntendedPageState {
     events: [],
     walletId: query.walletId,
     nearAccountId: query.nearAccountId,
-    recoveryNearPublicKey: null,
+    nearSignerSlot: query.nearSignerSlot,
   };
 }
 
 export const IntendedBehaviourE2EPage: React.FC = () => {
   const seamsContext = useSeams();
   const query = readIntendedPageQuery();
-  const [state, dispatch] = React.useReducer(
-    intendedPageReducer,
-    query,
-    initialIntendedPageState,
-  );
+  const [state, dispatch] = React.useReducer(intendedPageReducer, query, initialIntendedPageState);
   const controller = new IntendedPageController({
     walletId: state.walletId,
     nearAccountId: state.nearAccountId,
+    nearSignerSlot: state.nearSignerSlot,
     googleIdToken: query.googleIdToken,
-    recoveryNearPublicKey: state.recoveryNearPublicKey,
     passkeyEcdsaTargetProfile: query.passkeyEcdsaTargetProfile,
     emailOtpEcdsaTargetProfile: query.emailOtpEcdsaTargetProfile,
     seams: seamsContext.seams,
@@ -419,6 +469,37 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
             style={buttonStyle}
           >
             Register Passkey
+          </button>
+          <button
+            type="button"
+            data-testid="intended-register-passkey-ed25519-yao"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterPasskeyEd25519YaoWallet}
+            style={buttonStyle}
+          >
+            Register Passkey Ed25519 Yao
+          </button>
+          <button
+            type="button"
+            data-testid="intended-register-prepared-iframe-passkey-ed25519-yao"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterPreparedIframePasskeyEd25519YaoWallet}
+            style={buttonStyle}
+          >
+            Prepare Iframe Passkey Ed25519 Yao
+          </button>
+          <div
+            data-testid="intended-prepared-iframe-registration-target"
+            style={registrationActivationTargetStyle}
+          />
+          <button
+            type="button"
+            data-testid="intended-add-passkey-ed25519-yao-signer"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runAddPasskeyEd25519YaoWalletSigner}
+            style={buttonStyle}
+          >
+            Add Passkey Ed25519 Yao Signer
           </button>
           <button
             type="button"
@@ -481,7 +562,7 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
             onClick={controller.runExportEd25519Key}
             style={buttonStyle}
           >
-            Export NEAR
+            Export Ed25519
           </button>
           <button
             type="button"
@@ -491,24 +572,6 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
             style={buttonStyle}
           >
             Export ECDSA
-          </button>
-          <button
-            type="button"
-            data-testid="intended-start-email-recovery"
-            disabled={state.action.status === 'running'}
-            onClick={controller.runStartEmailRecovery}
-            style={buttonStyle}
-          >
-            Start Recovery
-          </button>
-          <button
-            type="button"
-            data-testid="intended-finalize-email-recovery"
-            disabled={state.action.status === 'running'}
-            onClick={controller.runFinalizeEmailRecovery}
-            style={buttonStyle}
-          >
-            Finalize Recovery
           </button>
         </div>
         <output
@@ -532,9 +595,9 @@ class IntendedPageController {
 
   private nearAccountId: string | null;
 
-  private readonly googleIdToken: string | null;
+  private readonly nearSignerSlot: number;
 
-  private readonly recoveryNearPublicKey: string | null;
+  private readonly googleIdToken: string | null;
 
   private readonly passkeyEcdsaTargetProfile: IntendedPasskeyEcdsaTargetProfile;
 
@@ -551,8 +614,8 @@ class IntendedPageController {
   constructor(args: IntendedPageControllerArgs) {
     this.walletId = args.walletId;
     this.nearAccountId = args.nearAccountId;
+    this.nearSignerSlot = args.nearSignerSlot;
     this.googleIdToken = args.googleIdToken;
-    this.recoveryNearPublicKey = args.recoveryNearPublicKey;
     this.passkeyEcdsaTargetProfile = args.passkeyEcdsaTargetProfile;
     this.emailOtpEcdsaTargetProfile = args.emailOtpEcdsaTargetProfile;
     this.seams = args.seams;
@@ -563,6 +626,18 @@ class IntendedPageController {
 
   runRegisterPasskeyWallet = (): void => {
     void this.registerPasskeyWallet();
+  };
+
+  runRegisterPasskeyEd25519YaoWallet = (): void => {
+    void this.registerPasskeyEd25519YaoWallet();
+  };
+
+  runRegisterPreparedIframePasskeyEd25519YaoWallet = (): void => {
+    void this.registerPreparedIframePasskeyEd25519YaoWallet();
+  };
+
+  runAddPasskeyEd25519YaoWalletSigner = (): void => {
+    void this.addPasskeyEd25519YaoWalletSigner();
   };
 
   runRegisterEmailOtpWallet = (): void => {
@@ -589,20 +664,12 @@ class IntendedPageController {
     void this.signArcEvmTransaction();
   };
 
-  runExportEd25519Key = (): void => {
-    void this.exportEd25519Key();
-  };
-
   runExportEcdsaKey = (): void => {
     void this.exportEcdsaKey();
   };
 
-  runStartEmailRecovery = (): void => {
-    void this.startEmailRecovery();
-  };
-
-  runFinalizeEmailRecovery = (): void => {
-    void this.finalizeEmailRecovery();
+  runExportEd25519Key = (): void => {
+    void this.exportEd25519Key();
   };
 
   private async registerPasskeyWallet(): Promise<void> {
@@ -639,6 +706,132 @@ class IntendedPageController {
         operationalPublicKey: registration.operationalPublicKey,
         ...ecdsa,
       };
+      this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async registerPasskeyEd25519YaoWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerPasskeyEd25519YaoWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const result = await this.seams.registration.registerWallet({
+        authMethod: {
+          kind: 'passkey',
+          rpId: intendedRegistrationRpId(),
+        },
+        wallet: {
+          kind: 'provided',
+          walletId: toWalletId(this.walletId),
+        },
+        signerSelection: intendedEd25519YaoSignerSelection(),
+        options: {
+          onEvent: this.recordLifecycleEvent,
+        },
+      });
+      const registration = assertPasskeyRegistrationSucceeded({
+        result,
+        expectedWalletId: this.walletId,
+        ecdsaTargetProfile: { kind: 'none' },
+      });
+      await this.refreshLoginState(registration.walletId);
+      const summary: PasskeyRegistrationResultSummary = {
+        kind: registration.kind,
+        walletId: registration.walletId,
+        nearAccountId: registration.nearAccountId,
+        nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
+        operationalPublicKey: registration.operationalPublicKey,
+        ecdsaTargetProfile: 'none',
+        ecdsaTargetKeys: { kind: 'none' },
+      };
+      this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async registerPreparedIframePasskeyEd25519YaoWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerPreparedIframePasskeyEd25519YaoWallet';
+    this.dispatch({ kind: 'action_started', action });
+    const target = document.querySelector<HTMLElement>(
+      '[data-testid="intended-prepared-iframe-registration-target"]',
+    );
+    if (!target) {
+      this.dispatch({
+        kind: 'action_failed',
+        action,
+        error: 'Prepared iframe registration target is unavailable',
+      });
+      return;
+    }
+    const surface = this.seams.registration.createPasskeyRegistrationActivationSurface({
+      wallet: {
+        kind: 'provided',
+        walletId: toWalletId(this.walletId),
+      },
+      signerSelection: intendedEd25519YaoSignerSelection(),
+      options: {
+        onEvent: this.recordLifecycleEvent,
+      },
+      presentation: {
+        kind: 'outline_overlay',
+        label: 'Create Ed25519 wallet',
+        busyLabel: 'Creating Ed25519 wallet...',
+        accessibleLabel: 'Create Ed25519 wallet with passkey',
+      },
+    });
+    try {
+      surface.mount(target);
+      const result = await waitForIntendedRegistrationActivation(surface);
+      const registration = assertPasskeyRegistrationSucceeded({
+        result,
+        expectedWalletId: this.walletId,
+        ecdsaTargetProfile: { kind: 'none' },
+      });
+      await this.refreshLoginState(registration.walletId);
+      const summary: PasskeyRegistrationResultSummary = {
+        kind: registration.kind,
+        walletId: registration.walletId,
+        nearAccountId: registration.nearAccountId,
+        nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
+        operationalPublicKey: registration.operationalPublicKey,
+        ecdsaTargetProfile: 'none',
+        ecdsaTargetKeys: { kind: 'none' },
+      };
+      this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    } finally {
+      surface.dispose();
+    }
+  }
+
+  private async addPasskeyEd25519YaoWalletSigner(): Promise<void> {
+    const action: IntendedActionName = 'addPasskeyEd25519YaoWalletSigner';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const result = await this.seams.registration.addWalletSigner({
+        walletId: toWalletId(this.walletId),
+        rpId: intendedRegistrationRpId(),
+        signerSelection: {
+          mode: 'ed25519',
+          ed25519: {
+            mode: 'create_implicit_near_account',
+            signerSlot: 2,
+            participantIds: [1, 2],
+            keyPurpose: 'near_tx',
+            keyVersion: 'router-ab-ed25519-yao-v1',
+            derivationVersion: 1,
+          },
+        },
+        options: {
+          onEvent: this.recordLifecycleEvent,
+        },
+      });
+      const summary = assertEd25519AddSignerSucceeded(result, this.walletId);
+      this.nearAccountId = summary.nearAccountId;
+      await this.refreshLoginState(summary.walletId);
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -689,6 +882,7 @@ class IntendedPageController {
     const action: IntendedActionName = 'unlockPasskeyWallet';
     this.dispatch({ kind: 'action_started', action });
     try {
+      await this.seams.auth.lock();
       const result = await this.seams.auth.unlock(this.walletId, {
         onEvent: this.recordLifecycleEvent,
       });
@@ -704,6 +898,7 @@ class IntendedPageController {
     const action: IntendedActionName = 'unlockEmailOtpWallet';
     this.dispatch({ kind: 'action_started', action });
     try {
+      await this.seams.auth.lock();
       const unlock = await this.unlockEmailOtpWalletWithPublicSdk();
       await this.refreshLoginState(unlock.walletId);
       const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
@@ -748,17 +943,6 @@ class IntendedPageController {
     }
   }
 
-  private async exportEd25519Key(): Promise<void> {
-    const action: IntendedActionName = 'exportEd25519Key';
-    this.dispatch({ kind: 'action_started', action });
-    try {
-      const summary = await this.exportEd25519KeyWithPublicSdk();
-      this.dispatch({ kind: 'action_succeeded', action, result: summary });
-    } catch (error) {
-      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
-    }
-  }
-
   private async exportEcdsaKey(): Promise<void> {
     const action: IntendedActionName = 'exportEcdsaKey';
     this.dispatch({ kind: 'action_started', action });
@@ -770,67 +954,12 @@ class IntendedPageController {
     }
   }
 
-  private async startEmailRecovery(): Promise<void> {
-    const action: IntendedActionName = 'startEmailRecovery';
+  private async exportEd25519Key(): Promise<void> {
+    const action: IntendedActionName = 'exportEd25519Key';
     this.dispatch({ kind: 'action_started', action });
     try {
-      const nearAccountId = requireNearAccountId(this.nearAccountId);
-      const recovery = await this.seams.recovery.startEmailRecovery({
-        walletId: this.walletId,
-        options: {
-          onEvent: this.recordLifecycleEvent,
-        },
-      });
-      const nearPublicKey = requireNonEmptyString(
-        recovery.nearPublicKey,
-        'Email recovery nearPublicKey',
-      );
-      const mailtoUrl = requireNonEmptyString(recovery.mailtoUrl, 'Email recovery mailtoUrl');
-      const ecdsaTargetKeys = await this.readEcdsaTargetKeys('tempo_arc');
-      this.dispatch({
-        kind: 'action_succeeded',
-        action,
-        result: {
-          kind: 'email_recovery_start_success',
-          walletId: this.walletId,
-          nearAccountId,
-          nearPublicKey,
-          mailtoUrl,
-          ecdsaTargetKeys,
-        },
-      });
-    } catch (error) {
-      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
-    }
-  }
-
-  private async finalizeEmailRecovery(): Promise<void> {
-    const action: IntendedActionName = 'finalizeEmailRecovery';
-    this.dispatch({ kind: 'action_started', action });
-    try {
-      const nearAccountId = requireNearAccountId(this.nearAccountId);
-      const nearPublicKey = requireNonEmptyString(
-        this.recoveryNearPublicKey,
-        'Email recovery nearPublicKey',
-      );
-      await this.seams.recovery.finalizeEmailRecovery({
-        walletId: this.walletId,
-        nearPublicKey,
-        options: {
-          onEvent: this.recordLifecycleEvent,
-        },
-      });
-      await this.refreshLoginState(this.walletId);
-      this.dispatch({
-        kind: 'action_succeeded',
-        action,
-        result: {
-          kind: 'email_recovery_finalize_success',
-          walletId: this.walletId,
-          nearAccountId,
-          nearPublicKey,
-        },
-      });
+      const summary = await this.exportEd25519KeyWithPublicSdk();
+      this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
     }
@@ -910,6 +1039,7 @@ class IntendedPageController {
         ],
       },
       options: {
+        signerSlot: this.nearSignerSlot,
         onEvent: this.recordLifecycleEvent,
       },
     });
@@ -1086,39 +1216,6 @@ class IntendedPageController {
     };
   }
 
-  private async exportEd25519KeyWithPublicSdk(): Promise<Ed25519ExportResultSummary> {
-    const nearAccountId = requireNearAccountId(this.nearAccountId);
-    const walletSession = walletSessionRefFromSession({
-      walletId: this.walletId,
-      walletSessionUserId: this.walletId,
-    });
-    const nearAccount = nearAccountRefFromAccountId(nearAccountId);
-    const resolvedLane = await this.seams.keys.resolveExactKeyExportLane({
-      kind: 'near',
-      walletSession,
-      nearAccount,
-    });
-    if (resolvedLane.kind !== 'near') {
-      throw new Error(`NEAR export lane returned unexpected kind: ${resolvedLane.kind}`);
-    }
-    await this.seams.keys.exportKeypairWithUI({
-      kind: 'near',
-      walletSession,
-      nearAccount,
-      laneIdentity: resolvedLane.laneIdentity,
-      options: {
-        chain: 'near',
-        variant: 'drawer',
-        onEvent: this.recordLifecycleEvent,
-      },
-    });
-    return {
-      kind: 'ed25519_export_success',
-      walletId: this.walletId,
-      nearAccountId,
-    };
-  }
-
   private async exportEcdsaKeyWithPublicSdk(): Promise<EcdsaExportResultSummary> {
     const walletSession = walletSessionRefFromSession({
       walletId: this.walletId,
@@ -1147,6 +1244,38 @@ class IntendedPageController {
       kind: 'ecdsa_export_success',
       walletId: this.walletId,
       chainId: chainTarget.chainId,
+    };
+  }
+
+  private async exportEd25519KeyWithPublicSdk(): Promise<Ed25519ExportResultSummary> {
+    const nearAccountId = requireNearAccountId(this.nearAccountId);
+    const walletSession = walletSessionRefFromSession({
+      walletId: this.walletId,
+      walletSessionUserId: this.walletId,
+    });
+    const nearAccount = nearAccountRefFromAccountId(nearAccountId);
+    const resolvedLane = await this.seams.keys.resolveExactKeyExportLane({
+      kind: 'ed25519',
+      walletSession,
+      nearAccount,
+    });
+    if (resolvedLane.kind !== 'ed25519') {
+      throw new Error(`Ed25519 export lane returned unexpected kind: ${resolvedLane.kind}`);
+    }
+    await this.seams.keys.exportKeypairWithUI({
+      kind: 'ed25519',
+      walletSession,
+      nearAccount,
+      laneIdentity: resolvedLane.laneIdentity,
+      options: {
+        variant: 'drawer',
+        onEvent: this.recordLifecycleEvent,
+      },
+    });
+    return {
+      kind: 'ed25519_export_success',
+      walletId: this.walletId,
+      nearAccountId,
     };
   }
 
@@ -1217,7 +1346,7 @@ function intendedPageReducer(
         action: { status: 'success', action: action.action, result: action.result },
         walletId: intendedActionResultWalletId(action.result) || state.walletId,
         nearAccountId: intendedActionResultNearAccountId(action.result) || state.nearAccountId,
-        recoveryNearPublicKey: intendedActionResultRecoveryNearPublicKey(action.result),
+        nearSignerSlot: intendedActionResultNearSignerSlot(action.result, state.nearSignerSlot),
       };
     case 'action_failed':
       return {
@@ -1243,6 +1372,7 @@ function intendedPageReducer(
 function intendedActionResultWalletId(result: IntendedActionResult): string | null {
   switch (result.kind) {
     case 'passkey_registration_success':
+    case 'near_ed25519_signer_added':
     case 'email_otp_registration_success':
     case 'near_sign_success':
     case 'passkey_unlock_success':
@@ -1251,8 +1381,6 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
     case 'ecdsa_export_success':
-    case 'email_recovery_start_success':
-    case 'email_recovery_finalize_success':
       return result.walletId;
     default:
       return assertNever(result);
@@ -1262,13 +1390,12 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
 function intendedActionResultNearAccountId(result: IntendedActionResult): string | null {
   switch (result.kind) {
     case 'passkey_registration_success':
+    case 'near_ed25519_signer_added':
     case 'email_otp_registration_success':
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
-    case 'email_recovery_start_success':
-    case 'email_recovery_finalize_success':
       return result.nearAccountId;
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
@@ -1279,13 +1406,16 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
   }
 }
 
-function intendedActionResultRecoveryNearPublicKey(result: IntendedActionResult): string | null {
+function intendedActionResultNearSignerSlot(
+  result: IntendedActionResult,
+  currentSignerSlot: number,
+): number {
   switch (result.kind) {
-    case 'email_recovery_start_success':
-    case 'email_recovery_finalize_success':
-      return result.nearPublicKey;
     case 'passkey_registration_success':
     case 'email_otp_registration_success':
+      return 1;
+    case 'near_ed25519_signer_added':
+      return 2;
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
@@ -1293,7 +1423,7 @@ function intendedActionResultRecoveryNearPublicKey(result: IntendedActionResult)
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
     case 'ecdsa_export_success':
-      return null;
+      return currentSignerSlot;
     default:
       return assertNever(result);
   }
@@ -1305,8 +1435,8 @@ function readIntendedPageQuery(): IntendedPageQuery {
       flow: 'unknown',
       walletId: 'unknown-wallet',
       nearAccountId: null,
+      nearSignerSlot: 1,
       googleIdToken: null,
-      recoveryNearPublicKey: null,
       passkeyEcdsaTargetProfile: defaultPasskeyEcdsaTargetProfile(),
       emailOtpEcdsaTargetProfile: defaultEmailOtpEcdsaTargetProfile(),
     };
@@ -1316,11 +1446,21 @@ function readIntendedPageQuery(): IntendedPageQuery {
     flow: stringParam(params, 'flow', 'unknown'),
     walletId: stringParam(params, 'walletId', 'unknown-wallet'),
     nearAccountId: optionalStringParam(params, 'nearAccountId'),
+    nearSignerSlot: signerSlotParam(params),
     googleIdToken: optionalStringParam(params, 'googleIdToken'),
-    recoveryNearPublicKey: optionalStringParam(params, 'recoveryNearPublicKey'),
     passkeyEcdsaTargetProfile: passkeyEcdsaTargetProfileFromQuery(params),
     emailOtpEcdsaTargetProfile: emailOtpEcdsaTargetProfileFromQuery(params),
   };
+}
+
+function signerSlotParam(params: URLSearchParams): number {
+  const raw = params.get('nearSignerSlot');
+  if (raw === null) return 1;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error('nearSignerSlot must be a positive safe integer');
+  }
+  return parsed;
 }
 
 function defaultPasskeyEcdsaTargetProfile(): IntendedPasskeyEcdsaTargetProfile {
@@ -1342,9 +1482,17 @@ function passkeyEcdsaTargetProfileFromQuery(
   params: URLSearchParams,
 ): IntendedPasskeyEcdsaTargetProfile {
   const name = stringParam(params, 'passkeyEcdsaTargetProfile', 'tempo_arc');
-  return {
-    kind: parseEcdsaTargetProfileName(name, 'passkeyEcdsaTargetProfile'),
-  };
+  const profile = parseEcdsaTargetProfileName(name, 'passkeyEcdsaTargetProfile');
+  switch (profile) {
+    case 'none':
+      return { kind: 'none' };
+    case 'tempo':
+      return { kind: 'tempo' };
+    case 'tempo_arc':
+      return { kind: 'tempo_arc' };
+    default:
+      return assertNever(profile);
+  }
 }
 
 function emailOtpEcdsaTargetProfileFromQuery(
@@ -1375,10 +1523,7 @@ function emailOtpEcdsaTargetProfileFromQuery(
   }
 }
 
-function parseEcdsaTargetProfileName(
-  value: string,
-  label: string,
-): IntendedEcdsaTargetProfileName {
+function parseEcdsaTargetProfileName(value: string, label: string): IntendedEcdsaTargetProfileName {
   switch (value) {
     case 'none':
     case 'tempo':
@@ -1428,7 +1573,7 @@ function passkeySignerOptionsForProfile(args: {
         },
       };
     default:
-      return assertNever(args.profile.kind);
+      return assertNever(args.profile);
   }
 }
 
@@ -1464,37 +1609,124 @@ function assertPasskeyRegistrationSucceeded(args: {
   if (!result.success) {
     throw new Error(result.error || 'Passkey registration failed');
   }
-  if (result.kind !== 'near_wallet_registered') {
-    throw new Error(`Passkey registration returned unexpected result kind: ${result.kind}`);
+  switch (args.ecdsaTargetProfile.kind) {
+    case 'none': {
+      if (result.kind !== 'near_wallet_registered') {
+        throw new Error(`NEAR-only passkey registration returned result kind: ${result.kind}`);
+      }
+      return {
+        ...passkeyRegistrationIdentitySummary({
+          result,
+          expectedWalletId: args.expectedWalletId,
+        }),
+        ecdsaTargetProfile: 'none',
+      };
+    }
+    case 'tempo': {
+      if (result.kind !== 'near_ed25519_and_ecdsa_wallet_registered') {
+        throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
+      }
+      const ecdsa = requireThresholdEcdsaSessionFields({
+        source: result,
+        label: 'Passkey registration',
+      });
+      return {
+        ...passkeyRegistrationIdentitySummary({
+          result,
+          expectedWalletId: args.expectedWalletId,
+        }),
+        ...ecdsa,
+      };
+    }
+    case 'tempo_arc': {
+      if (result.kind !== 'near_ed25519_and_ecdsa_wallet_registered') {
+        throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
+      }
+      return {
+        ...passkeyRegistrationIdentitySummary({
+          result,
+          expectedWalletId: args.expectedWalletId,
+        }),
+        ecdsaTargetProfile: 'tempo_arc',
+      };
+    }
+    default:
+      return assertNever(args.ecdsaTargetProfile);
   }
-  const walletId = String(result.walletId || '').trim();
+}
+
+function assertEd25519AddSignerSucceeded(
+  result: RegistrationResult,
+  expectedWalletId: string,
+): Ed25519AddSignerResultSummary {
+  if (!result.success) {
+    throw new Error(result.error || 'Ed25519 add-signer failed');
+  }
+  if (result.kind !== 'near_ed25519_signer_added') {
+    throw new Error(`Ed25519 add-signer returned result kind: ${result.kind}`);
+  }
+  const walletId = String(result.walletId).trim();
+  if (walletId !== expectedWalletId) {
+    throw new Error(`Ed25519 add-signer wallet mismatch: ${walletId}`);
+  }
+  const nearAccountId = String(result.nearAccountId).trim();
+  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
+  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
+  if (!nearAccountId || !nearEd25519SigningKeyId || !operationalPublicKey) {
+    throw new Error('Ed25519 add-signer returned incomplete signer identity');
+  }
+  return {
+    kind: 'near_ed25519_signer_added',
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    operationalPublicKey,
+  };
+}
+
+type PasskeyWalletRegistrationResult = Extract<
+  RegistrationResult,
+  {
+    success: true;
+    kind: 'near_wallet_registered' | 'near_ed25519_and_ecdsa_wallet_registered';
+  }
+>;
+
+type PasskeyRegistrationIdentitySummary = {
+  kind: 'passkey_registration_success';
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  operationalPublicKey: string;
+};
+
+function passkeyRegistrationIdentitySummary(args: {
+  result: PasskeyWalletRegistrationResult;
+  expectedWalletId: string;
+}): PasskeyRegistrationIdentitySummary {
+  const result = args.result;
+  const walletId = String(result.walletId).trim();
   if (walletId !== args.expectedWalletId) {
     throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
   }
-  const nearAccountId = String(result.nearAccountId || '').trim();
+  const nearAccountId = String(result.nearAccountId).trim();
   if (!nearAccountId) {
     throw new Error('Passkey registration did not return a NEAR account id');
   }
-  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId || '').trim();
+  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
   if (!nearEd25519SigningKeyId) {
     throw new Error('Passkey registration did not return an Ed25519 signing key id');
   }
-  const operationalPublicKey = String(result.operationalPublicKey || '').trim();
+  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
   if (!operationalPublicKey) {
     throw new Error('Passkey registration did not return an operational public key');
   }
-  const ecdsa = assertEcdsaSessionSummary({
-    ecdsaTargetProfile: args.ecdsaTargetProfile,
-    source: result,
-    label: 'Passkey registration',
-  });
   return {
     kind: 'passkey_registration_success',
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     operationalPublicKey,
-    ...ecdsa,
   };
 }
 
@@ -1535,10 +1767,7 @@ function assertEcdsaSessionSummary(args: {
 function requireThresholdEcdsaSessionFields(args: {
   source: EcdsaSessionFields;
   label: string;
-}): Extract<
-  IntendedEcdsaSessionSummary,
-  { ecdsaTargetProfile: 'tempo' }
-> {
+}): Extract<IntendedEcdsaSessionSummary, { ecdsaTargetProfile: 'tempo' }> {
   const thresholdEcdsaEthereumAddress = String(
     args.source.thresholdEcdsaEthereumAddress || '',
   ).trim();
@@ -1731,7 +1960,9 @@ function assertPasskeyUnlockSucceeded(
   }
   const signingSessionStatus = String(result.signingSession?.status || '').trim();
   if (signingSessionStatus !== 'active') {
-    throw new Error(`Passkey unlock did not return an active signing session: ${signingSessionStatus}`);
+    throw new Error(
+      `Passkey unlock did not return an active signing session: ${signingSessionStatus}`,
+    );
   }
   return {
     kind: 'passkey_unlock_success',
@@ -1881,7 +2112,9 @@ function normalizeOptionalNumber(value: unknown): number | null {
   return Number.isFinite(normalized) ? normalized : null;
 }
 
-function normalizeSignedTransactionByteLength(signedTransaction: { borsh_bytes?: unknown }): number {
+function normalizeSignedTransactionByteLength(signedTransaction: {
+  borsh_bytes?: unknown;
+}): number {
   if (Array.isArray(signedTransaction.borsh_bytes)) {
     return signedTransaction.borsh_bytes.length;
   }
@@ -1933,6 +2166,7 @@ const definitionListStyle: React.CSSProperties = {
 
 const buttonRowStyle: React.CSSProperties = {
   display: 'flex',
+  flexWrap: 'wrap',
   gap: '12px',
   marginBottom: '16px',
 };
@@ -1945,6 +2179,13 @@ const buttonStyle: React.CSSProperties = {
   background: '#1f2937',
   color: '#ffffff',
   fontWeight: 600,
+};
+
+const registrationActivationTargetStyle: React.CSSProperties = {
+  position: 'relative',
+  width: '280px',
+  minHeight: '44px',
+  borderRadius: '6px',
 };
 
 const statusStyle: React.CSSProperties = {

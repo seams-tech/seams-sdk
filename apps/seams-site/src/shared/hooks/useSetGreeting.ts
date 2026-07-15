@@ -15,6 +15,12 @@ interface SetGreetingHook {
   fetchGreeting: () => Promise<GreetingResult>;
 }
 
+function parseGreeting(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  throw new Error('NEAR greeting response must be a string or null');
+}
+
 export const useSetGreeting = (): SetGreetingHook => {
   const nearClient = useNearClient();
   const [onchainGreeting, setOnchainGreeting] = useState<string | null>(null);
@@ -37,15 +43,15 @@ export const useSetGreeting = (): SetGreetingHook => {
     setError(null);
 
     try {
-      const result = await nearClient.view<string>({
+      const result = await nearClient.view<unknown>({
         account: DEMO_CONTRACT_ID,
         method: 'get_greeting',
         args: {},
       });
-      const greeting = result ?? null;
+      const greeting = parseGreeting(result);
       setOnchainGreeting(greeting);
 
-      return { success: true, greeting };
+      return { success: true, ...(greeting !== null ? { greeting } : {}) };
     } catch (err: any) {
       console.error('Error fetching greeting:', err);
       const errorMessage = err.message || 'Failed to fetch greeting';

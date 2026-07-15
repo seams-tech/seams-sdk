@@ -3,6 +3,7 @@ import React from 'react';
 import { CopyButton } from '@/components/CopyButton';
 import { LoadingButton } from '@/components/LoadingButton';
 import Refresh from '@/components/icons/Refresh';
+import type { DemoTempoFundingStatus } from '../hooks/useDemoTempoFundingStatus';
 
 export type DemoChainId = 'near' | 'tempo' | 'arc';
 
@@ -27,6 +28,8 @@ export type DemoChainView = {
 
 type ChainSigningSectionProps = {
   chains: readonly DemoChainView[];
+  /* names the credential that confirms the signature (passkey vs email OTP) */
+  heading: string;
   selectedChainId: DemoChainId;
   onSelectChain: (id: DemoChainId) => void;
   /* NEAR-only secondary action (kept for delegate-signing testing) */
@@ -39,6 +42,8 @@ type ChainSigningSectionProps = {
   onPrepareTempoFeeToken: () => void | Promise<void>;
   tempoFeeTokenPrepareLoading: boolean;
   tempoPreparationUnavailableReason: string | null;
+  /* hides the funding button when 'ready' (AlphaUSD fee token set + funded) */
+  tempoFundingStatus: DemoTempoFundingStatus;
 };
 
 export function ChainSigningSection(props: ChainSigningSectionProps) {
@@ -50,7 +55,7 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
 
   return (
     <div className="action-section">
-      <h2 className="demo-subtitle">Sign a transaction with your passkey</h2>
+      <h2 className="demo-subtitle">{props.heading}</h2>
 
       {/* segmented control matching the SeamsAuthMenu seg: track + sliding pill */}
       <div
@@ -107,6 +112,34 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
         {chain.statusText ? <div className="near-funding-status">{chain.statusText}</div> : null}
         {chain.errorText ? <div className="error-message">{chain.errorText}</div> : null}
 
+        {/* funding is the precondition, so it leads; hidden once the probe
+            confirms the AlphaUSD fee token is set and funded ('ready'), and
+            held disabled while the probe is in flight */}
+        {chain.id === 'tempo' && props.tempoFundingStatus !== 'ready' ? (
+          <>
+            <LoadingButton
+              onClick={props.onPrepareTempoFeeToken}
+              loading={props.tempoFeeTokenPrepareLoading}
+              loadingText="Funding..."
+              variant="secondary"
+              size="medium"
+              style={{ width: '100%' }}
+              disabled={
+                props.tempoFeeTokenPrepareLoading ||
+                props.tempoFundingStatus === 'checking' ||
+                Boolean(props.tempoPreparationUnavailableReason)
+              }
+            >
+              Fund Tempo Account
+            </LoadingButton>
+            {props.tempoPreparationUnavailableReason ? (
+              <div className="demo-capability-note">
+                {props.tempoPreparationUnavailableReason}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
         <LoadingButton
           onClick={chain.onSign}
           loading={chain.signLoading}
@@ -131,30 +164,6 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
           >
             Send Delegate Action
           </LoadingButton>
-        ) : null}
-
-        {chain.id === 'tempo' ? (
-          <>
-            <LoadingButton
-              onClick={props.onPrepareTempoFeeToken}
-              loading={props.tempoFeeTokenPrepareLoading}
-              loadingText="Funding..."
-              variant="secondary"
-              size="medium"
-              style={{ width: '100%' }}
-              disabled={
-                props.tempoFeeTokenPrepareLoading ||
-                Boolean(props.tempoPreparationUnavailableReason)
-              }
-            >
-              Fund Tempo Account
-            </LoadingButton>
-            {props.tempoPreparationUnavailableReason ? (
-              <div className="demo-capability-note">
-                {props.tempoPreparationUnavailableReason}
-              </div>
-            ) : null}
-          </>
         ) : null}
       </div>
 

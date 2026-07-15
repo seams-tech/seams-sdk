@@ -693,6 +693,22 @@
     gap var(--dashboard-motion-item) var(--dashboard-ease-layout);
 }
 
+/* Pinned head: the wordmark + product/org switchers stay fixed at the top of
+   the scrolling rail. Sticky at top:0 keeps them visible while the nav list
+   scrolls underneath; the opaque rail background hides content passing behind.
+   The head spans the content-box width, so nav items (same width) are fully
+   covered — no bleed margins needed, which keeps the collapsed rail correct. */
+.dashboard-sidebar__head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 4px;
+  background: var(--rail-bg);
+}
+
 /* Workspace (org) switcher card pinned at the sidebar top */
 .dashboard-workspace-switcher {
   position: relative;
@@ -753,6 +769,178 @@
   top: calc(100% + 6px);
   left: 0;
   right: 0;
+}
+
+/* Product-line switcher: prominent gradient-avatar card at the sidebar top,
+   reference-app style, with a description-rich menu below it. */
+.dashboard-product-switcher {
+  position: relative;
+}
+
+.dashboard-product-switcher__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border: 1px solid #e8e8e6;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.04);
+  color: var(--rail-ink, var(--dashboard-ink));
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.dashboard-product-switcher__trigger:hover {
+  border-color: #d6d6d3;
+}
+
+.dashboard-product-switcher__avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background-color: var(--dashboard-surface-soft);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.06);
+}
+
+.dashboard-product-switcher__label {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+.dashboard-product-switcher__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--rail-ink, var(--dashboard-ink));
+}
+
+.dashboard-product-switcher__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--rail-muted, var(--dashboard-ink-soft));
+}
+
+.dashboard-product-switcher__caret {
+  flex: none;
+  color: var(--rail-icon, var(--dashboard-ink-soft));
+}
+
+.dashboard-product-switcher__menu {
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  padding: 7px;
+  gap: 3px;
+}
+
+.dashboard-product-switcher__item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.dashboard-product-switcher__item:hover,
+.dashboard-product-switcher__item:focus-visible {
+  background: var(--rail-hover, var(--dashboard-surface-soft));
+}
+
+.dashboard-product-switcher__item.is-active {
+  background: var(--rail-active, var(--dashboard-active));
+}
+
+.dashboard-product-switcher__item.is-soon {
+  cursor: default;
+}
+
+.dashboard-product-switcher__item.is-soon:hover {
+  background: transparent;
+}
+
+.dashboard-product-switcher__item-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background-color: var(--dashboard-surface-soft);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.06);
+}
+
+.dashboard-product-switcher__item.is-soon .dashboard-product-switcher__item-avatar {
+  filter: grayscale(0.55);
+  opacity: 0.7;
+}
+
+.dashboard-product-switcher__item-text {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+}
+
+.dashboard-product-switcher__item-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--rail-ink, var(--dashboard-ink));
+}
+
+.dashboard-product-switcher__item.is-soon .dashboard-product-switcher__item-name {
+  color: var(--rail-muted, var(--dashboard-ink-soft));
+}
+
+.dashboard-product-switcher__item-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.79rem;
+  color: var(--rail-muted, var(--dashboard-ink-soft));
+}
+
+.dashboard-product-switcher__soon {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: var(--dashboard-surface-soft);
+  color: var(--dashboard-ink-soft);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.dashboard-product-switcher__check {
+  flex: none;
+  color: var(--dashboard-accent);
 }
 
 /* Context card docked at the sidebar bottom (project + environment), styled
@@ -5206,14 +5394,18 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   display: none;
 }
 
-/* Collapsed rail: workspace card shrinks to its avatar; context card hides */
+/* Collapsed rail: workspace + product cards shrink to their avatar; context
+   card hides */
 .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__label,
 .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__caret,
+.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__label,
+.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__caret,
 .dashboard-shell--sidebar-collapsed .dashboard-sidebar-context-card {
   display: none;
 }
 
-.dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__trigger {
+.dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__trigger,
+.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__trigger {
   justify-content: center;
   padding: 8px 6px;
 }

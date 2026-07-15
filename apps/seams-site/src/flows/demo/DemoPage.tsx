@@ -12,30 +12,14 @@ import {
 } from './sections/ChainSigningSection';
 import { createChainDefaultGreeting } from './demoEvmHelpers';
 import {
-  useDemoNearAccountFundingStatus,
-  type DemoNearAccountFundingStatus,
-} from './hooks/useDemoNearAccountFundingStatus';
+  canStartDemoNearTransaction,
+  demoNearFundingStatusText,
+} from './demoNearAccountFundingState';
+import { useDemoNearAccountFundingStatus } from './hooks/useDemoNearAccountFundingStatus';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
+import { useDemoTempoFundingStatus } from './hooks/useDemoTempoFundingStatus';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
-
-function nearFundingStatusText(status: DemoNearAccountFundingStatus): string | null {
-  switch (status.kind) {
-    case 'checking':
-      return 'Checking NEAR account funding...';
-    case 'needs_funding':
-      return 'NEAR account needs funding before signing.';
-    case 'unknown':
-      return `NEAR funding status unavailable: ${status.message}`;
-    case 'not_available':
-    case 'ready':
-      return null;
-    default: {
-      const exhaustive: never = status;
-      return exhaustive;
-    }
-  }
-}
 
 export const DemoPage: React.FC = () => {
   const {
@@ -45,9 +29,18 @@ export const DemoPage: React.FC = () => {
       nearAccountId,
       nearPublicKey,
       thresholdEcdsaEthereumAddress,
+      currentAuthMethod,
     },
     seams,
   } = useSeams();
+
+  /* the section heading names the credential that will actually confirm the
+     signature: passkey accounts prompt WebAuthn, email-OTP accounts prompt a
+     one-time code */
+  const signingHeading =
+    currentAuthMethod.kind === 'selected' && currentAuthMethod.binding.kind === 'email_otp'
+      ? 'Sign a transaction with a one-time password (email)'
+      : 'Sign a transaction with your passkey';
 
   const { onchainGreeting, isLoading, fetchGreeting, error } = useSetGreeting();
 
@@ -62,9 +55,7 @@ export const DemoPage: React.FC = () => {
     nearAccountId,
     nearPublicKey,
   });
-  const canStartNearTransaction =
-    nearAccountFunding.status.kind === 'ready' ||
-    nearAccountFunding.status.kind === 'needs_funding';
+  const canStartNearTransaction = canStartDemoNearTransaction(nearAccountFunding.status);
 
   const nearActions = useDemoNearActions({
     isLoggedIn,
@@ -86,6 +77,13 @@ export const DemoPage: React.FC = () => {
     arcGreetingInput,
   });
 
+  /* gates the Fund Tempo Account button: hidden once the AlphaUSD fee token
+     is set and funded (native gas alone is not Tempo readiness) */
+  const tempoFunding = useDemoTempoFundingStatus({
+    isLoggedIn,
+    thresholdOwnerAddress: thresholdSigners.thresholdOwnerAddress,
+  });
+
   if (!isLoggedIn || !walletId) {
     return null;
   }
@@ -101,7 +99,7 @@ export const DemoPage: React.FC = () => {
       onRefreshGreeting: fetchGreeting,
       greetingInput: nearActions.greetingInput,
       onGreetingInputChange: nearActions.setGreetingInput,
-      statusText: nearFundingStatusText(nearAccountFunding.status),
+      statusText: demoNearFundingStatusText(nearAccountFunding.status),
       errorText: error != null ? `Error: ${String(error)}` : null,
       onSign: nearActions.handleSetGreeting,
       signLoading: nearActions.txLoading,
@@ -152,6 +150,7 @@ export const DemoPage: React.FC = () => {
 
       <ChainSigningSection
         chains={chains}
+        heading={signingHeading}
         selectedChainId={selectedChainId}
         onSelectChain={setSelectedChainId}
         onSignDelegate={nearActions.handleSignDelegateGreeting}
@@ -161,9 +160,18 @@ export const DemoPage: React.FC = () => {
         onCopyThresholdOwnerAddress={() => {
           toast.success('Address copied');
         }}
-        onPrepareTempoFeeToken={thresholdSigners.handlePrepareTempoFeeToken}
+        onPrepareTempoFeeToken={async () => {
+          /* re-probe after the funding attempt so the button hides itself
+             once the fee token is set and funded */
+          try {
+            await thresholdSigners.handlePrepareTempoFeeToken();
+          } finally {
+            tempoFunding.refresh();
+          }
+        }}
         tempoFeeTokenPrepareLoading={thresholdSigners.tempoFeeTokenPrepareLoading}
         tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
+        tempoFundingStatus={tempoFunding.status}
       />
     </AnimatedHeight>
   );

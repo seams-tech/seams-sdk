@@ -1128,8 +1128,8 @@ body:has(.h2-page) {
 }
 
 /* bordered-white data readout (EL grammar: border for data, fill for
-   buttons); function names read in ink, the contract address carries the
-   card's single accent */
+   buttons); two restrained hues with jobs — blue for callables (function
+   names), green for the destination (contract address) */
 .h2-txmock__tree {
   margin: 0 0 16px;
   padding: 13px 15px;
@@ -1145,12 +1145,12 @@ body:has(.h2-page) {
 }
 
 .h2-txmock__tree strong {
-  color: #0a0a0a;
+  color: #2563eb;
   font-weight: 600;
 }
 
-.h2-txmock__addr {
-  color: #4a6fa5;
+.h2-txmock__tree strong.h2-txmock__addr {
+  color: #059669;
 }
 
 /* connected tree rail: each step carries a vertical segment spanning its
@@ -1862,18 +1862,11 @@ body:has(.h2-page) {
   height: var(--h2-wallet-auth-menu-block-size);
 }
 
-.h2-page--wallet .carousel-demo-root,
-.h2-page--wallet .carousel-root {
-  width: 100%;
-}
-
+/* Wallet hero: give the stage the tall band floor and center the card in it
+   (width comes from the Carousel's own fixed style). */
 .h2-page--wallet .carousel-stage {
   min-height: var(--h2-wallet-demo-shell-min-height);
   align-items: center;
-}
-
-.h2-page--wallet .carousel-page {
-  width: 100%;
 }
 
 /* demo theme switcher (light / dark / solarized) */

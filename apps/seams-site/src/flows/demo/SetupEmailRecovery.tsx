@@ -115,13 +115,15 @@ export const SetupEmailRecovery: React.FC = () => {
   }
 
   return (
-    <>
-      <h2 className="demo-subtitle">Email Recovery (beta)</h2>
+    <div className="recovery-section">
+      <h3 className="demo-subtitle">
+        Email Recovery
+        <span className="recovery-beta-chip">Beta</span>
+      </h3>
       <div className="action-text">
-        Set up recovery emails so if you lose your passkey later, you can send an encrypted email
-        on-chain to a contract that verifies your email signature and recovers your account.
+        Recover your account by email if you lose your passkey.
       </div>
-      <div style={{ marginTop: '0.75rem', maxWidth: 480 }}>
+      <div style={{ width: '100%', maxWidth: 480 }}>
         <EmailRecoveryFields
           value={recoveryEmails}
           onChange={setRecoveryEmails}
@@ -141,7 +143,7 @@ export const SetupEmailRecovery: React.FC = () => {
           </LoadingButton>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

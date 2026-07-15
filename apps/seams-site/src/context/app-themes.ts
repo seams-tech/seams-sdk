@@ -162,6 +162,9 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
   // white menu card; the reference's eggshell #fdfcfc read too warm here
   colorBackground: '#ffffff',
   surface: '#ffffff',
+  // light-grey chip behind the passkey halo icon: surface is white on the
+  // white modal, so the chip needs its own tone to read
+  passkeyHaloBackground: '#e4e1dc',
   surface2: '#f5f3f1',
   surface3: '#ebe8e4',
   surface4: '#e1ddd7',
@@ -372,6 +375,8 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
   // subtle near-white cream menu card with lightly warmer controls and chrome
   colorBackground: '#fffefd',
   surface: '#fffdf9',
+  // light-grey chip behind the passkey halo icon (surface ≈ modal bg here)
+  passkeyHaloBackground: '#e6e1d5',
   surface2: '#fffaf3',
   surface3: '#F2C6DE',
   surface4: '#DBCDF0',

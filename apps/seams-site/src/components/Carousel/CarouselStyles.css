@@ -1,294 +1,74 @@
-/* Root + stage */
+/* Minimal cross-fade carousel.
+   - Pages stack in one grid cell (grid-area 1/1) and center horizontally.
+   - Width comes from the consumer (fixed), never from content, so switching
+     pages can't resize or re-center the container.
+   - Height is animated imperatively by the component; enter/exit motion is
+     CSS keyframes that fire on mount. */
+
+/* overflow stays visible so card shadows aren't clipped at the container
+   edge; safe because pages share one fixed width and (on the wallet band)
+   one floored height, so nothing bleeds during transitions */
 .carousel-root {
   position: relative;
-  overflow: hidden;
-  /* Default scale amounts; can be overridden per instance */
-  --carousel-scale-in-start: 0.96;
-  --carousel-scale-in-end: 1;
-  --carousel-scale-out-start: 1;
-  --carousel-scale-out-end: 0.97;
-  /* Default delay before fade-in begins */
-  --carousel-fade-in-delay: 0ms;
-  --carousel-slide-distance: 25%;
 }
-/* Use CSS grid overlay so the container height fits content (max of visible pages during transition). */
+
 .carousel-stage {
   position: relative;
   display: grid;
+  width: 100%;
   align-items: start;
-  min-height: 120px;
-  will-change: height;
   isolation: isolate;
-}
-.carousel-page {
-  position: relative;
-  grid-area: 1 / 1;
-  opacity: 0;
-  transform: translateZ(0);
-  pointer-events: none;
-  contain: paint;
-}
-.carousel-page.page--active {
-  opacity: 1;
-  pointer-events: auto;
+  will-change: height;
 }
 
-/* Prevent the incoming page from painting until it is armed as active */
-.carousel-root .page--enter {
-  visibility: hidden;
+.carousel-page {
+  grid-area: 1 / 1;
+  display: flex;
+  justify-content: center;
+  /* no contain:paint here — it clips the card's box-shadow at the page box */
+  transform: translateZ(0);
+}
+
+.carousel-page.page--enter {
   z-index: 2;
 }
-.carousel-root .page--enter.page--active {
-  visibility: visible;
-}
-.carousel-root .page--exit {
+.carousel-page.page--exit {
   z-index: 1;
+  pointer-events: none;
 }
 
-/* Direction variables for slide */
-.carousel-root[data-dir='forward'] {
-  --slide-distance: var(--carousel-slide-distance, 30%);
-  --enter-from: var(--slide-distance);
-  --exit-to: calc(-1 * var(--slide-distance));
+/* Enter/exit fades fire on mount. The incoming only animates during a real
+   transition (page--animating), so the initial page appears without a fade.
+   They overlap (incoming rises as outgoing falls) for a seamless cross-fade. */
+.page--enter.page--animating {
+  animation: carousel-fade-in var(--carousel-fade-in-duration, 240ms) var(--site-ease) both;
 }
-.carousel-root[data-dir='backward'] {
-  --slide-distance: var(--carousel-slide-distance, 30%);
-  --enter-from: calc(-1 * var(--slide-distance));
-  --exit-to: var(--slide-distance);
-}
-/* Duration helpers used by JS-driven height transition as well */
-.carousel-root[data-transition='slide'] {
-  --carousel-height-duration: var(--carousel-slide-duration, 300ms);
-}
-.carousel-root[data-transition='fade'] {
-  --carousel-height-duration: var(--carousel-fade-in-duration, 240ms);
-}
-/* Per-transition default scale presets */
-.carousel-root[data-transition='slide'] {
-  --carousel-scale-in-start: 0.96;
-  --carousel-scale-out-end: 0.97;
-}
-.carousel-root[data-transition='fade'] {
-  --carousel-scale-in-start: 0.985;
-  --carousel-scale-out-end: 0.985;
+.page--exit {
+  animation: carousel-fade-out var(--carousel-fade-out-duration, 200ms) var(--site-ease) both;
 }
 
-/* Slide: use translateX only (avoid parent scaling that can skew child layouts) */
-[data-transition='slide'] .page--enter {
-  transform: translateX(var(--enter-from, 0));
-  opacity: 0;
-  transition:
-    transform var(--carousel-slide-duration, 400ms) var(--site-ease),
-    opacity var(--carousel-fade-in-duration, 300ms) var(--site-ease)
-      var(--carousel-fade-in-delay, 200ms);
-  will-change: transform, opacity;
+@keyframes carousel-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-[data-transition='slide'] .page--enter.page--active {
-  transform: translateX(0);
-  opacity: 1;
-}
-[data-transition='slide'] .page--exit {
-  transform: translateX(0);
-  opacity: 1;
-  transition:
-    transform var(--carousel-slide-duration, 100ms) var(--site-ease),
-    opacity var(--carousel-fade-out-duration, 100ms) var(--site-ease);
-  will-change: transform, opacity;
-}
-[data-transition='slide'] .page--exit.page--leaving {
-  transform: translateX(var(--exit-to, -30%));
-  opacity: 0;
-}
-
-/* Fade transition (shorter fadeOut) */
-[data-transition='fade'] .page--enter {
-  opacity: 0;
-  transform: translateZ(0);
-  transition: opacity var(--carousel-fade-in-duration, 240ms) var(--site-ease)
-    var(--carousel-fade-in-delay, 200ms);
-}
-[data-transition='fade'] .page--enter.page--active {
-  opacity: 1;
-  transform: translateZ(0);
-}
-[data-transition='fade'] .page--exit {
-  opacity: 1;
-  transform: translateZ(0);
-  transition: opacity var(--carousel-fade-out-duration, 100ms) var(--site-ease);
-}
-[data-transition='fade'] .page--exit.page--leaving {
-  opacity: 0;
-  transform: translateZ(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .carousel-page,
-  .carousel-root,
-  .carousel-stage {
-    transition: none !important;
-    animation: none !important;
+@keyframes carousel-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
-/* Breadcrumbs (shadcn-like minimal) */
-.carousel-breadcrumbs {
-  margin: 0 0 0.75rem 0;
-}
-.carousel-breadcrumbs ol {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.carousel-breadcrumbs li {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.carousel-breadcrumbs .crumb {
-  background: transparent;
-  border: none;
-  color: var(--site-text-secondary);
-  font: inherit;
-  padding: 0;
-  border-radius: 0;
-  cursor: pointer;
-}
-.carousel-breadcrumbs .crumb:hover {
-  color: color-mix(in srgb, var(--site-text-primary) 60%, white);
-  background: transparent;
-}
-.carousel-breadcrumbs .crumb.is-active {
-  color: color-mix(in srgb, var(--site-text-primary) 80%, white);
-  background: transparent;
-  font-weight: 500;
-}
-.carousel-breadcrumbs .crumb.is-disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.carousel-breadcrumbs .crumb:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--site-focus);
-}
-.carousel-breadcrumbs .crumb-sep {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.7;
-  margin-left: 0.5rem;
-}
-.carousel-breadcrumbs .crumb-sep svg {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-/* Pagination dots */
-.carousel-dots {
-  display: flex;
-  justify-content: center;
-  margin: 0.75rem 0 0;
-}
-.carousel-dots .dots {
-  display: inline-flex;
-  gap: 8px;
-}
-.carousel-dots .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  border: 1px solid var(--site-border);
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-}
-.carousel-dots .dot.is-active {
-  background: var(--site-text-primary);
-  border-color: var(--site-text-primary);
-}
-.carousel-dots .dot.is-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.carousel-dots .dot:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--site-focus);
-}
-
-/* Demo wrapper */
-.carousel-demo-root {
-  max-width: 600px;
-  width: 100%;
-}
-
-.carousel-cta {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  padding-top: 1rem;
-}
-.carousel-cta--left {
-  justify-content: flex-start;
-}
-.carousel-cta--split {
-  justify-content: space-between;
-}
-.carousel-next-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 100px;
-  padding: 0.6rem 0.5rem;
-  border-radius: 2rem;
-  border: 1px solid var(--site-border);
-  background: var(--site-canvas);
-  color: var(--site-text-primary);
-  box-shadow: 0 1px 2px var(--site-shadow-sm);
-  transition:
-    background var(--site-duration-fast) var(--site-ease),
-    box-shadow var(--site-duration-fast) var(--site-ease),
-    opacity var(--site-duration-fast) var(--site-ease);
-}
-.carousel-next-btn:hover {
-  background: var(--site-surface-muted);
-  box-shadow: 0 2px 8px var(--site-shadow-sm);
-  cursor: pointer;
-}
-.carousel-next-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* Icon alignment inside nav buttons */
-.carousel-next-btn .btn-icon-left {
-  display: inline-flex;
-  margin-right: 6px;
-  line-height: 0;
-}
-.carousel-next-btn .btn-icon-right {
-  display: inline-flex;
-  margin-left: 6px;
-  line-height: 0;
-}
-.carousel-next-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* Utility */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-  white-space: nowrap;
+@media (prefers-reduced-motion: reduce) {
+  .carousel-page {
+    animation: none !important;
+  }
+  .carousel-stage {
+    transition: none !important;
+  }
 }

@@ -1,79 +1,15 @@
 import React from 'react';
-import {
-  useSeams,
-  PROFILE_MENU_ITEM_IDS,
-  AccountSyncEventPhase,
-  type AccountSyncFlowEvent,
-} from '@seams/sdk/react';
+import { useSeams, PROFILE_MENU_ITEM_IDS } from '@seams/sdk/react';
 import { toast } from 'sonner';
-import { friendlyWebAuthnMessage } from '@/shared/utils/strings';
 import { LoadingButton } from '@/components/LoadingButton';
 import { GlassBorder } from '@/components/GlassBorder';
-import { BrowserWithQR } from '@/components/icons/BrowserWithQR';
-import { IPhoneQRScanner } from '@/components/icons/IPhoneQRScanner';
 import { useProfileMenuControl } from '@/context/ProfileMenuControl';
 import './SyncAccount.css';
 import { SetupEmailRecovery } from './SetupEmailRecovery';
 
 export function SyncAccount() {
-  const {
-    loginState,
-    lock,
-    refreshLoginState,
-    accountInputState: { targetWalletId },
-    seams,
-  } = useSeams();
-  const [busy, setBusy] = React.useState(false);
+  const { loginState } = useSeams();
   const { requestHighlight: requestProfileHighlight } = useProfileMenuControl();
-
-  const onSync = async () => {
-    setBusy(true);
-    try {
-      if (!targetWalletId) {
-        toast.error('Select a wallet first (Register/Login tab).');
-        return;
-      }
-
-      const toastId = 'sync-account';
-      toast.loading(`Syncing ${targetWalletId}…`, { id: toastId });
-
-      // Best-effort: ensure we are logged out before starting recovery flows.
-      try {
-        await lock();
-      } catch {}
-
-      const result = await seams.recovery.syncAccount({
-        walletId: targetWalletId,
-        options: {
-          onEvent: async (event: AccountSyncFlowEvent) => {
-            try {
-              if (
-                event.flow === 'account_sync' &&
-                event.phase === AccountSyncEventPhase.STEP_06_COMPLETED &&
-                event.status === 'succeeded'
-              ) {
-                await refreshLoginState(targetWalletId);
-              }
-            } catch {}
-          },
-          onError: (error: Error) => {
-            console.error('Sync error:', error);
-          },
-        },
-      });
-
-      if (result?.success) {
-        toast.success(`Wallet ${targetWalletId} synced successfully!`, { id: toastId });
-      } else {
-        throw new Error(result?.error || 'syncAccount failed');
-      }
-    } catch (err) {
-      // Best-effort UX; show friendly error if anything goes wrong
-      toast.error(friendlyWebAuthnMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const onLinkDevice = React.useCallback(() => {
     if (!loginState.isLoggedIn) {
@@ -86,88 +22,32 @@ export function SyncAccount() {
     });
   }, [loginState.isLoggedIn, requestProfileHighlight]);
 
+  /* width matches the auth card and transaction shell (420px): unequal page
+     widths make the carousel stage resize on page unmount, which shoves the
+     incoming card sideways after the cross-fade */
   return (
-    <GlassBorder style={{ maxWidth: 480, marginTop: '1rem' }}>
+    <GlassBorder style={{ width: 'min(420px, calc(100vw - 2rem))', marginTop: '1rem' }}>
+      {/* header sits outside the padded section so the title shares the
+          content's left edge (same structure as the Welcome menu) */}
+      <div className="demo-page-header">
+        <h2 className="demo-title">Devices &amp; Recovery</h2>
+      </div>
       <div className="action-section">
-        <div className="demo-page-header">
-          <h2 className="demo-title">Account Recovery</h2>
+        {/* the keeper leads with the screen's single primary action */}
+        <div className="recovery-section">
+          <h3 className="demo-subtitle">Device Linking</h3>
+          <div className="action-text">Scan a QR code to link a new device to your account.</div>
+          <LoadingButton
+            onClick={onLinkDevice}
+            variant="primary"
+            size="medium"
+            style={{ width: 200 }}
+          >
+            Link Device
+          </LoadingButton>
         </div>
 
         <SetupEmailRecovery />
-
-        <div
-          style={{
-            marginTop: '2rem',
-            paddingTop: '2rem',
-            borderTop: '1px solid var(--site-border)',
-          }}
-        >
-          <h2 className="demo-title">Recover Passkey Account</h2>
-          <div className="action-text">
-            Sync accounts on any device where your passkeys are synced, such as iCloud Keychain or
-            Google Password Manager.
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <LoadingButton
-              onClick={onSync}
-              loading={busy}
-              loadingText="Syncing..."
-              variant="primary"
-              size="medium"
-              style={{ width: 200 }}
-            >
-              Start Sync
-            </LoadingButton>
-          </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: '2rem',
-            paddingTop: '2rem',
-            borderTop: '1px solid var(--site-border)',
-          }}
-        >
-          <h2 className="demo-title">Device Linking</h2>
-          <div className="action-text">
-            Use QR codes to scan and link a new device to your account. Backup your wallet on
-            multiple devices without remembering keys, or passphrases.
-          </div>
-          <div className="account-recovery-link-device-button">
-            <LoadingButton
-              onClick={onLinkDevice}
-              variant="secondary"
-              size="medium"
-              style={{ width: 200 }}
-            >
-              Link Device
-            </LoadingButton>
-          </div>
-          <div
-            aria-label="Illustration: iPhone scanning browser QR code"
-            style={{
-              marginTop: '2rem',
-              marginBottom: '2rem',
-              width: '100%',
-              height: 230,
-              position: 'relative',
-              borderRadius: 12,
-              overflow: 'visible',
-            }}
-          >
-            <BrowserWithQR width="100%" height="100%" />
-            <IPhoneQRScanner
-              width={110}
-              style={{
-                position: 'absolute',
-                right: 16,
-                bottom: -8,
-                transform: 'rotate(-6deg)',
-                filter: 'drop-shadow(0 6px 14px rgba(0,0,0,0.28))',
-              }}
-            />
-          </div>
-        </div>
       </div>
     </GlassBorder>
   );

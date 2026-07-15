@@ -1,28 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { FRONTEND_CONFIG } from '@/config';
-
-export type DemoNearAccountFundingStatus =
-  | {
-      kind: 'not_available';
-    }
-  | {
-      kind: 'checking';
-      nearAccountId: string;
-    }
-  | {
-      kind: 'ready';
-      nearAccountId: string;
-    }
-  | {
-      kind: 'needs_funding';
-      nearAccountId: string;
-    }
-  | {
-      kind: 'unknown';
-      nearAccountId: string;
-      message: string;
-    };
+import {
+  canSignDemoNearDelegate,
+  initialDemoNearFundingStatus,
+  resolveDemoNearFundingCheck,
+  type DemoNearAccountFundingStatus,
+  type DemoNearFundingIdentity,
+} from '../demoNearAccountFundingState';
 
 type NearRpcErrorBody = {
   message?: unknown;
@@ -45,11 +30,7 @@ type CheckNearAccessKeyArgs = {
   nearPublicKey: string;
 };
 
-type UseDemoNearAccountFundingStatusArgs = {
-  isLoggedIn: boolean;
-  nearAccountId: string | null;
-  nearPublicKey: string | null;
-};
+type UseDemoNearAccountFundingStatusArgs = DemoNearFundingIdentity;
 
 function normalizeDemoString(value: unknown): string {
   return String(value ?? '').trim();
@@ -149,7 +130,13 @@ async function checkNearAccessKey(
   const nearAccountId = normalizeDemoString(args.nearAccountId);
   const nearPublicKey = normalizeDemoString(args.nearPublicKey);
   const nearRpcUrl = normalizeDemoString(args.nearRpcUrl);
-  if (!nearAccountId || !nearPublicKey || !nearRpcUrl) return { kind: 'not_available' };
+  if (!nearRpcUrl) {
+    return {
+      kind: 'unknown',
+      nearAccountId,
+      message: 'NEAR RPC URL is unavailable',
+    };
+  }
 
   const response = await fetch(nearRpcUrl, {
     method: 'POST',
@@ -192,27 +179,32 @@ async function checkNearAccessKey(
 
 export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingStatusArgs) {
   const { isLoggedIn, nearAccountId, nearPublicKey } = args;
-  const [status, setStatus] = useState<DemoNearAccountFundingStatus>({ kind: 'not_available' });
+  const [status, setStatus] = useState<DemoNearAccountFundingStatus>(
+    initialDemoNearFundingStatus(args),
+  );
 
   const refresh = useCallback(async () => {
-    const accountId = normalizeDemoString(nearAccountId);
-    const publicKey = normalizeDemoString(nearPublicKey);
-    if (!isLoggedIn || !accountId || !publicKey) {
-      setStatus({ kind: 'not_available' });
+    const resolution = resolveDemoNearFundingCheck({
+      isLoggedIn,
+      nearAccountId,
+      nearPublicKey,
+    });
+    if (resolution.kind === 'skip') {
+      setStatus(resolution.status);
       return;
     }
-    setStatus({ kind: 'checking', nearAccountId: accountId });
+    setStatus({ kind: 'checking', nearAccountId: resolution.nearAccountId });
     try {
       const next = await checkNearAccessKey({
         nearRpcUrl: FRONTEND_CONFIG.nearRpcUrl,
-        nearAccountId: accountId,
-        nearPublicKey: publicKey,
+        nearAccountId: resolution.nearAccountId,
+        nearPublicKey: resolution.nearPublicKey,
       });
       setStatus(next);
     } catch (error: unknown) {
       setStatus({
         kind: 'unknown',
-        nearAccountId: accountId,
+        nearAccountId: resolution.nearAccountId,
         message: demoErrorMessage(error),
       });
     }
@@ -234,6 +226,6 @@ export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingS
   return {
     status,
     refresh,
-    canSignNear: status.kind === 'ready',
+    canSignNear: canSignDemoNearDelegate(status),
   };
 }

@@ -40,7 +40,7 @@ localhost:8443 {
 	header @wallet_documents Content-Security-Policy "frame-ancestors 'self' http://localhost:* https://localhost:*"
 
 	@sdk_assets path /sdk/*
-	header @sdk_assets Cache-Control "public, max-age=300, must-revalidate"
+	header @sdk_assets Cache-Control "no-store, max-age=0"
 	header @sdk_assets Access-Control-Allow-Origin "*"
 	header @sdk_assets Access-Control-Allow-Methods "GET,OPTIONS"
 	header @sdk_assets Access-Control-Allow-Headers "Content-Type,Range"
