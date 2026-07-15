@@ -356,17 +356,14 @@ export function createWarmSessionStatusReader(
     return null;
   }
 
-  function toRecordBackedEd25519StatusIfRuntimeValid(
+  function toRecordBackedEd25519StatusIfReady(
     record: ThresholdEd25519SessionRecord,
     thresholdSessionId: string,
   ): SigningSessionStatus | null {
     const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
     switch (persistedState.kind) {
-      case 'runtime_validated':
+      case 'ready':
         break;
-      case 'restore_available':
-      case 'material_hint_unvalidated':
-      case 'auth_ready_material_pending':
       case 'non_signing':
       case 'invalid':
         return null;
@@ -471,9 +468,7 @@ export function createWarmSessionStatusReader(
         : null,
     });
     if (status.status === 'not_found' && record) {
-      return (
-        toRecordBackedEd25519StatusIfRuntimeValid(record, normalizedThresholdSessionId) || status
-      );
+      return toRecordBackedEd25519StatusIfReady(record, normalizedThresholdSessionId) || status;
     }
     return status;
   }

@@ -157,23 +157,24 @@ export type WarmSessionEcdsaAuthMaterial =
   | WarmSessionEcdsaAuthMaterialWithToken
   | WarmSessionEcdsaAuthMaterialWithoutToken;
 
-type WarmSessionCapabilityStateValue =
+type WarmSessionEd25519CapabilityStateValue =
   | 'missing'
   | 'ready'
   | 'auth_missing'
   | 'invalid'
-  | 'material_pending'
   | 'prf_missing'
   | 'prf_unavailable';
 
 type WarmSessionEd25519PresentCapabilityStateValue = Exclude<
-  WarmSessionCapabilityStateValue,
+  WarmSessionEd25519CapabilityStateValue,
   'missing'
 >;
-type WarmSessionEcdsaPresentCapabilityStateValue = Exclude<
-  WarmSessionCapabilityStateValue,
-  'missing' | 'invalid'
->;
+type WarmSessionEcdsaPresentCapabilityStateValue =
+  | 'ready'
+  | 'auth_missing'
+  | 'material_pending'
+  | 'prf_missing'
+  | 'prf_unavailable';
 
 type WarmSessionMissingEd25519CapabilityState = {
   capability: 'ed25519';
@@ -286,6 +287,47 @@ export type WarmSessionEnvelope = {
   };
   updatedAtMs: number;
 };
+
+type WarmSessionPresentCapabilityState = Exclude<
+  WarmSessionEd25519CapabilityState | WarmSessionEcdsaCapabilityState,
+  { record: null }
+>;
+
+function expectedPresentCapabilityState(args: {
+  capability: WarmSessionPresentCapabilityState;
+  hasWalletSessionJwt: boolean;
+  emailOtpSingleUseConsumed: boolean;
+}): WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'] {
+  const { capability } = args;
+  if (!capability.auth || !args.hasWalletSessionJwt) return 'auth_missing';
+  if (args.emailOtpSingleUseConsumed) return 'prf_missing';
+  const prfClaim = capability.prfClaim;
+  if (capability.capability === 'ed25519') {
+    const persistedState = classifyRouterAbEd25519PersistedSigningRecord(capability.record);
+    if (persistedState.kind === 'ready') return 'ready';
+    if (
+      persistedState.kind === 'non_signing' ||
+      persistedState.reason === 'missing_wallet_session_jwt'
+    ) {
+      return 'auth_missing';
+    }
+    if (persistedState.kind === 'invalid') return 'invalid';
+    if (prfClaim?.state === 'unavailable') return 'prf_unavailable';
+    return 'prf_missing';
+  }
+  if (!prfClaim) return 'prf_missing';
+  if (prfClaim.state === 'unavailable') return 'prf_unavailable';
+  if (prfClaim.state !== 'warm') return 'prf_missing';
+  const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(capability.record);
+  if (persistedState.kind === 'runtime_validated') return 'ready';
+  if (
+    persistedState.kind === 'non_signing' ||
+    persistedState.reason === 'missing_wallet_session_jwt'
+  ) {
+    return 'auth_missing';
+  }
+  return 'material_pending';
+}
 
 function assertCapabilityStateInvariant(args: {
   walletId: WalletId;
@@ -455,46 +497,11 @@ function assertCapabilityStateInvariant(args: {
     emailOtpAuthContext &&
     emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use' &&
     Number(emailOtpAuthContextConsumedAtMs(emailOtpAuthContext)) > 0;
-  const expectedState = (() => {
-    if (!auth || !hasWalletSessionJwt) return 'auth_missing';
-    if (emailOtpSingleUseConsumed) return 'prf_missing';
-    if (capability.capability === 'ed25519') {
-      const persistedState = classifyRouterAbEd25519PersistedSigningRecord(capability.record);
-      if (persistedState.kind === 'runtime_validated') return 'ready';
-      if (
-        persistedState.kind === 'non_signing' ||
-        persistedState.reason === 'missing_wallet_session_jwt'
-      ) {
-        return 'auth_missing';
-      }
-      if (persistedState.kind === 'restore_available') return 'material_pending';
-      if (persistedState.kind === 'invalid') return 'invalid';
-      if (record.source !== 'email_otp') {
-        if (!prfClaim || prfClaim.state === 'missing' || prfClaim.state === 'warm') {
-          return 'material_pending';
-        }
-        return prfClaim.state === 'unavailable' ? 'prf_unavailable' : 'prf_missing';
-      }
-      if (!prfClaim) return 'prf_missing';
-      if (prfClaim.state === 'warm') return 'material_pending';
-      if (prfClaim.state === 'unavailable') return 'prf_unavailable';
-      return 'prf_missing';
-    }
-    if (!prfClaim) return 'prf_missing';
-    if (prfClaim.state === 'unavailable') return 'prf_unavailable';
-    if (prfClaim.state !== 'warm') return 'prf_missing';
-    const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(capability.record);
-    if (persistedState.kind === 'runtime_validated') return 'ready';
-    if (
-      persistedState.kind === 'non_signing' ||
-      persistedState.reason === 'missing_wallet_session_jwt'
-    ) {
-      return 'auth_missing';
-    }
-    if (persistedState.kind === 'restore_available') return 'material_pending';
-    if (prfClaim.state === 'warm') return 'material_pending';
-    return 'prf_missing';
-  })();
+  const expectedState = expectedPresentCapabilityState({
+    capability,
+    hasWalletSessionJwt,
+    emailOtpSingleUseConsumed: Boolean(emailOtpSingleUseConsumed),
+  });
   if (capability.state !== expectedState) {
     throw new Error(
       `[WarmSessionStore] invalid ${args.label} capability: state=${capability.state} does not match derived state=${expectedState}`,

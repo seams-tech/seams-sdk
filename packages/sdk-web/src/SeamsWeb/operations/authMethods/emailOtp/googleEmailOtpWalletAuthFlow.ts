@@ -1,9 +1,4 @@
-import type {
-  EmailOtpAuthPolicy,
-  RegistrationResult,
-  SeamsConfigsReadonly,
-  WalletSession,
-} from '@/core/types/seams';
+import type { RegistrationResult, SeamsConfigsReadonly, WalletSession } from '@/core/types/seams';
 import type {
   RegistrationFlowEvent,
   RegistrationHooksOptions,
@@ -16,15 +11,12 @@ import {
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { DEV_DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/session/budget/policy';
 import {
   listConfiguredThresholdEcdsaPublicationTargets,
   listThresholdEcdsaProvisionTargets,
 } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
-import {
-  disposeWalletRegistrationPrecompute,
-  type WalletRegistrationPrecomputeHandle,
-} from '@/SeamsWeb/operations/registration/registration';
 import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
@@ -58,18 +50,6 @@ import {
 const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000;
 
 type GoogleEmailOtpWalletRegistrationArgs = Parameters<RegistrationCapability['registerWallet']>[0];
-
-type GoogleEmailOtpWalletRegistrationPrecompute =
-  | {
-      kind: 'started';
-      handle: WalletRegistrationPrecomputeHandle;
-      unavailableReason?: never;
-    }
-  | {
-      kind: 'unavailable';
-      unavailableReason: 'wallet_iframe_registration_domain' | 'policy_disabled';
-      handle?: never;
-    };
 
 type GoogleEmailOtpRegistrationEcdsaMaterialRequest =
   | {
@@ -111,15 +91,12 @@ type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
 };
 
-type GoogleLoginEmailOtpEd25519CapabilityArgs = {
+type GoogleLoginEmailOtpEd25519YaoCapabilityArgs = {
   walletSession: ReturnType<typeof walletSessionRefFromSession>;
-  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-  relayUrl?: string;
-  challengeId?: string;
-  emailOtpAuthorityEmail?: string;
+  challengeId: string;
   otpCode: string;
-  appSessionJwt?: string;
-  onEvent?: (event: UnlockFlowEvent) => void;
+  remainingUses: number;
+  appSessionJwt: string;
 };
 
 type GoogleSessionState = {
@@ -159,19 +136,12 @@ export type GoogleEmailOtpWalletAuthDeps = {
     appSessionJwt: string;
   }): Promise<EmailOtpRegistrationEnrollmentMaterial>;
   registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
-  startWalletRegistrationPrecompute(
-    args: GoogleEmailOtpWalletRegistrationArgs,
-  ): GoogleEmailOtpWalletRegistrationPrecompute;
-  registerWalletWithStartedPrecompute(args: {
-    registration: GoogleEmailOtpWalletRegistrationArgs;
-    precompute: Extract<GoogleEmailOtpWalletRegistrationPrecompute, { kind: 'started' }>;
-  }): Promise<RegistrationResult>;
   loginWithEmailOtpEcdsaCapability(
     args: GoogleLoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
-  loginWithEmailOtpEd25519Capability(
-    args: GoogleLoginEmailOtpEd25519CapabilityArgs,
-  ): Promise<unknown>;
+  loginWithEmailOtpEd25519YaoCapability(
+    args: GoogleLoginEmailOtpEd25519YaoCapabilityArgs,
+  ): Promise<void>;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
 
@@ -321,15 +291,16 @@ function buildPrompt(input: {
       title: 'Create your Email OTP wallet',
       description: `Google verified ${input.emailHint}.`,
       submitLabel: 'Create wallet',
-      helperText: 'Choose this wallet name or generate another one before creating the wallet.',
+      /* no helper: the field + "Generate another name" + button are self-evident */
+      helperText: '',
     };
   }
   return {
     title: 'Check your email to unlock your wallet',
     description: `Enter the 6-digit code we sent to ${input.emailHint}.`,
     submitLabel: 'Unlock wallet',
-    helperText:
-      'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+    /* no helper: the description already explains the code */
+    helperText: '',
   };
 }
 
@@ -489,6 +460,12 @@ function eventOnlyRegistrationOptions(args: {
   };
 }
 
+function resolveGoogleEmailOtpEd25519RemainingUses(configs: SeamsConfigsReadonly): number {
+  const configured = Math.floor(Number(configs.signing.sessionDefaults?.remainingUses) || 0);
+  if (configured <= 0) return DEV_DEFAULT_UNLOCK_REMAINING_USES;
+  return Math.min(configured, DEV_DEFAULT_UNLOCK_REMAINING_USES);
+}
+
 async function loginWithConfiguredTargets(args: {
   deps: GoogleEmailOtpWalletAuthDeps;
   state: GoogleSessionState;
@@ -501,6 +478,17 @@ async function loginWithConfiguredTargets(args: {
     walletId: args.state.walletId,
     userId: args.state.walletSessionUserId,
   });
+  const [primaryTarget] = args.targets;
+  if (!primaryTarget) {
+    await args.deps.loginWithEmailOtpEd25519YaoCapability({
+      walletSession,
+      challengeId: args.challenge.challengeId,
+      otpCode: args.otpCode,
+      remainingUses: resolveGoogleEmailOtpEd25519RemainingUses(args.deps.configs),
+      appSessionJwt: googleEmailOtpAppSessionJwt(args.state, 'login'),
+    });
+    return;
+  }
   const common = {
     walletSession,
     challengeId: args.challenge.challengeId,
@@ -513,11 +501,6 @@ async function loginWithConfiguredTargets(args: {
       ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
       : {}),
   };
-  const [primaryTarget] = args.targets;
-  if (!primaryTarget) {
-    await args.deps.loginWithEmailOtpEd25519Capability(common);
-    return;
-  }
   await args.deps.loginWithEmailOtpEcdsaCapability({
     ...common,
     chainTarget: primaryTarget,
@@ -624,10 +607,13 @@ function relayerUrlFromInput(args: {
   return String(args.input.relayUrl || args.deps.configs.network.relayer?.url || '').trim();
 }
 
-function googleEmailOtpRegistrationAppSessionJwt(state: GoogleSessionState): string {
+function googleEmailOtpAppSessionJwt(
+  state: GoogleSessionState,
+  purpose: 'registration' | 'login',
+): string {
   const appSessionJwt = String(state.appSessionJwt || '').trim();
   if (!appSessionJwt) {
-    throw new Error('Google Email OTP registration requires an app session token');
+    throw new Error(`Google Email OTP ${purpose} requires an app session token`);
   }
   return appSessionJwt;
 }
@@ -662,7 +648,7 @@ function googleEmailOtpRegistrationEcdsaMaterialRequest(args: {
     chainTarget: ThresholdEcdsaChainTarget;
     evmFamilySigningKeySlotId: string;
   }[] = [];
-  const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
+  const appSessionJwt = googleEmailOtpAppSessionJwt(args.state, 'registration');
   for (const chainTarget of args.targets) {
     targets.push({
       chainTarget,
@@ -698,7 +684,7 @@ function createRegistrationMaterialPrewarm(args: {
   let disposed = false;
   let resolved: EmailOtpPrewarmedRegistrationMaterial | null = null;
   const selectedCandidate = selectedGoogleEmailOtpRegistrationCandidate(args.offer);
-  const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
+  const appSessionJwt = googleEmailOtpAppSessionJwt(args.state, 'registration');
   const promise = args.deps
     .prepareEmailOtpRegistrationEnrollmentMaterial({
       relayUrl: relayerUrlFromInput({ deps: args.deps, input: args.input }),
@@ -777,7 +763,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   const registrationOptions = requiredTargets.length
     ? eventOptions
     : registrationOptionsForNoEcdsa({ options: eventOptions });
-  const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
+  const appSessionJwt = googleEmailOtpAppSessionJwt(args.state, 'registration');
   const selectedWalletId = selectedGoogleEmailOtpRegistrationCandidate(offer).walletId;
   const registrationAuthMethod = {
     kind: 'email_otp',
@@ -797,12 +783,6 @@ function createGoogleEmailOtpWalletRegistrationFlow(
       ecdsaChainTargets: requiredTargets,
     }),
     options: registrationOptions,
-  };
-  const precompute = deps.startWalletRegistrationPrecompute(registrationArgs);
-  const disposePrecompute = (): void => {
-    if (precompute.kind === 'started') {
-      disposeWalletRegistrationPrecompute(precompute.handle);
-    }
   };
   const liveness = createFlowLiveness({ state: args.state });
   const flowId = `google-email-otp-registration:${selectedWalletId}:${registrationAttemptId}`;
@@ -831,13 +811,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
                 }),
               }
             : registrationArgs;
-        const result =
-          precompute.kind === 'started'
-            ? await deps.registerWalletWithStartedPrecompute({
-                registration: registrationWithPrewarmedMaterial,
-                precompute,
-              })
-            : await deps.registerWallet(registrationWithPrewarmedMaterial);
+        const result = await deps.registerWallet(registrationWithPrewarmedMaterial);
         if (!result.success) {
           const error = Object.assign(new Error(result.error || 'Wallet registration failed'), {
             code: result.errorCode,
@@ -851,7 +825,6 @@ function createGoogleEmailOtpWalletRegistrationFlow(
         return fail(classifyRegistrationError(error), error);
       } finally {
         prewarm.dispose();
-        disposePrecompute();
       }
     },
     rerollWalletId: async (): Promise<
@@ -876,7 +849,6 @@ function createGoogleEmailOtpWalletRegistrationFlow(
           );
         }
         prewarm.dispose();
-        disposePrecompute();
         liveness.burn();
         return ok(
           createGoogleEmailOtpWalletRegistrationFlow(deps, {
@@ -897,7 +869,6 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     },
     cancel: async (): Promise<void> => {
       prewarm.dispose();
-      disposePrecompute();
       liveness.burn();
     },
   };

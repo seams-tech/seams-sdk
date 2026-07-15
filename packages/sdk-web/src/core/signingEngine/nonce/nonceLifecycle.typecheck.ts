@@ -3,7 +3,11 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SigningSessionIds } from '../session/operationState/types';
-import { NonceLeaseState, type EvmNonceLease } from './nonceTypes';
+import {
+  NonceLeaseState,
+  type EvmNonceLease,
+  type NonceCoordinator,
+} from './nonceTypes';
 import { tryReduceNonceLeaseState, type NonceLeaseTransition } from './nonceLeaseState';
 import type { NearNonceLaneLifecycle } from './nearNonceLane';
 
@@ -60,6 +64,16 @@ const invalidLeaseState: EvmNonceLease = {
   state: 'pending',
 };
 void invalidLeaseState;
+
+// @ts-expect-error Broadcast acceptance always carries the chain transaction identity.
+const broadcastAcceptanceWithoutTxHash: Parameters<
+  NonceCoordinator['markBroadcastAccepted']
+>[0] = {
+  leaseId: 'lease-without-tx-hash',
+  operationId,
+  operationFingerprint,
+};
+void broadcastAcceptanceWithoutTxHash;
 
 const uninitializedNearLane: NearNonceLaneLifecycle = {
   kind: 'uninitialized',

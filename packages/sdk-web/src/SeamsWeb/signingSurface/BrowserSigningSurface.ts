@@ -11,7 +11,12 @@ import type {
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
+import type { ExactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
+import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type { NearSigningApiDeps } from '@/core/signingEngine/interfaces/operationDeps';
+import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { SigningRuntime } from '@/core/runtime/runtime.types';
@@ -25,16 +30,17 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { WarmSessionEd25519UnsealAuthorizationPutPayload } from '@/core/types/secure-confirm-worker';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import * as thresholdEd25519Public from '@/core/signingEngine/threshold/ed25519/public';
 import { type ThresholdEcdsaBootstrapStorePort } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
-import { type ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
 import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -46,6 +52,20 @@ import {
   type NearSignIntentRequest,
   type NearSignIntentResult,
 } from '@/core/signingEngine/flows/signNear/signNear';
+import {
+  isConcreteAvailableSigningLane,
+  type AvailableEd25519SigningLane,
+} from '@/core/signingEngine/session/availability/availableSigningLanes';
+import {
+  recoverPasskeyEd25519YaoForUnlockV1,
+  type PasskeyEd25519YaoUnlockRecoveryV1,
+} from '@/SeamsWeb/operations/recovery/syncAccount';
+import {
+  recoverPasskeyEd25519YaoFromSealedSessionV1,
+  resolvePasskeyEd25519YaoExportContextV1,
+  type PasskeyEd25519WarmRecoverySubject,
+} from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+import type { ParsedPasskeyEd25519YaoRecoveryDescriptorV1 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import {
   reconcileTempoNonceLane as reconcileTempoNonceLaneOperation,
   reportTempoBroadcastAccepted as reportTempoBroadcastAcceptedOperation,
@@ -61,18 +81,16 @@ import {
   type TempoNonceLaneStatus,
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 import {
-  clearThresholdEcdsaCommitQueue,
-  type ThresholdEcdsaCommitQueueByKey,
-} from '@/core/signingEngine/threshold/ecdsa/commitQueue';
+  clearThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 import { type ThresholdEd25519CommitQueueByKey } from '@/core/signingEngine/threshold/ed25519/commitQueue';
-import { clearAllRouterAbEd25519ClientPresigns } from '@/core/signingEngine/threshold/ed25519/presignPool';
 import * as recoveryPublic from '@/core/signingEngine/flows/recovery/public';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
   SigningEngineResolveExactKeyExportLaneResult,
   RecoveryPublicDeps,
   SigningEngineExportKeypairWithUIInput,
-  KeyExportEventCallback,
 } from '@/core/signingEngine/flows/recovery/public';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
@@ -81,8 +99,6 @@ import {
   type EmailOtpPublicDeps,
   type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
-  type LoginWithEmailOtpEd25519CapabilityInternalArgs,
-  type LoginWithEmailOtpEd25519CapabilityInternalResult,
   type LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type LoginWithEmailOtpEcdsaCapabilityInternalResult,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
@@ -102,6 +118,27 @@ import type {
   ProvisionWarmEd25519CapabilityResult,
   WarmEcdsaSigningSessionStatus,
 } from '@/core/signingEngine/session/warmCapabilities/types';
+import {
+  resolveEmailOtpEd25519YaoColdRecoveryV1,
+  type LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
+} from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
+import {
+  activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
+  prepareColdEmailOtpEd25519YaoRecoveryV1,
+  recoverColdEmailOtpEd25519CapabilityForLoginV1,
+  type PreparedColdEmailOtpEd25519YaoRecoveryV1,
+} from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
+import { readExactSealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  recoverEmailOtpEd25519YaoFromSealedSessionV1,
+  resolveEmailOtpEd25519YaoExportContextV1,
+  type EmailOtpEd25519YaoExportContextV1,
+  type EmailOtpEd25519YaoExportSubjectV1,
+  type EmailOtpEd25519YaoSilentRecoveryResultV1,
+} from '@/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
+import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
   DiscoverPersistedSessionsForWalletInput,
@@ -139,6 +176,7 @@ import {
   preparePasskeyWalletRegistrationEcdsaClientBootstrap,
   storeWalletRegistrationEcdsaClientSigningMaterial,
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
+
 import {
   finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation,
   type FinalizeWalletRegistrationEcdsaSessionsDeps,
@@ -148,13 +186,73 @@ import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
-import { restoreThresholdEd25519WorkerMaterialFromCredential } from '../operations/session/thresholdWarmSessionBootstrap';
 import { serializeRegistrationCredentialWithPRF } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   RegistrationWebAuthnPromptOwner,
   ReservedRegistrationWebAuthnPrompt,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+
+type NearEd25519CapabilityRecoverySubject =
+  | {
+      readonly kind: 'account_signer';
+      readonly walletId: WalletId;
+      readonly nearAccountId: AccountId;
+      readonly signerSlot: number | null;
+    }
+  | {
+      readonly kind: 'exact_lane';
+      readonly walletId: WalletId;
+      readonly nearAccountId: AccountId;
+      readonly signerSlot: number;
+      readonly thresholdSessionId: string;
+    };
+
+function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(input, init);
+}
+
+function nearEd25519ColdRecoveryAllowCredential(credentialId: string): WebAuthnAllowCredential {
+  return { id: credentialId, type: 'public-key', transports: [] };
+}
+
+function nearEd25519CapabilityRecoverySubjectFromRequest(
+  request: NearSignIntentRequest,
+): NearEd25519CapabilityRecoverySubject {
+  const signerSlot = request.args.signerSlot;
+  return {
+    kind: 'account_signer',
+    walletId: request.args.commandSubject.walletSession.walletId,
+    nearAccountId: request.args.commandSubject.nearAccount.accountId,
+    signerSlot: typeof signerSlot === 'number' ? signerSlot : null,
+  };
+}
+
+function nearEd25519LaneMatchesCapabilityRecoverySubject(
+  lane: AvailableEd25519SigningLane,
+  subject: NearEd25519CapabilityRecoverySubject,
+): boolean {
+  if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return false;
+  if (
+    String(lane.walletId) !== String(subject.walletId) ||
+    String(lane.nearAccountId) !== String(subject.nearAccountId)
+  ) {
+    return false;
+  }
+  if (subject.signerSlot !== null && lane.signerSlot !== subject.signerSlot) return false;
+  return subject.kind === 'account_signer'
+    ? true
+    : String(lane.thresholdSessionId) === subject.thresholdSessionId;
+}
+
+function nearEd25519CapabilityRecoveryKey(subject: NearEd25519CapabilityRecoverySubject): string {
+  return JSON.stringify([
+    String(subject.walletId),
+    String(subject.nearAccountId),
+    subject.signerSlot,
+    subject.kind === 'exact_lane' ? subject.thresholdSessionId : null,
+  ]);
+}
 
 type RuntimePortsRef = {
   current: RuntimePorts | null;
@@ -198,8 +296,13 @@ export class BrowserSigningSurface {
   private workerBaseOrigin: string = '';
   private appearance: AppearanceConfig;
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
-  private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+  private readonly thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
+  private readonly nearEd25519CapabilityRecoveryBySubject: Map<string, Promise<void>> = new Map();
+  private readonly emailOtpEd25519SilentRecoveryBySubject: Map<
+    string,
+    Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>
+  > = new Map();
   private readonly emailOtpSessions: EmailOtpWalletSessionCoordinator;
   private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord>;
   private readonly thresholdEcdsaExportArtifactByLane: Map<
@@ -213,13 +316,14 @@ export class BrowserSigningSurface {
   private readonly emailOtpPublicDeps: EmailOtpPublicDeps;
   private readonly recoveryPublicDeps: RecoveryPublicDeps;
   private readonly registrationPublicDeps: registrationPublic.RegistrationPublicDeps;
-  private readonly thresholdEd25519PublicDeps: thresholdEd25519Public.ThresholdEd25519PublicDeps;
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
   private sealedRefreshStartupParityError: Error | null = null;
   private readonly signingRuntime: SigningRuntime;
   private readonly runtimePorts: RuntimePorts;
   private readonly enginePorts: BrowserSigningSurfaceEnginePorts;
   private readonly ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
+  private readonly ed25519YaoPageLifecycleOwner: Ed25519YaoPageLifecycleOwner;
+  private readonly ed25519YaoPublicCapabilityReferences: BrowserSigningSurfaceConstructorDeps['ed25519YaoPublicCapabilityReferences'];
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
 
@@ -229,6 +333,7 @@ export class BrowserSigningSurface {
     deps: BrowserSigningSurfaceConstructorDeps,
   ) {
     this.seamsWebConfigs = seamsWebConfigs;
+    this.ed25519YaoPublicCapabilityReferences = deps.ed25519YaoPublicCapabilityReferences;
     this.appearance = seamsWebConfigs.ui.appearance;
     this.nearClient = nearClient;
     this.ecdsaBootstrapStore =
@@ -317,21 +422,27 @@ export class BrowserSigningSurface {
     this.recoveryPublicDeps = createBrowserRecoveryPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,
       runtimePorts: this.runtimePorts,
-      touchIdPrompt: this.touchIdPrompt,
       signerWorkerManager: this.signerWorkerManager,
-      credentialStore: deps.signingEngineStores.recoveryAndDeviceLinking.credentialStore,
-      keyMaterialStore: deps.signingEngineStores.recoveryAndDeviceLinking.keyMaterialStore,
       warmSigning: this.warmSigning,
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       getWalletSessionActivationDeps: () => this.enginePorts.walletSessionActivationDeps,
+      resolveActiveEd25519YaoCapability: (identity) =>
+        this.enginePorts.ed25519YaoActiveClients.resolve(identity),
+      recoverPasskeyEd25519YaoCapability:
+        this.recoverExactPasskeyEd25519YaoCapabilityForExport.bind(this),
+      resolvePasskeyEd25519YaoExportContext:
+        this.resolveExactPasskeyEd25519YaoExportContext.bind(this),
+      resolveEmailOtpEd25519YaoExportContext:
+        this.resolveEmailOtpEd25519YaoExportContext.bind(this),
       getTheme: () => this.appearance.theme.mode,
     });
 
     this.enginePorts = createBrowserSigningSurfaceEnginePorts({
       runtimePorts: this.runtimePorts,
       stores: deps.signingEngineStores,
+      ed25519YaoPublicCapabilityReferences: deps.ed25519YaoPublicCapabilityReferences,
       seamsWebConfigs: this.seamsWebConfigs,
       nearClient: this.nearClient,
       touchIdPrompt: this.touchIdPrompt,
@@ -343,17 +454,23 @@ export class BrowserSigningSurface {
       warmSigning: this.warmSigning,
       ecdsaBootstrapStore: this.ecdsaBootstrapStore,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
-      thresholdEcdsaCommitQueueByKey: this.thresholdEcdsaCommitQueueByKey,
+      thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
       thresholdEd25519CommitQueueByKey: this.thresholdEd25519CommitQueueByKey,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       workerWarmupPolicy: deps.workerWarmupPolicy,
       getTheme: () => this.appearance.theme.mode,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
-      restorePasskeyEd25519SigningMaterial:
-        this.restorePasskeyEd25519SigningMaterialForReconnect.bind(this),
       getEnginePorts: () => this.enginePorts,
       getRegistrationPublicDeps: () => this.registrationPublicDeps,
+      recoverPasskeyEd25519YaoCapabilityForSigning:
+        this.recoverExactPasskeyEd25519YaoCapabilityForSigning.bind(this),
+      recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
+        this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning.bind(this),
     });
+    this.ed25519YaoPageLifecycleOwner = new Ed25519YaoPageLifecycleOwner(
+      typeof window === 'undefined' ? null : window,
+      this.enginePorts.ed25519YaoActiveClients,
+    );
     const warmSessionPublicDeps = createBrowserWarmSessionPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,
       stores: deps.signingEngineStores,
@@ -371,7 +488,6 @@ export class BrowserSigningSurface {
       accountLifecycle: this.enginePorts.registrationAccountLifecycleDeps,
       session: this.enginePorts.registrationSessionDeps,
     };
-    this.thresholdEd25519PublicDeps = this.enginePorts.thresholdEd25519LifecycleDeps;
 
     deps.initializeRuntime({
       config: this.seamsWebConfigs,
@@ -448,7 +564,375 @@ export class BrowserSigningSurface {
   async signNear<TRequest extends NearSignIntentRequest>(
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>> {
+    if (request.kind !== 'transactionWithActions') {
+      await this.ensureNearEd25519YaoCapabilityForSigning(
+        nearEd25519CapabilityRecoverySubjectFromRequest(request),
+      );
+    }
     return await signNearOperation(this.enginePorts.nearSigningDeps, request);
+  }
+
+  private async ensureNearEd25519YaoCapabilityForSigning(
+    subject: NearEd25519CapabilityRecoverySubject,
+  ): Promise<NearEd25519YaoSigningCapability> {
+    const active = await this.resolveActiveNearEd25519YaoSigningLane(subject);
+    if (active) return active;
+    if (!(await this.hasNearEd25519YaoPublicReference(subject))) {
+      throw new Error('[SigningEngine][near] Ed25519 Yao recovery reference is unavailable');
+    }
+    if (!(await this.hasPasskeyAuthenticatorForNearEd25519Subject(subject))) {
+      throw new Error('[SigningEngine][near] Ed25519 Yao passkey authenticator is unavailable');
+    }
+
+    const recoveryKey = nearEd25519CapabilityRecoveryKey(subject);
+    const existingRecovery = this.nearEd25519CapabilityRecoveryBySubject.get(recoveryKey);
+    if (existingRecovery) {
+      await existingRecovery;
+      const recovered = await this.resolveActiveNearEd25519YaoSigningLane(subject);
+      if (recovered) return recovered;
+      throw new Error('[SigningEngine][near] joined Yao recovery did not publish an active lane');
+    }
+
+    const recovery = this.recoverNearEd25519YaoCapabilityForSigning(subject);
+    this.nearEd25519CapabilityRecoveryBySubject.set(recoveryKey, recovery);
+    try {
+      await recovery;
+    } finally {
+      if (this.nearEd25519CapabilityRecoveryBySubject.get(recoveryKey) === recovery) {
+        this.nearEd25519CapabilityRecoveryBySubject.delete(recoveryKey);
+      }
+    }
+    const recovered = await this.resolveActiveNearEd25519YaoSigningLane(subject);
+    if (recovered) return recovered;
+    throw new Error('[SigningEngine][near] Yao recovery did not publish an active lane');
+  }
+
+  private async recoverExactPasskeyEd25519YaoCapabilityForSigning(
+    args: Parameters<NearSigningApiDeps['recoverPasskeyEd25519YaoCapabilityForSigning']>[0],
+  ): Promise<NearEd25519YaoSigningCapability> {
+    return await this.ensureNearEd25519YaoCapabilityForSigning({
+      kind: 'exact_lane',
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      thresholdSessionId: args.thresholdSessionId,
+    });
+  }
+
+  private async recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning(
+    args: Parameters<
+      NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning']
+    >[0],
+  ): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
+    const recoveryKey = JSON.stringify([
+      String(args.walletId),
+      String(args.nearAccountId),
+      args.signerSlot,
+      args.thresholdSessionId,
+    ]);
+    const existing = this.emailOtpEd25519SilentRecoveryBySubject.get(recoveryKey);
+    if (existing) return await existing;
+    const recovery = this.runExactEmailOtpEd25519YaoSilentRecovery(args);
+    this.emailOtpEd25519SilentRecoveryBySubject.set(recoveryKey, recovery);
+    try {
+      return await recovery;
+    } finally {
+      if (this.emailOtpEd25519SilentRecoveryBySubject.get(recoveryKey) === recovery) {
+        this.emailOtpEd25519SilentRecoveryBySubject.delete(recoveryKey);
+      }
+    }
+  }
+
+  private async runExactEmailOtpEd25519YaoSilentRecovery(
+    args: Parameters<
+      NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning']
+    >[0],
+  ): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
+    const user = await this.getUserBySignerSlot(args.nearAccountId, args.signerSlot);
+    if (!user || String(user.walletId) !== String(args.walletId)) {
+      throw new Error(
+        '[SigningEngine][near] Email OTP Ed25519 sealed recovery signer identity is unavailable',
+      );
+    }
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    if (!relayerUrl) {
+      throw new Error(
+        '[SigningEngine][near] Email OTP Ed25519 sealed recovery requires relayerUrl',
+      );
+    }
+    const result = await recoverEmailOtpEd25519YaoFromSealedSessionV1({
+      subject: {
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.signerSlot,
+        thresholdSessionId: args.thresholdSessionId,
+      },
+      expectedOperationalPublicKey: user.operationalPublicKey,
+      rpId: this.getRpId(),
+      relayerUrl,
+      authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
+      ports: {
+        readExactSealedSession,
+        fetch: fetchWithGlobalThis,
+        workerContext: this.signerWorkerManager.getContext(),
+        resolveActiveCapability: this.enginePorts.ed25519YaoActiveClients.resolve.bind(
+          this.enginePorts.ed25519YaoActiveClients,
+        ),
+        activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
+          this.enginePorts.ed25519YaoActiveClients,
+        ),
+        nowMs: Date.now,
+      },
+    });
+    if (result.kind === 'recovered') {
+      await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(result.recovery.record);
+    }
+    return result;
+  }
+
+  private async recoverExactPasskeyEd25519YaoCapabilityForExport(
+    laneIdentity: Parameters<RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability']>[0],
+  ): Promise<NearEd25519YaoSigningCapability> {
+    return await this.ensureNearEd25519YaoCapabilityForSigning({
+      kind: 'exact_lane',
+      walletId: laneIdentity.signer.account.wallet.walletId,
+      nearAccountId: laneIdentity.signer.account.nearAccountId,
+      signerSlot: laneIdentity.signer.signerSlot,
+      thresholdSessionId: String(laneIdentity.thresholdSessionId),
+    });
+  }
+
+  private async resolveExactPasskeyEd25519YaoExportContext(
+    laneIdentity: Parameters<RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext']>[0],
+  ): ReturnType<RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext']> {
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    if (!relayerUrl) {
+      throw new Error('[SigningEngine][ed25519-export] passkey export requires relayerUrl');
+    }
+    return await resolvePasskeyEd25519YaoExportContextV1({
+      subject: {
+        walletId: String(laneIdentity.signer.account.wallet.walletId),
+        nearAccountId: String(laneIdentity.signer.account.nearAccountId),
+        signerSlot: laneIdentity.signer.signerSlot,
+        thresholdSessionId: String(laneIdentity.thresholdSessionId),
+      },
+      relayerUrl,
+      fetch: fetchWithGlobalThis,
+    });
+  }
+
+  private async resolveEmailOtpEd25519YaoExportContext(
+    subject: EmailOtpEd25519YaoExportSubjectV1,
+  ): Promise<EmailOtpEd25519YaoExportContextV1> {
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    if (!relayerUrl) {
+      throw new Error('[SigningEngine][ed25519-export] Email OTP export requires relayerUrl');
+    }
+    return await resolveEmailOtpEd25519YaoExportContextV1({
+      subject,
+      relayerUrl,
+      ports: {
+        readExactSealedSession,
+        fetch: fetchWithGlobalThis,
+      },
+    });
+  }
+
+  private async resolveActiveNearEd25519YaoSigningLane(
+    subject: NearEd25519CapabilityRecoverySubject,
+  ): Promise<NearEd25519YaoSigningCapability | null> {
+    const availableLanes =
+      await this.enginePorts.nearSigningDeps.readAvailableSigningLanesForSigning({
+        walletId: subject.walletId,
+        curve: 'ed25519',
+        authMethod: 'passkey',
+      });
+    for (const lane of availableLanes.candidates.ed25519.near) {
+      if (!nearEd25519LaneMatchesCapabilityRecoverySubject(lane, subject)) continue;
+      if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
+      const capability = this.enginePorts.ed25519YaoActiveClients.resolve({
+        walletId: subject.walletId,
+        nearAccountId: subject.nearAccountId,
+        thresholdSessionId: lane.thresholdSessionId,
+      });
+      if (capability?.activeClient.status().kind === 'active') return capability;
+    }
+    return null;
+  }
+
+  private async hasNearEd25519YaoPublicReference(
+    subject: NearEd25519CapabilityRecoverySubject,
+  ): Promise<boolean> {
+    const references = await this.ed25519YaoPublicCapabilityReferences.list();
+    for (const reference of references) {
+      if (
+        String(reference.walletId) === String(subject.walletId) &&
+        String(reference.nearAccountId) === String(subject.nearAccountId)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async hasPasskeyAuthenticatorForNearEd25519Subject(
+    subject: NearEd25519CapabilityRecoverySubject,
+  ): Promise<boolean> {
+    const authenticators = await this.nearAuthenticatorsByAccount(subject.nearAccountId);
+    for (const authenticator of authenticators) {
+      if (subject.signerSlot === null || authenticator.signerSlot === subject.signerSlot) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async recoverNearEd25519YaoCapabilityForSigning(
+    subject: NearEd25519CapabilityRecoverySubject,
+  ): Promise<void> {
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    if (!relayerUrl) {
+      throw new Error('[SigningEngine][near] Ed25519 Yao cold recovery requires relayerUrl');
+    }
+    const warmRecovered = await this.recoverNearEd25519YaoCapabilityFromSealedSession(subject);
+    if (warmRecovered) return;
+    await this.recoverNearEd25519YaoCapabilityWithPasskey(subject, relayerUrl);
+  }
+
+  private async recoverNearEd25519YaoCapabilityFromSealedSession(
+    subject: NearEd25519CapabilityRecoverySubject,
+  ): Promise<boolean> {
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    if (!relayerUrl) {
+      throw new Error('[SigningEngine][near] Ed25519 Yao warm recovery requires relayerUrl');
+    }
+    const warmSubject: PasskeyEd25519WarmRecoverySubject = {
+      walletId: String(subject.walletId),
+      nearAccountId: String(subject.nearAccountId),
+      signerSlot: subject.signerSlot,
+      thresholdSessionId: subject.kind === 'exact_lane' ? subject.thresholdSessionId : null,
+    };
+    const result = await recoverPasskeyEd25519YaoFromSealedSessionV1({
+      subject: warmSubject,
+      relayerUrl,
+      rpId: this.getRpId(),
+      fetch: fetchWithGlobalThis,
+      ports: this.touchConfirm,
+    });
+    if (result.kind === 'unavailable') return false;
+    const recovered = result.recovery;
+    try {
+      await this.assertNearEd25519WarmRecoveryContinuity(subject, recovered.parsed);
+      await this.activateVerifiedNearEd25519YaoSigningCapability({
+        activeClient: recovered.activeClient,
+        walletSessionState: recovered.walletSessionState,
+      });
+      return true;
+    } catch (error: unknown) {
+      recovered.activeClient.dispose();
+      throw error;
+    }
+  }
+
+  private async recoverNearEd25519YaoCapabilityWithPasskey(
+    subject: NearEd25519CapabilityRecoverySubject,
+    relayerUrl: string,
+  ): Promise<void> {
+    const recovered = await recoverPasskeyEd25519YaoForUnlockV1({
+      walletId: String(subject.walletId),
+      relayerUrl,
+      rpId: this.getRpId(),
+      fetch: fetchWithGlobalThis,
+      collectCredential: this.collectNearEd25519ColdRecoveryCredential.bind(this, subject),
+      activateCapability: this.activateVerifiedNearEd25519YaoSigningCapability.bind(this),
+      sessionPersistence: this,
+    });
+    try {
+      await this.assertNearEd25519ColdRecoveryContinuity(subject, recovered);
+      if (!(await this.resolveActiveNearEd25519YaoSigningLane(subject))) {
+        throw new Error(
+          '[SigningEngine][near] Ed25519 Yao cold recovery did not publish an active exact lane',
+        );
+      }
+    } catch (error: unknown) {
+      await this.enginePorts.ed25519YaoActiveClients.rollbackActivation({
+        walletId: recovered.recovery.parsed.walletId,
+        nearAccountId: recovered.recovery.parsed.nearAccountId,
+        thresholdSessionId: recovered.recovery.parsed.session.thresholdSessionId,
+      });
+      throw error;
+    }
+  }
+
+  private async assertNearEd25519WarmRecoveryContinuity(
+    subject: NearEd25519CapabilityRecoverySubject,
+    parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+  ): Promise<void> {
+    if (
+      String(parsed.walletId) !== String(subject.walletId) ||
+      String(parsed.nearAccountId) !== String(subject.nearAccountId) ||
+      (subject.signerSlot !== null && parsed.signerSlot !== subject.signerSlot) ||
+      (subject.kind === 'exact_lane' &&
+        parsed.session.thresholdSessionId !== subject.thresholdSessionId)
+    ) {
+      throw new Error(
+        '[SigningEngine][near] Ed25519 Yao warm recovery changed the requested signer identity',
+      );
+    }
+    const user = await this.getUserBySignerSlot(subject.nearAccountId, parsed.signerSlot);
+    if (
+      !user ||
+      String(user.walletId) !== String(subject.walletId) ||
+      user.operationalPublicKey !== parsed.operationalPublicKey
+    ) {
+      throw new Error(
+        '[SigningEngine][near] Ed25519 Yao warm recovery changed the registered public key',
+      );
+    }
+  }
+
+  private async collectNearEd25519ColdRecoveryCredential(
+    subject: NearEd25519CapabilityRecoverySubject,
+    input: { readonly challengeB64u: string; readonly credentialIds: readonly string[] },
+  ): Promise<WebAuthnAuthenticationCredential> {
+    return await this.getAuthenticationCredentialsSerialized({
+      subjectId: String(subject.walletId),
+      challengeB64u: input.challengeB64u,
+      allowCredentials: input.credentialIds.map(nearEd25519ColdRecoveryAllowCredential),
+      includeSecondPrfOutput: false,
+    });
+  }
+
+  private async assertNearEd25519ColdRecoveryContinuity(
+    subject: NearEd25519CapabilityRecoverySubject,
+    recovered: PasskeyEd25519YaoUnlockRecoveryV1,
+  ): Promise<void> {
+    const binding = recovered.verifiedBinding;
+    const parsed = recovered.recovery.parsed;
+    if (
+      String(binding.walletId) !== String(subject.walletId) ||
+      String(binding.nearAccountId) !== String(subject.nearAccountId) ||
+      String(parsed.walletId) !== String(subject.walletId) ||
+      String(parsed.nearAccountId) !== String(subject.nearAccountId) ||
+      (subject.signerSlot !== null && binding.signerSlot !== subject.signerSlot) ||
+      parsed.signerSlot !== binding.signerSlot ||
+      (subject.kind === 'exact_lane' &&
+        parsed.session.thresholdSessionId !== subject.thresholdSessionId)
+    ) {
+      throw new Error(
+        '[SigningEngine][near] Ed25519 Yao cold recovery changed the requested signer identity',
+      );
+    }
+    const user = await this.getUserBySignerSlot(subject.nearAccountId, binding.signerSlot);
+    if (
+      !user ||
+      String(user.walletId) !== String(subject.walletId) ||
+      user.operationalPublicKey !== parsed.operationalPublicKey
+    ) {
+      throw new Error(
+        '[SigningEngine][near] Ed25519 Yao cold recovery changed the registered public key',
+      );
+    }
   }
 
   async signEvmFamily(args: {
@@ -516,12 +1000,6 @@ export class BrowserSigningSurface {
     );
   }
 
-  updateLastLogin(
-    walletId: Parameters<typeof registrationPublic.updateLastLogin>[1],
-  ): ReturnType<typeof registrationPublic.updateLastLogin> {
-    return registrationPublic.updateLastLogin(this.registrationPublicDeps, walletId);
-  }
-
   setLastUser(
     walletId: Parameters<typeof registrationPublic.setLastUser>[1],
     signerSlot: Parameters<typeof registrationPublic.setLastUser>[2],
@@ -562,6 +1040,12 @@ export class BrowserSigningSurface {
     );
   }
 
+  storeWalletMixedRegistrationData(
+    input: Parameters<typeof registrationPublic.storeWalletMixedRegistrationData>[1],
+  ): ReturnType<typeof registrationPublic.storeWalletMixedRegistrationData> {
+    return registrationPublic.storeWalletMixedRegistrationData(this.registrationPublicDeps, input);
+  }
+
   storeWalletEd25519RecoveryRegistrationData(
     input: Parameters<typeof registrationPublic.storeWalletEd25519RecoveryRegistrationData>[1],
   ): ReturnType<typeof registrationPublic.storeWalletEd25519RecoveryRegistrationData> {
@@ -580,12 +1064,30 @@ export class BrowserSigningSurface {
     );
   }
 
+  storeWalletEmailOtpMixedRegistrationData(
+    input: Parameters<typeof registrationPublic.storeWalletEmailOtpMixedRegistrationData>[1],
+  ): ReturnType<typeof registrationPublic.storeWalletEmailOtpMixedRegistrationData> {
+    return registrationPublic.storeWalletEmailOtpMixedRegistrationData(
+      this.registrationPublicDeps,
+      input,
+    );
+  }
+
   finalizeWalletEd25519SignerRegistration(
     input: Parameters<typeof registrationPublic.finalizeWalletEd25519SignerRegistration>[1],
   ): ReturnType<typeof registrationPublic.finalizeWalletEd25519SignerRegistration> {
     return registrationPublic.finalizeWalletEd25519SignerRegistration(
       this.registrationPublicDeps,
       input,
+    );
+  }
+
+  rollbackWalletEd25519SignerRegistration(
+    receipt: Parameters<typeof registrationPublic.rollbackWalletEd25519SignerRegistration>[1],
+  ): ReturnType<typeof registrationPublic.rollbackWalletEd25519SignerRegistration> {
+    return registrationPublic.rollbackWalletEd25519SignerRegistration(
+      this.registrationPublicDeps,
+      receipt,
     );
   }
 
@@ -636,16 +1138,18 @@ export class BrowserSigningSurface {
             ),
         },
         commitEmailOtpEcdsaSession: this.commitEmailOtpRegistrationEcdsaSession.bind(this),
+        commitEmailOtpEcdsaRegistrationWarmMaterial:
+          this.commitEmailOtpEcdsaRegistrationWarmMaterial.bind(this),
         signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
       },
       input,
     );
   }
 
-  private commitEmailOtpRegistrationEcdsaSession(
+  private async commitEmailOtpRegistrationEcdsaSession(
     input: Parameters<FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaSession']>[0],
   ): ReturnType<typeof commitEvmFamilyThresholdEcdsaSessions> {
-    return commitEvmFamilyThresholdEcdsaSessions(
+    const committed = await commitEvmFamilyThresholdEcdsaSessions(
       {
         queueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
         bootstrapStore: this.ecdsaBootstrapStore,
@@ -658,6 +1162,43 @@ export class BrowserSigningSurface {
       },
       input,
     );
+    const runtimePolicyScope = committed.warmCapability.record?.runtimePolicyScope;
+    if (!runtimePolicyScope) {
+      throw new Error('Email OTP ECDSA registration requires an exact runtime policy scope');
+    }
+    await this.emailOtpSessions.persistEcdsaSessionForRefresh({
+      walletId: input.walletId,
+      chainTarget: input.chainTarget,
+      bootstrap: committed.bootstrap,
+      runtimePolicyScope,
+      emailOtpAuthContext: input.emailOtpAuthContext,
+    });
+    return committed;
+  }
+
+  private async commitEmailOtpEcdsaRegistrationWarmMaterial(
+    input: Parameters<
+      FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaRegistrationWarmMaterial']
+    >[0],
+  ): Promise<void> {
+    const result = await this.signerWorkerManager.getContext().requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'commitEmailOtpEcdsaRegistrationWarmMaterial',
+        payload: {
+          walletId: String(input.walletId),
+          chainTarget: input.chainTarget,
+          retainedClientRootShareHandle:
+            input.preparedClientBootstrap.retainedClientRootShareHandle,
+          thresholdSessionId: input.bootstrap.session.thresholdSessionId,
+          expiresAtMs: input.bootstrap.session.expiresAtMs,
+          remainingUses: input.bootstrap.session.remainingUses,
+        },
+      },
+    });
+    if (!result.committed) {
+      throw new Error('Email OTP ECDSA registration warm material was not committed');
+    }
   }
 
   private ensureEmailOtpRegistrationEcdsaSealedRefreshParity(
@@ -699,6 +1240,12 @@ export class BrowserSigningSurface {
     return registrationPublic.finalizeWalletEcdsaRegistration(this.registrationPublicDeps, input);
   }
 
+  async activateVerifiedNearEd25519YaoSigningCapability(
+    capability: NearEd25519YaoSigningCapability,
+  ): Promise<Ed25519YaoActiveClientIdentityV1> {
+    return await this.enginePorts.ed25519YaoActiveClients.activate(capability);
+  }
+
   storeWalletEmailOtpEcdsaRegistrationData(
     input: Parameters<typeof registrationPublic.storeWalletEmailOtpEcdsaRegistrationData>[1],
   ): ReturnType<typeof registrationPublic.storeWalletEmailOtpEcdsaRegistrationData> {
@@ -717,36 +1264,6 @@ export class BrowserSigningSurface {
   }): Promise<SignerWorkerOperationResult<K, T>> =>
     this.signerWorkerManager.getContext().requestWorkerOperation(args);
 
-  private async restorePasskeyEd25519SigningMaterialForReconnect(args: {
-    nearAccountId: AccountId;
-    credential: WebAuthnAuthenticationCredential;
-    signerSlot: number;
-    thresholdSessionId: string;
-  }): Promise<void> {
-    const result = await restoreThresholdEd25519WorkerMaterialFromCredential({
-      context: {
-        signingEngine: this,
-      },
-      credential: args.credential,
-      nearAccountId: args.nearAccountId,
-      signerSlot: args.signerSlot,
-      thresholdSessionId: args.thresholdSessionId,
-    });
-    switch (result.kind) {
-      case 'already_loaded':
-      case 'restored':
-        return;
-      case 'material_pending':
-        throw new Error(
-          '[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: missing_material_handle',
-        );
-      default: {
-        const exhaustive: never = result;
-        return exhaustive;
-      }
-    }
-  }
-
   hydrateSigningSession(
     input: Parameters<typeof warmCapabilitiesPublic.hydrateSigningSession>[1],
   ): ReturnType<typeof warmCapabilitiesPublic.hydrateSigningSession> {
@@ -759,17 +1276,6 @@ export class BrowserSigningSurface {
     >[0],
   ): ReturnType<UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']> {
     return this.touchConfirm.persistSigningSessionSealForThresholdSession(input);
-  }
-
-  async putWarmSessionEd25519UnsealAuthorization(
-    input: WarmSessionEd25519UnsealAuthorizationPutPayload,
-  ): Promise<void> {
-    const result = await this.touchConfirm.putWarmSessionEd25519UnsealAuthorization(input);
-    if (!result.ok) {
-      throw new Error(
-        `Ed25519 warm-session unseal authorization install failed (${result.code}): ${result.message}`,
-      );
-    }
   }
 
   requestRegistrationCredentialConfirmation(params: {
@@ -839,39 +1345,6 @@ export class BrowserSigningSurface {
     return await recoveryPublic.resolveExactKeyExportLane(this.recoveryPublicDeps, input);
   }
 
-  exportNearEd25519SeedArtifactWithUI(args: {
-    nearAccountId: AccountId;
-    seedB64u: string;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    };
-  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return recoveryPublic.exportNearEd25519SeedArtifactWithUI(this.recoveryPublicDeps, args);
-  }
-
-  async exportThresholdEd25519SeedFromHssReport(args: {
-    nearAccountId: AccountId;
-    preparedSession: Parameters<
-      typeof recoveryPublic.exportThresholdEd25519SeedFromHssReport
-    >[1]['preparedSession'];
-    finalizedReport: Parameters<
-      typeof recoveryPublic.exportThresholdEd25519SeedFromHssReport
-    >[1]['finalizedReport'];
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: KeyExportEventCallback;
-    };
-  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return await recoveryPublic.exportThresholdEd25519SeedFromHssReport(
-      this.recoveryPublicDeps,
-      args,
-    );
-  }
-
   async connectEd25519Session(
     args: ConnectEd25519SessionArgs,
   ): Promise<ProvisionWarmEd25519CapabilityResult> {
@@ -893,13 +1366,88 @@ export class BrowserSigningSurface {
     );
   }
 
-  async loginWithEmailOtpEd25519CapabilityInternal(
-    args: LoginWithEmailOtpEd25519CapabilityInternalArgs,
-  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
-    return await emailOtpPublic.loginWithEmailOtpEd25519CapabilityInternal(
-      this.emailOtpPublicDeps,
-      args,
+  async prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
+    walletSession: WalletSessionRef;
+    remainingUses: number;
+    emailHashHex: string;
+  }): Promise<PreparedColdEmailOtpEd25519YaoRecoveryV1 | null> {
+    const resolved = await resolveEmailOtpEd25519YaoColdRecoveryV1(
+      {
+        listPublicCapabilityReferences: this.ed25519YaoPublicCapabilityReferences.list.bind(
+          this.ed25519YaoPublicCapabilityReferences,
+        ),
+        listUsers: this.getAllUsers.bind(this),
+      },
+      args.walletSession,
     );
+    if (!resolved) return null;
+    return prepareColdEmailOtpEd25519YaoRecoveryV1({
+      identity: resolved.identity,
+      signerSlot: resolved.user.signerSlot,
+      expectedOperationalPublicKey: resolved.user.operationalPublicKey,
+      providerSubject: resolved.providerSubject,
+      emailHashHex: args.emailHashHex,
+      rpId: this.getRpId(),
+      relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
+      authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
+      remainingUses: args.remainingUses,
+      resolveActiveCapability: this.enginePorts.ed25519YaoActiveClients.resolve.bind(
+        this.enginePorts.ed25519YaoActiveClients,
+      ),
+    });
+  }
+
+  async persistEmailOtpEd25519YaoSessionForRefreshInternal(
+    record: ThresholdEd25519SessionRecord,
+  ): Promise<void> {
+    await this.emailOtpSessions.persistEd25519YaoSessionForRefresh({
+      record,
+      rpId: this.getRpId(),
+    });
+  }
+
+  async activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+  }): Promise<ThresholdEd25519SessionRecord> {
+    const recovered = await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
+      prepared: args.prepared,
+      bootstrap: args.bootstrap,
+      pendingFactorHandle: args.pendingFactorHandle,
+      workerContext: this.signerWorkerManager.getContext(),
+      activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
+        this.enginePorts.ed25519YaoActiveClients,
+      ),
+    });
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
+    return recovered.record;
+  }
+
+  async loginWithEmailOtpEd25519YaoCapabilityInternal(
+    args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
+  ): Promise<ThresholdEd25519SessionRecord> {
+    const prepared = await this.prepareEmailOtpEd25519YaoLoginRecoveryInternal({
+      walletSession: args.walletSession,
+      remainingUses: args.remainingUses,
+      emailHashHex: args.emailHashHex,
+    });
+    if (!prepared) {
+      throw new Error('Email OTP Ed25519 Yao login requires a persisted signer capability');
+    }
+    const recovered = await recoverColdEmailOtpEd25519CapabilityForLoginV1({
+      prepared,
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+      appSessionJwt: args.appSessionJwt,
+      shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+      workerContext: this.signerWorkerManager.getContext(),
+      activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
+        this.enginePorts.ed25519YaoActiveClients,
+      ),
+    });
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
+    return recovered.record;
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {
@@ -932,6 +1480,10 @@ export class BrowserSigningSurface {
     relayUrl: string;
   }): Promise<string> {
     return await this.emailOtpSessions.resolveAppSessionJwt(args);
+  }
+
+  rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void {
+    this.emailOtpSessions.rememberAppSessionBinding(binding);
   }
 
   async enrollEmailOtpInternal(args: {
@@ -984,7 +1536,6 @@ export class BrowserSigningSurface {
 
   clearAllThresholdEcdsaSessionRecords(): void {
     sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);
-    clearAllRouterAbEd25519ClientPresigns();
   }
 
   getWarmThresholdEd25519SessionStatus(
@@ -1033,155 +1584,25 @@ export class BrowserSigningSurface {
   }
 
   async clearVolatileWarmSigningMaterial(walletId?: WalletId): Promise<void> {
-    await warmCapabilitiesPublic.clearVolatileWarmSigningMaterial(
-      this.warmCapabilitiesPublicDeps,
-      walletId,
-    );
+    try {
+      if (walletId) {
+        this.enginePorts.ed25519YaoActiveClients.disposeWallet(walletId);
+      } else {
+        this.enginePorts.ed25519YaoActiveClients.dispose();
+      }
+    } finally {
+      await warmCapabilitiesPublic.clearVolatileWarmSigningMaterial(
+        this.warmCapabilitiesPublicDeps,
+        walletId,
+      );
+    }
   }
 
-  clearThresholdEcdsaCommitQueue(): void {
-    clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByKey);
+  dispose(): void {
+    this.ed25519YaoPageLifecycleOwner.dispose();
   }
 
-  prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
-  > {
-    return thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519HssClientCeremonyFromCredential(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
-  > {
-    return thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst
-  > {
-    return thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519HssClientRequest(
-    args: Parameters<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientRequest>[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientRequest> {
-    return thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
-  > {
-    return thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
-  > {
-    return thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519HssClientOutputMaskHandle(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle> {
-    return thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  prepareThresholdEd25519HssAddStageRequestMessage(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage> {
-    return thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
-    args: Parameters<
-      typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
-  > {
-    return thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  runThresholdEd25519HssCeremonyWithSession(
-    args: Parameters<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>[1],
-  ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession> {
-    return thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  runThresholdEd25519HssCeremonyWithMaterialHandle(
-    args: Parameters<
-      typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle> {
-    return thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
-    args: Parameters<
-      typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
-  > {
-    return thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
+  clearThresholdEcdsaSigningQueue(): void {
+    clearThresholdEcdsaSigningQueue(this.thresholdEcdsaSigningQueueByKey);
   }
 }

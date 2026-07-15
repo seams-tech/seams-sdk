@@ -1,11 +1,9 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { ExportPrivateKeysWithUiWorkerResult } from '@/core/types/secure-confirm-worker';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
-import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
-type ExportScheme = 'ed25519' | 'secp256k1';
+type ExportScheme = 'secp256k1';
 type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-export';
 
 type ExportRecoveryErrorCode = 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
@@ -56,93 +54,17 @@ function throwExportWorkerBoundaryRequired(args: {
   });
 }
 
-export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
-  deps: PrivateKeyExportRecoveryDeps,
-  args: {
-    nearAccountId: AccountId;
-    seedB64u: string;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    };
-  },
-): Promise<ExportPrivateKeysWithUiWorkerResult> {
-  const accountId = toAccountId(args.nearAccountId);
-  if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
-    throwExportWorkerBoundaryRequired({
-      subjectId: accountId,
-      reason: 'missing_export_worker_operation',
-    });
-  }
-  const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
-  const expectedPublicKey = String(args.expectedPublicKey || '').trim();
-  const seedB64u = String(args.seedB64u || '').trim();
-  if (!expectedPublicKey) {
-    throw new Error('Missing expectedPublicKey for single-key HSS seed export');
-  }
-  if (!seedB64u) {
-    throw new Error('Missing seedB64u for single-key HSS seed export');
-  }
-
-  const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.keyMaterialStore).catch(
-    () => null as number | null,
-  );
-  if (signerSlot == null) {
-    throw new Error(`No signerSlot found for account ${accountId} (export/decrypt)`);
-  }
-
-  const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
-    try {
-      return await requestExportPrivateKeysWithUi({
-        nearAccountId: accountId,
-        signerSlot,
-        chain: 'near',
-        artifactKind: 'near-ed25519-seed-v1',
-        expectedPublicKey,
-        seedB64u,
-        variant: args.options.variant,
-        theme: resolvedTheme,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error || '');
-      if (
-        message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
-      ) {
-        throwExportWorkerBoundaryRequired({
-          subjectId: accountId,
-          signerSlot,
-          reason: 'worker_missing_export_operation',
-        });
-      }
-      throw error;
+function requireSecp256k1ExportSchemes(
+  schemes: ExportPrivateKeysWithUiWorkerResult['exportedSchemes'],
+): ExportScheme[] {
+  const validated: ExportScheme[] = [];
+  for (const scheme of schemes) {
+    if (scheme !== 'secp256k1') {
+      throw new Error('ECDSA export worker returned a non-secp256k1 key scheme');
     }
-  })();
-
-  if (!result.ok) {
-    throw new Error(result.error || 'Export private keys request failed');
+    validated.push(scheme);
   }
-  return result;
-}
-
-export async function exportNearEd25519SeedArtifactWithUI(
-  deps: PrivateKeyExportRecoveryDeps,
-  args: {
-    nearAccountId: AccountId;
-    seedB64u: string;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    };
-  },
-): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
-  const result = await exportNearEd25519SeedArtifactWithUIWorkerDriven(deps, args);
-  return {
-    accountId: result.accountId,
-    exportedSchemes: result.exportedSchemes,
-  };
+  return validated;
 }
 
 export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
@@ -238,6 +160,6 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUI(
   const result = await exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(deps, args);
   return {
     accountId: result.accountId,
-    exportedSchemes: result.exportedSchemes,
+    exportedSchemes: requireSecp256k1ExportSchemes(result.exportedSchemes),
   };
 }

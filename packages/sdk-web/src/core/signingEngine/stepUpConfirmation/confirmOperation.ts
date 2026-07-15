@@ -268,8 +268,35 @@ export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: OrchestrateSigningConfirmationParams;
 }): Promise<ConfirmSigningOperationResult> {
+  validateSigningConfirmationAuthRoute(args.request);
   const orchestrate = args.runtime.orchestrateSigningConfirmation as (
     request: OrchestrateSigningConfirmationParams,
   ) => Promise<ConfirmSigningOperationResult>;
   return await orchestrate(args.request);
+}
+
+function validateSigningConfirmationAuthRoute(request: OrchestrateSigningConfirmationParams): void {
+  const raw = request as OrchestrateSigningConfirmationParams & {
+    emailOtpPrompt?: unknown;
+    webauthnChallenge?: unknown;
+  };
+  switch (request.signingAuthPlan.kind) {
+    case SigningAuthPlanKinds.WarmSession:
+      if (raw.emailOtpPrompt !== undefined || raw.webauthnChallenge !== undefined) {
+        throw new Error('[SigningConfirmation] auth_method_route_mismatch');
+      }
+      return;
+    case SigningAuthPlanKinds.PasskeyReauth:
+      if (raw.emailOtpPrompt !== undefined) {
+        throw new Error('[SigningConfirmation] auth_method_route_mismatch');
+      }
+      return;
+    case SigningAuthPlanKinds.EmailOtpReauth:
+      if (raw.webauthnChallenge !== undefined || !raw.emailOtpPrompt) {
+        throw new Error('[SigningConfirmation] auth_method_route_mismatch');
+      }
+      return;
+    default:
+      return assertNeverSigningAuthPlan(request.signingAuthPlan);
+  }
 }

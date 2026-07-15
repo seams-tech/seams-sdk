@@ -10,7 +10,7 @@ import {
   isWarmSessionSigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import type {
-  NearEmailOtpSigningHook,
+  NearEmailOtpEd25519ReconnectHook,
   NearPasskeyEd25519ReconnectHook,
   NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
@@ -28,20 +28,20 @@ export type NearWarmSessionStepUpAuth = NearPreparedStepUpAuthBase & {
   };
 };
 
-export type NearEmailOtpStepUpAuth = NearPreparedStepUpAuthBase & {
-  kind: 'email_otp';
-  confirmationAuthPayload: {
-    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
-  };
-  emailOtpPrompt: EmailOtpConfirmPrompt;
-};
-
 export type NearPasskeyStepUpAuth = NearPreparedStepUpAuthBase & {
   kind: 'passkey';
   confirmationAuthPayload: {
     signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
   };
   plannedPasskeyReconnect: NearPasskeyReconnectPlan;
+};
+
+export type NearEmailOtpStepUpAuth = NearPreparedStepUpAuthBase & {
+  kind: 'email_otp';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+  };
+  emailOtpPrompt: EmailOtpConfirmPrompt;
 };
 
 export type NearPreparedStepUpAuth =
@@ -53,11 +53,11 @@ export async function requireNearStepUpAuth(args: {
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
   requiredSignatureUses: number;
-  emailOtpSigning?: NearEmailOtpSigningHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
+  emailOtpEd25519Reconnect?: NearEmailOtpEd25519ReconnectHook;
 }): Promise<NearPreparedStepUpAuth> {
-  if (isEmailOtpSigningAuthPlan(args.signingAuthPlan) && !args.emailOtpSigning) {
-    throw new Error('[email-otp] verify Email OTP again before NEAR threshold signing');
+  if (isEmailOtpSigningAuthPlan(args.signingAuthPlan) && !args.emailOtpEd25519Reconnect) {
+    throw new Error('[SigningEngine][near] Email OTP reconnect runner is unavailable');
   }
   if (isPasskeySigningAuthPlan(args.signingAuthPlan) && !args.passkeyEd25519Reconnect) {
     throw new Error('[SigningEngine][near] passkey reconnect runner is unavailable');
@@ -72,40 +72,18 @@ export async function requireNearStepUpAuth(args: {
     selectedLane: { authMethod: signingLaneAuthMethod(args.signingLane.auth) },
     policy: stepUpPolicyFromSigningAuthPlan(args.signingAuthPlan),
     methods: {
-      ...(args.emailOtpSigning
+      ...(args.emailOtpEd25519Reconnect
         ? {
             emailOtp: {
               method: 'email_otp' as const,
-              prepareChallenge: async () =>
-                await args.emailOtpSigning!.prepare({
-                  requiredSignatureUses: args.requiredSignatureUses,
-                }),
-              ...(args.emailOtpSigning.resend
+              prepareChallenge: async () => await args.emailOtpEd25519Reconnect!.prepare(),
+              ...(args.emailOtpEd25519Reconnect.resend
                 ? {
                     resendChallenge: async () =>
-                      await args.emailOtpSigning!.resend!({
-                        requiredSignatureUses: args.requiredSignatureUses,
-                      }),
+                      await args.emailOtpEd25519Reconnect!.resend!(),
                   }
                 : {}),
-              complete: async ({ confirmation, prompt }) =>
-                await args.emailOtpSigning!.complete({
-                  kind: 'email_otp',
-                  signingAuthPlan: isEmailOtpSigningAuthPlan(args.signingAuthPlan)
-                    ? args.signingAuthPlan
-                    : {
-                        kind: 'emailOtpReauth',
-                        method: 'email_otp',
-                        emailOtpPrompt: prompt,
-                      },
-                  challengeId: String(prompt.challengeId || '').trim(),
-                  otpCode: String(confirmation.otpCode || '').trim(),
-                  ed25519MaterialRestoreAuthorization: {
-                    kind: 'ed25519_email_otp_material_unseal_authorization_unavailable',
-                    reason: 'no_recovery_code_material',
-                  },
-                  ...(prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
-                }),
+              complete: completeNearEmailOtpPreparation,
             },
           }
         : {}),
@@ -143,10 +121,7 @@ export async function requireNearStepUpAuth(args: {
     },
   });
 
-  const signingAuthPlan =
-    prepared.method === 'email_otp'
-      ? { ...args.signingAuthPlan, emailOtpPrompt: prepared.prompt }
-      : args.signingAuthPlan;
+  const signingAuthPlan = args.signingAuthPlan;
   if (prepared.method === 'warm_session') {
     if (!isWarmSessionSigningAuthPlan(args.signingAuthPlan)) {
       throw new Error('[SigningEngine][near] warm-session step-up requires a warm-session plan');
@@ -162,11 +137,14 @@ export async function requireNearStepUpAuth(args: {
     if (!isEmailOtpSigningAuthPlan(signingAuthPlan)) {
       throw new Error('[SigningEngine][near] Email OTP step-up requires an Email OTP plan');
     }
+    const signingAuthPlanWithPrompt: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }> = {
+      kind: 'emailOtpReauth',
+      method: 'email_otp',
+      emailOtpPrompt: prepared.prompt,
+    };
     return {
       kind: 'email_otp',
-      confirmationAuthPayload: {
-        signingAuthPlan,
-      },
+      confirmationAuthPayload: { signingAuthPlan: signingAuthPlanWithPrompt },
       emailOtpPrompt: prepared.prompt,
     };
   }
@@ -181,6 +159,8 @@ export async function requireNearStepUpAuth(args: {
     plannedPasskeyReconnect: requirePlannedPasskeyReconnect(plannedPasskeyReconnect),
   };
 }
+
+async function completeNearEmailOtpPreparation(): Promise<void> {}
 
 function requirePlannedPasskeyReconnect(
   plannedPasskeyReconnect: NearPasskeyReconnectPlan | null,

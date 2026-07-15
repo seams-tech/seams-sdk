@@ -63,6 +63,7 @@ import {
   type PMRegistrationActivationFocusExitPayload,
   type PMRegistrationActivationReadyPayload,
   type PMRegistrationActivationStartedPayload,
+  type PMExportKeypairUiPayload,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import {
@@ -75,7 +76,6 @@ import type {
   LinkDeviceFlowEvent,
   LoginHooksOptions,
   KeyExportFlowEvent,
-  EmailRecoveryFlowEvent,
   UnlockFlowEvent,
   RegistrationFlowEvent,
   SendTransactionHooksOptions,
@@ -87,13 +87,11 @@ import type { WalletIframeTransportDiagnostics } from './transport/IframeTranspo
 import {
   AccountSyncEventPhase,
   createAccountSyncFlowEvent,
-  createEmailRecoveryFlowEvent,
   createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
   createRegistrationFlowEvent,
   createSigningFlowEvent,
   createUnlockFlowEvent,
-  EmailRecoveryFlowEventPhase,
   KeyExportEventPhase,
   isWalletFlowEvent,
   LinkDeviceEventPhase,
@@ -140,10 +138,6 @@ import {
   parseExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type {
-  ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import type {
   LinkDeviceResult,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
@@ -176,14 +170,12 @@ import type {
   GoogleEmailOtpWalletAuthSubmitSuccess,
   RegistrationCapability,
 } from '@/SeamsWeb/signingSurface/types';
-import type { LoginWithEmailOtpEd25519CapabilityInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type {
   PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult,
   PMGoogleEmailOtpWalletAuthRegistrationWireResult,
   PMGoogleEmailOtpWalletAuthSubmitWireResult,
   PMGoogleEmailOtpWalletAuthWireFlow,
   PMGoogleEmailOtpWalletAuthWireResult,
-  PMEmailOtpEd25519CapabilityPayload,
 } from '../shared/messages';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
@@ -323,19 +315,67 @@ function parseResolveExactKeyExportLaneResult(
   result: ResolveExactKeyExportLaneResult,
 ): ResolveExactKeyExportLaneResult {
   switch (result.kind) {
-    case 'near':
-      return {
-        kind: 'near',
-        laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
-      };
     case 'ecdsa':
       return {
         kind: 'ecdsa',
         laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
       };
+    case 'ed25519':
+      return {
+        kind: 'ed25519',
+        laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+      };
   }
-  result satisfies never;
-  throw new Error('[WalletIframeRouter] unsupported key export lane resolution result');
+}
+
+function walletIframeExportPayload(
+  input: ExportKeypairWithUIInput,
+  options: { variant?: 'modal' | 'drawer'; theme?: 'dark' | 'light' },
+): PMExportKeypairUiPayload {
+  switch (input.kind) {
+    case 'ecdsa': {
+      const laneIdentity = parseExactEcdsaSigningLaneIdentity(input.laneIdentity);
+      if (String(laneIdentity.signer.walletId) !== String(input.walletSession.walletId)) {
+        throw new Error(
+          '[WalletIframeRouter] key export lane wallet does not match wallet session',
+        );
+      }
+      if (!thresholdEcdsaChainTargetsEqual(laneIdentity.signer.chainTarget, input.chainTarget)) {
+        throw new Error(
+          '[WalletIframeRouter] key export lane chain target does not match request target',
+        );
+      }
+      return {
+        kind: 'ecdsa',
+        chainTarget: input.chainTarget,
+        walletSession: input.walletSession,
+        laneIdentity,
+        options,
+      };
+    }
+    case 'ed25519': {
+      const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      if (
+        String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
+      ) {
+        throw new Error(
+          '[WalletIframeRouter] Ed25519 export lane wallet does not match wallet session',
+        );
+      }
+      if (
+        String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)
+      ) {
+        throw new Error('[WalletIframeRouter] Ed25519 export lane does not match the NEAR account');
+      }
+      return {
+        kind: 'ed25519',
+        nearAccount: input.nearAccount,
+        walletSession: input.walletSession,
+        laneIdentity,
+        options,
+      };
+    }
+  }
 }
 
 const EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS = new Set([
@@ -462,7 +502,6 @@ function createTerminalProgressForRequest(args: {
     'PM_UNLOCK',
     'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION',
     'PM_REQUEST_EMAIL_OTP_CHALLENGE',
-    'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY',
     'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
   ]);
   const signingRequests = new Set<ParentToChildEnvelope['type']>([
@@ -486,12 +525,6 @@ function createTerminalProgressForRequest(args: {
     'PM_START_DEVICE2_LINKING_FLOW',
     'PM_STOP_DEVICE2_LINKING_FLOW',
   ]);
-  const emailRecoveryRequests = new Set<ParentToChildEnvelope['type']>([
-    'PM_START_EMAIL_RECOVERY',
-    'PM_FINALIZE_EMAIL_RECOVERY',
-    'PM_STOP_EMAIL_RECOVERY',
-  ]);
-
   if (registrationRequests.has(requestType)) {
     return createRegistrationFlowEvent({
       ...common,
@@ -517,15 +550,6 @@ function createTerminalProgressForRequest(args: {
       phase: status === 'cancelled' ? LinkDeviceEventPhase.CANCELLED : LinkDeviceEventPhase.FAILED,
     });
   }
-  if (emailRecoveryRequests.has(requestType)) {
-    return createEmailRecoveryFlowEvent({
-      ...common,
-      phase:
-        status === 'cancelled'
-          ? EmailRecoveryFlowEventPhase.CANCELLED
-          : EmailRecoveryFlowEventPhase.FAILED,
-    });
-  }
   if (requestType === 'PM_SYNC_ACCOUNT_FLOW') {
     return createAccountSyncFlowEvent({
       ...common,
@@ -533,10 +557,7 @@ function createTerminalProgressForRequest(args: {
         status === 'cancelled' ? AccountSyncEventPhase.CANCELLED : AccountSyncEventPhase.FAILED,
     });
   }
-  if (
-    requestType === 'PM_EXPORT_KEYPAIR_UI' ||
-    requestType === 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'
-  ) {
+  if (requestType === 'PM_EXPORT_KEYPAIR_UI') {
     return createKeyExportFlowEvent({
       ...common,
       phase: status === 'cancelled' ? KeyExportEventPhase.CANCELLED : KeyExportEventPhase.FAILED,
@@ -1679,7 +1700,9 @@ export class WalletIframeRouter {
           kind: 'registration_activation_focus_owner_changed',
           connectionId,
           identity: surfaceIdentity,
-          focusOwner: parsed.payload.state.focused ? { kind: 'iframe_button' } : { kind: 'outside' },
+          focusOwner: parsed.payload.state.focused
+            ? { kind: 'iframe_button' }
+            : { kind: 'outside' },
         });
         return;
       }
@@ -1743,6 +1766,7 @@ export class WalletIframeRouter {
                   ...identity,
                   expiresAtMs,
                   wallet: payload.wallet,
+                  signerSelection: registrationSignerSetRequestSelection(payload.signerSelection),
                   presentation: payload.presentation,
                 },
                 options: {
@@ -2198,28 +2222,6 @@ export class WalletIframeRouter {
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
-  async loginWithEmailOtpEd25519Capability(
-    payload: PMEmailOtpEd25519CapabilityPayload & {
-      onEvent?: (event: UnlockFlowEvent) => void;
-    },
-  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
-    const { onEvent, ...wirePayload } = payload;
-    const res = await this.post<LoginWithEmailOtpEd25519CapabilityInternalResult>(
-      {
-        type: 'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY',
-        payload: wirePayload,
-        options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
-      },
-      {
-        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
-        progressTimeoutExtensionFactor: 1,
-      },
-    );
-    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusFromState(st);
-    return sanitizeEmailOtpIframeResult(res.result);
-  }
-
   async refreshEmailOtpSigningSession(payload: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -2435,7 +2437,7 @@ export class WalletIframeRouter {
   async reportTempoBroadcastAccepted(payload: {
     walletSession: WalletSessionRef;
     signedResult: TempoSignedResult | EvmSignedResult;
-    txHash?: `0x${string}`;
+    txHash: `0x${string}`;
     options?: {
       onEvent?: (ev: SigningFlowEvent) => void;
     };
@@ -2445,7 +2447,7 @@ export class WalletIframeRouter {
       payload: {
         walletSession: payload.walletSession,
         signedResult: payload.signedResult,
-        ...(payload.txHash ? { txHash: payload.txHash } : {}),
+        txHash: payload.txHash,
       },
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
@@ -2685,47 +2687,6 @@ export class WalletIframeRouter {
     return res.result as SyncAccountResult;
   }
 
-  async startEmailRecovery(payload: {
-    walletId: string;
-    onEvent?: (ev: EmailRecoveryFlowEvent) => void;
-    options?: {
-      confirmerText?: { title?: string; body?: string };
-      confirmationConfig?: Partial<ConfirmationConfig>;
-    };
-  }): Promise<{ mailtoUrl: string; nearPublicKey: string }> {
-    const res = await this.post<{ mailtoUrl: string; nearPublicKey: string }>({
-      type: 'PM_START_EMAIL_RECOVERY',
-      payload: {
-        walletId: payload.walletId,
-        ...(payload.options ? { options: payload.options } : {}),
-      },
-      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoveryFlowEvent) },
-    });
-    return res.result as { mailtoUrl: string; nearPublicKey: string };
-  }
-
-  async finalizeEmailRecovery(payload: {
-    walletId: string;
-    nearPublicKey?: string;
-    onEvent?: (ev: EmailRecoveryFlowEvent) => void;
-  }): Promise<void> {
-    await this.post<void>({
-      type: 'PM_FINALIZE_EMAIL_RECOVERY',
-      payload: {
-        walletId: payload.walletId,
-        ...(payload.nearPublicKey ? { nearPublicKey: payload.nearPublicKey } : {}),
-      },
-      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoveryFlowEvent) },
-    });
-  }
-
-  async stopEmailRecovery(payload?: { walletId?: string; nearPublicKey?: string }): Promise<void> {
-    await this.post<void>({
-      type: 'PM_STOP_EMAIL_RECOVERY',
-      ...(payload ? { payload } : {}),
-    });
-  }
-
   async linkDeviceWithScannedQRData(payload: {
     qrData: DeviceLinkingQRData;
     fundingAmount: string;
@@ -2921,93 +2882,13 @@ export class WalletIframeRouter {
 
   async exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void> {
     const { onEvent, ...messageOptions } = input.options;
-    if (input.kind === 'near') {
-      const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
-      if (
-        String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
-      ) {
-        throw new Error(
-          '[WalletIframeRouter] key export lane wallet does not match wallet session',
-        );
-      }
-      if (
-        String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)
-      ) {
-        throw new Error(
-          '[WalletIframeRouter] key export lane NEAR account does not match request account',
-        );
-      }
-      await this.post<void>({
-        type: 'PM_EXPORT_KEYPAIR_UI',
-        payload: {
-          kind: 'near',
-          walletSession: input.walletSession,
-          nearAccount: input.nearAccount,
-          laneIdentity,
-          options: {
-            ...messageOptions,
-            chain: 'near',
-          },
-        },
-        options: {
-          sticky: true,
-          onProgress: this.wrapOnEvent(onEvent, isKeyExportFlowEvent),
-        },
-      });
-      return;
-    }
-
-    const laneIdentity = parseExactEcdsaSigningLaneIdentity(input.laneIdentity);
-    if (String(laneIdentity.signer.walletId) !== String(input.walletSession.walletId)) {
-      throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
-    }
-    if (!thresholdEcdsaChainTargetsEqual(laneIdentity.signer.chainTarget, input.chainTarget)) {
-      throw new Error(
-        '[WalletIframeRouter] key export lane chain target does not match request target',
-      );
-    }
+    const payload = walletIframeExportPayload(input, messageOptions);
     await this.post<void>({
       type: 'PM_EXPORT_KEYPAIR_UI',
-      payload: {
-        kind: 'ecdsa',
-        chainTarget: input.chainTarget,
-        walletSession: input.walletSession,
-        laneIdentity,
-        options: messageOptions,
-      },
+      payload,
       options: {
         sticky: true,
         onProgress: this.wrapOnEvent(onEvent, isKeyExportFlowEvent),
-      },
-    });
-  }
-
-  async exportThresholdEd25519SeedFromHssReport(args: {
-    walletId: string;
-    nearAccountId: string;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: (ev: KeyExportFlowEvent) => void;
-    };
-  }): Promise<void> {
-    await this.post<void>({
-      type: 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
-      payload: {
-        walletId: args.walletId,
-        nearAccountId: args.nearAccountId,
-        preparedSession: args.preparedSession,
-        finalizedReport: args.finalizedReport,
-        expectedPublicKey: args.expectedPublicKey,
-        variant: args.options.variant,
-        theme: args.options.theme,
-      },
-      options: {
-        sticky: true,
-        onProgress: this.wrapOnEvent(args.options.onEvent, isKeyExportFlowEvent),
       },
     });
   }
@@ -3289,7 +3170,6 @@ export class WalletIframeRouter {
     switch (type) {
       // Operations that require fullscreen overlay for WebAuthn activation
       case 'PM_EXPORT_KEYPAIR_UI':
-      case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
       case 'PM_UNLOCK':
       case 'PM_SIGN_AND_SEND_TX':
       case 'PM_EXECUTE_ACTION':
@@ -3440,10 +3320,6 @@ function isAccountSyncFlowEvent(p: ProgressPayload): p is AccountSyncFlowEvent {
 
 function isKeyExportFlowEvent(p: ProgressPayload): p is KeyExportFlowEvent {
   return isWalletFlowEvent(p) && p.flow === 'key_export';
-}
-
-function isEmailRecoveryFlowEvent(p: ProgressPayload): p is EmailRecoveryFlowEvent {
-  return isWalletFlowEvent(p) && p.flow === 'email_recovery';
 }
 
 /**

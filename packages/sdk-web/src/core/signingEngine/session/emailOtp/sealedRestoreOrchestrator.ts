@@ -3,10 +3,7 @@ import {
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
   publishResolvedIdentity,
   type acquireSigningSessionRestoreLease,
@@ -35,15 +32,10 @@ import type {
 import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
-  type EmailOtpEd25519SealedRecoveryRecord,
   type SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
-import {
-  restoreEmailOtpEd25519SealedRecordForAccount,
-  type EmailOtpEd25519RestorePurpose,
-} from './ed25519Recovery';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
   EmailOtpThresholdEcdsaRehydrateResult,
@@ -59,9 +51,6 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
   getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
-  getThresholdEd25519SessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEd25519SessionRecord | null;
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
   restoreEcdsaSigningSessionMaterialFromSealedRecord: (
     args: EmailOtpEcdsaSealedRecoveryRecordInput,
@@ -71,7 +60,6 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
     status: RestoredWarmSessionStatus,
   ) => Promise<void>;
   shouldLogDiagnostic: (key: string) => boolean;
-  requireRpId: (operation: string) => string;
 };
 
 const EMPTY_ACCOUNT_DISCOVERY_RESULT = {
@@ -94,12 +82,6 @@ function markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(
   return markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
 }
 
-function isEmailOtpEd25519RestorePurpose(
-  purpose: RestorePersistedSessionPurpose,
-): purpose is EmailOtpEd25519RestorePurpose {
-  return purpose.authMethod === 'email_otp' && purpose.curve === 'ed25519';
-}
-
 export class EmailOtpSealedRestoreOrchestrator {
   private readonly restoreCache: SigningSessionRestoreCache = createSigningSessionRestoreCache();
   private readonly restoreAttempts: SigningSessionRestoreAttemptRegistry =
@@ -117,9 +99,6 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (!sessionId) return false;
     const ecdsaRecord = this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
     if (ecdsaRecord?.source === 'email_otp') return true;
-    const ed25519Record =
-      this.ports.getThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-    if (ed25519Record?.source === 'email_otp') return false;
     return true;
   }
 
@@ -130,33 +109,8 @@ export class EmailOtpSealedRestoreOrchestrator {
     const requestedSessionId = String(sessionId || '').trim();
     if (!requestedSessionId) return null;
 
-    let thresholdSessionId = requestedSessionId;
-    let sealedRecord: EmailOtpEcdsaSealedRecoveryRecord | null = null;
-    const requestedEd25519Record =
-      this.ports.getThresholdEd25519SessionRecordByThresholdSessionId(requestedSessionId);
-    if (requestedEd25519Record?.source === 'email_otp') {
-      const companionRecord = await this.readEd25519CompanionSealedRecord(requestedSessionId);
-      const companionEcdsaSessionId = String(
-        companionRecord?.companionEcdsaRecovery?.thresholdSessionId || '',
-      ).trim();
-      if (companionEcdsaSessionId) {
-        thresholdSessionId = companionEcdsaSessionId;
-        sealedRecord = await this.readEcdsaSealedRecord(companionEcdsaSessionId);
-      }
-    }
-    if (!sealedRecord) {
-      sealedRecord = await this.readEcdsaSealedRecord(requestedSessionId);
-    }
-    if (!sealedRecord) {
-      const companionRecord = await this.readEd25519CompanionSealedRecord(requestedSessionId);
-      const companionEcdsaSessionId = String(
-        companionRecord?.companionEcdsaRecovery?.thresholdSessionId || '',
-      ).trim();
-      if (companionEcdsaSessionId && companionEcdsaSessionId !== requestedSessionId) {
-        thresholdSessionId = companionEcdsaSessionId;
-        sealedRecord = await this.readEcdsaSealedRecord(companionEcdsaSessionId);
-      }
-    }
+    const thresholdSessionId = requestedSessionId;
+    const sealedRecord = await this.readEcdsaSealedRecord(requestedSessionId);
     if (!sealedRecord) return null;
     if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
       console.debug('[EmailOtpSession] sealed refresh restore deferred by durable policy hint', {
@@ -200,39 +154,6 @@ export class EmailOtpSealedRestoreOrchestrator {
       return null;
     }
 
-    const sealedEd25519SessionId = String(
-      sealedRecord.companionEd25519ThresholdSessionId || '',
-    ).trim();
-    const ed25519Record = sealedEd25519SessionId
-      ? this.ports.getThresholdEd25519SessionRecordByThresholdSessionId(sealedEd25519SessionId)
-      : null;
-    const ed25519Retention =
-      ed25519Record?.source === 'email_otp' && ed25519Record.emailOtpAuthContext
-        ? emailOtpAuthContextRetention(ed25519Record.emailOtpAuthContext)
-        : null;
-    if (
-      sealedEd25519SessionId &&
-      (!ed25519Record ||
-        ed25519Record.source !== 'email_otp' ||
-        ed25519Retention !== 'session' ||
-        ed25519Record.signingGrantId !== sealedRecord.signingGrantId)
-    ) {
-      const diagnosticKey = `missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
-      if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
-        console.debug(
-          '[EmailOtpSession] sealed refresh restoring ECDSA without Ed25519 companion',
-          {
-            thresholdSessionId,
-            sealedEd25519SessionId,
-            ed25519Source: ed25519Record?.source,
-            ed25519Retention,
-            ed25519SigningGrantId: ed25519Record?.signingGrantId,
-            signingGrantId: sealedRecord.signingGrantId,
-          },
-        );
-      }
-    }
-
     const lease = await this.ports
       .acquireSigningSessionRestoreLease({
         thresholdSessionId,
@@ -260,7 +181,6 @@ export class EmailOtpSealedRestoreOrchestrator {
         .restoreEcdsaSigningSessionMaterialFromSealedRecord({
           sealedRecord,
           ecdsaRecord,
-          ...(ed25519Record ? { ed25519Record } : {}),
         })
         .catch((error) => {
           console.warn('[EmailOtpSession] sealed refresh restore failed', {
@@ -358,16 +278,14 @@ export class EmailOtpSealedRestoreOrchestrator {
       },
       {
         listExactSealedSessionsForWallet: ({ walletId: recordWalletId, ...filter }) => {
+          if (filter.curve !== 'ecdsa') return Promise.resolve([]);
           return this.ports.listExactSealedSessionsForWallet({
             walletId: recordWalletId,
-            filter:
-              filter.curve === 'ecdsa'
-                ? {
-                    authMethod: filter.authMethod,
-                    curve: 'ecdsa',
-                    chainTarget: filter.chainTarget,
-                  }
-                : { authMethod: filter.authMethod, curve: 'ed25519' },
+            filter: {
+              authMethod: filter.authMethod,
+              curve: 'ecdsa',
+              chainTarget: filter.chainTarget,
+            },
           });
         },
         restoreSealedRecordForWallet: (restoreArgs) =>
@@ -416,69 +334,12 @@ export class EmailOtpSealedRestoreOrchestrator {
       : null;
   }
 
-  private async readEd25519CompanionSealedRecord(
-    thresholdSessionId: string,
-  ): Promise<EmailOtpEd25519SealedRecoveryRecord | null> {
-    const rawRecord = await this.ports
-      .readExactSealedSession(thresholdSessionId, {
-        authMethod: 'email_otp',
-        curve: 'ed25519',
-      })
-      .catch((error) => {
-        console.warn('[EmailOtpSession] sealed refresh Ed25519 companion read failed', {
-          thresholdSessionId,
-          error: error instanceof Error ? error.message : String(error || 'unknown error'),
-        });
-        return null;
-      });
-    if (!rawRecord) return null;
-    const normalized = normalizeSealedRecoveryRecord(rawRecord);
-    return normalized.kind === 'accepted' &&
-      normalized.record.authMethod === 'email_otp' &&
-      normalized.record.curve === 'ed25519'
-      ? normalized.record
-      : null;
-  }
-
   private async restoreEmailOtpSealedRecordForWallet(args: {
     walletId: string;
     record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
   }): Promise<RestoreSealedRecordResult> {
     if (args.purpose.authMethod !== 'email_otp') return 'deferred';
-    if (isEmailOtpEd25519RestorePurpose(args.purpose)) {
-      if (args.record.authMethod !== 'email_otp') {
-        return 'deferred';
-      }
-      if (args.record.curve === 'ed25519') {
-        return await this.restoreEd25519SealedRecordForAccount({
-          walletId: args.walletId,
-          record: args.record,
-          purpose: args.purpose,
-        });
-      }
-      if (
-        args.record.curve !== 'ecdsa' ||
-        !args.record.companionEd25519Recovery ||
-        args.record.signingGrantId !== args.purpose.signingGrantId ||
-        args.record.companionEd25519Recovery.thresholdSessionId !== args.purpose.thresholdSessionId
-      ) {
-        return 'deferred';
-      }
-      return await this.restoreEcdsaSealedRecordForWallet({
-        walletId: args.walletId,
-        record: args.record,
-        purpose: {
-          walletId: args.walletId,
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget: args.record.chainTarget,
-          signingGrantId: args.record.signingGrantId,
-          thresholdSessionId: args.record.thresholdSessionId,
-          reason: args.purpose.reason,
-        },
-      });
-    }
     if (args.purpose.curve !== 'ecdsa') return 'deferred';
     if (args.record.authMethod !== 'email_otp' || args.record.curve !== 'ecdsa') {
       return 'deferred';
@@ -535,41 +396,9 @@ export class EmailOtpSealedRestoreOrchestrator {
 
     let restoreResult: 'restored' | 'deferred' = 'deferred';
     const task = (async () => {
-      const sealedEd25519SessionId = String(
-        args.record.companionEd25519ThresholdSessionId || '',
-      ).trim();
-      const ed25519Record = sealedEd25519SessionId
-        ? this.ports.getThresholdEd25519SessionRecordByThresholdSessionId(
-            sealedEd25519SessionId,
-          )
-        : null;
-      const ed25519Retention =
-        ed25519Record?.source === 'email_otp' && ed25519Record.emailOtpAuthContext
-          ? emailOtpAuthContextRetention(ed25519Record.emailOtpAuthContext)
-          : null;
-      if (
-        sealedEd25519SessionId &&
-        (!ed25519Record ||
-          ed25519Record.source !== 'email_otp' ||
-          ed25519Retention !== 'session' ||
-          ed25519Record.signingGrantId !== args.purpose.signingGrantId)
-      ) {
-        const diagnosticKey = `exact-purpose-missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
-        if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
-          console.debug(
-            '[EmailOtpSession] exact-purpose ECDSA restore proceeding without Ed25519 companion',
-            {
-              thresholdSessionId,
-              sealedEd25519SessionId,
-              signingGrantId: args.purpose.signingGrantId,
-            },
-          );
-        }
-      }
       const restored = await this.ports.restoreEcdsaSigningSessionMaterialFromSealedRecord({
         sealedRecord: args.record,
         ecdsaRecord: existing,
-        ...(ed25519Record ? { ed25519Record } : {}),
       });
       if (restored) {
         await this.ports.recordSessionMaterialRestored(thresholdSessionId, {
@@ -597,22 +426,4 @@ export class EmailOtpSealedRestoreOrchestrator {
     return restoreResult;
   }
 
-  private async restoreEd25519SealedRecordForAccount(args: {
-    walletId: string;
-    record: EmailOtpEd25519SealedRecoveryRecord;
-    purpose: EmailOtpEd25519RestorePurpose;
-  }): Promise<RestoreSealedRecordResult> {
-    return await restoreEmailOtpEd25519SealedRecordForAccount({
-      ...args,
-      rpId: this.ports.requireRpId('Email OTP Ed25519 sealed restore'),
-      getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
-        this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
-      readWarmSessionStatusFromWorker: (sessionId) =>
-        this.ports.readWarmSessionStatusFromWorker(sessionId),
-      recordSessionMaterialRestored: (sessionId, status) =>
-        this.ports.recordSessionMaterialRestored(sessionId, status),
-      restoreEcdsaSigningSessionMaterialFromSealedRecord: (restoreArgs) =>
-        this.ports.restoreEcdsaSigningSessionMaterialFromSealedRecord(restoreArgs),
-    });
-  }
 }

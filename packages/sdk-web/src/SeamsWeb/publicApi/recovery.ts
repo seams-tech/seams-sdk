@@ -23,9 +23,6 @@ export function createRecoveryCapability(deps: {
     getRecoveryEmails: async (walletId) => await emailRecovery.getRecoveryEmails(walletId),
     setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
     syncAccount: async (args) => await emailRecovery.syncAccount(args),
-    startEmailRecovery: async (args) => await emailRecovery.startEmailRecovery(args),
-    finalizeEmailRecovery: async (args) => await emailRecovery.finalizeEmailRecovery(args),
-    cancelEmailRecovery: async (args) => await emailRecovery.cancelEmailRecovery(args),
     getEmailOtpRecoveryCodeStatus: deps.domain.getEmailOtpRecoveryCodeStatus,
     rotateEmailOtpRecoveryCodes: deps.domain.rotateEmailOtpRecoveryCodes,
   } satisfies RecoveryCapability;

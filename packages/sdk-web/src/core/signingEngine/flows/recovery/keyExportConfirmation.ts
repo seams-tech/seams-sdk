@@ -1,6 +1,5 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
-import type { ThemeMode, WalletAuthIntent } from '@/core/types/seams';
+import type { ThemeMode } from '@/core/types/seams';
 import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthPolicyError';
 import {
   thresholdEcdsaChainTargetKey,
@@ -13,6 +12,7 @@ import { requestEmailOtpExportAuthorization as requestEmailOtpExportAuthorizatio
 import {
   buildExportStepUpAuthorization,
   type ExportEmailOtpStepUpAuthorization,
+  type Ed25519ExportEmailOtpStepUpAuthorization,
   type ExportPasskeyStepUpAuthorization,
 } from './stepUpAuthorization';
 import {
@@ -33,12 +33,7 @@ export type KeyExportConfirmationDeps = {
 
 export type EmailOtpWalletSessionExportChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
-  { kind: 'wallet_session_challenge' | 'wallet_session_fresh_login_challenge' }
->;
-
-export type EmailOtpNearAccountExportChallengeArgs = Extract<
-  RequestEmailOtpChallengeArgs,
-  { kind: 'near_account_challenge' }
+  { kind: 'wallet_session_challenge' | 'near_account_challenge' }
 >;
 
 export type EmailOtpWalletSessionExportAuthorizationDeps = {
@@ -48,23 +43,9 @@ export type EmailOtpWalletSessionExportAuthorizationDeps = {
   ) => Promise<{ challengeId: string; emailHint?: string }>;
 };
 
-export type EmailOtpNearAccountExportAuthorizationDeps = {
-  touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
-  requestExportChallenge: (
-    args: EmailOtpNearAccountExportChallengeArgs,
-  ) => Promise<{ challengeId: string; emailHint?: string }>;
-};
-
-type WalletSessionEcdsaExportChallengeAuthority =
-  | { kind: 'fresh_login'; authLane?: never }
-  | {
-      kind: 'signing_session';
-      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-    };
-
-type NearAccountEd25519ExportChallengeAuthority = {
+type WalletSessionEcdsaExportChallengeAuthority = {
   kind: 'signing_session';
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
+  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
 };
 
 type WalletSessionEcdsaExportAuthorizationArgs = {
@@ -78,28 +59,24 @@ type WalletSessionEcdsaExportAuthorizationArgs = {
   authLane?: never;
 };
 
-type NearAccountEd25519ExportAuthorizationArgs = {
-  kind: 'near_account_export_auth';
+type WalletSessionEd25519ExportAuthorizationArgs = {
+  kind: 'wallet_session_ed25519_export_auth';
   walletSession: WalletSessionRef;
-  nearAccountId: AccountId;
-  chain: 'near';
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  signerSlot: number;
+  thresholdSessionId: string;
+  signingGrantId: string;
   publicKey: string;
   curve: 'ed25519';
-  challengeAuthority: NearAccountEd25519ExportChallengeAuthority;
-  routeAuth?: never;
-  authLane?: never;
+  chain: 'near';
+  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
 };
 
 function walletSessionEcdsaExportChallengeRequest(
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): EmailOtpWalletSessionExportChallengeArgs {
   switch (args.challengeAuthority.kind) {
-    case 'fresh_login':
-      return {
-        kind: 'wallet_session_fresh_login_challenge',
-        walletSession: args.walletSession,
-        chain: args.chain,
-      };
     case 'signing_session':
       return {
         kind: 'wallet_session_challenge',
@@ -110,34 +87,26 @@ function walletSessionEcdsaExportChallengeRequest(
   }
 }
 
-function nearAccountEd25519ExportChallengeRequest(
-  args: NearAccountEd25519ExportAuthorizationArgs,
-): EmailOtpNearAccountExportChallengeArgs {
-  return {
-    kind: 'near_account_challenge',
-    walletSession: args.walletSession,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    authLane: args.challengeAuthority.authLane,
-  };
-}
-
 type UiConfirmRequest = Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
-type ExportPrivateKeyDisplayEntry =
-  | {
-      scheme: 'ed25519';
-      label: string;
-      publicKey: string;
-      privateKey: string;
-      address?: never;
-    }
-  | {
-      scheme: 'secp256k1';
-      label: string;
-      publicKey: string;
-      privateKey: string;
-      address: string;
-    };
+type Secp256k1ExportPrivateKeyDisplayEntry = {
+  scheme: 'secp256k1';
+  label: string;
+  publicKey: string;
+  privateKey: string;
+  address: string;
+};
+
+type Ed25519ExportPrivateKeyDisplayEntry = {
+  scheme: 'ed25519';
+  label: string;
+  publicKey: string;
+  privateKey: string;
+  address?: never;
+};
+
+export type ExportPrivateKeyDisplayEntry =
+  | Secp256k1ExportPrivateKeyDisplayEntry
+  | Ed25519ExportPrivateKeyDisplayEntry;
 
 type ThresholdEcdsaExportViewerBaseArgs = {
   walletId: string;
@@ -189,44 +158,16 @@ export function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
 export async function requestEmailOtpKeyExportAuthorization(
   deps: EmailOtpWalletSessionExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
-): Promise<ExportEmailOtpStepUpAuthorization>;
-export async function requestEmailOtpKeyExportAuthorization(
-  deps: EmailOtpNearAccountExportAuthorizationDeps,
-  args: NearAccountEd25519ExportAuthorizationArgs,
-): Promise<ExportEmailOtpStepUpAuthorization>;
-export async function requestEmailOtpKeyExportAuthorization(
-  deps:
-    | EmailOtpWalletSessionExportAuthorizationDeps
-    | EmailOtpNearAccountExportAuthorizationDeps,
-  args: WalletSessionEcdsaExportAuthorizationArgs | NearAccountEd25519ExportAuthorizationArgs,
 ): Promise<ExportEmailOtpStepUpAuthorization> {
-  const accountIdForUi =
-    args.kind === 'wallet_session_export_auth'
-      ? args.walletSession.walletSessionUserId
-      : args.nearAccountId;
+  const accountIdForUi = args.walletSession.walletSessionUserId;
   const authorization = await requestEmailOtpExportAuthorizationValue({
-    identity:
-      args.kind === 'wallet_session_export_auth'
-        ? { kind: 'wallet_session', walletId: accountIdForUi }
-        : {
-            kind: 'near_account',
-            walletId: String(args.walletSession.walletId),
-            nearAccountId: args.nearAccountId,
-          },
+    identity: { kind: 'wallet_session', walletId: accountIdForUi },
     chain: args.chain,
     publicKey: args.publicKey,
     curve: args.curve,
     challengeSource: {
-      requestChallenge: async () => {
-        if (args.kind === 'wallet_session_export_auth') {
-          return await (deps as EmailOtpWalletSessionExportAuthorizationDeps).requestExportChallenge(
-            walletSessionEcdsaExportChallengeRequest(args),
-          );
-        }
-        return await (deps as EmailOtpNearAccountExportAuthorizationDeps).requestExportChallenge(
-          nearAccountEd25519ExportChallengeRequest(args),
-        );
-      },
+      requestChallenge: async () =>
+        await deps.requestExportChallenge(walletSessionEcdsaExportChallengeRequest(args)),
     },
     confirmer: {
       requestUserConfirmation: async (request) =>
@@ -241,118 +182,112 @@ export async function requestEmailOtpKeyExportAuthorization(
     otpCode: authorization.otpCode,
     emailOtpChallengeId: authorization.challengeId,
   };
-  let exportAuthorization: ExportEmailOtpStepUpAuthorization;
-  if (args.curve === 'ecdsa') {
-    exportAuthorization = buildExportStepUpAuthorization({
-      method: 'email_otp',
-      walletSessionUserId: accountIdForUi,
-      chain: args.chain,
-      publicKey: args.publicKey,
-      curve: 'ecdsa',
-      intent: 'ecdsa_export',
-      emailOtpPrompt,
-      decision,
-    });
-  } else {
-    exportAuthorization = buildExportStepUpAuthorization({
-      method: 'email_otp',
-      nearAccountId: accountIdForUi,
-      chain: 'near',
-      publicKey: args.publicKey,
-      curve: 'ed25519',
-      intent: 'ed25519_export',
-      emailOtpPrompt,
-      decision,
-    });
-  }
+  const exportAuthorization = buildExportStepUpAuthorization({
+    method: 'email_otp',
+    walletSessionUserId: accountIdForUi,
+    chain: args.chain,
+    publicKey: args.publicKey,
+    curve: 'ecdsa',
+    intent: 'ecdsa_export',
+    emailOtpPrompt,
+    decision,
+  });
   if (exportAuthorization.kind !== 'email_otp') {
     throw new Error('[SigningEngine][export] Email OTP export returned the wrong step-up method');
   }
   return exportAuthorization;
 }
 
-export async function requestNearEd25519ExportAuthorization(
-  deps: KeyExportConfirmationDeps,
-  args: {
-    nearAccountId: AccountId;
-    expectedPublicKey: string;
-    challengeB64u?: string;
-    flowId: string;
-    onEvent?: KeyExportEventCallback;
-  },
-): Promise<ExportPasskeyStepUpAuthorization> {
-  return await requestPasskeyExportAuthorization(deps, {
-    nearAccountId: args.nearAccountId,
-    intent: 'ed25519_export',
-    curve: 'ed25519',
+export async function requestEmailOtpEd25519KeyExportAuthorization(
+  deps: EmailOtpWalletSessionExportAuthorizationDeps,
+  args: WalletSessionEd25519ExportAuthorizationArgs,
+): Promise<Ed25519ExportEmailOtpStepUpAuthorization> {
+  const authorization = await requestEmailOtpExportAuthorizationValue({
+    identity: {
+      kind: 'near_account',
+      walletId: args.walletSession.walletId,
+      nearAccountId: args.nearAccountId,
+    },
     chain: 'near',
-    publicKey: args.expectedPublicKey,
-    flowId: args.flowId,
-    onEvent: args.onEvent,
-    request: {
-      requestId: createExportUiRequestId('export-near-ed25519-auth'),
-      type: decryptPrivateKeyWithPrfType,
-      summary: {
-        operation: 'Export Private Key',
-        accountId: args.nearAccountId,
-        publicKey: args.expectedPublicKey,
-        warning: 'Confirm to reveal your NEAR private key export.',
-      },
-      payload: {
-        subject: {
-          kind: 'near_wallet',
-          nearAccountId: String(args.nearAccountId),
-        },
-        publicKey: args.expectedPublicKey,
-        ...(args.challengeB64u ? { challengeB64u: args.challengeB64u } : {}),
-      },
-      intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
+    publicKey: args.publicKey,
+    curve: 'ed25519',
+    challengeSource: {
+      requestChallenge: async () =>
+        await deps.requestExportChallenge({
+          kind: 'near_account_challenge',
+          walletSession: args.walletSession,
+          nearAccountId: args.nearAccountId,
+          chain: 'near',
+          authLane: args.authLane,
+        }),
+    },
+    confirmer: {
+      requestUserConfirmation: async (request) =>
+        await deps.touchConfirm.requestUserConfirmation(request),
     },
   });
+  const exportAuthorization = buildExportStepUpAuthorization({
+    method: 'email_otp',
+    walletSessionUserId: args.walletSession.walletSessionUserId,
+    publicKey: args.publicKey,
+    curve: 'ed25519',
+    intent: 'ed25519_export',
+    chain: 'near',
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    signerSlot: args.signerSlot,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    emailOtpPrompt: { challengeId: authorization.challengeId },
+    decision: {
+      confirmed: true,
+      otpCode: authorization.otpCode,
+      emailOtpChallengeId: authorization.challengeId,
+    },
+  });
+  if (exportAuthorization.kind !== 'email_otp' || exportAuthorization.curve !== 'ed25519') {
+    throw new Error('[SigningEngine][export] Ed25519 Email OTP export authorization changed kind');
+  }
+  return exportAuthorization;
 }
 
-export async function showNearEd25519ExportViewer(
+export async function showEd25519ExportViewer(
   deps: KeyExportConfirmationDeps,
   args: {
-    nearAccountId: AccountId;
-    expectedPublicKey: string;
-    privateKey?: string;
+    walletId: string;
+    nearAccountId: string;
+    publicKey: string;
+    privateKey: string;
     variant?: 'drawer' | 'modal';
     theme?: 'dark' | 'light';
-    loading?: boolean;
-    viewerSessionId?: string;
     flowId: string;
     onEvent?: KeyExportEventCallback;
   },
 ): Promise<void> {
-  const keys: ExportPrivateKeyDisplayEntry[] = [
+  const keys: Ed25519ExportPrivateKeyDisplayEntry[] = [
     {
       scheme: 'ed25519',
-      label: 'NEAR private key',
-      publicKey: args.expectedPublicKey,
-      privateKey: String(args.privateKey || '').trim(),
+      label: 'NEAR Ed25519 private key',
+      publicKey: args.publicKey,
+      privateKey: args.privateKey,
     },
   ];
   await deps.touchConfirm.requestUserConfirmation({
-    requestId: createExportUiRequestId('export-near-ed25519-view'),
+    requestId: createExportUiRequestId('export-ed25519-yao-view'),
     type: showSecurePrivateKeyUiType,
     summary: {
       operation: 'Export Private Key',
       accountId: args.nearAccountId,
-      publicKey: args.expectedPublicKey,
+      publicKey: args.publicKey,
       warning: 'Anyone with your private key can fully control your account. Never share it.',
     },
     payload: {
-      subject: {
-        kind: 'near_wallet',
-        nearAccountId: String(args.nearAccountId),
-      },
-      viewerSessionId: args.viewerSessionId,
-      publicKey: args.expectedPublicKey,
+      subject: { kind: 'near_wallet', nearAccountId: args.nearAccountId },
+      publicKey: args.publicKey,
       keys,
       variant: args.variant,
       theme: args.theme ?? deps.theme ?? 'dark',
-      loading: args.loading === true,
+      loading: false,
       onLifecycle: (event) => {
         emitKeyExportEvent(args.onEvent, {
           phase:
@@ -361,26 +296,26 @@ export async function showNearEd25519ExportViewer(
               : KeyExportEventPhase.STEP_05_VIEWER_CLOSED,
           status: event === 'opened' ? 'waiting_for_user' : 'succeeded',
           flowId: args.flowId,
-          accountId: String(args.nearAccountId),
+          accountId: args.nearAccountId,
           interaction: {
             kind: 'key_export_viewer',
             overlay: event === 'opened' ? 'show' : 'hide',
           },
-          data: { chain: 'near', loading: args.loading === true },
+          data: { chain: 'near', curve: 'ed25519', loading: false },
         });
         if (event === 'closed') {
           emitKeyExportEvent(args.onEvent, {
             phase: KeyExportEventPhase.STEP_06_COMPLETED,
             status: 'succeeded',
             flowId: args.flowId,
-            accountId: String(args.nearAccountId),
+            accountId: args.nearAccountId,
             interaction: { kind: 'none', overlay: 'hide' },
-            data: { chain: 'near' },
+            data: { chain: 'near', curve: 'ed25519' },
           });
         }
       },
     },
-    intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
+    intentDigest: `export-keys:${args.walletId}:near:${args.nearAccountId}:ed25519`,
   });
 }
 
@@ -440,7 +375,7 @@ export async function showThresholdEcdsaExportViewer(
   const chain = args.chainTarget.kind;
   const label = chain === 'tempo' ? 'Tempo private key' : 'EVM private key';
   const isLoading = args.state === 'loading';
-  const keys: ExportPrivateKeyDisplayEntry[] = isLoading
+  const keys: Secp256k1ExportPrivateKeyDisplayEntry[] = isLoading
     ? [
         {
           scheme: 'secp256k1',
@@ -512,33 +447,18 @@ export async function showThresholdEcdsaExportViewer(
 
 async function requestPasskeyExportAuthorization(
   deps: KeyExportConfirmationDeps,
-  args:
-    | {
-        nearAccountId: AccountId;
-        walletSessionUserId?: never;
-        intent: 'ed25519_export';
-        curve: 'ed25519';
-        chain: 'near';
-        publicKey: string;
-        flowId: string;
-        onEvent?: KeyExportEventCallback;
-        request: Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
-      }
-    | {
-        walletSessionUserId: string;
-        intent: 'ecdsa_export';
-        curve: 'ecdsa';
-        chain: ThresholdEcdsaChainTarget['kind'];
-        publicKey: string;
-        flowId: string;
-        onEvent?: KeyExportEventCallback;
-        request: Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
-      },
+  args: {
+    walletSessionUserId: string;
+    intent: 'ecdsa_export';
+    curve: 'ecdsa';
+    chain: ThresholdEcdsaChainTarget['kind'];
+    publicKey: string;
+    flowId: string;
+    onEvent?: KeyExportEventCallback;
+    request: Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
+  },
 ): Promise<ExportPasskeyStepUpAuthorization> {
-  const accountIdForUi =
-    args.curve === 'ecdsa'
-      ? String(args.walletSessionUserId || '').trim()
-      : String(args.nearAccountId);
+  const accountIdForUi = String(args.walletSessionUserId || '').trim();
   if (!accountIdForUi) {
     throw new Error('[SigningEngine][export] missing export account identity');
   }
@@ -553,26 +473,15 @@ async function requestPasskeyExportAuthorization(
   });
   removeExportViewerHostIfPresent();
   const decision = await deps.touchConfirm.requestUserConfirmation(args.request);
-  const authorization =
-    args.curve === 'ecdsa'
-      ? buildExportStepUpAuthorization({
-          method: 'passkey',
-          walletSessionUserId: args.walletSessionUserId,
-          publicKey: args.publicKey,
-          curve: 'ecdsa',
-          intent: 'ecdsa_export',
-          chain: args.chain,
-          decision,
-        })
-      : buildExportStepUpAuthorization({
-          method: 'passkey',
-          nearAccountId: args.nearAccountId,
-          publicKey: args.publicKey,
-          curve: 'ed25519',
-          intent: 'ed25519_export',
-          chain: 'near',
-          decision,
-        });
+  const authorization = buildExportStepUpAuthorization({
+    method: 'passkey',
+    walletSessionUserId: args.walletSessionUserId,
+    publicKey: args.publicKey,
+    curve: 'ecdsa',
+    intent: 'ecdsa_export',
+    chain: args.chain,
+    decision,
+  });
   if (authorization.kind !== 'passkey') {
     throw new Error('[SigningEngine][export] passkey export returned the wrong step-up method');
   }

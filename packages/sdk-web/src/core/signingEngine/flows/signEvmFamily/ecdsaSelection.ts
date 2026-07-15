@@ -53,7 +53,7 @@ import {
 } from './ecdsaLanes';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import type {
-  EmailOtpEcdsaSigningSessionAuthorityResolver,
+  DurableEmailOtpEcdsaSigningSessionAuthorityResolver,
   EvmFamilyEcdsaSessionReaderDeps,
   PasskeyEcdsaSessionStoreSource,
 } from '../../interfaces/operationDeps';
@@ -75,10 +75,7 @@ import {
   type ParticipantId,
   type VerifiedWalletSessionJwt,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import {
-  parseEcdsaRelayerKeyId,
-  type EcdsaRelayerKeyId,
-} from '../../session/keyMaterialBrands';
+import { parseEcdsaRelayerKeyId, type EcdsaRelayerKeyId } from '../../session/keyMaterialBrands';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -94,9 +91,7 @@ import {
 import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
-import type {
-  EmailOtpSigningSessionAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
   'login',
@@ -106,7 +101,7 @@ const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
 
 export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyEcdsaSessionReaderDeps &
-  EmailOtpEcdsaSigningSessionAuthorityResolver;
+  DurableEmailOtpEcdsaSigningSessionAuthorityResolver;
 
 type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   authMethod: EvmFamilyEcdsaAuthMethod;
@@ -341,12 +336,8 @@ export function ecdsaCommittedLaneAuthMethod(
 export function ecdsaCommittedLaneAuthMethod(
   lane: EmailOtpEcdsaCommittedLane,
 ): typeof SIGNER_AUTH_METHODS.emailOtp;
-export function ecdsaCommittedLaneAuthMethod(
-  lane: EcdsaCommittedLane,
-): EvmFamilyEcdsaAuthMethod;
-export function ecdsaCommittedLaneAuthMethod(
-  lane: EcdsaCommittedLane,
-): EvmFamilyEcdsaAuthMethod {
+export function ecdsaCommittedLaneAuthMethod(lane: EcdsaCommittedLane): EvmFamilyEcdsaAuthMethod;
+export function ecdsaCommittedLaneAuthMethod(lane: EcdsaCommittedLane): EvmFamilyEcdsaAuthMethod {
   const factorKind = lane.authority.factor.kind;
   switch (factorKind) {
     case 'passkey':
@@ -591,7 +582,7 @@ type EmailOtpSelectionAuthority = {
       record: ThresholdEcdsaSessionRecord;
     }
   | {
-      kind: 'resolver_backed';
+      kind: 'durable_authority_backed';
       record?: never;
     }
 );
@@ -618,13 +609,12 @@ export type PasskeyEcdsaCommittedLaneAuthority =
       walletSessionJwt?: never;
     };
 
-type EcdsaCommittedLaneWalletSessionAuthorityFor<
-  A extends WalletAuthAuthority,
-> = A extends PasskeyWalletAuthAuthority
-  ? PasskeyEcdsaCommittedLaneAuthority
-  : A extends EmailOtpWalletAuthAuthority
-    ? EcdsaCommittedLaneWalletSessionAuthority
-    : never;
+type EcdsaCommittedLaneWalletSessionAuthorityFor<A extends WalletAuthAuthority> =
+  A extends PasskeyWalletAuthAuthority
+    ? PasskeyEcdsaCommittedLaneAuthority
+    : A extends EmailOtpWalletAuthAuthority
+      ? EcdsaCommittedLaneWalletSessionAuthority
+      : never;
 
 type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
   A extends EmailOtpWalletAuthAuthority
@@ -646,9 +636,9 @@ type EcdsaCommittedLaneDurableRestoreFacts<A extends WalletAuthAuthority> =
             durableRestore: 'record_restore_metadata';
           }
         | {
-            source: 'resolver_backed';
+            source: 'durable_authority_backed';
             record?: never;
-            durableRestore: 'resolver_restore_metadata';
+            durableRestore: 'sealed_record_authority';
           }
     : A extends PasskeyWalletAuthAuthority
       ? {
@@ -694,7 +684,6 @@ type PasskeyEcdsaLaneCandidate = EcdsaLaneCandidate & {
   auth: Extract<EcdsaLaneCandidate['auth'], { kind: 'passkey' }>;
 };
 
-
 function readyEmailOtpEcdsaCommittedLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   committedLane: EmailOtpEcdsaCommittedLane;
@@ -715,11 +704,11 @@ function readyEmailOtpEcdsaCommittedLane(args: {
         record: args.committedLane.record,
         durableRestore: 'record_restore_metadata',
       };
-    case 'resolver_backed':
+    case 'durable_authority_backed':
       return {
         ...common,
-        source: 'resolver_backed',
-        durableRestore: 'resolver_restore_metadata',
+        source: 'durable_authority_backed',
+        durableRestore: 'sealed_record_authority',
       };
   }
 }
@@ -772,7 +761,9 @@ function requirePasskeyEcdsaLaneCandidate(
   throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey candidate');
 }
 
-function passkeyAuthorityFromRecord(record: ThresholdEcdsaSessionRecord): PasskeyWalletAuthAuthority {
+function passkeyAuthorityFromRecord(
+  record: ThresholdEcdsaSessionRecord,
+): PasskeyWalletAuthAuthority {
   if (record.source === SIGNER_AUTH_METHODS.emailOtp) {
     throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record source');
   }
@@ -1173,20 +1164,17 @@ async function resolveEmailOtpAuthorityForSelection(args: {
       laneAuthority: recordAuthority.authority,
     };
   }
-  logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record-backed authority not found', {
-    lane: summarizeEvmFamilyEcdsaLane(args.lane),
-  });
-  const laneAuthority = await args.deps.resolveEmailOtpEcdsaSigningSessionAuthority({
+  const laneAuthority = await args.deps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
     lane: exactLane,
     chain: args.lane.chainTarget.kind,
   });
   if (laneAuthority) {
     return {
-      kind: 'resolver_backed',
+      kind: 'durable_authority_backed',
       laneAuthority,
     };
   }
-  logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA resolver authority not found', {
+  logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA authority not found', {
     lane: summarizeEvmFamilyEcdsaLane(args.lane),
     candidate: summarizeLaneCandidate(args.candidate),
   });
@@ -1353,11 +1341,11 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
         record: args.authority.record,
         durableRestore: 'record_restore_metadata',
       };
-    case 'resolver_backed':
+    case 'durable_authority_backed':
       return {
         ...common,
-        source: 'resolver_backed',
-        durableRestore: 'resolver_restore_metadata',
+        source: 'durable_authority_backed',
+        durableRestore: 'sealed_record_authority',
       };
   }
 }

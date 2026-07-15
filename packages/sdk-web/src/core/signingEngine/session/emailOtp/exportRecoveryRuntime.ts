@@ -4,39 +4,27 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type {
-  EmailOtpAuthLane,
-  EmailOtpSigningSessionAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EcdsaExportLane } from '../../flows/recovery/ecdsaExportMaterial';
-import { appSessionJwtFromEmailOtpAuthLane } from './appSessionJwtCache';
+import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
+import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
-  buildEmailOtpSigningSessionRoutePlan,
-  buildFreshEmailOtpRoutePlan,
-} from './routePlan';
-import {
+  exportEd25519YaoSeedWithFreshEmailOtpLane,
   exportEcdsaKeyWithAuthorization,
-  exportEcdsaKeyWithFreshEmailOtpLane,
-  exportEd25519SeedWithAuthorization,
+  exportEcdsaKeyWithDurableAuthorization,
   requestExportChallenge,
   requestTransactionSigningChallenge,
   type EmailOtpEcdsaExportArtifact,
-  type EmailOtpEd25519ExportArtifact,
 } from './exportRecovery';
 import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
-import type {
-  EmailOtpEd25519CommittedSessionRecord,
-  RecordBackedEd25519CommittedLane,
-} from './ed25519CommittedLane';
-
-export type { EmailOtpEcdsaExportArtifact, EmailOtpEd25519ExportArtifact } from './exportRecovery';
+export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 export type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -50,51 +38,13 @@ export type RequestEmailOtpChallengeArgs =
       routeAuth?: never;
     }
   | {
-      kind: 'wallet_session_fresh_login_challenge';
+      kind: 'near_account_challenge';
       walletSession: WalletSessionRef;
-      chain: EmailOtpEcdsaRouteChain;
-      authLane?: never;
+      nearAccountId: AccountId;
+      chain: 'near';
+      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
       routeAuth?: never;
-    }
-	  | {
-	      kind: 'near_account_challenge';
-	      walletSession: WalletSessionRef;
-	      nearAccountId: AccountId;
-	      chain: 'near';
-	      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
-	      routeAuth?: never;
-	    };
-
-export type EmailOtpEd25519ExportSessionRecord = EmailOtpEd25519CommittedSessionRecord & {
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-};
-
-export type Ed25519ExportFacts = {
-  participantIds: number[];
-  relayerKeyId: string;
-  expectedPublicKey: string;
-};
-
-export type Ed25519ExportLane = RecordBackedEd25519CommittedLane<
-  EmailOtpEd25519ExportSessionRecord,
-  Ed25519ExportFacts
->;
-
-export type ExportEd25519SeedWithAuthorizationArgs = {
-  nearAccountId: AccountId;
-  challengeId: string;
-  otpCode: string;
-  committedLane: Ed25519ExportLane;
-  record?: never;
-  participantIds?: never;
-  thresholdSessionId?: never;
-  walletSessionJwt?: never;
-  relayerKeyId?: never;
-  expectedPublicKey?: never;
-  routeAuth?: never;
-  authLane?: never;
-};
+    };
 
 export type ExportEcdsaKeyWithAuthorizationArgs = {
   walletSession: WalletSessionRef;
@@ -106,15 +56,30 @@ export type ExportEcdsaKeyWithAuthorizationArgs = {
   authLane?: never;
 };
 
-export type ExportEcdsaKeyWithFreshEmailOtpLaneArgs = {
+export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
   publicFacts: VerifiedEcdsaPublicFacts;
-  providerUserId?: string;
-  emailHashHex: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
+  signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+};
+
+export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
+  walletSession: WalletSessionRef;
+  challengeId: string;
+  otpCode: string;
+  providerSubjectId: string;
+  walletSessionJwt: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  signerSlot: number;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 };
 
 export class EmailOtpExportRecoveryRuntime {
@@ -123,10 +88,6 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       requireRelayUrl: () => string;
       requireShamirPrimeB64u: () => string;
-      resolveAppSessionJwt: (args: {
-        walletSession: WalletSessionRef;
-        relayUrl: string;
-      }) => Promise<string>;
       loginWithEcdsaCapabilityInternal: (
         args: LoginEmailOtpEcdsaCapabilityArgs,
       ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
@@ -145,31 +106,44 @@ export class EmailOtpExportRecoveryRuntime {
     return await requestExportChallenge(this.workerPorts(), args);
   }
 
-  async exportEd25519SeedWithAuthorization(
-    args: ExportEd25519SeedWithAuthorizationArgs,
-  ): Promise<EmailOtpEd25519ExportArtifact> {
-    return await exportEd25519SeedWithAuthorization(this.signingSessionWorkerPorts(), args);
-  }
-
   async exportEcdsaKeyWithAuthorization(
     args: ExportEcdsaKeyWithAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
     return await exportEcdsaKeyWithAuthorization(this.signingSessionWorkerPorts(), args);
   }
 
-  async exportEcdsaKeyWithFreshEmailOtpLane(
-    args: ExportEcdsaKeyWithFreshEmailOtpLaneArgs,
+  async exportEcdsaKeyWithDurableAuthorization(
+    args: ExportEcdsaKeyWithDurableAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await exportEcdsaKeyWithFreshEmailOtpLane(
+    return await exportEcdsaKeyWithDurableAuthorization(
       {
         requireRelayUrl: this.ports.requireRelayUrl,
-        resolveAppSessionJwt: this.ports.resolveAppSessionJwt,
-        buildRoutePlan: buildFreshEmailOtpRoutePlan,
+        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
       },
       {
-        ...args,
+        walletSession: args.walletSession,
+        chainTarget: args.chainTarget,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        publicFacts: args.publicFacts,
+        runtimePolicyScope: args.runtimePolicyScope,
+        signingSessionAuthority: args.signingSessionAuthority,
         loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
       },
+    );
+  }
+
+  async exportEd25519YaoSeedWithFreshEmailOtpLane(
+    args: ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs,
+  ): Promise<{ artifactKind: 'near-ed25519-seed-v1'; publicKey: string; privateKey: string }> {
+    return await exportEd25519YaoSeedWithFreshEmailOtpLane(
+      {
+        getSignerWorkerContext: this.ports.getSignerWorkerContext,
+        requireRelayUrl: this.ports.requireRelayUrl,
+        requireShamirPrimeB64u: this.ports.requireShamirPrimeB64u,
+        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
+      },
+      args,
     );
   }
 
@@ -178,10 +152,7 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: this.ports.requireRelayUrl,
       requireShamirPrimeB64u: this.ports.requireShamirPrimeB64u,
-      resolveAppSessionJwt: this.ports.resolveAppSessionJwt,
-      buildRoutePlan: buildFreshEmailOtpRoutePlan,
       buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
-      appSessionJwtFromLane: appSessionJwtFromEmailOtpAuthLane,
     };
   }
 

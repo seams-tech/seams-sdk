@@ -17,6 +17,15 @@ export type ReserveNonceInput = {
   nonceKey?: bigint;
 };
 
+export type EvmBroadcastTransactionLookupInput = ReserveNonceInput & {
+  txHash: `0x${string}`;
+};
+
+export type EvmBroadcastTransactionStatus =
+  | { kind: 'finalized' }
+  | { kind: 'pending' }
+  | { kind: 'missing' };
+
 export type ReserveNonceBoundaryInput = {
   chain: EvmNonceChain;
   networkKey: string;
@@ -65,6 +74,9 @@ export type ManagedNonceReservation = ReserveNonceInput & {
 
 export interface EvmNonceBackend {
   fetchChainNonce(input: ReserveNonceInput): Promise<bigint>;
+  fetchBroadcastTransactionStatus(
+    input: EvmBroadcastTransactionLookupInput,
+  ): Promise<EvmBroadcastTransactionStatus>;
 }
 
 export type NonceLaneStatus = {
@@ -85,8 +97,13 @@ export type EvmNonceBackendFetchInput = {
 
 export type FetchChainNoncePort = (input: EvmNonceBackendFetchInput) => Promise<bigint>;
 
+export type FetchBroadcastTransactionStatusPort = (
+  input: EvmNonceBackendFetchInput & { txHash: `0x${string}` },
+) => Promise<EvmBroadcastTransactionStatus>;
+
 export type CreateEvmNonceBackendWithFetcherArgs = {
   fetchChainNonce: FetchChainNoncePort;
+  fetchBroadcastTransactionStatus: FetchBroadcastTransactionStatusPort;
 };
 
 export type CreateEvmNonceBackendArgs = {
@@ -191,6 +208,13 @@ export function createEvmNonceBackendWithFetcher(
       const normalized = normalizeInput(input);
       return await args.fetchChainNonce(normalized);
     },
+    async fetchBroadcastTransactionStatus(input) {
+      const normalized = normalizeInput(input);
+      return await args.fetchBroadcastTransactionStatus({
+        ...normalized,
+        txHash: normalizeTxHash(input.txHash),
+      });
+    },
   };
 }
 
@@ -203,7 +227,78 @@ export function createEvmNonceBackend(args: CreateEvmNonceBackendArgs): EvmNonce
         input,
         fetchImpl,
       }),
+    fetchBroadcastTransactionStatus: async (input) =>
+      await fetchBroadcastTransactionStatusFromRpc({
+        chains: args.chains,
+        input,
+        fetchImpl,
+      }),
   });
+}
+
+async function fetchBroadcastTransactionStatusFromRpc(args: {
+  chains: readonly SeamsChainConfig[];
+  input: EvmNonceBackendFetchInput & { txHash: `0x${string}` };
+  fetchImpl: typeof fetch;
+}): Promise<EvmBroadcastTransactionStatus> {
+  const rpcUrl = resolveRpcUrlForInput(args.chains, args.input);
+  const receipt = await fetchEvmRpcResult({
+    rpcUrl,
+    method: 'eth_getTransactionReceipt',
+    params: [args.input.txHash],
+    fetchImpl: args.fetchImpl,
+  });
+  if (receipt && typeof receipt === 'object') {
+    return { kind: 'finalized' };
+  }
+
+  const transaction = await fetchEvmRpcResult({
+    rpcUrl,
+    method: 'eth_getTransactionByHash',
+    params: [args.input.txHash],
+    fetchImpl: args.fetchImpl,
+  });
+  return transaction && typeof transaction === 'object' ? { kind: 'pending' } : { kind: 'missing' };
+}
+
+async function fetchEvmRpcResult(args: {
+  rpcUrl: string;
+  method: string;
+  params: unknown[];
+  fetchImpl: typeof fetch;
+}): Promise<unknown> {
+  const timeout = withTimeoutAbort(DEFAULT_RPC_TIMEOUT_MS);
+  try {
+    const response = await args.fetchImpl(args.rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'evm-nonce-backend',
+        method: args.method,
+        params: args.params,
+      }),
+      signal: timeout.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`[evmNonceBackend] RPC returned HTTP ${response.status}`);
+    }
+    const payload = (await response.json().catch(() => null)) as {
+      result?: unknown;
+      error?: { code?: unknown; message?: unknown };
+    } | null;
+    if (!payload) {
+      throw new Error('[evmNonceBackend] RPC returned invalid JSON');
+    }
+    if (payload.error) {
+      const code = typeof payload.error.code === 'number' ? payload.error.code : 'unknown';
+      const message = String(payload.error.message || 'unknown error');
+      throw new Error(`[evmNonceBackend] ${args.method} failed (${String(code)}): ${message}`);
+    }
+    return payload.result;
+  } finally {
+    timeout.clear();
+  }
 }
 
 async function fetchChainNonceFromRpc(args: {
@@ -472,6 +567,16 @@ function normalizeAddress(value: unknown, label: string): `0x${string}` {
 
 function normalizeSender(value: unknown): `0x${string}` {
   return normalizeAddress(value, 'sender');
+}
+
+function normalizeTxHash(value: unknown): `0x${string}` {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error('[evmNonceBackend] invalid txHash: expected 32-byte 0x-prefixed hex');
+  }
+  return normalized as `0x${string}`;
 }
 
 function normalizeBigint(value: unknown, label: string): bigint {

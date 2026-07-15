@@ -3,6 +3,7 @@ import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/particip
 import {
   implicitNearAccountProvisioning,
   sponsoredNamedNearAccountProvisioning,
+  REGISTRATION_NEAR_ED25519_YAO_DERIVATION_VERSION,
   type RegisterWalletInput,
   type RegistrationNearAccountProvisioning,
   type RegistrationSignerSetSelection,
@@ -14,7 +15,6 @@ import type {
   SeamsRegistrationNearAccountProvisioning,
 } from '@/core/types/seams';
 import type { RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
-import { THRESHOLD_ED25519_HSS_DERIVATION_VERSION } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -29,7 +29,7 @@ export function buildNearWalletRegistrationSignerSetSelection(args: {
     accountProvisioning: args.accountProvisioning ?? implicitNearAccountProvisioning(),
     signerSlot: 1,
     participantIds: [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS],
-    derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+    derivationVersion: REGISTRATION_NEAR_ED25519_YAO_DERIVATION_VERSION,
   };
   const ecdsaChainTargets =
     args.ecdsaChainTargets ??

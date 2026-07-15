@@ -96,6 +96,15 @@ export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
     source: 'email_otp';
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<unknown>;
+  commitEmailOtpEcdsaRegistrationWarmMaterial: (args: {
+    walletId: WalletId;
+    chainTarget: WalletRegistrationEcdsaWalletKey['chainTarget'];
+    preparedClientBootstrap: Extract<
+      WalletRegistrationEcdsaPreparedClientBootstrap,
+      { materialSource: 'email_otp_worker_handle' }
+    >;
+    bootstrap: WalletRegistrationEcdsaSessionBootstrap;
+  }) => Promise<void>;
   signingSessionSeal: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     shamirPrimeB64u?: string;
@@ -133,7 +142,16 @@ export async function finalizeWalletRegistrationEcdsaSessions(
 
   for (const { walletKey, bootstrap, preparedClientBootstrap } of sessionBootstraps) {
     if (args.auth.kind === 'email_otp') {
+      if (preparedClientBootstrap.materialSource !== 'email_otp_worker_handle') {
+        throw new Error('Email OTP ECDSA registration requires worker-owned root material');
+      }
       const emailOtpCommitStartedAt = performance.now();
+      await deps.commitEmailOtpEcdsaRegistrationWarmMaterial({
+        walletId,
+        chainTarget: walletKey.chainTarget,
+        preparedClientBootstrap,
+        bootstrap,
+      });
       await deps.commitEmailOtpEcdsaSession({
         walletId,
         chainTarget: walletKey.chainTarget,

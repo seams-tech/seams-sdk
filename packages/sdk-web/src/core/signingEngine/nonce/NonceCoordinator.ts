@@ -55,6 +55,7 @@ import {
   type NonceCoordinatorDiagnosticsOptions,
   type NonceCoordinatorSameOriginLockPort,
   type NonceCoordinatorTraceEvent,
+  type NonceDurableLeaseLifecycle,
   type NonceLane,
   type NonceLaneCoordinationStore,
   type EvmNonceLease,
@@ -92,10 +93,7 @@ export {
   evmReserveNonceInputToLane,
   nonceLeaseToRef,
 } from './nonceLaneKeys';
-export {
-  classifyNearExecutionReadiness,
-  type NearExecutionReadiness,
-} from './nearNonceLane';
+export { classifyNearExecutionReadiness, type NearExecutionReadiness } from './nearNonceLane';
 import {
   createEvmNonceLaneBlockedError,
   getOrCreateEvmNonceLaneState,
@@ -139,10 +137,7 @@ import {
   type DroppedReplacedAlertWindow,
   type NonceOutcomeMetricEvent,
 } from './nonceDiagnostics';
-import {
-  normalizePositiveInteger,
-  normalizeRequiredString,
-} from './nonceUtils';
+import { normalizePositiveInteger, normalizeRequiredString } from './nonceUtils';
 
 const DEFAULT_NONCE_LEASE_TTL_MS = 120_000;
 const DEFAULT_SIGNED_NONCE_LEASE_TTL_MS = 30_000;
@@ -367,7 +362,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const persistCoordinationLease = async (
     lease: NonceLease,
-    state: ParsedNonceLaneCoordinationRecord['record']['state'],
+    lifecycle: NonceDurableLeaseLifecycle,
     expiresAtMs = lease.expiresAtMs,
   ): Promise<void> => {
     const coordinationStore = nonceLaneCoordinationStore;
@@ -384,7 +379,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         coordinationStore,
         buildEvmCoordinationRecord({
           lease,
-          state,
+          lifecycle,
           expiresAtMs,
           updatedAtMs: now(),
           runtimeId,
@@ -396,7 +391,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         coordinationStore,
         buildNearCoordinationRecord({
           lease,
-          state,
+          lifecycle,
           expiresAtMs,
           updatedAtMs: now(),
           runtimeId,
@@ -518,7 +513,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       expiresAtMs: reservedAtMs + leaseTtlMs,
     };
     leases.set(lease.leaseId, lease);
-    await persistCoordinationLease(lease, NonceDurableLeaseState.Reserved);
+    await persistCoordinationLease(lease, { state: NonceDurableLeaseState.Reserved });
     emit({ event: NonceCoordinatorTraceEventName.LeaseReserved, lease });
     return { ...lease };
   };
@@ -533,16 +528,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     });
   };
 
-  const markEvmBroadcastAccepted = async (
-    lease: EvmNonceLease,
-    txHash?: string,
-  ): Promise<void> => {
+  const markEvmBroadcastAccepted = async (lease: EvmNonceLease, txHash: string): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
     await markEvmBroadcastAcceptedState({
       lease,
       state,
-      ...(txHash ? { txHash } : {}),
+      txHash,
       nowMs: now(),
       staleInFlightThresholdMs: evmStaleInFlightThresholdMs,
       persistCoordinationLease,
@@ -809,7 +801,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return await runLocal();
   };
 
-  const expireLeaseLocked = async (lease: NonceLease, nowMs: number): Promise<NonceLease | null> => {
+  const expireLeaseLocked = async (
+    lease: NonceLease,
+    nowMs: number,
+  ): Promise<NonceLease | null> => {
     if (lease.expiresAtMs > nowMs) return null;
     if (lease.state !== NonceLeaseState.Reserved && lease.state !== NonceLeaseState.Signed) {
       return null;
@@ -924,16 +919,48 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         if (record.family === 'evm') {
           const evmLane = lane as EvmNonceLane;
           const state = getOrCreateEvmState(record.laneKey);
+          let broadcastStatus: Awaited<
+            ReturnType<NonceCoordinatorDeps['evmNonceBackend']['fetchBroadcastTransactionStatus']>
+          > | null = null;
           if (record.state === NonceDurableLeaseState.BroadcastAccepted) {
+            const txHash = requireRecoveredEvmTxHash(record.txHash);
             state.inFlight.set(record.nonce.toString(), {
               nonce: recordNonce,
+              txHash,
               status: 'accepted',
               acceptedAtMs: record.reservedAtMs,
               updatedAtMs: record.updatedAtMs,
             });
+            broadcastStatus = await deps.evmNonceBackend
+              .fetchBroadcastTransactionStatus({
+                ...evmLaneToReserveNonceInput(evmLane),
+                txHash,
+              })
+              .catch(() => null);
+            if (broadcastStatus?.kind === 'finalized') {
+              state.inFlight.delete(record.nonce.toString());
+              await nonceLaneCoordinationStore.remove({
+                laneKey: record.laneKey,
+                leaseId: record.leaseId,
+              });
+              await reconcileEvmLaneLocked(evmLane).catch(() => null);
+              emit({
+                event: NonceCoordinatorTraceEventName.LaneReconciled,
+                lane: evmLane,
+                reason: 'startup_recovery_finalized_transaction',
+                txHash: record.txHash,
+              });
+              return;
+            }
           }
           const status = await reconcileEvmLaneLocked(evmLane).catch(() => null);
-          if (status && status.chainNextNonce > recordNonce) {
+          const chainAdvanced = !!status && status.chainNextNonce > recordNonce;
+          const staleMissingBroadcast =
+            record.state === NonceDurableLeaseState.BroadcastAccepted &&
+            broadcastStatus?.kind === 'missing' &&
+            isExpired;
+          if (chainAdvanced || staleMissingBroadcast) {
+            state.inFlight.delete(record.nonce.toString());
             await nonceLaneCoordinationStore.remove({
               laneKey: record.laneKey,
               leaseId: record.leaseId,
@@ -942,7 +969,12 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
           emit({
             event: NonceCoordinatorTraceEventName.LaneReconciled,
             lane: evmLane,
-            reason: 'startup_recovery',
+            reason: staleMissingBroadcast
+              ? 'startup_recovery_dropped_transaction'
+              : 'startup_recovery',
+            ...(staleMissingBroadcast && record.state === NonceDurableLeaseState.BroadcastAccepted
+              ? { txHash: record.txHash }
+              : {}),
           });
           return;
         }
@@ -1003,7 +1035,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     );
     for (const lease of batchLeases) {
       leases.set(lease.leaseId, lease);
-      await persistCoordinationLease(lease, NonceDurableLeaseState.Reserved);
+      await persistCoordinationLease(lease, { state: NonceDurableLeaseState.Reserved });
       emit({ event: NonceCoordinatorTraceEventName.LeaseReserved, lease });
     }
     return batchLeases.map((lease) => ({ ...lease }));
@@ -1157,7 +1189,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
           expiresAtMs,
           ...(input.signedTxHash ? { txHash: input.signedTxHash } : {}),
         });
-        await persistCoordinationLease(lockedLease, NonceDurableLeaseState.Signed, expiresAtMs);
+        await persistCoordinationLease(
+          lockedLease,
+          { state: NonceDurableLeaseState.Signed },
+          expiresAtMs,
+        );
       });
     },
 
@@ -1168,14 +1204,8 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'broadcast_accepted');
         if (isEvmNonceLease(lockedLease)) {
-          await markEvmBroadcastAccepted(
-            lockedLease,
-            input.txHash ? String(input.txHash) : undefined,
-          );
+          await markEvmBroadcastAccepted(lockedLease, String(input.txHash));
         } else if (isNearNonceLease(lockedLease)) {
-          if (!input.txHash) {
-            throw new Error('[NonceCoordinator] NEAR broadcast acceptance requires txHash');
-          }
           await markNearBroadcastAcceptedState({
             lease: lockedLease,
             state: nearState,
@@ -1190,7 +1220,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
           lease: lockedLease,
           transition: 'broadcast_accepted',
           event: NonceCoordinatorTraceEventName.LeaseBroadcastAccepted,
-          ...(input.txHash ? { txHash: String(input.txHash) } : {}),
+          txHash: String(input.txHash),
         });
       });
     },
@@ -1363,9 +1393,17 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 }
 
+function requireRecoveredEvmTxHash(value: string): `0x${string}` {
+  const normalized = value.trim().toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error('[NonceCoordinator] recovered EVM broadcast record has invalid txHash');
+  }
+  return normalized as `0x${string}`;
+}
+
 type BuildCoordinationRecordArgs<TLease extends EvmNonceLease | NearNonceLease> = {
   lease: TLease;
-  state: ParsedNonceLaneCoordinationRecord['record']['state'];
+  lifecycle: NonceDurableLeaseLifecycle;
   expiresAtMs: number;
   updatedAtMs: number;
   runtimeId: string;
@@ -1387,67 +1425,81 @@ function buildEvmCoordinationRecord(
   args: BuildCoordinationRecordArgs<EvmNonceLease>,
 ): Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'evm' }> {
   const lease = args.lease;
-  const record: Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'evm' }> = {
-    v: 1,
+  const common = {
+    v: 1 as const,
     laneKey: nonceLaneKey(lease.lane),
     leaseId: lease.leaseId,
     networkKey: nonceLaneNetworkKey(lease.lane),
     nonce: lease.nonce,
-    state: args.state,
     operationId: String(lease.operationId),
     operationFingerprint: String(lease.operationFingerprint),
     reservedAtMs: lease.reservedAtMs,
     expiresAtMs: args.expiresAtMs,
     updatedAtMs: args.updatedAtMs,
     runtimeId: args.runtimeId,
-    family: 'evm',
+    family: 'evm' as const,
     chainTarget: lease.lane.chainTarget,
     accountId: lease.lane.subjectId,
     sender: lease.lane.sender,
+    ...(lease.lane.nonceKey != null ? { nonceKey: lease.lane.nonceKey } : {}),
+    ...buildLeaseRecordMetadata(lease),
   };
-  if (lease.lane.nonceKey != null) {
-    record.nonceKey = lease.lane.nonceKey;
+  switch (args.lifecycle.state) {
+    case NonceDurableLeaseState.Reserved:
+    case NonceDurableLeaseState.Signed:
+      return { ...common, state: args.lifecycle.state };
+    case NonceDurableLeaseState.BroadcastAccepted:
+      return {
+        ...common,
+        state: NonceDurableLeaseState.BroadcastAccepted,
+        txHash: requireRecoveredEvmTxHash(args.lifecycle.txHash),
+      };
   }
-  addLeaseRecordMetadata(record, lease);
-  return record;
 }
 
 function buildNearCoordinationRecord(
   args: BuildCoordinationRecordArgs<NearNonceLease>,
 ): Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'near' }> {
   const lease = args.lease;
-  const record: Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'near' }> = {
-    v: 1,
+  const common = {
+    v: 1 as const,
     laneKey: nonceLaneKey(lease.lane),
     leaseId: lease.leaseId,
     networkKey: nonceLaneNetworkKey(lease.lane),
     nonce: BigInt(lease.nonce),
-    state: args.state,
     operationId: String(lease.operationId),
     operationFingerprint: String(lease.operationFingerprint),
     reservedAtMs: lease.reservedAtMs,
     expiresAtMs: args.expiresAtMs,
     updatedAtMs: args.updatedAtMs,
     runtimeId: args.runtimeId,
-    family: 'near',
+    family: 'near' as const,
     walletId: lease.lane.walletId,
     nearAccountId: lease.lane.nearAccountId,
     publicKey: lease.lane.publicKey,
+    ...buildLeaseRecordMetadata(lease),
   };
-  addLeaseRecordMetadata(record, lease);
-  return record;
+  switch (args.lifecycle.state) {
+    case NonceDurableLeaseState.Reserved:
+    case NonceDurableLeaseState.Signed:
+      return { ...common, state: args.lifecycle.state };
+    case NonceDurableLeaseState.BroadcastAccepted:
+      return {
+        ...common,
+        state: NonceDurableLeaseState.BroadcastAccepted,
+        txHash: args.lifecycle.txHash,
+      };
+  }
 }
 
-function addLeaseRecordMetadata(
-  record: ParsedNonceLaneCoordinationRecord['record'],
-  lease: EvmNonceLease | NearNonceLease,
-): void {
-  if (lease.batchId) {
-    record.batchId = lease.batchId;
-  }
-  if (Number.isSafeInteger(lease.txIndex)) {
-    record.txIndex = lease.txIndex;
-  }
+function buildLeaseRecordMetadata(lease: EvmNonceLease | NearNonceLease): {
+  batchId?: string;
+  txIndex?: number;
+} {
+  return {
+    ...(lease.batchId ? { batchId: lease.batchId } : {}),
+    ...(Number.isSafeInteger(lease.txIndex) ? { txIndex: lease.txIndex } : {}),
+  };
 }
 
 function createDefaultSameOriginLock(): NonceCoordinatorSameOriginLockPort | null {

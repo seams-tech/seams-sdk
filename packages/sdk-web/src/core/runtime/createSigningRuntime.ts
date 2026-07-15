@@ -31,22 +31,19 @@ export function createSigningRuntimeStatePorts(): SigningRuntimeStatePorts {
 
 export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
   const getWarmSessions = memoizeService(async () => {
-    const { createWarmSessionHydrationService } = await import(
-      '@/core/signingEngine/session/passkey/warmSessionHydration'
-    );
+    const { createWarmSessionHydrationService } =
+      await import('@/core/signingEngine/session/passkey/warmSessionHydration');
     return createWarmSessionHydrationService({
       getWarmSessionMaterialWriter: deps.ui.warmSessions.getWarmSessionMaterialWriter,
     });
   });
   const warmSessions: SigningRuntimeServices['warmSessions'] = {
-    hydrateSigningSession: async (input) =>
-      (await getWarmSessions()).hydrateSigningSession(input),
+    hydrateSigningSession: async (input) => (await getWarmSessions()).hydrateSigningSession(input),
   };
 
   const getRegistrationAccounts = memoizeService(async () => {
-    const { createRegistrationAccountsService } = await import(
-      '@/core/signingEngine/flows/registration/services/registrationAccounts'
-    );
+    const { createRegistrationAccountsService } =
+      await import('@/core/signingEngine/flows/registration/services/registrationAccounts');
     return createRegistrationAccountsService(deps.registration.accountLifecycle);
   });
   const registrationAccounts: SigningRuntimeServices['registrationAccounts'] = {
@@ -57,8 +54,6 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
     getLastUser: async () => (await getRegistrationAccounts()).getLastUser(),
     nearAuthenticatorsByAccount: async (nearAccountId) =>
       (await getRegistrationAccounts()).nearAuthenticatorsByAccount(nearAccountId),
-    updateLastLogin: async (walletId) =>
-      (await getRegistrationAccounts()).updateLastLogin(walletId),
     setLastUser: async (walletId, signerSlot) =>
       (await getRegistrationAccounts()).setLastUser(walletId, signerSlot),
     activateAuthenticatedWalletState: async (input) =>
@@ -75,14 +70,17 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getRegistrationAccounts()).storeWalletEd25519RecoveryRegistrationData(input),
     storeWalletEmailOtpEd25519RegistrationData: async (input) =>
       (await getRegistrationAccounts()).storeWalletEmailOtpEd25519RegistrationData(input),
+    storeWalletEmailOtpMixedRegistrationData: async (input) =>
+      (await getRegistrationAccounts()).storeWalletEmailOtpMixedRegistrationData(input),
     finalizeWalletEd25519SignerRegistration: async (input) =>
       (await getRegistrationAccounts()).finalizeWalletEd25519SignerRegistration(input),
+    rollbackWalletEd25519SignerRegistration: async (receipt) =>
+      (await getRegistrationAccounts()).rollbackWalletEd25519SignerRegistration(receipt),
   };
 
   const getEcdsaRegistrationBootstrap = memoizeService(async () => {
-    const { createEcdsaRegistrationBootstrapService } = await import(
-      '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap'
-    );
+    const { createEcdsaRegistrationBootstrapService } =
+      await import('@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap');
     return createEcdsaRegistrationBootstrapService({
       signerCrypto: deps.runtimePorts.signerCrypto,
       emailOtpWorker: deps.workers.emailOtp,
@@ -100,9 +98,8 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
   };
 
   const getEcdsaWalletRecords = memoizeService(async () => {
-    const { createEcdsaWalletRecordsService } = await import(
-      '@/core/signingEngine/flows/registration/services/ecdsaWalletRecords'
-    );
+    const { createEcdsaWalletRecordsService } =
+      await import('@/core/signingEngine/flows/registration/services/ecdsaWalletRecords');
     return createEcdsaWalletRecordsService({
       accountLifecycle: deps.registration.accountLifecycle,
     });
@@ -121,9 +118,8 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
   };
 
   const getEcdsaProvisioning = memoizeService(async () => {
-    const { createProvisionEcdsaUseCase } = await import(
-      '@/core/signingEngine/useCases/provisionEcdsa'
-    );
+    const { createProvisionEcdsaUseCase } =
+      await import('@/core/signingEngine/useCases/provisionEcdsa');
     return createProvisionEcdsaUseCase({
       authenticator: deps.runtimePorts.authenticator,
       signerCrypto: deps.runtimePorts.signerCrypto,
@@ -145,39 +141,33 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
 
   const evmFamilySigning: SigningRuntimeServices['evmFamilySigning'] = {
     signEvmFamily: async (args) => {
-      const { signEvmFamily } = await import(
-        '@/core/signingEngine/flows/signEvmFamily/signEvmFamily'
-      );
+      const { signEvmFamily } =
+        await import('@/core/signingEngine/flows/signEvmFamily/signEvmFamily');
       return signEvmFamily(deps.signing.evmFamily.getDeps(), args);
     },
     reportTempoBroadcastAccepted: async (args) => {
-      const { reportTempoBroadcastAccepted } = await import(
-        '@/core/signingEngine/flows/signEvmFamily/signEvmFamily'
-      );
+      const { reportTempoBroadcastAccepted } =
+        await import('@/core/signingEngine/flows/signEvmFamily/signEvmFamily');
       return reportTempoBroadcastAccepted(deps.signing.evmFamily.getDeps(), args);
     },
     reportTempoBroadcastRejected: async (args) => {
-      const { reportTempoBroadcastRejected } = await import(
-        '@/core/signingEngine/flows/signEvmFamily/signEvmFamily'
-      );
+      const { reportTempoBroadcastRejected } =
+        await import('@/core/signingEngine/flows/signEvmFamily/signEvmFamily');
       return reportTempoBroadcastRejected(deps.signing.evmFamily.getDeps(), args);
     },
     reportTempoFinalized: async (args) => {
-      const { reportTempoFinalized } = await import(
-        '@/core/signingEngine/flows/signEvmFamily/signEvmFamily'
-      );
+      const { reportTempoFinalized } =
+        await import('@/core/signingEngine/flows/signEvmFamily/signEvmFamily');
       return reportTempoFinalized(deps.signing.evmFamily.getDeps(), args);
     },
     reportTempoDroppedOrReplaced: async (args) => {
-      const { reportTempoDroppedOrReplaced } = await import(
-        '@/core/signingEngine/flows/signEvmFamily/signEvmFamily'
-      );
+      const { reportTempoDroppedOrReplaced } =
+        await import('@/core/signingEngine/flows/signEvmFamily/signEvmFamily');
       return reportTempoDroppedOrReplaced(deps.signing.evmFamily.getDeps(), args);
     },
     reconcileTempoNonceLane: async (args) => {
-      const { reconcileTempoNonceLane } = await import(
-        '@/core/signingEngine/flows/signEvmFamily/signEvmFamily'
-      );
+      const { reconcileTempoNonceLane } =
+        await import('@/core/signingEngine/flows/signEvmFamily/signEvmFamily');
       return reconcileTempoNonceLane(deps.signing.evmFamily.getDeps(), args);
     },
   };

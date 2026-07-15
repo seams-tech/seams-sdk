@@ -29,6 +29,12 @@ const validThresholdPolicyWebAuthnAuth = {
 } satisfies Ed25519WalletSessionMintAuthorization;
 void validThresholdPolicyWebAuthnAuth;
 
+const validYaoBudgetRefreshAuth = {
+  kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+  policySecretSource: webauthnPrfSource,
+} satisfies Ed25519WalletSessionMintAuthorization;
+void validYaoBudgetRefreshAuth;
+
 const validThresholdEcdsaSessionJwtAuth = {
   kind: 'threshold_ecdsa_session_jwt',
   thresholdEcdsaSessionJwt: 'threshold-ecdsa-session-jwt',
@@ -60,6 +66,22 @@ const invalidThresholdPolicyWithLocalPrf: Ed25519WalletSessionMintAuthorization 
   localSecretSource: webauthnPrfSource,
 };
 void invalidThresholdPolicyWithLocalPrf;
+
+const invalidYaoBudgetRefreshWithPriorSession: Ed25519WalletSessionMintAuthorization = {
+  kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+  policySecretSource: webauthnPrfSource,
+  // @ts-expect-error Yao budget refresh cannot reuse an expired Wallet Session as authorization.
+  priorWalletSessionJwt: 'prior-wallet-session-jwt',
+};
+void invalidYaoBudgetRefreshWithPriorSession;
+
+// @ts-expect-error Yao budget refresh cannot carry a second authorization bearer.
+const invalidYaoBudgetRefreshWithAppSession: Ed25519WalletSessionMintAuthorization = {
+  kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+  policySecretSource: webauthnPrfSource,
+  appSessionJwt: 'app-session-jwt',
+};
+void invalidYaoBudgetRefreshWithAppSession;
 
 const invalidThresholdEcdsaSessionWithWebAuthn: Ed25519WalletSessionMintAuthorization = {
   kind: 'threshold_ecdsa_session_jwt',

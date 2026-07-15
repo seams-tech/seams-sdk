@@ -28,9 +28,12 @@ import {
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
   finalizeWalletEd25519SignerRegistration as finalizeWalletEd25519SignerRegistrationValue,
+  rollbackWalletEd25519SignerRegistration as rollbackWalletEd25519SignerRegistrationValue,
   storeWalletEd25519RegistrationData as storeWalletEd25519RegistrationDataValue,
+  storeWalletMixedRegistrationData as storeWalletMixedRegistrationDataValue,
   storeWalletEd25519RecoveryRegistrationData as storeWalletEd25519RecoveryRegistrationDataValue,
   storeWalletEmailOtpEd25519RegistrationData as storeWalletEmailOtpEd25519RegistrationDataValue,
+  storeWalletEmailOtpMixedRegistrationData as storeWalletEmailOtpMixedRegistrationDataValue,
   storeWalletEmailOtpEcdsaRegistrationData as storeWalletEmailOtpEcdsaRegistrationDataValue,
   storeWalletEmailOtpEcdsaSignerRecords as storeWalletEmailOtpEcdsaSignerRecordsValue,
   storeWalletEcdsaRecoverySignerRecords as storeWalletEcdsaRecoverySignerRecordsValue,
@@ -38,17 +41,22 @@ import {
   storeWalletEcdsaSignerRecords as storeWalletEcdsaSignerRecordsValue,
   storeAuthenticator as storeAuthenticatorValue,
   storeUserData as storeUserDataValue,
-  updateLastLogin as updateLastLoginValue,
   type StoredRegistrationData,
+  type StoredWalletEd25519SignerRegistration,
   type StoreWalletEcdsaSignerRecordsInput,
   type StoreWalletEcdsaRegistrationInput,
   type StoreWalletEcdsaSignerRecordsResult,
   type StoreWalletEmailOtpEd25519RegistrationInput,
+  type StoreWalletEmailOtpMixedRegistrationInput,
+  type StoreWalletEmailOtpMixedRegistrationResult,
   type StoreWalletEmailOtpEcdsaRegistrationInput,
   type StoreWalletEd25519RegistrationInput,
   type StoreWalletEd25519SignerRecordInput,
+  type StoreWalletMixedRegistrationInput,
+  type StoreWalletMixedRegistrationResult,
   type StoreAuthenticatorInput,
 } from './accountLifecycle';
+import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
   requestRegistrationSessionCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
@@ -61,9 +69,13 @@ export type {
   StoreWalletEcdsaRegistrationInput,
   StoreWalletEcdsaSignerRecordsResult,
   StoreWalletEmailOtpEd25519RegistrationInput,
+  StoreWalletEmailOtpMixedRegistrationInput,
+  StoreWalletEmailOtpMixedRegistrationResult,
   StoreWalletEmailOtpEcdsaRegistrationInput,
   StoreWalletEd25519RegistrationInput,
   StoreWalletEd25519SignerRecordInput,
+  StoreWalletMixedRegistrationInput,
+  StoreWalletMixedRegistrationResult,
 };
 
 export type RegistrationPublicDeps = {
@@ -101,17 +113,10 @@ export function nearAuthenticatorsByAccount(
   return nearAuthenticatorsByAccountValue(deps.accountLifecycle, nearAccountId);
 }
 
-export function updateLastLogin(
-  deps: RegistrationPublicDeps,
-  walletId: WalletId,
-): Promise<void> {
-  return updateLastLoginValue(deps.accountLifecycle, walletId);
-}
-
 export function setLastUser(
   deps: RegistrationPublicDeps,
   walletId: WalletId,
-  signerSlot: number = 1,
+  signerSlot: number,
 ): Promise<void> {
   return setLastUserValue(deps.accountLifecycle, walletId, signerSlot);
 }
@@ -121,6 +126,7 @@ export function activateAuthenticatedWalletState(
   args: {
     walletId: WalletId;
     nearAccountId: AccountId;
+    signerSlot: number;
     nearClient?: NearClient;
   },
 ): Promise<void> {
@@ -168,6 +174,13 @@ export function storeWalletEd25519RegistrationData(
   return storeWalletEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
+export function storeWalletMixedRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletMixedRegistrationInput,
+): Promise<StoreWalletMixedRegistrationResult> {
+  return storeWalletMixedRegistrationDataValue(deps.accountLifecycle, args);
+}
+
 export function storeWalletEd25519RecoveryRegistrationData(
   deps: RegistrationPublicDeps,
   args: StoreWalletEd25519RegistrationInput,
@@ -182,11 +195,25 @@ export function storeWalletEmailOtpEd25519RegistrationData(
   return storeWalletEmailOtpEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
+export function storeWalletEmailOtpMixedRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEmailOtpMixedRegistrationInput,
+): Promise<StoreWalletEmailOtpMixedRegistrationResult> {
+  return storeWalletEmailOtpMixedRegistrationDataValue(deps.accountLifecycle, args);
+}
+
 export function finalizeWalletEd25519SignerRegistration(
   deps: RegistrationPublicDeps,
   args: StoreWalletEd25519SignerRecordInput,
-): Promise<StoredRegistrationData> {
+): Promise<StoredWalletEd25519SignerRegistration> {
   return finalizeWalletEd25519SignerRegistrationValue(deps.accountLifecycle, args);
+}
+
+export function rollbackWalletEd25519SignerRegistration(
+  deps: RegistrationPublicDeps,
+  receipt: StoreWalletSignerFinalizeRollbackReceipt,
+): Promise<void> {
+  return rollbackWalletEd25519SignerRegistrationValue(deps.accountLifecycle, receipt);
 }
 
 export function storeWalletEcdsaSignerRecords(

@@ -1,6 +1,5 @@
 import type { SignRequest, SignatureBytes } from '../../../interfaces/signing';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
-import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   scheduleRouterAbEcdsaHssClientPresignaturePoolRefill,
   signRouterAbEcdsaHssDigestWithPool,
@@ -108,29 +107,19 @@ function scheduleRouterAbEcdsaHssSigningRefill(args: {
   });
 }
 
-export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
-  walletId: WalletId;
-  thresholdSessionId: string;
-  shouldAbort?: () => boolean;
-  task: () => Promise<T>;
-}) => Promise<T>;
-
 export class Secp256k1Engine {
   readonly algorithm = 'secp256k1' as const;
 
   private readonly getRpId?: () => string | null;
-  private readonly enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
   private readonly shouldAbort?: () => boolean;
   private readonly workerCtx: WorkerOperationContext;
 
   constructor(opts: {
     getRpId?: () => string | null;
-    enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
     shouldAbort?: () => boolean;
     workerCtx: WorkerOperationContext;
   }) {
     this.getRpId = opts.getRpId;
-    this.enqueueThresholdEcdsaCommit = opts.enqueueThresholdEcdsaCommit;
     this.shouldAbort = opts.shouldAbort;
     this.workerCtx = opts.workerCtx;
   }
@@ -194,22 +183,11 @@ export class Secp256k1Engine {
     if (req.digest32.length !== 32) {
       throw new Error('[Secp256k1Engine] digest32 must be 32 bytes');
     }
-    const runCommit = async (): Promise<SignatureBytes> => {
-      if (this.shouldAbort?.()) {
-        const aborted = new Error('Request cancelled') as Error & { code: 'cancelled' };
-        aborted.code = 'cancelled';
-        throw aborted;
-      }
-      return await this.signReadySecp256k1Digest(req, material);
-    };
-    if (this.enqueueThresholdEcdsaCommit) {
-      return await this.enqueueThresholdEcdsaCommit({
-        walletId: toWalletId(material.walletId),
-        thresholdSessionId: String(material.signerSession.session.thresholdSessionId),
-        shouldAbort: this.shouldAbort,
-        task: runCommit,
-      });
+    if (this.shouldAbort?.()) {
+      const aborted = new Error('Request cancelled') as Error & { code: 'cancelled' };
+      aborted.code = 'cancelled';
+      throw aborted;
     }
-    return await runCommit();
+    return await this.signReadySecp256k1Digest(req, material);
   }
 }

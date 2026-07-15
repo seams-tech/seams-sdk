@@ -249,13 +249,12 @@ export type NonceCoordinatorSameOriginLockPort = {
   withLock<T>(key: string, task: () => Promise<T>): Promise<T>;
 };
 
-type NonceLaneCoordinationRecordBase = {
+type NonceLaneCoordinationRecordBaseWithoutLifecycle = {
   v: 1;
   laneKey: string;
   leaseId: string;
   networkKey: string;
   nonce: bigint;
-  state: NonceDurableLeaseState;
   operationId: string;
   operationFingerprint: string;
   reservedAtMs: number;
@@ -267,15 +266,28 @@ type NonceLaneCoordinationRecordBase = {
   txIndex?: number;
 };
 
+export type NonceDurableLeaseLifecycle<TTransactionHash extends string = string> =
+  | {
+      state: typeof NonceDurableLeaseState.Reserved | typeof NonceDurableLeaseState.Signed;
+      txHash?: never;
+    }
+  | {
+      state: typeof NonceDurableLeaseState.BroadcastAccepted;
+      txHash: TTransactionHash;
+    };
+
+type NonceLaneCoordinationRecordBase<TTransactionHash extends string> =
+  NonceLaneCoordinationRecordBaseWithoutLifecycle & NonceDurableLeaseLifecycle<TTransactionHash>;
+
 export type NonceLaneCoordinationRecord =
-  | (NonceLaneCoordinationRecordBase & {
+  | (NonceLaneCoordinationRecordBase<`0x${string}`> & {
       family: 'evm';
       chainTarget: ThresholdEcdsaChainTarget;
       accountId: WalletId;
       sender: `0x${string}`;
       nonceKey?: bigint;
     })
-  | (NonceLaneCoordinationRecordBase & {
+  | (NonceLaneCoordinationRecordBase<string> & {
       family: 'near';
       walletId: string;
       nearAccountId: string;
@@ -459,7 +471,7 @@ export type NonceCoordinator = {
     leaseId: string;
     operationId: SigningOperationId | string;
     operationFingerprint: SigningOperationFingerprint | string;
-    txHash?: `0x${string}` | string;
+    txHash: `0x${string}` | string;
   }): Promise<void>;
   markBroadcastRejected(input: {
     leaseId: string;

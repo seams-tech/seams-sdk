@@ -85,7 +85,7 @@ const TARGETS = [
   {
     id: 'hss-client-worker',
     label: 'hss client worker',
-    relPath: 'dist/workers/hss-client.worker.js',
+    relPath: 'dist/workers/ecdsa-hss-client.worker.js',
     budget: { raw: 55_000, gzip: 14_000, brotli: 14_000 },
   },
   {

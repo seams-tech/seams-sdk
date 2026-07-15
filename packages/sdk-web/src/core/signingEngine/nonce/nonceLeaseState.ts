@@ -215,10 +215,10 @@ export function isActiveCoordinationLeaseRecord(
   record: NonceLaneCoordinationRecord,
   nowMs: number,
 ): boolean {
+  if (record.state === NonceDurableLeaseState.BroadcastAccepted) return true;
   return (
     (record.state === NonceDurableLeaseState.Reserved ||
-      record.state === NonceDurableLeaseState.Signed ||
-      record.state === NonceDurableLeaseState.BroadcastAccepted) &&
+      record.state === NonceDurableLeaseState.Signed) &&
     record.expiresAtMs > nowMs
   );
 }

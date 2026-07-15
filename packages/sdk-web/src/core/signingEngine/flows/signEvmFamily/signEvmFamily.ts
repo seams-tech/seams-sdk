@@ -160,7 +160,6 @@ import {
 } from './freshAuthRetryPolicy';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
 import { requiredEvmFamilyRequestSignatureUses } from './signatureUses';
-import { toOptionalEvmAddress } from './addresses';
 import {
   bindEvmFamilyCallerProvidedOperationIdToFingerprint,
   createEvmFamilySigningOperationIds,
@@ -172,7 +171,12 @@ import {
   toReadyEcdsaSignerSessionFromReadyMaterial,
   toVerifiedEcdsaPublicFactsFromRecord,
   type ReadyEcdsaSignerSession,
+  type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildPreparedEvmFamilyExecutorThresholdEcdsaState,
+  type PreparedEvmFamilyPublicIdentityContinuity,
+} from './executorThresholdState';
 import {
   reconcileEvmFamilyNonceLane,
   reportEvmFamilyBroadcastAccepted,
@@ -180,6 +184,7 @@ import {
   reportEvmFamilyDroppedOrReplaced,
   reportEvmFamilyFinalized,
 } from './nonceLifecycleAdapter';
+import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 
 export type {
   EvmFamilyBroadcastAcceptedArgs,
@@ -474,8 +479,21 @@ export async function signEvmFamily(
   deps: EvmFamilySigningDeps,
   args: SignEvmFamilyArgs,
 ): Promise<TempoSignedResult | EvmSignedResult> {
-  return await signEvmFamilyAttempt(deps, args, {
+  const attempt: SignEvmFamilyAttemptOptions = {
     operationIds: createEvmFamilySigningOperationIds(args.signingOperationId),
+  };
+  if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
+    return await signEvmFamilyAttempt(deps, args, attempt);
+  }
+  const walletId = toWalletId(args.walletSession.walletId);
+  const queueKey = resolveThresholdEcdsaSigningQueueKey({ walletId });
+  const task = signEvmFamilyAttempt.bind(null, deps, args, attempt);
+  return await deps.withThresholdEcdsaSigningQueue({
+    queueKey,
+    walletId,
+    enabled: true,
+    shouldAbort: args.shouldAbort,
+    task,
   });
 }
 
@@ -1771,41 +1789,36 @@ async function signEvmFamilyAttempt(
     : {
         kind: 'not_required',
       };
-  const thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState = await (async () => {
-    if (!preparedExecutorSession) {
-      return {
-        kind: 'not_required',
-      };
-    }
+  let thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
+  if (!preparedExecutorSession) {
+    thresholdEcdsaState = { kind: 'not_required' };
+  } else {
     if (!signingSessionPlan) {
       throw new Error('[SigningEngine][ecdsa] prepared executor requires a signing session plan');
     }
-    const readyMaterial = preparedExecutorReadyMaterial?.readyMaterial || null;
-    const publicFacts = preparedExecutorReadyMaterial
-      ? preparedExecutorReadyMaterial.publicFacts
-      : thresholdEcdsaRecord
-        ? await toVerifiedEcdsaPublicFactsFromRecord({
-            record: thresholdEcdsaRecord,
-          })
-        : null;
-    const thresholdOwnerAddress = toOptionalEvmAddress(publicFacts?.thresholdOwnerAddress);
-    if (!thresholdOwnerAddress) {
-      if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
-        return {
-          kind: 'not_required',
-        };
-      }
-      throw new Error(
-        '[SigningEngine][ecdsa] prepared EVM-family signing requires threshold owner address',
-      );
+    let verifiedMaterialPublicFacts: VerifiedEcdsaPublicFacts | null = null;
+    if (preparedExecutorReadyMaterial) {
+      verifiedMaterialPublicFacts = preparedExecutorReadyMaterial.publicFacts;
+    } else if (thresholdEcdsaRecord) {
+      verifiedMaterialPublicFacts = await toVerifiedEcdsaPublicFactsFromRecord({
+        record: thresholdEcdsaRecord,
+      });
     }
-    return {
-      kind: 'prepared',
-      lane: preparedExecutorSession.transactionOperation.lane,
+    const publicIdentityContinuity: PreparedEvmFamilyPublicIdentityContinuity =
+      verifiedMaterialPublicFacts
+        ? {
+            kind: 'verified_material_identity',
+            verifiedMaterialThresholdOwnerAddress:
+              verifiedMaterialPublicFacts.thresholdOwnerAddress,
+          }
+        : { kind: 'lane_identity_only' };
+    thresholdEcdsaState = buildPreparedEvmFamilyExecutorThresholdEcdsaState({
+      transactionLane: preparedExecutorSession.transactionOperation.lane,
       signingSessionPlan,
-      thresholdOwnerAddress,
-    };
-  })();
+      laneThresholdOwnerAddress: preparedExecutorSession.signingLane.key.thresholdOwnerAddress,
+      publicIdentityContinuity,
+    });
+  }
 
   const executePayload = {
     deps,

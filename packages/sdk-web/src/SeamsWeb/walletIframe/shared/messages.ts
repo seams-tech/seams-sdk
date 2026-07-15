@@ -10,10 +10,6 @@ import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
-  ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -80,7 +76,6 @@ export type ParentToChildType =
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL'
   | 'PM_ENROLL_EMAIL_OTP'
-  | 'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
@@ -104,7 +99,6 @@ export type ParentToChildType =
   | 'PM_RECONCILE_TEMPO_NONCE_LANE'
   | 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE'
   | 'PM_EXPORT_KEYPAIR_UI'
-  | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'
   | 'PM_GET_RECENT_UNLOCKS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL'
@@ -117,10 +111,7 @@ export type ParentToChildType =
   | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
   | 'PM_START_DEVICE2_LINKING_FLOW'
   | 'PM_STOP_DEVICE2_LINKING_FLOW'
-  | 'PM_SYNC_ACCOUNT_FLOW'
-  | 'PM_START_EMAIL_RECOVERY'
-  | 'PM_FINALIZE_EMAIL_RECOVERY'
-  | 'PM_STOP_EMAIL_RECOVERY';
+  | 'PM_SYNC_ACCOUNT_FLOW';
 
 export type ChildToParentType =
   | 'READY'
@@ -170,6 +161,7 @@ export interface PMCancelPayload {
 export interface PMRegistrationActivationPreparePayload extends RegistrationActivationMessageIdentity {
   expiresAtMs: number;
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
+  signerSelection: RegistrationSignerSetSelection;
   presentation: RegistrationActivationButtonPresentation;
 }
 
@@ -482,7 +474,7 @@ export interface PMTempoNonceLifecyclePayloadBase {
 }
 
 export interface PMReportTempoBroadcastAcceptedPayload extends PMTempoNonceLifecyclePayloadBase {
-  txHash?: `0x${string}`;
+  txHash: `0x${string}`;
 }
 
 export interface PMReportTempoBroadcastRejectedPayload extends PMTempoNonceLifecyclePayloadBase {
@@ -507,38 +499,28 @@ export type PMReconcileTempoNonceLanePayload = PMTempoNonceLifecyclePayloadBase;
 
 export type PMResolveExactKeyExportLanePayload = ResolveExactKeyExportLaneInput;
 
+type PMExportKeypairUiOptions = {
+  variant?: 'modal' | 'drawer';
+  theme?: 'dark' | 'light';
+};
+
 export type PMExportKeypairUiPayload =
-  | {
-      kind: 'near';
-      walletSession: WalletSessionRef;
-      nearAccount: NearAccountRef;
-      laneIdentity: unknown;
-      options: {
-        chain: 'near';
-        variant?: 'modal' | 'drawer';
-        theme?: 'dark' | 'light';
-      };
-    }
   | {
       kind: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
       laneIdentity: unknown;
-      options: {
-        variant?: 'modal' | 'drawer';
-        theme?: 'dark' | 'light';
-      };
+      nearAccount?: never;
+      options: PMExportKeypairUiOptions;
+    }
+  | {
+      kind: 'ed25519';
+      nearAccount: NearAccountRef;
+      walletSession: WalletSessionRef;
+      laneIdentity: unknown;
+      chainTarget?: never;
+      options: PMExportKeypairUiOptions;
     };
-
-export interface PMExportThresholdEd25519SeedFromHssReportUiPayload {
-  walletId: string;
-  nearAccountId: string;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-  expectedPublicKey: string;
-  variant?: 'modal' | 'drawer';
-  theme?: 'dark' | 'light';
-}
 
 export interface PMSetConfirmBehaviorPayload {
   behavior: 'requireClick' | 'skipClick';
@@ -614,17 +596,6 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   emailOtpAuthorityEmail?: string;
 }
 
-export interface PMEmailOtpEd25519CapabilityPayload {
-  walletSession: WalletSessionRef;
-  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-  relayUrl?: string;
-  challengeId?: string;
-  otpCode: string;
-  shamirPrimeB64u?: string;
-  appSessionJwt?: string;
-  emailOtpAuthorityEmail?: string;
-}
-
 export interface PMRefreshEmailOtpSigningSessionPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -663,24 +634,6 @@ export interface PMDeleteDeviceKeyPayload {
   options: {
     [key: string]: unknown;
   };
-}
-
-export interface PMStartEmailRecoveryPayload {
-  walletId: string;
-  options?: {
-    confirmerText?: { title?: string; body?: string };
-    confirmationConfig?: Partial<ConfirmationConfig>;
-  };
-}
-
-export interface PMFinalizeEmailRecoveryPayload {
-  walletId: string;
-  nearPublicKey?: string;
-}
-
-export interface PMStopEmailRecoveryPayload {
-  walletId?: string;
-  nearPublicKey?: string;
 }
 
 export interface PMGetRecoveryEmailsPayload {
@@ -744,7 +697,6 @@ export type ParentToChildEnvelope =
     >
   | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL', PMGoogleEmailOtpWalletAuthHandlePayload>
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
-  | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY', PMEmailOtpEd25519CapabilityPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
   | RpcEnvelope<
@@ -774,10 +726,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_RECONCILE_TEMPO_NONCE_LANE', PMReconcileTempoNonceLanePayload>
   | RpcEnvelope<'PM_RESOLVE_EXACT_KEY_EXPORT_LANE', PMResolveExactKeyExportLanePayload>
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
-  | RpcEnvelope<
-      'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
-      PMExportThresholdEd25519SeedFromHssReportUiPayload
-    >
   | RpcEnvelope<'PM_GET_RECENT_UNLOCKS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
   | RpcEnvelope<
@@ -814,10 +762,7 @@ export type ParentToChildEnvelope =
       }
     >
   | RpcEnvelope<'PM_STOP_DEVICE2_LINKING_FLOW'>
-  | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>
-  | RpcEnvelope<'PM_START_EMAIL_RECOVERY', PMStartEmailRecoveryPayload>
-  | RpcEnvelope<'PM_FINALIZE_EMAIL_RECOVERY', PMFinalizeEmailRecoveryPayload>
-  | RpcEnvelope<'PM_STOP_EMAIL_RECOVERY', PMStopEmailRecoveryPayload>;
+  | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>;
 
 export type ChildToParentEnvelope =
   | RpcEnvelope<'READY', ReadyPayload>

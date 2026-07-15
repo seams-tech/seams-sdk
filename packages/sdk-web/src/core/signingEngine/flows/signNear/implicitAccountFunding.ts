@@ -38,12 +38,17 @@ type EstablishedWalletSessionAuthority = NearWalletSessionFundingAuthorityBase &
 };
 
 export type FreshWalletSessionAuthority = NearWalletSessionFundingAuthorityBase & {
-  provenance: 'passkey_reauth' | 'email_otp_reauth';
+  provenance: 'passkey_reauth';
+};
+
+type FreshEmailOtpWalletSessionAuthority = NearWalletSessionFundingAuthorityBase & {
+  provenance: 'email_otp_reauth';
 };
 
 type NearWalletSessionFundingAuthority =
   | EstablishedWalletSessionAuthority
-  | FreshWalletSessionAuthority;
+  | FreshWalletSessionAuthority
+  | FreshEmailOtpWalletSessionAuthority;
 
 function delayAccessKeyPoll(): Promise<void> {
   return new Promise((resolve) => {

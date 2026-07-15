@@ -131,14 +131,9 @@ type NearAccountContext = {
 
 export type NearAccountClientDbPort = ProfileAccountProjectionPort &
   ProfileLastSelectionPort & {
-    setLastProfileStateForProfile: (
-      profileId: string,
-      activeSignerSlot: number,
-    ) => Promise<void>;
+    setLastProfileStateForProfile: (profileId: string, activeSignerSlot: number) => Promise<void>;
     listChainAccountsByChain: (chainIdKey: string) => Promise<ChainAccountRecord[]>;
-    getProfileContinuitySnapshot: (
-      profileId: string,
-    ) => Promise<ProfileContinuitySnapshot | null>;
+    getProfileContinuitySnapshot: (profileId: string) => Promise<ProfileContinuitySnapshot | null>;
     upsertProfile: (input: UpsertProfileInput) => Promise<ProfileRecord>;
     getAccountSigner: (args: {
       chainIdKey: string;
@@ -223,9 +218,7 @@ export async function getNearAccountIdForProfile(
 
 export async function resolveNearAccountProfileContinuity(
   clientDB: ProfileAccountContextPort & {
-    getProfileContinuitySnapshot: (
-      profileId: string,
-    ) => Promise<ProfileContinuitySnapshot | null>;
+    getProfileContinuitySnapshot: (profileId: string) => Promise<ProfileContinuitySnapshot | null>;
   },
   nearAccountId: AccountId,
 ): Promise<ProfileContinuitySnapshot | null> {
@@ -370,10 +363,7 @@ export async function listNearAccountProjections(
 
 export async function setLastProfileStateForNearAccount(
   clientDB: ProfileAccountContextPort & {
-    setLastProfileStateForProfile: (
-      profileId: string,
-      activeSignerSlot: number,
-    ) => Promise<void>;
+    setLastProfileStateForProfile: (profileId: string, activeSignerSlot: number) => Promise<void>;
   },
   nearAccountId: AccountId,
   signerSlot: number,
@@ -398,8 +388,10 @@ export async function upsertNearAccountProjection(
   const accountId = toAccountId(input.nearAccountId);
   const now = Date.now();
   const signerSlot = Number(input.signerSlot);
-  const normalizedSignerSlot =
-    Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+    throw new Error('SeamsWalletDB: account projection requires an exact signerSlot');
+  }
+  const normalizedSignerSlot = signerSlot;
   const walletId = requireProjectionWalletId(input.walletId);
   const userData: ClientUserData = {
     walletId,
@@ -440,10 +432,7 @@ export async function touchLastLoginForNearAccount(
   clientDB: ProfileAccountContextPort & {
     getLastProfileState: () => Promise<LastProfileState | null>;
     getProfile: (profileId: string) => Promise<ProfileRecord | null>;
-    setLastProfileStateForProfile: (
-      profileId: string,
-      activeSignerSlot: number,
-    ) => Promise<void>;
+    setLastProfileStateForProfile: (profileId: string, activeSignerSlot: number) => Promise<void>;
   },
   nearAccountId: AccountId,
 ): Promise<void> {

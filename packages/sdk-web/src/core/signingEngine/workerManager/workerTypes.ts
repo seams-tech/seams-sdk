@@ -1,34 +1,6 @@
 import {
   type NearWorkerProgressEvent,
   NearSignerWorkerCustomRequestType,
-  type ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest,
-  type ThresholdEd25519ClientPresignCreateResult,
-  type ThresholdEd25519ClientPresignBurnRequest,
-  type ThresholdEd25519ClientPresignBurnResult,
-  type ThresholdEd25519ClientPresignSignFromMaterialHandleRequest,
-  type ThresholdEd25519ClientPresignSignResult,
-  type ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest as ThresholdEd25519WorkerMaterialRoleSeparatedNormalSigningClientShareFromMaterialHandleRequest,
-  type ThresholdEd25519RoleSeparatedNormalSigningClientShareResult as ThresholdEd25519WorkerMaterialRoleSeparatedNormalSigningClientShareResult,
-  type ThresholdEd25519DeleteSealedWorkerMaterialRequest,
-  type ThresholdEd25519DeleteSealedWorkerMaterialResult,
-  type ThresholdEd25519PrepareHssClientOutputMaskHandleRequest,
-  type ThresholdEd25519PrepareHssClientOutputMaskHandleResult,
-  type ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorizationRequest,
-  type ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorizationRequest,
-  type ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorizationRequest,
-  type ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorizationRequest,
-  type ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult,
-  type ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult,
-  type ThresholdEd25519PutSealedWorkerMaterialRequest,
-  type ThresholdEd25519PutSealedWorkerMaterialResult,
-  type ThresholdEd25519ReadSealedWorkerMaterialRequest,
-  type ThresholdEd25519ReadSealedWorkerMaterialResult,
-  type ThresholdEd25519RestoreWorkerMaterialRequest,
-  type ThresholdEd25519RestoreWorkerMaterialResult,
-  type ThresholdEd25519StoreWorkerMaterialFromHssOutputRequest,
-  type ThresholdEd25519StoreWorkerMaterialFromHssOutputResult,
-  type ThresholdEd25519ValidateWorkerMaterialRequest,
-  type ThresholdEd25519ValidateWorkerMaterialResult,
   type ThresholdEd25519ComputeNep413SigningDigestRequest,
   type ThresholdEd25519ComputeSigningDigestResult,
   type ThresholdEd25519BuildDelegateSigningPayloadRequest,
@@ -43,9 +15,14 @@ import {
   type WorkerRequestTypeMap,
   type WorkerResponseDiagnostics,
   type WorkerResponseForRequest,
-  WorkerRequestType,
   type DelegatePayload,
   type WasmSignedDelegate,
+  type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest,
+  type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult,
+  type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest,
+  type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult,
+  type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest,
+  type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -68,6 +45,117 @@ import type {
 } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { GeneratedPrepareEcdsaClientBootstrapOutput } from '@/core/platform/signerCoreCommandAdapters';
+import type {
+  EmailOtpEd25519YaoPendingFactorHandle,
+  EmailOtpEd25519YaoRootHandle,
+  EmailOtpEd25519YaoRootScope,
+} from '../session/emailOtp/ed25519YaoRootVault';
+import type {
+  RouterAbEd25519YaoActiveClientMetadataV1,
+  RouterAbEd25519YaoClientSigningInputV1,
+  RouterAbEd25519YaoClientSigningShareV1,
+} from '../threshold/ed25519/yaoClient';
+import type {
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoBytes32V1,
+  RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  RouterAbEd25519YaoRecoveryActivationReceiptV1,
+  RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+
+export type EmailOtpEd25519YaoFactorRequest =
+  | { kind: 'requested'; providerSubject: string }
+  | { kind: 'not_requested'; providerSubject?: never };
+
+export type EmailOtpEd25519YaoFactorResult =
+  | {
+      kind: 'issued';
+      pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+    }
+  | {
+      kind: 'not_requested';
+      pendingFactorHandle?: never;
+    };
+
+export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
+  readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_v1';
+  readonly signerSlot: number;
+  readonly remainingUses: number;
+  readonly orgId: string;
+};
+
+export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
+  readonly kind: 'router_ab_ed25519_yao_active_capability_v1';
+  readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+  readonly registeredPublicKey: RouterAbEd25519YaoBytes32V1;
+  readonly nearAccountId: string;
+  readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+  readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+  readonly participantIds: readonly [number, number];
+  readonly lifecycle: {
+    readonly lifecycleId: string;
+    readonly rootShareEpoch: string;
+    readonly accountId: string;
+    readonly walletSessionId: string;
+    readonly signerSetId: string;
+    readonly signingWorkerId: string;
+  };
+  readonly stateEpoch: number;
+};
+
+export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
+  readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_v1';
+  readonly session: WalletRegistrationEd25519YaoBootstrapSession;
+  readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+};
+
+export type EmailOtpWalletUnlockMaterialRequest =
+  | {
+      readonly kind: 'ecdsa';
+      readonly ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
+      readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+      readonly walletSessionAuth?: never;
+      readonly ed25519YaoRecovery?: never;
+      readonly providerSubject?: never;
+    }
+  | {
+      readonly kind: 'ed25519_yao_recovery';
+      readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
+      readonly providerSubject: string;
+      readonly walletSessionAuth?: never;
+      readonly ecdsaClientRootHandleBinding?: never;
+      readonly runtimePolicyScope?: never;
+    }
+  | {
+      readonly kind: 'ecdsa_and_ed25519_yao_recovery';
+      readonly ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
+      readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+      readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
+      readonly providerSubject: string;
+      readonly walletSessionAuth?: never;
+    };
+
+export type EmailOtpWalletUnlockMaterialResult =
+  | {
+      readonly kind: 'ecdsa';
+      readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      readonly pendingFactorHandle?: never;
+      readonly ed25519YaoRecovery?: never;
+    }
+  | {
+      readonly kind: 'ed25519_yao_recovery';
+      readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+      readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      readonly clientRootShareHandle?: never;
+    }
+  | {
+      readonly kind: 'ecdsa_and_ed25519_yao_recovery';
+      readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+      readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    };
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -406,7 +494,6 @@ export interface EmailOtpWorkerOperationMap {
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
-      thresholdEd25519RecoveryCodeSecret32B64u: string;
       recoveryKeys: EmailOtpRecoveryCodeSet;
       recoveryCodesIssuedAtMs: number;
       challengeId: string;
@@ -428,10 +515,10 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
       ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
+      ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
-      thresholdEd25519RecoveryCodeSecret32B64u: string;
       recoveryKeys: EmailOtpRecoveryCodeSet;
       recoveryCodesIssuedAtMs: number;
       otpChannel: WalletEmailOtpChannel;
@@ -440,6 +527,7 @@ export interface EmailOtpWorkerOperationMap {
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
       clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
+      ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
       emailOtpEnrollment: {
         recoveryWrappedEnrollmentEscrows: unknown[];
         enrollmentSealKeyVersion: string;
@@ -448,6 +536,87 @@ export interface EmailOtpWorkerOperationMap {
         thresholdEcdsaClientVerifyingShareB64u: string;
       };
     };
+  };
+  bindEmailOtpEd25519YaoRoot: {
+    payload: {
+      pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+      scope: EmailOtpEd25519YaoRootScope;
+    };
+    result: { rootHandle: EmailOtpEd25519YaoRootHandle };
+  };
+  disposeEmailOtpEd25519YaoPendingFactor: {
+    payload: { pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle };
+    result: { removed: boolean };
+  };
+  disposeEmailOtpEd25519YaoRoot: {
+    payload: { rootHandle: EmailOtpEd25519YaoRootHandle };
+    result: { removed: boolean };
+  };
+  startEmailOtpEd25519YaoRegistration: {
+    payload: {
+      rootHandle: EmailOtpEd25519YaoRootHandle;
+      admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      walletId: string;
+      providerSubject: string;
+      registrationAuthorityId: string;
+      bearerToken: string;
+      routerOrigin: string;
+    };
+    result: {
+      pendingHandle: string;
+      operationalPublicKey: string;
+      activationReference: {
+        kind: 'router_ab_ed25519_yao_activation_reference_v1';
+        lifecycle_id: string;
+        session_id: readonly number[];
+      };
+    };
+  };
+  commitEmailOtpEd25519YaoRegistration: {
+    payload: {
+      pendingHandle: string;
+      walletSessionState: NearResolvedEd25519SigningSessionState;
+    };
+    result: {
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    };
+  };
+  disposeEmailOtpEd25519YaoRegistration: {
+    payload: { pendingHandle: string };
+    result: { removed: boolean };
+  };
+  recoverEmailOtpEd25519Yao: {
+    payload: {
+      rootHandle: EmailOtpEd25519YaoRootHandle;
+      admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+      walletId: string;
+      providerSubject: string;
+      registrationAuthorityId: string;
+      bearerToken: string;
+      routerOrigin: string;
+      sessionPolicy: {
+        thresholdSessionId: string;
+        expiresAtMs: number;
+        remainingUses: number;
+      };
+    };
+    result: {
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
+    };
+  };
+  createEmailOtpEd25519YaoSigningShare: {
+    payload: {
+      activeClientHandle: string;
+      input: RouterAbEd25519YaoClientSigningInputV1;
+    };
+    result: RouterAbEd25519YaoClientSigningShareV1;
+  };
+  disposeEmailOtpEd25519YaoActiveClient: {
+    payload: { activeClientHandle: string };
+    result: { removed: boolean };
   };
   prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle: {
     payload: {
@@ -459,7 +628,19 @@ export interface EmailOtpWorkerOperationMap {
       clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
       pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
       preparePublicFacts: EcdsaPreparePublicFacts;
+      retainedClientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
     };
+  };
+  commitEmailOtpEcdsaRegistrationWarmMaterial: {
+    payload: {
+      walletId: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+      retainedClientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+      thresholdSessionId: string;
+      expiresAtMs: number;
+      remainingUses: number;
+    };
+    result: { committed: true };
   };
   prepareEcdsaClientBootstrapFromEmailOtpHandle: {
     payload: {
@@ -549,8 +730,7 @@ export interface EmailOtpWorkerOperationMap {
       shamirPrimeB64u: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
-      runtimePolicyScope: ThresholdRuntimePolicyScope;
-      ecdsaClientRootHandleBinding?: EmailOtpEcdsaSessionBootstrapHandleBinding;
+      material: EmailOtpWalletUnlockMaterialRequest;
     };
     result: {
       recovery: {
@@ -560,10 +740,8 @@ export interface EmailOtpWorkerOperationMap {
         unlockChallengeB64u: string;
         clientUnlockPublicKeyB64u: string;
         unlockSignatureB64u: string;
-        thresholdEd25519RecoveryCodeSecret32B64u: string;
       };
-      clientRootShareHandle?: EmailOtpEcdsaSessionBootstrapHandlePayload;
-    };
+    } & EmailOtpWalletUnlockMaterialResult;
   };
   bootstrapEmailOtpEcdsaSessionsFromWorkerHandle: {
     payload: EmailOtpEcdsaBootstrapStrictPayload;
@@ -578,30 +756,6 @@ export interface EmailOtpWorkerOperationMap {
         privateKeyHex: string;
         ethereumAddress: string;
       };
-    };
-  };
-  exportEmailOtpEd25519SeedWithAuthorization: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      nearAccountId: string;
-      nearEd25519SigningKeyId: string;
-      userId: string;
-      challengeId: string;
-      otpCode: string;
-      shamirPrimeB64u: string;
-      routePlan: EmailOtpRoutePlan;
-      otpChannel?: WalletEmailOtpChannel;
-      runtimePolicyScope: ThresholdRuntimePolicyScope;
-      participantIds: number[];
-      thresholdSessionId: string;
-      walletSessionJwt: string;
-      relayerKeyId: string;
-      expectedPublicKey: string;
-    };
-    result: {
-      publicKey: string;
-      privateKey: string;
     };
   };
   getEmailOtpWarmSessionStatus: {
@@ -673,12 +827,6 @@ export interface EmailOtpWorkerOperationMap {
         participantIds: number[];
         sessionKind: 'jwt';
         runtimePolicyScope?: ThresholdRuntimePolicyScope;
-        ed25519?: {
-          sessionId: string;
-          runtimePolicyScope: ThresholdRuntimePolicyScope;
-          relayerKeyId: string;
-          participantIds: number[];
-        };
       };
     };
     result:
@@ -687,7 +835,32 @@ export interface EmailOtpWorkerOperationMap {
           remainingUses: number;
           expiresAtMs: number;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
-          ed25519RestoreSeedB64u?: string;
+        }
+      | { ok: false; code: string; message: string };
+  };
+  rehydrateEmailOtpEd25519YaoFactor: {
+    payload: {
+      sealedSecretB64u: string;
+      remainingUses: number;
+      expiresAtMs: number;
+      transport: {
+        relayerUrl: string;
+        walletSessionJwt: string;
+        signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
+        shamirPrimeB64u: string;
+      };
+      restore: {
+        sessionId: string;
+        walletId: string;
+        providerSubject: string;
+      };
+    };
+    result:
+      | {
+          ok: true;
+          pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+          remainingUses: number;
+          expiresAtMs: number;
         }
       | { ok: false; code: string; message: string };
   };
@@ -733,6 +906,30 @@ export interface EmailOtpWorkerOperationMap {
       publicKeyHex: string;
       privateKeyHex: string;
       ethereumAddress: string;
+    };
+  };
+  exportEmailOtpEd25519YaoSeedWithAuthorization: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId: string;
+      challengeId: string;
+      otpCode: string;
+      shamirPrimeB64u: string;
+      routePlan: EmailOtpRoutePlan;
+      walletSessionJwt: string;
+      nearAccountId: string;
+      nearEd25519SigningKeyId: string;
+      signerSlot: number;
+      thresholdSessionId: string;
+      signingGrantId: string;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
+      capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+    };
+    result: {
+      artifactKind: 'near-ed25519-seed-v1';
+      publicKey: string;
+      privateKey: string;
     };
   };
 }
@@ -826,7 +1023,16 @@ export type EmailOtpEnrollmentOperationType =
   | 'enrollEmailOtpWallet'
   | 'prepareEmailOtpRegistrationEnrollmentMaterial'
   | 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle'
-  | 'prepareEcdsaClientBootstrapFromEmailOtpHandle';
+  | 'prepareEcdsaClientBootstrapFromEmailOtpHandle'
+  | 'bindEmailOtpEd25519YaoRoot'
+  | 'disposeEmailOtpEd25519YaoPendingFactor'
+  | 'disposeEmailOtpEd25519YaoRoot'
+  | 'startEmailOtpEd25519YaoRegistration'
+  | 'commitEmailOtpEd25519YaoRegistration'
+  | 'disposeEmailOtpEd25519YaoRegistration'
+  | 'recoverEmailOtpEd25519Yao'
+  | 'createEmailOtpEd25519YaoSigningShare'
+  | 'disposeEmailOtpEd25519YaoActiveClient';
 export type EmailOtpRestoreOperationType =
   | 'restoreEmailOtpDeviceEnrollmentEscrow'
   | 'rotateEmailOtpRecoveryCodes'
@@ -839,11 +1045,12 @@ export type EmailOtpWarmSessionOperationType =
   | 'consumeEmailOtpWarmSessionUses'
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
+  | 'rehydrateEmailOtpEd25519YaoFactor'
   | 'claimEmailOtpEcdsaSigningShare'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType =
-  | 'exportEmailOtpEd25519SeedWithAuthorization'
-  | 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization';
+  | 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'
+  | 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
   | EmailOtpEnrollmentOperationType
@@ -876,66 +1083,6 @@ export type NearSignerWorkerWasmOperationMap = {
 };
 
 export type NearSignerWorkerCustomOperationMap = {
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareHssClientOutputMaskHandle]: {
-    payload: ThresholdEd25519PrepareHssClientOutputMaskHandleRequest;
-    result: ThresholdEd25519PrepareHssClientOutputMaskHandleResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput]: {
-    payload: ThresholdEd25519StoreWorkerMaterialFromHssOutputRequest;
-    result: ThresholdEd25519StoreWorkerMaterialFromHssOutputResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorization]: {
-    payload: ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorizationRequest;
-    result: ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorization]: {
-    payload: ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorizationRequest;
-    result: ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization]: {
-    payload: ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorizationRequest;
-    result: ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization]: {
-    payload: ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorizationRequest;
-    result: ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519RestoreWorkerMaterial]: {
-    payload: ThresholdEd25519RestoreWorkerMaterialRequest;
-    result: ThresholdEd25519RestoreWorkerMaterialResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateWorkerMaterial]: {
-    payload: ThresholdEd25519ValidateWorkerMaterialRequest;
-    result: ThresholdEd25519ValidateWorkerMaterialResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519PutSealedWorkerMaterial]: {
-    payload: ThresholdEd25519PutSealedWorkerMaterialRequest;
-    result: ThresholdEd25519PutSealedWorkerMaterialResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519ReadSealedWorkerMaterial]: {
-    payload: ThresholdEd25519ReadSealedWorkerMaterialRequest;
-    result: ThresholdEd25519ReadSealedWorkerMaterialResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519DeleteSealedWorkerMaterial]: {
-    payload: ThresholdEd25519DeleteSealedWorkerMaterialRequest;
-    result: ThresholdEd25519DeleteSealedWorkerMaterialResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreateFromMaterialHandle]: {
-    payload: ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest;
-    result: ThresholdEd25519ClientPresignCreateResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSignFromMaterialHandle]: {
-    payload: ThresholdEd25519ClientPresignSignFromMaterialHandleRequest;
-    result: ThresholdEd25519ClientPresignSignResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle]: {
-    payload: ThresholdEd25519WorkerMaterialRoleSeparatedNormalSigningClientShareFromMaterialHandleRequest;
-    result: ThresholdEd25519WorkerMaterialRoleSeparatedNormalSigningClientShareResult;
-  };
-  [NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn]: {
-    payload: ThresholdEd25519ClientPresignBurnRequest;
-    result: ThresholdEd25519ClientPresignBurnResult;
-  };
   [NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest]: {
     payload: ThresholdEd25519ComputeNep413SigningDigestRequest;
     result: ThresholdEd25519ComputeSigningDigestResult;
@@ -985,22 +1132,6 @@ export type NearWorkerOperationRequest<T extends NearWorkerOperationType> = {
 export type NearWorkerOperationResult<T extends NearWorkerOperationType> =
   NearWorkerOperationEntry<T>['result'];
 
-export type NearEd25519MaterialOperationType =
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorization
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorization
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519RestoreWorkerMaterial
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519PutSealedWorkerMaterial
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ReadSealedWorkerMaterial
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519DeleteSealedWorkerMaterial
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateWorkerMaterial;
-export type NearEd25519PresignOperationType =
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreateFromMaterialHandle
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSignFromMaterialHandle
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle
-  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn;
 export type NearEd25519DigestOperationType =
   | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest
   | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeDelegateSigningDigest
@@ -1011,128 +1142,40 @@ export type NearEd25519FinalizeOperationType =
   | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh
   | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh;
 
-export type NearEd25519MaterialOperationRequest<T extends NearEd25519MaterialOperationType> =
-  NearWorkerOperationRequest<T>;
-export type NearEd25519PresignOperationRequest<T extends NearEd25519PresignOperationType> =
-  NearWorkerOperationRequest<T>;
 export type NearEd25519DigestOperationRequest<T extends NearEd25519DigestOperationType> =
   NearWorkerOperationRequest<T>;
 export type NearEd25519FinalizeOperationRequest<T extends NearEd25519FinalizeOperationType> =
   NearWorkerOperationRequest<T>;
 
 export const HssClientCustomRequestType = {
-  PrepareThresholdEd25519HssClientOutputMaskHandle: 70_002,
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle: 70_003,
+  PrepareThresholdEcdsaHssRoleLocalClientBootstrap: 70_000,
+  FinalizeThresholdEcdsaHssRoleLocalClientBootstrap: 70_001,
+  BuildThresholdEcdsaHssRoleLocalExportArtifact: 70_002,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle: 70_005,
   ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle: 70_008,
   ThresholdEcdsaRoleLocalPresignSessionStep: 70_009,
   ThresholdEcdsaRoleLocalPresignSessionAbort: 70_010,
   ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle: 70_011,
-  PrepareThresholdEd25519HssAddStageRequestMessage: 70_012,
 } as const;
 
 export type HssClientCustomRequestType =
   (typeof HssClientCustomRequestType)[keyof typeof HssClientCustomRequestType];
 
 export const HssClientCustomResponseType = {
-  PrepareThresholdEd25519HssClientOutputMaskHandleSuccess: 70_102,
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess: 70_103,
+  PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess: 70_100,
+  FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess: 70_101,
+  BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess: 70_102,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleSuccess: 70_105,
   ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleSuccess: 70_108,
   ThresholdEcdsaRoleLocalPresignSessionStepSuccess: 70_109,
   ThresholdEcdsaRoleLocalPresignSessionAbortSuccess: 70_110,
   ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleSuccess: 70_111,
-  PrepareThresholdEd25519HssAddStageRequestMessageSuccess: 70_112,
 } as const;
 
 export type HssClientCustomResponseType =
   (typeof HssClientCustomResponseType)[keyof typeof HssClientCustomResponseType];
-
-export type PrepareThresholdEd25519HssClientOutputMaskHandleRequest = {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-  contextBindingB64u: string;
-  operation: string;
-  relayerKeyId: string;
-  clientRecoverableSecretB64u: string;
-  expiresAtMs: number;
-};
-
-export type PrepareThresholdEd25519HssClientOutputMaskHandleResult = {
-  clientOutputMaskHandle: string;
-  contextBindingB64u: string;
-  expiresAtMs: number;
-  remainingUses: number;
-};
-
-export type PrepareThresholdEd25519HssClientOutputMaskHandleResponse = {
-  type: typeof HssClientCustomResponseType.PrepareThresholdEd25519HssClientOutputMaskHandleSuccess;
-  payload: PrepareThresholdEd25519HssClientOutputMaskHandleResult;
-  diagnostics?: WorkerResponseDiagnostics;
-};
-
-type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource =
-  | {
-      sessionSource: 'worker_handle';
-      workerSessionHandle: string;
-      evaluatorDriverStateB64u?: never;
-    }
-  | {
-      sessionSource: 'serialized_state';
-      evaluatorDriverStateB64u: string;
-      workerSessionHandle?: never;
-    };
-
-export type ThresholdEd25519HssAddStageBinding =
-  | {
-      kind: 'prepared_request';
-      expectedAddStageRequestMessageB64u: string;
-    }
-  | {
-      kind: 'generated_request';
-      expectedAddStageRequestMessageB64u?: never;
-    };
-
-export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest =
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource & {
-    clientRequestMessageB64u: string;
-    evaluatorOtStateB64u: string;
-    serverInputDeliveryB64u: string;
-    clientOutputMaskHandle: string;
-    expectedContextBindingB64u: string;
-    addStageBinding: ThresholdEd25519HssAddStageBinding;
-  };
-
-export type PrepareThresholdEd25519HssAddStageRequestMessageRequest =
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource & {
-    clientRequestMessageB64u: string;
-    evaluatorOtStateB64u: string;
-    serverInputDeliveryB64u: string;
-    expectedContextBindingB64u: string;
-  };
-
-export type PrepareThresholdEd25519HssAddStageRequestMessageResponse = {
-  type: typeof HssClientCustomResponseType.PrepareThresholdEd25519HssAddStageRequestMessageSuccess;
-  payload: {
-    contextBindingB64u: string;
-    addStageRequestMessageB64u: string;
-    timings?: Record<string, number>;
-  };
-  diagnostics?: WorkerResponseDiagnostics;
-};
-
-export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleResponse = {
-  type: typeof HssClientCustomResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess;
-  payload: {
-    contextBindingB64u: string;
-    stagedEvaluatorArtifactB64u: string;
-    addStageRequestMessageB64u: string;
-    timings?: Record<string, number>;
-  };
-  diagnostics?: WorkerResponseDiagnostics;
-};
 
 export type StoreThresholdEcdsaRoleLocalSigningMaterialRequest = {
   materialHandle: string;
@@ -1222,17 +1265,29 @@ export type ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleRe
 };
 
 type HssClientCustomOperationMap = {
-  [HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle]: {
-    payload: PrepareThresholdEd25519HssClientOutputMaskHandleRequest;
-    result: PrepareThresholdEd25519HssClientOutputMaskHandleResponse;
+  [HssClientCustomRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: {
+    payload: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+    result: {
+      type: typeof HssClientCustomResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess;
+      payload: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
   };
-  [HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle]: {
-    payload: BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest;
-    result: BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleResponse;
+  [HssClientCustomRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: {
+    payload: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+    result: {
+      type: typeof HssClientCustomResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess;
+      payload: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
   };
-  [HssClientCustomRequestType.PrepareThresholdEd25519HssAddStageRequestMessage]: {
-    payload: PrepareThresholdEd25519HssAddStageRequestMessageRequest;
-    result: PrepareThresholdEd25519HssAddStageRequestMessageResponse;
+  [HssClientCustomRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: {
+    payload: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest;
+    result: {
+      type: typeof HssClientCustomResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess;
+      payload: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
   };
   [HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
@@ -1260,28 +1315,9 @@ type HssClientCustomOperationMap = {
   };
 };
 
-export type HssWorkerOperationType =
-  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
-  | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
-  | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
-  | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
-  | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
-  | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
-  | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
-  | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact
-  | keyof HssClientCustomOperationMap;
+export type HssWorkerOperationType = keyof HssClientCustomOperationMap;
 
-type HssWorkerOperationEntry<T extends HssWorkerOperationType> =
-  T extends keyof WorkerRequestTypeMap
-    ? WorkerRequestTypeMap[T] extends {
-        request: infer P;
-        result: infer R;
-      }
-      ? { payload: P; result: WorkerResponseForRequest<T> }
-      : never
-    : T extends keyof HssClientCustomOperationMap
-      ? HssClientCustomOperationMap[T]
-      : never;
+type HssWorkerOperationEntry<T extends HssWorkerOperationType> = HssClientCustomOperationMap[T];
 
 export type HssWorkerOperationRequest<T extends HssWorkerOperationType> = {
   sessionId?: string;
@@ -1301,19 +1337,10 @@ export type HssSignerWorkerOperationMap = {
   };
 };
 
-export type HssEd25519ProtocolOperationType =
-  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
-  | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
-  | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
-  | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
-  | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
-  | typeof HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle
-  | typeof HssClientCustomRequestType.PrepareThresholdEd25519HssAddStageRequestMessage
-  | typeof HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle;
 export type HssEcdsaRoleLocalMaterialOperationType =
-  | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
-  | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
-  | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact
+  | typeof HssClientCustomRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
+  | typeof HssClientCustomRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
+  | typeof HssClientCustomRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact
   | typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
   | typeof HssClientCustomRequestType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle;
 export type HssEcdsaRoleLocalPresignOperationType =
@@ -1322,8 +1349,6 @@ export type HssEcdsaRoleLocalPresignOperationType =
   | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionAbort
   | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle;
 
-export type HssEd25519ProtocolOperationRequest<T extends HssEd25519ProtocolOperationType> =
-  HssWorkerOperationRequest<T>;
 export type HssEcdsaRoleLocalMaterialOperationRequest<
   T extends HssEcdsaRoleLocalMaterialOperationType,
 > = HssWorkerOperationRequest<T>;
@@ -1333,7 +1358,7 @@ export type HssEcdsaRoleLocalPresignOperationRequest<
 
 export interface SignerWorkerOperationMapByKind {
   nearSigner: NearSignerWorkerOperationMap;
-  hssClient: HssSignerWorkerOperationMap;
+  ecdsaHssClient: HssSignerWorkerOperationMap;
   ethSigner: EthSignerWorkerOperationMap;
   tempoSigner: TempoSignerWorkerOperationMap;
   emailOtp: EmailOtpWorkerOperationMap;
@@ -1364,7 +1389,7 @@ export type SignerWorkerOperationRequest<
   T extends SignerWorkerOperationType<K>,
 > = K extends 'nearSigner'
   ? NearWorkerOperationRequest<Extract<T, NearWorkerOperationType>>
-  : K extends 'hssClient'
+  : K extends 'ecdsaHssClient'
     ? HssWorkerOperationRequest<Extract<T, HssWorkerOperationType>>
     : K extends 'emailOtp' | 'ethSigner' | 'tempoSigner'
       ? {

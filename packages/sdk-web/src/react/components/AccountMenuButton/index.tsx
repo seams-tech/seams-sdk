@@ -211,49 +211,46 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       try {
         if (chain === 'near') {
           if (!nearAccountId) {
-            throw new Error('NEAR key export requires a NEAR account binding.');
+            throw new Error('Ed25519 export requires an active NEAR account.');
           }
           const nearAccount = nearAccountRefFromAccountId(nearAccountId);
           const resolvedLane = await seams.keys.resolveExactKeyExportLane({
-            kind: 'near',
+            kind: 'ed25519',
             walletSession,
             nearAccount,
           });
-          if (resolvedLane.kind !== 'near') {
-            throw new Error('NEAR key export lane resolution returned the wrong signer kind.');
+          if (resolvedLane.kind !== 'ed25519') {
+            throw new Error('Ed25519 export lane resolution returned the wrong curve.');
           }
           await seams.keys.exportKeypairWithUI({
-            kind: 'near',
+            kind: 'ed25519',
             walletSession,
             nearAccount,
             laneIdentity: resolvedLane.laneIdentity,
-            options: {
-              chain: 'near',
-              variant: 'drawer',
-            },
+            options: { variant: 'drawer' },
           });
-        } else {
-          const chainTarget = thresholdEcdsaChainTargetFromConfig(
-            requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
-          );
-          const resolvedLane = await seams.keys.resolveExactKeyExportLane({
-            kind: 'ecdsa',
-            walletSession,
-            chainTarget,
-          });
-          if (resolvedLane.kind !== 'ecdsa') {
-            throw new Error('ECDSA key export lane resolution returned the wrong signer kind.');
-          }
-          await seams.keys.exportKeypairWithUI({
-            kind: 'ecdsa',
-            walletSession,
-            chainTarget,
-            laneIdentity: resolvedLane.laneIdentity,
-            options: {
-              variant: 'drawer',
-            },
-          });
+          return;
         }
+        const chainTarget = thresholdEcdsaChainTargetFromConfig(
+          requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
+        );
+        const resolvedLane = await seams.keys.resolveExactKeyExportLane({
+          kind: 'ecdsa',
+          walletSession,
+          chainTarget,
+        });
+        if (resolvedLane.kind !== 'ecdsa') {
+          throw new Error('ECDSA export lane resolution returned the wrong curve.');
+        }
+        await seams.keys.exportKeypairWithUI({
+          kind: 'ecdsa',
+          walletSession,
+          chainTarget,
+          laneIdentity: resolvedLane.laneIdentity,
+          options: {
+            variant: 'drawer',
+          },
+        });
       } catch (error: unknown) {
         const message = formatExportKeyErrorMessage(error);
         setExportRestrictionMessage(message);
@@ -458,7 +455,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           />,
           portalHost!,
         )}
-
     </div>
   );
 };

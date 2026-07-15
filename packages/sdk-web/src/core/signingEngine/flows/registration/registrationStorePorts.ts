@@ -20,6 +20,8 @@ import type {
   StoreWalletRegistrationFinalizeBatchInput,
   StoreWalletRegistrationFinalizeBatchResult,
   StoreWalletSignerFinalizeBatchInput,
+  StoreWalletSignerFinalizeBatchResult,
+  StoreWalletSignerFinalizeRollbackReceipt,
 } from '@/core/indexedDB/seamsWalletDB/repositories';
 
 export type RegistrationAccountStorePort = ProfileAccountProjectionPort &
@@ -46,7 +48,10 @@ export type RegistrationAccountStorePort = ProfileAccountProjectionPort &
     ) => Promise<StoreWalletRegistrationFinalizeBatchResult>;
     persistWalletSignerFinalize: (
       input: StoreWalletSignerFinalizeBatchInput,
-    ) => Promise<StoreWalletRegistrationFinalizeBatchResult>;
+    ) => Promise<StoreWalletSignerFinalizeBatchResult>;
+    rollbackWalletSignerFinalize: (
+      receipt: StoreWalletSignerFinalizeRollbackReceipt,
+    ) => Promise<void>;
     listAccountSigners: (args: {
       chainIdKey: string;
       accountAddress: string;

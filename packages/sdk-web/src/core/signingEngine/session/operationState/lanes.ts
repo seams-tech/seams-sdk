@@ -108,18 +108,18 @@ type EmailOtpSigningLaneAuthInput = {
   auth: Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
 };
 
-export type Ed25519PasskeyTransactionSigningLaneInput =
-  PasskeySigningLaneAuthInput & Ed25519PasskeySigningLaneInput;
-export type Ed25519EmailOtpTransactionSigningLaneInput =
-  EmailOtpSigningLaneAuthInput & Ed25519EmailOtpSigningLaneInput;
+export type Ed25519PasskeyTransactionSigningLaneInput = PasskeySigningLaneAuthInput &
+  Ed25519PasskeySigningLaneInput;
+export type Ed25519EmailOtpTransactionSigningLaneInput = EmailOtpSigningLaneAuthInput &
+  Ed25519EmailOtpSigningLaneInput;
 export type NearTransactionSigningLaneInput =
   | Ed25519PasskeyTransactionSigningLaneInput
   | Ed25519EmailOtpTransactionSigningLaneInput;
 
-export type EcdsaPasskeyTransactionSigningLaneInput =
-  PasskeySigningLaneAuthInput & EcdsaPasskeySigningLaneInput;
-export type EcdsaEmailOtpTransactionSigningLaneInput =
-  EmailOtpSigningLaneAuthInput & EcdsaEmailOtpSigningLaneInput;
+export type EcdsaPasskeyTransactionSigningLaneInput = PasskeySigningLaneAuthInput &
+  EcdsaPasskeySigningLaneInput;
+export type EcdsaEmailOtpTransactionSigningLaneInput = EmailOtpSigningLaneAuthInput &
+  EcdsaEmailOtpSigningLaneInput;
 export type EcdsaTransactionSigningLaneInput =
   | EcdsaPasskeyTransactionSigningLaneInput
   | EcdsaEmailOtpTransactionSigningLaneInput;
@@ -346,6 +346,8 @@ function signingSessionOriginFromStorageSource(
       return 'login';
     case 'registration':
       return 'registration';
+    case 'add-signer':
+      return 'add_signer';
     case 'manual-bootstrap':
       return 'manual_bootstrap';
     case 'manual-connect':
@@ -506,11 +508,11 @@ function readEd25519CapabilityRecord(
   }
 
   const signableSession = classifyRouterAbEd25519PersistedSigningRecord(record);
-  if (signableSession.kind !== 'runtime_validated') {
+  if (signableSession.kind !== 'ready') {
     return readError(
       lane,
       'record_mismatch',
-      `Selected Ed25519 session record is not Router A/B signable: ${signableSession.reason}`,
+      `Selected Ed25519 session record is not Router A/B ready: ${signableSession.reason}`,
     );
   }
 
@@ -599,7 +601,10 @@ function readEcdsaCapabilityRecord(
 function readPasskeyEcdsaRecord(
   deps: SigningCapabilityReaderDeps,
   lane: SelectedEcdsaSigningSessionPlanningLane,
-  signer: Extract<SelectedEcdsaSigningSessionPlanningLane['identity']['signer'], { kind: 'evm_family_ecdsa_signer' }>,
+  signer: Extract<
+    SelectedEcdsaSigningSessionPlanningLane['identity']['signer'],
+    { kind: 'evm_family_ecdsa_signer' }
+  >,
 ): ThresholdEcdsaSessionRecord | null | undefined {
   if (!isEcdsaPasskeyStorageSource(lane.storageSource)) return null;
   return deps.readPasskeyEcdsaSessionRecord?.({

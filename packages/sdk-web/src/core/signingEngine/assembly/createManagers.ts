@@ -1,15 +1,8 @@
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { createEvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
-import {
-  createNonceCoordinator,
-  type NonceCoordinator,
-} from '../nonce/NonceCoordinator';
+import { createNonceCoordinator, type NonceCoordinator } from '../nonce/NonceCoordinator';
 import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
-import type {
-  AppearanceConfig,
-  ThemeMode,
-  SeamsConfigsReadonly,
-} from '@/core/types/seams';
+import type { AppearanceConfig, ThemeMode, SeamsConfigsReadonly } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
 import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/uiConfirm.types';
 import type { UiConfirmContext } from '../uiConfirm/uiConfirm.types';
@@ -45,10 +38,7 @@ export function createManagerAssembly(args: {
   getTheme: () => ThemeMode;
   getAppearance: () => AppearanceConfig;
 }): ManagerAssembly {
-  const touchIdPrompt = new TouchIdPrompt(
-    args.seamsWebConfigs.wallet.iframe?.rpIdOverride,
-    true,
-  );
+  const touchIdPrompt = new TouchIdPrompt(args.seamsWebConfigs.wallet.iframe?.rpIdOverride, true);
   const userPreferencesManager = new UserPreferencesManager({
     store: args.stores.userPreferencesStore,
   });
@@ -60,9 +50,6 @@ export function createManagerAssembly(args: {
     evmNonceBackend,
     nearClient: args.nearClient,
     nonceLaneCoordinationStore: args.stores.nonceLaneCoordinationStore,
-  });
-  void nonceCoordinator.recoverDurableLeases().catch((error) => {
-    console.warn('[NonceCoordinator] startup durable lease recovery failed', error);
   });
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');

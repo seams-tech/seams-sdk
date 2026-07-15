@@ -43,7 +43,7 @@ export function resolveWorkerScriptUrl(input: string): string {
 
 export function resolveWorkerUrl(
   input: string | undefined,
-  opts: { worker: 'signer' | 'hssClient' | 'touchConfirm'; baseOrigin?: string },
+  opts: { worker: 'signer' | 'ecdsaHssClient' | 'touchConfirm'; baseOrigin?: string },
 ): string {
   const worker = opts.worker;
   const baseOrigin =
@@ -57,8 +57,8 @@ export function resolveWorkerUrl(
     const override =
       worker === 'signer'
         ? ovAny.__W3A_SIGNER_WORKER_URL__
-        : worker === 'hssClient'
-          ? ovAny.__W3A_HSS_CLIENT_WORKER_URL__
+        : worker === 'ecdsaHssClient'
+          ? ovAny.__W3A_ECDSA_HSS_CLIENT_WORKER_URL__
         : ovAny.__W3A_TOUCH_CONFIRM_WORKER_URL__;
     const candidate =
       typeof override === 'string' && override ? override : input || defaultWorkerPath(worker);
@@ -74,14 +74,14 @@ export function resolveWorkerUrl(
   }
 }
 
-function detectWorkerFromPath(p: string): 'signer' | 'hssClient' | 'touchConfirm' {
+function detectWorkerFromPath(p: string): 'signer' | 'ecdsaHssClient' | 'touchConfirm' {
   if (/near-signer\.worker\.js(?:$|\?)/.test(p)) return 'signer';
-  if (/hss-client\.worker\.js(?:$|\?)/.test(p)) return 'hssClient';
+  if (/ecdsa-hss-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaHssClient';
   return 'touchConfirm';
 }
 
-function defaultWorkerPath(worker: 'signer' | 'hssClient' | 'touchConfirm'): string {
+function defaultWorkerPath(worker: 'signer' | 'ecdsaHssClient' | 'touchConfirm'): string {
   if (worker === 'signer') return '/sdk/workers/near-signer.worker.js';
-  if (worker === 'hssClient') return '/sdk/workers/hss-client.worker.js';
+  if (worker === 'ecdsaHssClient') return '/sdk/workers/ecdsa-hss-client.worker.js';
   return '/sdk/workers/passkey-confirm.worker.js';
 }

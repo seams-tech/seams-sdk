@@ -44,7 +44,7 @@ import {
 import {
   finalizeEcdsaClientBootstrapCommandWasm,
   prepareEcdsaClientBootstrapCommandWasm,
-} from '../crypto/hssClientSignerWasm';
+} from '../crypto/ecdsaClientSignerWasm';
 import {
   buildEmailOtpWorkerSessionSecretSource,
   buildWebAuthnPrfFirstSecretSourceFromParts,

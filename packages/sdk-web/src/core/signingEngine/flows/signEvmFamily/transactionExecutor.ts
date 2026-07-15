@@ -9,10 +9,7 @@ import type { SigningSessionBudgetReserveResult } from '../../session/budget/bud
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningGrantBudgetReservationInput } from './signingFlow';
-import {
-  evmReserveNonceInputToLane,
-  type PreparedNonceOperationContext,
-} from '../../nonce/NonceCoordinator';
+import { type PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
 import { mapToRetryableNonceStateError } from './errors';
 import {
   emitEvmFamilySigningOperationTrace,
@@ -93,11 +90,6 @@ type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSign
     request: TRequest;
     reservation: EvmFamilyManagedNonceReservation;
   }>;
-  reconcileNonceLane?: (args: {
-    deps: EvmFamilyTransactionExecutorDeps;
-    walletId: string;
-    request: TRequest;
-  }) => void;
 };
 
 function resolveThresholdOwnerNonceSenderIdentity(args: {
@@ -145,11 +137,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
   config: EvmFamilyTransactionSigningConfig<TRequest>,
 ): Promise<EvmFamilyTransactionSigningResult> {
   const signWithUiConfirm = await config.loadSigner();
-  config.reconcileNonceLane?.({
-    deps: args.deps,
-    walletId: args.walletId,
-    request: args.request,
-  });
+  await args.deps.nonceCoordinator.recoverDurableLeases({ walletId: args.walletId });
 
   try {
     const result = await signWithUiConfirm({
@@ -277,16 +265,10 @@ export async function executeEvmFamilyTransactionSigning(args: {
       },
       {
         targetKind,
-        loadSigner: targetKind === 'tempo' ? loadSignEvmFamilyWithUiConfirmForTempo : loadSignEvmWithUiConfirm,
-        reconcileNonceLane: (nonceArgs) => {
-          void getReservationInput(nonceArgs)
-            .then((reservationInput) =>
-              nonceArgs.deps.nonceCoordinator.reconcile({
-                lane: evmReserveNonceInputToLane(reservationInput),
-              }),
-            )
-            .catch(() => null);
-        },
+        loadSigner:
+          targetKind === 'tempo'
+            ? loadSignEvmFamilyWithUiConfirmForTempo
+            : loadSignEvmWithUiConfirm,
         prepareRequestWithManagedNonce: async (nonceArgs) => {
           const reservationInput = await getReservationInput(nonceArgs);
           return await reserveManagedEvmNonceForRequest({

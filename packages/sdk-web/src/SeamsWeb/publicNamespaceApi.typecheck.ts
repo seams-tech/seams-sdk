@@ -3,7 +3,6 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ExactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { SeamsWeb } from './index';
 
 declare const seams: SeamsWeb;
@@ -18,7 +17,6 @@ const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chainId: 1,
   networkSlug: 'ethereum',
 });
-declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
 
 void seams.registration.enrollEmailOtp({
   walletId: 'alice.testnet',
@@ -71,15 +69,6 @@ void seams.tempo.signTempo({
 void seams.recovery.syncAccount({ walletId: 'frost-vermillion-k7p9m2' });
 // @ts-expect-error syncAccount identifies a wallet, not a NEAR account-shaped accountId.
 void seams.recovery.syncAccount({ accountId: 'alice.testnet' });
-void seams.recovery.startEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
-// @ts-expect-error startEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
-void seams.recovery.startEmailRecovery({ accountId: 'alice.testnet' });
-void seams.recovery.finalizeEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
-// @ts-expect-error finalizeEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
-void seams.recovery.finalizeEmailRecovery({ accountId: 'alice.testnet' });
-void seams.recovery.cancelEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
-// @ts-expect-error cancelEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
-void seams.recovery.cancelEmailRecovery({ accountId: 'alice.testnet' });
 void seams.recovery.getRecoveryEmails('frost-vermillion-k7p9m2');
 void seams.recovery.setRecoveryEmails({
   walletId: 'frost-vermillion-k7p9m2',
@@ -94,12 +83,21 @@ void seams.recovery.setRecoveryEmails({
 });
 void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet' });
 void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet' });
-// @ts-expect-error public recovery status reads cannot accept plaintext recovery codes.
-void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet', recoveryKeys: ['secret-code'] });
-// @ts-expect-error public recovery rotation cannot accept caller-supplied recovery codes.
-void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet', recoveryCodes: ['secret-code'] });
-// @ts-expect-error public recovery rotation cannot accept optional recovery-code material.
-void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet', recoveryKey: 'secret-code' });
+void seams.recovery.getEmailOtpRecoveryCodeStatus({
+  walletId: 'alice.testnet',
+  // @ts-expect-error public recovery status reads cannot accept plaintext recovery codes.
+  recoveryKeys: ['secret-code'],
+});
+void seams.recovery.rotateEmailOtpRecoveryCodes({
+  walletId: 'alice.testnet',
+  // @ts-expect-error public recovery rotation cannot accept caller-supplied recovery codes.
+  recoveryCodes: ['secret-code'],
+});
+void seams.recovery.rotateEmailOtpRecoveryCodes({
+  walletId: 'alice.testnet',
+  // @ts-expect-error public recovery rotation cannot accept optional recovery-code material.
+  recoveryKey: 'secret-code',
+});
 
 void seams.devices.stopDevice2LinkingFlow();
 void seams.devices.deleteDeviceKey({
@@ -122,16 +120,6 @@ void seams.devices.deleteDeviceKey({
 });
 // @ts-expect-error deleting a NEAR access key no longer accepts raw account id arguments.
 void seams.devices.deleteDeviceKey('alice.testnet', 'ed25519:11111111111111111111111111111111', {});
-
-void seams.keys.exportKeypairWithUI({
-  kind: 'near',
-  walletSession,
-  nearAccount,
-  laneIdentity: exactEd25519LaneIdentity,
-  options: {
-    chain: 'near',
-  },
-});
 
 seams.preferences.setConfirmBehavior('requireClick');
 void seams.preferences.getConfirmationConfig();

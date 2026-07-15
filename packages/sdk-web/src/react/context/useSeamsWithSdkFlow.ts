@@ -271,13 +271,6 @@ export function useSeamsWithSdkFlow(args: {
             setRecoveryEmails: (...args: Parameters<RecoveryCapability['setRecoveryEmails']>) =>
               recovery.setRecoveryEmails(...args),
             syncAccount: syncAccountWithSdkFlow,
-            startEmailRecovery: (...args: Parameters<RecoveryCapability['startEmailRecovery']>) =>
-              recovery.startEmailRecovery(...args),
-            finalizeEmailRecovery: (
-              ...args: Parameters<RecoveryCapability['finalizeEmailRecovery']>
-            ) => recovery.finalizeEmailRecovery(...args),
-            cancelEmailRecovery: (...args: Parameters<RecoveryCapability['cancelEmailRecovery']>) =>
-              recovery.cancelEmailRecovery(...args),
             getEmailOtpRecoveryCodeStatus: (
               ...args: Parameters<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>
             ) => recovery.getEmailOtpRecoveryCodeStatus(...args),

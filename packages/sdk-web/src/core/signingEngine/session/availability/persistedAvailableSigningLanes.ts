@@ -1,4 +1,5 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { toAccountId } from '@/core/types/accountIds';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -27,15 +28,25 @@ import {
 import {
   listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
+  type CurrentEd25519SealedSessionRecord,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { normalizeThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '../identity/laneIdentity';
+import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
   type RouterAbEd25519PersistedSigningRecordState,
 } from '../routerAbSigningWalletSession';
-import { ed25519AvailableMaterialStateFromSessionRecord } from './ed25519AvailableMaterialState';
 import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
@@ -62,6 +73,250 @@ export type PersistedAvailableSigningLanesDeps = {
   ) => Promise<SigningSessionStatus | null>;
 };
 
+type PersistedEd25519SessionRecordBase = Omit<
+  ThresholdEd25519SessionRecord,
+  | 'source'
+  | 'passkeyCredentialIdB64u'
+  | 'emailOtpAuthContext'
+  | 'signingGrantId'
+  | 'walletSessionJwt'
+> & {
+  signingGrantId: string;
+  walletSessionJwt: string;
+};
+
+type PersistedPasskeyEd25519SessionRecord = PersistedEd25519SessionRecordBase & {
+  source: 'login';
+  passkeyCredentialIdB64u: string;
+  emailOtpAuthContext?: never;
+};
+
+type PersistedEmailOtpEd25519SessionRecord = PersistedEd25519SessionRecordBase & {
+  source: 'email_otp';
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  passkeyCredentialIdB64u?: never;
+};
+
+type PersistedEd25519SessionRecord =
+  | PersistedPasskeyEd25519SessionRecord
+  | PersistedEmailOtpEd25519SessionRecord;
+
+type NormalizedPersistedEd25519Fields = {
+  thresholdSessionId: string;
+  signingGrantId: string;
+  walletSessionJwt: string;
+  runtimePolicyScope: NonNullable<ThresholdEd25519SessionRecord['runtimePolicyScope']>;
+  signingRootId: string;
+  signingRootVersion: string;
+  participantIds: number[];
+};
+
+function assertNeverPersistedEd25519AuthMethod(value: never): never {
+  throw new Error(`Unsupported persisted Ed25519 auth method: ${String(value)}`);
+}
+
+function buildPersistedPasskeyEd25519SessionRecord(args: {
+  record: CurrentEd25519SealedSessionRecord;
+  normalized: NormalizedPersistedEd25519Fields;
+  credentialIdB64u: string;
+}): PersistedPasskeyEd25519SessionRecord {
+  const restore = args.record.ed25519Restore;
+  return {
+    walletId: toWalletId(args.record.walletId),
+    nearAccountId: toAccountId(restore.nearAccountId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
+    rpId: restore.rpId,
+    passkeyCredentialIdB64u: args.credentialIdB64u,
+    relayerUrl: args.record.relayerUrl,
+    relayerKeyId: restore.relayerKeyId,
+    participantIds: args.normalized.participantIds,
+    signingRootId: args.normalized.signingRootId,
+    signingRootVersion: args.normalized.signingRootVersion,
+    runtimePolicyScope: args.normalized.runtimePolicyScope,
+    signerSlot: restore.signerSlot,
+    routerAbNormalSigning: restore.routerAbNormalSigning,
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: args.normalized.thresholdSessionId,
+    signingGrantId: args.normalized.signingGrantId,
+    walletSessionJwt: args.normalized.walletSessionJwt,
+    expiresAtMs: args.record.expiresAtMs,
+    remainingUses: args.record.remainingUses,
+    updatedAtMs: args.record.updatedAtMs,
+    source: 'login',
+  };
+}
+
+function buildPersistedEmailOtpEd25519SessionRecord(args: {
+  record: CurrentEd25519SealedSessionRecord;
+  normalized: NormalizedPersistedEd25519Fields;
+  provider: 'google' | 'email';
+  providerSubjectId: string;
+  emailHashHex: string;
+}): PersistedEmailOtpEd25519SessionRecord {
+  const restore = args.record.ed25519Restore;
+  return {
+    walletId: toWalletId(args.record.walletId),
+    nearAccountId: toAccountId(restore.nearAccountId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
+    rpId: restore.rpId,
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'session',
+      walletId: args.record.walletId,
+      emailHashHex: args.emailHashHex,
+      reason: 'login',
+      retention: 'session',
+      provider: args.provider,
+      providerUserId: args.providerSubjectId,
+    }),
+    relayerUrl: args.record.relayerUrl,
+    relayerKeyId: restore.relayerKeyId,
+    participantIds: args.normalized.participantIds,
+    signingRootId: args.normalized.signingRootId,
+    signingRootVersion: args.normalized.signingRootVersion,
+    runtimePolicyScope: args.normalized.runtimePolicyScope,
+    signerSlot: restore.signerSlot,
+    routerAbNormalSigning: restore.routerAbNormalSigning,
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: args.normalized.thresholdSessionId,
+    signingGrantId: args.normalized.signingGrantId,
+    walletSessionJwt: args.normalized.walletSessionJwt,
+    expiresAtMs: args.record.expiresAtMs,
+    remainingUses: args.record.remainingUses,
+    updatedAtMs: args.record.updatedAtMs,
+    source: 'email_otp',
+  };
+}
+
+function ed25519SessionRecordFromSealedRecord(
+  record: CurrentEd25519SealedSessionRecord,
+): PersistedEd25519SessionRecord | null {
+  const restore = record.ed25519Restore;
+  if (restore.sessionKind !== 'jwt') return null;
+  const thresholdSessionId = String(record.thresholdSessionIds.ed25519 || '').trim();
+  const signingGrantId = String(record.signingGrantId || '').trim();
+  const walletSessionJwt = String(restore.walletSessionJwt || '').trim();
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore.runtimePolicyScope);
+  const signingRoot = runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
+    : null;
+  const participantIds = normalizeThresholdEd25519ParticipantIds(restore.participantIds);
+  if (
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !walletSessionJwt ||
+    !runtimePolicyScope ||
+    !signingRoot ||
+    !participantIds
+  ) {
+    return null;
+  }
+  try {
+    const normalized: NormalizedPersistedEd25519Fields = {
+      thresholdSessionId,
+      signingGrantId,
+      walletSessionJwt,
+      runtimePolicyScope,
+      signingRootId: signingRoot.signingRootId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+      participantIds,
+    };
+    switch (record.authMethod) {
+      case 'passkey': {
+        const credentialIdB64u = String(restore.credentialIdB64u || '').trim();
+        if (!credentialIdB64u) return null;
+        return buildPersistedPasskeyEd25519SessionRecord({
+          record,
+          normalized,
+          credentialIdB64u,
+        });
+      }
+      case 'email_otp': {
+        if (!('provider' in restore)) return null;
+        const providerSubjectId = String(restore.providerSubjectId || '').trim();
+        const emailHashHex = String(restore.emailHashHex || '').trim();
+        if (!providerSubjectId || !emailHashHex) return null;
+        return buildPersistedEmailOtpEd25519SessionRecord({
+          record,
+          normalized,
+          provider: restore.provider,
+          providerSubjectId,
+          emailHashHex,
+        });
+      }
+    }
+    return assertNeverPersistedEd25519AuthMethod(record.authMethod);
+  } catch {
+    return null;
+  }
+}
+
+function ed25519LaneAuthFromRecord(
+  record: PersistedEd25519SessionRecord,
+): SigningLaneAuthBinding | null {
+  const candidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
+  if (!candidate) return null;
+  return candidate.auth;
+}
+
+function signingLaneAuthBindingsEqual(
+  left: SigningLaneAuthBinding,
+  right: SigningLaneAuthBinding,
+): boolean {
+  switch (left.kind) {
+    case 'passkey':
+      return (
+        right.kind === 'passkey' &&
+        left.rpId === right.rpId &&
+        left.credentialIdB64u === right.credentialIdB64u
+      );
+    case 'email_otp':
+      return right.kind === 'email_otp' && left.providerSubjectId === right.providerSubjectId;
+  }
+}
+
+function sealedEd25519RecordMatchesLane(args: {
+  record: ThresholdEd25519SessionRecord;
+  laneIdentity: ExactEd25519SigningLaneIdentity;
+}): boolean {
+  const signer = args.laneIdentity.signer;
+  const recordAuth = thresholdEd25519LaneCandidateFromSessionRecord({
+    record: args.record,
+  })?.auth;
+  if (!recordAuth) return false;
+  return (
+    String(args.record.walletId) === String(signer.account.wallet.walletId) &&
+    String(args.record.nearAccountId) === String(signer.account.nearAccountId) &&
+    String(args.record.nearEd25519SigningKeyId) === String(signer.nearEd25519SigningKeyId) &&
+    args.record.signerSlot === signer.signerSlot &&
+    signingLaneAuthBindingsEqual(recordAuth, args.laneIdentity.auth) &&
+    String(args.record.signingGrantId) === String(args.laneIdentity.signingGrantId) &&
+    args.record.thresholdSessionId === args.laneIdentity.thresholdSessionId
+  );
+}
+
+export async function readPersistedEd25519SessionRecordForSigning(args: {
+  walletId: string;
+  laneIdentity: ExactEd25519SigningLaneIdentity;
+}): Promise<ThresholdEd25519SessionRecord | null> {
+  const sealedRecords = await listExactSealedSessionsForWallet({
+    walletId: args.walletId,
+    filter: { authMethod: signingLaneAuthMethod(args.laneIdentity.auth), curve: 'ed25519' },
+  });
+  const candidates: ThresholdEd25519SessionRecord[] = [];
+  for (const sealedRecord of sealedRecords) {
+    if (sealedRecord.curve !== 'ed25519') continue;
+    const record = ed25519SessionRecordFromSealedRecord(sealedRecord);
+    if (!record || !sealedEd25519RecordMatchesLane({ record, laneIdentity: args.laneIdentity })) {
+      continue;
+    }
+    candidates.push(record);
+  }
+  if (candidates.length > 1) {
+    throw new Error('[SigningEngine][near] exact persisted Ed25519 lane is ambiguous');
+  }
+  return candidates[0] || null;
+}
+
 function applyWalletBudgetStatusToAdvisory(args: {
   sessionId: string;
   localAdvisory: AvailableLaneStateAdvisory | null;
@@ -80,10 +335,7 @@ function applyWalletBudgetStatusToAdvisory(args: {
         state: args.localAdvisory.state,
       };
     }
-    if (
-      args.localAdvisory?.kind !== 'warm_status' ||
-      args.localAdvisory.status !== 'active'
-    ) {
+    if (args.localAdvisory?.kind !== 'warm_status' || args.localAdvisory.status !== 'active') {
       return args.localAdvisory;
     }
     return {
@@ -138,22 +390,7 @@ function policyClaimForEd25519PersistedState(args: {
   sessionId: string;
 }): AvailableLaneStateAdvisory | null {
   switch (args.state.kind) {
-    case 'restore_available':
-      return durableRecordPolicyAdvisory({
-        thresholdSessionId: args.sessionId,
-        remainingUses: args.state.record.remainingUses,
-        expiresAtMs: args.state.record.expiresAtMs,
-        state: 'restorable',
-      });
-    case 'material_hint_unvalidated':
-    case 'auth_ready_material_pending':
-      return durableRecordPolicyAdvisory({
-        thresholdSessionId: args.sessionId,
-        remainingUses: args.state.record.remainingUses,
-        expiresAtMs: args.state.record.expiresAtMs,
-        state: 'deferred',
-      });
-    case 'runtime_validated':
+    case 'ready':
       return durableRecordPolicyAdvisory({
         thresholdSessionId: args.sessionId,
         remainingUses: args.state.value.remainingUses,
@@ -190,7 +427,7 @@ async function readEd25519StateAdvisoryForRecord(args: {
   sessionId: string;
 }): Promise<AvailableLaneStateAdvisory | null> {
   const state = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  if (state.kind === 'runtime_validated') {
+  if (state.kind === 'ready') {
     const warmAdvisory = await readValidatedEd25519WarmClaim({
       deps: args.deps,
       record: state.record,
@@ -245,9 +482,7 @@ export async function readPersistedAvailableSigningLanesForSigning(
   );
 }
 
-function sealedRecordHasEd25519ThresholdSession(
-  record: SigningSessionSealedStoreRecord,
-): boolean {
+function sealedRecordHasEd25519ThresholdSession(record: SigningSessionSealedStoreRecord): boolean {
   return String(record.thresholdSessionIds?.ed25519 || '').trim().length > 0;
 }
 
@@ -284,6 +519,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
   },
 ): Promise<AvailableSigningLanes> {
   const walletId = String(toWalletId(args.walletId)).trim();
+  const persistedEd25519RecordsBySessionId = new Map<string, ThresholdEd25519SessionRecord>();
   const pushRuntimeEcdsaRecord = async (
     records: AvailableSigningLanesRuntimeEcdsaRecord[],
     seen: Set<string>,
@@ -427,8 +663,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
             record: runtimeRecord,
           });
           if (!candidate) continue;
-          const material = ed25519AvailableMaterialStateFromSessionRecord(runtimeRecord);
-          if (!material) continue;
           pushRecord({
             auth: candidate.auth,
             curve: 'ed25519',
@@ -440,10 +674,54 @@ export async function readPersistedAvailableSigningLanesForTargets(
             routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
             signingGrantId: String(runtimeRecord.signingGrantId || '').trim(),
+            source: 'runtime_session_record',
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
-            material,
+          });
+        }
+        const sealedRecords = args.authMethod
+          ? await listExactSealedSessionsForWallet({
+              walletId: recordWalletId,
+              filter: { authMethod: args.authMethod, curve: 'ed25519' },
+            })
+          : (
+              await Promise.all([
+                listExactSealedSessionsForWallet({
+                  walletId: recordWalletId,
+                  filter: { authMethod: 'email_otp', curve: 'ed25519' },
+                }),
+                listExactSealedSessionsForWallet({
+                  walletId: recordWalletId,
+                  filter: { authMethod: 'passkey', curve: 'ed25519' },
+                }),
+              ])
+            ).flat();
+        for (const sealedRecord of sealedRecords) {
+          if (sealedRecord.curve !== 'ed25519') continue;
+          const persistedRecord = ed25519SessionRecordFromSealedRecord(sealedRecord);
+          if (!persistedRecord) continue;
+          const auth = ed25519LaneAuthFromRecord(persistedRecord);
+          if (!auth) continue;
+          persistedEd25519RecordsBySessionId.set(
+            persistedRecord.thresholdSessionId,
+            persistedRecord,
+          );
+          pushRecord({
+            auth,
+            curve: 'ed25519',
+            chain: 'near',
+            walletId: persistedRecord.walletId,
+            nearAccountId: persistedRecord.nearAccountId,
+            nearEd25519SigningKeyId: persistedRecord.nearEd25519SigningKeyId,
+            signerSlot: persistedRecord.signerSlot,
+            routerAbNormalSigning: persistedRecord.routerAbNormalSigning,
+            thresholdSessionId: persistedRecord.thresholdSessionId,
+            signingGrantId: persistedRecord.signingGrantId,
+            source: 'durable_sealed_record',
+            remainingUses: persistedRecord.remainingUses,
+            expiresAtMs: persistedRecord.expiresAtMs,
+            updatedAtMs: persistedRecord.updatedAtMs,
           });
         }
         return records;
@@ -460,9 +738,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
               return;
             }
             const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
-            const signingGrantId = String(
-              runtimeRecord.signingGrantId || '',
-            ).trim();
+            const signingGrantId = String(runtimeRecord.signingGrantId || '').trim();
             const ecdsaRecord = getThresholdEcdsaSessionRecordByKey(deps.ecdsaSessions, {
               walletId: toWalletId(runtimeRecord.key.walletId),
               keyHandle,
@@ -490,7 +766,10 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   )
                   .catch(() => null);
                 localAdvisory = status
-                  ? warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status })
+                  ? warmStatusToAvailableLaneStateAdvisory({
+                      thresholdSessionId: sessionId,
+                      status,
+                    })
                   : null;
               } else if (
                 roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
@@ -512,7 +791,10 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   .getWarmSessionStatus({ sessionId })
                   .catch(() => null);
                 localAdvisory = status
-                  ? warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status })
+                  ? warmStatusToAvailableLaneStateAdvisory({
+                      thresholdSessionId: sessionId,
+                      status,
+                    })
                   : null;
               } else if (materialState.kind === 'restore_available') {
                 localAdvisory = durableRecordPolicyAdvisory({
@@ -553,7 +835,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
                       buildEcdsaLaneBudgetStatusCheck({
                         key: thresholdEcdsaSessionRecordReadModel(ecdsaRecord).key,
                         keyHandle: ecdsaRecord.keyHandle,
-                        auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: ecdsaRecord }).auth,
+                        auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: ecdsaRecord })
+                          .auth,
                         chainTarget: ecdsaRecord.chainTarget,
                         signingGrantId,
                         thresholdSessionId: ecdsaRecord.thresholdSessionId,
@@ -578,15 +861,15 @@ export async function readPersistedAvailableSigningLanesForTargets(
         await Promise.all(
           sessionIds.map(async (sessionId) => {
             const ed25519Record =
-              getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
+              getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId) ||
+              persistedEd25519RecordsBySessionId.get(sessionId) ||
+              null;
             const localAdvisory = await readEd25519StateAdvisoryForRecord({
               deps,
               record: ed25519Record,
               sessionId,
             });
-            const signingGrantId = String(
-              ed25519Record?.signingGrantId || '',
-            ).trim();
+            const signingGrantId = String(ed25519Record?.signingGrantId || '').trim();
             const walletBudgetStatus =
               signingGrantId && deps.getWalletSigningBudgetStatus
                 ? await deps

@@ -2,8 +2,8 @@
 
 ## Owns
 
-Persisted-session restore coordination and shared sealed-recovery request/result
-types.
+ECDSA persisted-session restore coordination and shared sealed-recovery
+request/result types.
 
 ## May Import
 
@@ -17,9 +17,8 @@ method-specific recovery/provisioning implementation.
 
 ## Entrypoints
 
-- `types.ts`
+- `sealedRecovery.types.ts`
 - `exactRecordLookup.ts`
-- `policy.ts`
-- `companionSessions.ts`
+- `recoveryRecord.ts`
 - `readback.ts`
 - `restoreCoordinator.ts`

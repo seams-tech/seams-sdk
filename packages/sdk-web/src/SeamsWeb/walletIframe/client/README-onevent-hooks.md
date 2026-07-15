@@ -31,7 +31,7 @@ await walletRouter.registerWallet({
 - The wallet host wraps `SeamsWeb` calls and translates `onEvent(ev)` into:
   `post({ type: 'PROGRESS', requestId, payload: ev })`.
 - Payloads use the v2 wallet flow event envelope:
-  `RegistrationFlowEvent | UnlockFlowEvent | SigningFlowEvent | LinkDeviceFlowEvent | EmailRecoveryFlowEvent | AccountSyncFlowEvent | KeyExportFlowEvent`.
+  `RegistrationFlowEvent | UnlockFlowEvent | SigningFlowEvent | LinkDeviceFlowEvent | AccountSyncFlowEvent | KeyExportFlowEvent`.
 - Email OTP registration/unlock/capability calls owned by the iframe are also wrapped with this bridge, so Email OTP worker progress mapped inside the iframe reaches the parent before the final result.
 - Key export viewer lifecycle is wrapped the same way: viewer open/close callbacks become `key_export.viewer.opened` and `key_export.viewer.closed` progress events.
 

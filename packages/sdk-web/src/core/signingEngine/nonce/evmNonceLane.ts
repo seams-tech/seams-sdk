@@ -4,6 +4,7 @@ import {
   NonceDurableLeaseState,
   type EvmNonceLane,
   type EvmNonceLease,
+  type NonceDurableLeaseLifecycle,
 } from './nonceTypes';
 import { nonceLaneNetworkKey } from './nonceLaneKeys';
 import { maxBigint, minBigint } from './nonceUtils';
@@ -166,19 +167,23 @@ export async function releaseEvmNonceReservationState(input: {
 export async function markEvmBroadcastAcceptedState(input: {
   lease: EvmNonceLease;
   state: EvmNonceLaneState;
-  txHash?: string;
+  txHash: string;
   nowMs: number;
   staleInFlightThresholdMs: number;
   persistCoordinationLease: (
     lease: EvmNonceLease,
-    state: typeof NonceDurableLeaseState.BroadcastAccepted,
+    lifecycle: Extract<
+      NonceDurableLeaseLifecycle,
+      { state: typeof NonceDurableLeaseState.BroadcastAccepted }
+    >,
     expiresAtMs: number,
   ) => Promise<void>;
 }): Promise<void> {
   const nonce = input.lease.nonce;
+  const txHash = requireEvmTransactionHash(input.txHash);
   input.state.inFlight.set(nonce.toString(), {
     nonce,
-    ...(input.txHash ? { txHash: input.txHash as `0x${string}` } : {}),
+    txHash,
     status: 'accepted',
     acceptedAtMs: input.nowMs,
     updatedAtMs: input.nowMs,
@@ -189,9 +194,22 @@ export async function markEvmBroadcastAcceptedState(input: {
   }
   await input.persistCoordinationLease(
     input.lease,
-    NonceDurableLeaseState.BroadcastAccepted,
+    {
+      state: NonceDurableLeaseState.BroadcastAccepted,
+      txHash,
+    },
     input.nowMs + input.staleInFlightThresholdMs,
   );
+}
+
+function requireEvmTransactionHash(value: string | undefined): `0x${string}` {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error('[NonceCoordinator] EVM broadcast acceptance requires txHash');
+  }
+  return normalized as `0x${string}`;
 }
 
 export async function markEvmFinalizedState(input: {

@@ -1,7 +1,6 @@
 import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyOps';
 import type { SignerWorkerManagerContext } from '../SignerWorkerManager';
 import { deriveThresholdEd25519ClientVerifyingShareWasm } from '@/core/signingEngine/chains/near/nearSignerWasm';
-import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 
 export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): NearSigningKeyOps {
   return {
@@ -26,37 +25,6 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
           success: false,
           nearAccountId,
           clientVerifyingShareB64u: '',
-          error: message,
-        };
-      }
-    },
-    async deriveThresholdEd25519HssClientInputs(args) {
-      const applicationBindingDigestB64u = String(args.applicationBindingDigestB64u || '').trim();
-      try {
-        const derived = await deriveThresholdEd25519HssClientInputsWasm({
-          sessionId: args.sessionId,
-          applicationBindingDigestB64u,
-          participantIds: args.participantIds,
-          prfFirstB64u: args.prfFirstB64u,
-          workerCtx: getContext(),
-        });
-        return {
-          success: true,
-          applicationBindingDigestB64u: derived.applicationBindingDigestB64u,
-          participantIds: derived.participantIds,
-          contextBindingB64u: derived.contextBindingB64u,
-          yClientB64u: derived.yClientB64u,
-          tauClientB64u: derived.tauClientB64u,
-        };
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          success: false,
-          applicationBindingDigestB64u,
-          participantIds: args.participantIds,
-          contextBindingB64u: '',
-          yClientB64u: '',
-          tauClientB64u: '',
           error: message,
         };
       }

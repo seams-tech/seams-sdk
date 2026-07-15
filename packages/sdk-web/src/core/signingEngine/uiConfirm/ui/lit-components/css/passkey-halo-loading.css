@@ -10,9 +10,11 @@
 .w3a-passkey-loading-touch-icon-container {
   display: grid;
   place-items: center;
+  /* themes can pin the chip color via passkeyHaloBackground — surface can
+     equal the modal background in light themes, leaving the chip invisible */
   background-color: var(
     --w3a-modal__passkey-halo-loading-icon-container__background-color,
-    var(--w3a-colors-surface, oklch(0.3 0.02 240))
+    var(--w3a-colors-passkeyHaloBackground, var(--w3a-colors-surface, oklch(0.3 0.02 240)))
   );
   border-radius: var(--w3a-modal__passkey-halo-loading-icon-container__border-radius, 1.125rem);
   width: fit-content;

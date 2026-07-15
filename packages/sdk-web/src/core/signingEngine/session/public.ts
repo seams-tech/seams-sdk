@@ -173,7 +173,10 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
       emailOtpAuthContext: args.emailOtpAuthContext,
       ...(deps.signingSessionSeal ? { signingSessionSeal: deps.signingSessionSeal } : {}),
     });
-    if (args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind === 'role_local_worker_handle') {
+    if (
+      args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind ===
+      'role_local_worker_handle'
+    ) {
       markRouterAbEcdsaHssBootstrapWorkerMaterialRuntimeValidated(record);
     }
     return;
@@ -185,7 +188,9 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     source: args.source,
     ...(deps.signingSessionSeal ? { signingSessionSeal: deps.signingSessionSeal } : {}),
   });
-  if (args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind === 'role_local_worker_handle') {
+  if (
+    args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind === 'role_local_worker_handle'
+  ) {
     markRouterAbEcdsaHssBootstrapWorkerMaterialRuntimeValidated(record);
   }
 }
@@ -263,9 +268,7 @@ export type {
 } from './sealedRecovery/sealedRecovery.types';
 export type {
   EmailOtpEcdsaSealedRecoveryRecord,
-  EmailOtpEd25519SealedRecoveryRecord,
   PasskeyEcdsaSealedRecoveryRecord,
-  PasskeyEd25519SealedRecoveryRecord,
   RejectedSealedRecoveryRecord,
   SealedRecoveryRecord,
   SealedRecoveryRejectionReason,

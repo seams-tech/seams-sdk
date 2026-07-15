@@ -6,6 +6,8 @@ import {
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
+  EmailOtpEd25519YaoFactorRequest,
+  EmailOtpEd25519YaoFactorResult,
   EmailOtpWalletRegistrationEcdsaPrepareHandleRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWalletRegistrationEcdsaPrepareHandleResult,
@@ -22,6 +24,7 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEnrollmentResult } from './publicTypes';
 import type { EmailOtpRecoveryCodeRotationMaterial } from './publicTypes';
+import { zeroizeBytes } from './zeroize';
 
 type JsonObject = Record<string, unknown>;
 
@@ -70,11 +73,6 @@ function readNonNegativeInteger(value: unknown, label: string): number {
     throw new Error(`${label} must be a non-negative integer`);
   }
   return Math.floor(parsed);
-}
-
-function zeroizeBytes(bytes?: Uint8Array | null): void {
-  if (!(bytes instanceof Uint8Array)) return;
-  bytes.fill(0);
 }
 
 function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
@@ -178,7 +176,9 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandle(
   };
 }
 
-function parseThresholdEcdsaChainTargetForWorkerEnrollment(value: unknown): ThresholdEcdsaChainTarget {
+function parseThresholdEcdsaChainTargetForWorkerEnrollment(
+  value: unknown,
+): ThresholdEcdsaChainTarget {
   const target = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!target) {
     throw new Error('Email OTP registration ECDSA handle requires chainTarget');
@@ -311,9 +311,9 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
   ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
+  ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
-  thresholdEd25519RecoveryCodeSecret32B64u: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
   otpChannel: WalletEmailOtpChannel;
@@ -322,6 +322,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
+  ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
   emailOtpEnrollment: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
@@ -351,6 +352,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
           }),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
           ecdsaClientRootHandle: args.ecdsaClientRootHandle,
+          ed25519YaoFactor: args.ed25519YaoFactor,
           ...(workerClientSecret32
             ? { clientSecret32: toArrayBufferCopy(workerClientSecret32) }
             : {}),
@@ -362,10 +364,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
       ...result,
       recoveryKeys: recoveryCodeMaterial.recoveryKeys,
       recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
-      thresholdEd25519RecoveryCodeSecret32B64u: readString(
-        result.thresholdEd25519RecoveryCodeSecret32B64u,
-        'thresholdEd25519RecoveryCodeSecret32B64u',
-      ),
       clientRootShareHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
         result.clientRootShareHandle,
       ),

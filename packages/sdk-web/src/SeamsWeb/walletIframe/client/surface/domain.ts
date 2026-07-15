@@ -50,10 +50,7 @@ export type TrustedWalletIframeInboundIdentity<
   wireIdentity: Identity;
 };
 
-export type ProvidedPasskeyRegistrationWallet = Extract<
-  RegisterWalletInput,
-  { kind: 'provided' }
->;
+export type ProvidedPasskeyRegistrationWallet = Extract<RegisterWalletInput, { kind: 'provided' }>;
 
 export type PasskeyRegistrationPreparationReceipt = {
   kind: 'passkey_registration_preparation_receipt_v1';
@@ -111,7 +108,7 @@ export type ModalTransactionConfirmSurface = OwnedWalletIframeSurface & {
 export type ModalKeyExportConfirmSurface = OwnedWalletIframeSurface & {
   kind: 'modal_key_export_confirm';
   identity: RequestSurfaceIdentity;
-  exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_hss_report';
+  exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_yao';
   userActivation: 'wallet_confirm_button_required';
 };
 
@@ -130,10 +127,7 @@ export type WalletIframeSurface =
   | ModalKeyExportConfirmSurface
   | ModalUnlockConfirmSurface;
 
-export type ForegroundWalletIframeSurface = Exclude<
-  WalletIframeSurface,
-  HiddenWalletIframeSurface
->;
+export type ForegroundWalletIframeSurface = Exclude<WalletIframeSurface, HiddenWalletIframeSurface>;
 
 export type WalletIframeSurfaceBusyError = {
   kind: 'wallet_iframe_surface_busy';
@@ -303,7 +297,9 @@ export function requestSurfaceIdentity(args: {
   return Object.freeze({ kind: 'request_surface_identity_v1', ...args });
 }
 
-export function trustedWalletIframeInboundIdentity<Identity extends WalletIframeWireMessageIdentity>(
+export function trustedWalletIframeInboundIdentity<
+  Identity extends WalletIframeWireMessageIdentity,
+>(
   connectionId: WalletIframeConnectionId,
   wireIdentity: Identity,
 ): TrustedWalletIframeInboundIdentity<Identity> {
@@ -323,15 +319,11 @@ export function passkeyRegistrationPreparationReceipt(
   return Object.freeze({ kind: 'passkey_registration_preparation_receipt_v1', expiresAtMs });
 }
 
-export function interactiveRegistrationPlacement(
-  rect: DOMRectLike,
-): AnchoredRegistrationPlacement {
+export function interactiveRegistrationPlacement(rect: DOMRectLike): AnchoredRegistrationPlacement {
   return { kind: 'interactive', targetRect: registrationActivationTargetRectFromBoundary(rect) };
 }
 
-export function suspendedRegistrationPlacement(
-  rect: DOMRectLike,
-): AnchoredRegistrationPlacement {
+export function suspendedRegistrationPlacement(rect: DOMRectLike): AnchoredRegistrationPlacement {
   return {
     kind: 'suspended',
     reason: 'ancestor_clipped',
@@ -404,7 +396,10 @@ export function modalUnlockConfirmSurface(args: {
   };
 }
 
-function requestIdentitiesEqual(left: RequestSurfaceIdentity, right: RequestSurfaceIdentity): boolean {
+function requestIdentitiesEqual(
+  left: RequestSurfaceIdentity,
+  right: RequestSurfaceIdentity,
+): boolean {
   return left.surfaceId === right.surfaceId && left.requestId === right.requestId;
 }
 
@@ -430,7 +425,10 @@ function foregroundSurfaceIdentitiesEqual(
   ) {
     return registrationActivationSurfaceIdentitiesEqual(left.identity, right.identity);
   }
-  if (left.kind === 'anchored_registration_activation' || right.kind === 'anchored_registration_activation') {
+  if (
+    left.kind === 'anchored_registration_activation' ||
+    right.kind === 'anchored_registration_activation'
+  ) {
     return false;
   }
   return requestIdentitiesEqual(left.identity, right.identity);
@@ -516,10 +514,12 @@ export function reduceWalletIframeSurface(
         ),
       );
     case 'registration_activation_placement_changed':
-      if (!registrationEventOwnsSurface(current, event)) return { kind: 'ignored', surface: current };
+      if (!registrationEventOwnsSurface(current, event))
+        return { kind: 'ignored', surface: current };
       return { kind: 'applied', surface: { ...current, placement: event.placement } };
     case 'registration_activation_focus_owner_changed':
-      if (!registrationEventOwnsSurface(current, event)) return { kind: 'ignored', surface: current };
+      if (!registrationEventOwnsSurface(current, event))
+        return { kind: 'ignored', surface: current };
       return { kind: 'applied', surface: { ...current, focusOwner: event.focusOwner } };
     case 'registration_activation_cancelled':
     case 'registration_activation_finished':

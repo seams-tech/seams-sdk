@@ -82,6 +82,7 @@ const validNearTransactionIntent: NearEd25519TransactionSigningIntent = {
   walletId,
   curve: 'ed25519',
   chain: 'near',
+  signerSelection: { kind: 'near_account', nearAccountId: accountId },
   authSelectionPolicy: { kind: 'explicit', authMethod: 'passkey' },
   operationUsesNeeded: 1,
 };

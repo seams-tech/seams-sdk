@@ -3,6 +3,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   EmailOtpEcdsaBootstrapStrictPayload,
+  EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
   EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpExportOperationRequest,
@@ -16,134 +17,18 @@ import type {
   EthSignerTransactionOperationRequest,
   HssEcdsaRoleLocalMaterialOperationRequest,
   HssEcdsaRoleLocalPresignOperationRequest,
-  HssEd25519ProtocolOperationRequest,
-  NearEd25519DigestOperationRequest,
-  NearEd25519MaterialOperationRequest,
   NearWorkerOperationRequest,
   EthSignerWorkerOperationMap,
 } from './workerTypes';
-import {
-  HssClientCustomRequestType,
-} from './workerTypes';
-import {
-  NearSignerWorkerCustomRequestType,
-  type ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest,
-  type ThresholdEd25519ClientPresignSignFromMaterialHandleRequest,
-  type ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest as NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest,
-  type ThresholdEd25519WorkerMaterialBinding,
-  type ThresholdEd25519WorkerMaterialSessionBinding,
-} from '@/core/types/signer-worker';
+import { HssClientCustomRequestType } from './workerTypes';
+import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
+declare const emailOtpEd25519YaoActiveCapability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
-
-const nearSignerMaterialBinding: ThresholdEd25519WorkerMaterialBinding = {
-  kind: 'ed25519_worker_material_binding_v1',
-  curve: 'ed25519',
-  protocol: 'router_ab_normal_signing',
-  nearAccountId: 'alice.testnet',
-  signerSlot: 1,
-  signingRootId: 'signing-root',
-  signingRootVersion: 'v1',
-  relayerKeyId: 'near-relayer-key',
-  participantIds: [1, 2],
-  clientVerifyingShareB64u: 'client-verifying-share',
-  materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId: 'material-key-id',
-  createdAtMs: 1_700_000_000_000,
-};
-
-const nearSignerSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding = {
-  kind: 'ed25519_worker_material_session_binding_v1',
-  materialBindingDigest: 'material-binding-digest',
-  nearAccountId: 'alice.testnet',
-  signerSlot: 1,
-  thresholdSessionId: 'threshold-session',
-  signingGrantId: 'signing-grant',
-  signingRootId: 'signing-root',
-  signingRootVersion: 'v1',
-  runtimePolicyScope,
-  relayerKeyId: 'near-relayer-key',
-  participantIds: [1, 2],
-  signingWorkerId: 'signing-worker',
-  expiresAtMs: 1_900_000_000_000,
-};
-
-const nearSignerPresignCreateRequest: ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest = {
-  clientParticipantId: 1,
-  relayerParticipantId: 2,
-  materialHandle: 'material-handle',
-  expectedMaterialBinding: nearSignerMaterialBinding,
-  expectedSessionBinding: nearSignerSessionBinding,
-  expectedSessionBindingDigest: 'session-binding-digest',
-  groupPublicKey: 'ed25519:group',
-};
-void nearSignerPresignCreateRequest;
-
-const nearSignerPresignCreateRequestWithoutSessionDigest = {
-  clientParticipantId: 1,
-  relayerParticipantId: 2,
-  materialHandle: 'material-handle',
-  expectedMaterialBinding: nearSignerMaterialBinding,
-  expectedSessionBinding: nearSignerSessionBinding,
-  groupPublicKey: 'ed25519:group',
-};
-
-// @ts-expect-error Material-backed presign creation requires the session binding digest.
-const invalidNearSignerPresignCreateRequest: ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest =
-  nearSignerPresignCreateRequestWithoutSessionDigest;
-void invalidNearSignerPresignCreateRequest;
-
-const nearSignerPresignSignRequest: ThresholdEd25519ClientPresignSignFromMaterialHandleRequest = {
-  clientParticipantId: 1,
-  relayerParticipantId: 2,
-  materialHandle: 'material-handle',
-  expectedMaterialBinding: nearSignerMaterialBinding,
-  expectedSessionBinding: nearSignerSessionBinding,
-  expectedSessionBindingDigest: 'session-binding-digest',
-  groupPublicKey: 'ed25519:group',
-  signingDigestB64u: 'signing-digest',
-  clientNonceHandleB64u: 'nonce-handle',
-  clientCommitments: { hiding: 'client-hiding', binding: 'client-binding' },
-  relayerCommitments: { hiding: 'relayer-hiding', binding: 'relayer-binding' },
-};
-void nearSignerPresignSignRequest;
-
-const nearSignerPresignSignRequestWithoutSessionDigest = {
-  ...nearSignerPresignSignRequest,
-  expectedSessionBindingDigest: undefined,
-};
-
-// @ts-expect-error Material-backed presign signing requires the session binding digest.
-const invalidNearSignerPresignSignRequest: ThresholdEd25519ClientPresignSignFromMaterialHandleRequest =
-  nearSignerPresignSignRequestWithoutSessionDigest;
-void invalidNearSignerPresignSignRequest;
-
-const nearSignerRoleSeparatedRequest: NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest =
-  {
-    materialHandle: 'material-handle',
-    expectedMaterialBinding: nearSignerMaterialBinding,
-    expectedSessionBinding: nearSignerSessionBinding,
-    expectedSessionBindingDigest: 'session-binding-digest',
-    groupPublicKey: 'ed25519:group',
-    serverVerifyingShareB64u: 'server-verifying-share',
-    serverCommitments: { hiding: 'server-hiding', binding: 'server-binding' },
-    signingDigestB64u: 'signing-digest',
-  };
-void nearSignerRoleSeparatedRequest;
-
-const nearSignerRoleSeparatedRequestWithoutSessionDigest = {
-  ...nearSignerRoleSeparatedRequest,
-  expectedSessionBindingDigest: undefined,
-};
-
-// @ts-expect-error Role-separated worker-material signing requires the session binding digest.
-const invalidNearSignerRoleSeparatedRequest: NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest =
-  nearSignerRoleSeparatedRequestWithoutSessionDigest;
-void invalidNearSignerRoleSeparatedRequest;
 
 const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
@@ -253,17 +138,98 @@ const cookieBootstrapWithRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
 };
 void cookieBootstrapWithRouteAuth;
 
-type PresignStepPayload = EthSignerWorkerOperationMap['thresholdEcdsaPresignSessionStep']['payload'];
+type PresignStepPayload =
+  EthSignerWorkerOperationMap['thresholdEcdsaPresignSessionStep']['payload'];
 type EmailOtpEcdsaExportPayload =
   EmailOtpWorkerOperationMap['exportThresholdEcdsaHssKeyWithEmailOtpAuthorization']['payload'];
-type EmailOtpEd25519ExportPayload =
-  EmailOtpWorkerOperationMap['exportEmailOtpEd25519SeedWithAuthorization']['payload'];
-type EmailOtpWalletUnlockPayload =
-  EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
+type EmailOtpEd25519YaoExportPayload =
+  EmailOtpWorkerOperationMap['exportEmailOtpEd25519YaoSeedWithAuthorization']['payload'];
+type EmailOtpWalletUnlockPayload = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
+type EmailOtpEcdsaWalletUnlockMaterial = Extract<
+  EmailOtpWalletUnlockPayload['material'],
+  { kind: 'ecdsa' }
+>;
+type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
+  EmailOtpWalletUnlockPayload['material'],
+  { kind: 'ed25519_yao_recovery' }
+>;
+type EmailOtpYaoBindPayload = EmailOtpWorkerOperationMap['bindEmailOtpEd25519YaoRoot']['payload'];
+type EmailOtpYaoRootDisposalPayload =
+  EmailOtpWorkerOperationMap['disposeEmailOtpEd25519YaoRoot']['payload'];
+type EmailOtpYaoCommitPayload =
+  EmailOtpWorkerOperationMap['commitEmailOtpEd25519YaoRegistration']['payload'];
+type EmailOtpYaoRecoveryPayload =
+  EmailOtpWorkerOperationMap['recoverEmailOtpEd25519Yao']['payload'];
+type EmailOtpEcdsaRegistrationWarmMaterialCommitPayload =
+  EmailOtpWorkerOperationMap['commitEmailOtpEcdsaRegistrationWarmMaterial']['payload'];
 type EmailOtpDeviceEnrollmentRestoreResult =
   EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
 type EmailOtpRecoveryCodeRotationResult =
   EmailOtpWorkerOperationMap['rotateEmailOtpRecoveryCodes']['result'];
+type EmailOtpEd25519YaoFactorRehydratePayload =
+  EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoFactor']['payload'];
+
+const emailOtpEd25519YaoFactorRehydrate: EmailOtpEd25519YaoFactorRehydratePayload = {
+  sealedSecretB64u: 'sealed-ed25519-yao-factor',
+  remainingUses: 3,
+  expiresAtMs: Date.now() + 60_000,
+  transport: {
+    relayerUrl: 'https://relay.example.test',
+    walletSessionJwt: 'wallet.session.jwt',
+    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
+    shamirPrimeB64u: 'shamir-prime',
+  },
+  restore: {
+    sessionId: 'threshold-session',
+    walletId: 'wallet.testnet',
+    providerSubject: 'google:subject',
+  },
+};
+void emailOtpEd25519YaoFactorRehydrate;
+
+const emailOtpEd25519YaoFactorRehydrateWithOtp = {
+  ...emailOtpEd25519YaoFactorRehydrate,
+  // @ts-expect-error Silent durable recovery never accepts a fresh OTP challenge.
+  otpCode: '123456',
+} satisfies EmailOtpEd25519YaoFactorRehydratePayload;
+void emailOtpEd25519YaoFactorRehydrateWithOtp;
+
+const emailOtpEd25519YaoFactorRehydrateWithoutWalletSession = {
+  ...emailOtpEd25519YaoFactorRehydrate,
+  // @ts-expect-error Silent durable recovery requires its exact Wallet Session credential.
+  transport: {
+    relayerUrl: 'https://relay.example.test',
+    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
+    shamirPrimeB64u: 'shamir-prime',
+  },
+} satisfies EmailOtpEd25519YaoFactorRehydratePayload;
+void emailOtpEd25519YaoFactorRehydrateWithoutWalletSession;
+
+const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMaterial = {
+  kind: 'ed25519_yao_recovery',
+  providerSubject: 'google:subject',
+  ed25519YaoRecovery: {
+    kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+    signerSlot: 1,
+    remainingUses: 3,
+    orgId: 'org-test',
+  },
+};
+void emailOtpEd25519YaoWalletUnlockMaterial;
+
+const emailOtpEd25519YaoWalletUnlockWithPriorSession = {
+  ...emailOtpEd25519YaoWalletUnlockMaterial,
+  // @ts-expect-error Fresh OTP recovery rejects a prior Wallet Session credential.
+  walletSessionAuth: { kind: 'wallet_session', jwt: 'prior.jwt' },
+} satisfies EmailOtpEd25519YaoWalletUnlockMaterial;
+void emailOtpEd25519YaoWalletUnlockWithPriorSession;
+
+const emailOtpEd25519YaoWalletUnlockWithClientPolicy = {
+  ...emailOtpEd25519YaoWalletUnlockMaterial,
+  // @ts-expect-error Fresh OTP recovery rejects a client-authored session policy.
+  sessionPolicy: { version: 'threshold_session_v1' },
+} satisfies EmailOtpEd25519YaoWalletUnlockMaterial;
+void emailOtpEd25519YaoWalletUnlockWithClientPolicy;
 
 const presignStep: PresignStepPayload = {
   sessionId: 'presign-session',
@@ -284,8 +250,9 @@ const ethRecoverableSignatureVerifyRequest: EthSignerLocalSecp256k1OperationRequ
   };
 void ethRecoverableSignatureVerifyRequest;
 
-// @ts-expect-error Recoverable signature verification is not an ETH transaction encoding operation.
-type InvalidRecoverableSignatureVerifyAsEthTransaction = EthSignerTransactionOperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'>;
+type InvalidRecoverableSignatureVerifyAsEthTransaction =
+  // @ts-expect-error Recoverable signature verification is not an ETH transaction encoding operation.
+  EthSignerTransactionOperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'>;
 declare const invalidRecoverableSignatureVerifyAsEthTransaction: InvalidRecoverableSignatureVerifyAsEthTransaction;
 void invalidRecoverableSignatureVerifyAsEthTransaction;
 
@@ -313,53 +280,39 @@ const ethEcdsaPresignInitRequestWithTx = {
 } satisfies EthSignerThresholdEcdsaPresignOperationRequest<'thresholdEcdsaPresignSessionInit'>;
 void ethEcdsaPresignInitRequestWithTx;
 
-// @ts-expect-error ECDSA presign operations are not ETH transaction encoding operations.
-type InvalidEcdsaPresignAsEthTransaction = EthSignerTransactionOperationRequest<'thresholdEcdsaPresignSessionInit'>;
+type InvalidEcdsaPresignAsEthTransaction =
+  // @ts-expect-error ECDSA presign operations are not ETH transaction encoding operations.
+  EthSignerTransactionOperationRequest<'thresholdEcdsaPresignSessionInit'>;
 declare const invalidEcdsaPresignAsEthTransaction: InvalidEcdsaPresignAsEthTransaction;
 void invalidEcdsaPresignAsEthTransaction;
 
-// @ts-expect-error NEAR digest operations cannot be sent through the material domain.
-type InvalidNearDigestAsMaterial = NearEd25519MaterialOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest>;
-declare const invalidNearDigestAsMaterial: InvalidNearDigestAsMaterial;
-void invalidNearDigestAsMaterial;
-
-// @ts-expect-error NEAR worker material storage cannot be sent through the digest domain.
-type InvalidNearMaterialAsDigest = NearEd25519DigestOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput>;
-declare const invalidNearMaterialAsDigest: InvalidNearMaterialAsDigest;
-void invalidNearMaterialAsDigest;
-
-// @ts-expect-error Ed25519 HSS material operations cannot use the ECDSA role-local domain.
-type InvalidHssEd25519AsEcdsaRoleLocal = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle>;
-declare const invalidHssEd25519AsEcdsaRoleLocal: InvalidHssEd25519AsEcdsaRoleLocal;
-void invalidHssEd25519AsEcdsaRoleLocal;
-
-// @ts-expect-error ECDSA role-local operations cannot use the Ed25519 HSS protocol domain.
-type InvalidHssEcdsaRoleLocalAsEd25519 = HssEd25519ProtocolOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial>;
-declare const invalidHssEcdsaRoleLocalAsEd25519: InvalidHssEcdsaRoleLocalAsEd25519;
-void invalidHssEcdsaRoleLocalAsEd25519;
-
-const hssEcdsaPresignInitRequest: HssEcdsaRoleLocalPresignOperationRequest<typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle> =
-  {
-    type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle,
-    payload: {
-      materialHandle: 'ecdsa-material-handle',
-      expectedBindingDigest: 'ecdsa-binding-digest',
-      sessionId: 'presign-session',
-      participantIds: [1, 2],
-      clientParticipantId: 1,
-      threshold: 2,
-      groupPublicKey33: incomingMessage,
-    },
-  };
+const hssEcdsaPresignInitRequest: HssEcdsaRoleLocalPresignOperationRequest<
+  typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle
+> = {
+  type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle,
+  payload: {
+    materialHandle: 'ecdsa-material-handle',
+    expectedBindingDigest: 'ecdsa-binding-digest',
+    sessionId: 'presign-session',
+    participantIds: [1, 2],
+    clientParticipantId: 1,
+    threshold: 2,
+    groupPublicKey33: incomingMessage,
+  },
+};
 void hssEcdsaPresignInitRequest;
 
-// @ts-expect-error ECDSA role-local material operations cannot use the presign domain.
-type InvalidHssEcdsaMaterialAsPresign = HssEcdsaRoleLocalPresignOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial>;
+type InvalidHssEcdsaMaterialAsPresign = HssEcdsaRoleLocalPresignOperationRequest<
+  // @ts-expect-error ECDSA role-local material operations cannot use the presign domain.
+  typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
+>;
 declare const invalidHssEcdsaMaterialAsPresign: InvalidHssEcdsaMaterialAsPresign;
 void invalidHssEcdsaMaterialAsPresign;
 
-// @ts-expect-error ECDSA role-local presign operations cannot use the material domain.
-type InvalidHssEcdsaPresignAsMaterial = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep>;
+type InvalidHssEcdsaPresignAsMaterial = HssEcdsaRoleLocalMaterialOperationRequest<
+  // @ts-expect-error ECDSA role-local presign operations cannot use the material domain.
+  typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep
+>;
 declare const invalidHssEcdsaPresignAsMaterial: InvalidHssEcdsaPresignAsMaterial;
 void invalidHssEcdsaPresignAsMaterial;
 
@@ -390,6 +343,7 @@ const emailOtpBootstrapWorkerRequestWithoutStrictPayload: EmailOtpWorkerOperatio
 void emailOtpBootstrapWorkerRequestWithoutStrictPayload;
 
 declare const emailOtpWalletUnlockRoutePlan: EmailOtpWalletUnlockPayload['routePlan'];
+declare const emailOtpEcdsaWalletUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial;
 
 const emailOtpWalletUnlockPayload: EmailOtpWalletUnlockPayload = {
   relayUrl: 'https://relay.example',
@@ -399,7 +353,7 @@ const emailOtpWalletUnlockPayload: EmailOtpWalletUnlockPayload = {
   otpCode: '123456',
   shamirPrimeB64u: 'prime',
   routePlan: emailOtpWalletUnlockRoutePlan,
-  runtimePolicyScope,
+  material: emailOtpEcdsaWalletUnlockMaterial,
 };
 void emailOtpWalletUnlockPayload;
 
@@ -410,8 +364,95 @@ const emailOtpWalletUnlockPayloadWithoutRuntimeScope = {
   shamirPrimeB64u: 'prime',
   routePlan: emailOtpWalletUnlockRoutePlan,
 };
-// @ts-expect-error Email OTP wallet unlock must carry explicit runtimePolicyScope.
+// @ts-expect-error Email OTP wallet unlock must carry one exact material branch.
 emailOtpWalletUnlockPayloadWithoutRuntimeScope satisfies EmailOtpWalletUnlockPayload;
+
+declare const pendingFactorHandle: EmailOtpYaoBindPayload['pendingFactorHandle'];
+declare const emailOtpYaoRootScope: EmailOtpYaoBindPayload['scope'];
+declare const emailOtpYaoRootHandle: EmailOtpYaoRootDisposalPayload['rootHandle'];
+declare const emailOtpYaoWalletSessionState: EmailOtpYaoCommitPayload['walletSessionState'];
+declare const emailOtpYaoRecoveryAdmission: EmailOtpYaoRecoveryPayload['admissionRequest'];
+
+const emailOtpYaoRootDisposalPayload: EmailOtpYaoRootDisposalPayload = {
+  rootHandle: emailOtpYaoRootHandle,
+};
+void emailOtpYaoRootDisposalPayload;
+
+const emailOtpYaoBindPayload: EmailOtpYaoBindPayload = {
+  pendingFactorHandle,
+  scope: emailOtpYaoRootScope,
+};
+void emailOtpYaoBindPayload;
+
+const emailOtpYaoBindPayloadWithCallerExpiry = {
+  pendingFactorHandle,
+  scope: emailOtpYaoRootScope,
+  // @ts-expect-error Pending-factor binding derives expiry from the issued handle.
+  expiresAtMs: 1_900_000_000_000,
+} satisfies EmailOtpYaoBindPayload;
+void emailOtpYaoBindPayloadWithCallerExpiry;
+
+const emailOtpYaoCommitPayload: EmailOtpYaoCommitPayload = {
+  pendingHandle: 'pending-registration',
+  walletSessionState: emailOtpYaoWalletSessionState,
+};
+void emailOtpYaoCommitPayload;
+
+// @ts-expect-error Registration commit requires the exact Wallet Session state.
+const emailOtpYaoCommitWithoutWalletSession: EmailOtpYaoCommitPayload = {
+  pendingHandle: 'pending-registration',
+};
+void emailOtpYaoCommitWithoutWalletSession;
+
+const emailOtpYaoRecoveryPayload: EmailOtpYaoRecoveryPayload = {
+  rootHandle: emailOtpYaoRootHandle,
+  admissionRequest: emailOtpYaoRecoveryAdmission,
+  walletId: 'wallet.testnet',
+  providerSubject: 'google:subject',
+  registrationAuthorityId: 'registration-authority',
+  bearerToken: 'wallet-session-jwt',
+  routerOrigin: 'https://relay.example',
+  sessionPolicy: {
+    thresholdSessionId: 'threshold-ed25519-session',
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 3,
+  },
+};
+void emailOtpYaoRecoveryPayload;
+
+// @ts-expect-error Yao recovery must bind retained factor material to one exact session policy.
+const emailOtpYaoRecoveryWithoutSessionPolicy: EmailOtpYaoRecoveryPayload = {
+  rootHandle: emailOtpYaoRootHandle,
+  admissionRequest: emailOtpYaoRecoveryAdmission,
+  walletId: 'wallet.testnet',
+  providerSubject: 'google:subject',
+  registrationAuthorityId: 'registration-authority',
+  bearerToken: 'wallet-session-jwt',
+  routerOrigin: 'https://relay.example',
+};
+void emailOtpYaoRecoveryWithoutSessionPolicy;
+
+const emailOtpEcdsaRegistrationWarmMaterialCommit: EmailOtpEcdsaRegistrationWarmMaterialCommitPayload =
+  {
+    walletId: 'wallet.testnet',
+    chainTarget,
+    retainedClientRootShareHandle: walletRegistrationEcdsaPrepareHandle,
+    thresholdSessionId: 'threshold-ecdsa-session',
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 3,
+  };
+void emailOtpEcdsaRegistrationWarmMaterialCommit;
+
+const emailOtpEcdsaRegistrationWarmMaterialCommitWithBootstrapHandle = {
+  walletId: 'wallet.testnet',
+  chainTarget,
+  // @ts-expect-error Registration warm-material commit rejects a session-bootstrap handle.
+  retainedClientRootShareHandle: clientRootShareHandle,
+  thresholdSessionId: 'threshold-ecdsa-session',
+  expiresAtMs: 1_900_000_000_000,
+  remainingUses: 3,
+} satisfies EmailOtpEcdsaRegistrationWarmMaterialCommitPayload;
+void emailOtpEcdsaRegistrationWarmMaterialCommitWithBootstrapHandle;
 
 const emailOtpDeviceEnrollmentRestoreResult: EmailOtpDeviceEnrollmentRestoreResult = {
   walletId: 'wallet.testnet',
@@ -503,38 +544,37 @@ const emailOtpEcdsaExportWorkerRequest: EmailOtpExportOperationRequest<'exportTh
   };
 void emailOtpEcdsaExportWorkerRequest;
 
-// @ts-expect-error Email OTP export operations cannot use the warm-session domain.
-type InvalidEmailOtpExportAsWarmSession = EmailOtpWarmSessionOperationRequest<'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'>;
-declare const invalidEmailOtpExportAsWarmSession: InvalidEmailOtpExportAsWarmSession;
-void invalidEmailOtpExportAsWarmSession;
-
-declare const emailOtpEd25519ExportRoutePlan: EmailOtpEd25519ExportPayload['routePlan'];
-
-const emailOtpEd25519ExportPayload: EmailOtpEd25519ExportPayload = {
+declare const emailOtpEd25519YaoExportRoutePlan: EmailOtpEd25519YaoExportPayload['routePlan'];
+const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',
   walletId: 'wallet.testnet',
-  nearAccountId: 'wallet.testnet',
-  nearEd25519SigningKeyId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  challengeId: 'challenge-1',
+  userId: 'google:subject',
+  challengeId: 'challenge-ed25519-export',
   otpCode: '123456',
   shamirPrimeB64u: 'prime',
-  routePlan: emailOtpEd25519ExportRoutePlan,
-  otpChannel: 'email_otp',
-  runtimePolicyScope,
-  participantIds: [1, 2],
-  thresholdSessionId: 'threshold-session',
+  routePlan: emailOtpEd25519YaoExportRoutePlan,
   walletSessionJwt: 'wallet-session-jwt',
-  relayerKeyId: 'relayer-key',
-  expectedPublicKey: 'ed25519:public',
+  nearAccountId: 'alice.testnet',
+  nearEd25519SigningKeyId: 'near-key-1',
+  signerSlot: 1,
+  thresholdSessionId: 'threshold-ed25519-export',
+  signingGrantId: 'grant-ed25519-export',
+  runtimePolicyScope,
+  capability: emailOtpEd25519YaoActiveCapability,
 };
-void emailOtpEd25519ExportPayload;
+void emailOtpEd25519YaoExportPayload;
 
-const emailOtpEd25519ExportPayloadWithSigningRoot = {
-  ...emailOtpEd25519ExportPayload,
-  // @ts-expect-error Email OTP Ed25519 export derives signing root from runtimePolicyScope.
-  signingRootId: 'signing-root',
-} satisfies EmailOtpEd25519ExportPayload;
-void emailOtpEd25519ExportPayloadWithSigningRoot;
+const emailOtpEd25519YaoExportPayloadWithPasskey = {
+  ...emailOtpEd25519YaoExportPayload,
+  // @ts-expect-error Email OTP Ed25519 export rejects passkey credentials.
+  webauthnAuthentication: {},
+} satisfies EmailOtpEd25519YaoExportPayload;
+void emailOtpEd25519YaoExportPayloadWithPasskey;
+
+type InvalidEmailOtpExportAsWarmSession =
+  // @ts-expect-error Email OTP export operations cannot use the warm-session domain.
+  EmailOtpWarmSessionOperationRequest<'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'>;
+declare const invalidEmailOtpExportAsWarmSession: InvalidEmailOtpExportAsWarmSession;
+void invalidEmailOtpExportAsWarmSession;
 
 export {};

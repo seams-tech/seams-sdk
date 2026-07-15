@@ -1,9 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  ed25519MaterialAdvanceWouldRegress,
-  type Ed25519MaterialAdvance,
-} from '../ed25519MaterialAdvance';
-import {
   normalizeInteger,
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
@@ -373,14 +369,6 @@ export type ThresholdEd25519SessionRow = {
   signingRootId?: string;
   signingRootVersion?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  clientVerifyingShareB64u?: string;
-  ed25519WorkerMaterialHandle?: string;
-  ed25519WorkerMaterialBindingDigest?: string;
-  sealedWorkerMaterialRef?: string;
-  sealedWorkerMaterialB64u?: string;
-  materialFormatVersion?: string;
-  materialKeyId?: string;
-  materialCreatedAtMs?: number;
   signerSlot: number;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   thresholdSessionKind: 'jwt' | 'cookie';
@@ -394,66 +382,9 @@ export type ThresholdEd25519SessionRow = {
   source: ThresholdEd25519SessionStoreSource;
 };
 
-type ThresholdEd25519MaterialFieldName =
-  | 'clientVerifyingShareB64u'
-  | 'ed25519WorkerMaterialHandle'
-  | 'ed25519WorkerMaterialBindingDigest'
-  | 'sealedWorkerMaterialRef'
-  | 'sealedWorkerMaterialB64u'
-  | 'materialFormatVersion'
-  | 'materialKeyId'
-  | 'materialCreatedAtMs';
+export type ThresholdEd25519SessionRecord = ThresholdEd25519SessionRow;
 
-type ThresholdEd25519SessionRecordBase = Omit<
-  ThresholdEd25519SessionRow,
-  ThresholdEd25519MaterialFieldName
->;
-
-export type ThresholdEd25519MaterialPendingSessionRecord = ThresholdEd25519SessionRecordBase & {
-  materialState: 'auth_ready_material_pending';
-  clientVerifyingShareB64u?: never;
-  ed25519WorkerMaterialHandle?: never;
-  ed25519WorkerMaterialBindingDigest?: never;
-  sealedWorkerMaterialRef?: never;
-  sealedWorkerMaterialB64u?: never;
-  materialFormatVersion?: never;
-  materialKeyId?: never;
-  materialCreatedAtMs?: never;
-};
-
-export type ThresholdEd25519RestoreAvailableSessionRecord = ThresholdEd25519SessionRecordBase & {
-  materialState: 'restore_available';
-  clientVerifyingShareB64u: string;
-  ed25519WorkerMaterialHandle?: never;
-  ed25519WorkerMaterialBindingDigest: string;
-  sealedWorkerMaterialRef: string;
-  sealedWorkerMaterialB64u?: string;
-  materialFormatVersion: string;
-  materialKeyId: string;
-  materialCreatedAtMs: number;
-};
-
-export type ThresholdEd25519MaterialReadySessionRecord = ThresholdEd25519SessionRecordBase & {
-  materialState: 'material_ready';
-  clientVerifyingShareB64u: string;
-  ed25519WorkerMaterialHandle: string;
-  ed25519WorkerMaterialBindingDigest: string;
-  sealedWorkerMaterialRef: string;
-  sealedWorkerMaterialB64u: string;
-  materialFormatVersion: string;
-  materialKeyId: string;
-  materialCreatedAtMs: number;
-};
-
-export type ThresholdEd25519SessionRecord =
-  | ThresholdEd25519MaterialPendingSessionRecord
-  | ThresholdEd25519RestoreAvailableSessionRecord
-  | ThresholdEd25519MaterialReadySessionRecord;
-
-export type OperationUsableThresholdEd25519SessionRecord = (
-  | ThresholdEd25519RestoreAvailableSessionRecord
-  | ThresholdEd25519MaterialReadySessionRecord
-) & {
+export type OperationUsableThresholdEd25519SessionRecord = ThresholdEd25519SessionRecord & {
   signingGrantId: string;
   walletSessionJwt: string;
   readonly [operationUsableThresholdEd25519SessionRecord]: true;
@@ -476,35 +407,6 @@ export type ThresholdEd25519SessionCommitResult =
       incoming: OperationUsableThresholdEd25519SessionRecord;
       current: OperationUsableThresholdEd25519SessionRecord;
     };
-
-export function isThresholdEd25519MaterialPendingRecord(
-  record: ThresholdEd25519SessionRecord,
-): record is ThresholdEd25519MaterialPendingSessionRecord {
-  return record.materialState === 'auth_ready_material_pending';
-}
-
-export function isThresholdEd25519RestoreAvailableRecord(
-  record: ThresholdEd25519SessionRecord,
-): record is ThresholdEd25519RestoreAvailableSessionRecord {
-  return record.materialState === 'restore_available';
-}
-
-export function isThresholdEd25519MaterialReadyRecord(
-  record: ThresholdEd25519SessionRecord,
-): record is ThresholdEd25519MaterialReadySessionRecord {
-  return record.materialState === 'material_ready';
-}
-
-export function hasThresholdEd25519RestorableWorkerMaterial(
-  record: ThresholdEd25519SessionRecord,
-): record is
-  | ThresholdEd25519RestoreAvailableSessionRecord
-  | ThresholdEd25519MaterialReadySessionRecord {
-  return (
-    isThresholdEd25519RestoreAvailableRecord(record) ||
-    isThresholdEd25519MaterialReadyRecord(record)
-  );
-}
 
 export type ThresholdSessionRecordByCurve = {
   ed25519: ThresholdEd25519SessionRecord;
@@ -1852,18 +1754,6 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   }
   const signingRootId = explicitSigningRootId || scopeSigningRootId || '';
   const signingRootVersion = explicitSigningRootVersion || scopeSigningRootVersion || '';
-  const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
-  const ed25519WorkerMaterialHandle = normalizeOptionalNonEmptyString(
-    obj.ed25519WorkerMaterialHandle,
-  );
-  const ed25519WorkerMaterialBindingDigest = normalizeOptionalNonEmptyString(
-    obj.ed25519WorkerMaterialBindingDigest,
-  );
-  const sealedWorkerMaterialRef = normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialRef);
-  const sealedWorkerMaterialB64u = normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialB64u);
-  const materialFormatVersion = normalizeOptionalNonEmptyString(obj.materialFormatVersion);
-  const materialKeyId = normalizeOptionalNonEmptyString(obj.materialKeyId);
-  const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
   const signerSlot = normalizeInteger(obj.signerSlot);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   const thresholdSessionKindRaw = String(obj.thresholdSessionKind || 'jwt')
@@ -1881,6 +1771,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const source: ThresholdEd25519SessionStoreSource =
     sourceRaw === 'login' ||
     sourceRaw === 'registration' ||
+    sourceRaw === 'add-signer' ||
     sourceRaw === 'manual-connect' ||
     sourceRaw === 'bootstrap' ||
     sourceRaw === 'email_otp'
@@ -1911,7 +1802,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
       'Invalid threshold Ed25519 canonical session record: missing routerAbNormalSigning',
     );
   }
-  const base: ThresholdEd25519SessionRecordBase = {
+  return {
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
@@ -1934,71 +1825,6 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
     updatedAtMs,
     source,
-  };
-  const materialCreatedAtMsValue = materialCreatedAtMs ?? 0;
-  const hasCreatedAt = materialCreatedAtMsValue > 0;
-  if (
-    clientVerifyingShareB64u &&
-    ed25519WorkerMaterialHandle &&
-    ed25519WorkerMaterialBindingDigest &&
-    sealedWorkerMaterialRef &&
-    sealedWorkerMaterialB64u &&
-    materialFormatVersion &&
-    materialKeyId &&
-    hasCreatedAt
-  ) {
-    return {
-      ...base,
-      materialState: 'material_ready',
-      clientVerifyingShareB64u,
-      ed25519WorkerMaterialHandle,
-      ed25519WorkerMaterialBindingDigest,
-      sealedWorkerMaterialRef,
-      sealedWorkerMaterialB64u,
-      materialFormatVersion,
-      materialKeyId,
-      materialCreatedAtMs: materialCreatedAtMsValue,
-    };
-  }
-  if (
-    clientVerifyingShareB64u &&
-    !ed25519WorkerMaterialHandle &&
-    ed25519WorkerMaterialBindingDigest &&
-    sealedWorkerMaterialRef &&
-    materialFormatVersion &&
-    materialKeyId &&
-    hasCreatedAt
-  ) {
-    return {
-      ...base,
-      materialState: 'restore_available',
-      clientVerifyingShareB64u,
-      ed25519WorkerMaterialBindingDigest,
-      sealedWorkerMaterialRef,
-      ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
-      materialFormatVersion,
-      materialKeyId,
-      materialCreatedAtMs: materialCreatedAtMsValue,
-    };
-  }
-  const hasPartialMaterial = Boolean(
-    clientVerifyingShareB64u ||
-    ed25519WorkerMaterialHandle ||
-    ed25519WorkerMaterialBindingDigest ||
-    sealedWorkerMaterialRef ||
-    sealedWorkerMaterialB64u ||
-    materialFormatVersion ||
-    materialKeyId ||
-    hasCreatedAt,
-  );
-  if (hasPartialMaterial) {
-    throw new Error(
-      'Invalid threshold Ed25519 canonical session record: incomplete material state',
-    );
-  }
-  return {
-    ...base,
-    materialState: 'auth_ready_material_pending',
   };
 }
 
@@ -2042,7 +1868,11 @@ function shouldReplaceDefaultThresholdSessionRecord(args: {
     | { thresholdSessionId?: string; updatedAtMs?: number | null; expiresAtMs?: number | null }
     | null
     | undefined;
-  incoming: { thresholdSessionId?: string; updatedAtMs?: number | null; expiresAtMs?: number | null };
+  incoming: {
+    thresholdSessionId?: string;
+    updatedAtMs?: number | null;
+    expiresAtMs?: number | null;
+  };
   policy: Ed25519DefaultRecordPolicy;
 }): boolean {
   if (args.policy === 'prefer_incoming') return true;
@@ -2201,38 +2031,6 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
   return null;
 }
 
-export type ThresholdEd25519UpsertMaterialFields =
-  | {
-      clientVerifyingShareB64u: string;
-      ed25519WorkerMaterialHandle: string;
-      ed25519WorkerMaterialBindingDigest: string;
-      sealedWorkerMaterialRef: string;
-      sealedWorkerMaterialB64u: string;
-      materialFormatVersion: string;
-      materialKeyId: string;
-      materialCreatedAtMs: number;
-    }
-  | {
-      clientVerifyingShareB64u: string;
-      ed25519WorkerMaterialHandle?: never;
-      ed25519WorkerMaterialBindingDigest: string;
-      sealedWorkerMaterialRef: string;
-      sealedWorkerMaterialB64u?: string;
-      materialFormatVersion: string;
-      materialKeyId: string;
-      materialCreatedAtMs: number;
-    }
-  | {
-      clientVerifyingShareB64u?: never;
-      ed25519WorkerMaterialHandle?: never;
-      ed25519WorkerMaterialBindingDigest?: never;
-      sealedWorkerMaterialRef?: never;
-      sealedWorkerMaterialB64u?: never;
-      materialFormatVersion?: never;
-      materialKeyId?: never;
-      materialCreatedAtMs?: never;
-    };
-
 export type ThresholdEd25519SessionUpsertInput = {
   walletId: WalletId | string;
   nearAccountId: AccountId | string;
@@ -2256,116 +2054,7 @@ export type ThresholdEd25519SessionUpsertInput = {
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs?: number;
   source?: ThresholdEd25519SessionStoreSource;
-} & ThresholdEd25519UpsertMaterialFields;
-
-function normalizeThresholdEd25519UpsertMaterialFields(args: {
-  clientVerifyingShareB64u?: string;
-  ed25519WorkerMaterialHandle?: string;
-  ed25519WorkerMaterialBindingDigest?: string;
-  sealedWorkerMaterialRef?: string;
-  sealedWorkerMaterialB64u?: string;
-  materialFormatVersion?: string;
-  materialKeyId?: string;
-  materialCreatedAtMs?: number;
-}): ThresholdEd25519UpsertMaterialFields {
-  const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(args.clientVerifyingShareB64u);
-  const ed25519WorkerMaterialHandle = normalizeOptionalNonEmptyString(
-    args.ed25519WorkerMaterialHandle,
-  );
-  const ed25519WorkerMaterialBindingDigest = normalizeOptionalNonEmptyString(
-    args.ed25519WorkerMaterialBindingDigest,
-  );
-  const sealedWorkerMaterialRef = normalizeOptionalNonEmptyString(args.sealedWorkerMaterialRef);
-  const sealedWorkerMaterialB64u = normalizeOptionalNonEmptyString(args.sealedWorkerMaterialB64u);
-  const materialFormatVersion = normalizeOptionalNonEmptyString(args.materialFormatVersion);
-  const materialKeyId = normalizeOptionalNonEmptyString(args.materialKeyId);
-  const materialCreatedAtMs = normalizeInteger(args.materialCreatedAtMs) ?? 0;
-  const hasCreatedAt = materialCreatedAtMs > 0;
-  const hasAnyMaterialField = Boolean(
-    clientVerifyingShareB64u ||
-    ed25519WorkerMaterialHandle ||
-    ed25519WorkerMaterialBindingDigest ||
-    sealedWorkerMaterialRef ||
-    sealedWorkerMaterialB64u ||
-    materialFormatVersion ||
-    materialKeyId ||
-    hasCreatedAt,
-  );
-  if (!hasAnyMaterialField) return {};
-  if (
-    clientVerifyingShareB64u &&
-    ed25519WorkerMaterialHandle &&
-    ed25519WorkerMaterialBindingDigest &&
-    sealedWorkerMaterialRef &&
-    sealedWorkerMaterialB64u &&
-    materialFormatVersion &&
-    materialKeyId &&
-    hasCreatedAt
-  ) {
-    return {
-      clientVerifyingShareB64u,
-      ed25519WorkerMaterialHandle,
-      ed25519WorkerMaterialBindingDigest,
-      sealedWorkerMaterialRef,
-      sealedWorkerMaterialB64u,
-      materialFormatVersion,
-      materialKeyId,
-      materialCreatedAtMs,
-    };
-  }
-  if (
-    clientVerifyingShareB64u &&
-    !ed25519WorkerMaterialHandle &&
-    ed25519WorkerMaterialBindingDigest &&
-    sealedWorkerMaterialRef &&
-    materialFormatVersion &&
-    materialKeyId &&
-    hasCreatedAt
-  ) {
-    return {
-      clientVerifyingShareB64u,
-      ed25519WorkerMaterialBindingDigest,
-      sealedWorkerMaterialRef,
-      ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
-      materialFormatVersion,
-      materialKeyId,
-      materialCreatedAtMs,
-    };
-  }
-  throw new Error('Threshold Ed25519 session persistence received incomplete material fields');
-}
-
-function thresholdEd25519UpsertMaterialFieldsFromRecord(
-  record: ThresholdEd25519SessionRecord,
-): ThresholdEd25519UpsertMaterialFields {
-  switch (record.materialState) {
-    case 'material_ready':
-      return {
-        clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-        ed25519WorkerMaterialHandle: record.ed25519WorkerMaterialHandle,
-        ed25519WorkerMaterialBindingDigest: record.ed25519WorkerMaterialBindingDigest,
-        sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
-        sealedWorkerMaterialB64u: record.sealedWorkerMaterialB64u,
-        materialFormatVersion: record.materialFormatVersion,
-        materialKeyId: record.materialKeyId,
-        materialCreatedAtMs: record.materialCreatedAtMs,
-      };
-    case 'restore_available':
-      return {
-        clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-        ed25519WorkerMaterialBindingDigest: record.ed25519WorkerMaterialBindingDigest,
-        sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
-        ...(record.sealedWorkerMaterialB64u
-          ? { sealedWorkerMaterialB64u: record.sealedWorkerMaterialB64u }
-          : {}),
-        materialFormatVersion: record.materialFormatVersion,
-        materialKeyId: record.materialKeyId,
-        materialCreatedAtMs: record.materialCreatedAtMs,
-      };
-    case 'auth_ready_material_pending':
-      return {};
-  }
-}
+};
 
 function forgetInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRecord): void {
   const accountKey = String(record.nearAccountId || '').trim();
@@ -2472,17 +2161,6 @@ function thresholdEd25519AuthBindingForRecord(
     rpId: toRpId(record.rpId),
     credentialIdB64u,
   };
-}
-
-function isRawOnlyEd25519ClientBaseInput(value: unknown): boolean {
-  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const rawClientBase = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
-  if (!rawClientBase) return false;
-  return (
-    !normalizeOptionalNonEmptyString(obj.ed25519WorkerMaterialHandle) &&
-    !normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialRef) &&
-    !normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialB64u)
-  );
 }
 
 export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
@@ -2619,9 +2297,7 @@ function getThresholdEd25519SessionLaneKeyForRecord(
   return key ? serializeThresholdEd25519SessionLaneKey(key) : null;
 }
 
-function thresholdEd25519AuthSupersessionKey(
-  record: ThresholdEd25519SessionRecord,
-): string | null {
+function thresholdEd25519AuthSupersessionKey(record: ThresholdEd25519SessionRecord): string | null {
   if (record.source === 'email_otp') {
     const providerSubjectId = record.emailOtpAuthContext
       ? emailOtpAuthContextProviderUserId(record.emailOtpAuthContext)
@@ -2656,7 +2332,6 @@ function thresholdEd25519SupersessionGroupKey(
 export function buildOperationUsableThresholdEd25519SessionRecord(
   record: ThresholdEd25519SessionRecord,
 ): OperationUsableThresholdEd25519SessionRecord | null {
-  if (record.materialState === 'auth_ready_material_pending') return null;
   if (!String(record.thresholdSessionId || '').trim()) return null;
   if (!String(record.signingGrantId || '').trim()) return null;
   if (!String(record.walletSessionJwt || '').trim()) return null;
@@ -2670,9 +2345,6 @@ export function describeOperationUsableThresholdEd25519SessionRecordRejection(
   record: ThresholdEd25519SessionRecord,
 ): readonly string[] {
   const reasons: string[] = [];
-  if (record.materialState === 'auth_ready_material_pending') {
-    reasons.push('material_pending');
-  }
   if (!String(record.thresholdSessionId || '').trim()) {
     reasons.push('missing_threshold_session_id');
   }
@@ -2704,8 +2376,7 @@ function sameThresholdEd25519SupersessionGroup(args: {
 }): boolean {
   const incomingGroupKey = thresholdEd25519SupersessionGroupKey(args.incoming);
   return Boolean(
-    incomingGroupKey &&
-      thresholdEd25519SupersessionGroupKey(args.existing) === incomingGroupKey,
+    incomingGroupKey && thresholdEd25519SupersessionGroupKey(args.existing) === incomingGroupKey,
   );
 }
 
@@ -3665,10 +3336,7 @@ export function upsertThresholdEcdsaSessionFact(
 export function upsertRestoredThresholdEcdsaSessionRecord(
   recordRaw: unknown,
 ): ThresholdEcdsaSessionRecord {
-  return upsertThresholdEcdsaSessionFact(
-    { recordsByLane: inMemoryEcdsaRecordsByLane },
-    recordRaw,
-  );
+  return upsertThresholdEcdsaSessionFact({ recordsByLane: inMemoryEcdsaRecordsByLane }, recordRaw);
 }
 
 export function listThresholdEcdsaSessionRecordsForWalletTarget(
@@ -4174,7 +3842,6 @@ export function getThresholdEcdsaSessionRecordByThresholdSessionId(
 export function buildThresholdEd25519SessionFact(
   args: ThresholdEd25519SessionUpsertInput,
 ): ThresholdEd25519SessionRecord | null {
-  if (isRawOnlyEd25519ClientBaseInput(args)) return null;
   const nearAccountId = toAccountId(args.nearAccountId);
   const rawWalletId = String(args.walletId || '').trim();
   const rawNearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || '').trim();
@@ -4185,7 +3852,6 @@ export function buildThresholdEd25519SessionFact(
   }
   const walletId = toWalletId(rawWalletId);
   const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(rawNearEd25519SigningKeyId);
-  const materialFields = normalizeThresholdEd25519UpsertMaterialFields(args);
   const signerSlot = Math.floor(Number(args.signerSlot) || 0);
   return normalizeThresholdEd25519SessionRecord({
     walletId,
@@ -4205,7 +3871,6 @@ export function buildThresholdEd25519SessionFact(
       ? { signingRootVersion: String(args.signingRootVersion || '').trim() }
       : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    ...materialFields,
     signerSlot,
     routerAbNormalSigning: args.routerAbNormalSigning,
     thresholdSessionKind: String(args.thresholdSessionKind || 'jwt')
@@ -4235,102 +3900,6 @@ export function upsertThresholdEd25519SessionFact(
     record,
     defaultPolicy: 'prefer_current_generation',
   });
-}
-
-// Material fields are written advance-only: callers must present an
-// Ed25519MaterialAdvance token, mintable solely from a worker seal outcome
-// (see session/ed25519MaterialAdvance.ts) — the one place a new material
-// generation legitimately originates. On top of the token requirement, this
-// function refuses writes that would move the record's material generation
-// backward: a stale generation landing here (an out-of-order async writer, a
-// republished durable cache) must never overwrite newer material, because every
-// consumer that already resolved the newer identity would silently desynchronize.
-export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
-  thresholdSessionId: string;
-  advance: Ed25519MaterialAdvance;
-  updatedAtMs?: number;
-}): ThresholdEd25519SessionRecord | null {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return null;
-  const {
-    clientVerifyingShareB64u,
-    ed25519WorkerMaterialHandle,
-    ed25519WorkerMaterialBindingDigest,
-    sealedWorkerMaterialRef,
-    sealedWorkerMaterialB64u,
-    materialFormatVersion,
-    materialKeyId,
-    materialCreatedAtMs,
-    signerSlot,
-  } = args.advance;
-  const existing = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
-  if (!existing) return null;
-  if (
-    ed25519MaterialAdvanceWouldRegress({
-      advance: args.advance,
-      existingMaterialKeyId: existing.materialKeyId,
-      existingMaterialCreatedAtMs: existing.materialCreatedAtMs,
-    })
-  ) {
-    console.warn(
-      '[SigningSession] refused Ed25519 material write that would regress the record generation',
-      {
-        thresholdSessionId,
-        existingMaterialCreatedAtMs: existing.materialCreatedAtMs,
-        incomingMaterialCreatedAtMs: materialCreatedAtMs,
-      },
-    );
-    return null;
-  }
-  const upserted = upsertThresholdEd25519SessionFact({
-    walletId: existing.walletId,
-    nearAccountId: existing.nearAccountId,
-    nearEd25519SigningKeyId: existing.nearEd25519SigningKeyId,
-    rpId: existing.rpId,
-    ...(existing.passkeyCredentialIdB64u
-      ? { passkeyCredentialIdB64u: existing.passkeyCredentialIdB64u }
-      : {}),
-    relayerUrl: existing.relayerUrl,
-    relayerKeyId: existing.relayerKeyId,
-    participantIds: existing.participantIds,
-    ...(existing.signingRootId ? { signingRootId: existing.signingRootId } : {}),
-    ...(existing.signingRootVersion ? { signingRootVersion: existing.signingRootVersion } : {}),
-    ...(existing.runtimePolicyScope ? { runtimePolicyScope: existing.runtimePolicyScope } : {}),
-    clientVerifyingShareB64u,
-    ed25519WorkerMaterialHandle,
-    ed25519WorkerMaterialBindingDigest,
-    sealedWorkerMaterialRef,
-    sealedWorkerMaterialB64u,
-    materialFormatVersion,
-    materialKeyId,
-    materialCreatedAtMs,
-    signerSlot,
-    routerAbNormalSigning: existing.routerAbNormalSigning,
-    thresholdSessionKind: existing.thresholdSessionKind,
-    thresholdSessionId: existing.thresholdSessionId,
-    ...(existing.signingGrantId ? { signingGrantId: existing.signingGrantId } : {}),
-    walletSessionJwt: existing.walletSessionJwt,
-    expiresAtMs: existing.expiresAtMs,
-    remainingUses: existing.remainingUses,
-    ...(existing.emailOtpAuthContext ? { emailOtpAuthContext: existing.emailOtpAuthContext } : {}),
-    updatedAtMs: args.updatedAtMs ?? Date.now(),
-    source: existing.source,
-  });
-  if (!upserted) return null;
-  const currentRecord = buildOperationUsableThresholdEd25519SessionRecord(upserted);
-  if (!currentRecord) return upserted;
-  const transition =
-    upserted.source === 'registration'
-      ? 'registration'
-      : upserted.source === 'email_otp'
-        ? 'step_up'
-        : 'wallet_unlock';
-  return requireCommittedThresholdEd25519Session(
-    commitCurrentThresholdEd25519Session({
-      record: currentRecord,
-      transition,
-    }),
-  );
 }
 
 // Broad Ed25519 wallet/account readers expose default/discovery records only.
@@ -4634,7 +4203,9 @@ export function retireRecoveredPasskeyThresholdEd25519Sessions(args: {
     !signerSlot ||
     !retainedThresholdSessionId
   ) {
-    throw new Error('[SigningEngine] recovered Ed25519 session retirement requires exact lane identity');
+    throw new Error(
+      '[SigningEngine] recovered Ed25519 session retirement requires exact lane identity',
+    );
   }
 
   const retiredRecords = [...inMemoryEd25519RecordsByLane.values()].filter((record) => {
@@ -4674,10 +4245,6 @@ export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
   const nowMs = Math.max(0, Math.floor(Number(args.nowMs ?? Date.now()) || 0));
   const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
   const remainingUses = Math.max(0, Math.floor(Number(record.remainingUses) || 0) - uses);
-  const retainMaterial = emailOtpAuthContextRetention(record.emailOtpAuthContext) !== 'single_use';
-  const retainedMaterialFields = retainMaterial
-    ? thresholdEd25519UpsertMaterialFieldsFromRecord(record)
-    : {};
   return upsertThresholdEd25519SessionFact({
     walletId: record.walletId,
     nearAccountId: record.nearAccountId,
@@ -4687,7 +4254,6 @@ export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
     relayerKeyId: record.relayerKeyId,
     participantIds: record.participantIds,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-    ...retainedMaterialFields,
     signerSlot: record.signerSlot,
     routerAbNormalSigning: record.routerAbNormalSigning,
     thresholdSessionKind: record.thresholdSessionKind,

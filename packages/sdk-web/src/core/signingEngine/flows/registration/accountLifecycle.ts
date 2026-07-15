@@ -4,7 +4,11 @@ import {
   SIGNER_SOURCES,
   type WalletAuthMethod,
 } from '@shared/utils/signerDomain';
-import type { WalletId } from '@shared/utils/registrationIntent';
+import {
+  nearEd25519SigningKeyIdFromString,
+  type NearEd25519SigningKeyId,
+  type WalletId,
+} from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -35,8 +39,12 @@ import {
   toIndexedDbChainTargetKey,
 } from '@/core/indexedDB/normalization';
 import { inferNearChainIdKey } from '@/core/accountData/near/accountRefs';
-import { buildNearProfileId } from '@/core/accountData/near/profileId';
-import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
+import {
+  buildNearProfileId,
+  parseNearAccountProjectionProfileId,
+  type NearAccountProjectionProfileId,
+} from '@/core/accountData/near/profileId';
+import { parseSignerSlot } from '@shared/utils/signerSlot';
 import type {
   ActivateAccountSignerInput,
   AccountSignerRecord,
@@ -45,6 +53,7 @@ import type {
   ProfileAuthenticatorRecord,
   SignerActivationPolicy,
 } from '@/core/indexedDB';
+import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import {
   thresholdEcdsaChainTargetKey,
@@ -65,6 +74,10 @@ export type StoreAuthenticatorInput = {
 
 export type StoredRegistrationData = {
   signerSlot: number;
+};
+
+export type StoredWalletEd25519SignerRegistration = StoredRegistrationData & {
+  rollbackReceipt: StoreWalletSignerFinalizeRollbackReceipt;
 };
 
 export type StoreWalletEd25519RegistrationInput = {
@@ -154,6 +167,33 @@ export type StoreWalletEcdsaSignerRecordsResult = {
   storedSigners: StoredWalletEcdsaSignerRecord[];
 };
 
+export type StoreWalletMixedRegistrationInput = StoreWalletEd25519RegistrationInput & {
+  walletKeys: readonly StoreWalletEcdsaWalletKey[];
+};
+
+export type StoreWalletMixedRegistrationResult = StoredRegistrationData &
+  StoreWalletEcdsaSignerRecordsResult;
+
+export type StoreWalletEmailOtpMixedRegistrationInput =
+  StoreWalletEmailOtpEd25519RegistrationInput & {
+    walletKeys: readonly StoreWalletEcdsaWalletKey[];
+    credential?: never;
+    credentialPublicKeyB64u?: never;
+  };
+
+export type StoreWalletEmailOtpMixedRegistrationResult = StoredRegistrationData &
+  StoreWalletEcdsaSignerRecordsResult;
+
+type StoreWalletRegistrationComposition =
+  | {
+      kind: 'near_ed25519_only';
+      walletKeys?: never;
+    }
+  | {
+      kind: 'near_ed25519_and_evm_family_ecdsa';
+      walletKeys: readonly StoreWalletEcdsaWalletKey[];
+    };
+
 const WALLET_SUBJECT_CHAIN_ID_KEY = 'wallet';
 const WALLET_SUBJECT_ACCOUNT_MODEL = 'wallet';
 const THRESHOLD_ECDSA_ACCOUNT_MODEL = 'threshold-ecdsa';
@@ -198,15 +238,21 @@ function verifiedCredentialPublicKeyBytes(value: string, field: string): Uint8Ar
 async function resolveNearProfileContext(
   deps: RegistrationAccountLifecycleDeps,
   nearAccountId: AccountId,
-): Promise<{ profileId: string; chainIdKey: string; accountAddress: string } | null> {
+): Promise<{
+  profileId: NearAccountProjectionProfileId;
+  chainIdKey: string;
+  accountAddress: string;
+} | null> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
     deps.accountStore,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) return null;
+  const profileId = parseNearAccountProjectionProfileId(context.profileId);
+  if (!profileId.ok) return null;
   return {
-    profileId: context.profileId,
+    profileId: profileId.value,
     chainIdKey: context.accountRef.chainIdKey,
     accountAddress: context.accountRef.accountAddress,
   };
@@ -268,8 +314,10 @@ export async function storeUserData(
 ): Promise<{ signerSlot: number }> {
   const nearAccountId = toAccountId(userData.nearAccountId);
   const signerSlot = Number(userData.signerSlot);
-  const normalizedSignerSlot =
-    Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+    throw new Error('SeamsWalletDB: storeUserData requires an exact signerSlot');
+  }
+  const normalizedSignerSlot = signerSlot;
   const profileId = toWalletId(userData.walletId);
   const chainIdKey = inferNearChainIdKey(nearAccountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
@@ -327,9 +375,7 @@ export async function storeUserData(
   return { signerSlot: activation.signerSlot };
 }
 
-export function getAllUsers(
-  deps: RegistrationAccountLifecycleDeps,
-): Promise<ClientUserData[]> {
+export function getAllUsers(deps: RegistrationAccountLifecycleDeps): Promise<ClientUserData[]> {
   return listNearAccountProjections(deps.accountStore);
 }
 
@@ -439,31 +485,10 @@ export async function nearAuthenticatorsByAccount(
   });
 }
 
-export async function updateLastLogin(
-  deps: RegistrationAccountLifecycleDeps,
-  walletId: WalletId,
-): Promise<void> {
-  const selectedId = String(walletId || '').trim();
-  if (!selectedId) {
-    throw new Error('SeamsWalletDB: selected wallet id is required');
-  }
-  const selectedProfile = await deps.accountStore.getProfile(selectedId).catch(() => null);
-  if (!selectedProfile?.profileId) return;
-  const lastProfileState = await deps.accountStore.getLastProfileState().catch(() => null);
-  const defaultSignerSlot = Number(selectedProfile.defaultSignerSlot);
-  const signerSlot =
-    lastProfileState?.profileId === selectedProfile.profileId
-      ? lastProfileState.activeSignerSlot
-      : Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1
-        ? defaultSignerSlot
-        : 1;
-  await deps.accountStore.setLastProfileStateForProfile(selectedProfile.profileId, signerSlot);
-}
-
 export async function setLastUser(
   deps: RegistrationAccountLifecycleDeps,
   walletId: WalletId,
-  signerSlot: number = 1,
+  signerSlot: number,
 ): Promise<void> {
   const normalizedSignerSlot = Number(signerSlot);
   if (!Number.isSafeInteger(normalizedSignerSlot) || normalizedSignerSlot < 1) {
@@ -483,46 +508,144 @@ export async function setLastUser(
   );
 }
 
+type AuthenticatedWalletProfileBinding = Readonly<{
+  kind: 'authenticated_near_ed25519_wallet_profile_binding';
+  walletId: WalletId;
+  nearProjectionProfileId: NearAccountProjectionProfileId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
+  operationalPublicKey: string;
+}>;
+
+type AuthenticatedWalletActivationDeps = {
+  accountStore: Pick<
+    RegistrationAccountLifecycleDeps['accountStore'],
+    | 'resolveProfileAccountContext'
+    | 'getProfile'
+    | 'listAccountSigners'
+    | 'setLastProfileStateForProfile'
+  >;
+  userPreferencesManager: RegistrationAccountLifecycleDeps['userPreferencesManager'];
+  nonceCoordinator: RegistrationAccountLifecycleDeps['nonceCoordinator'];
+};
+
+function storedSignerWalletId(value: unknown): WalletId | null {
+  try {
+    return toWalletId(value);
+  } catch {
+    return null;
+  }
+}
+
+function storedSignerNearAccountId(value: unknown): AccountId | null {
+  if (typeof value !== 'string') return null;
+  try {
+    return toAccountId(value);
+  } catch {
+    return null;
+  }
+}
+
+function storedSignerNearEd25519SigningKeyId(value: unknown): NearEd25519SigningKeyId | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    return nearEd25519SigningKeyIdFromString(value);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAuthenticatedWalletProfileBinding(
+  deps: AuthenticatedWalletActivationDeps,
+  args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    signerSlot: number;
+  },
+): Promise<AuthenticatedWalletProfileBinding> {
+  let projection: Awaited<ReturnType<typeof resolveProfileAccountProjection>> = null;
+  try {
+    projection = await resolveProfileAccountProjection(deps.accountStore, {
+      accountRefs: buildNearAccountRefs(args.nearAccountId),
+      signerSlot: args.signerSlot,
+    });
+  } catch {
+    projection = null;
+  }
+  if (!projection) {
+    throw new Error('Authenticated wallet activation requires an exact NEAR signer projection');
+  }
+  const nearProjectionProfileId = parseNearAccountProjectionProfileId(projection.context.profileId);
+  if (!nearProjectionProfileId.ok) {
+    throw new Error(nearProjectionProfileId.message);
+  }
+  const selectedSigner = projection.selectedSigner;
+  const metadata = selectedSigner.metadata || {};
+  const storedWalletId = storedSignerWalletId(metadata.walletId);
+  const storedNearAccountId = storedSignerNearAccountId(metadata.nearAccountId);
+  const nearEd25519SigningKeyId = storedSignerNearEd25519SigningKeyId(
+    metadata.nearEd25519SigningKeyId,
+  );
+  const operationalPublicKey =
+    typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey.trim() : '';
+  if (
+    selectedSigner.signerKind !== SIGNER_KINDS.thresholdEd25519 ||
+    selectedSigner.signerSlot !== args.signerSlot ||
+    storedWalletId !== args.walletId ||
+    storedNearAccountId !== args.nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !operationalPublicKey
+  ) {
+    throw new Error('Authenticated wallet activation requires an exact wallet signer binding');
+  }
+  return {
+    kind: 'authenticated_near_ed25519_wallet_profile_binding',
+    walletId: storedWalletId,
+    nearProjectionProfileId: nearProjectionProfileId.value,
+    nearAccountId: storedNearAccountId,
+    nearEd25519SigningKeyId,
+    signerSlot: selectedSigner.signerSlot,
+    operationalPublicKey,
+  };
+}
+
 export async function activateAuthenticatedWalletState(
-  deps: RegistrationAccountLifecycleDeps,
-  args: { walletId: WalletId; nearAccountId: AccountId; nearClient?: NearClient },
+  deps: AuthenticatedWalletActivationDeps,
+  args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    signerSlot: number;
+    nearClient?: NearClient;
+  },
 ): Promise<void> {
   const accountId = toAccountId(args.nearAccountId);
   const walletId = toWalletId(args.walletId);
-
-  // Set as last profile/signer slot for future sessions, preferring the existing pointer.
-  let signerSlotToUse = await getLastLoggedInSignerSlot(
-    accountId,
-    deps.accountStore,
-  ).catch(() => null as number | null);
-  if (signerSlotToUse === null) {
-    const context = await resolveNearProfileContext(deps, accountId);
-    const profile = context?.profileId
-      ? await deps.accountStore.getProfile(context.profileId).catch(() => null)
-      : null;
-    const defaultSignerSlot = Number(profile?.defaultSignerSlot);
-    signerSlotToUse =
-      Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1 ? defaultSignerSlot : 1;
+  const signerSlot = parseSignerSlot(args.signerSlot);
+  if (!signerSlot) {
+    throw new Error('Authenticated wallet activation requires an exact signerSlot');
   }
-  const context = await resolveNearProfileContext(deps, accountId);
-  if (context?.profileId) {
-    await deps.accountStore.setLastProfileStateForProfile(context.profileId, signerSlotToUse);
-  }
+  const binding = await resolveAuthenticatedWalletProfileBinding(deps, {
+    walletId,
+    nearAccountId: accountId,
+    signerSlot,
+  });
+  await deps.accountStore.setLastProfileStateForProfile(
+    binding.nearProjectionProfileId,
+    binding.signerSlot,
+  );
 
   // Set as current user for immediate use
-  deps.userPreferencesManager.setCurrentWallet(walletId);
+  deps.userPreferencesManager.setCurrentWallet(binding.walletId);
   // Ensure confirmation preferences are loaded before callers read them (best-effort)
   await deps.userPreferencesManager.reloadUserSettings().catch(() => undefined);
 
   // Initialize the coordinator's NEAR access-key lane with the selected operational key.
-  const userData = await readNearUserData(deps, accountId, signerSlotToUse);
-  if (userData && userData.operationalPublicKey) {
-    deps.nonceCoordinator.initializeNearAccessKey({
-      walletId,
-      nearAccountId: accountId,
-      publicKey: userData.operationalPublicKey,
-    });
-  }
+  deps.nonceCoordinator.initializeNearAccessKey({
+    walletId: binding.walletId,
+    nearAccountId: binding.nearAccountId,
+    publicKey: binding.operationalPublicKey,
+  });
 
   // Prefetch block height for better UX (non-fatal if it fails and nearClient is provided)
   if (args.nearClient) {
@@ -620,7 +743,9 @@ async function emailOtpAuthMethod(args: {
   registrationAuthorityId: string;
 }): Promise<LocalWalletAuthMethodRecord> {
   const walletId = String(args.walletId || '').trim();
-  const email = String(args.email || '').trim().toLowerCase();
+  const email = String(args.email || '')
+    .trim()
+    .toLowerCase();
   const registrationAuthorityId = String(args.registrationAuthorityId || '').trim();
   if (!walletId || !email || !registrationAuthorityId) {
     throw new Error(
@@ -711,15 +836,13 @@ function keyMaterialForSignerActivation(args: {
 }): KeyMaterialRecord {
   const metadata = args.activation.signer.metadata || {};
   const signerKind = args.activation.signer.signerKind;
-  const publicKey = signerKind === SIGNER_KINDS.thresholdEcdsa
-    ? requireStoreWalletString(
-        metadata.thresholdEcdsaPublicKeyB64u,
-        'ECDSA key material publicKey',
-      )
-    : requireStoreWalletString(
-        metadata.operationalPublicKey,
-        'Ed25519 key material publicKey',
-      );
+  const publicKey =
+    signerKind === SIGNER_KINDS.thresholdEcdsa
+      ? requireStoreWalletString(
+          metadata.thresholdEcdsaPublicKeyB64u,
+          'ECDSA key material publicKey',
+        )
+      : requireStoreWalletString(metadata.operationalPublicKey, 'Ed25519 key material publicKey');
   const record: KeyMaterialRecord = {
     profileId: requireStoreWalletString(args.activation.account.profileId, 'profileId'),
     signerSlot: args.signerSlot,
@@ -788,7 +911,8 @@ async function storeWalletEd25519RegistrationDataWithMode(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519RegistrationInput,
   mode: StoreWalletEd25519RegistrationMode,
-): Promise<StoredRegistrationData> {
+  composition: StoreWalletRegistrationComposition,
+): Promise<StoreWalletMixedRegistrationResult> {
   const credentialId = String(args.credential.rawId || '').trim();
   if (!credentialId) {
     throw new Error('SeamsWalletDB: registration credential rawId is required');
@@ -826,16 +950,15 @@ async function storeWalletEd25519RegistrationDataWithMode(
     passkeyCredentialRawId: credentialId,
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),
-    ...(args.relayerParticipantId != null ? { relayerParticipantId: args.relayerParticipantId } : {}),
+    ...(args.relayerParticipantId != null
+      ? { relayerParticipantId: args.relayerParticipantId }
+      : {}),
   };
 
   const nearProfileId = buildNearProfileId(nearAccountId);
   const chainIdKey = inferNearChainIdKey(nearAccountId);
   const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
-  const ed25519SignerId = requireStoreWalletString(
-    args.operationalPublicKey,
-    'Ed25519 signerId',
-  );
+  const ed25519SignerId = requireStoreWalletString(args.operationalPublicKey, 'Ed25519 signerId');
   const activationPolicy = walletEd25519RegistrationActivationPolicy({
     mode,
     signerSlot,
@@ -878,7 +1001,46 @@ async function storeWalletEd25519RegistrationDataWithMode(
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
   };
+  const preparedEcdsa =
+    composition.kind === 'near_ed25519_and_evm_family_ecdsa'
+      ? prepareWalletEcdsaSignerActivations({
+          walletId: args.walletId,
+          walletKeys: composition.walletKeys,
+        })
+      : null;
+  const signerActivations: ActivateAccountSignerInput[] = [walletActivation, nearActivation];
+  if (preparedEcdsa) {
+    for (const activation of preparedEcdsa.signerActivations) {
+      signerActivations.push(activation.input);
+    }
+  }
   const keyMaterialTimestamp = Date.now();
+  const keyMaterials: KeyMaterialRecord[] = [];
+  keyMaterials.push(
+    keyMaterialForSignerActivation({
+      activation: walletActivation,
+      signerSlot,
+      timestamp: keyMaterialTimestamp,
+    }),
+  );
+  keyMaterials.push(
+    keyMaterialForSignerActivation({
+      activation: nearActivation,
+      signerSlot,
+      timestamp: keyMaterialTimestamp,
+    }),
+  );
+  if (preparedEcdsa) {
+    for (const activation of preparedEcdsa.signerActivations) {
+      keyMaterials.push(
+        keyMaterialForSignerActivation({
+          activation: activation.input,
+          signerSlot: activation.signerSlot,
+          timestamp: keyMaterialTimestamp,
+        }),
+      );
+    }
+  }
   const result = await deps.accountStore.persistWalletRegistrationFinalize({
     profiles: [
       {
@@ -919,50 +1081,79 @@ async function storeWalletEd25519RegistrationDataWithMode(
         syncedAt: nowIso,
       },
     ],
-    signerActivations: [walletActivation, nearActivation],
-    keyMaterials: [
-      keyMaterialForSignerActivation({
-        activation: walletActivation,
-        signerSlot,
-        timestamp: keyMaterialTimestamp,
-      }),
-      keyMaterialForSignerActivation({
-        activation: nearActivation,
-        signerSlot,
-        timestamp: keyMaterialTimestamp,
-      }),
-    ],
+    signerActivations,
+    keyMaterials,
     lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
   });
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {
     throw new Error('SeamsWalletDB: wallet Ed25519 registration batch did not complete');
   }
-  return { signerSlot: storedNearActivation.signerSlot };
+  const storedSigners: StoredWalletEcdsaSignerRecord[] = [];
+  if (preparedEcdsa) {
+    for (let index = 0; index < preparedEcdsa.signerActivations.length; index += 1) {
+      const activation = preparedEcdsa.signerActivations[index];
+      const stored = result.signerActivations[index + 2];
+      if (!activation || !stored) {
+        throw new Error('SeamsWalletDB: mixed wallet ECDSA registration batch did not complete');
+      }
+      storedSigners.push({
+        chainTarget: activation.chainTarget,
+        targetKey: activation.targetKey,
+        signerSlot: stored.signerSlot,
+        signerId: activation.signerId,
+      });
+    }
+  }
+  return { signerSlot: storedNearActivation.signerSlot, storedSigners };
 }
 
 export async function storeWalletEd25519RegistrationData(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519RegistrationInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletEd25519RegistrationDataWithMode(deps, args, {
-    kind: 'fresh_registration',
-  });
+  const stored = await storeWalletEd25519RegistrationDataWithMode(
+    deps,
+    args,
+    { kind: 'fresh_registration' },
+    { kind: 'near_ed25519_only' },
+  );
+  return { signerSlot: stored.signerSlot };
+}
+
+export async function storeWalletMixedRegistrationData(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletMixedRegistrationInput,
+): Promise<StoreWalletMixedRegistrationResult> {
+  return await storeWalletEd25519RegistrationDataWithMode(
+    deps,
+    args,
+    { kind: 'fresh_registration' },
+    {
+      kind: 'near_ed25519_and_evm_family_ecdsa',
+      walletKeys: args.walletKeys,
+    },
+  );
 }
 
 export async function storeWalletEd25519RecoveryRegistrationData(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519RegistrationInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletEd25519RegistrationDataWithMode(deps, args, {
-    kind: 'email_recovery_replacement',
-  });
+  const stored = await storeWalletEd25519RegistrationDataWithMode(
+    deps,
+    args,
+    { kind: 'email_recovery_replacement' },
+    { kind: 'near_ed25519_only' },
+  );
+  return { signerSlot: stored.signerSlot };
 }
 
-export async function storeWalletEmailOtpEd25519RegistrationData(
+async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEmailOtpEd25519RegistrationInput,
-): Promise<StoredRegistrationData> {
+  composition: StoreWalletRegistrationComposition,
+): Promise<StoreWalletEmailOtpMixedRegistrationResult> {
   const signerSlot = Number(args.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
     throw new Error('SeamsWalletDB: wallet signerSlot must be an integer >= 1');
@@ -983,20 +1174,21 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
-    email: String(args.email || '').trim().toLowerCase(),
+    email: String(args.email || '')
+      .trim()
+      .toLowerCase(),
     registrationAuthorityId: String(args.registrationAuthorityId || '').trim(),
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),
-    ...(args.relayerParticipantId != null ? { relayerParticipantId: args.relayerParticipantId } : {}),
+    ...(args.relayerParticipantId != null
+      ? { relayerParticipantId: args.relayerParticipantId }
+      : {}),
   };
 
   const nearProfileId = buildNearProfileId(nearAccountId);
   const chainIdKey = inferNearChainIdKey(nearAccountId);
   const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
-  const ed25519SignerId = requireStoreWalletString(
-    args.operationalPublicKey,
-    'Ed25519 signerId',
-  );
+  const ed25519SignerId = requireStoreWalletString(args.operationalPublicKey, 'Ed25519 signerId');
   const walletActivation: ActivateAccountSignerInput = {
     account: {
       profileId: walletId,
@@ -1035,7 +1227,49 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
   };
+  const preparedEcdsa =
+    composition.kind === 'near_ed25519_and_evm_family_ecdsa'
+      ? prepareWalletEcdsaSignerActivations(
+          {
+            walletId: args.walletId,
+            walletKeys: composition.walletKeys,
+          },
+          {
+            signerAuthMethod: SIGNER_AUTH_METHODS.emailOtp,
+            signerSource: SIGNER_SOURCES.emailOtpRegistration,
+          },
+        )
+      : null;
+  const signerActivations: ActivateAccountSignerInput[] = [walletActivation, nearActivation];
+  if (preparedEcdsa) {
+    for (const activation of preparedEcdsa.signerActivations) {
+      signerActivations.push(activation.input);
+    }
+  }
   const keyMaterialTimestamp = Date.now();
+  const keyMaterials = [
+    keyMaterialForSignerActivation({
+      activation: walletActivation,
+      signerSlot,
+      timestamp: keyMaterialTimestamp,
+    }),
+    keyMaterialForSignerActivation({
+      activation: nearActivation,
+      signerSlot,
+      timestamp: keyMaterialTimestamp,
+    }),
+  ];
+  if (preparedEcdsa) {
+    for (const activation of preparedEcdsa.signerActivations) {
+      keyMaterials.push(
+        keyMaterialForSignerActivation({
+          activation: activation.input,
+          signerSlot: activation.signerSlot,
+          timestamp: keyMaterialTimestamp,
+        }),
+      );
+    }
+  }
   const result = await deps.accountStore.persistWalletRegistrationFinalize({
     profiles: [
       {
@@ -1053,32 +1287,59 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
       registrationAuthorityId: args.registrationAuthorityId,
     }),
     authenticators: [],
-    signerActivations: [walletActivation, nearActivation],
-    keyMaterials: [
-      keyMaterialForSignerActivation({
-        activation: walletActivation,
-        signerSlot,
-        timestamp: keyMaterialTimestamp,
-      }),
-      keyMaterialForSignerActivation({
-        activation: nearActivation,
-        signerSlot,
-        timestamp: keyMaterialTimestamp,
-      }),
-    ],
+    signerActivations,
+    keyMaterials,
     lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
   });
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {
     throw new Error('SeamsWalletDB: wallet Email OTP Ed25519 registration batch did not complete');
   }
-  return { signerSlot: storedNearActivation.signerSlot };
+  const storedSigners: StoredWalletEcdsaSignerRecord[] = [];
+  if (preparedEcdsa) {
+    for (let index = 0; index < preparedEcdsa.signerActivations.length; index += 1) {
+      const activation = preparedEcdsa.signerActivations[index];
+      const stored = result.signerActivations[index + 2];
+      if (!activation || !stored) {
+        throw new Error(
+          'SeamsWalletDB: mixed wallet Email OTP ECDSA registration batch did not complete',
+        );
+      }
+      storedSigners.push({
+        chainTarget: activation.chainTarget,
+        targetKey: activation.targetKey,
+        signerSlot: stored.signerSlot,
+        signerId: activation.signerId,
+      });
+    }
+  }
+  return { signerSlot: storedNearActivation.signerSlot, storedSigners };
+}
+
+export async function storeWalletEmailOtpEd25519RegistrationData(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEmailOtpEd25519RegistrationInput,
+): Promise<StoredRegistrationData> {
+  const stored = await storeWalletEmailOtpEd25519RegistrationDataWithComposition(deps, args, {
+    kind: 'near_ed25519_only',
+  });
+  return { signerSlot: stored.signerSlot };
+}
+
+export async function storeWalletEmailOtpMixedRegistrationData(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEmailOtpMixedRegistrationInput,
+): Promise<StoreWalletEmailOtpMixedRegistrationResult> {
+  return storeWalletEmailOtpEd25519RegistrationDataWithComposition(deps, args, {
+    kind: 'near_ed25519_and_evm_family_ecdsa',
+    walletKeys: args.walletKeys,
+  });
 }
 
 export async function finalizeWalletEd25519SignerRegistration(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519SignerRecordInput,
-): Promise<StoredRegistrationData> {
+): Promise<StoredWalletEd25519SignerRegistration> {
   const credentialId = String(args.credential.rawId || args.credential.id || '').trim();
   if (!credentialId) {
     throw new Error('SeamsWalletDB: add-signer credential id is required');
@@ -1111,16 +1372,15 @@ export async function finalizeWalletEd25519SignerRegistration(
     passkeyCredentialRawId: credentialId,
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),
-    ...(args.relayerParticipantId != null ? { relayerParticipantId: args.relayerParticipantId } : {}),
+    ...(args.relayerParticipantId != null
+      ? { relayerParticipantId: args.relayerParticipantId }
+      : {}),
   };
 
   const nearProfileId = buildNearProfileId(nearAccountId);
   const chainIdKey = inferNearChainIdKey(nearAccountId);
   const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
-  const ed25519SignerId = requireStoreWalletString(
-    args.operationalPublicKey,
-    'Ed25519 signerId',
-  );
+  const ed25519SignerId = requireStoreWalletString(args.operationalPublicKey, 'Ed25519 signerId');
   const walletActivation = {
     account: {
       profileId: walletId,
@@ -1173,10 +1433,7 @@ export async function finalizeWalletEd25519SignerRegistration(
         passkeyCredential,
       },
     ],
-    signerActivations: [
-      walletActivation,
-      nearActivation,
-    ],
+    signerActivations: [walletActivation, nearActivation],
     keyMaterials: [
       keyMaterialForSignerActivation({
         activation: walletActivation,
@@ -1195,7 +1452,17 @@ export async function finalizeWalletEd25519SignerRegistration(
   if (!storedNearActivation) {
     throw new Error('SeamsWalletDB: wallet Ed25519 signer batch did not complete');
   }
-  return { signerSlot: storedNearActivation.signerSlot };
+  return {
+    signerSlot: storedNearActivation.signerSlot,
+    rollbackReceipt: result.rollbackReceipt,
+  };
+}
+
+export async function rollbackWalletEd25519SignerRegistration(
+  deps: RegistrationAccountLifecycleDeps,
+  receipt: StoreWalletSignerFinalizeRollbackReceipt,
+): Promise<void> {
+  await deps.accountStore.rollbackWalletSignerFinalize(receipt);
 }
 
 function requireStoreWalletString(value: unknown, field: string): string {
@@ -1241,10 +1508,7 @@ function prepareWalletEcdsaSignerActivations(
   walletId: string;
   signerActivations: PreparedWalletEcdsaSignerActivation[];
 } {
-  const expectedWalletId = requireStoreWalletString(
-    args.walletId,
-    'walletId',
-  );
+  const expectedWalletId = requireStoreWalletString(args.walletId, 'walletId');
   if (!Array.isArray(args.walletKeys) || args.walletKeys.length === 0) {
     throw new Error('SeamsWalletDB: threshold ECDSA walletKeys are required');
   }
@@ -1271,7 +1535,10 @@ function prepareWalletEcdsaSignerActivations(
       walletKey.signingRootVersion,
       'wallet key signingRootVersion',
     );
-    const evmFamilySigningKeySlotId = requireStoreWalletString(walletKey.evmFamilySigningKeySlotId, 'wallet key evmFamilySigningKeySlotId');
+    const evmFamilySigningKeySlotId = requireStoreWalletString(
+      walletKey.evmFamilySigningKeySlotId,
+      'wallet key evmFamilySigningKeySlotId',
+    );
     const relayerKeyId = requireStoreWalletString(
       walletKey.relayerKeyId,
       'wallet key relayerKeyId',
@@ -1281,9 +1548,7 @@ function prepareWalletEcdsaSignerActivations(
       'wallet key thresholdEcdsaPublicKeyB64u',
     );
     const participantIds = normalizeStoreWalletParticipantIds(walletKey.participantIds);
-    const thresholdOwnerAddress = normalizeIndexedDbAccountAddress(
-      walletKey.thresholdOwnerAddress,
-    );
+    const thresholdOwnerAddress = normalizeIndexedDbAccountAddress(walletKey.thresholdOwnerAddress);
     if (!thresholdOwnerAddress) {
       throw new Error('SeamsWalletDB: wallet key thresholdOwnerAddress is required');
     }
@@ -1361,8 +1626,7 @@ export async function storeWalletEcdsaSignerRecords(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEcdsaSignerRecordsInput,
 ): Promise<StoreWalletEcdsaSignerRecordsResult> {
-  const { walletId, signerActivations } =
-    prepareWalletEcdsaSignerActivations(args);
+  const { walletId, signerActivations } = prepareWalletEcdsaSignerActivations(args);
   const keyMaterialTimestamp = Date.now();
   const batch = await deps.accountStore.persistWalletSignerFinalize({
     profiles: [{ profileId: walletId }],
@@ -1471,10 +1735,7 @@ export async function finalizeWalletEcdsaRegistration(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEcdsaRegistrationInput,
 ): Promise<StoreWalletEcdsaSignerRecordsResult> {
-  const walletId = requireStoreWalletString(
-    args.walletId,
-    'walletId',
-  );
+  const walletId = requireStoreWalletString(args.walletId, 'walletId');
   const credentialId = String(args.credential.rawId || '').trim();
   if (!credentialId) {
     throw new Error('SeamsWalletDB: registration credential rawId is required');
@@ -1549,10 +1810,7 @@ export async function storeWalletEmailOtpEcdsaRegistrationData(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEmailOtpEcdsaRegistrationInput,
 ): Promise<StoreWalletEcdsaSignerRecordsResult> {
-  const walletId = requireStoreWalletString(
-    args.walletId,
-    'walletId',
-  );
+  const walletId = requireStoreWalletString(args.walletId, 'walletId');
   const preparedEcdsa = prepareWalletEcdsaSignerActivations(
     {
       walletId: args.walletId,

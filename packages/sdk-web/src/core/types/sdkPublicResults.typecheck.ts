@@ -156,6 +156,25 @@ const ecdsaRegistrationSuccess: RegistrationResult = {
 };
 void ecdsaRegistrationSuccess;
 
+const mixedRegistrationSuccess: RegistrationResult = {
+  success: true,
+  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  walletId,
+  accountProvisioning: implicitNearAccountProvisioning(),
+  resolvedAccount: {
+    kind: 'implicit_account',
+    nearAccountId: implicitNearAccountId,
+    nearEd25519SigningKeyId,
+  },
+  nearEd25519SigningKeyId,
+  operationalPublicKey: 'ed25519:public-key',
+  nearAccountId: implicitNearAccountId,
+  transactionId: null,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+};
+void mixedRegistrationSuccess;
+
 // @ts-expect-error NEAR registration success requires resolved provisioning and account data.
 const invalidNearRegistrationSuccess: RegistrationResult = {
   success: true,
@@ -175,3 +194,40 @@ const invalidEcdsaRegistrationSuccess: RegistrationResult = {
   accountProvisioning: implicitNearAccountProvisioning(),
 };
 void invalidEcdsaRegistrationSuccess;
+
+// @ts-expect-error NEAR-only registration cannot carry ECDSA key material.
+const invalidNearRegistrationWithEcdsa: RegistrationResult = {
+  ...nearRegistrationSuccess,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+};
+void invalidNearRegistrationWithEcdsa;
+
+// @ts-expect-error Mixed registration requires both ECDSA result fields.
+const invalidMixedRegistrationWithoutPublicKey: RegistrationResult = {
+  success: true,
+  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  walletId,
+  accountProvisioning: implicitNearAccountProvisioning(),
+  resolvedAccount: {
+    kind: 'implicit_account',
+    nearAccountId: implicitNearAccountId,
+    nearEd25519SigningKeyId,
+  },
+  nearEd25519SigningKeyId,
+  operationalPublicKey: 'ed25519:public-key',
+  nearAccountId: implicitNearAccountId,
+  transactionId: null,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+};
+void invalidMixedRegistrationWithoutPublicKey;
+
+// @ts-expect-error ECDSA-only registration cannot use the mixed result discriminant.
+const invalidMixedRegistrationWithoutNearFields: RegistrationResult = {
+  success: true,
+  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  walletId,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+};
+void invalidMixedRegistrationWithoutNearFields;

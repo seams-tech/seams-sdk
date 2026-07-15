@@ -7,10 +7,10 @@ import { createEvmFamilySigningDeps } from './ports/evmFamily';
 import { createNearSigningDeps } from './ports/near';
 import {
   createRegistrationAccountLifecycleDeps,
-  createThresholdEd25519LifecycleDeps,
   createWalletSessionActivationDeps,
 } from './ports/registration';
 import { createPrivateKeyExportRecoveryDeps } from './ports/recovery';
+import { Ed25519YaoActiveClientRegistry } from '../threshold/ed25519/yaoActiveClientRegistry';
 import {
   createGetOrCreateActiveThresholdEcdsaSessionId,
   createManagerConveniencePortsFactory,
@@ -28,17 +28,17 @@ export type {
   SigningEnginePorts,
 } from './ports/shared';
 
-export function createSigningEnginePorts(
-  args: CreateSigningEnginePortsArgs,
-): SigningEnginePorts {
+export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): SigningEnginePorts {
+  const ed25519YaoActiveClients = new Ed25519YaoActiveClientRegistry(
+    args.ed25519YaoPublicCapabilityReferences,
+  );
   const nearRpcUrl = resolveNearRpcUrl(args);
   const getEmailOtpWarmSessionStatus = createEmailOtpWarmSessionStatusReader(args);
   const signingSessionCoordinator = createSigningSessionCoordinatorPort({
     createArgs: args,
     getEmailOtpWarmSessionStatus,
   });
-  const getOrCreateActiveThresholdEcdsaSessionId =
-    createGetOrCreateActiveThresholdEcdsaSessionId();
+  const getOrCreateActiveThresholdEcdsaSessionId = createGetOrCreateActiveThresholdEcdsaSessionId();
   const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, {
     warmupStore: args.stores.warmup.store,
   });
@@ -48,13 +48,14 @@ export function createSigningEnginePorts(
   });
 
   return {
-    thresholdEd25519LifecycleDeps: createThresholdEd25519LifecycleDeps(args),
+    ed25519YaoActiveClients,
     nearSigningDeps: createNearSigningDeps({
       createArgs: args,
       walletSignerStore: args.stores.walletProfileAndSignerRecords.walletSignerStore,
       nearRpcUrl,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
+      ed25519YaoActiveClients,
     }),
     tempoSigningDeps: createEvmFamilySigningDeps({
       createArgs: args,

@@ -40,6 +40,7 @@ const preparedOperation = {
     curve: 'ed25519',
     chain: 'near',
     walletId,
+    signerSelection: { kind: 'near_account', nearAccountId: accountId },
     authSelectionPolicy: { kind: 'explicit', authMethod: 'passkey' },
     operationUsesNeeded: 1,
   },

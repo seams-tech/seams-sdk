@@ -4,11 +4,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  SignerAuthMethod,
-  SignerKind,
-  SignerSource,
-} from '@shared/utils';
+import type { SignerAuthMethod, SignerKind, SignerSource } from '@shared/utils';
 import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
 
 export interface PasskeyCredentialRecord {
@@ -243,13 +239,12 @@ export interface ProfileRecoveryEmailRecord {
 
 export type NonceLaneLeaseStoreRecordState = 'reserved' | 'signed' | 'broadcast_accepted';
 
-interface NonceLaneLeaseStoreRecordBase {
+interface NonceLaneLeaseStoreRecordBaseWithoutLifecycle {
   v: 1;
   leaseId: string;
   laneKey: string;
   networkKey: string;
   nonce: string;
-  state: NonceLaneLeaseStoreRecordState;
   operationId: string;
   operationFingerprint: string;
   reservedAtMs: number;
@@ -261,15 +256,29 @@ interface NonceLaneLeaseStoreRecordBase {
   txIndex?: number;
 }
 
+type NonceLaneLeaseStoreRecordLifecycle<TTransactionHash extends string> =
+  | {
+      state: 'reserved' | 'signed';
+      txHash?: never;
+    }
+  | {
+      state: 'broadcast_accepted';
+      txHash: TTransactionHash;
+    };
+
+type NonceLaneLeaseStoreRecordBase<TTransactionHash extends string> =
+  NonceLaneLeaseStoreRecordBaseWithoutLifecycle &
+    NonceLaneLeaseStoreRecordLifecycle<TTransactionHash>;
+
 export type NonceLaneLeaseStoreRecord =
-  | (NonceLaneLeaseStoreRecordBase & {
+  | (NonceLaneLeaseStoreRecordBase<`0x${string}`> & {
       family: 'evm';
       chainTarget: ThresholdEcdsaChainTarget;
       sender: `0x${string}` | string;
       nonceKey?: string;
       accountId: string;
     })
-  | (NonceLaneLeaseStoreRecordBase & {
+  | (NonceLaneLeaseStoreRecordBase<string> & {
       family: 'near';
       walletId: string;
       nearAccountId: string;

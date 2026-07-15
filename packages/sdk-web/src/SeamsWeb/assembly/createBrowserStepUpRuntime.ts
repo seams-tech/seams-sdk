@@ -34,7 +34,6 @@ export function createBrowserStepUpRuntime(args: {
     touchIdPrompt: args.touchIdPrompt,
     signerWorkerManager: args.signerWorkerManager,
     ecdsaBootstrapStore: args.stores.walletProfileAndSignerRecords.ecdsaBootstrapStore,
-    ed25519MetadataStore: args.stores.recoveryAndDeviceLinking.ed25519MetadataStore,
     sealedSessionStore: args.sealedSigningSessionStore,
     baseTouchConfirm: args.baseTouchConfirm,
     getSignerWorkerContext: () =>

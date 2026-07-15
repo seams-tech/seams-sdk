@@ -3,14 +3,12 @@ import type { ConfirmNearStepUpSigningOperationResult } from '../shared/signingC
 import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 import type {
   NearEd25519EmailOtpStepUpAuthorization,
-  NearEd25519EmailOtpMaterialRestoreAuthorization,
   NearEd25519PasskeyStepUpAuthorization,
   NearEd25519StepUpAuthorization,
   NearEd25519WarmSessionStepUpAuthorization,
   NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
 import type {
-  EmailOtpConfirmPrompt,
   SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 
@@ -37,7 +35,6 @@ export function buildNearEd25519WarmSessionStepUpAuthorization(
 export function buildNearEd25519StepUpAuthorization(args: {
   prepared: NearPreparedStepUpAuth;
   confirmation: ConfirmNearStepUpSigningOperationResult;
-  emailOtpMaterialRestoreAuthorization?: NearEd25519EmailOtpMaterialRestoreAuthorization;
 }): NearEd25519StepUpAuthorization {
   if (args.prepared.kind === 'warm_session') {
     return buildNearEd25519WarmSessionStepUpAuthorization(
@@ -46,20 +43,14 @@ export function buildNearEd25519StepUpAuthorization(args: {
   }
 
   if (args.prepared.kind === 'email_otp') {
-    const otpCode = normalizeOtpCode(args.confirmation.otpCode);
-    const challengeId = normalizeChallengeId(
-      args.confirmation.emailOtpChallengeId,
-      args.prepared.emailOtpPrompt,
-      'NEAR step-up authorization',
-    );
     return {
       kind: 'email_otp',
       signingAuthPlan: args.prepared.confirmationAuthPayload.signingAuthPlan,
-      challengeId,
-      otpCode,
-      ed25519MaterialRestoreAuthorization:
-        args.emailOtpMaterialRestoreAuthorization ||
-        unavailableEmailOtpMaterialRestoreAuthorization(),
+      challengeId: normalizeNearEmailOtpChallengeId(
+        args.confirmation.emailOtpChallengeId,
+        args.prepared.emailOtpPrompt.challengeId,
+      ),
+      otpCode: normalizeNearEmailOtpCode(args.confirmation.otpCode),
       ...(args.prepared.emailOtpPrompt.emailHint
         ? { emailHint: args.prepared.emailOtpPrompt.emailHint }
         : {}),
@@ -77,29 +68,18 @@ export function buildNearEd25519StepUpAuthorization(args: {
   };
 }
 
-function normalizeOtpCode(otpCodeRaw: unknown): string {
-  const otpCode = String(otpCodeRaw || '').trim();
+function normalizeNearEmailOtpCode(value: unknown): string {
+  const otpCode = String(value || '').trim();
   if (!/^\d{6}$/.test(otpCode)) {
-    throw new Error('[SigningEngine] missing Email OTP code from touchConfirm');
+    throw new Error('[SigningEngine] missing Email OTP code for NEAR step-up authorization');
   }
   return otpCode;
 }
 
-function normalizeChallengeId(
-  challengeIdRaw: unknown,
-  prompt: EmailOtpConfirmPrompt,
-  context: string,
-): string {
-  const challengeId = String(challengeIdRaw || prompt.challengeId || '').trim();
+function normalizeNearEmailOtpChallengeId(value: unknown, fallback: string): string {
+  const challengeId = String(value || fallback || '').trim();
   if (!challengeId) {
-    throw new Error(`[SigningEngine] missing Email OTP challenge id for ${context}`);
+    throw new Error('[SigningEngine] missing Email OTP challenge id for NEAR step-up authorization');
   }
   return challengeId;
-}
-
-function unavailableEmailOtpMaterialRestoreAuthorization(): NearEd25519EmailOtpMaterialRestoreAuthorization {
-  return {
-    kind: 'ed25519_email_otp_material_unseal_authorization_unavailable',
-    reason: 'no_recovery_code_material',
-  };
 }

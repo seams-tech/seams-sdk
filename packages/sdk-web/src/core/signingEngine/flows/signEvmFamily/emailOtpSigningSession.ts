@@ -41,7 +41,6 @@ import type { ReauthAnchorIdentity } from '../../session/operationState/transact
 import {
   emailOtpEcdsaProviderIdentityFromRecord,
   type EmailOtpEcdsaProviderIdentity,
-  type EmailOtpEd25519ReconstructionResult,
 } from '../../session/emailOtp/ecdsaLogin';
 import {
   resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
@@ -78,7 +77,6 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       routeAuth?: never;
       ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
-      ed25519ReconstructionMode: 'await' | 'skip';
       providerIdentity: EmailOtpEcdsaProviderIdentity;
       emailHashHex: string;
       authSubjectId?: never;
@@ -90,7 +88,6 @@ export type EmailOtpEcdsaSigningSessionDeps = {
         WarmSessionEcdsaCapabilityState,
         ...WarmSessionEcdsaCapabilityState[],
       ];
-      ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
       timings: EmailOtpThresholdEcdsaLoginTimings;
     }>;
   };
@@ -258,7 +255,6 @@ export async function refreshEmailOtpSigningSession(
     WarmSessionEcdsaCapabilityState,
     ...WarmSessionEcdsaCapabilityState[],
   ];
-  ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
   timings: EmailOtpThresholdEcdsaLoginTimings;
 }> {
   const { record, authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
@@ -294,6 +290,5 @@ export async function refreshEmailOtpSigningSession(
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-    ed25519ReconstructionMode: 'await',
   });
 }

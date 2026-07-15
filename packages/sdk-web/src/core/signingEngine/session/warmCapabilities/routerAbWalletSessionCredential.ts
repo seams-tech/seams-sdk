@@ -4,7 +4,6 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
-import type { RouterAbEd25519SigningMaterialRef } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
 import {
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
   parseRouterAbEd25519WalletSessionIdentityClaims,
@@ -21,8 +20,8 @@ export type RouterAbEd25519NormalSigningReadyState = {
   signerPublicKey: string;
   signingRootId: string;
   signingRootVersion: string;
+  remainingUses: number;
   expiresAtMs: number;
-  signingMaterial: RouterAbEd25519SigningMaterialRef;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   credential: RouterAbWalletSessionCredential;
 };
@@ -45,6 +44,14 @@ function requireFutureEpochMs(value: unknown, label: string): number {
   const parsed = Math.floor(Number(value));
   if (!Number.isFinite(parsed) || parsed <= Date.now()) {
     throw new Error(`Router A/B Ed25519 normal-signing ready state ${label} is expired`);
+  }
+  return parsed;
+}
+
+function requirePositiveInteger(value: unknown, label: string): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`Router A/B Ed25519 normal-signing ready state ${label} is exhausted`);
   }
   return parsed;
 }
@@ -105,29 +112,44 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
 
   const routerAbState = signingWalletSession.routerAbNormalSigning;
   const runtimePolicyScope = signingWalletSession.runtimePolicyScope;
-  const walletSessionJwt = requireNonEmpty(signingWalletSession.auth.walletSessionJwt, 'Wallet Session bearer JWT');
+  const walletSessionJwt = requireNonEmpty(
+    signingWalletSession.auth.walletSessionJwt,
+    'Wallet Session bearer JWT',
+  );
   const signingRootId = requireNonEmpty(state.signingRootId, 'state.signingRootId');
   const signingRootVersion = requireNonEmpty(
     state.signingRootVersion,
     'state.signingRootVersion',
   );
+  requireEqual(
+    signingWalletSession.thresholdSessionId,
+    thresholdSessionId,
+    'Wallet Session thresholdSessionId',
+  );
+  requireEqual(
+    signingWalletSession.signingGrantId,
+    signingGrantId,
+    'Wallet Session signingGrantId',
+  );
+  requireEqual(signingWalletSession.signingRootId, signingRootId, 'signingRootId');
+  requireEqual(
+    signingWalletSession.signingRootVersion,
+    signingRootVersion,
+    'signingRootVersion',
+  );
+  requireEqual(
+    state.routerAbNormalSigning.signingWorkerId,
+    routerAbState.signingWorkerId,
+    'signingWorkerId',
+  );
   const expiresAtMs = requireFutureEpochMs(signingWalletSession.expiresAtMs, 'expiresAtMs');
-  const signingMaterial = signingWalletSession.signingMaterial;
-  requireEqual(
-    String(state.signingMaterial.materialHandle),
-    String(signingMaterial.materialHandle),
-    'materialHandle',
+  const remainingUses = requirePositiveInteger(
+    signingWalletSession.remainingUses,
+    'remainingUses',
   );
-  requireEqual(
-    state.signingMaterial.bindingDigest,
-    signingMaterial.bindingDigest,
-    'material bindingDigest',
-  );
-  requireEqual(
-    state.signingMaterial.clientVerifierB64u,
-    signingMaterial.clientVerifierB64u,
-    'material clientVerifierB64u',
-  );
+  if (state.remainingUses !== remainingUses) {
+    throw new Error('Router A/B Ed25519 normal-signing ready state remainingUses mismatch');
+  }
 
   return {
     kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
@@ -140,8 +162,8 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
     signerPublicKey: requireNonEmpty(args.thresholdKeyMaterial.publicKey, 'signerPublicKey'),
     signingRootId,
     signingRootVersion,
+    remainingUses,
     expiresAtMs,
-    signingMaterial,
     runtimePolicyScope,
     credential: {
       kind: 'jwt',

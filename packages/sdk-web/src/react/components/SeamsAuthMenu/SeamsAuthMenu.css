@@ -101,10 +101,13 @@
   will-change: height, opacity;
 }
 
-/* Hide header when waiting or scan device is active */
+/* Hide the generic menu header when a sub-state renders its own header
+   (waiting / scan / OTP code / wallet-naming) — otherwise two headers stack
+   with a dead gap between them. */
 .w3a-signup-menu-root[data-waiting='true'] .w3a-header,
 .w3a-signup-menu-root[data-scan-device='true'] .w3a-header,
-.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-header {
+.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-header,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header {
   opacity: 0;
   height: 0px;
   padding-top: 0px;
@@ -117,7 +120,8 @@
 /* Adjust content area when header is hidden */
 .w3a-signup-menu-root[data-waiting='true'] .w3a-content-area,
 .w3a-signup-menu-root[data-scan-device='true'] .w3a-content-area,
-.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-content-area {
+.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-content-area,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-content-area {
   flex: 1 1 auto;
   transition: height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -546,6 +550,31 @@
 .w3a-otp-reroll:disabled {
   color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
   cursor: not-allowed;
+}
+
+/* Registration (wallet-naming): with the generic header hidden, this block's
+   own title is the sole header. Anchor it to the top, left-align everything to
+   share one edge with the wallet field, and match the title to the auth-card
+   header scale (not larger). */
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-prompt {
+  justify-content: flex-start;
+  min-height: 0;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-prompt-copy {
+  text-align: left;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-title {
+  font-size: 21px;
+  font-weight: 600;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-description,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-helper,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-error {
+  text-align: left;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-account {
+  align-self: stretch;
+  width: 100%;
 }
 
 .w3a-otp-code-field {
@@ -1147,7 +1176,9 @@
 .w3a-field-label {
   font-size: 16px;
   color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 35%);
-  margin: 8px 2px 6px;
+  /* left margin matches the OTP code field's inner padding so the label's
+     edge lines up with the first code slot */
+  margin: 8px 2px 6px 4px;
   font-weight: 700;
 }
 

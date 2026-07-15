@@ -18,7 +18,6 @@ import {
 } from '@/core/walletRuntimePaths/multichainWorkers';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
-import { clearRouterAbEd25519WorkerMaterialRuntimeValidation } from '../session/routerAbSigningWalletSession';
 import { withSessionId } from './session';
 import type {
   HssWorkerOperationRequest,
@@ -76,7 +75,7 @@ type NearWorkerOperationArgs<T extends NearWorkerOperationType = NearWorkerOpera
 };
 
 type HssWorkerOperationArgs<T extends HssWorkerOperationType = HssWorkerOperationType> = {
-  kind: 'hssClient';
+  kind: 'ecdsaHssClient';
   request: HssWorkerOperationRequest<T>;
 };
 
@@ -101,7 +100,7 @@ type AnyWorkerOperationArgs =
 
 const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
   'nearSigner',
-  'hssClient',
+  'ecdsaHssClient',
   'ethSigner',
   'tempoSigner',
   'emailOtp',
@@ -208,7 +207,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     request: NearWorkerOperationRequest<T>;
   }): Promise<NearWorkerOperationResult<T>>;
   requestOperation<T extends HssWorkerOperationType>(args: {
-    kind: 'hssClient';
+    kind: 'ecdsaHssClient';
     request: HssWorkerOperationRequest<T>;
   }): Promise<HssWorkerOperationResult<T>>;
   requestOperation<K extends MultichainWorkerKind, T extends MultichainOperationType<K>>(args: {
@@ -229,7 +228,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     if (args.kind === 'nearSigner') {
       return await this.requestNearOperation(args.request);
     }
-    if (args.kind === 'hssClient') {
+    if (args.kind === 'ecdsaHssClient') {
       return await this.requestHssOperation(args.request);
     }
     if (args.kind === 'ethSigner') {
@@ -330,24 +329,24 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       ? withSessionId(effectiveSessionId, payload as Record<string, unknown>)
       : payload;
 
-    const worker = this.getOrCreateWorker('hssClient');
-    const requestId = makeId('hssClient');
+    const worker = this.getOrCreateWorker('ecdsaHssClient');
+    const requestId = makeId('ecdsaHssClient');
 
     return await new Promise<HssWorkerOperationResult<T>>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.rejectRequest(
-          'hssClient',
+          'ecdsaHssClient',
           requestId,
           new SignerWorkerOperationError({
             message: `Worker operation timed out after ${timeoutMs}ms`,
             code: 'TIMEOUT',
-            workerKind: 'hssClient',
+            workerKind: 'ecdsaHssClient',
           }),
         );
-        this.resetWorker('hssClient');
+        this.resetWorker('ecdsaHssClient');
       }, timeoutMs);
 
-      this.getPendingMap('hssClient').set(requestId, {
+      this.getPendingMap('ecdsaHssClient').set(requestId, {
         resolve: (value) => resolve(value as HssWorkerOperationResult<T>),
         reject,
         timeoutId,
@@ -357,12 +356,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
         worker.postMessage({ id: requestId, type, payload: finalPayload }, transfer || []);
       } catch (error) {
         this.rejectRequest(
-          'hssClient',
+          'ecdsaHssClient',
           requestId,
           new SignerWorkerOperationError({
-            message: `[hssClient] failed to postMessage: ${errorMessage(error)}`,
+            message: `[ecdsaHssClient] failed to postMessage: ${errorMessage(error)}`,
             code: 'WORKER_POSTMESSAGE_ERROR',
-            workerKind: 'hssClient',
+            workerKind: 'ecdsaHssClient',
           }),
         );
       }
@@ -457,14 +456,14 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
           name: SIGNER_WORKER_MANAGER_CONFIG.WORKER.NAME,
         });
       }
-      if (kind === 'hssClient') {
-        const workerUrl = resolveWorkerUrl(SIGNER_WORKER_MANAGER_CONFIG.HSS_CLIENT_WORKER.URL, {
-          worker: 'hssClient',
+      if (kind === 'ecdsaHssClient') {
+        const workerUrl = resolveWorkerUrl(SIGNER_WORKER_MANAGER_CONFIG.ECDSA_HSS_CLIENT_WORKER.URL, {
+          worker: 'ecdsaHssClient',
           baseOrigin: this.workerBaseOrigin,
         });
         return new Worker(workerUrl, {
-          type: SIGNER_WORKER_MANAGER_CONFIG.HSS_CLIENT_WORKER.TYPE,
-          name: SIGNER_WORKER_MANAGER_CONFIG.HSS_CLIENT_WORKER.NAME,
+          type: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_HSS_CLIENT_WORKER.TYPE,
+          name: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_HSS_CLIENT_WORKER.NAME,
         });
       }
       if (kind === 'emailOtp') {
@@ -492,7 +491,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       this.handleNearWorkerMessage(data);
       return;
     }
-    if (kind === 'hssClient') {
+    if (kind === 'ecdsaHssClient') {
       this.handleHssWorkerMessage(data);
       return;
     }
@@ -610,19 +609,19 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private handleHssWorkerMessage(data: unknown): void {
     if (isRpcSuccessFrame(data)) {
-      this.resolveRequest('hssClient', data.id, data.result);
+      this.resolveRequest('ecdsaHssClient', data.id, data.result);
       return;
     }
 
     if (isRpcErrorFrame(data)) {
       this.rejectRequest(
-        'hssClient',
+        'ecdsaHssClient',
         data.id,
         new SignerWorkerOperationError({
-          message: data.error || '[hssClient] worker error',
+          message: data.error || '[ecdsaHssClient] worker error',
           code: data.code,
           coreCode: data.coreCode,
-          workerKind: 'hssClient',
+          workerKind: 'ecdsaHssClient',
         }),
       );
       return;
@@ -632,29 +631,29 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       isObject(data) && typeof (data as { id?: unknown }).id === 'string'
         ? (data as { id: string }).id
         : undefined;
-    if (requestId && this.getPendingMap('hssClient').has(requestId)) {
+    if (requestId && this.getPendingMap('ecdsaHssClient').has(requestId)) {
       this.rejectRequest(
-        'hssClient',
+        'ecdsaHssClient',
         requestId,
         new SignerWorkerOperationError({
           message: `Malformed worker response frame for request ${requestId}`,
           code: 'WORKER_PROTOCOL_ERROR',
-          workerKind: 'hssClient',
+          workerKind: 'ecdsaHssClient',
         }),
       );
       return;
     }
 
-    if (this.getPendingMap('hssClient').size === 0) return;
+    if (this.getPendingMap('ecdsaHssClient').size === 0) return;
     this.rejectAllPending(
-      'hssClient',
+      'ecdsaHssClient',
       new SignerWorkerOperationError({
         message: `Unknown worker response frame: ${JSON.stringify(data)}`,
         code: 'WORKER_PROTOCOL_ERROR',
-        workerKind: 'hssClient',
+        workerKind: 'ecdsaHssClient',
       }),
     );
-    this.resetWorker('hssClient');
+    this.resetWorker('ecdsaHssClient');
   }
 
   private resolveNearResponse(
@@ -768,10 +767,6 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   }
 
   private resetWorker(kind: SignerWorkerKind): void {
-    if (kind === 'nearSigner') {
-      clearRouterAbEd25519WorkerMaterialRuntimeValidation();
-    }
-
     const worker = this.workers.get(kind);
     if (!worker) return;
 

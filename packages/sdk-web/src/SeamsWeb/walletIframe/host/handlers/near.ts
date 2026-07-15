@@ -42,7 +42,12 @@ import {
   isPlainSignedTransactionLike,
   type PlainSignedTransactionLike,
 } from '@shared/utils/validation';
-import { type RegisterWalletInput, walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  normalizeRegistrationSignerPlan,
+  registrationSignerSetSelectionFromPlan,
+  type RegisterWalletInput,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
 import type { ActionArgs } from '@/core/types';
 import {
   webAuthnPromptCoordinator,
@@ -700,6 +705,14 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       }
       const wallet = parseRegistrationActivationProvidedWallet(payload);
       const presentation = normalizeRegistrationActivationPresentation(payload.presentation);
+      const signerPlan = normalizeRegistrationSignerPlan(payload.signerSelection);
+      if (!signerPlan.ok) {
+        throw new Error(signerPlan.message);
+      }
+      const signerSelection = registrationSignerSetSelectionFromPlan(signerPlan.value);
+      if (!signerSelection.ok) {
+        throw new Error(signerSelection.message);
+      }
 
       replaceRegistrationActivationRecord(payload.activationId);
       const deferred = createRegistrationActivationDeferred();
@@ -724,6 +737,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         const hooksOptions = withProgress(deps, payload.requestId, {}) as RegistrationHooksOptions;
         const prepared = await pm.prepareIframePasskeyRegistration({
           wallet,
+          signerSelection: signerSelection.value,
           options: hooksOptions,
           expiresAtMs: payload.expiresAtMs,
         });

@@ -11,15 +11,14 @@ import type { EvmFamilyLifecycleEventCallback } from './types';
 import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
-import {
-  toWalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
   getEcdsaProvisionPlanLaneIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
+import { resolveManagedRuntimeScopeBootstrap } from '../../../config/managedRuntimeScope';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -42,9 +41,7 @@ type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
 type EvmFamilyThresholdEcdsaExistingRecordPlan = Extract<
   EcdsaSessionProvisionPlan,
   {
-    kind:
-      | 'wallet_session_ecdsa_reconnect'
-      | 'passkey_ecdsa_session_provision';
+    kind: 'wallet_session_ecdsa_reconnect' | 'passkey_ecdsa_session_provision';
   }
 >;
 
@@ -64,17 +61,6 @@ type PlannedEvmFamilyThresholdEcdsaReadinessArgs =
       keyRef?: never;
       reconnectPlan: EvmFamilyThresholdEcdsaFreshProvisionPlan;
     });
-
-function resolveManagedRuntimeScopeBootstrap(
-  configs: SeamsConfigsReadonly,
-): { projectEnvironmentId: string; publishableKey: string } | undefined {
-  const registration = configs.registration;
-  if (registration.mode !== 'managed') return undefined;
-  const projectEnvironmentId = String(registration.projectEnvironmentId || '').trim();
-  const publishableKey = String(registration.publishableKey || '').trim();
-  if (!projectEnvironmentId || !publishableKey) return undefined;
-  return { projectEnvironmentId, publishableKey };
-}
 
 function requireEcdsaStoreSource(
   lane: ResolvedEvmFamilyEcdsaSigningLane,

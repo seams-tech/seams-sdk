@@ -116,8 +116,8 @@ export type EmailOtpEcdsaEnrollmentPorts = {
   requireShamirPrimeB64u: () => string;
   requireRpId: (operation: string) => string;
   rememberAppSessionJwt: (args: {
-    walletSession: WalletSessionRef;
-    appSessionJwt?: string;
+    walletId: WalletSessionRef['walletId'];
+    appSessionJwt: string;
   }) => void;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
 };
@@ -201,7 +201,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   }
   const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(routePlan.authLane);
   if (appSessionJwt) {
-    ports.rememberAppSessionJwt({ walletSession: args.walletSession, appSessionJwt });
+    ports.rememberAppSessionJwt({ walletId: args.walletSession.walletId, appSessionJwt });
   }
   const emailOtpProviderUserId = requiredEmailOtpEcdsaEnrollmentString(
     appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane) ||
@@ -330,6 +330,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       publicationChainTargets,
       bootstraps: bootstrapResult.bootstraps,
       signingGrantId,
+      runtimePolicyScope: registrationInput.runtimePolicyScope,
       emailOtpAuthContext,
       relayerUrl: relayUrl,
       shamirPrimeB64u,

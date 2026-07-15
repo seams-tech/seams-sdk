@@ -1,6 +1,7 @@
 import type {
   EcdsaLoginSessionSurface,
   EcdsaRegistrationSurface,
+  Ed25519YaoRegistrationActivationSurface,
   EcdsaSessionBootstrapSurface,
   EcdsaSessionControlSurface,
   Ed25519SessionConnectionSurface,
@@ -17,9 +18,7 @@ import type {
   SeamsWebBaseContext,
   SignerWorkerContextSurface,
   SigningSessionSurface,
-  ThresholdEd25519HssCeremonySurface,
   TempoNonceLifecycleSurface,
-  ThresholdEd25519HssClientSurface,
   UserProfileStoreSurface,
   WarmSessionStatusSurface,
   WalletIframeWarmupSurface,
@@ -37,6 +36,7 @@ export type {
   DeviceLinkingWebContext,
   EcdsaLoginSessionSurface,
   EcdsaRegistrationSurface,
+  Ed25519YaoRegistrationActivationSurface,
   EcdsaSessionBootstrapSurface,
   EcdsaSessionControlSurface,
   Ed25519SessionConnectionSurface,
@@ -68,8 +68,6 @@ export type {
   SigningSessionSurface,
   TempoNonceLifecycleSurface,
   TempoSigningSurface,
-  ThresholdEd25519HssCeremonySurface,
-  ThresholdEd25519HssClientSurface,
   UserAccountLookupSurface,
   UserProfileStoreSurface,
   WalletIframeWarmupSurface,
@@ -103,12 +101,12 @@ export interface SeamsWebSigningSurface
     UserProfileStoreSurface,
     RegistrationAccountSurface,
     EcdsaRegistrationSurface,
+    Ed25519YaoRegistrationActivationSurface,
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
-    KeyExportSigningSurface,
-  ThresholdEd25519HssClientSurface,
-  ThresholdEd25519HssCeremonySurface {
+    KeyExportSigningSurface {
   readonly seamsWebConfigs: SeamsConfigsReadonly;
+  dispose(): void;
   setAppearance(appearance: AppearanceConfig): void;
   getUserPreferences(): UserPreferencesManager;
 }

@@ -1,6 +1,5 @@
 import type {
   Ed25519LaneAuthorityKey,
-  NearEd25519TransactionMaterial,
   NearEd25519TransactionReadyAvailableLane,
   NearEd25519TransactionReadyLane,
 } from './selectLane';
@@ -10,7 +9,6 @@ declare const candidate: Ed25519LaneCandidate;
 declare const availableLane: NearEd25519TransactionReadyAvailableLane;
 declare const selectedLane: SelectedEd25519Lane;
 declare const authorityKey: Ed25519LaneAuthorityKey;
-declare const material: NearEd25519TransactionMaterial;
 
 const validReadyLane: NearEd25519TransactionReadyLane = {
   kind: 'near_ed25519_transaction_ready_lane',
@@ -18,7 +16,6 @@ const validReadyLane: NearEd25519TransactionReadyLane = {
   availableLane,
   selectedLane,
   authorityKey,
-  material,
 };
 void validReadyLane;
 
@@ -30,15 +27,16 @@ void invalidReadyAvailableLaneSource;
 const invalidReadyAvailableLaneFlatMaterial = availableLane.materialKeyId;
 void invalidReadyAvailableLaneFlatMaterial;
 
-// @ts-expect-error transaction-ready Ed25519 lanes require worker material.
-const missingMaterial: NearEd25519TransactionReadyLane = {
+const invalidMaterial: NearEd25519TransactionReadyLane = {
   kind: 'near_ed25519_transaction_ready_lane',
   candidate,
   availableLane,
   selectedLane,
   authorityKey,
+  // @ts-expect-error Yao-backed transaction lanes reject worker material.
+  material: { kind: 'loaded_worker_material' },
 };
-void missingMaterial;
+void invalidMaterial;
 
 // @ts-expect-error transaction-ready Ed25519 lanes require an authority key.
 const missingAuthorityKey: NearEd25519TransactionReadyLane = {
@@ -46,7 +44,6 @@ const missingAuthorityKey: NearEd25519TransactionReadyLane = {
   candidate,
   availableLane,
   selectedLane,
-  material,
 };
 void missingAuthorityKey;
 
@@ -56,6 +53,5 @@ const missingSelectedLane: NearEd25519TransactionReadyLane = {
   candidate,
   availableLane,
   authorityKey,
-  material,
 };
 void missingSelectedLane;

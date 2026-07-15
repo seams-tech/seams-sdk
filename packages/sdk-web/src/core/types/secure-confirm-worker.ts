@@ -8,7 +8,12 @@
 import type { SigningSessionPersistenceMode } from './seams';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
-import type { ThresholdEd25519WorkerMaterialCredentialAuthorization } from './signer-worker';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type {
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoBytes32V1,
+  RouterAbEd25519YaoLifecycleScopeV1,
+} from '@shared/utils/routerAbEd25519Yao';
 
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 
@@ -52,8 +57,6 @@ export type UserConfirmWorkerMessageType =
   | 'WARM_SESSION_STATUS_BATCH_READ'
   | 'WARM_SESSION_MATERIAL_CLAIM'
   | 'WARM_SESSION_MATERIAL_CONSUME'
-  | 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT'
-  | 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM'
   | 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR'
   | 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL'
   | 'WARM_SESSION_SEAL_AND_PERSIST'
@@ -101,44 +104,6 @@ export interface WarmSessionStatusBatchReadPayload {
   sessionIds: string[];
 }
 
-export type WarmSessionEd25519UnsealAuthorizationPutPayload = {
-  sessionId: string;
-  signingGrantId: string;
-  walletId: string;
-  authMethod: SigningSessionSealAuthMethod;
-  materialBindingDigest: string;
-  authorization: ThresholdEd25519WorkerMaterialCredentialAuthorization;
-  expiresAtMs: number;
-  remainingUses: 1;
-};
-
-export type WarmSessionEd25519UnsealAuthorizationClaimPayload = {
-  sessionId: string;
-  signingGrantId: string;
-  walletId: string;
-  authMethod: SigningSessionSealAuthMethod;
-  materialBindingDigest: string;
-  consume: true;
-};
-
-export type WarmSessionEd25519UnsealAuthorizationClaimResult =
-  | {
-      ok: true;
-      authorization: ThresholdEd25519WorkerMaterialCredentialAuthorization;
-      expiresAtMs: number;
-    }
-  | {
-      ok: false;
-      code:
-        | 'not_found'
-        | 'expired'
-        | 'exhausted'
-        | 'scope_mismatch'
-        | 'invalid_authorization'
-        | 'worker_error';
-      message: string;
-    };
-
 export type WarmSessionStatusBatchResult = {
   results: Array<{
     sessionId: string;
@@ -172,8 +137,39 @@ export type WarmSessionRehydrateResult =
   | { ok: false; code: string; message: string };
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
-export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-seed-v1';
 export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-export';
+export const ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1 =
+  'router-ab-ed25519-yao-seed-export-v1' as const;
+
+export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWorkerPayloadBase & {
+  walletId: string;
+  nearAccountId: string;
+  artifactKind: typeof ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1;
+  relayerUrl: string;
+  walletSessionJwt: string;
+  flowId: string;
+  viewerSessionId: string;
+  exactLane: {
+    nearEd25519SigningKeyId: string;
+    signerSlot: number;
+    credentialIdB64u: string;
+    signingGrantId: string;
+    thresholdSessionId: string;
+  };
+  capability: {
+    scope: RouterAbEd25519YaoLifecycleScopeV1;
+    applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+    participantIds: readonly [number, number];
+    registeredPublicKey: RouterAbEd25519YaoBytes32V1;
+    stateEpoch: number;
+    activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
+  };
+  chainTarget?: never;
+  publicKeyHex?: never;
+  privateKeyHex?: never;
+  ethereumAddress?: never;
+};
 
 type ExportPrivateKeysWithUiWorkerPayloadBase = {
   variant?: 'drawer' | 'modal';
@@ -181,14 +177,6 @@ type ExportPrivateKeysWithUiWorkerPayloadBase = {
 };
 
 export type ExportPrivateKeysWithUiWorkerPayload =
-  | (ExportPrivateKeysWithUiWorkerPayloadBase & {
-      chain: 'near';
-      artifactKind: 'near-ed25519-seed-v1';
-      nearAccountId: string;
-      signerSlot: number;
-      expectedPublicKey: string;
-      seedB64u: string;
-    })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
@@ -200,7 +188,8 @@ export type ExportPrivateKeysWithUiWorkerPayload =
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
-    });
+    })
+  | RouterAbEd25519YaoExportWorkerPayloadV1;
 
 export interface ExportPrivateKeysWithUiWorkerResult {
   ok: boolean;

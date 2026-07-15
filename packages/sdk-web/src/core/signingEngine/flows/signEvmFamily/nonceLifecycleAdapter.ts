@@ -3,10 +3,7 @@ import {
   type NonceLaneStatus,
 } from '@/core/rpcClients/evm/nonceBackend';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import {
-  evmManagedReservationToLane,
-  type NonceCoordinator,
-} from '../../nonce/NonceCoordinator';
+import { evmManagedReservationToLane, type NonceCoordinator } from '../../nonce/NonceCoordinator';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import {
@@ -99,19 +96,17 @@ export async function reportEvmFamilyBroadcastAccepted(
       nonce: reservation.nonce.toString(),
     },
   });
-  const txHash =
-    args.txHash ||
-    (args.signedResult.chain === 'evm'
-      ? (args.signedResult.txHashHex as `0x${string}`)
-      : undefined);
+  const txHash = requireEvmFamilyBroadcastTxHash(
+    args.txHash || (args.signedResult.chain === 'evm' ? args.signedResult.txHashHex : undefined),
+  );
   await deps.nonceCoordinator.markBroadcastAccepted({
     ...requireManagedNonceLeaseRef(reservation),
-    ...(txHash ? { txHash } : {}),
+    txHash,
   });
   emitEvmFamilyNonceLifecycleMetric({
     metric: 'broadcast_accepted',
     ...toNonceLifecycleMetricBase(reservation),
-    ...(txHash ? { txHash } : {}),
+    txHash,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     walletId: args.walletId,
@@ -123,9 +118,19 @@ export async function reportEvmFamilyBroadcastAccepted(
       networkKey: reservation.chainTarget.networkSlug,
       chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
-      ...(txHash ? { txHash } : {}),
+      txHash,
     },
   });
+}
+
+function requireEvmFamilyBroadcastTxHash(value: unknown): `0x${string}` {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error('[SigningEngine][evm-family] broadcast acceptance requires txHash');
+  }
+  return normalized as `0x${string}`;
 }
 
 export async function reportEvmFamilyBroadcastRejected(

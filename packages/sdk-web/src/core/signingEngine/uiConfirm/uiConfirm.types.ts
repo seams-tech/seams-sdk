@@ -29,9 +29,6 @@ import type {
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
-  WarmSessionEd25519UnsealAuthorizationClaimPayload,
-  WarmSessionEd25519UnsealAuthorizationClaimResult,
-  WarmSessionEd25519UnsealAuthorizationPutPayload,
   WarmSessionStatusBatchResult,
   WarmSessionRehydratePayload,
   WarmSessionRehydrateResult,
@@ -55,6 +52,10 @@ import type { DurableRecordStore } from '@/core/platform';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
+};
+
+export type ExportPrivateKeysWithUiOptions = {
+  onViewerLifecycle?: (event: 'opened' | 'closed') => void;
 };
 
 /** UiConfirm-owned host context passed into the concrete confirmation runtime. */
@@ -121,15 +122,6 @@ export interface WarmSessionMaterialConsumer {
     chain?: 'near';
     chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionStatusResult>;
-}
-
-export interface WarmSessionEd25519UnsealAuthorizationStore {
-  putWarmSessionEd25519UnsealAuthorization(
-    args: WarmSessionEd25519UnsealAuthorizationPutPayload,
-  ): Promise<WarmSessionStatusResult>;
-  claimWarmSessionEd25519UnsealAuthorization(
-    args: WarmSessionEd25519UnsealAuthorizationClaimPayload,
-  ): Promise<WarmSessionEd25519UnsealAuthorizationClaimResult>;
 }
 
 export type VolatileWarmSessionScope =
@@ -205,7 +197,6 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
   WarmSessionMaterialConsumer &
-  WarmSessionEd25519UnsealAuthorizationStore &
   VolatileWarmSessionMaterialClearer &
   VolatileWarmSessionMaterialClearAll;
 
@@ -267,6 +258,7 @@ export interface UiConfirmSecureConfirmationPort {
   ): Promise<UserConfirmDecision>;
   exportPrivateKeysWithUi(
     payload: ExportPrivateKeysWithUiWorkerPayload,
+    options?: ExportPrivateKeysWithUiOptions,
   ): Promise<ExportPrivateKeysWithUiWorkerResult>;
 }
 

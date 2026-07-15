@@ -4,16 +4,14 @@
  * Hosts the UserConfirm handshake runtime (`awaitUserConfirmationV2`) and the
  * threshold warm-session material cache.
  */
-import { toAccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
-  WarmSessionEd25519UnsealAuthorizationClaimPayload,
-  WarmSessionEd25519UnsealAuthorizationClaimResult,
-  WarmSessionEd25519UnsealAuthorizationPutPayload,
+  RouterAbEd25519YaoExportWorkerPayloadV1,
   WarmSessionSealAndPersistDiagnostics,
 } from '@/core/types/secure-confirm-worker';
+import { ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1 } from '@/core/types/secure-confirm-worker';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetFromRequest,
@@ -22,9 +20,10 @@ import {
 import { parseClearVolatileWarmMaterialCommand } from '@/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands';
 import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
-import { base64UrlDecode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { base58Encode } from '@shared/utils/base58';
 import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
 import {
   joinNormalizedUrl,
@@ -47,9 +46,20 @@ import initEthSigner, {
   derive_secp256k1_keypair_from_prf_second,
   init_eth_signer,
 } from '../../../../../../../wasm/eth_signer/pkg/eth_signer.js';
-import initHssClientSigner, {
-  threshold_ed25519_seed_export_artifact_from_seed,
-} from '../../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import {
+  RouterAbEd25519YaoClientV1,
+  RouterAbEd25519YaoHttpActivationTransportV1,
+} from '../../threshold/ed25519/yaoClient';
+import {
+  deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
+  deriveRouterAbEd25519YaoExportConfirmationDigestV1,
+  deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
+  parseRouterAbEd25519YaoExportAdmissionRequestV1,
+  parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoExportAuthorizationIdentityV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import { normalizeThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import { normalizeAuthenticationCredential } from '../../webauthnAuth/credentials/helpers';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
 // awaitUserConfirmationV2 expects a UserConfirmRequest object.
@@ -62,16 +72,6 @@ type WarmSessionMaterialEntry = {
   prfFirstHandle: string;
   expiresAtMs: number;
   remainingUses: number;
-};
-
-type WarmSessionEd25519UnsealAuthorizationEntry = {
-  signingGrantId: string;
-  walletId: string;
-  authMethod: 'passkey' | 'email_otp';
-  materialBindingDigest: string;
-  authorization: WarmSessionEd25519UnsealAuthorizationPutPayload['authorization'];
-  expiresAtMs: number;
-  remainingUses: 1;
 };
 
 type PasskeyPrfFirstHandleEntry = {
@@ -103,8 +103,6 @@ type WarmSessionMaterialReadResult =
   | ({ ok: true; entry: WarmSessionMaterialEntry; secret: PasskeyPrfFirstHandleEntry } & OkResult)
   | ErrResult;
 
-const ED25519_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000;
-const ED25519_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000;
 const PASSKEY_SERVER_SEALED_SECRET_CACHE_MAX_ENTRIES = 32;
 
 type SigningSessionSealTransport = {
@@ -128,30 +126,30 @@ type SigningSessionSealRouteResult =
 const warmSessionPrfHandleCache = new Map<string, WarmSessionMaterialEntry>();
 const passkeyPrfFirstHandleStore = new Map<string, PasskeyPrfFirstHandleEntry>();
 const passkeyServerSealedSecretCache = new Map<string, PasskeyServerSealedSecretCacheEntry>();
-const warmSessionEd25519UnsealAuthorizationCache = new Map<
-  string,
-  WarmSessionEd25519UnsealAuthorizationEntry
->();
 const signingSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
 const signingSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
-const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
 const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
-type NearSeedExportWorkerPayload = Extract<
-  ExportPrivateKeysWithUiWorkerPayload,
-  { chain: 'near'; artifactKind: 'near-ed25519-seed-v1' }
->;
 type EcdsaHssThresholdExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
   { artifactKind: 'ecdsa-hss-secp256k1-export' }
 >;
 
-type ExportWorkerTarget =
-  | { kind: 'near'; scheme: 'ed25519' }
-  | { kind: 'ecdsa'; scheme: 'secp256k1'; chainTarget: ThresholdEcdsaChainTarget };
+type ExportWorkerTarget = {
+  kind: 'ecdsa';
+  scheme: 'secp256k1';
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+type Secp256k1ExportPrivateKeyDisplayEntry = ExportPrivateKeyDisplayEntry & {
+  scheme: 'secp256k1';
+};
+
+type Ed25519ExportPrivateKeyDisplayEntry = ExportPrivateKeyDisplayEntry & {
+  scheme: 'ed25519';
+};
 
 let ethSignerWasmInitPromise: Promise<void> | null = null;
-let hssClientSignerInitPromise: Promise<void> | null = null;
 
 type UserConfirmWorkerIncomingMessage = {
   id?: unknown;
@@ -160,12 +158,21 @@ type UserConfirmWorkerIncomingMessage = {
 };
 
 function asIncomingMessage(value: unknown): UserConfirmWorkerIncomingMessage {
-  if (!value || typeof value !== 'object') return {};
-  return value as UserConfirmWorkerIncomingMessage;
+  const record = asRecord(value);
+  if (!record) return {};
+  return {
+    id: record.id,
+    type: record.type,
+    payload: record.payload,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  return isRecord(value) ? value : null;
 }
 
 function nowMs(): number {
@@ -297,174 +304,10 @@ function deleteWarmSessionPrfHandle(sessionId: string): void {
   warmSessionPrfHandleCache.delete(sessionId);
 }
 
-function deleteWarmSessionEd25519UnsealAuthorization(sessionId: string): void {
-  warmSessionEd25519UnsealAuthorizationCache.delete(sessionId);
-}
-
 function clearWarmSessionPrfHandles(): void {
   warmSessionPrfHandleCache.clear();
   passkeyPrfFirstHandleStore.clear();
   passkeyServerSealedSecretCache.clear();
-  warmSessionEd25519UnsealAuthorizationCache.clear();
-}
-
-function authorizationPurpose(authorization: unknown): string {
-  const record = asRecord(authorization);
-  return normalizeOptionalTrimmedString(record?.purpose);
-}
-
-function authorizationMaterialBindingDigest(authorization: unknown): string {
-  const record = asRecord(authorization);
-  return normalizeOptionalTrimmedString(record?.materialBindingDigest);
-}
-
-function authorizationExpiryMs(authorization: unknown): number {
-  const record = asRecord(authorization);
-  return Math.floor(Number(record?.expiresAtMs) || 0);
-}
-
-function isValidEd25519UnsealAuthorization(args: {
-  authorization: unknown;
-  materialBindingDigest: string;
-}): boolean {
-  return (
-    authorizationPurpose(args.authorization) === 'unseal' &&
-    authorizationMaterialBindingDigest(args.authorization) === args.materialBindingDigest
-  );
-}
-
-function invalidEd25519UnsealAuthorizationResult(
-  message: string,
-): WarmSessionEd25519UnsealAuthorizationClaimResult {
-  return {
-    ok: false,
-    code: 'invalid_authorization',
-    message,
-  };
-}
-
-function resolveEd25519UnsealAuthorizationStoreExpiresAtMs(value: unknown): number {
-  const now = nowMs();
-  const requestedExpiresAtMs = Math.floor(Number(value) || 0);
-  const expiresAtMs =
-    requestedExpiresAtMs === 0
-      ? now + ED25519_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS
-      : requestedExpiresAtMs;
-  if (expiresAtMs <= now) return 0;
-  if (expiresAtMs - now > ED25519_UNSEAL_AUTHORIZATION_MAX_TTL_MS) return 0;
-  return expiresAtMs;
-}
-
-function storeWarmSessionEd25519UnsealAuthorization(
-  payload: WarmSessionEd25519UnsealAuthorizationPutPayload,
-): OkResult | ErrResult {
-  const sessionId = normalizeOptionalTrimmedString(payload.sessionId);
-  const signingGrantId = normalizeOptionalTrimmedString(payload.signingGrantId);
-  const walletId = normalizeOptionalTrimmedString(payload.walletId);
-  const authMethod = payload.authMethod;
-  const materialBindingDigest = normalizeOptionalTrimmedString(payload.materialBindingDigest);
-  const expiresAtMs = resolveEd25519UnsealAuthorizationStoreExpiresAtMs(payload.expiresAtMs);
-  const authorizationExpiresAtMs = authorizationExpiryMs(payload.authorization);
-  if (
-    !sessionId ||
-    !signingGrantId ||
-    !walletId ||
-    (authMethod !== 'passkey' && authMethod !== 'email_otp') ||
-    !materialBindingDigest ||
-    payload.remainingUses !== 1 ||
-    !expiresAtMs ||
-    authorizationExpiresAtMs < expiresAtMs
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Invalid Ed25519 unseal authorization scope',
-    };
-  }
-  if (
-    !isValidEd25519UnsealAuthorization({
-      authorization: payload.authorization,
-      materialBindingDigest,
-    })
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_authorization',
-      message: 'Invalid Ed25519 unseal authorization',
-    };
-  }
-  warmSessionEd25519UnsealAuthorizationCache.set(sessionId, {
-    signingGrantId,
-    walletId,
-    authMethod,
-    materialBindingDigest,
-    authorization: payload.authorization,
-    expiresAtMs,
-    remainingUses: 1,
-  });
-  return { ok: true, remainingUses: 1, expiresAtMs };
-}
-
-function ed25519UnsealAuthorizationScopeMatches(args: {
-  entry: WarmSessionEd25519UnsealAuthorizationEntry;
-  payload: WarmSessionEd25519UnsealAuthorizationClaimPayload;
-}): boolean {
-  return (
-    args.entry.signingGrantId === normalizeOptionalTrimmedString(args.payload.signingGrantId) &&
-    args.entry.walletId === normalizeOptionalTrimmedString(args.payload.walletId) &&
-    args.entry.authMethod === args.payload.authMethod &&
-    args.entry.materialBindingDigest ===
-      normalizeOptionalTrimmedString(args.payload.materialBindingDigest)
-  );
-}
-
-function claimWarmSessionEd25519UnsealAuthorization(
-  payload: WarmSessionEd25519UnsealAuthorizationClaimPayload,
-): WarmSessionEd25519UnsealAuthorizationClaimResult {
-  const sessionId = normalizeOptionalTrimmedString(payload.sessionId);
-  if (!sessionId) {
-    return invalidEd25519UnsealAuthorizationResult('Missing Ed25519 unseal authorization session');
-  }
-  if (payload.consume !== true) {
-    return invalidEd25519UnsealAuthorizationResult(
-      'Invalid Ed25519 unseal authorization claim mode',
-    );
-  }
-  const entry = warmSessionEd25519UnsealAuthorizationCache.get(sessionId);
-  if (!entry) {
-    return { ok: false, code: 'not_found', message: 'Ed25519 unseal authorization not found' };
-  }
-  if (entry.expiresAtMs <= nowMs()) {
-    deleteWarmSessionEd25519UnsealAuthorization(sessionId);
-    return { ok: false, code: 'expired', message: 'Ed25519 unseal authorization expired' };
-  }
-  if (entry.remainingUses !== 1) {
-    deleteWarmSessionEd25519UnsealAuthorization(sessionId);
-    return { ok: false, code: 'exhausted', message: 'Ed25519 unseal authorization exhausted' };
-  }
-  if (!ed25519UnsealAuthorizationScopeMatches({ entry, payload })) {
-    deleteWarmSessionEd25519UnsealAuthorization(sessionId);
-    return {
-      ok: false,
-      code: 'scope_mismatch',
-      message: 'Ed25519 unseal authorization scope mismatch',
-    };
-  }
-  if (
-    !isValidEd25519UnsealAuthorization({
-      authorization: entry.authorization,
-      materialBindingDigest: entry.materialBindingDigest,
-    })
-  ) {
-    deleteWarmSessionEd25519UnsealAuthorization(sessionId);
-    return invalidEd25519UnsealAuthorizationResult('Invalid stored Ed25519 unseal authorization');
-  }
-  deleteWarmSessionEd25519UnsealAuthorization(sessionId);
-  return {
-    ok: true,
-    authorization: entry.authorization,
-    expiresAtMs: entry.expiresAtMs,
-  };
 }
 
 function storeWarmSessionPrfHandle(args: {
@@ -537,7 +380,6 @@ function coerceVariant(value: unknown): 'drawer' | 'modal' | undefined {
 }
 
 function parseExportWorkerTarget(payload: Record<string, unknown>): ExportWorkerTarget | null {
-  if (payload.chain === 'near') return { kind: 'near', scheme: 'ed25519' };
   const rawChainTarget = asRecord(payload.chainTarget);
   if (!rawChainTarget) return null;
   try {
@@ -556,42 +398,113 @@ function secp256k1LabelForExportTarget(chainTarget: ThresholdEcdsaChainTarget): 
 }
 
 function labelForExportTarget(target: ExportWorkerTarget): string {
-  return target.kind === 'near'
-    ? 'NEAR private key'
-    : secp256k1LabelForExportTarget(target.chainTarget);
+  return secp256k1LabelForExportTarget(target.chainTarget);
+}
+
+function parseWorkerBytes32(value: unknown): readonly number[] | null {
+  if (!Array.isArray(value) || value.length !== 32) return null;
+  const bytes: number[] = [];
+  for (const entry of value) {
+    if (!Number.isInteger(entry) || entry < 0 || entry > 255) return null;
+    bytes.push(entry);
+  }
+  return bytes;
+}
+
+function parseEd25519YaoExportWorkerPayload(
+  payload: Record<string, unknown>,
+): RouterAbEd25519YaoExportWorkerPayloadV1 | null {
+  if (payload.artifactKind !== ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1) return null;
+  const parsedWalletId = parseWalletId(payload.walletId);
+  if (!parsedWalletId.ok) return null;
+  const nearAccountId = normalizeOptionalNonEmptyString(payload.nearAccountId);
+  const relayerUrl = normalizeOptionalNonEmptyString(payload.relayerUrl);
+  const walletSessionJwt = normalizeOptionalNonEmptyString(payload.walletSessionJwt);
+  const flowId = normalizeOptionalNonEmptyString(payload.flowId);
+  const viewerSessionId = normalizeOptionalNonEmptyString(payload.viewerSessionId);
+  const exactLane = asRecord(payload.exactLane);
+  const capability = asRecord(payload.capability);
+  if (
+    !nearAccountId ||
+    !relayerUrl ||
+    !walletSessionJwt ||
+    !flowId ||
+    !viewerSessionId ||
+    !exactLane ||
+    !capability
+  ) {
+    return null;
+  }
+  const nearEd25519SigningKeyId = normalizeOptionalNonEmptyString(
+    exactLane.nearEd25519SigningKeyId,
+  );
+  const credentialIdB64u = normalizeOptionalNonEmptyString(exactLane.credentialIdB64u);
+  const signingGrantId = normalizeOptionalNonEmptyString(exactLane.signingGrantId);
+  const thresholdSessionId = normalizeOptionalNonEmptyString(exactLane.thresholdSessionId);
+  const signerSlot = normalizePositiveInteger(exactLane.signerSlot);
+  const registeredPublicKey = parseWorkerBytes32(capability.registeredPublicKey);
+  const activeCapabilityBinding = parseWorkerBytes32(capability.activeCapabilityBinding);
+  const stateEpoch = normalizeNonNegativeInteger(capability.stateEpoch);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(capability.runtimePolicyScope);
+  const activationIdentity = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
+    scope: capability.scope,
+    application_binding: capability.applicationBinding,
+    participant_ids: capability.participantIds,
+  });
+  if (
+    !nearEd25519SigningKeyId ||
+    !credentialIdB64u ||
+    !signingGrantId ||
+    !thresholdSessionId ||
+    signerSlot == null ||
+    !registeredPublicKey ||
+    !activeCapabilityBinding ||
+    stateEpoch == null ||
+    !runtimePolicyScope ||
+    !activationIdentity.ok
+  ) {
+    return null;
+  }
+  return {
+    artifactKind: ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1,
+    walletId: String(parsedWalletId.value),
+    nearAccountId,
+    relayerUrl,
+    walletSessionJwt,
+    flowId,
+    viewerSessionId,
+    exactLane: {
+      nearEd25519SigningKeyId,
+      signerSlot,
+      credentialIdB64u,
+      signingGrantId,
+      thresholdSessionId,
+    },
+    capability: {
+      scope: activationIdentity.value.scope,
+      applicationBinding: activationIdentity.value.application_binding,
+      participantIds: activationIdentity.value.participant_ids,
+      registeredPublicKey,
+      stateEpoch,
+      activeCapabilityBinding,
+      runtimePolicyScope,
+    },
+    variant: coerceVariant(payload.variant),
+    theme: coerceTheme(payload.theme),
+  };
 }
 
 function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorkerPayload | null {
   const payload = asRecord(value);
   if (!payload) return null;
+  if (payload.artifactKind === ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1) {
+    return parseEd25519YaoExportWorkerPayload(payload);
+  }
   const target = parseExportWorkerTarget(payload);
   const artifactKind = normalizeOptionalNonEmptyString(payload.artifactKind);
   if (!target) return null;
   const variant = coerceVariant(payload.variant);
   const theme = coerceTheme(payload.theme);
-  if (target.kind === 'near') {
-    const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
-    const signerSlot = Math.floor(Number(payload.signerSlot));
-    const expectedPublicKey = normalizeOptionalNonEmptyString(payload.expectedPublicKey);
-    const seedB64u = normalizeOptionalNonEmptyString(payload.seedB64u);
-    if (!nearAccountId || !Number.isFinite(signerSlot) || signerSlot < 1) return null;
-    if (artifactKind === 'near-ed25519-seed-v1') {
-      if (!expectedPublicKey || !seedB64u) {
-        return null;
-      }
-      return {
-        nearAccountId,
-        signerSlot,
-        chain: 'near',
-        artifactKind,
-        expectedPublicKey,
-        seedB64u,
-        variant,
-        theme,
-      };
-    }
-    return null;
-  }
   const parsedWalletId = parseWalletId(payload.walletId);
   if (!parsedWalletId.ok) return null;
   const walletId = String(parsedWalletId.value);
@@ -624,35 +537,26 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   };
 }
 
-function requireNearSeedExportPayload(
+function isRouterAbEd25519YaoExportWorkerPayload(
   payload: ExportPrivateKeysWithUiWorkerPayload,
-): NearSeedExportWorkerPayload {
-  if (
-    !('chain' in payload) ||
-    payload.chain !== 'near' ||
-    payload.artifactKind !== 'near-ed25519-seed-v1'
-  ) {
-    throw new Error('Threshold Ed25519 seed export metadata missing or invalid');
-  }
-  return payload;
+): payload is RouterAbEd25519YaoExportWorkerPayloadV1 {
+  return (
+    'artifactKind' in payload &&
+    payload.artifactKind === ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1
+  );
 }
 
 function requireEcdsaHssThresholdExportPayload(
   payload: ExportPrivateKeysWithUiWorkerPayload,
 ): EcdsaHssThresholdExportWorkerPayload {
-  const artifactKind = 'artifactKind' in payload ? payload.artifactKind : undefined;
-  if (!('chainTarget' in payload) || artifactKind !== 'ecdsa-hss-secp256k1-export') {
+  if (!('artifactKind' in payload) || payload.artifactKind !== 'ecdsa-hss-secp256k1-export') {
     throw new Error('ecdsa-hss secp256k1 export artifact metadata missing or invalid');
   }
-  return payload as EcdsaHssThresholdExportWorkerPayload;
+  return payload;
 }
 
 function exportSubjectIdForPayload(payload: ExportPrivateKeysWithUiWorkerPayload): string {
-  if ('chain' in payload && payload.chain === 'near') {
-    return String(toAccountId(payload.nearAccountId));
-  }
-  if ('walletId' in payload) return payload.walletId;
-  throw new Error('Invalid export subject');
+  return payload.walletId;
 }
 
 function requireExportWalletId(raw: string): string {
@@ -667,22 +571,10 @@ function localOnlyExportSubjectForTarget(args: {
   exportTarget: ExportWorkerTarget;
   exportSubjectId: string;
 }): LocalOnlyExportSubject {
-  switch (args.exportTarget.kind) {
-    case 'near':
-      return {
-        kind: 'near_wallet',
-        nearAccountId: String(toAccountId(args.exportSubjectId)),
-      };
-    case 'ecdsa':
-      return {
-        kind: 'evm_wallet',
-        walletId: requireExportWalletId(args.exportSubjectId),
-      };
-    default: {
-      const exhaustive: never = args.exportTarget;
-      throw new Error(`Unsupported export target: ${String(exhaustive)}`);
-    }
-  }
+  return {
+    kind: 'evm_wallet',
+    walletId: requireExportWalletId(args.exportSubjectId),
+  };
 }
 
 function exportIntentDigestForPayload(args: {
@@ -690,12 +582,6 @@ function exportIntentDigestForPayload(args: {
   exportSubjectId: string;
   exportTarget: ExportWorkerTarget;
 }): string {
-  if ('chain' in args.payload && args.payload.chain === 'near') {
-    return `export-keys:${args.exportSubjectId}:${args.payload.signerSlot}`;
-  }
-  if (args.exportTarget.kind !== 'ecdsa') {
-    throw new Error('Invalid ECDSA export target');
-  }
   return `export-keys:${args.exportSubjectId}:${thresholdEcdsaChainTargetKey(args.exportTarget.chainTarget)}:secp256k1`;
 }
 
@@ -881,9 +767,7 @@ function requirePrfB64uFromCredential(
   credential: WebAuthnAuthenticationCredential,
   output: 'first' | 'second',
 ): string {
-  const results = asRecord(
-    (credential as unknown as { clientExtensionResults?: unknown }).clientExtensionResults,
-  );
+  const results = asRecord(credential.clientExtensionResults);
   const prf = asRecord(results?.prf);
   const prfResults = asRecord(prf?.results);
   const value = normalizeOptionalTrimmedString(prfResults?.[output]);
@@ -907,19 +791,6 @@ async function ensureEthSignerWasmReady(): Promise<void> {
     }
   })();
   return ethSignerWasmInitPromise;
-}
-
-async function ensureHssClientSignerWasmReady(): Promise<void> {
-  if (hssClientSignerInitPromise) return hssClientSignerInitPromise;
-  hssClientSignerInitPromise = (async () => {
-    try {
-      await initHssClientSigner({ module_or_path: hssClientSignerWasmUrl });
-    } catch (error: unknown) {
-      hssClientSignerInitPromise = null;
-      throw error;
-    }
-  })();
-  return hssClientSignerInitPromise;
 }
 
 async function deriveSecp256k1FromPrfSecondInWorker(args: {
@@ -948,66 +819,310 @@ async function deriveSecp256k1FromPrfSecondInWorker(args: {
   }
 }
 
-async function buildNearEd25519SeedExportArtifactInWorker(args: {
-  seedB64u: string;
-  expectedPublicKey: string;
-}): Promise<{ publicKey: string; privateKey: string }> {
-  await ensureHssClientSignerWasmReady();
-  const artifact = threshold_ed25519_seed_export_artifact_from_seed({
-    seedB64u: args.seedB64u,
-    expectedPublicKey: args.expectedPublicKey,
-  }) as {
-    artifactKind?: unknown;
-    publicKey?: unknown;
-    privateKey?: unknown;
-  } | null;
-  const publicKey = String(artifact?.publicKey || '').trim();
-  const privateKey = String(artifact?.privateKey || '').trim();
-  const artifactKind = String(artifact?.artifactKind || '').trim();
-  if (artifactKind !== 'near-ed25519-seed-v1') {
-    throw new Error('NEAR seed export artifact builder returned an unexpected artifactKind');
+function freshExportNonce32(): Uint8Array {
+  const nonce = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(nonce);
+  return nonce;
+}
+
+function ed25519ExportCredentialMatches(
+  credential: WebAuthnAuthenticationCredential,
+  credentialIdB64u: string,
+): boolean {
+  return credential.id === credentialIdB64u || credential.rawId === credentialIdB64u;
+}
+
+function clearEd25519ExportDisplayEntries(entries: Ed25519ExportPrivateKeyDisplayEntry[]): void {
+  for (const entry of entries) entry.privateKey = '';
+}
+
+function ignoreExportViewerError(): undefined {
+  return undefined;
+}
+
+function assertExactEd25519ExportWorkerBinding(
+  payload: RouterAbEd25519YaoExportWorkerPayloadV1,
+): void {
+  const capability = payload.capability;
+  const application = capability.applicationBinding;
+  const scope = capability.scope;
+  if (
+    application.wallet_id !== payload.walletId ||
+    application.near_ed25519_signing_key_id !== payload.exactLane.nearEd25519SigningKeyId ||
+    application.key_creation_signer_slot !== payload.exactLane.signerSlot ||
+    scope.account_id !== payload.walletId ||
+    scope.wallet_session_id !== payload.exactLane.thresholdSessionId
+  ) {
+    throw new Error('Ed25519 Yao export capability does not match the exact requested lane');
   }
-  if (!publicKey || !privateKey) {
-    throw new Error('NEAR seed export artifact builder returned an incomplete keypair');
+}
+
+async function buildEd25519ExportAuthorizationIdentity(
+  payload: RouterAbEd25519YaoExportWorkerPayloadV1,
+): Promise<RouterAbEd25519YaoExportAuthorizationIdentityV1> {
+  const runtimePolicyBinding = await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+    payload.capability.runtimePolicyScope,
+  );
+  return {
+    scope: payload.capability.scope,
+    application_binding: payload.capability.applicationBinding,
+    participant_ids: payload.capability.participantIds,
+    registered_public_key: payload.capability.registeredPublicKey,
+    state_epoch: payload.capability.stateEpoch,
+    runtime_policy_binding: runtimePolicyBinding,
+  };
+}
+
+async function runEd25519YaoExportWithUi(
+  payload: RouterAbEd25519YaoExportWorkerPayloadV1,
+): Promise<ExportPrivateKeysWithUiWorkerResult> {
+  assertExactEd25519ExportWorkerBinding(payload);
+  const publicKey = `ed25519:${base58Encode(Uint8Array.from(payload.capability.registeredPublicKey))}`;
+  const subject = { kind: 'near_wallet' as const, nearAccountId: payload.nearAccountId };
+  const requestId = toSessionId('export-ed25519-yao');
+  const viewerSessionId = payload.viewerSessionId;
+  const issuedAtMs = nowMs();
+  const expiresAtMs = issuedAtMs + 60_000;
+  const nonce = freshExportNonce32();
+  const identity = await buildEd25519ExportAuthorizationIdentity(payload);
+  const confirmationDigest = await deriveRouterAbEd25519YaoExportConfirmationDigestV1({
+    identity,
+    nonce: [...nonce],
+    issuedAtMs,
+    expiresAtMs,
+  });
+  const intentDigest = `export-keys:${payload.walletId}:near:${payload.nearAccountId}:ed25519:${base64UrlEncode(Uint8Array.from(confirmationDigest))}`;
+  const loadingKeys: Ed25519ExportPrivateKeyDisplayEntry[] = [
+    {
+      scheme: 'ed25519',
+      label: 'NEAR Ed25519 private key',
+      publicKey,
+      privateKey: '',
+    },
+  ];
+  let prfFirst = new Uint8Array(0);
+  let artifact: { publicKey: string; privateKey: string } | null = null;
+  let exportKeys: Ed25519ExportPrivateKeyDisplayEntry[] = [];
+  let loadingViewerOpened = false;
+  try {
+    const decision = await awaitUserConfirmationV2({
+      requestId,
+      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+      summary: {
+        operation: 'Export Private Key',
+        accountId: payload.nearAccountId,
+        publicKey,
+        warning: 'Confirm to reveal your NEAR Ed25519 private key export.',
+      },
+      payload: {
+        subject,
+        publicKey,
+        challengeB64u: base64UrlEncode(Uint8Array.from(confirmationDigest)),
+      },
+      intentDigest,
+    } satisfies UserConfirmRequest);
+    if (!decision.confirmed) {
+      return {
+        ok: false,
+        cancelled: true,
+        accountId: payload.nearAccountId,
+        exportedSchemes: [],
+        error: decision.error || 'User cancelled Ed25519 export request',
+      };
+    }
+    if (!decision.credential) {
+      throw new Error('Ed25519 export confirmation did not return a WebAuthn credential');
+    }
+    const credential = normalizeAuthenticationCredential(decision.credential);
+    if (!ed25519ExportCredentialMatches(credential, payload.exactLane.credentialIdB64u)) {
+      throw new Error('Ed25519 export confirmation used a different passkey credential');
+    }
+    prfFirst = base64UrlDecode(requirePrfB64uFromCredential(credential, 'first'));
+    if (prfFirst.length !== 32) {
+      throw new Error('Ed25519 export requires a 32-byte PRF.first output');
+    }
+    const authorizationDigest = await deriveRouterAbEd25519YaoExportAuthorizationDigestV1({
+      identity,
+      confirmationDigest,
+      nonce: [...nonce],
+      issuedAtMs,
+      expiresAtMs,
+      thresholdSessionId: payload.exactLane.thresholdSessionId,
+      signingGrantId: payload.exactLane.signingGrantId,
+      authority: {
+        kind: 'passkey',
+        credentialIdB64u: payload.exactLane.credentialIdB64u,
+      },
+    });
+    const request = parseRouterAbEd25519YaoExportAdmissionRequestV1({
+      ...identity,
+      authorization: {
+        confirmation_digest: confirmationDigest,
+        authorization_digest: authorizationDigest,
+        nonce: [...nonce],
+        issued_at_ms: issuedAtMs,
+        expires_at_ms: expiresAtMs,
+      },
+    });
+    if (!request.ok) {
+      throw new Error(`Invalid Ed25519 export admission: ${request.message}`);
+    }
+
+    const loadingDecision = await awaitUserConfirmationV2({
+      requestId: `${requestId}-show-loading`,
+      type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+      summary: {
+        operation: 'Export Private Key',
+        accountId: payload.nearAccountId,
+        publicKey,
+        warning: 'Preparing your NEAR Ed25519 private key export.',
+      },
+      payload: {
+        subject,
+        viewerSessionId,
+        publicKey,
+        keys: loadingKeys,
+        variant: payload.variant,
+        theme: payload.theme,
+        loading: true,
+      },
+      intentDigest,
+    } satisfies UserConfirmRequest);
+    if (!loadingDecision.confirmed) {
+      return {
+        ok: false,
+        cancelled: true,
+        accountId: payload.nearAccountId,
+        exportedSchemes: [],
+        error: loadingDecision.error || 'User cancelled Ed25519 export viewer',
+      };
+    }
+    loadingViewerOpened = true;
+
+    const client = await RouterAbEd25519YaoClientV1.initializeBundled();
+    const result = await client.exportSeed({
+      request: request.value,
+      factor: { kind: 'passkey_prf_first', ownedSecret32: prfFirst },
+      authorization: { kind: 'passkey', webauthnAuthentication: credential },
+      transport: new RouterAbEd25519YaoHttpActivationTransportV1({
+        routerOrigin: new URL(payload.relayerUrl).origin,
+        authorization: `Bearer ${payload.walletSessionJwt}`,
+        fetch: globalThis.fetch.bind(globalThis),
+      }),
+    });
+    prfFirst = new Uint8Array(0);
+    if (!result.ok) throw new Error(result.message);
+    artifact = result.artifact;
+    if (artifact.publicKey !== publicKey) {
+      throw new Error('Exported Ed25519 seed does not match the active registered public key');
+    }
+    exportKeys = [
+      {
+        scheme: 'ed25519',
+        label: 'NEAR Ed25519 private key',
+        publicKey: artifact.publicKey,
+        privateKey: artifact.privateKey,
+      },
+    ];
+    const showDecision = await awaitUserConfirmationV2({
+      requestId: `${requestId}-show-ready`,
+      type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+      summary: {
+        operation: 'Export Private Key',
+        accountId: payload.nearAccountId,
+        publicKey: artifact.publicKey,
+        warning: 'Anyone with your private key can fully control your account. Never share it.',
+      },
+      payload: {
+        subject,
+        viewerSessionId,
+        publicKey: artifact.publicKey,
+        privateKey: artifact.privateKey,
+        keys: exportKeys,
+        variant: payload.variant,
+        theme: payload.theme,
+        loading: false,
+      },
+      intentDigest,
+    } satisfies UserConfirmRequest);
+    clearEd25519ExportDisplayEntries(exportKeys);
+    if (!showDecision.confirmed) {
+      return {
+        ok: false,
+        cancelled: true,
+        accountId: payload.nearAccountId,
+        exportedSchemes: [],
+        error: showDecision.error || 'User cancelled Ed25519 export viewer',
+      };
+    }
+    return { ok: true, accountId: payload.nearAccountId, exportedSchemes: ['ed25519'] };
+  } catch (error: unknown) {
+    if (loadingViewerOpened) {
+      const message = messageFromError(error, 'Failed to prepare Ed25519 export');
+      await awaitUserConfirmationV2({
+        requestId: `${requestId}-show-error`,
+        type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+        summary: {
+          operation: 'Export Private Key',
+          accountId: payload.nearAccountId,
+          publicKey,
+          warning: 'Private key export failed.',
+        },
+        payload: {
+          subject,
+          viewerSessionId,
+          publicKey,
+          keys: loadingKeys,
+          variant: payload.variant,
+          theme: payload.theme,
+          loading: false,
+          errorMessage: message,
+        },
+        intentDigest,
+      } satisfies UserConfirmRequest).catch(ignoreExportViewerError);
+    }
+    if (isCancellationLikeError(error)) {
+      return {
+        ok: false,
+        cancelled: true,
+        accountId: payload.nearAccountId,
+        exportedSchemes: [],
+        error: messageFromError(error, 'User cancelled Ed25519 export request'),
+      };
+    }
+    throw error;
+  } finally {
+    prfFirst.fill(0);
+    nonce.fill(0);
+    clearEd25519ExportDisplayEntries(exportKeys);
+    if (artifact) {
+      artifact.privateKey = '';
+    }
   }
-  if (publicKey !== args.expectedPublicKey) {
-    throw new Error('NEAR seed export artifact builder returned an unexpected public key');
-  }
-  return { publicKey, privateKey };
 }
 
 async function runExportPrivateKeysWithUi(
   payload: ExportPrivateKeysWithUiWorkerPayload,
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
+  if (isRouterAbEd25519YaoExportWorkerPayload(payload)) {
+    return await runEd25519YaoExportWithUi(payload);
+  }
   // Worker-owned export flow boundary:
   // only this runtime initiates export confirmations via awaitUserConfirmationV2.
-  const exportTarget =
-    'chain' in payload && payload.chain === 'near'
-      ? ({ kind: 'near', scheme: 'ed25519' } as const)
-      : 'chainTarget' in payload
-        ? ({ kind: 'ecdsa', scheme: 'secp256k1', chainTarget: payload.chainTarget } as const)
-        : null;
-  if (!exportTarget) throw new Error('Invalid export target');
+  const exportTarget = {
+    kind: 'ecdsa' as const,
+    scheme: 'secp256k1' as const,
+    chainTarget: payload.chainTarget,
+  };
   const exportSubjectId = exportSubjectIdForPayload(payload);
   const exportScheme = exportTarget.scheme;
-  const nearSeedPayload =
-    exportScheme === 'ed25519' &&
-    'chain' in payload &&
-    payload.chain === 'near' &&
-    payload.artifactKind === 'near-ed25519-seed-v1'
-      ? requireNearSeedExportPayload(payload)
-      : null;
   const ecdsaHssExportPayload =
-    exportScheme === 'secp256k1' &&
-    'chainTarget' in payload &&
-    'artifactKind' in payload &&
-    payload.artifactKind === 'ecdsa-hss-secp256k1-export'
+    'artifactKind' in payload && payload.artifactKind === 'ecdsa-hss-secp256k1-export'
       ? requireEcdsaHssThresholdExportPayload(payload)
       : null;
   const exportOperation = 'Export Private Key';
-  const exportPublicKey =
-    nearSeedPayload?.expectedPublicKey || ecdsaHssExportPayload?.publicKeyHex || '';
-  const loadingKeys: ExportPrivateKeyDisplayEntry[] = exportPublicKey
+  const exportPublicKey = ecdsaHssExportPayload?.publicKeyHex || '';
+  const loadingKeys: Secp256k1ExportPrivateKeyDisplayEntry[] = exportPublicKey
     ? [
         {
           scheme: exportScheme,
@@ -1030,7 +1145,7 @@ async function runExportPrivateKeysWithUi(
   });
 
   let prfSecondB64u = '';
-  const exportKeys: ExportPrivateKeyDisplayEntry[] = [];
+  const exportKeys: Secp256k1ExportPrivateKeyDisplayEntry[] = [];
   let loadingViewerOpened = false;
   try {
     const decision = await awaitUserConfirmationV2({
@@ -1040,12 +1155,9 @@ async function runExportPrivateKeysWithUi(
         operation: exportOperation,
         accountId: exportSubjectId,
         publicKey: exportPublicKey || '(threshold export key)',
-        warning:
-          exportScheme === 'ed25519'
-            ? 'Confirm to reveal your NEAR private key export.'
-            : ecdsaHssExportPayload
-              ? 'Confirm to reveal your EVM private key export.'
-              : 'Authenticate with your passkey to prepare export keys.',
+        warning: ecdsaHssExportPayload
+          ? 'Confirm to reveal your EVM private key export.'
+          : 'Authenticate with your passkey to prepare export keys.',
       },
       payload: {
         subject: localOnlySubject,
@@ -1063,8 +1175,10 @@ async function runExportPrivateKeysWithUi(
         error: decision.error || 'User cancelled export request',
       };
     }
-    const credential = decision.credential as WebAuthnAuthenticationCredential | undefined;
-    if (exportScheme === 'secp256k1' && !ecdsaHssExportPayload) {
+    const credential = decision.credential
+      ? normalizeAuthenticationCredential(decision.credential)
+      : undefined;
+    if (!ecdsaHssExportPayload) {
       if (!credential) {
         throw new Error('Export confirmation did not return a WebAuthn authentication credential');
       }
@@ -1103,23 +1217,7 @@ async function runExportPrivateKeysWithUi(
     }
     loadingViewerOpened = true;
 
-    if (exportScheme === 'ed25519') {
-      if (!nearSeedPayload) {
-        throw new Error('NEAR Ed25519 export now requires a canonical seed export artifact');
-      }
-      const derived = await buildNearEd25519SeedExportArtifactInWorker({
-        seedB64u: nearSeedPayload.seedB64u,
-        expectedPublicKey: nearSeedPayload.expectedPublicKey,
-      });
-      exportKeys.push({
-        scheme: 'ed25519',
-        label: 'NEAR private key',
-        publicKey: derived.publicKey,
-        privateKey: derived.privateKey,
-      });
-    }
-
-    if (exportScheme === 'secp256k1' && ecdsaHssExportPayload) {
+    if (ecdsaHssExportPayload) {
       exportKeys.push({
         scheme: 'secp256k1',
         label: secp256k1LabelForExportTarget(exportTarget.chainTarget),
@@ -1129,7 +1227,7 @@ async function runExportPrivateKeysWithUi(
       });
     }
 
-    if (exportScheme === 'secp256k1' && !ecdsaHssExportPayload) {
+    if (!ecdsaHssExportPayload) {
       const derived = await deriveSecp256k1FromPrfSecondInWorker({
         prfSecondB64u,
         derivationSubjectId: exportSubjectId,
@@ -1806,43 +1904,10 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT') {
-    const payload = asRecord(incoming.payload);
-    postUserConfirmWorkerResponse(id, {
-      success: true,
-      data: payload
-        ? storeWarmSessionEd25519UnsealAuthorization(
-            payload as WarmSessionEd25519UnsealAuthorizationPutPayload,
-          )
-        : ({
-            ok: false,
-            code: 'invalid_args',
-            message: 'Invalid Ed25519 unseal authorization payload',
-          } satisfies ErrResult),
-    });
-    return;
-  }
-
-  if (eventType === 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM') {
-    const payload = asRecord(incoming.payload);
-    postUserConfirmWorkerResponse(id, {
-      success: true,
-      data: payload
-        ? claimWarmSessionEd25519UnsealAuthorization(
-            payload as WarmSessionEd25519UnsealAuthorizationClaimPayload,
-          )
-        : invalidEd25519UnsealAuthorizationResult(
-            'Invalid Ed25519 unseal authorization claim payload',
-          ),
-    });
-    return;
-  }
-
   if (eventType === 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR') {
     const command = parseClearVolatileWarmMaterialCommand(incoming.payload);
     if (command?.scope.kind === 'session') {
       deleteWarmSessionPrfHandle(command.scope.sessionId);
-      deleteWarmSessionEd25519UnsealAuthorization(command.scope.sessionId);
     }
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;

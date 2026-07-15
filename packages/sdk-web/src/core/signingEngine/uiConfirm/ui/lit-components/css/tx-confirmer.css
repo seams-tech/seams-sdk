@@ -501,6 +501,11 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   border-width: 2px;
 }
 
+.passkey-registration-confirm__busy-label {
+  font-size: 0.875em;
+  white-space: nowrap;
+}
+
 /* Transactions section */
 
 .action-item {

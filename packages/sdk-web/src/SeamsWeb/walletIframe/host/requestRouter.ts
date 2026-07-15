@@ -43,7 +43,6 @@ export type EmailOtpWalletRequestType =
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL'
   | 'PM_ENROLL_EMAIL_OTP'
-  | 'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
@@ -53,14 +52,8 @@ export type EmailOtpWalletRequestType =
 export type RecoveryWalletRequestType =
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
-  | 'PM_START_EMAIL_RECOVERY'
-  | 'PM_FINALIZE_EMAIL_RECOVERY'
-  | 'PM_STOP_EMAIL_RECOVERY'
   | 'PM_SYNC_ACCOUNT_FLOW';
-export type ExportWalletRequestType =
-  | 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE'
-  | 'PM_EXPORT_KEYPAIR_UI'
-  | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI';
+export type ExportWalletRequestType = 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE' | 'PM_EXPORT_KEYPAIR_UI';
 export type DeviceLinkWalletRequestType =
   | 'PM_HAS_PASSKEY'
   | 'PM_VIEW_ACCESS_KEYS'
@@ -176,7 +169,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION':
     case 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL':
     case 'PM_ENROLL_EMAIL_OTP':
-    case 'PM_LOGIN_EMAIL_OTP_ED25519_CAPABILITY':
     case 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
     case 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION':
     case 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
@@ -185,9 +177,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES':
       return { kind: 'email_otp', type: request.type, request };
 
-    case 'PM_START_EMAIL_RECOVERY':
-    case 'PM_FINALIZE_EMAIL_RECOVERY':
-    case 'PM_STOP_EMAIL_RECOVERY':
     case 'PM_GET_RECOVERY_EMAILS':
     case 'PM_SET_RECOVERY_EMAILS':
     case 'PM_SYNC_ACCOUNT_FLOW':
@@ -195,7 +184,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
 
     case 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE':
     case 'PM_EXPORT_KEYPAIR_UI':
-    case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
       return { kind: 'export', type: request.type, request };
 
     case 'PM_HAS_PASSKEY':

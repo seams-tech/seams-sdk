@@ -12,12 +12,14 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 import type {
   EcdsaExportLane,
-  FreshEmailOtpEcdsaExportMaterialNeedsChallenge,
-  FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
+  FreshEmailOtpEcdsaExportMaterial,
+  FreshPasskeyEcdsaExportMaterial,
+  PasskeyEcdsaExportBootstrapContext,
   ReadyEcdsaExportLane,
   ReadyThresholdEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import type { RecordBackedEcdsaCommittedLane } from '../signEvmFamily/ecdsaSelection';
+import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 
 declare const signerSession: ReadyEcdsaSignerSession;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
@@ -29,6 +31,8 @@ declare const committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
 declare const broadCommittedLane: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
 declare const readyCommittedLane: ReadyEcdsaExportLane<EmailOtpWalletAuthAuthority>;
 declare const readyPasskeyCommittedLane: ReadyEcdsaExportLane<PasskeyWalletAuthAuthority>;
+declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+declare const passkeyBootstrap: PasskeyEcdsaExportBootstrapContext;
 
 // @ts-expect-error post-finalize ECDSA export lanes require wallet-bound authority, not pure factor identity.
 type InvalidFactorBackedEcdsaExportLane = EcdsaExportLane<AuthFactorIdentity>;
@@ -133,62 +137,63 @@ const exportMaterialWithBroadKeyRef: ReadyThresholdEcdsaExportMaterial = {
 };
 void exportMaterialWithBroadKeyRef;
 
-const freshNeedsChallengeMaterial: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
-  kind: 'fresh_email_otp_needs_challenge',
-  providerIdentityMode: 'explicit_provider_user',
-  providerUserId: 'google:alice',
-  chainTarget: record.chainTarget,
-  publicFacts,
-  emailHashHex: 'email-hash',
-  runtimePolicyScope,
-};
-void freshNeedsChallengeMaterial;
-
-// @ts-expect-error fresh Email OTP export material requires runtimePolicyScope.
-const freshNeedsChallengeMissingRuntimeScope: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
-  kind: 'fresh_email_otp_needs_challenge',
-  providerIdentityMode: 'wallet_session_subject',
-  chainTarget: record.chainTarget,
-  publicFacts,
-  emailHashHex: 'email-hash',
-};
-void freshNeedsChallengeMissingRuntimeScope;
-
-// @ts-expect-error wallet-session subject branch rejects explicit provider identity.
-const freshNeedsChallengeWalletWithProviderUser: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
-  kind: 'fresh_email_otp_needs_challenge',
-  providerIdentityMode: 'wallet_session_subject',
-  chainTarget: record.chainTarget,
-  publicFacts,
-  emailHashHex: 'email-hash',
-  runtimePolicyScope,
-  providerUserId: 'google:alice',
-};
-void freshNeedsChallengeWalletWithProviderUser;
-
-const freshRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+const freshRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
   chainTarget: record.chainTarget,
   publicFacts,
   runtimePolicyScope,
-  committedLane,
+  authorization: { kind: 'record_backed', committedLane },
 };
 void freshRouteAuthReadyMaterial;
 
-// @ts-expect-error route-auth-ready fresh material requires the committed lane.
-const freshRouteAuthReadyWithoutCommittedLane: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+const durableRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
+  kind: 'fresh_email_otp_route_auth_ready',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+  authorization: { kind: 'durable_authority_backed', signingSessionAuthority },
+};
+void durableRouteAuthReadyMaterial;
+
+// @ts-expect-error route-auth-ready fresh material requires one exact authority branch.
+const freshRouteAuthReadyWithoutAuthority: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
   chainTarget: record.chainTarget,
   publicFacts,
   runtimePolicyScope,
 };
-void freshRouteAuthReadyWithoutCommittedLane;
+void freshRouteAuthReadyWithoutAuthority;
 
-const freshRouteAuthReadyWithLooseRecord: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+const freshRouteAuthReadyWithLooseRecord: FreshEmailOtpEcdsaExportMaterial = {
   ...freshRouteAuthReadyMaterial,
   // @ts-expect-error route-auth-ready fresh material rejects loose session records.
   record,
 };
 void freshRouteAuthReadyWithLooseRecord;
+
+const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
+  kind: 'fresh_passkey_needs_authorization',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+  bootstrap: passkeyBootstrap,
+};
+void freshPasskeyExportMaterial;
+
+// @ts-expect-error fresh passkey export requires normalized bootstrap metadata.
+const freshPasskeyExportWithoutBootstrap: FreshPasskeyEcdsaExportMaterial = {
+  kind: 'fresh_passkey_needs_authorization',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+};
+void freshPasskeyExportWithoutBootstrap;
+
+const freshPasskeyExportWithRuntimeRecord: FreshPasskeyEcdsaExportMaterial = {
+  ...freshPasskeyExportMaterial,
+  // @ts-expect-error fresh passkey export does not carry mutable runtime records.
+  record,
+};
+void freshPasskeyExportWithRuntimeRecord;
 
 export {};

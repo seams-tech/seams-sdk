@@ -24,7 +24,6 @@ export * from './secure-confirm';
 export * from './secure-confirm-worker';
 export * from './webauthn';
 export * from './linkDevice';
-export * from './emailRecovery';
 export * from './errors';
 export * from './accountIds';
 export * from './sdkSentEvents';

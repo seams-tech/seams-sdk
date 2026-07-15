@@ -7,32 +7,18 @@ import {
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolveNearNetwork } from '@/core/config/chains';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
-import {
-  isSigningSessionAuthUnavailableError,
-  isThresholdSignerRepairableMaterialError,
-} from '@/core/signingEngine/threshold/sessionPolicy';
+import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
-import { refreshPasskeyEd25519SealedRecordAfterSigningMaterial } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
-import { requireOrRestoreRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/ed25519SigningMaterialReadiness';
-import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './shared/ed25519MaterialRestoreAuthorization';
-import {
-  preConfirmMaterialGateFromSigningAuthPlan,
-  restoreWarmSessionEd25519MaterialBeforeUserConfirmation,
-  selectPreparedEd25519ReadyMaterialState,
-} from './shared/ed25519PreConfirmMaterialReadiness';
 import {
   buildNearSigningSessionAuthPlan,
   createNearSigningSessionCoordinator,
   resolveNearSigningSessionAuthContext,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
-import {
-  ed25519RuntimeMaterialHandle,
-  type RouterAbEd25519RuntimeValidatedMaterial,
-} from '../../threshold/ed25519/workerMaterialHandle';
 import { planSigningSession } from '../../session/planning/planner';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -52,15 +38,14 @@ import {
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
-import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearNep413Payload } from '../../interfaces/near';
-import { tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning } from './shared/ed25519PresignFinalize';
+import { tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning } from './shared/ed25519YaoNormalSigning';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
-import { ed25519MaterialRestoreRequiredError } from '../../session/warmCapabilities/ed25519MaterialRestore';
+import type { RouterAbEd25519YaoActiveClientV1 } from '../../threshold/ed25519/yaoClient';
 
-type RouterAbNearNep413SigningPayload = {
-  kind: 'router_ab_ed25519_nep413_signing_payload_v1';
-  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
+type NearNep413YaoPayload = NearNep413Payload & {
+  activeClient: RouterAbEd25519YaoActiveClientV1;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
 };
 
 /**
@@ -93,7 +78,9 @@ export async function signNep413Message({
   nearAccount,
   signingSessionCoordinator,
   payload,
-}: NearNep413Payload): Promise<InternalSignNep413MessageResult> {
+  activeClient,
+  walletSessionState,
+}: NearNep413YaoPayload): Promise<InternalSignNep413MessageResult> {
   try {
     const operationId = payload.operationId;
     const relayerUrl = ctx.relayerUrl;
@@ -169,20 +156,7 @@ export async function signNep413Message({
       signingLane: signingSessionAuthPlan.lane,
       requiredSignatureUses,
     });
-    const preConfirmMaterialGate = preConfirmMaterialGateFromSigningAuthPlan(
-      preparedStepUp.confirmationAuthPayload.signingAuthPlan,
-    );
-    const preConfirmedReadyMaterialState =
-      await restoreWarmSessionEd25519MaterialBeforeUserConfirmation({
-        ctx,
-        signingSessionCoordinator: warmSessionReader,
-        thresholdSessionId: signingSessionAuthPlan.sessionId,
-        operation: 'nep413_message',
-        nearAccountId,
-        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-        gate: preConfirmMaterialGate,
-      });
-    const confirmation = await runSigningConfirmationCommand({
+    await runSigningConfirmationCommand({
       signingSessionPlan: resolvedSigningSession.signingSessionPlan,
       signingOperation,
       runtime: touchConfirm,
@@ -193,8 +167,6 @@ export async function signNep413Message({
         kind: 'nep413',
         ...buildSigningConfirmationAuthParams({
           signingAuthPlan: preparedStepUp.confirmationAuthPayload.signingAuthPlan,
-          emailOtpPrompt:
-            preparedStepUp.kind === 'email_otp' ? preparedStepUp.emailOtpPrompt : undefined,
           webauthnChallenge:
             preparedStepUp.kind === 'passkey' &&
             preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
@@ -217,64 +189,19 @@ export async function signNep413Message({
         }),
       },
     });
-    const stepUpAuthorization = buildNearEd25519StepUpAuthorization({
-      prepared: preparedStepUp,
-      confirmation,
-    });
 
-    const preparedPayload = await runSharedNearNep413Command({
+    const canonicalThresholdSessionId = await runSharedNearNep413Command({
       commandKind: SigningOperationCommandKind.PreparePayload,
       execute: async () => {
-        const canonicalThresholdSessionId = signingSessionAuthPlan.sessionId;
-        const preparedReadyMaterialState = selectPreparedEd25519ReadyMaterialState({
-          thresholdSessionId: canonicalThresholdSessionId,
-          refreshed: null,
-          preConfirmed: preConfirmedReadyMaterialState,
-        });
-        const readyMaterialState =
-          preparedReadyMaterialState ||
-          (await requireOrRestoreRouterAbEd25519WalletSessionState({
-            ctx,
-            signingSessionCoordinator: warmSessionReader,
-            thresholdSessionId: canonicalThresholdSessionId,
-            operation: 'nep413_message',
-            nearAccountId,
-            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-            restoreAuthorization:
-              await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp({
-                ctx,
-                signingSessionCoordinator: warmSessionReader,
-                thresholdSessionId: canonicalThresholdSessionId,
-                stepUpAuthorization,
-              }),
-          }));
-        await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
-          touchConfirm,
-          nearAccountId,
-          walletSessionState: readyMaterialState.walletSessionState,
-          thresholdSessionId: canonicalThresholdSessionId,
-          materialHandle: ed25519RuntimeMaterialHandle(readyMaterialState.signingMaterial),
-        });
-        return {
-          canonicalThresholdSessionId,
-          walletSessionState: readyMaterialState.walletSessionState,
-          signingMaterial: readyMaterialState.signingMaterial,
-        };
+        const sessionId = signingSessionAuthPlan.sessionId;
+        if (walletSessionState.thresholdSessionId !== sessionId) {
+          throw new Error('[SigningEngine][near] NEP-413 Yao session state mismatch');
+        }
+        return sessionId;
       },
     });
-    const { canonicalThresholdSessionId, walletSessionState, signingMaterial } = preparedPayload;
 
-    const buildRequestPayload = (
-      materialOverride?: RouterAbEd25519RuntimeValidatedMaterial,
-    ): RouterAbNearNep413SigningPayload => {
-      return {
-        kind: 'router_ab_ed25519_nep413_signing_payload_v1',
-        signingMaterial: materialOverride || signingMaterial,
-      };
-    };
-    let requestPayload = buildRequestPayload(signingMaterial);
-
-    const executeNep413Request = async (payloadForWorker: RouterAbNearNep413SigningPayload) => {
+    const executeNep413Request = async () => {
       const signingDigest = await computeThresholdEd25519Nep413SigningDigestWasm({
         sessionId: canonicalThresholdSessionId,
         message: payload.message,
@@ -295,14 +222,13 @@ export async function signNep413Message({
           ctx,
           thresholdSessionId: canonicalThresholdSessionId,
           signingSessionCoordinator,
+          activeClient,
           walletSessionState,
           walletId: commandSubject.walletSession.walletId,
           thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
           nearAccountId,
-          signingMaterial: payloadForWorker.signingMaterial,
           operationId: signingOperation.operationId,
           operationFingerprint: signingOperation.operationFingerprint!,
-          purpose: 'nep413_message',
           signingDigestB64u: signingDigest.signingDigestB64u,
           intent: signatureOnlyIntent,
         });
@@ -324,17 +250,9 @@ export async function signNep413Message({
       commandKind: SigningOperationCommandKind.Sign,
       execute: async () => {
         try {
-          return await executeNep413Request(requestPayload);
+          return await executeNep413Request();
         } catch (e: unknown) {
           const err = e instanceof Error ? e : new Error(String(e));
-
-          if (isThresholdSignerRepairableMaterialError(err)) {
-            throw ed25519MaterialRestoreRequiredError({
-              operation: 'nep413_message',
-              thresholdSessionId: canonicalThresholdSessionId,
-              reason: 'worker_material_unavailable',
-            });
-          }
 
           if (isSigningSessionAuthUnavailableError(err)) {
             throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);

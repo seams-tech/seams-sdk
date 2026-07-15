@@ -12,14 +12,8 @@ export type {
   EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
 export type {
-  EmailOtpThresholdEd25519LoginResult,
-  LoginEmailOtpEd25519CapabilityArgs,
-} from './ed25519Warmup';
-export type {
   EmailOtpCoordinatorRuntimePorts,
   EmailOtpEcdsaSessionPorts,
-  EmailOtpEd25519SessionPorts,
-  EmailOtpEd25519PersistencePorts,
   EmailOtpSealedSessionStorePorts,
   EmailOtpWalletSessionCoordinatorDeps,
 } from './ports';
@@ -29,6 +23,18 @@ export class EmailOtpWalletSessionCoordinator {
 
   constructor(deps: EmailOtpWalletSessionCoordinatorDeps) {
     this.runtime = new EmailOtpWalletSessionRuntime(deps);
+  }
+
+  persistEd25519YaoSessionForRefresh(
+    args: Parameters<EmailOtpWalletSessionRuntime['persistEd25519YaoSessionForRefresh']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['persistEd25519YaoSessionForRefresh']> {
+    return this.runtime.persistEd25519YaoSessionForRefresh(args);
+  }
+
+  persistEcdsaSessionForRefresh(
+    args: Parameters<EmailOtpWalletSessionRuntime['persistEcdsaSessionForRefresh']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['persistEcdsaSessionForRefresh']> {
+    return this.runtime.persistEcdsaSessionForRefresh(args);
   }
 
   discoverPersistedSessionsForWallet(
@@ -47,16 +53,6 @@ export class EmailOtpWalletSessionCoordinator {
     args: Parameters<EmailOtpWalletSessionRuntime['readPersistedSessionSnapshot']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['readPersistedSessionSnapshot']> {
     return this.runtime.readPersistedSessionSnapshot(args);
-  }
-
-  attachEd25519SessionToEmailOtpSigningSessionSeal(
-    args: Parameters<
-      EmailOtpWalletSessionRuntime['attachEd25519SessionToEmailOtpSigningSessionSeal']
-    >[0],
-  ): ReturnType<
-    EmailOtpWalletSessionRuntime['attachEd25519SessionToEmailOtpSigningSessionSeal']
-  > {
-    return this.runtime.attachEd25519SessionToEmailOtpSigningSessionSeal(args);
   }
 
   readWarmSessionStatusOnly(
@@ -89,22 +85,16 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.rememberAppSessionJwt(args);
   }
 
+  rememberAppSessionBinding(
+    binding: Parameters<EmailOtpWalletSessionRuntime['rememberAppSessionBinding']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['rememberAppSessionBinding']> {
+    return this.runtime.rememberAppSessionBinding(binding);
+  }
+
   resolveAppSessionJwt(
     args: Parameters<EmailOtpWalletSessionRuntime['resolveAppSessionJwt']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['resolveAppSessionJwt']> {
     return this.runtime.resolveAppSessionJwt(args);
-  }
-
-  isEd25519WarmupPending(
-    args: Parameters<EmailOtpWalletSessionRuntime['isEd25519WarmupPending']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['isEd25519WarmupPending']> {
-    return this.runtime.isEd25519WarmupPending(args);
-  }
-
-  waitForPendingEd25519Warmup(
-    args: Parameters<EmailOtpWalletSessionRuntime['waitForPendingEd25519Warmup']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['waitForPendingEd25519Warmup']> {
-    return this.runtime.waitForPendingEd25519Warmup(args);
   }
 
   async requestTransactionSigningChallenge(
@@ -119,22 +109,22 @@ export class EmailOtpWalletSessionCoordinator {
     return await this.runtime.requestExportChallenge(args);
   }
 
-  exportEd25519SeedWithAuthorization(
-    args: Parameters<EmailOtpWalletSessionRuntime['exportEd25519SeedWithAuthorization']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['exportEd25519SeedWithAuthorization']> {
-    return this.runtime.exportEd25519SeedWithAuthorization(args);
-  }
-
   exportEcdsaKeyWithAuthorization(
     args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithAuthorization']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithAuthorization']> {
     return this.runtime.exportEcdsaKeyWithAuthorization(args);
   }
 
-  exportEcdsaKeyWithFreshEmailOtpLane(
-    args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithFreshEmailOtpLane']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithFreshEmailOtpLane']> {
-    return this.runtime.exportEcdsaKeyWithFreshEmailOtpLane(args);
+  exportEcdsaKeyWithDurableAuthorization(
+    args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithDurableAuthorization']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithDurableAuthorization']> {
+    return this.runtime.exportEcdsaKeyWithDurableAuthorization(args);
+  }
+
+  exportEd25519YaoSeedWithFreshEmailOtpLane(
+    args: Parameters<EmailOtpWalletSessionRuntime['exportEd25519YaoSeedWithFreshEmailOtpLane']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['exportEd25519YaoSeedWithFreshEmailOtpLane']> {
+    return this.runtime.exportEd25519YaoSeedWithFreshEmailOtpLane(args);
   }
 
   loginWithEcdsaCapabilityForSigning(
@@ -149,27 +139,9 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.loginWithEcdsaCapabilityInternal(args);
   }
 
-  loginWithEd25519CapabilityInternal(
-    args: Parameters<EmailOtpWalletSessionRuntime['loginWithEd25519CapabilityInternal']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEd25519CapabilityInternal']> {
-    return this.runtime.loginWithEd25519CapabilityInternal(args);
-  }
-
   enrollAndLoginWithEcdsaCapabilityInternal(
     args: Parameters<EmailOtpWalletSessionRuntime['enrollAndLoginWithEcdsaCapabilityInternal']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['enrollAndLoginWithEcdsaCapabilityInternal']> {
     return this.runtime.enrollAndLoginWithEcdsaCapabilityInternal(args);
-  }
-
-  loginWithEd25519CapabilityForSigning(
-    args: Parameters<EmailOtpWalletSessionRuntime['loginWithEd25519CapabilityForSigning']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEd25519CapabilityForSigning']> {
-    return this.runtime.loginWithEd25519CapabilityForSigning(args);
-  }
-
-  reconstructEd25519Session(
-    args: Parameters<EmailOtpWalletSessionRuntime['reconstructEd25519Session']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['reconstructEd25519Session']> {
-    return this.runtime.reconstructEd25519Session(args);
   }
 }

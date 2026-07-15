@@ -1,11 +1,11 @@
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  readPersistedAvailableSigningLanes,
-  readPersistedAvailableSigningLanesForTargets,
-} from '../../session/availability/persistedAvailableSigningLanes';
-import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
+import { readPersistedAvailableSigningLanesForTargets } from '../../session/availability/persistedAvailableSigningLanes';
+import type {
+  UiConfirmRuntimeBridgePort,
+  WarmSessionStatusResult,
+} from '../../uiConfirm/uiConfirm.types';
 import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
 import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
@@ -13,14 +13,12 @@ import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
 } from '../../flows/recovery/public';
-import type {
-  EmailOtpNearAccountExportAuthorizationDeps,
-  EmailOtpWalletSessionExportAuthorizationDeps,
-} from '../../flows/recovery/keyExportConfirmation';
+import type { EmailOtpWalletSessionExportAuthorizationDeps } from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type {
   EmailOtpEcdsaExportArtifact,
   ExportEcdsaKeyWithAuthorizationArgs,
+  ExportEcdsaKeyWithDurableAuthorizationArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
 
 export function createPrivateKeyExportRecoveryDeps(
@@ -39,31 +37,31 @@ export function createPrivateKeyExportRecoveryDeps(
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
-  touchIdPrompt: CreateSigningEnginePortsArgs['touchIdPrompt'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
-  privateKeyExportRecovery: PrivateKeyExportRecoveryDeps;
+  getTheme: PrivateKeyExportRecoveryDeps['getTheme'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: {
     readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
-    restorePersistedSessionForSigning: RecoveryPublicDeps['laneSelection']['restoreEmailOtpPersistedSessionForSigning'];
-    requestExportChallenge:
-      & EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']
-      & EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
-    exportEcdsaKeyWithFreshEmailOtpLane: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithFreshEmailOtpLane'];
+    requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithAuthorization: (
       request: ExportEcdsaKeyWithAuthorizationArgs,
     ) => Promise<EmailOtpEcdsaExportArtifact>;
-    exportEd25519SeedWithAuthorization: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['exportEd25519SeedWithAuthorization'];
+    exportEcdsaKeyWithDurableAuthorization: (
+      request: ExportEcdsaKeyWithDurableAuthorizationArgs,
+    ) => Promise<EmailOtpEcdsaExportArtifact>;
+    exportEd25519YaoSeedWithFreshEmailOtpLane: RecoveryPublicDeps['ed25519Yao']['emailOtp']['exportSeedWithFreshAuthorization'];
   };
-  keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
-  provisionThresholdEd25519Session: RecoveryPublicDeps['nearSingleKeyHss']['provisionThresholdEd25519Session'];
   provisionThresholdEcdsaSession: RecoveryPublicDeps['ecdsa']['provisionThresholdEcdsaSession'];
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
   };
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
+  resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
+  recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
+  resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
+  resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
 }): RecoveryPublicDeps {
   const getEmailOtpWarmSessionStatus = (sessionId: string) =>
     args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
@@ -89,17 +87,6 @@ export function createRecoveryPublicDeps(args: {
   };
   return {
     laneSelection: {
-      readPersistedAvailableSigningLanes: (availableLanesArgs) =>
-        readPersistedAvailableSigningLanes(
-          {
-            ecdsaSessions: args.ecdsaSessions,
-            statusReader: args.touchConfirm,
-            getEmailOtpWarmSessionStatus,
-            getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
-          },
-          availableLanesArgs,
-          configuredChainTargets,
-        ),
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
@@ -110,47 +97,37 @@ export function createRecoveryPublicDeps(args: {
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
         ),
-      restorePasskeyPersistedSessionForSigning: (restoreArgs) =>
-        args.touchConfirm.restorePersistedSessionForSigning(restoreArgs),
-      restoreEmailOtpPersistedSessionForSigning: (restoreArgs) =>
-        args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
-    },
-    nearSingleKeyHss: {
-      keyMaterialStore: args.keyMaterialStore,
-      touchConfirm: args.touchConfirm,
-      provisionThresholdEd25519Session: (request) =>
-        args.provisionThresholdEd25519Session(request),
-      emailOtpSessions: {
-        requestExportChallenge: (
-          request: Parameters<EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']>[0],
-        ) => args.emailOtpSessions.requestExportChallenge(request),
-        exportEd25519SeedWithAuthorization: (request) =>
-          args.emailOtpSessions.exportEd25519SeedWithAuthorization(request),
-      },
-      getSignerWorkerContext: () =>
-        args.signerWorkerManager.getContext(),
     },
     ecdsa: {
       sessionStore: args.ecdsaSessions,
       touchConfirm: args.touchConfirm,
       emailOtp: {
         requestExportChallenge: (
-          request: Parameters<EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']>[0],
+          request: Parameters<
+            EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']
+          >[0],
         ) => args.emailOtpSessions.requestExportChallenge(request),
-        exportEcdsaKeyWithFreshEmailOtpLane: (request) =>
-          args.emailOtpSessions.exportEcdsaKeyWithFreshEmailOtpLane(request),
         exportEcdsaKeyWithAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithAuthorization(request),
+        exportEcdsaKeyWithDurableAuthorization: (request) =>
+          args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
       },
       warmSessionPolicy: args.warmSessionPolicy,
-      provisionThresholdEcdsaSession: (request) =>
-        args.provisionThresholdEcdsaSession(request),
-      getSignerWorkerContext: () =>
-        args.signerWorkerManager.getContext(),
+      provisionThresholdEcdsaSession: (request) => args.provisionThresholdEcdsaSession(request),
+      getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
     },
-    touchConfirm: args.touchConfirm,
-    getTheme: () => args.privateKeyExportRecovery.getTheme(),
-    getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
-    privateKeyExportRecovery: args.privateKeyExportRecovery,
+    ed25519Yao: {
+      touchConfirm: args.touchConfirm,
+      resolveActiveCapability: args.resolveActiveEd25519YaoCapability,
+      recoverPasskeyCapability: args.recoverPasskeyEd25519YaoCapability,
+      resolvePasskeyExportContext: args.resolvePasskeyEd25519YaoExportContext,
+      emailOtp: {
+        requestExportChallenge: (request) => args.emailOtpSessions.requestExportChallenge(request),
+        resolveExportContext: (subject) => args.resolveEmailOtpEd25519YaoExportContext(subject),
+        exportSeedWithFreshAuthorization: (request) =>
+          args.emailOtpSessions.exportEd25519YaoSeedWithFreshEmailOtpLane(request),
+      },
+    },
+    getTheme: args.getTheme,
   };
 }

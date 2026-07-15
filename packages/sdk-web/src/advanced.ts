@@ -13,6 +13,7 @@ export {
   type WaitForEvmTransactionReceiptArgs,
 } from './core/rpcClients/evm/EvmClient';
 export { base64UrlEncode, base64UrlDecode } from '@shared/utils/encoders';
+export { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 export { createIntentId } from './core/idempotency/createIntentId';
 export {
   TEMPO_FEE_MANAGER_CONTRACT,

@@ -7,14 +7,30 @@ import type {
   EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
-  RegistrationNearAccountProvisioning,
-  ResolvedRegistrationNearAccount,
   RegistrationIntentGrant,
   RegistrationIntentV1,
+  RegistrationNearAccountProvisioning,
+  ResolvedRegistrationNearAccount,
   WalletAuthMethodTarget,
   WalletId,
   WebAuthnRpId,
 } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { alphabetizeStringify } from '@shared/utils/digests';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoBytes32V1,
+  type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  requireRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
 import {
   parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
   type RouterAbEcdsaHssNormalSigningStateV1,
@@ -31,6 +47,7 @@ import {
   type ThresholdEcdsaKeyIdentityInventoryEntry,
 } from '@/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
 import {
+  thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -41,13 +58,11 @@ import type {
   ThresholdEcdsaRoleLocalWorkerShareHandle,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '@/core/signingEngine/interfaces/signing';
-import type {
-  ThresholdEd25519HssPreparedSessionEnvelope,
-  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
-  ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
+import {
+  normalizeThresholdRuntimePolicyScope,
+  type Ed25519AuthorityScope,
+  type ThresholdRuntimePolicyScope,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   EcdsaHssRoleLocalPublicIdentity,
   ThresholdEcdsaHssRoleLocalBootstrapValue,
@@ -377,70 +392,13 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationPreparationConsumeMs'
   | 'registrationPreparationScopeCheckMs'
   | 'registrationAuthorityVerifyMs'
-  | 'registrationHssPrepareMs'
-  | 'registrationPreauthHssPrepareMs'
-  | 'registrationHssServerInputDeriveMs'
-  | 'registrationHssServerSessionPrepareTotalMs'
-  | 'registrationHssPrepareSessionMs'
-  | 'registrationHssPrepareExtractDriverStatesMs'
-  | 'registrationHssPrepareClientOfferMessageMs'
-  | 'registrationHssPrepareCachePreparedSessionMs'
-  | 'registrationHssPrepareEncodeStatesMs'
   | 'registrationEcdsaPrepareMs'
   | 'registrationCeremonyPersistMs'
   | 'registerPrepareTotalMs'
   | 'registerStartTotalMs'
-  | 'registrationHssRespondMs'
-  | 'registrationHssRespondDecodeMessagesMs'
-  | 'registrationHssRespondMaterializeSessionMs'
-  | 'registrationHssRespondPrepareDeliveryMs'
-  | 'registrationHssRespondDeliveryOtOpenJoinMs'
-  | 'registrationHssRespondDeliveryServerInputOpenMs'
-  | 'registrationHssRespondDeliveryServerInputShareMs'
-  | 'registrationHssRespondDeliveryServerInputCommitmentMs'
-  | 'registrationHssRespondDeliveryServerInputTranscriptMs'
-  | 'registrationHssRespondDeliveryServerInputSealMs'
-  | 'registrationHssRespondEncodeDeliveryMs'
   | 'registrationEcdsaRespondMs'
-  | 'registerHssRespondTotalMs'
-  | 'registerHssWarmupTotalMs'
-  | 'registrationHssAdvanceStateCeremonyLoadMs'
-  | 'registrationHssAdvanceStateDigestMs'
-  | 'registrationHssAdvanceStateWasmMs'
-  | 'registrationHssAdvanceStateDecodeStateMs'
-  | 'registrationHssAdvanceStateSerializedSessionMaterializeMs'
-  | 'registrationHssAdvanceStateSerializedSessionDecodeMs'
-  | 'registrationHssAdvanceStateMaterializeRuntimeMs'
-  | 'registrationHssAdvanceStateMaterializeEvaluatorSessionMs'
-  | 'registrationHssAdvanceStateMaterializeGarblerSessionMs'
-  | 'registrationHssAdvanceStateAddStageResponseMs'
-  | 'registrationHssAdvanceStateMessageScheduleRoundsMs'
-  | 'registrationHssAdvanceStateRoundCoreRoundsMs'
-  | 'registrationHssAdvanceStateOutputProjectionMs'
-  | 'registrationHssAdvanceStateEncodeAdvancedStateMs'
-  | 'registrationHssAdvanceStatePersistenceMs'
-  | 'registerHssAdvanceStateTotalMs'
   | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
-  | 'registrationHssFinalizeMs'
-  | 'registrationHssFinalizeDecodeArtifactMs'
-  | 'registrationHssFinalizeSerializedSessionMaterializeMs'
-  | 'registrationHssFinalizeSerializedSessionDecodeMs'
-  | 'registrationHssFinalizeMaterializeRuntimeMs'
-  | 'registrationHssFinalizeMaterializeEvaluatorSessionMs'
-  | 'registrationHssFinalizeMaterializeGarblerSessionMs'
-  | 'registrationHssFinalizeAdvanceAddStageResponseMs'
-  | 'registrationHssFinalizeAdvanceMessageScheduleRoundsMs'
-  | 'registrationHssFinalizeAdvanceRoundCoreRoundsMs'
-  | 'registrationHssFinalizeAdvanceOutputProjectionMs'
-  | 'registrationHssFinalizeReportMs'
-  | 'registrationHssFinalizePacketAssemblyMs'
-  | 'registrationHssFinalizeEncodeReportMs'
-  | 'registrationHssFinalizeOpenServerOutputMs'
-  | 'registrationHssFinalizeOpenSeedOutputMs'
-  | 'registrationHssFinalizeDeriveSeedKeypairMs'
-  | 'registrationHssFinalizeDeriveRelayerVerifyingShareMs'
-  | 'registrationHssFinalizeKeyStorePutMs'
   | 'registrationEcdsaBootstrapVerifyMs'
   | 'sponsoredNearAccountCreateMs'
   | 'registrationKeygenMs'
@@ -451,158 +409,64 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationFinalizeReplayCacheMs'
   | 'registerFinalizeTotalMs';
 
-export type Ed25519HssFinalizeSource =
-  | 'durable_advanced_eval'
-  | 'durable_finalized_report'
-  | 'serialized_replay';
-
-export type Ed25519HssAdvanceSource = 'durable_workerd_wasm';
-
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route:
-    | 'wallets_register_prepare'
-    | 'wallets_register_start'
-    | 'wallets_register_hss_respond'
-    | 'wallets_register_hss_advance_state'
-    | 'wallets_register_finalize';
+  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
   }[];
-  ed25519HssAdvance?: {
-    source: Ed25519HssAdvanceSource;
-  };
-  ed25519HssFinalize?: {
-    source: Ed25519HssFinalizeSource;
-  };
 };
 
-export type WalletRegistrationPrepareResponse = {
-  ok: true;
-  state: 'prepared';
-  registrationPreparationId: RegistrationPreparationId;
-  expiresAtMs: number;
-  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-  ed25519: {
-    ceremonyHandle: string;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    clientOtOfferMessageB64u: string;
-  };
+export type WalletRegistrationEd25519YaoStart = {
+  admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
 };
 
-function parseWalletRegistrationPrepareResponse(value: unknown): WalletRegistrationPrepareResponse {
-  const responseName = 'wallet registration prepare';
-  const record = requireResponseRecord({
-    responseName,
-    field: 'body',
-    value,
-  });
-  if (record.ok !== true) {
-    throw new Error(`${responseName} response was not ok`);
-  }
-  if (record.state !== 'prepared') {
-    throw new Error(`${responseName} response was not prepared`);
-  }
-  const expiresAtMs = Number(record.expiresAtMs);
-  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
-    throw new Error(`${responseName} response missing expiresAtMs`);
-  }
-  const ed25519 = requireResponseRecord({
-    responseName,
-    field: 'ed25519',
-    value: record.ed25519,
-  });
-  const registrationDiagnostics = record.registrationDiagnostics;
-  const parsedRegistrationDiagnostics = isRecord(registrationDiagnostics)
-    ? (registrationDiagnostics as WalletRegistrationRouteDiagnostics)
-    : undefined;
-  return {
-    ok: true,
-    state: 'prepared',
-    registrationPreparationId: registrationPreparationIdFromString(
-      requireResponseString({
-        responseName,
-        field: 'registrationPreparationId',
-        value: record.registrationPreparationId,
-      }),
-    ),
-    expiresAtMs,
-    ...(parsedRegistrationDiagnostics
-      ? { registrationDiagnostics: parsedRegistrationDiagnostics }
-      : {}),
-    ed25519: {
-      ceremonyHandle: requireResponseString({
-        responseName,
-        field: 'ed25519.ceremonyHandle',
-        value: ed25519.ceremonyHandle,
-      }),
-      preparedSession: requireResponseRecord({
-        responseName,
-        field: 'ed25519.preparedSession',
-        value: ed25519.preparedSession,
-      }) as ThresholdEd25519HssPreparedSessionEnvelope,
-      clientOtOfferMessageB64u: requireResponseString({
-        responseName,
-        field: 'ed25519.clientOtOfferMessageB64u',
-        value: ed25519.clientOtOfferMessageB64u,
-      }),
-    },
-  };
-}
+export type WalletRegistrationEcdsaPreparePayload = {
+  kind: 'evm_family_ecdsa_keygen';
+  targets: {
+    chainTarget: ThresholdEcdsaChainTarget;
+    prepare: WalletRegistrationEcdsaPrepareContext;
+  }[];
+};
 
-export type WalletRegistrationStartResponse = {
+type WalletRegistrationStartResponseBase = {
   ok: true;
   registrationCeremonyId: string;
   intent: RegistrationIntentV1;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-  ed25519?: {
-    ceremonyHandle: string;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    clientOtOfferMessageB64u: string;
-  };
-  ecdsa?: {
-    kind: 'evm_family_ecdsa_keygen';
-    targets: {
-      chainTarget: ThresholdEcdsaChainTarget;
-      prepare: WalletRegistrationEcdsaPrepareContext;
-    }[];
-  };
 };
 
-export type WalletRegistrationHssRespondResponse = {
+export type WalletRegistrationStartResponse = WalletRegistrationStartResponseBase &
+  (
+    | {
+        kind: 'near_ed25519';
+        ed25519: WalletRegistrationEd25519YaoStart;
+        ecdsa?: never;
+      }
+    | {
+        kind: 'evm_family_ecdsa';
+        ecdsa: WalletRegistrationEcdsaPreparePayload;
+        ed25519?: never;
+      }
+    | {
+        kind: 'near_ed25519_and_evm_family_ecdsa';
+        ed25519: WalletRegistrationEd25519YaoStart;
+        ecdsa: WalletRegistrationEcdsaPreparePayload;
+      }
+  );
+
+export type WalletRegistrationEcdsaRespondResponse = {
   ok: true;
   registrationCeremonyId: string;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-  ed25519?: {
-    contextBindingB64u: string;
-    serverInputDeliveryB64u: string;
-  };
-  ecdsa?: {
+  ecdsa: {
     bootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
       bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
     }[];
   };
 };
-
-export type WalletRegistrationHssAdvanceStateResponse =
-  | {
-      ok: true;
-      registrationCeremonyId: string;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519: {
-        contextBindingB64u: string;
-        addStageRequestDigestB64u: string;
-        projectionMode: 'registration_seed_and_output' | 'registration_output_only';
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-      retryAfterMs?: number;
-    };
 
 export type WalletRegistrationFinalizeAuthMethod =
   | {
@@ -615,77 +479,88 @@ export type WalletRegistrationFinalizeAuthMethod =
       registrationAuthorityId: string;
     };
 
-export type ThresholdEd25519RegistrationWorkerMaterialReport = {
-  kind: 'threshold_ed25519_registration_worker_material_report_v1';
-  contextBindingB64u: string;
-  clientOutputMessageB64u: string;
-  seedOutputMessageB64u?: never;
+export type WalletRegistrationEd25519YaoActivationReference = {
+  kind: 'router_ab_ed25519_yao_activation_reference_v1';
+  lifecycle_id: string;
+  session_id: RouterAbEd25519YaoBytes32V1;
 };
 
-export type WalletRegistrationFinalizeResponse =
+export type WalletRegistrationEd25519YaoBootstrapSession = {
+  sessionKind: 'jwt';
+  walletSessionJwt: string;
+  walletId: WalletId;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  authorityScope: Ed25519AuthorityScope;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  expiresAtMs: number;
+  participantIds: readonly [number, number];
+  remainingUses: number;
+  signingRootId: string;
+  signingRootVersion: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+};
+
+export type WalletRegistrationEd25519YaoPublicResult = {
+  signerSlot: number;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  publicKey: string;
+  relayerKeyId: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
+  participantIds: readonly [number, number];
+  session: WalletRegistrationEd25519YaoBootstrapSession;
+};
+
+type WalletRegistrationFinalizeResponseBase = {
+  ok: true;
+  walletId: WalletId;
+  authority: WalletAuthAuthority;
+  authMethod: WalletRegistrationFinalizeAuthMethod;
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+};
+
+type WalletRegistrationFinalizeResponseAuthority =
   | {
-      ok: true;
-      walletId: WalletId;
-      rpId?: string;
-      authMethod: WalletRegistrationFinalizeAuthMethod;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519: {
-        nearAccountId: string;
-        nearEd25519SigningKeyId: string;
-        publicKey: string;
-        relayerKeyId: string;
-        keyVersion: string;
-        recoveryExportCapable: true;
-        clientParticipantId?: number;
-        relayerParticipantId?: number;
-        participantIds?: number[];
-        session?: {
-          sessionKind: 'jwt' | 'cookie';
-          walletId: string;
-          nearAccountId: string;
-          nearEd25519SigningKeyId: string;
-          thresholdSessionId: string;
-          signingGrantId: string;
-          expiresAtMs: number;
-          expiresAt?: string;
-          participantIds?: number[];
-          remainingUses?: number;
-          runtimePolicyScope?: ThresholdRuntimePolicyScope;
-          routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-          jwt?: string;
-        };
-        registrationWorkerMaterialReport: ThresholdEd25519RegistrationWorkerMaterialReport;
-      };
-      ecdsa?: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
+      rpId: string;
+      authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'passkey' }>;
     }
   | {
-      ok: true;
-      walletId: WalletId;
-      rpId?: string;
-      authMethod: WalletRegistrationFinalizeAuthMethod;
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ecdsa: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      ed25519?: never;
-    }
-  | {
-      ok: true;
-      kind: 'already_finalized_restore_required';
-      walletId: WalletId;
-      rpId?: string;
-      reason: 'replay_without_session_material';
-      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      authMethod?: never;
-      ed25519?: never;
-      ecdsa?: never;
+      authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'email_otp' }>;
+      rpId?: never;
     };
+
+export type WalletRegistrationFinalizeResponse = WalletRegistrationFinalizeResponseBase &
+  WalletRegistrationFinalizeResponseAuthority &
+  (
+    | {
+        kind: 'near_ed25519';
+        authorityScope: Ed25519AuthorityScope;
+        accountProvisioning: RegistrationNearAccountProvisioning;
+        resolvedAccount: ResolvedRegistrationNearAccount;
+        ed25519: WalletRegistrationEd25519YaoPublicResult;
+        ecdsa?: never;
+      }
+    | {
+        kind: 'evm_family_ecdsa';
+        ecdsa: { walletKeys: WalletRegistrationEcdsaWalletKey[] };
+        authorityScope?: never;
+        accountProvisioning?: never;
+        resolvedAccount?: never;
+        ed25519?: never;
+      }
+    | {
+        kind: 'near_ed25519_and_evm_family_ecdsa';
+        authorityScope: Ed25519AuthorityScope;
+        accountProvisioning: RegistrationNearAccountProvisioning;
+        resolvedAccount: ResolvedRegistrationNearAccount;
+        ed25519: WalletRegistrationEd25519YaoPublicResult;
+        ecdsa: { walletKeys: WalletRegistrationEcdsaWalletKey[] };
+      }
+  );
 
 export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   recoveryWrappedEnrollmentEscrows: unknown[];
@@ -760,6 +635,7 @@ export type CreateAddSignerIntentResponse = {
 export type AddSignerAuth =
   | {
       kind: 'webauthn_assertion';
+      rpId: string;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
@@ -846,26 +722,645 @@ export type WalletAddSignerStartResponse = {
   ok: true;
   addSignerCeremonyId: string;
   intent: AddSignerIntentV1;
-  ed25519?: WalletRegistrationStartResponse['ed25519'];
-  ecdsa?: WalletRegistrationStartResponse['ecdsa'];
-};
+} & (
+  | {
+      kind: 'near_ed25519';
+      ed25519: WalletRegistrationEd25519YaoStart;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: WalletRegistrationEcdsaPreparePayload;
+      ed25519?: never;
+    }
+);
 
-export type WalletAddSignerHssRespondResponse = {
+export type WalletAddSignerEcdsaRespondResponse = {
   ok: true;
   addSignerCeremonyId: string;
-  ed25519?: WalletRegistrationHssRespondResponse['ed25519'];
-  ecdsa?: {
-    bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+  ecdsa: {
+    bootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+    }[];
   };
 };
 
 export type WalletAddSignerFinalizeResponse = {
   ok: true;
   walletId: WalletId;
-  rpId: string;
-  ed25519?: WalletRegistrationFinalizeResponse['ed25519'];
-  ecdsa?: WalletRegistrationFinalizeResponse['ecdsa'];
-};
+} & (
+  | {
+      kind: 'near_ed25519';
+      rpId: string;
+      credentialIdB64u: string;
+      ed25519: WalletRegistrationEd25519YaoPublicResult;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      rpId: string;
+      ecdsa: { walletKeys: WalletRegistrationEcdsaWalletKey[] };
+      ed25519?: never;
+    }
+);
+
+function assertExactResponseKeys(
+  record: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  responseName: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) {
+      throw new Error(`${responseName} response contains unexpected ${key}`);
+    }
+  }
+}
+
+function requireResponseSafeInteger(args: {
+  responseName: string;
+  field: string;
+  value: unknown;
+  minimum: number;
+}): number {
+  const value = Number(args.value);
+  if (!Number.isSafeInteger(value) || value < args.minimum) {
+    throw new Error(`${args.responseName} response has invalid ${args.field}`);
+  }
+  return value;
+}
+
+function requireResponseParticipantPair(
+  value: unknown,
+  responseName: string,
+): readonly [number, number] {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new Error(`${responseName} response has invalid participantIds`);
+  }
+  const first = requireResponseSafeInteger({
+    responseName,
+    field: 'participantIds[0]',
+    value: value[0],
+    minimum: 1,
+  });
+  const second = requireResponseSafeInteger({
+    responseName,
+    field: 'participantIds[1]',
+    value: value[1],
+    minimum: 1,
+  });
+  if (first === second) {
+    throw new Error(`${responseName} response has duplicate participantIds`);
+  }
+  return [first, second];
+}
+
+function requireExactAddSignerIntent(
+  value: unknown,
+  expected: AddSignerIntentV1,
+): AddSignerIntentV1 {
+  if (alphabetizeStringify(value) !== alphabetizeStringify(expected)) {
+    throw new Error('Wallet add-signer start response changed the admitted intent');
+  }
+  return expected;
+}
+
+function parseWalletAddSignerEcdsaPrepare(
+  value: unknown,
+  expectedIntent: AddSignerIntentV1,
+): WalletRegistrationEcdsaPreparePayload {
+  const responseName = 'Wallet add-signer ECDSA start';
+  const record = requireResponseRecord({ responseName, field: 'ecdsa', value });
+  assertExactResponseKeys(record, ['kind', 'targets'], responseName);
+  if (record.kind !== 'evm_family_ecdsa_keygen' || !Array.isArray(record.targets)) {
+    throw new Error(`${responseName} response has invalid payload`);
+  }
+  if (expectedIntent.signerSelection.mode !== 'ecdsa') {
+    throw new Error(`${responseName} response substituted signer branch`);
+  }
+  const expectedTargets = expectedIntent.signerSelection.ecdsa.chainTargets;
+  if (record.targets.length !== expectedTargets.length) {
+    throw new Error(`${responseName} response changed target count`);
+  }
+  const targets = record.targets.map(
+    (targetValue, index): WalletRegistrationEcdsaPreparePayload['targets'][number] => {
+      const target = requireResponseRecord({
+        responseName,
+        field: `targets[${index}]`,
+        value: targetValue,
+      });
+      assertExactResponseKeys(target, ['chainTarget', 'prepare'], responseName);
+      const expectedTargetValue = expectedTargets[index];
+      if (expectedTargetValue === undefined) {
+        throw new Error(`${responseName} response changed chainTarget`);
+      }
+      const expectedTarget = parseWalletAddSignerChainTarget(expectedTargetValue, responseName);
+      const actualTarget = parseWalletAddSignerChainTarget(target.chainTarget, responseName);
+      if (alphabetizeStringify(actualTarget) !== alphabetizeStringify(expectedTarget)) {
+        throw new Error(`${responseName} response changed chainTarget`);
+      }
+      const prepare = requireResponseRecord({
+        responseName,
+        field: `targets[${index}].prepare`,
+        value: target.prepare,
+      });
+      assertExactResponseKeys(
+        prepare,
+        [
+          'formatVersion',
+          'walletId',
+          'evmFamilySigningKeySlotId',
+          'ecdsaThresholdKeyId',
+          'signingRootId',
+          'signingRootVersion',
+          'keyScope',
+          'relayerKeyId',
+          'registrationPreparationId',
+          'requestId',
+          'thresholdSessionId',
+          'signingGrantId',
+          'ttlMs',
+          'remainingUses',
+          'participantIds',
+          'runtimePolicyScope',
+        ],
+        responseName,
+      );
+      if (prepare.formatVersion !== 'ecdsa-hss-role-local' || prepare.keyScope !== 'evm-family') {
+        throw new Error(`${responseName} response has invalid prepare discriminator`);
+      }
+      const participantIds = requireResponseParticipantPair(prepare.participantIds, responseName);
+      const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(prepare.runtimePolicyScope);
+      if (prepare.runtimePolicyScope !== undefined && !runtimePolicyScope) {
+        throw new Error(`${responseName} response has invalid runtimePolicyScope`);
+      }
+      const registrationPreparationId = prepare.registrationPreparationId;
+      return {
+        chainTarget: expectedTarget,
+        prepare: {
+          formatVersion: 'ecdsa-hss-role-local',
+          walletId: requireResponseString({
+            responseName,
+            field: 'prepare.walletId',
+            value: prepare.walletId,
+          }),
+          evmFamilySigningKeySlotId: requireResponseString({
+            responseName,
+            field: 'prepare.evmFamilySigningKeySlotId',
+            value: prepare.evmFamilySigningKeySlotId,
+          }),
+          ecdsaThresholdKeyId: requireResponseString({
+            responseName,
+            field: 'prepare.ecdsaThresholdKeyId',
+            value: prepare.ecdsaThresholdKeyId,
+          }),
+          signingRootId: requireResponseString({
+            responseName,
+            field: 'prepare.signingRootId',
+            value: prepare.signingRootId,
+          }),
+          signingRootVersion: requireResponseString({
+            responseName,
+            field: 'prepare.signingRootVersion',
+            value: prepare.signingRootVersion,
+          }),
+          keyScope: 'evm-family',
+          relayerKeyId: requireResponseString({
+            responseName,
+            field: 'prepare.relayerKeyId',
+            value: prepare.relayerKeyId,
+          }),
+          ...(registrationPreparationId !== undefined
+            ? {
+                registrationPreparationId: registrationPreparationIdFromString(
+                  requireResponseString({
+                    responseName,
+                    field: 'prepare.registrationPreparationId',
+                    value: registrationPreparationId,
+                  }),
+                ),
+              }
+            : {}),
+          requestId: requireResponseString({
+            responseName,
+            field: 'prepare.requestId',
+            value: prepare.requestId,
+          }),
+          thresholdSessionId: requireResponseString({
+            responseName,
+            field: 'prepare.thresholdSessionId',
+            value: prepare.thresholdSessionId,
+          }),
+          signingGrantId: requireResponseString({
+            responseName,
+            field: 'prepare.signingGrantId',
+            value: prepare.signingGrantId,
+          }),
+          ttlMs: requireResponseSafeInteger({
+            responseName,
+            field: 'prepare.ttlMs',
+            value: prepare.ttlMs,
+            minimum: 1,
+          }),
+          remainingUses: requireResponseSafeInteger({
+            responseName,
+            field: 'prepare.remainingUses',
+            value: prepare.remainingUses,
+            minimum: 0,
+          }),
+          participantIds: [...participantIds],
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        },
+      };
+    },
+  );
+  return { kind: 'evm_family_ecdsa_keygen', targets };
+}
+
+export function parseWalletAddSignerStartResponse(args: {
+  value: unknown;
+  expectedIntent: AddSignerIntentV1;
+}): WalletAddSignerStartResponse {
+  const responseName = 'Wallet add-signer start';
+  const record = requireResponseRecord({ responseName, field: 'body', value: args.value });
+  assertExactResponseKeys(
+    record,
+    ['ok', 'addSignerCeremonyId', 'intent', 'kind', 'ed25519', 'ecdsa'],
+    responseName,
+  );
+  if (record.ok !== true) throw new Error(`${responseName} response is not successful`);
+  const addSignerCeremonyId = requireResponseString({
+    responseName,
+    field: 'addSignerCeremonyId',
+    value: record.addSignerCeremonyId,
+  });
+  const intent = requireExactAddSignerIntent(record.intent, args.expectedIntent);
+  switch (record.kind) {
+    case 'near_ed25519': {
+      if (intent.signerSelection.mode !== 'ed25519' || record.ecdsa !== undefined) {
+        throw new Error(`${responseName} response substituted signer branch`);
+      }
+      const ed25519 = requireResponseRecord({
+        responseName,
+        field: 'ed25519',
+        value: record.ed25519,
+      });
+      assertExactResponseKeys(ed25519, ['admissionRequest'], responseName);
+      const admission = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
+        ed25519.admissionRequest,
+      );
+      if (!admission.ok) throw new Error(admission.message);
+      return {
+        ok: true,
+        addSignerCeremonyId,
+        intent,
+        kind: 'near_ed25519',
+        ed25519: { admissionRequest: admission.value },
+      };
+    }
+    case 'evm_family_ecdsa':
+      if (intent.signerSelection.mode !== 'ecdsa' || record.ed25519 !== undefined) {
+        throw new Error(`${responseName} response substituted signer branch`);
+      }
+      return {
+        ok: true,
+        addSignerCeremonyId,
+        intent,
+        kind: 'evm_family_ecdsa',
+        ecdsa: parseWalletAddSignerEcdsaPrepare(record.ecdsa, intent),
+      };
+    default:
+      throw new Error(`${responseName} response has invalid kind`);
+  }
+}
+
+function requireResponseRpId(value: unknown, responseName: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(`${responseName} response has invalid rpId`);
+  return parsed.value;
+}
+
+function parseWalletAddSignerEd25519Session(
+  value: unknown,
+): WalletRegistrationEd25519YaoBootstrapSession {
+  const responseName = 'Wallet add-signer Ed25519 finalize';
+  const session = requireResponseRecord({ responseName, field: 'ed25519.session', value });
+  assertExactResponseKeys(
+    session,
+    [
+      'sessionKind',
+      'walletSessionJwt',
+      'walletId',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'authorityScope',
+      'thresholdSessionId',
+      'signingGrantId',
+      'expiresAtMs',
+      'participantIds',
+      'remainingUses',
+      'signingRootId',
+      'signingRootVersion',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
+    ],
+    responseName,
+  );
+  if (session.sessionKind !== 'jwt') {
+    throw new Error(`${responseName} response has invalid sessionKind`);
+  }
+  const authorityScope = requireResponseRecord({
+    responseName,
+    field: 'ed25519.session.authorityScope',
+    value: session.authorityScope,
+  });
+  assertExactResponseKeys(authorityScope, ['kind', 'rpId'], responseName);
+  if (authorityScope.kind !== 'passkey_rp') {
+    throw new Error(`${responseName} response has invalid authorityScope`);
+  }
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
+  if (!runtimePolicyScope) {
+    throw new Error(`${responseName} response has invalid runtimePolicyScope`);
+  }
+  return {
+    sessionKind: 'jwt',
+    walletSessionJwt: requireResponseString({
+      responseName,
+      field: 'ed25519.session.walletSessionJwt',
+      value: session.walletSessionJwt,
+    }),
+    walletId: walletIdFromString(
+      requireResponseString({
+        responseName,
+        field: 'ed25519.session.walletId',
+        value: session.walletId,
+      }),
+    ),
+    nearAccountId: requireResponseString({
+      responseName,
+      field: 'ed25519.session.nearAccountId',
+      value: session.nearAccountId,
+    }),
+    nearEd25519SigningKeyId: requireResponseString({
+      responseName,
+      field: 'ed25519.session.nearEd25519SigningKeyId',
+      value: session.nearEd25519SigningKeyId,
+    }),
+    authorityScope: {
+      kind: 'passkey_rp',
+      rpId: requireResponseRpId(authorityScope.rpId, responseName),
+    },
+    thresholdSessionId: requireResponseString({
+      responseName,
+      field: 'ed25519.session.thresholdSessionId',
+      value: session.thresholdSessionId,
+    }),
+    signingGrantId: requireResponseString({
+      responseName,
+      field: 'ed25519.session.signingGrantId',
+      value: session.signingGrantId,
+    }),
+    expiresAtMs: requireResponseSafeInteger({
+      responseName,
+      field: 'ed25519.session.expiresAtMs',
+      value: session.expiresAtMs,
+      minimum: 1,
+    }),
+    participantIds: requireResponseParticipantPair(session.participantIds, responseName),
+    remainingUses: requireResponseSafeInteger({
+      responseName,
+      field: 'ed25519.session.remainingUses',
+      value: session.remainingUses,
+      minimum: 0,
+    }),
+    signingRootId: requireResponseString({
+      responseName,
+      field: 'ed25519.session.signingRootId',
+      value: session.signingRootId,
+    }),
+    signingRootVersion: requireResponseString({
+      responseName,
+      field: 'ed25519.session.signingRootVersion',
+      value: session.signingRootVersion,
+    }),
+    runtimePolicyScope,
+    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(session.routerAbNormalSigning),
+  };
+}
+
+function parseWalletAddSignerEd25519Result(
+  value: unknown,
+): WalletRegistrationEd25519YaoPublicResult {
+  const responseName = 'Wallet add-signer Ed25519 finalize';
+  const ed25519 = requireResponseRecord({ responseName, field: 'ed25519', value });
+  assertExactResponseKeys(
+    ed25519,
+    [
+      'signerSlot',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'publicKey',
+      'relayerKeyId',
+      'keyVersion',
+      'recoveryExportCapable',
+      'participantIds',
+      'session',
+    ],
+    responseName,
+  );
+  if (ed25519.recoveryExportCapable !== true) {
+    throw new Error(`${responseName} response is not recovery/export capable`);
+  }
+  return {
+    signerSlot: requireResponseSafeInteger({
+      responseName,
+      field: 'ed25519.signerSlot',
+      value: ed25519.signerSlot,
+      minimum: 1,
+    }),
+    nearAccountId: requireResponseString({
+      responseName,
+      field: 'ed25519.nearAccountId',
+      value: ed25519.nearAccountId,
+    }),
+    nearEd25519SigningKeyId: requireResponseString({
+      responseName,
+      field: 'ed25519.nearEd25519SigningKeyId',
+      value: ed25519.nearEd25519SigningKeyId,
+    }),
+    publicKey: requireResponseString({
+      responseName,
+      field: 'ed25519.publicKey',
+      value: ed25519.publicKey,
+    }),
+    relayerKeyId: requireResponseString({
+      responseName,
+      field: 'ed25519.relayerKeyId',
+      value: ed25519.relayerKeyId,
+    }),
+    keyVersion: requireResponseString({
+      responseName,
+      field: 'ed25519.keyVersion',
+      value: ed25519.keyVersion,
+    }),
+    recoveryExportCapable: true,
+    participantIds: requireResponseParticipantPair(ed25519.participantIds, responseName),
+    session: parseWalletAddSignerEd25519Session(ed25519.session),
+  };
+}
+
+function parseWalletAddSignerChainTarget(
+  value: unknown,
+  responseName: string,
+): ThresholdEcdsaChainTarget {
+  const target = requireResponseRecord({ responseName, field: 'chainTarget', value });
+  switch (target.kind) {
+    case 'evm':
+      assertExactResponseKeys(
+        target,
+        ['kind', 'namespace', 'chainId', 'networkSlug'],
+        responseName,
+      );
+      return thresholdEcdsaChainTargetFromRequest(target);
+    case 'tempo':
+      assertExactResponseKeys(target, ['kind', 'chainId', 'networkSlug'], responseName);
+      return thresholdEcdsaChainTargetFromRequest(target);
+    default:
+      throw new Error(`${responseName} response has invalid chainTarget kind`);
+  }
+}
+
+function parseWalletAddSignerEcdsaWalletKey(value: unknown): WalletRegistrationEcdsaWalletKey {
+  const responseName = 'Wallet add-signer ECDSA finalize';
+  const key = requireResponseRecord({ responseName, field: 'ecdsa.walletKeys[]', value });
+  assertExactResponseKeys(
+    key,
+    [
+      'keyScope',
+      'chainTarget',
+      'walletId',
+      'evmFamilySigningKeySlotId',
+      'keyHandle',
+      'ecdsaThresholdKeyId',
+      'signingRootId',
+      'signingRootVersion',
+      'thresholdEcdsaPublicKeyB64u',
+      'thresholdOwnerAddress',
+      'relayerKeyId',
+      'relayerVerifyingShareB64u',
+      'participantIds',
+    ],
+    responseName,
+  );
+  if (key.keyScope !== 'evm-family') {
+    throw new Error(`${responseName} response has invalid keyScope`);
+  }
+  return {
+    keyScope: 'evm-family',
+    chainTarget: parseWalletAddSignerChainTarget(key.chainTarget, responseName),
+    walletId: requireResponseString({ responseName, field: 'walletId', value: key.walletId }),
+    evmFamilySigningKeySlotId: requireResponseString({
+      responseName,
+      field: 'evmFamilySigningKeySlotId',
+      value: key.evmFamilySigningKeySlotId,
+    }),
+    keyHandle: requireResponseString({ responseName, field: 'keyHandle', value: key.keyHandle }),
+    ecdsaThresholdKeyId: requireResponseString({
+      responseName,
+      field: 'ecdsaThresholdKeyId',
+      value: key.ecdsaThresholdKeyId,
+    }),
+    signingRootId: requireResponseString({
+      responseName,
+      field: 'signingRootId',
+      value: key.signingRootId,
+    }),
+    signingRootVersion: requireResponseString({
+      responseName,
+      field: 'signingRootVersion',
+      value: key.signingRootVersion,
+    }),
+    thresholdEcdsaPublicKeyB64u: requireResponseString({
+      responseName,
+      field: 'thresholdEcdsaPublicKeyB64u',
+      value: key.thresholdEcdsaPublicKeyB64u,
+    }),
+    thresholdOwnerAddress: requireResponseString({
+      responseName,
+      field: 'thresholdOwnerAddress',
+      value: key.thresholdOwnerAddress,
+    }),
+    relayerKeyId: requireResponseString({
+      responseName,
+      field: 'relayerKeyId',
+      value: key.relayerKeyId,
+    }),
+    relayerVerifyingShareB64u: requireResponseString({
+      responseName,
+      field: 'relayerVerifyingShareB64u',
+      value: key.relayerVerifyingShareB64u,
+    }),
+    participantIds: [...requireResponseParticipantPair(key.participantIds, responseName)],
+  };
+}
+
+export function parseWalletAddSignerFinalizeResponse(args: {
+  value: unknown;
+  expectedKind: FinalizeWalletAddSignerArgs['kind'];
+}): WalletAddSignerFinalizeResponse {
+  const responseName = 'Wallet add-signer finalize';
+  const record = requireResponseRecord({ responseName, field: 'body', value: args.value });
+  assertExactResponseKeys(
+    record,
+    ['ok', 'walletId', 'kind', 'rpId', 'credentialIdB64u', 'ed25519', 'ecdsa'],
+    responseName,
+  );
+  if (record.ok !== true || record.kind !== args.expectedKind) {
+    throw new Error(`${responseName} response substituted signer branch`);
+  }
+  const walletId = walletIdFromString(
+    requireResponseString({ responseName, field: 'walletId', value: record.walletId }),
+  );
+  const rpId = requireResponseRpId(record.rpId, responseName);
+  switch (record.kind) {
+    case 'near_ed25519':
+      if (record.ecdsa !== undefined) {
+        throw new Error(`${responseName} response mixed signer branches`);
+      }
+      return {
+        ok: true,
+        walletId,
+        kind: 'near_ed25519',
+        rpId,
+        credentialIdB64u: requireResponseString({
+          responseName,
+          field: 'credentialIdB64u',
+          value: record.credentialIdB64u,
+        }),
+        ed25519: parseWalletAddSignerEd25519Result(record.ed25519),
+      };
+    case 'evm_family_ecdsa': {
+      if (record.ed25519 !== undefined || record.credentialIdB64u !== undefined) {
+        throw new Error(`${responseName} response mixed signer branches`);
+      }
+      const ecdsa = requireResponseRecord({ responseName, field: 'ecdsa', value: record.ecdsa });
+      assertExactResponseKeys(ecdsa, ['walletKeys'], responseName);
+      if (!Array.isArray(ecdsa.walletKeys) || ecdsa.walletKeys.length === 0) {
+        throw new Error(`${responseName} response has invalid walletKeys`);
+      }
+      return {
+        ok: true,
+        walletId,
+        kind: 'evm_family_ecdsa',
+        rpId,
+        ecdsa: { walletKeys: ecdsa.walletKeys.map(parseWalletAddSignerEcdsaWalletKey) },
+      };
+    }
+    default:
+      throw new Error(`${responseName} response has invalid kind`);
+  }
+}
 
 export type WalletRegistrationEcdsaPrepareContext = {
   formatVersion: 'ecdsa-hss-role-local';
@@ -986,6 +1481,27 @@ function requireMatchingParticipantIds(args: {
   return actual;
 }
 
+function requireMatchingPositiveSafeInteger(args: {
+  field: string;
+  expected: unknown;
+  actual: unknown;
+}): number {
+  const expected = Math.floor(Number(args.expected));
+  const actual = Math.floor(Number(args.actual));
+  if (
+    !Number.isSafeInteger(expected) ||
+    expected <= 0 ||
+    !Number.isSafeInteger(actual) ||
+    actual <= 0
+  ) {
+    throw new Error(`ECDSA registration bootstrap returned incomplete ${args.field}`);
+  }
+  if (expected !== actual) {
+    throw new Error(`ECDSA registration bootstrap ${args.field} mismatch`);
+  }
+  return actual;
+}
+
 export function parseWalletRegistrationEcdsaHssRespond(args: {
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   serverBootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
@@ -1001,6 +1517,35 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     field: 'contextBinding32B64u',
     expected: clientBootstrap.contextBinding32B64u,
     actual: serverBootstrap.contextBinding32B64u,
+  });
+  const walletId = requireMatchingString({
+    field: 'walletId',
+    expected: clientBootstrap.walletId,
+    actual: serverBootstrap.walletId,
+  });
+  const evmFamilySigningKeySlotId = requireMatchingString({
+    field: 'evmFamilySigningKeySlotId',
+    expected: clientBootstrap.evmFamilySigningKeySlotId,
+    actual: serverBootstrap.evmFamilySigningKeySlotId,
+  });
+  const thresholdSessionId = requireMatchingString({
+    field: 'thresholdSessionId',
+    expected: clientBootstrap.thresholdSessionId,
+    actual: serverBootstrap.thresholdSessionId,
+  });
+  const signingGrantId = requireMatchingString({
+    field: 'signingGrantId',
+    expected: clientBootstrap.signingGrantId,
+    actual: serverBootstrap.signingGrantId,
+  });
+  const remainingUses = requireMatchingPositiveSafeInteger({
+    field: 'remainingUses',
+    expected: clientBootstrap.remainingUses,
+    actual: serverBootstrap.remainingUses,
+  });
+  const participantIds = requireMatchingParticipantIds({
+    expected: clientBootstrap.participantIds,
+    actual: serverBootstrap.participantIds,
   });
 
   const walletSessionJwt = String(serverBootstrap.jwt || '').trim();
@@ -1039,8 +1584,6 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
         serverShareRetryCounter: Math.floor(Number(serverBootstrap.relayerShareRetryCounter)),
       },
     });
-  const walletId = String(serverBootstrap.walletId || '').trim();
-  const evmFamilySigningKeySlotId = String(serverBootstrap.evmFamilySigningKeySlotId || '').trim();
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
   const keyHandle = String(serverBootstrap.keyHandle || '').trim();
   const signingRootId = String(serverBootstrap.signingRootId || '').trim();
@@ -1054,13 +1597,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   const ethereumAddress = String(serverBootstrap.ethereumAddress || '').trim();
   const relayerKeyId = String(serverBootstrap.relayerKeyId || '').trim();
   const relayerVerifyingShareB64u = String(serverBootstrap.relayerVerifyingShareB64u || '').trim();
-  const thresholdSessionId = String(serverBootstrap.thresholdSessionId || '').trim();
-  const signingGrantId = String(serverBootstrap.signingGrantId || '').trim();
-  const remainingUses = Math.max(0, Math.floor(Number(serverBootstrap.remainingUses)));
   const expiresAtMs = Math.max(0, Math.floor(Number(serverBootstrap.expiresAtMs)));
-  const participantIds = serverBootstrap.participantIds.map((participantId) =>
-    Math.floor(Number(participantId)),
-  );
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1354,31 +1891,6 @@ export async function cancelWalletRegistrationIntent(args: {
   });
 }
 
-export async function prepareWalletRegistration(
-  args: {
-    relayerUrl: string;
-    headers?: Record<string, string>;
-    registrationIntentGrant: RegistrationIntentGrant;
-    registrationIntentDigestB64u: string;
-    intent: RegistrationIntentV1;
-    work: { kind: 'ed25519_hss' | 'ed25519_hss_and_ecdsa' };
-  } & WalletRegistrationStartAuthority,
-): Promise<WalletRegistrationPrepareResponse> {
-  const rawResponse = await postJson<unknown>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/prepare',
-    headers: args.headers,
-    body: {
-      registrationIntentGrant: args.registrationIntentGrant,
-      registrationIntentDigestB64u: args.registrationIntentDigestB64u,
-      intent: args.intent,
-      work: args.work,
-      ...walletRegistrationStartAuthorityBody(args),
-    },
-  });
-  return parseWalletRegistrationPrepareResponse(rawResponse);
-}
-
 export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
@@ -1429,35 +1941,13 @@ export async function startWalletRegistration(
     registrationIntentGrant: RegistrationIntentGrant;
     registrationIntentDigestB64u: string;
     intent: RegistrationIntentV1;
-  } & (
-    | {
-        registrationPreparationId: RegistrationPreparationId;
-        kind?: never;
-        webauthnRegistration?: never;
-        emailOtpRegistrationProof?: never;
-      }
-    | ({ registrationPreparationId?: never } & WalletRegistrationStartAuthority)
-  ),
+  } & WalletRegistrationStartAuthority,
 ): Promise<WalletRegistrationStartResponse> {
-  let authorityBody: Record<string, unknown> = {};
-  if (!args.registrationPreparationId) {
-    switch (args.kind) {
-      case 'passkey':
-        authorityBody = { webauthn_registration: args.webauthnRegistration };
-        break;
-      case 'email_otp':
-        authorityBody = { emailOtpRegistrationProof: args.emailOtpRegistrationProof };
-        break;
-    }
-  }
   const body = {
     registrationIntentGrant: args.registrationIntentGrant,
     registrationIntentDigestB64u: args.registrationIntentDigestB64u,
     intent: args.intent,
-    ...(args.registrationPreparationId
-      ? { registrationPreparationId: args.registrationPreparationId }
-      : {}),
-    ...authorityBody,
+    ...walletRegistrationStartAuthorityBody(args),
   };
   return await postJson<WalletRegistrationStartResponse>({
     relayerUrl: args.relayerUrl,
@@ -1467,79 +1957,87 @@ export async function startWalletRegistration(
   });
 }
 
-export async function respondWalletRegistrationHss(args: {
+export async function respondWalletRegistrationEcdsa(args: {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
-  ed25519?: {
-    clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
-  };
-  ecdsa?: {
+  ecdsa: {
     clientBootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
       clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
     }[];
   };
-}): Promise<WalletRegistrationHssRespondResponse> {
-  return await postJson<WalletRegistrationHssRespondResponse>({
+}): Promise<WalletRegistrationEcdsaRespondResponse> {
+  return await postJson<WalletRegistrationEcdsaRespondResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/hss/respond',
     headers: args.headers,
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
-      ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
-      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
+      ecdsa: args.ecdsa,
     },
   });
 }
 
-export async function advanceWalletRegistrationHssState(args: {
-  relayerUrl: string;
-  headers?: Record<string, string>;
-  registrationCeremonyId: string;
-  ed25519: {
-    addStageRequestMessageB64u: string;
-  };
-}): Promise<WalletRegistrationHssAdvanceStateResponse> {
-  return await postJson<WalletRegistrationHssAdvanceStateResponse>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/hss/advance-state',
-    headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      ed25519: args.ed25519,
-    },
-  });
-}
-
-export async function finalizeWalletRegistration(args: {
+type FinalizeWalletRegistrationBaseArgs = {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
   idempotencyKey?: string;
-  ed25519?: {
-    evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
-    sessionPolicy?: unknown;
-    sessionKind?: 'jwt' | 'cookie';
-  };
-  ecdsa?: {
-    expectedKeyHandles?: string[];
-  };
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
   emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
-}): Promise<WalletRegistrationFinalizeResponse> {
+};
+
+export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs &
+  (
+    | {
+        kind: 'near_ed25519';
+        ed25519: { activationReference: WalletRegistrationEd25519YaoActivationReference };
+        ecdsa?: never;
+      }
+    | {
+        kind: 'evm_family_ecdsa';
+        ecdsa: { expectedKeyHandles?: string[] };
+        ed25519?: never;
+      }
+    | {
+        kind: 'near_ed25519_and_evm_family_ecdsa';
+        ed25519: { activationReference: WalletRegistrationEd25519YaoActivationReference };
+        ecdsa: { expectedKeyHandles?: string[] };
+      }
+  );
+
+export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistrationArgs): unknown {
+  const base = {
+    registrationCeremonyId: args.registrationCeremonyId,
+    ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
+    ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
+    ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
+  };
+  switch (args.kind) {
+    case 'near_ed25519':
+      return { ...base, kind: args.kind, ed25519: args.ed25519 };
+    case 'evm_family_ecdsa':
+      return { ...base, kind: args.kind, ecdsa: args.ecdsa };
+    case 'near_ed25519_and_evm_family_ecdsa':
+      return { ...base, kind: args.kind, ed25519: args.ed25519, ecdsa: args.ecdsa };
+    default:
+      return assertNeverFinalizeWalletRegistrationArgs(args);
+  }
+}
+
+function assertNeverFinalizeWalletRegistrationArgs(value: never): never {
+  throw new Error(`Unsupported wallet registration finalize kind: ${String(value)}`);
+}
+
+export async function finalizeWalletRegistration(
+  args: FinalizeWalletRegistrationArgs,
+): Promise<WalletRegistrationFinalizeResponse> {
   return await postJson<WalletRegistrationFinalizeResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/finalize',
     headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
-      ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
-      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
-      ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
-      ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
-    },
+    body: buildWalletRegistrationFinalizeBody(args),
   });
 }
 
@@ -1556,6 +2054,7 @@ function addSignerAuthBody(auth: AddSignerAuth): unknown {
     case 'webauthn_assertion':
       return {
         kind: 'webauthn_assertion',
+        rpId: auth.rpId,
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       };
@@ -1639,7 +2138,7 @@ export async function startWalletAddSigner(args: {
 }): Promise<WalletAddSignerStartResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-signer start');
-  return await postJson<WalletAddSignerStartResponse>({
+  const value = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/start`,
     headers: addSignerAuthHeaders(args.auth),
@@ -1650,6 +2149,7 @@ export async function startWalletAddSigner(args: {
       auth: addSignerAuthBody(args.auth),
     },
   });
+  return parseWalletAddSignerStartResponse({ value, expectedIntent: args.intent });
 }
 
 export async function startWalletAddAuthMethod(args: {
@@ -1677,54 +2177,81 @@ export async function startWalletAddAuthMethod(args: {
   });
 }
 
-export async function respondWalletAddSignerHss(args: {
+export async function respondWalletAddSignerEcdsa(args: {
   relayerUrl: string;
   walletId: WalletId;
   addSignerCeremonyId: string;
-  ed25519?: {
-    clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
+  ecdsa: {
+    clientBootstraps: {
+      chainTarget: ThresholdEcdsaChainTarget;
+      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    }[];
   };
-  ecdsa?: {
-    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-  };
-}): Promise<WalletAddSignerHssRespondResponse> {
+}): Promise<WalletAddSignerEcdsaRespondResponse> {
   const walletId = String(args.walletId || '').trim();
-  if (!walletId) throw new Error('walletId is required for add-signer HSS respond');
-  return await postJson<WalletAddSignerHssRespondResponse>({
+  if (!walletId) throw new Error('walletId is required for add-signer ECDSA respond');
+  return await postJson<WalletAddSignerEcdsaRespondResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/hss/respond`,
     body: {
       addSignerCeremonyId: args.addSignerCeremonyId,
-      ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
-      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
+      ecdsa: args.ecdsa,
     },
   });
 }
 
-export async function finalizeWalletAddSigner(args: {
+export type FinalizeWalletAddSignerArgs = {
   relayerUrl: string;
   walletId: WalletId;
   addSignerCeremonyId: string;
-  ed25519?: {
-    evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
-    sessionPolicy?: unknown;
-    sessionKind?: 'jwt' | 'cookie';
-  };
-  ecdsa?: {
-    expectedKeyHandles?: string[];
-  };
-}): Promise<WalletAddSignerFinalizeResponse> {
+  idempotencyKey: string;
+} & (
+  | {
+      kind: 'near_ed25519';
+      ed25519: {
+        activationReference: WalletRegistrationEd25519YaoActivationReference;
+      };
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: {
+        expectedKeyHandles?: string[];
+      };
+      ed25519?: never;
+    }
+);
+
+function addSignerFinalizeBody(args: FinalizeWalletAddSignerArgs): unknown {
+  switch (args.kind) {
+    case 'near_ed25519':
+      return {
+        addSignerCeremonyId: args.addSignerCeremonyId,
+        idempotencyKey: args.idempotencyKey,
+        kind: args.kind,
+        ed25519: args.ed25519,
+      };
+    case 'evm_family_ecdsa':
+      return {
+        addSignerCeremonyId: args.addSignerCeremonyId,
+        idempotencyKey: args.idempotencyKey,
+        kind: args.kind,
+        ecdsa: args.ecdsa,
+      };
+  }
+}
+
+export async function finalizeWalletAddSigner(
+  args: FinalizeWalletAddSignerArgs,
+): Promise<WalletAddSignerFinalizeResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-signer finalize');
-  return await postJson<WalletAddSignerFinalizeResponse>({
+  const value = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/finalize`,
-    body: {
-      addSignerCeremonyId: args.addSignerCeremonyId,
-      ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
-      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
-    },
+    body: addSignerFinalizeBody(args),
   });
+  return parseWalletAddSignerFinalizeResponse({ value, expectedKind: args.kind });
 }
 
 export async function finalizeWalletAddAuthMethod(args: {

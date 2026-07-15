@@ -2,6 +2,7 @@ import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
+import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeMode } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
@@ -51,22 +52,30 @@ import type {
   ProvisionWarmEd25519CapabilityResult,
 } from '../../session/warmCapabilities/types';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { Ed25519SigningLane } from '../../session/emailOtp/ed25519Warmup';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
-import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../session/emailOtp/ed25519LocalMetadata';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
+import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import type {
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
 
-type RequestEmailOtpTransactionSigningChallengeArgs =
-  | Parameters<NonNullable<NearSigningApiDeps['requestEmailOtpTransactionSigningChallenge']>>[0]
-  | Parameters<NonNullable<EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge']>>[0];
+type RequestEmailOtpTransactionSigningChallengeArgs = Parameters<
+  NonNullable<EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge']>
+>[0];
+type RequestEmailOtpEd25519SigningChallengeArgs = Parameters<
+  NonNullable<NearSigningApiDeps['requestEmailOtpEd25519SigningChallenge']>
+>[0];
+type RecoverEmailOtpEd25519CapabilityForSigningArgs = Parameters<
+  NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>
+>[0];
+type RecoverPasskeyEd25519YaoCapabilityForSigning =
+  NearSigningApiDeps['recoverPasskeyEd25519YaoCapabilityForSigning'];
+type RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning =
+  NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
@@ -105,7 +114,6 @@ export type SigningEngineStorePorts = {
   recoveryAndDeviceLinking: {
     credentialStore: WalletSessionActivationDeps['credentialStore'];
     keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
-    ed25519MetadataStore: PersistEmailOtpThresholdEd25519LocalMetadataDeps;
   };
   warmup: {
     store: WorkerResourceWarmupStorePort;
@@ -115,6 +123,7 @@ export type SigningEngineStorePorts = {
 export type CreateSigningEnginePortsArgs = {
   runtimePorts: RuntimePorts;
   stores: SigningEngineStorePorts;
+  ed25519YaoPublicCapabilityReferences: Ed25519YaoPublicCapabilityReferenceStorePort;
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   touchIdPrompt: TouchIdPrompt;
@@ -159,26 +168,17 @@ export type CreateSigningEnginePortsArgs = {
   requestEmailOtpTransactionSigningChallenge?: (
     args: RequestEmailOtpTransactionSigningChallengeArgs,
   ) => Promise<{ challengeId: string; emailHint?: string }>;
-  isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId }) => boolean;
-  waitForPendingEmailOtpEd25519Warmup?: (args: { nearAccountId: AccountId }) => Promise<boolean>;
-  loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
-    nearAccountId: AccountId;
-    challengeId: string;
-    otpCode: string;
-    committedLane: Ed25519SigningLane;
-    record?: never;
-    remainingUses: number;
-    authLane?: never;
-  }) => Promise<{ sessionId: string }>;
+  requestEmailOtpEd25519SigningChallenge?: (
+    args: RequestEmailOtpEd25519SigningChallengeArgs,
+  ) => Promise<{ challengeId: string; emailHint?: string }>;
+  recoverEmailOtpEd25519CapabilityForSigning?: (
+    args: RecoverEmailOtpEd25519CapabilityForSigningArgs,
+  ) => ReturnType<NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>>;
+  recoverPasskeyEd25519YaoCapabilityForSigning: RecoverPasskeyEd25519YaoCapabilityForSigning;
+  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  restorePasskeyEd25519SigningMaterial: (args: {
-    nearAccountId: AccountId;
-    credential: WebAuthnAuthenticationCredential;
-    signerSlot: number;
-    thresholdSessionId: string;
-  }) => Promise<void>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
     subjectId?: never;
@@ -208,7 +208,7 @@ export type CreateSigningEnginePortsArgs = {
   provisionThresholdEcdsaSession: (
     args: import('../../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  withThresholdEcdsaCommitQueue: <T>(args: {
+  withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
     walletId: WalletId;
     enabled: boolean;
@@ -229,7 +229,7 @@ export type CreateSigningEnginePortsArgs = {
 };
 
 export type SigningEnginePorts = {
-  thresholdEd25519LifecycleDeps: ThresholdEd25519LifecycleDeps;
+  ed25519YaoActiveClients: Ed25519YaoActiveClientRegistryPort;
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: EvmFamilySigningDeps;
   privateKeyExportRecoveryDeps: PrivateKeyExportRecoveryDeps;

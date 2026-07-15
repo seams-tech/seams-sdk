@@ -258,7 +258,7 @@ void registrationCapability.registerWallet({
       signerSlot: 1,
       participantIds: [1, 2],
       keyPurpose: 'near_tx',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
       derivationVersion: 1,
     },
   },

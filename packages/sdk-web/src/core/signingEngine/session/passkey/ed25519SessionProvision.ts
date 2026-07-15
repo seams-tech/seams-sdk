@@ -61,7 +61,8 @@ function passkeyCredentialIdB64uFromMintAuthorization(auth: Ed25519MintAuthoriza
       }
       return credentialIdB64u;
     }
-    case 'threshold_session_policy_webauthn': {
+    case 'threshold_session_policy_webauthn':
+    case 'router_ab_ed25519_yao_budget_refresh_v1': {
       const credentialIdB64u = String(
         auth.policySecretSource.credential.rawId || auth.policySecretSource.credential.id || '',
       ).trim();
@@ -71,7 +72,9 @@ function passkeyCredentialIdB64uFromMintAuthorization(auth: Ed25519MintAuthoriza
       return credentialIdB64u;
     }
     case 'threshold_ecdsa_session_jwt':
-      throw new Error('[threshold-ed25519] threshold ECDSA authorization must provide passkey auth');
+      throw new Error(
+        '[threshold-ed25519] threshold ECDSA authorization must provide passkey auth',
+      );
   }
   auth satisfies never;
   throw new Error('[threshold-ed25519] unsupported mint authorization');
@@ -173,17 +176,19 @@ export async function provisionThresholdEd25519Session(
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
   const prfFirstB64u = String(connected.ecdsaHssPasskeyPrfFirstB64u || '').trim();
+  const runtimePolicyScope = connected.runtimePolicyScope || args.runtimePolicyScope;
   if (
     !resolvedSessionId ||
     !signingGrantId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
-    !jwt
+    !jwt ||
+    !runtimePolicyScope
   ) {
     return {
       ok: false,
       code: 'invalid_result',
-      message: 'Threshold Ed25519 session mint returned incomplete lifecycle metadata',
+      message: 'Threshold Ed25519 session mint returned incomplete public session metadata',
     };
   }
   if (
@@ -210,12 +215,9 @@ export async function provisionThresholdEd25519Session(
       rpId: deps.touchIdPrompt.getRpId(),
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
-      ...(connected.runtimePolicyScope || args.runtimePolicyScope
-        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
-        : {}),
+      runtimePolicyScope,
       routerAbNormalSigning: args.routerAbNormalSigning,
       participantIds,
-      sessionKind: 'jwt',
       signerSlot: protocol.signerSlot,
       sessionId: resolvedSessionId,
       signingGrantId,
@@ -238,12 +240,9 @@ export async function provisionThresholdEd25519Session(
       rpId: deps.touchIdPrompt.getRpId(),
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
-      ...(connected.runtimePolicyScope || args.runtimePolicyScope
-        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
-        : {}),
+      runtimePolicyScope,
       routerAbNormalSigning: args.routerAbNormalSigning,
       participantIds,
-      sessionKind: 'jwt',
       signerSlot: protocol.signerSlot,
       sessionId: resolvedSessionId,
       signingGrantId,

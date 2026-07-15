@@ -95,9 +95,7 @@ export function parseDurableSealedSessionDeleteReason(
   }
 }
 
-export function parseExactSealedSessionIdentity(
-  value: unknown,
-): ExactSealedSessionIdentity | null {
+export function parseExactSealedSessionIdentity(value: unknown): ExactSealedSessionIdentity | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   const authMethod = parseAuthMethod(record.authMethod);
@@ -149,23 +147,12 @@ export function exactSealedSessionIdentityFromFilter(args: {
 export function exactSealedSessionIdentityFromRecoveryRecord(
   record: SealedRecoveryRecord,
 ): ExactSealedSessionIdentity {
-  switch (record.curve) {
-    case 'ed25519':
-      return {
-        authMethod: record.authMethod,
-        curve: 'ed25519',
-        thresholdSessionId: record.thresholdSessionId,
-      };
-    case 'ecdsa':
-      return {
-        authMethod: record.authMethod,
-        curve: 'ecdsa',
-        thresholdSessionId: record.thresholdSessionId,
-        chainTarget: record.chainTarget,
-      };
-    default:
-      return assertNever(record);
-  }
+  return {
+    authMethod: record.authMethod,
+    curve: 'ecdsa',
+    thresholdSessionId: record.thresholdSessionId,
+    chainTarget: record.chainTarget,
+  };
 }
 
 export function parseDeleteDurableSealedSessionCommand(

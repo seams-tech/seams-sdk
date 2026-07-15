@@ -124,6 +124,9 @@ export function showEmailOtpRecoveryCodeBackupUi(
   const overlay = document.createElement('div');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
+  /* the class enrolls this plain-DOM dialog in the app-palette override
+     stylesheet (see W3A_LIT_HOST_SELECTORS), so tokens follow the theme */
+  overlay.className = 'w3a-host-themed-dialog';
   overlay.style.cssText = [
     'position:fixed',
     'inset:0',
@@ -134,7 +137,7 @@ export function showEmailOtpRecoveryCodeBackupUi(
     'background:oklch(0.2 0.01 240 / .6)',
     'backdrop-filter:blur(8px)',
     'font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-    'color:#565177',
+    'color:var(--w3a-colors-textPrimary, #565177)',
   ].join(';');
 
   const panel = document.createElement('section');
@@ -144,9 +147,9 @@ export function showEmailOtpRecoveryCodeBackupUi(
     'max-height:calc(100vh - 24px)',
     'overflow:auto',
     'box-sizing:border-box',
-    'border:1px solid rgba(86,81,119,.22)',
-    'border-radius:24px',
-    'background:#fffaf3',
+    'border:1px solid var(--w3a-colors-borderPrimary, rgba(86,81,119,.22))',
+    'border-radius:min(var(--w3a-shape-card, 16px), 2rem)',
+    'background:var(--w3a-colors-colorBackground, #fffaf3)',
     'padding:20px',
     'box-shadow:0 24px 80px rgba(0,0,0,.24)',
   ].join(';');
@@ -154,13 +157,13 @@ export function showEmailOtpRecoveryCodeBackupUi(
   const title = document.createElement('h1');
   title.textContent = 'Email OTP recovery codes';
   title.style.cssText =
-    'margin:0 0 14px;font-size:24px;line-height:1.15;font-weight:700;color:#565177';
+    'margin:0 0 14px;font-size:21px;line-height:1.15;font-weight:600;color:var(--w3a-colors-textPrimary, #565177)';
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = '×';
   close.setAttribute('aria-label', 'Close recovery codes');
   close.style.cssText =
-    'position:absolute;right:16px;top:12px;border:0;background:transparent;color:#565177;font-size:28px;line-height:1;cursor:pointer';
+    'position:absolute;right:16px;top:12px;border:0;background:transparent;color:var(--w3a-colors-textMuted, #565177);font-size:28px;line-height:1;cursor:pointer';
   panel.style.position = 'relative';
   panel.appendChild(close);
   panel.appendChild(title);
@@ -181,9 +184,9 @@ export function showEmailOtpRecoveryCodeBackupUi(
       'display:flex',
       'gap:10px',
       'align-items:flex-start',
-      'border:1px solid rgba(86,81,119,.16)',
-      'border-radius:12px',
-      'background:#f4eadf',
+      'border:1px solid var(--w3a-colors-borderPrimary, rgba(86,81,119,.16))',
+      'border-radius:var(--w3a-shape-box, 10px)',
+      'background:var(--w3a-colors-surface2, #f4eadf)',
       'padding:9px 10px',
       'font-family:ui-monospace,SFMono-Regular,Menlo,monospace',
       'font-size:13px',
@@ -194,10 +197,10 @@ export function showEmailOtpRecoveryCodeBackupUi(
     ].join(';');
     const number = document.createElement('span');
     number.textContent = `${index + 1}.`;
-    number.style.cssText = 'flex:0 0 2.3ch;color:#565177';
+    number.style.cssText = 'flex:0 0 2.3ch;color:var(--w3a-colors-textSecondary, #565177)';
     const value = document.createElement('span');
     value.textContent = code;
-    value.style.cssText = 'min-width:0;color:#565177';
+    value.style.cssText = 'min-width:0;color:var(--w3a-colors-textPrimary, #565177)';
     item.appendChild(number);
     item.appendChild(value);
     list.appendChild(item);
@@ -210,13 +213,14 @@ export function showEmailOtpRecoveryCodeBackupUi(
   download.type = 'button';
   download.textContent = 'Download';
   download.style.cssText =
-    'min-height:40px;border:1px solid rgba(86,81,119,.24);border-radius:12px;background:#565177;color:#fffaf3;padding:9px 12px;font-size:15px;font-weight:700;cursor:pointer';
+    'min-height:42px;border:1px solid transparent;border-radius:var(--w3a-shape-control, 10px);background:var(--w3a-colors-buttonBackground, #565177);color:var(--w3a-colors-textButton, #fffaf3);padding:9px 12px;font-size:15px;font-weight:600;cursor:pointer';
   actions.appendChild(download);
   panel.appendChild(actions);
 
   const status = document.createElement('p');
   status.setAttribute('role', 'status');
-  status.style.cssText = 'min-height:18px;margin:0;font-size:13px;color:#565177';
+  status.style.cssText =
+    'min-height:18px;margin:0;font-size:13px;color:var(--w3a-colors-textSecondary, #565177)';
   panel.appendChild(status);
 
   overlay.appendChild(panel);

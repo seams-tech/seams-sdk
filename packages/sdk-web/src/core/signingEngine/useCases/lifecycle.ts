@@ -827,135 +827,6 @@ export type SignNearLifecycleState =
       result?: never;
     } & UseCaseFailure<SignNearFailureCode>);
 
-export type ExportAuthorizationScope =
-  | {
-      kind: 'ed25519_export_scope';
-      curve: 'ed25519';
-      chain: 'near';
-      chainTarget?: never;
-    }
-  | {
-      kind: 'ecdsa_export_scope';
-      curve: 'ecdsa';
-      chainTarget: ThresholdEcdsaChainTarget;
-      chain?: never;
-    };
-
-export type ExportKeysAuthorization =
-  | {
-      kind: 'passkey_export_authorized';
-      walletId: WalletId;
-      rpId: RpId;
-      credentialIdB64u: CredentialIdB64u;
-      scopes: NonEmptyReadonlyArray<ExportAuthorizationScope>;
-      issuedAtMs: UnixTimeMs;
-      expiresAtMs: UnixTimeMs;
-      authSubjectId?: never;
-      challengeId?: never;
-    }
-  | {
-      kind: 'email_otp_export_authorized';
-      walletId: WalletId;
-      authSubjectId: EmailOtpAuthSubjectId;
-      challengeId: EmailOtpChallengeId;
-      scopes: NonEmptyReadonlyArray<ExportAuthorizationScope>;
-      issuedAtMs: UnixTimeMs;
-      expiresAtMs: UnixTimeMs;
-      credentialIdB64u?: never;
-      rpId?: never;
-    };
-
-export type ExportKeyRequest =
-  | {
-      kind: 'near_ed25519';
-      chainTarget?: never;
-    }
-  | {
-      kind: 'ecdsa_secp256k1';
-      chainTarget: ThresholdEcdsaChainTarget;
-    };
-
-export type ExportKeysInput = {
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  rpId: RpId;
-  requestedKeys: NonEmptyReadonlyArray<ExportKeyRequest>;
-  authorization: ExportKeysAuthorization;
-};
-
-export type ExportKeyArtifact =
-  | {
-      kind: 'near_ed25519_export_artifact_v1';
-      walletId: WalletId;
-      publicKey: string;
-      privateKey: string;
-      seed: { kind: 'available'; seedB64u: string } | { kind: 'not_available'; seedB64u?: never };
-      chainTarget?: never;
-      publicFacts?: never;
-    }
-  | {
-      kind: 'ecdsa_secp256k1_export_artifact_v1';
-      walletId: WalletId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      ethereumAddress: `0x${string}`;
-      exportPayloadB64u: string;
-      publicFacts: EcdsaRoleLocalReadyRecord['publicFacts'];
-      privateKey?: never;
-      seed?: never;
-    };
-
-export type ExportKeysSuccess = {
-  ok: true;
-  artifacts: readonly ExportKeyArtifact[];
-  viewerSessionId: string;
-  code?: never;
-  message?: never;
-  retryable?: never;
-  partialArtifacts?: never;
-};
-
-export type ExportKeysFailureCode =
-  | 'authorization_failed'
-  | 'missing_requested_material'
-  | 'invalid_ready_state'
-  | 'signer_crypto_command_failed'
-  | 'signer_crypto_invocation_failed'
-  | 'relayer_failed'
-  | 'storage_failed'
-  | 'invalid_state';
-
-export type ExportKeysResult = ExportKeysSuccess | UseCaseFailure<ExportKeysFailureCode>;
-
-export type ExportKeysLifecycleState =
-  | ({ kind: 'received_input' } & ExportKeysInput)
-  | {
-      kind: 'validating_authorization';
-      input: ExportKeysInput;
-    }
-  | {
-      kind: 'loading_material';
-      input: ExportKeysInput;
-    }
-  | {
-      kind: 'building_artifacts';
-      input: ExportKeysInput;
-      material: NonEmptyReadonlyArray<ReadyEd25519Lane | EcdsaUseCaseReadyLane>;
-    }
-  | {
-      kind: 'opening_viewer';
-      artifacts: NonEmptyReadonlyArray<ExportKeyArtifact>;
-    }
-  | {
-      kind: 'ready';
-      result: ExportKeysSuccess;
-      failed?: never;
-    }
-  | ({
-      kind: 'failed';
-      result?: never;
-      partialArtifacts?: never;
-    } & UseCaseFailure<ExportKeysFailureCode>);
-
 export type RestorePersistedSessionAuth =
   | {
       kind: 'passkey';
@@ -1058,7 +929,6 @@ export type UnlockWalletLifecycleStateKind = UnlockWalletLifecycleState['kind'];
 export type ActivateSigningSessionLifecycleStateKind = ActivateSigningSessionLifecycleState['kind'];
 export type SignEvmFamilyLifecycleStateKind = SignEvmFamilyLifecycleState['kind'];
 export type SignNearLifecycleStateKind = SignNearLifecycleState['kind'];
-export type ExportKeysLifecycleStateKind = ExportKeysLifecycleState['kind'];
 export type RestorePersistedSessionsLifecycleStateKind =
   RestorePersistedSessionsLifecycleState['kind'];
 
@@ -1121,16 +991,6 @@ export const signNearAllowedTransitions = {
   failed: [],
 } as const satisfies LifecycleTransitionTable<SignNearLifecycleStateKind>;
 
-export const exportKeysAllowedTransitions = {
-  received_input: ['validating_authorization', 'failed'],
-  validating_authorization: ['loading_material', 'failed'],
-  loading_material: ['building_artifacts', 'failed'],
-  building_artifacts: ['opening_viewer', 'failed'],
-  opening_viewer: ['ready', 'failed'],
-  ready: [],
-  failed: [],
-} as const satisfies LifecycleTransitionTable<ExportKeysLifecycleStateKind>;
-
 export const restorePersistedSessionsAllowedTransitions = {
   received_input: ['reading_persistence', 'failed'],
   reading_persistence: ['classifying_material', 'failed'],
@@ -1156,9 +1016,6 @@ export type SignEvmFamilyTransition = LifecycleTransitionFromTable<
   typeof signEvmFamilyAllowedTransitions
 >;
 export type SignNearTransition = LifecycleTransitionFromTable<typeof signNearAllowedTransitions>;
-export type ExportKeysTransition = LifecycleTransitionFromTable<
-  typeof exportKeysAllowedTransitions
->;
 export type RestorePersistedSessionsTransition = LifecycleTransitionFromTable<
   typeof restorePersistedSessionsAllowedTransitions
 >;
@@ -1187,10 +1044,6 @@ export const signNearTerminalStates = [
   'signed',
   'failed',
 ] as const satisfies readonly SignNearLifecycleStateKind[];
-export const exportKeysTerminalStates = [
-  'ready',
-  'failed',
-] as const satisfies readonly ExportKeysLifecycleStateKind[];
 export const restorePersistedSessionsTerminalStates = [
   'ready',
   'failed',
@@ -1235,12 +1088,6 @@ export const signNearRetryableFailureCodes = [
   'presign_pool_failed',
   'relayer_failed',
 ] as const satisfies readonly SignNearFailureCode[];
-
-export const exportKeysRetryableFailureCodes = [
-  'signer_crypto_invocation_failed',
-  'relayer_failed',
-  'storage_failed',
-] as const satisfies readonly ExportKeysFailureCode[];
 
 export const restorePersistedSessionsRetryableFailureCodes = [
   'unavailable_storage',

@@ -3,10 +3,7 @@ import {
   validateActionArgsWasm,
   type TransactionInputWasm,
 } from '@/core/types/actions';
-import type {
-  NearIntentResult,
-  NearSigningRequest,
-} from '@/core/signingEngine/interfaces/near';
+import type { NearIntentResult, NearSigningRequest } from '@/core/signingEngine/interfaces/near';
 import { runNearTransactionWithActionsSigning } from './signTransactions';
 import { runNearDelegateActionSigning } from './signDelegate';
 import { signNep413Message } from './signNep413';
@@ -21,7 +18,9 @@ export async function signNearWithUiConfirm<TRequest extends NearSigningRequest>
 
   if (request.kind === 'transactionWithActions') {
     validateTransactionWithActionsRequest(request.payload);
-    return (await runNearTransactionWithActionsSigning(request.payload)) as NearIntentResult<TRequest>;
+    return (await runNearTransactionWithActionsSigning(
+      request.payload,
+    )) as NearIntentResult<TRequest>;
   }
 
   if (request.kind === 'delegateAction') {
