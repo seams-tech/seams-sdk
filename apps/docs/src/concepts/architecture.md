@@ -43,15 +43,15 @@ flowchart LR
 
 ## Runtime Roles And Boundaries
 
-| Role | Responsibility |
-| --- | --- |
-| App origin | Integration UI and public SDK calls. It receives request data and public results. |
-| Wallet iframe origin | Wallet UI, encrypted wallet-origin records, auth-method flows, workers, and session state. |
-| Browser signing workers | Holder-side signing material, compact lifecycle inputs, and operation-local signing state. |
-| Router | Public API boundary for admission, policy, Wallet Session verification, replay, quota, and signing budget. |
-| Deriver A | A-side derivation role with A-side sealed material and A-side protocol state. |
-| Deriver B | B-side derivation role with B-side sealed material and B-side protocol state. |
-| SigningWorker | Hot normal-signing role with activated server signing material for admitted sessions. |
+| Role                    | Responsibility                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| App origin              | Integration UI and public SDK calls. It receives request data and public results.                          |
+| Wallet iframe origin    | Wallet UI, encrypted wallet-origin records, auth-method flows, workers, and session state.                 |
+| Browser signing workers | Holder-side signing material, compact lifecycle inputs, and operation-local signing state.                 |
+| Router                  | Public API boundary for admission, policy, Wallet Session verification, replay, quota, and signing budget. |
+| Deriver A               | A-side derivation role with A-side sealed material and A-side protocol state.                              |
+| Deriver B               | B-side derivation role with B-side sealed material and B-side protocol state.                              |
+| SigningWorker           | Hot normal-signing role with activated server signing material for admitted sessions.                      |
 
 The app origin does not receive holder shares, PRF outputs, Email OTP secret
 material, VoiceID templates, server shares, root shares, or exported keys unless
@@ -59,13 +59,13 @@ the user completes an explicit export flow.
 
 ## Product Layers
 
-| Layer | Responsibility |
-| --- | --- |
-| Proof layer | Passkeys, Email OTP, VoiceID, device proof, org proof, wallet proof, and configured external credentials. |
-| Policy and mandate layer | Signed mandates, typed intent digests, policy epochs, budgets, expiry, revocation, and audit state. |
-| Key infrastructure | Holder shares, server shares, Router A/B, SigningWorker, recovery, export, delegation, and rotation. |
-| Enforcement gateway | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
-| Execution adapters | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions. |
+| Layer                    | Responsibility                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Proof layer              | Passkeys, Email OTP, VoiceID, device proof, org proof, wallet proof, and configured external credentials.     |
+| Policy and mandate layer | Signed mandates, typed intent digests, policy epochs, budgets, expiry, revocation, and audit state.           |
+| Key infrastructure       | Holder shares, server shares, Router A/B, SigningWorker, recovery, export, delegation, and rotation.          |
+| Enforcement gateway      | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
+| Execution adapters       | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions.             |
 
 ## Router A/B Architecture
 
@@ -73,8 +73,9 @@ Router A/B is the split-server boundary behind key derivation and signing
 admission.
 
 Ed25519 registration, recovery, export, share refresh, and SigningWorker
-activation use the split derivation path. Device linking uses it when new
-signing shares must be provisioned:
+activation use protocol-specific Streaming Yao admission and execution routes.
+ECDSA uses its protocol-specific strict Router A/B routes. Device linking uses
+the applicable typed lifecycle when new signing shares must be provisioned:
 
 ```text
 Client worker -> Router -> Deriver A + Deriver B -> Client or SigningWorker
@@ -131,13 +132,13 @@ wallet private key to an app, agent, or hosted Router.
 
 Rotation covers several operations with different security effects:
 
-| Operation | Typical result |
-| --- | --- |
-| Envelope rewrap | The same plaintext share is protected under new encryption. |
+| Operation               | Typical result                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| Envelope rewrap         | The same plaintext share is protected under new encryption.                                   |
 | Server custody rotation | The same effective server contribution moves to a new custody envelope or role configuration. |
-| Lane share refresh | Holder and server lane shares change while the wallet address stays stable. |
-| Delegated lane creation | A device, agent, or service receives a bounded lane under policy. |
-| Wallet rekey | The wallet key changes, usually changing the address. |
+| Lane share refresh      | Holder and server lane shares change while the wallet address stays stable.                   |
+| Delegated lane creation | A device, agent, or service receives a bounded lane under policy.                             |
+| Wallet rekey            | The wallet key changes, usually changing the address.                                         |
 
 Delegated devices and agents receive lane-scoped signing authority. They do not
 receive the wallet private key, recovery authority, export authority, or broad

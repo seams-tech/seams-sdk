@@ -25,6 +25,11 @@ Create these GitHub Environments:
 Use the same variable names in both environments. Values differ per
 environment.
 
+Router A/B currently consumes only its split `staging-*` environments. Its
+production environment and Wrangler branches were deleted because they used
+same-account Service Bindings. Phase 6A must select a strict deployment profile
+before production Router A/B environments are created.
+
 ### Secrets
 
 | Secret                                          | Used by                         | Notes                                                                                  |
@@ -37,12 +42,12 @@ environment.
 | `R2_BUCKET`                                     | SDK R2 publish                  | Bucket that stores `releases/*` and `releases-dev/*`.                                  |
 | `R2_ACCESS_KEY_ID`                              | SDK R2 publish                  | R2 access key with write access to the SDK bucket.                                     |
 | `R2_SECRET_ACCESS_KEY`                          | SDK R2 publish                  | R2 secret access key.                                                                  |
-| `SIGNER_A_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver A root-share wire secret. Written to the Deriver A Worker environment.         |
-| `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver A signer-envelope HPKE private key.                                            |
-| `SIGNER_A_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver A private key for A/B peer messages.                                           |
-| `SIGNER_B_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver B root-share wire secret. Written to the Deriver B Worker environment.         |
-| `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
-| `SIGNER_B_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
+| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver A root-share wire secret. Written to the Deriver A Worker environment.         |
+| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver A signer-envelope HPKE private key.                                            |
+| `DERIVER_A_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver A private key for A/B peer messages.                                           |
+| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver B root-share wire secret. Written to the Deriver B Worker environment.         |
+| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
+| `DERIVER_B_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
 | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy               | SigningWorker server-output HPKE private key.                                          |
 
 ### Variables
@@ -52,11 +57,11 @@ environment.
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                        |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.  |
 | `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                    |
-| `ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY`            | Router A/B deploy | Public key matching `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
-| `ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY`            | Router A/B deploy | Public key matching `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
+| `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`            | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
+| `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`            | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
 | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.         |
-| `ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `SIGNER_A_PEER_SIGNING_KEY`.                   |
-| `ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `SIGNER_B_PEER_SIGNING_KEY`.                   |
+| `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `DERIVER_A_PEER_SIGNING_KEY`.                   |
+| `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `DERIVER_B_PEER_SIGNING_KEY`.                   |
 | `VITE_RELAYER_URL`                                       | Pages build       | Public Router API base URL; historical env var name.                         |
 | `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.              |
 | `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                               |
@@ -125,16 +130,15 @@ pnpm --dir packages/console-server-ts run d1:local:restore:drill
 Router A/B Worker configuration lives in:
 
 - `crates/router-ab-cloudflare/wrangler.router.toml`
-- `crates/router-ab-cloudflare/wrangler.signer-a.toml`
-- `crates/router-ab-cloudflare/wrangler.signer-b.toml`
+- `crates/router-ab-cloudflare/wrangler.deriver-a.toml`
+- `crates/router-ab-cloudflare/wrangler.deriver-b.toml`
 - `crates/router-ab-cloudflare/wrangler.signing-worker.toml`
 
 Wrangler environments:
 
-| Target       | Router                            | Deriver A                           | Deriver B                           | SigningWorker                             |
-| ------------ | --------------------------------- | ----------------------------------- | ----------------------------------- | ----------------------------------------- |
-| `staging`    | `router-ab-router-staging` | `router-ab-signer-a-staging` | `router-ab-signer-b-staging` | `router-ab-signing-worker-staging` |
-| `production` | `router-ab-router-prod`    | `router-ab-signer-a-prod`    | `router-ab-signer-b-prod`    | `router-ab-signing-worker-prod`    |
+| Target    | Router                     | Deriver A                    | Deriver B                    | SigningWorker                      |
+| --------- | -------------------------- | ---------------------------- | ---------------------------- | ---------------------------------- |
+| `staging` | `router-ab-router-staging` | `router-ab-deriver-a-staging` | `router-ab-deriver-b-staging` | `router-ab-signing-worker-staging` |
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The `deploy-router-ab` workflow injects
@@ -155,8 +159,8 @@ Role-specific configuration:
 | Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                 | GitHub Environment secrets                                                                           |
 | ------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_URL`, all Router A/B public key vars                              | None beyond Cloudflare deploy credentials.                                                           |
-| Deriver A     | `crates/router-ab-cloudflare/wrangler.signer-a.toml`       | `ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX` | `SIGNER_A_ROOT_SHARE_WIRE_SECRET`, `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `SIGNER_A_PEER_SIGNING_KEY` |
-| Deriver B     | `crates/router-ab-cloudflare/wrangler.signer-b.toml`       | `ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX` | `SIGNER_B_ROOT_SHARE_WIRE_SECRET`, `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `SIGNER_B_PEER_SIGNING_KEY` |
+| Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`       | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX` | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
+| Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`       | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX` | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
 | SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                      |
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are required for every
@@ -174,8 +178,8 @@ pnpm router:deploy:keygen -- --env staging --apply
 
 The command generates Deriver A/B envelope HPKE keys, Deriver A/B peer-message
 signing keys, and the SigningWorker server-output HPKE key. It does not
-generate `SIGNER_A_ROOT_SHARE_WIRE_SECRET` or
-`SIGNER_B_ROOT_SHARE_WIRE_SECRET`; those values come from the
+generate `DERIVER_A_ROOT_SHARE_WIRE_SECRET` or
+`DERIVER_B_ROOT_SHARE_WIRE_SECRET`; those values come from the
 derivation/provisioning ceremony. By default the command redacts private values
 in stdout; use `--show-secrets` only for manual secret entry.
 
@@ -186,8 +190,8 @@ pnpm router:deploy:root-share-keygen
 pnpm router:deploy:root-share-keygen -- --json
 ```
 
-The command prints a 2-of-3 share pair using Deriver A share id `1` and
-Deriver B share id `3`. Store the A value only in the Account-1 / Deriver-A
+The command prints the fixed 2-of-2 share pair using Deriver A share id `1` and
+Deriver B share id `2`. Store the A value only in the Account-1 / Deriver-A
 environment and the B value only in the Account-2 / Deriver-B environment.
 
 The Router serves public deployment keys at:
@@ -208,7 +212,8 @@ gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=up
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
 ```
 
-For production, use `--ref main -f target=production`.
+Production Router A/B dispatch remains unavailable until the selected strict
+profile replaces the deleted same-account configuration.
 
 Local Cloudflare-shape checks:
 

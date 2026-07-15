@@ -2,6 +2,10 @@
 
 Date: 2026-06-26
 
+Status: historical review record. The Ed25519-HSS and Ed25519 presign-pool
+paths discussed below have been deleted. The current Ed25519 authority is
+[yaos-ab.md](./yaos-ab.md).
+
 Scope:
 
 - Threshold Ed25519 signing paths that use `frost-ed25519`.
