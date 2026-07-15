@@ -1,7 +1,4 @@
-import {
-  MinimalNearClient,
-  type AccessKeyList,
-} from '../rpcClients/near/NearClient';
+import { MinimalNearClient, type AccessKeyList } from '../rpcClients/near/NearClient';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { createAuthServiceConfig } from '../config';
 import { formatGasToTGas, formatYoctoToNear } from '../utils';
@@ -19,10 +16,12 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import type { ThresholdSigningService as ThresholdSigningServiceType } from '../ThresholdService';
-import {
-  createThresholdSigningService,
-  ensureThresholdEd25519HssWasm,
-} from '../ThresholdService';
+import { createThresholdSigningService } from '../ThresholdService';
+import type { RouterAbNormalSigningRuntime } from '../routerAbSigning/RouterAbNormalSigningRuntime';
+import type {
+  RouterAbEcdsaBootstrapExportRuntime,
+  RouterAbEcdsaBootstrapExportRuntimeState,
+} from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 
 import type {
@@ -38,12 +37,9 @@ import type {
   EcdsaHssExportShareResponse,
   EcdsaHssRouteResult,
   EcdsaHssServerBootstrapResponse,
-  WebAuthnAuthenticationCredential
+  WebAuthnAuthenticationCredential,
 } from '../types';
-import type {
-  WalletRegistrationFinalizeRequest,
-  WalletRegistrationPrepareRequest
-} from '../registrationContracts';
+import type { WalletRegistrationFinalizeRequest } from '../registrationContracts';
 import { type RouterAbEcdsaHssWalletSessionClaims } from '../ThresholdService/validation';
 import type { GoogleEmailOtpResolutionResult } from './googleEmailOtpRegistration';
 export type {
@@ -63,7 +59,6 @@ import {
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { RegistrationSignerPlan } from '@shared/utils/registrationIntent';
-import type { StoredRegistrationIntent } from '../RegistrationCeremonyStore';
 import { type DelegateActionPolicy, type ExecuteSignedDelegateResult } from '../../delegateAction';
 import { coerceLogger, type NormalizedLogger } from '../logger';
 import {
@@ -87,7 +82,6 @@ import {
 import {
   resolveEmailOtpConfig as resolveEmailOtpConfigFromSource,
   resolveEmailOtpRateLimitPolicies as resolveEmailOtpRateLimitPoliciesFromSource,
-  resolveRegistrationPrepareRateLimitPolicy as resolveRegistrationPrepareRateLimitPolicyFromSource,
 } from './emailOtpConfig';
 import {
   deliverEmailOtpCode as deliverEmailOtpCodeWithDeps,
@@ -108,12 +102,8 @@ import {
   verifyEmailOtpDeviceRecoveryChallenge as verifyEmailOtpDeviceRecoveryChallengeOperation,
   type EmailOtpChallengeOperationsInput,
 } from './emailOtpChallengeOperations';
-import {
-  verifyEmailOtpChallengeCode as verifyEmailOtpChallengeCodeWithStores,
-} from './emailOtpChallengeVerification';
-import {
-  verifyEmailOtpEnrollment as verifyEmailOtpEnrollmentWithStores,
-} from './emailOtpRegistrationEnrollment';
+import { verifyEmailOtpChallengeCode as verifyEmailOtpChallengeCodeWithStores } from './emailOtpChallengeVerification';
+import { verifyEmailOtpEnrollment as verifyEmailOtpEnrollmentWithStores } from './emailOtpRegistrationEnrollment';
 import {
   consumeEmailOtpRecoveryKey as consumeEmailOtpRecoveryKeyWithStores,
   getEmailOtpRecoveryCodeStatus as getEmailOtpRecoveryCodeStatusWithStores,
@@ -173,9 +163,7 @@ import {
   type EmailOtpGrantConsumeRequest,
   type EmailOtpGrantConsumeResult,
 } from './emailOtpGrant';
-import {
-  cleanupGoogleEmailOtpRegistrationAttemptsWithStore,
-} from './googleEmailOtpRegistration';
+import { cleanupGoogleEmailOtpRegistrationAttemptsWithStore } from './googleEmailOtpRegistration';
 import {
   cleanupGoogleEmailOtpDevRegistrationStateForAuthService,
   completeGoogleEmailOtpRegistrationAttemptForAuthService,
@@ -187,10 +175,7 @@ import {
   validateGoogleEmailOtpRegistrationCandidateWalletForAuthService,
   type GoogleEmailOtpOperationsInput,
 } from './googleEmailOtpOperations';
-import {
-  consumeEmailOtpRateLimit as consumeEmailOtpRateLimitWithDeps,
-  consumeRegistrationPrepareRateLimit as consumeRegistrationPrepareRateLimitWithDeps,
-} from './rateLimits';
+import { consumeEmailOtpRateLimit as consumeEmailOtpRateLimitWithDeps } from './rateLimits';
 import { isObject } from './record';
 import { summarizeThresholdStoreConfig } from './thresholdStoreSummary';
 import {
@@ -199,9 +184,9 @@ import {
   type ThresholdEcdsaKeyInventoryRecord,
 } from './thresholdEcdsaKeyInventory';
 import {
-  ecdsaHssRoleLocalBootstrapWithThreshold,
-  ecdsaHssRoleLocalExportShareWithThreshold,
-  verifyEcdsaHssRoleLocalClientRootProofForExistingKeyWithThreshold,
+  ecdsaHssRoleLocalBootstrapWithRuntime,
+  ecdsaHssRoleLocalExportShareWithRuntime,
+  verifyEcdsaHssRoleLocalClientRootProofForExistingKeyWithRuntime,
 } from './thresholdEcdsaOperations';
 import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
 import {
@@ -221,9 +206,7 @@ import type {
   AppSessionVersionValidationResult,
   ListIdentitiesResult,
 } from './identity';
-import {
-  isNodeEnvironment as isAuthServiceNodeEnvironment,
-} from './wasm';
+import { isNodeEnvironment as isAuthServiceNodeEnvironment } from './wasm';
 import {
   createInitialAuthServiceRuntimeState,
   ensureAuthServiceRuntimeReady,
@@ -273,6 +256,26 @@ import {
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 
+type AuthServiceThresholdSigningRuntimeState =
+  | {
+      readonly kind: 'uninitialized';
+      readonly thresholdSigningService?: never;
+      readonly routerAbNormalSigningRuntime?: never;
+      readonly routerAbEcdsaBootstrapExportRuntime?: never;
+    }
+  | {
+      readonly kind: 'unconfigured';
+      readonly thresholdSigningService?: never;
+      readonly routerAbNormalSigningRuntime?: never;
+      readonly routerAbEcdsaBootstrapExportRuntime?: never;
+    }
+  | {
+      readonly kind: 'ready';
+      readonly thresholdSigningService: ThresholdSigningServiceType;
+      readonly routerAbNormalSigningRuntime: RouterAbNormalSigningRuntime;
+      readonly routerAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntimeState;
+    };
+
 function assertNever(value: never): never {
   throw new Error(`Unexpected variant: ${JSON.stringify(value)}`);
 }
@@ -288,8 +291,9 @@ export class AuthService {
   private readonly logger: NormalizedLogger;
   private readonly stores: AuthServiceStoreRegistry;
   private readonly nearAccounts: NearAccountOperations;
-  private thresholdSigningServiceInitialized = false;
-  private thresholdSigningService: ThresholdSigningServiceType | null = null;
+  private thresholdSigningRuntimeState: AuthServiceThresholdSigningRuntimeState = {
+    kind: 'uninitialized',
+  };
   private readonly emailOtpMemoryOutbox: EmailOtpMemoryOutbox = new Map();
   private registrationRuntimeWarmPromise: Promise<void> | null = null;
   private readonly googleJwksState = createGoogleJwksState();
@@ -384,9 +388,7 @@ export class AuthService {
 
   private async consumeGoogleEmailOtpRegistrationRateLimitScope(input: {
     scope: 'googleRegistrationAttempt';
-    action:
-      | 'google_email_otp_registration_create'
-      | 'google_email_otp_registration_offer_restart';
+    action: 'google_email_otp_registration_create' | 'google_email_otp_registration_offer_restart';
     userId?: string;
     providerSubject: string;
     orgId: string;
@@ -556,17 +558,6 @@ export class AuthService {
         }ms`,
       );
 
-      const thresholdWarmStartedAt = Date.now();
-      const threshold = this.getThresholdSigningService();
-      if (threshold) {
-        await ensureThresholdEd25519HssWasm();
-      }
-      this.logger.info(
-        `[AuthService] registration runtime threshold warm completed in ${
-          Date.now() - thresholdWarmStartedAt
-        }ms`,
-      );
-
       const storeWarmStartedAt = Date.now();
       this.stores.getWebAuthnAuthenticatorStore();
       this.stores.getWebAuthnCredentialBindingStore();
@@ -605,30 +596,41 @@ export class AuthService {
    * Routers may call this to auto-enable `/threshold-ed25519/*` endpoints.
    */
   getThresholdSigningService(): ThresholdSigningServiceType | null {
-    if (this.thresholdSigningServiceInitialized) return this.thresholdSigningService;
-    this.thresholdSigningServiceInitialized = true;
-
-    if (!this.config.thresholdStore) {
-      this.thresholdSigningService = null;
-      return null;
-    }
-
-    this.thresholdSigningService = createThresholdSigningService({
-      authService: this,
-      thresholdStore: this.config.thresholdStore,
-      logger: this.logger,
-      isNode: this.isNodeEnvironment(),
-    });
-    return this.thresholdSigningService;
+    const state = this.getThresholdSigningRuntimeState();
+    return state.kind === 'ready' ? state.thresholdSigningService : null;
   }
 
-  /**
-   * Explicit injection seam for environments that need AuthService and the threshold
-   * service to share one already-constructed instance, such as E2E harnesses.
-   */
-  setThresholdSigningService(service: ThresholdSigningServiceType | null): void {
-    this.thresholdSigningServiceInitialized = true;
-    this.thresholdSigningService = service;
+  getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null {
+    const state = this.getThresholdSigningRuntimeState();
+    return state.kind === 'ready' ? state.routerAbNormalSigningRuntime : null;
+  }
+
+  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportRuntime | null {
+    const state = this.getThresholdSigningRuntimeState();
+    if (state.kind !== 'ready') return null;
+    return state.routerAbEcdsaBootstrapExportRuntime.kind === 'configured'
+      ? state.routerAbEcdsaBootstrapExportRuntime.runtime
+      : null;
+  }
+
+  private getThresholdSigningRuntimeState(): Exclude<
+    AuthServiceThresholdSigningRuntimeState,
+    { readonly kind: 'uninitialized' }
+  > {
+    if (this.thresholdSigningRuntimeState.kind === 'uninitialized') {
+      if (!this.config.thresholdStore) {
+        this.thresholdSigningRuntimeState = { kind: 'unconfigured' };
+      } else {
+        const runtimes = createThresholdSigningService({
+          authService: this,
+          thresholdStore: this.config.thresholdStore,
+          logger: this.logger,
+          isNode: this.isNodeEnvironment(),
+        });
+        this.thresholdSigningRuntimeState = { kind: 'ready', ...runtimes };
+      }
+    }
+    return this.thresholdSigningRuntimeState;
   }
 
   private isProductionEnvironment(): boolean {
@@ -639,35 +641,6 @@ export class AuthService {
     return readAuthServiceConfigValue({
       thresholdStore: this.config.thresholdStore as AuthServiceConfigSource,
       name,
-    });
-  }
-
-  private resolveRegistrationPrepareRateLimitPolicy(): { limit: number; windowMs: number } {
-    return resolveRegistrationPrepareRateLimitPolicyFromSource({
-      thresholdStore: this.config.thresholdStore as AuthServiceConfigSource,
-      production: this.isProductionEnvironment(),
-    });
-  }
-
-  private async consumeRegistrationPrepareRateLimit(args: {
-    request: WalletRegistrationPrepareRequest;
-    storedIntent: StoredRegistrationIntent;
-  }): Promise<
-    | { ok: true }
-    | {
-        ok: false;
-        code: 'rate_limited' | 'invalid_body';
-        message: string;
-        retryAfterMs?: number;
-        resetAtMs?: number;
-      }
-  > {
-    return await consumeRegistrationPrepareRateLimitWithDeps({
-      limiter: this.stores.getRegistrationPrepareRateLimiter(),
-      policy: this.resolveRegistrationPrepareRateLimitPolicy(),
-      request: args.request,
-      storedIntent: args.storedIntent,
-      production: this.isProductionEnvironment(),
     });
   }
 
@@ -775,9 +748,7 @@ export class AuthService {
     return new IdentityOperations(this.stores.getIdentityStore());
   }
 
-  async listIdentities(input: {
-    userId: string;
-  }): Promise<ListIdentitiesResult> {
+  async listIdentities(input: { userId: string }): Promise<ListIdentitiesResult> {
     return await this.identityOperations().listIdentities(input);
   }
 
@@ -845,9 +816,7 @@ export class AuthService {
     });
   }
 
-  async getRecoverySession(input: {
-    sessionId: string;
-  }): Promise<GetRecoverySessionResult> {
+  async getRecoverySession(input: { sessionId: string }): Promise<GetRecoverySessionResult> {
     return await this.recoveryTrackingOperations().getRecoverySession(input);
   }
 
@@ -1436,7 +1405,8 @@ export class AuthService {
       walletStore: this.stores.getWalletStore(),
       walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
       authStateStore: this.stores.getEmailOtpAuthStateStore(),
-      recoveryWrappedEnrollmentEscrowStore: this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
+      recoveryWrappedEnrollmentEscrowStore:
+        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
       identityStore: this.stores.getIdentityStore(),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
@@ -1464,9 +1434,9 @@ export class AuthService {
     });
   }
 
-  async isEmailOtpStrongAuthRequired(
-    request: { walletId?: unknown },
-  ): Promise<EmailOtpStrongAuthRequiredResult> {
+  async isEmailOtpStrongAuthRequired(request: {
+    walletId?: unknown;
+  }): Promise<EmailOtpStrongAuthRequiredResult> {
     return await isEmailOtpStrongAuthRequiredWithStores({
       walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
       authStateStore: this.stores.getEmailOtpAuthStateStore(),
@@ -1501,7 +1471,8 @@ export class AuthService {
   ): Promise<EmailOtpRecoveryCodeStatusResult> {
     return await getEmailOtpRecoveryCodeStatusWithStores({
       request,
-      recoveryWrappedEnrollmentEscrowStore: this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
+      recoveryWrappedEnrollmentEscrowStore:
+        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
     });
   }
@@ -1537,7 +1508,8 @@ export class AuthService {
   private emailOtpRecoveryKeysStores() {
     return {
       grantStore: this.stores.getEmailOtpGrantStore(),
-      recoveryWrappedEnrollmentEscrowStore: this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
+      recoveryWrappedEnrollmentEscrowStore:
+        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
     };
   }
 
@@ -1630,7 +1602,7 @@ export class AuthService {
       userId: input.userId,
       rpId: input.rpId,
       keyTargets: input.keyTargets,
-      threshold: this.getThresholdSigningService(),
+      ecdsaBootstrapExportRuntime: this.getRouterAbEcdsaBootstrapExportRuntime(),
       logger: this.logger,
     });
   }
@@ -1653,8 +1625,8 @@ export class AuthService {
   async ecdsaHssRoleLocalBootstrap(
     request: EcdsaHssClientBootstrapRequest,
   ): Promise<EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>> {
-    return await ecdsaHssRoleLocalBootstrapWithThreshold({
-      deps: { threshold: this.getThresholdSigningService() },
+    return await ecdsaHssRoleLocalBootstrapWithRuntime({
+      deps: { runtime: this.getRouterAbEcdsaBootstrapExportRuntime() },
       request,
     });
   }
@@ -1664,8 +1636,8 @@ export class AuthService {
       clientRootProof: NonNullable<EcdsaHssClientBootstrapRequest['clientRootProof']>;
     },
   ): Promise<EcdsaHssRouteResult<{ keyHandle: string }>> {
-    return await verifyEcdsaHssRoleLocalClientRootProofForExistingKeyWithThreshold({
-      deps: { threshold: this.getThresholdSigningService() },
+    return await verifyEcdsaHssRoleLocalClientRootProofForExistingKeyWithRuntime({
+      deps: { runtime: this.getRouterAbEcdsaBootstrapExportRuntime() },
       request,
     });
   }
@@ -1675,8 +1647,8 @@ export class AuthService {
     keyHandle: string;
     claims: RouterAbEcdsaHssWalletSessionClaims;
   }): Promise<EcdsaHssRouteResult<EcdsaHssExportShareResponse>> {
-    return await ecdsaHssRoleLocalExportShareWithThreshold({
-      deps: { threshold: this.getThresholdSigningService() },
+    return await ecdsaHssRoleLocalExportShareWithRuntime({
+      deps: { runtime: this.getRouterAbEcdsaBootstrapExportRuntime() },
       request: input.request,
       keyHandle: input.keyHandle,
       claims: input.claims,
@@ -1691,7 +1663,6 @@ export class AuthService {
       syncChallengeStore: this.stores.getWebAuthnSyncChallengeStore(),
       credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
-      thresholdSigningService: this.getThresholdSigningService(),
       logger: this.logger,
     });
   }
@@ -1699,6 +1670,8 @@ export class AuthService {
     return new EmailRecoveryAuthOperations({
       ensureSignerAndRelayerAccount: this._ensureSignerAndRelayerAccount.bind(this),
       getThresholdSigningService: this.getThresholdSigningService.bind(this),
+      getRouterAbEcdsaBootstrapExportRuntime:
+        this.getRouterAbEcdsaBootstrapExportRuntime.bind(this),
       webAuthnAuthenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
       webAuthnCredentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       emailRecoveryPreparationStore: this.stores.getEmailRecoveryPreparationStore(),
@@ -1710,18 +1683,6 @@ export class AuthService {
     request: Parameters<EmailRecoveryAuthOperations['prepareEmailRecovery']>[0],
   ): ReturnType<EmailRecoveryAuthOperations['prepareEmailRecovery']> {
     return this.emailRecoveryAuthOperations().prepareEmailRecovery(request);
-  }
-
-  respondEmailRecoveryEd25519(
-    request: Parameters<EmailRecoveryAuthOperations['respondEmailRecoveryEd25519']>[0],
-  ): ReturnType<EmailRecoveryAuthOperations['respondEmailRecoveryEd25519']> {
-    return this.emailRecoveryAuthOperations().respondEmailRecoveryEd25519(request);
-  }
-
-  finalizeEmailRecoveryEd25519(
-    request: Parameters<EmailRecoveryAuthOperations['finalizeEmailRecoveryEd25519']>[0],
-  ): ReturnType<EmailRecoveryAuthOperations['finalizeEmailRecoveryEd25519']> {
-    return this.emailRecoveryAuthOperations().finalizeEmailRecoveryEd25519(request);
   }
 
   respondEmailRecoveryEcdsa(

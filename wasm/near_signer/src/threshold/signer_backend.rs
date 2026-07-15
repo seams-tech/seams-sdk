@@ -39,20 +39,23 @@ fn threshold_auth_cache_key(cfg: &ThresholdSignerConfig, near_account_id: &str) 
         near_account_id.trim()
     );
 
-    if let Some(ids) = cfg.participant_ids.as_ref() {
-        let mut ids_norm: Vec<u16> = ids.iter().copied().filter(|n| *n > 0).collect();
-        ids_norm.sort_unstable();
-        ids_norm.dedup();
-        if !ids_norm.is_empty() {
-            out.push('|');
-            out.push_str(
-                &ids_norm
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<_>>()
-                    .join(","),
-            );
-        }
+    let mut ids_norm: Vec<u16> = cfg
+        .participant_ids
+        .iter()
+        .copied()
+        .filter(|n| *n > 0)
+        .collect();
+    ids_norm.sort_unstable();
+    ids_norm.dedup();
+    if !ids_norm.is_empty() {
+        out.push('|');
+        out.push_str(
+            &ids_norm
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
     }
 
     out
@@ -341,11 +344,7 @@ impl ThresholdEd25519RelayerSigner {
     ) -> Result<Self, String> {
         let relayer_url = cfg.relayer_url.trim();
         let relayer_key_id = cfg.relayer_key_id.trim();
-        let x_client_base_b64u = cfg
-            .x_client_base_b64u
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+        let client_scalar_share_b64u = cfg.client_scalar_share_b64u.trim();
         if relayer_url.is_empty() {
             return Err("threshold-signer: missing relayerUrl".to_string());
         }
@@ -357,7 +356,7 @@ impl ThresholdEd25519RelayerSigner {
             return Err("threshold-signer: missing purpose".to_string());
         }
 
-        let participant_ids_norm = normalize_participant_ids(cfg.participant_ids.as_ref());
+        let participant_ids_norm = normalize_participant_ids(Some(&cfg.participant_ids));
 
         let normalized_mpc_session_id = cfg
             .mpc_session_id
@@ -386,8 +385,8 @@ impl ThresholdEd25519RelayerSigner {
             )
             .map_err(|e| e.to_string())?;
 
-        let client_id_opt = cfg.client_participant_id.filter(|n| *n > 0);
-        let relayer_id_opt = cfg.relayer_participant_id.filter(|n| *n > 0);
+        let client_id_opt = Some(cfg.client_participant_id).filter(|n| *n > 0);
+        let relayer_id_opt = Some(cfg.relayer_participant_id).filter(|n| *n > 0);
         let (client_id, relayer_id) = validate_threshold_ed25519_participant_ids_2p(
             client_id_opt,
             relayer_id_opt,
@@ -401,12 +400,12 @@ impl ThresholdEd25519RelayerSigner {
             .try_into()
             .map_err(|_| "threshold-signer: invalid relayer identifier".to_string())?;
 
-        let x_client_base_b64u = x_client_base_b64u.ok_or_else(|| {
-            "threshold-signer: missing xClientBaseB64u; Ed25519 threshold signing now requires single-key HSS base-share reconstruction".to_string()
-        })?;
+        if client_scalar_share_b64u.is_empty() {
+            return Err("threshold-signer: missing clientScalarShareB64u".to_string());
+        }
         let key_package =
-            crate::threshold::threshold_client_share::key_package_from_client_base_b64u(
-                &x_client_base_b64u,
+            crate::threshold::threshold_client_share::key_package_from_client_scalar_share_b64u(
+                client_scalar_share_b64u,
                 &near_public_key_bytes,
                 client_identifier,
             )?;

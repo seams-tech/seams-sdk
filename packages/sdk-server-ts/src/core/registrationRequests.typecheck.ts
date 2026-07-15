@@ -3,7 +3,11 @@ import type {
   CreateAddSignerIntentRequest,
   CreateRegistrationIntentRequest,
   WalletAddAuthMethodStartRequest,
-  WalletRegistrationStartRequest
+  WalletRegistrationEcdsaPreparePayload,
+  WalletRegistrationFinalizeRequest,
+  WalletRegistrationFinalizeResponse,
+  WalletRegistrationStartResponse,
+  WalletRegistrationStartRequest,
 } from './registrationContracts';
 import {
   addAuthMethodIntentGrantFromString,
@@ -155,5 +159,123 @@ void invalidCreateAddSignerIntentRequest;
 const invalidCreateAddAuthMethodIntentRequest: CreateAddAuthMethodIntentRequest =
   rawAddAuthMethodIntentBody;
 void invalidCreateAddAuthMethodIntentRequest;
+
+declare const ecdsaPrepare: WalletRegistrationEcdsaPreparePayload;
+
+const yaoAdmissionRequest = {
+  scope: {
+    lifecycle_id: 'registration-lifecycle',
+    root_share_epoch: 'root-epoch-1',
+    account_id: 'alice.testnet',
+    wallet_session_id: 'wallet-session-1',
+    signer_set_id: 'signer-set-1',
+    signing_worker_id: 'signing-worker-1',
+  },
+  application_binding: {
+    wallet_id: 'wallet_alice',
+    near_ed25519_signing_key_id: 'near-key-1',
+    signing_root_id: 'signing-root-1',
+    key_creation_signer_slot: 1,
+  },
+  participant_ids: [1, 2] as const,
+};
+
+const validEd25519StartResponse = {
+  ok: true,
+  kind: 'near_ed25519',
+  registrationCeremonyId: 'registration-ceremony-1',
+  intent: registrationIntent,
+  ed25519: { admissionRequest: yaoAdmissionRequest },
+} satisfies WalletRegistrationStartResponse;
+void validEd25519StartResponse;
+
+const validMixedStartResponse = {
+  ok: true,
+  kind: 'near_ed25519_and_evm_family_ecdsa',
+  registrationCeremonyId: 'registration-ceremony-2',
+  intent: registrationIntent,
+  ed25519: { admissionRequest: yaoAdmissionRequest },
+  ecdsa: ecdsaPrepare,
+} satisfies WalletRegistrationStartResponse;
+void validMixedStartResponse;
+
+const invalidEd25519StartWithEcdsa: WalletRegistrationStartResponse = {
+  ok: true,
+  kind: 'near_ed25519',
+  registrationCeremonyId: 'registration-ceremony-invalid',
+  intent: registrationIntent,
+  ed25519: { admissionRequest: yaoAdmissionRequest },
+  // @ts-expect-error near_ed25519 start cannot carry ECDSA preparation work.
+  ecdsa: ecdsaPrepare,
+};
+void invalidEd25519StartWithEcdsa;
+
+const invalidStartResponseWithoutSignerWork = {
+  ok: true,
+  registrationCeremonyId: 'registration-ceremony-3',
+  intent: registrationIntent,
+  // @ts-expect-error successful registration start must carry Ed25519 or ECDSA work.
+} satisfies WalletRegistrationStartResponse;
+void invalidStartResponseWithoutSignerWork;
+
+const validEd25519FinalizeRequest = {
+  registrationCeremonyId: 'registration-ceremony-1',
+  kind: 'near_ed25519',
+  ed25519: {
+    activationReference: {
+      kind: 'router_ab_ed25519_yao_activation_reference_v1',
+      lifecycle_id: 'registration-lifecycle',
+      session_id: Array.from({ length: 32 }, () => 1),
+    },
+  },
+} satisfies WalletRegistrationFinalizeRequest;
+void validEd25519FinalizeRequest;
+
+// @ts-expect-error near_ed25519 finalize must not carry ECDSA work.
+const invalidEd25519FinalizeWithEcdsa: WalletRegistrationFinalizeRequest = {
+  registrationCeremonyId: 'registration-ceremony-1',
+  kind: 'near_ed25519' as const,
+  ed25519: validEd25519FinalizeRequest.ed25519,
+  ecdsa: {},
+};
+void invalidEd25519FinalizeWithEcdsa;
+
+const invalidEd25519FinalizeWithoutActivation = {
+  registrationCeremonyId: 'registration-ceremony-1',
+  kind: 'near_ed25519' as const,
+  // @ts-expect-error Ed25519 finalize requires an opaque activation reference.
+  ed25519: {},
+} satisfies WalletRegistrationFinalizeRequest;
+void invalidEd25519FinalizeWithoutActivation;
+
+declare const validEd25519FinalizeSuccess: Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'near_ed25519' }
+>;
+declare const validEcdsaFinalizeSuccess: Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'evm_family_ecdsa' }
+>;
+
+// @ts-expect-error Ed25519-only success cannot carry ECDSA wallet keys.
+const invalidEd25519FinalizeSuccessWithEcdsa: WalletRegistrationFinalizeResponse = {
+  ...validEd25519FinalizeSuccess,
+  ecdsa: validEcdsaFinalizeSuccess.ecdsa,
+};
+void invalidEd25519FinalizeSuccessWithEcdsa;
+
+const invalidEd25519SessionWithoutJwt = {
+  ...validEd25519FinalizeSuccess.ed25519.session,
+  // @ts-expect-error an activated Ed25519 signing session requires its Wallet Session JWT.
+  walletSessionJwt: undefined,
+} satisfies typeof validEd25519FinalizeSuccess.ed25519.session;
+void invalidEd25519SessionWithoutJwt;
+
+// @ts-expect-error ECDSA-only success cannot carry a NEAR account provisioning identity.
+const invalidEcdsaFinalizeSuccessWithNearIdentity: WalletRegistrationFinalizeResponse = {
+  ...validEcdsaFinalizeSuccess,
+  accountProvisioning: validEd25519FinalizeSuccess.accountProvisioning,
+};
+void invalidEcdsaFinalizeSuccessWithNearIdentity;
 
 export {};

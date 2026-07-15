@@ -1,7 +1,7 @@
 # ECDSA HSS
 
-`ecdsa-hss` is the secp256k1 / ECDSA sibling to
-[ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
+`ecdsa-hss` owns the secp256k1 / ECDSA strict Router A/B derivation and
+additive-share construction. Ed25519 is owned separately by Streaming Yao.
 
 The crate derives one logical secp256k1 private scalar `x` for each stable
 EVM-family key identity. The live protocol represents that key as role-local

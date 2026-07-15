@@ -2,7 +2,7 @@
 name = "threshold_prf_wasm"
 version = "0.1.0"
 edition = "2021"
-description = "Server-side WASM bindings for threshold-prf HSS input derivation"
+description = "Server-side WASM bindings for threshold PRF derivation"
 license = "Apache-2.0"
 
 [package.metadata.wasm-pack.profile.release]
@@ -22,9 +22,7 @@ name = "threshold_prf"
 
 [dependencies]
 getrandom = { version = "0.2", features = ["js"] }
-js-sys = "0.3"
 rand_core = { version = "0.6", features = ["getrandom"] }
-sha2 = "0.10"
 threshold-prf = { path = "../../crates/threshold-prf" }
 wasm-bindgen = "0.2"
 zeroize = "1.8"

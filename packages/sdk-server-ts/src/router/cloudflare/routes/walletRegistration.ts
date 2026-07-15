@@ -9,11 +9,9 @@ import {
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletRegistrationFinalize,
-  handleRouterApiWalletRegistrationHssAdvanceState,
   handleRouterApiWalletRegistrationHssRespond,
   handleRouterApiWalletRegistrationIntent,
   handleRouterApiWalletRegistrationIntentCancel,
-  handleRouterApiWalletRegistrationPrepare,
   handleRouterApiWalletRegistrationStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletNearImplicitAccountFund,
@@ -32,10 +30,8 @@ import { readJson } from '../http';
 const ROUTE_IDS = [
   'wallet_registration_intent',
   'wallet_registration_intent_cancel',
-  'wallet_registration_prepare',
   'wallet_registration_start',
   'wallet_registration_hss_respond',
-  'wallet_registration_hss_advance_state',
   'wallet_registration_finalize',
   'wallet_add_signer_intent',
   'wallet_add_signer_start',
@@ -104,15 +100,11 @@ export async function handleWalletRegistration(
       ? await handleRouterApiWalletRegistrationIntent(common)
       : route.id === 'wallet_registration_intent_cancel'
         ? await handleRouterApiWalletRegistrationIntentCancel(common)
-        : route.id === 'wallet_registration_prepare'
-          ? await handleRouterApiWalletRegistrationPrepare(common)
-          : route.id === 'wallet_registration_start'
+        : route.id === 'wallet_registration_start'
             ? await handleRouterApiWalletRegistrationStart(common)
             : route.id === 'wallet_registration_hss_respond'
               ? await handleRouterApiWalletRegistrationHssRespond(common)
-              : route.id === 'wallet_registration_hss_advance_state'
-                ? await handleRouterApiWalletRegistrationHssAdvanceState(common)
-                : route.id === 'wallet_registration_finalize'
+              : route.id === 'wallet_registration_finalize'
                   ? await handleRouterApiWalletRegistrationFinalize(common)
                   : route.id === 'wallet_add_signer_intent'
                     ? await handleRouterApiWalletAddSignerIntent(common)

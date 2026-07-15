@@ -15,6 +15,8 @@ import type {
 } from '../core/RecoveryExecutionStore';
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
 import type { ThresholdSigningService } from '../core/ThresholdService/ThresholdSigningService';
+import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
+import type { RouterAbEcdsaBootstrapExportRuntime } from '../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { RouterAbEcdsaHssWalletSessionClaims } from '../core/ThresholdService/validation';
 import type {
   EcdsaHssClientBootstrapRequest,
@@ -26,7 +28,6 @@ import type {
   FundImplicitNearAccountResult,
   ThresholdEcdsaChainTarget,
   ThresholdEd25519AuthorityScope,
-  ThresholdEd25519BootstrapSession,
   ThresholdRuntimePolicyScope,
   WebAuthnAuthenticationCredential,
 } from '../core/types';
@@ -51,17 +52,19 @@ import type {
   WalletAddSignerStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
-  WalletRegistrationHssAdvanceStateRequest,
-  WalletRegistrationHssAdvanceStateResponse,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
-  WalletRegistrationPrepareRequest,
-  WalletRegistrationPrepareResponse,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../core/registrationContracts';
+import type {
+  RouterAbEd25519YaoBudgetRefreshRequestV1,
+  RouterAbEd25519YaoBudgetRefreshResponseV1,
+  RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
+  RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1,
+} from './routerAbEd25519YaoWalletSession';
 
 type CloudflareEmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory' | 'dev_d1_outbox';
 
@@ -595,6 +598,10 @@ export type RouterApiMethodTypes = {
     readonly input: never;
     readonly result: ThresholdSigningService | null;
   };
+  getRouterAbNormalSigningRuntime: {
+    readonly input: never;
+    readonly result: RouterAbNormalSigningRuntime | null;
+  };
   isEmailOtpStrongAuthRequired: {
     readonly input: { readonly walletId?: unknown };
     readonly result:
@@ -751,10 +758,6 @@ export type RouterApiMethodTypes = {
         };
   };
   removeEmailOtpServerSeal: RouterApiMethodTypes['applyEmailOtpServerSeal'];
-  prepareWalletRegistration: {
-    readonly input: WalletRegistrationPrepareRequest;
-    readonly result: WalletRegistrationPrepareResponse;
-  };
   respondWalletAddSignerHss: {
     readonly input: WalletAddSignerHssRespondRequest;
     readonly result: WalletAddSignerHssRespondResponse;
@@ -762,10 +765,6 @@ export type RouterApiMethodTypes = {
   respondWalletRegistrationHss: {
     readonly input: WalletRegistrationHssRespondRequest;
     readonly result: WalletRegistrationHssRespondResponse;
-  };
-  advanceWalletRegistrationHssState: {
-    readonly input: WalletRegistrationHssAdvanceStateRequest;
-    readonly result: WalletRegistrationHssAdvanceStateResponse;
   };
   resolveGoogleEmailOtpSession: {
     readonly input: {
@@ -896,6 +895,8 @@ export type RouterApiMethodTypes = {
           readonly verified: true;
           readonly userId: string;
           readonly walletId: string;
+          readonly providerUserId: string;
+          readonly orgId: string;
           readonly unlockKeyVersion: string;
         }
       | {
@@ -984,7 +985,6 @@ export type RouterApiMethodTypes = {
       readonly challenge_id?: unknown;
       readonly webauthn_authentication?: unknown;
       readonly expected_origin?: string;
-      readonly threshold_ed25519?: unknown;
     };
     readonly result: {
       readonly ok: boolean;
@@ -1009,7 +1009,6 @@ export type RouterApiMethodTypes = {
         readonly clientParticipantId?: number;
         readonly relayerParticipantId?: number;
         readonly participantIds?: number[];
-        readonly session?: ThresholdEd25519BootstrapSession;
       };
       readonly code?: string;
       readonly message?: string;
@@ -1030,6 +1029,8 @@ export type GoogleEmailOtpRegistrationCandidateWalletValidationResult =
 
 export interface ThresholdRouterApiAuthService {
   getThresholdSigningService(): ThresholdSigningService | null;
+  getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null;
+  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportRuntime | null;
 }
 
 export interface RouterApiEmailOtpChallengeService {
@@ -1066,21 +1067,21 @@ export interface RouterApiWalletRegistrationService {
   cancelRegistrationIntent(input: {
     request: CancelRegistrationIntentRequest;
   }): Promise<CancelRegistrationIntentResponse>;
-  prepareWalletRegistration(
-    input: WalletRegistrationPrepareRequest,
-  ): Promise<WalletRegistrationPrepareResponse>;
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
   ): Promise<WalletRegistrationStartResponse>;
   respondWalletRegistrationHss(
     input: WalletRegistrationHssRespondRequest,
   ): Promise<WalletRegistrationHssRespondResponse>;
-  advanceWalletRegistrationHssState(
-    input: WalletRegistrationHssAdvanceStateRequest,
-  ): Promise<WalletRegistrationHssAdvanceStateResponse>;
   finalizeWalletRegistration(
     input: WalletRegistrationFinalizeRequest,
   ): Promise<WalletRegistrationFinalizeResponse>;
+  refreshEd25519YaoWalletSession(
+    input: RouterAbEd25519YaoBudgetRefreshRequestV1,
+  ): Promise<RouterAbEd25519YaoBudgetRefreshResponseV1>;
+  recoverEd25519YaoEmailOtpWalletSession(
+    input: RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
+  ): Promise<RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1>;
 }
 
 export interface RouterApiWalletAuthVerificationService {
@@ -1344,6 +1345,9 @@ export function routerApiWalletRegistrationRouteService(
     ...service.walletRegistration,
     ...service.walletAuthMethods,
     getThresholdSigningService: service.thresholdRuntime.getThresholdSigningService,
+    getRouterAbNormalSigningRuntime: service.thresholdRuntime.getRouterAbNormalSigningRuntime,
+    getRouterAbEcdsaBootstrapExportRuntime:
+      service.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime,
     validateAppSessionVersion: service.sessionVersions.validateAppSessionVersion,
     verifyWebAuthnAuthenticationLite: service.webAuthn.verifyWebAuthnAuthenticationLite,
     fundImplicitNearAccount: service.nearFunding.fundImplicitNearAccount,

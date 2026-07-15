@@ -79,7 +79,7 @@ async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    getThreshold: () => input.ctx.service.thresholdRuntime.getThresholdSigningService(),
+    runtime: input.ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
     privatePath: input.privatePath,
     phase: input.phase,
@@ -562,19 +562,20 @@ export async function handleThresholdEcdsa(
     if (!result.ok) {
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     }
-    const threshold = ctx.service.thresholdRuntime.getThresholdSigningService();
-    if (!threshold) {
+    const normalSigningRuntime = ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime();
+    if (!normalSigningRuntime) {
       const failure = {
         ok: false,
         code: 'not_configured',
-        message: 'Threshold signing is not configured on this server',
+        message: 'Router A/B normal signing is not configured on this server',
       };
       return json(failure, { status: thresholdEcdsaStatusCode(failure) });
     }
+    const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
     const routerAbEcdsaHssNormalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
       bootstrap: result.value,
       routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
-      signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+      signingWorkerId,
     });
     if (!routerAbEcdsaHssNormalSigning.ok) {
       return json(routerAbEcdsaHssNormalSigning, {
@@ -606,7 +607,7 @@ export async function handleThresholdEcdsa(
         },
         publicIdentity: result.value.publicIdentity,
         activationEpoch: result.value.thresholdSessionId,
-        signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+        signingWorkerId,
         routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigning.state,
       },
       fallbackParticipantIds: result.value.participantIds,

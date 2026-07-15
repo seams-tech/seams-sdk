@@ -26,6 +26,13 @@ import {
   normalizeThresholdRuntimePolicyScope,
   thresholdRuntimePolicyScopesEqual,
 } from './thresholdRuntimePolicy';
+import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+
+function requireEvmFamilySigningKeySlotId(value: unknown) {
+  const parsed = parseEvmFamilySigningKeySlotId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 export type ThresholdEd25519RegistrationInput = {
   keyVersion: string;
@@ -226,7 +233,9 @@ export function toEcdsaHssClientBootstrapRequest(
   return {
     formatVersion: clientBootstrap.formatVersion,
     walletId: clientBootstrap.walletId,
-    evmFamilySigningKeySlotId: clientBootstrap.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+      clientBootstrap.evmFamilySigningKeySlotId,
+    ),
     ecdsaThresholdKeyId: clientBootstrap.ecdsaThresholdKeyId,
     signingRootId: clientBootstrap.signingRootId,
     signingRootVersion: clientBootstrap.signingRootVersion,

@@ -1,6 +1,5 @@
 export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 
-export type Ed25519HssKeyVersion = Brand<string, 'Ed25519HssKeyVersion'>;
 export type EcdsaHssKeyVersion = Brand<string, 'EcdsaHssKeyVersion'>;
 export type SigningSessionSealKeyVersion = Brand<string, 'SigningSessionSealKeyVersion'>;
 export type Ed25519ClientVerifyingShareB64u = Brand<
@@ -26,10 +25,6 @@ function parseNonEmptyBrand<T extends string>(value: unknown, label: string): Br
     throw new Error(`${label} must be a non-empty string`);
   }
   return normalized as Brand<string, T>;
-}
-
-export function parseEd25519HssKeyVersion(value: unknown): Ed25519HssKeyVersion {
-  return parseNonEmptyBrand<'Ed25519HssKeyVersion'>(value, 'Ed25519 HSS key version');
 }
 
 export function parseEcdsaHssKeyVersion(value: unknown): EcdsaHssKeyVersion {
@@ -86,10 +81,6 @@ export function parseSigningSessionSealShamirPrimeB64u(
     value,
     'signing-session seal Shamir prime',
   );
-}
-
-export function formatEd25519HssKeyVersionForWire(value: Ed25519HssKeyVersion): string {
-  return value;
 }
 
 export function formatEcdsaHssKeyVersionForWire(value: EcdsaHssKeyVersion): string {

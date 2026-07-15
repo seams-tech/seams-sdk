@@ -25,16 +25,6 @@ export {
   type WalletSigningBudgetSessionRecord,
 } from './stores/WalletSessionStore';
 export {
-  ensureThresholdEd25519HssWasm,
-  finalizeThresholdEd25519HssServerCeremony,
-  finalizeThresholdEd25519HssReport,
-  deriveThresholdEd25519HssPublicKey,
-  openThresholdEd25519HssSeedOutput,
-  openThresholdEd25519HssServerOutput,
-  prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
-  prepareThresholdEd25519HssServerCeremony,
-} from './ed25519HssWasm';
-export {
   normalizeSigningRootSecretShareId,
   parseSigningRootSecretShareWireV1,
   zeroizeSigningRootSecretShareWireV1,
@@ -48,11 +38,9 @@ export {
   createHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
-  deriveEd25519HssServerInputsFromSigningRootShareResolver,
   type CreateHostedSigningRootShareResolverInput,
   type CreateSelfHostedSigningRootShareResolverInput,
   type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
-  type DeriveEd25519HssServerInputsFromSigningRootShareResolverInput,
   type FixedSigningRootScope,
   type SealedSigningRootShare,
   type SigningRootShareDecryptAdapter,

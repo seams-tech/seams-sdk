@@ -51,10 +51,7 @@ web-sys = { version = "0.3", features = [
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 signer-core = { path = "../../crates/signer-core", features = ["near-crypto", "near-threshold-ed25519", "typescript-bindings"] }
-ed25519-hss = { path = "../../crates/ed25519-hss" }
 x25519-dalek = "2.0"
 
 [features]
 default = []
-hss-client-exports = []
-hss-server-exports = []

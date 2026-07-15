@@ -110,7 +110,10 @@ function statusMatchesAuthScope(
 ): boolean {
   switch (auth.curve) {
     case 'ecdsa':
-      return status.curve === 'ecdsa' && status.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId;
+      return (
+        status.curve === 'ecdsa' &&
+        status.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId
+      );
     case 'ed25519':
       return (
         status.curve === 'ed25519' &&
@@ -145,13 +148,41 @@ function walletBudgetMatches(
   auth: VerifiedWalletSessionAuth,
   status: SigningSessionSealWalletBudgetStatus | null,
 ): boolean {
-  return Boolean(
-    status &&
-      status.kind === 'wallet_budget' &&
-      status.signingGrantId === auth.signingGrantId &&
-      status.userId === auth.userId &&
-      sameParticipants(auth.participantIds, status.participantIds),
-  );
+  if (
+    !status ||
+    status.kind !== 'wallet_budget' ||
+    status.signingGrantId !== auth.signingGrantId ||
+    status.userId !== auth.userId
+  ) {
+    return false;
+  }
+  switch (auth.curve) {
+    case 'ed25519': {
+      if (status.bindings.kind === 'ecdsa_only') return false;
+      const binding = status.bindings.ed25519;
+      return (
+        binding.thresholdSessionId === auth.thresholdSessionId &&
+        thresholdEd25519AuthorityScopesMatch(
+          binding.authorityScope,
+          thresholdEd25519AuthorityScopeFromWalletAuthAuthority(auth.authority),
+        ) &&
+        sameParticipants(auth.participantIds, binding.participantIds)
+      );
+    }
+    case 'ecdsa': {
+      if (status.bindings.kind === 'ed25519_only') return false;
+      for (const binding of status.bindings.ecdsa) {
+        if (
+          binding.thresholdSessionId === auth.thresholdSessionId &&
+          binding.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId &&
+          sameParticipants(auth.participantIds, binding.participantIds)
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
 }
 
 function budgetStatusFailure(

@@ -43,12 +43,45 @@ export type EcdsaWalletSessionRecord = {
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
+export type WalletSigningBudgetEd25519Binding = {
+  thresholdSessionId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
+  participantIds: number[];
+};
+
+export type WalletSigningBudgetEcdsaBinding = {
+  thresholdSessionId: string;
+  evmFamilySigningKeySlotId: string;
+  participantIds: number[];
+};
+
+export type WalletSigningBudgetEcdsaBindings = readonly [
+  WalletSigningBudgetEcdsaBinding,
+  ...WalletSigningBudgetEcdsaBinding[],
+];
+
+export type WalletSigningBudgetBindings =
+  | {
+      kind: 'ed25519_only';
+      ed25519: WalletSigningBudgetEd25519Binding;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'ecdsa_only';
+      ecdsa: WalletSigningBudgetEcdsaBindings;
+      ed25519?: never;
+    }
+  | {
+      kind: 'ed25519_and_ecdsa';
+      ed25519: WalletSigningBudgetEd25519Binding;
+      ecdsa: WalletSigningBudgetEcdsaBindings;
+    };
+
 export type WalletSigningBudgetSessionRecord = {
   kind: 'wallet_signing_budget_session';
   expiresAtMs: number;
-  relayerKeyId: string;
   walletId: string;
-  participantIds: number[];
+  bindings: WalletSigningBudgetBindings;
 };
 
 export type WalletSessionRecord =
@@ -150,6 +183,7 @@ export type WalletSigningBudgetSessionStatus =
 const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
 const EXPORT_REPLAY_GUARD_MIN_RETENTION_MS = 24 * 60 * 60_000;
 const DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX = 'w3a:threshold-wallet-budget:sess:';
+export const WALLET_SIGNING_BUDGET_STATUS_AUTHORITY_ID = 'wallet-signing-budget';
 
 type WalletSessionStoreConfigRecord = Record<string, unknown>;
 
@@ -197,14 +231,15 @@ export interface WalletSessionStore<TRecord extends WalletSessionRecord> {
 
 export type Ed25519WalletSessionStore = WalletSessionStore<Ed25519WalletSessionRecord>;
 export type EcdsaWalletSessionStore = WalletSessionStore<EcdsaWalletSessionRecord>;
-export type WalletSigningBudgetSessionStore =
-  WalletSessionStore<WalletSigningBudgetSessionRecord>;
+export type WalletSigningBudgetSessionStore = WalletSessionStore<WalletSigningBudgetSessionRecord>;
 
 export type WalletSessionRecordParser<TRecord extends WalletSessionRecord> = (
   raw: unknown,
 ) => TRecord | null;
 
-class InMemoryWalletSessionStore<TRecord extends WalletSessionRecord> implements WalletSessionStore<TRecord> {
+class InMemoryWalletSessionStore<
+  TRecord extends WalletSessionRecord,
+> implements WalletSessionStore<TRecord> {
   private readonly keyPrefix: string;
   private readonly map = new Map<
     string,
@@ -1438,7 +1473,9 @@ if available < 0 then available = 0 end
 return cjson.encode({ ok = true, released = released, remainingUses = current, reservedUses = reserved, availableUses = available })
 `;
 
-class UpstashRedisRestWalletSessionStore<TRecord extends WalletSessionRecord> implements WalletSessionStore<TRecord> {
+class UpstashRedisRestWalletSessionStore<
+  TRecord extends WalletSessionRecord,
+> implements WalletSessionStore<TRecord> {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
   private readonly parseRecord: WalletSessionRecordParser<TRecord>;
@@ -1779,7 +1816,9 @@ class UpstashRedisRestWalletSessionStore<TRecord extends WalletSessionRecord> im
   }
 }
 
-class RedisTcpWalletSessionStore<TRecord extends WalletSessionRecord> implements WalletSessionStore<TRecord> {
+class RedisTcpWalletSessionStore<
+  TRecord extends WalletSessionRecord,
+> implements WalletSessionStore<TRecord> {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
   private readonly parseRecord: WalletSessionRecordParser<TRecord>;
@@ -2179,7 +2218,9 @@ export function createEd25519WalletSessionStore(input: {
         '[threshold-ed25519] In-memory wallet session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
       );
     }
-    return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({ keyPrefix: envPrefix || undefined });
+    return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({
+      keyPrefix: envPrefix || undefined,
+    });
   }
   if (kind === 'upstash-redis-rest') {
     return new UpstashRedisRestWalletSessionStore<Ed25519WalletSessionRecord>({
@@ -2203,7 +2244,9 @@ export function createEd25519WalletSessionStore(input: {
       input.logger.warn(
         '[threshold-ed25519] redis-tcp wallet session store is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({ keyPrefix: envPrefix || undefined });
+      return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({
+        keyPrefix: envPrefix || undefined,
+      });
     }
     return new RedisTcpWalletSessionStore<Ed25519WalletSessionRecord>({
       redisUrl:
@@ -2240,10 +2283,15 @@ export function createEd25519WalletSessionStore(input: {
       input.logger.warn(
         '[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({ keyPrefix: envPrefix || undefined });
+      return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({
+        keyPrefix: envPrefix || undefined,
+      });
     }
     input.logger.info('[threshold-ed25519] Using redis-tcp store for Wallet Session records');
-    return new RedisTcpWalletSessionStore<Ed25519WalletSessionRecord>({ redisUrl, keyPrefix: envPrefix || undefined });
+    return new RedisTcpWalletSessionStore<Ed25519WalletSessionRecord>({
+      redisUrl,
+      keyPrefix: envPrefix || undefined,
+    });
   }
 
   if (requirePersistent) {
@@ -2252,7 +2300,9 @@ export function createEd25519WalletSessionStore(input: {
     );
   }
   input.logger.info('[threshold-ed25519] Using in-memory Wallet Session store (non-persistent)');
-  return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({ keyPrefix: envPrefix || undefined });
+  return new InMemoryWalletSessionStore<Ed25519WalletSessionRecord>({
+    keyPrefix: envPrefix || undefined,
+  });
 }
 
 export function createEcdsaWalletSessionStore(input: {
@@ -2381,7 +2431,9 @@ export function createWalletSigningBudgetSessionStore(input: {
   const baseBudgetPrefix = toThresholdEd25519PrefixFromBase(basePrefix, 'wallet-session');
   const envPrefix =
     toOptionalTrimmedString(config.THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX) ||
-    (baseBudgetPrefix ? `${baseBudgetPrefix}budget:` : DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX);
+    (baseBudgetPrefix
+      ? `${baseBudgetPrefix}budget:`
+      : DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX);
 
   const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-budget');
   if (kind === 'in-memory') {
@@ -2435,7 +2487,9 @@ export function createWalletSigningBudgetSessionStore(input: {
         'Upstash wallet budget session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
       );
     }
-    input.logger.info('[threshold-budget] Using Upstash REST store for Wallet Budget Session records');
+    input.logger.info(
+      '[threshold-budget] Using Upstash REST store for Wallet Budget Session records',
+    );
     return new UpstashRedisRestWalletSessionStore<WalletSigningBudgetSessionRecord>({
       url: upstashUrl,
       token: upstashToken,
@@ -2472,7 +2526,9 @@ export function createWalletSigningBudgetSessionStore(input: {
       '[threshold-budget] Wallet Budget Session records require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
     );
   }
-  input.logger.info('[threshold-budget] Using in-memory Wallet Budget Session store (non-persistent)');
+  input.logger.info(
+    '[threshold-budget] Using in-memory Wallet Budget Session store (non-persistent)',
+  );
   return new InMemoryWalletSessionStore<WalletSigningBudgetSessionRecord>({
     keyPrefix: envPrefix,
   });

@@ -16,7 +16,7 @@ import {
 import {
   parseRouterAbEcdsaHssPoolFillSessionRecord as parseFullRouterAbEcdsaHssPoolFillSessionRecord,
   parseRouterAbEcdsaHssServerPresignatureShareRecord,
-  parseRouterAbEd25519PresignRecord,
+  parseWalletSigningBudgetSessionRecord,
 } from '../../../core/ThresholdService/validation';
 import type { RouterAbEcdsaHssPoolFillSessionRecord } from '../../../core/ThresholdService/stores/EcdsaSigningStore';
 import {
@@ -85,13 +85,6 @@ type DoReq =
   | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
-      op: 'registrationHssAdvanceClaimTransition';
-      key: string;
-      transition: unknown;
-      value: unknown;
-      ttlMs?: number;
-    }
-  | {
       op: 'routerAbNormalSigningReserveQuota';
       key: string;
       requestId: string;
@@ -129,48 +122,13 @@ type DoReq =
   | { op: 'routerAbEcdsaHssPoolFillLiveSessionCreate'; input: unknown }
   | { op: 'routerAbEcdsaHssPoolFillLiveSessionStep'; input: unknown }
   | { op: 'routerAbEcdsaHssPoolFillLiveSessionDelete'; presignSessionId: string }
-  | {
-      op: 'ed25519PresignCheckCapacity';
-      capacity: unknown;
-      walletIndexKey: string;
-      globalIndexKey: string;
-    }
-  | {
-      op: 'ed25519PresignConsumeRateLimit';
-      key: string;
-      cost: unknown;
-      policy: unknown;
-    }
-  | {
-      op: 'ed25519PresignPutWithCapacity';
-      key: string;
-      presignId: string;
-      value: unknown;
-      ttlMs?: number;
-      capacity: unknown;
-      walletIndexKey: string;
-      globalIndexKey: string;
-    }
-  | {
-      op: 'ed25519PresignTake';
-      key: string;
-      presignId: string;
-      expectedScope: unknown;
-      walletIndexKey: string;
-      globalIndexKey: string;
-    }
   | { op: 'signingRootPut'; record: unknown }
   | { op: 'signingRootGet'; signingRootId: string; signingRootVersion: string }
   | { op: 'signingRootDelete'; signingRootId: string; signingRootVersion: string }
   | { op: 'signingRootStatus'; signingRootId: string; signingRootVersion: string };
 
 type AuthEntry = {
-  record: {
-    expiresAtMs: number;
-    relayerKeyId: string;
-    authorityScope?: unknown;
-    participantIds?: number[];
-  };
+  record: Record<string, unknown> & { expiresAtMs: number };
   remainingUses: number;
   expiresAtMs: number;
   consumedIdempotencyKeys?: Record<string, true>;
@@ -212,18 +170,6 @@ type RouterAbNormalSigningQuotaDecision =
   | { kind: 'accepted'; requestId: string }
   | { kind: 'reuse_existing'; requestId: string; existingLifecycleId: string }
   | { kind: 'short_window_saturated' };
-
-type Ed25519PresignIndexEntry = {
-  presignId: string;
-  key: string;
-  expiresAtMs: number;
-};
-
-type Ed25519PresignRateLimitEntry = {
-  kind: 'router_ab_ed25519_presign_refill_rate_limit_v2';
-  count: number;
-  expiresAtMs: number;
-};
 
 const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
   '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root';
@@ -315,170 +261,6 @@ function jsonValueContains(actual: unknown, expected: unknown): boolean {
 
 function stableStoreVersion(value: unknown): string {
   return JSON.stringify(value);
-}
-
-type RegistrationHssAdvanceClaimTransition =
-  | { readonly kind: 'start'; readonly nowMs: number }
-  | { readonly kind: 'fulfill'; readonly expectedClaimId: string; readonly nowMs: number }
-  | { readonly kind: 'fail'; readonly expectedClaimId: string; readonly nowMs: number };
-
-type RegistrationHssAdvanceClaimTargetState = 'in_flight' | 'fulfilled' | 'failed';
-
-function parseRegistrationHssAdvanceClaimTransition(
-  raw: unknown,
-): RegistrationHssAdvanceClaimTransition | null {
-  if (!isPlainObject(raw)) return null;
-  const nowMs = Math.floor(Number(raw.nowMs));
-  if (!Number.isSafeInteger(nowMs) || nowMs <= 0) return null;
-  switch (raw.kind) {
-    case 'start':
-      return { kind: 'start', nowMs };
-    case 'fulfill': {
-      const expectedClaimId = toKey(raw.expectedClaimId);
-      return expectedClaimId ? { kind: 'fulfill', expectedClaimId, nowMs } : null;
-    }
-    case 'fail': {
-      const expectedClaimId = toKey(raw.expectedClaimId);
-      return expectedClaimId ? { kind: 'fail', expectedClaimId, nowMs } : null;
-    }
-    default:
-      return null;
-  }
-}
-
-function registrationHssAdvanceTargetState(
-  transition: RegistrationHssAdvanceClaimTransition,
-): RegistrationHssAdvanceClaimTargetState {
-  switch (transition.kind) {
-    case 'start':
-      return 'in_flight';
-    case 'fulfill':
-      return 'fulfilled';
-    case 'fail':
-      return 'failed';
-  }
-}
-
-function isRegistrationHssAdvanceClaimValue(
-  value: unknown,
-  state: RegistrationHssAdvanceClaimTargetState,
-): value is Record<string, unknown> {
-  if (!isPlainObject(value)) return false;
-  return (
-    value.kind === 'ed25519_hss_advance_claim_v1' &&
-    value.state === state &&
-    !!toKey(value.ceremonyHandle) &&
-    !!toKey(value.addStageRequestDigestB64u) &&
-    !!toKey(value.claimId) &&
-    Number.isFinite(Number(value.expiresAtMs))
-  );
-}
-
-function registrationHssAdvanceClaimState(
-  value: unknown,
-): RegistrationHssAdvanceClaimTargetState | null {
-  if (!isPlainObject(value) || value.kind !== 'ed25519_hss_advance_claim_v1') return null;
-  switch (value.state) {
-    case 'in_flight':
-    case 'fulfilled':
-    case 'failed':
-      return value.state;
-    default:
-      return null;
-  }
-}
-
-function registrationHssAdvanceClaimId(value: unknown): string {
-  return isPlainObject(value) ? toKey(value.claimId) : '';
-}
-
-function registrationHssAdvanceClaimExpiresAtMs(value: unknown): number {
-  return isPlainObject(value) ? Number(value.expiresAtMs) : NaN;
-}
-
-function registrationHssAdvanceClaimLeaseExpiresAtMs(value: unknown): number {
-  return isPlainObject(value) ? Number(value.leaseExpiresAtMs) : NaN;
-}
-
-async function registrationHssAdvanceClaimStart(input: {
-  readonly store: DurableObjectStorageLike;
-  readonly key: string;
-  readonly value: unknown;
-  readonly nowMs: number;
-  readonly ttlSeconds: number | null;
-}): Promise<Record<string, unknown>> {
-  const existingRaw = await input.store.get(input.key);
-  if (existingRaw === null || existingRaw === undefined) {
-    await input.store.put(
-      input.key,
-      input.value,
-      input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
-    );
-    return { status: 'started', record: input.value };
-  }
-  const existingState = registrationHssAdvanceClaimState(existingRaw);
-  const expiresAtMs = registrationHssAdvanceClaimExpiresAtMs(existingRaw);
-  if (Number.isFinite(expiresAtMs) && expiresAtMs <= input.nowMs) {
-    await input.store.put(
-      input.key,
-      input.value,
-      input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
-    );
-    return { status: 'started', record: input.value };
-  }
-  switch (existingState) {
-    case 'in_flight': {
-      const leaseExpiresAtMs = registrationHssAdvanceClaimLeaseExpiresAtMs(existingRaw);
-      return Number.isFinite(leaseExpiresAtMs) && leaseExpiresAtMs <= input.nowMs
-        ? { status: 'stale_in_flight', record: existingRaw }
-        : { status: 'in_flight', record: existingRaw };
-    }
-    case 'fulfilled':
-      return { status: 'fulfilled', record: existingRaw };
-    case 'failed':
-      await input.store.put(
-        input.key,
-        input.value,
-        input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
-      );
-      return { status: 'started', record: input.value };
-    default:
-      return { status: 'invalid_existing', record: existingRaw };
-  }
-}
-
-async function registrationHssAdvanceClaimComplete(input: {
-  readonly store: DurableObjectStorageLike;
-  readonly key: string;
-  readonly value: unknown;
-  readonly nowMs: number;
-  readonly ttlSeconds: number | null;
-  readonly expectedClaimId: string;
-  readonly targetState: 'fulfilled' | 'failed';
-}): Promise<Record<string, unknown>> {
-  const existingRaw = await input.store.get(input.key);
-  if (existingRaw === null || existingRaw === undefined) return { status: 'not_found' };
-  const existingState = registrationHssAdvanceClaimState(existingRaw);
-  const expiresAtMs = registrationHssAdvanceClaimExpiresAtMs(existingRaw);
-  if (Number.isFinite(expiresAtMs) && expiresAtMs <= input.nowMs) {
-    await input.store.delete(input.key);
-    return { status: 'expired', record: existingRaw };
-  }
-  if (existingState === input.targetState) {
-    return registrationHssAdvanceClaimId(existingRaw) === input.expectedClaimId
-      ? { status: input.targetState, record: existingRaw }
-      : { status: 'claim_mismatch', record: existingRaw };
-  }
-  if (existingState !== 'in_flight') return { status: existingState || 'invalid_existing', record: existingRaw };
-  if (registrationHssAdvanceClaimId(existingRaw) !== input.expectedClaimId) {
-    return { status: 'claim_mismatch', record: existingRaw };
-  }
-  await input.store.put(
-    input.key,
-    input.value,
-    input.ttlSeconds ? { expirationTtl: input.ttlSeconds } : undefined,
-  );
-  return { status: input.targetState, record: input.value };
 }
 
 function signingRootRecordKey(input: {
@@ -622,9 +404,11 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
   if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
   // Minimal record shape check (full validation happens on the service layer).
   const rec = record as Record<string, unknown>;
-  if (typeof rec.relayerKeyId !== 'string') return null;
   if (typeof rec.expiresAtMs !== 'number' || !Number.isFinite(rec.expiresAtMs)) return null;
   if (rec.participantIds !== undefined && !Array.isArray(rec.participantIds)) return null;
+  const isCurveSession = typeof rec.relayerKeyId === 'string';
+  const isWalletBudgetSession = parseWalletSigningBudgetSessionRecord(rec) !== null;
+  if (!isCurveSession && !isWalletBudgetSession) return null;
   return raw as AuthEntry;
 }
 
@@ -953,9 +737,7 @@ function parseRouterAbEcdsaHssPoolFillLiveSessionStepInput(
   const record = parseRouterAbEcdsaHssPoolFillSessionRecord(raw.record);
   const requestedStageRaw = toKey(raw.requestedStage);
   const requestedStage =
-    requestedStageRaw === 'triples' || requestedStageRaw === 'presign'
-      ? requestedStageRaw
-      : null;
+    requestedStageRaw === 'triples' || requestedStageRaw === 'presign' ? requestedStageRaw : null;
   const outgoingMessagesB64u = parseStringArray(raw.outgoingMessagesB64u);
   const thresholdExpiresAtMs = Number(raw.thresholdExpiresAtMs);
   if (
@@ -974,87 +756,6 @@ function parseRouterAbEcdsaHssPoolFillLiveSessionStepInput(
     outgoingMessagesB64u,
     thresholdExpiresAtMs,
   };
-}
-
-function parseEd25519PresignRateLimitEntry(
-  raw: unknown,
-  nowMs: number,
-): Ed25519PresignRateLimitEntry | null {
-  if (!isPlainObject(raw)) return null;
-  if (raw.kind !== 'router_ab_ed25519_presign_refill_rate_limit_v2') return null;
-  const count = Number(raw.count);
-  const expiresAtMs = Number(raw.expiresAtMs);
-  if (!Number.isFinite(count) || count < 0) return null;
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
-  return { kind: 'router_ab_ed25519_presign_refill_rate_limit_v2', count, expiresAtMs };
-}
-
-function parseEd25519PresignIndex(raw: unknown, nowMs: number): Ed25519PresignIndexEntry[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Ed25519PresignIndexEntry[] = [];
-  for (const item of raw) {
-    if (!isPlainObject(item)) continue;
-    const presignId = toKey(item.presignId);
-    const key = toKey(item.key);
-    const expiresAtMs = Number(item.expiresAtMs);
-    if (!presignId || !key || !Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) continue;
-    out.push({ presignId, key, expiresAtMs });
-  }
-  return out;
-}
-
-function withoutEd25519PresignIndexEntry(
-  entries: readonly Ed25519PresignIndexEntry[],
-  presignId: string,
-): Ed25519PresignIndexEntry[] {
-  return entries.filter((entry) => entry.presignId !== presignId);
-}
-
-function scopeString(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
-function scopeParticipantIdsMatch(left: unknown, right: unknown): boolean {
-  if (!Array.isArray(left) || !Array.isArray(right)) return false;
-  return (
-    left.length === right.length &&
-    left.every((id, index) => Number(id) === Number((right as unknown[])[index]))
-  );
-}
-
-function scopeRuntimePolicyMatches(left: unknown, right: unknown): boolean {
-  if (!isPlainObject(left) || !isPlainObject(right)) return false;
-  return (
-    scopeString(left.orgId) === scopeString(right.orgId) &&
-    scopeString(left.projectId) === scopeString(right.projectId) &&
-    scopeString(left.envId) === scopeString(right.envId) &&
-    scopeString(left.signingRootVersion) === scopeString(right.signingRootVersion)
-  );
-}
-
-function scopeAuthorityMatches(left: unknown, right: unknown): boolean {
-  if (!isPlainObject(left) || !isPlainObject(right)) return false;
-  return (
-    scopeString(left.kind) === scopeString(right.kind) &&
-    scopeString(left.rpId) === scopeString(right.rpId)
-  );
-}
-
-function ed25519PresignRecordMatchesExpectedScope(record: unknown, expected: unknown): boolean {
-  if (!isPlainObject(record) || !isPlainObject(expected)) return false;
-  return (
-    scopeString(record.thresholdSessionId) === scopeString(expected.thresholdSessionId) &&
-    scopeString(record.signingGrantId) === scopeString(expected.signingGrantId) &&
-    scopeString(record.relayerKeyId) === scopeString(expected.relayerKeyId) &&
-    scopeString(record.nearAccountId) === scopeString(expected.nearAccountId) &&
-    scopeString(record.nearNetworkId) === scopeString(expected.nearNetworkId) &&
-    scopeString(record.signerPublicKey) === scopeString(expected.signerPublicKey) &&
-    scopeString(record.rpcPolicyId) === scopeString(expected.rpcPolicyId) &&
-    scopeAuthorityMatches(record.authorityScope, expected.authorityScope) &&
-    scopeString(record.groupPublicKey) === scopeString(expected.groupPublicKey) &&
-    scopeRuntimePolicyMatches(record.runtimePolicyScope, expected.runtimePolicyScope) &&
-    scopeParticipantIdsMatch(record.participantIds, expected.participantIds)
-  );
 }
 
 async function withTxn<T>(
@@ -1241,10 +942,7 @@ export class ThresholdStoreDurableObject {
       const requestId = toKey((req as { requestId?: unknown }).requestId);
       const lifecycleId = toKey((req as { lifecycleId?: unknown }).lifecycleId);
       const nowMs = Math.floor(Number((req as { nowMs?: unknown }).nowMs));
-      const expiresAtMs = parseFutureEpochMs(
-        (req as { expiresAtMs?: unknown }).expiresAtMs,
-        nowMs,
-      );
+      const expiresAtMs = parseFutureEpochMs((req as { expiresAtMs?: unknown }).expiresAtMs, nowMs);
       if (!key) return json(err('invalid_body', 'Missing key'));
       if (!requestId) return json(err('invalid_body', 'Missing requestId'));
       if (!lifecycleId) return json(err('invalid_body', 'Missing lifecycleId'));
@@ -1603,8 +1301,8 @@ export class ThresholdStoreDurableObject {
         return ok({ remainingUses: entry.remainingUses });
       });
 
-	      return json(res);
-	    }
+      return json(res);
+    }
 
     if (op === 'authValidateReservedBudgetUseCount') {
       const key = toKey((req as { key?: unknown }).key);
@@ -1656,8 +1354,8 @@ export class ThresholdStoreDurableObject {
     }
 
     if (op === 'authReleaseReservedBudgetUseCount') {
-	      const key = toKey((req as { key?: unknown }).key);
-	      if (!key) return json(err('invalid_body', 'Missing key'));
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
       const input = (req as { input?: unknown }).input;
 
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
@@ -1749,58 +1447,6 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(res);
-    }
-
-    if (op === 'registrationHssAdvanceClaimTransition') {
-      const key = toKey((req as { key?: unknown }).key);
-      const transition = parseRegistrationHssAdvanceClaimTransition(
-        (req as { transition?: unknown }).transition,
-      );
-      const value = (req as { value?: unknown }).value;
-      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
-      if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!transition) return json(err('invalid_body', 'Invalid HSS advance claim transition'));
-      if (!isRegistrationHssAdvanceClaimValue(value, registrationHssAdvanceTargetState(transition))) {
-        return json(err('invalid_body', 'Invalid HSS advance claim value'));
-      }
-
-      const result = await withTxn(this.state, async (store) => {
-        switch (transition.kind) {
-          case 'start':
-            return await registrationHssAdvanceClaimStart({
-              store,
-              key,
-              value,
-              nowMs: transition.nowMs,
-              ttlSeconds,
-            });
-          case 'fulfill':
-            return await registrationHssAdvanceClaimComplete({
-              store,
-              key,
-              value,
-              nowMs: transition.nowMs,
-              ttlSeconds,
-              expectedClaimId: transition.expectedClaimId,
-              targetState: 'fulfilled',
-            });
-          case 'fail':
-            return await registrationHssAdvanceClaimComplete({
-              store,
-              key,
-              value,
-              nowMs: transition.nowMs,
-              ttlSeconds,
-              expectedClaimId: transition.expectedClaimId,
-              targetState: 'failed',
-            });
-          default:
-            transition satisfies never;
-            return { status: 'invalid_transition' };
-        }
-      });
-
-      return json(ok(result));
     }
 
     if (op === 'routerAbEcdsaHssPresignaturePut') {
@@ -1971,195 +1617,6 @@ export class ThresholdStoreDurableObject {
       if (!presignSessionId) return json(err('invalid_body', 'Missing presignSessionId'));
       await this.ecdsaPoolFillLiveSessions.deleteSession(presignSessionId);
       return json(ok(null));
-    }
-
-    if (op === 'ed25519PresignCheckCapacity') {
-      const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
-      const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
-      const capacity = (req as { capacity?: unknown }).capacity;
-      const walletMax = isPlainObject(capacity)
-        ? parsePositiveInteger(capacity.signingGrantMax)
-        : null;
-      const globalMax = isPlainObject(capacity) ? parsePositiveInteger(capacity.globalMax) : null;
-      if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
-      if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
-      if (!walletMax || !globalMax) return json(err('invalid_body', 'Invalid capacity'));
-
-      const result = await withTxn(this.state, async (store) => {
-        const nowMs = Date.now();
-        const walletIndex = parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs);
-        const globalIndex = parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs);
-        await store.put(walletIndexKey, walletIndex);
-        await store.put(globalIndexKey, globalIndex);
-        return walletIndex.length >= walletMax || globalIndex.length >= globalMax
-          ? { ok: false as const, code: 'capacity_exceeded' as const }
-          : { ok: true as const };
-      });
-
-      return json(ok(result));
-    }
-
-    if (op === 'ed25519PresignConsumeRateLimit') {
-      const key = toKey((req as { key?: unknown }).key);
-      const cost = parsePositiveInteger((req as { cost?: unknown }).cost);
-      const policy = (req as { policy?: unknown }).policy;
-      const windowMs = isPlainObject(policy) ? parsePositiveInteger(policy.windowMs) : null;
-      const maxCost = isPlainObject(policy) ? parsePositiveInteger(policy.maxCost) : null;
-      if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!cost) return json(err('invalid_body', 'Invalid cost'));
-      if (!windowMs || !maxCost) return json(err('invalid_body', 'Invalid rate limit policy'));
-
-      const result = await withTxn(this.state, async (store) => {
-        const nowMs = Date.now();
-        const existing = parseEd25519PresignRateLimitEntry(await store.get(key), nowMs);
-        const nextCount = (existing?.count ?? 0) + cost;
-        if (nextCount > maxCost) return { ok: false as const, code: 'rate_limited' as const };
-        const expiresAtMs = existing?.expiresAtMs ?? nowMs + windowMs;
-        const ttl = toTtlSeconds(expiresAtMs - nowMs);
-        await store.put(
-          key,
-          {
-            kind: 'router_ab_ed25519_presign_refill_rate_limit_v2',
-            count: nextCount,
-            expiresAtMs,
-          } satisfies Ed25519PresignRateLimitEntry,
-          ttl ? { expirationTtl: ttl } : undefined,
-        );
-        return { ok: true as const };
-      });
-
-      return json(ok(result));
-    }
-
-    if (op === 'ed25519PresignPutWithCapacity') {
-      const key = toKey((req as { key?: unknown }).key);
-      const presignId = toKey((req as { presignId?: unknown }).presignId);
-      const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
-      const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
-      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
-      const parsed = parseRouterAbEd25519PresignRecord((req as { value?: unknown }).value);
-      const capacity = (req as { capacity?: unknown }).capacity;
-      const walletMax = isPlainObject(capacity)
-        ? parsePositiveInteger(capacity.signingGrantMax)
-        : null;
-      const globalMax = isPlainObject(capacity) ? parsePositiveInteger(capacity.globalMax) : null;
-      if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!presignId) return json(err('invalid_body', 'Missing presignId'));
-      if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
-      if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
-      if (!parsed) return json(err('invalid_body', 'Invalid Ed25519 presign record'));
-      if (!walletMax || !globalMax) return json(err('invalid_body', 'Invalid capacity'));
-
-      const result = await withTxn(this.state, async (store) => {
-        const nowMs = Date.now();
-        const walletIndex = parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs);
-        const globalIndex = parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs);
-        const existing = await store.get(key);
-        if (existing === null || existing === undefined) {
-          if (walletIndex.length >= walletMax || globalIndex.length >= globalMax) {
-            await store.put(walletIndexKey, walletIndex);
-            await store.put(globalIndexKey, globalIndex);
-            return { ok: false as const, code: 'capacity_exceeded' };
-          }
-        }
-        const entry: Ed25519PresignIndexEntry = { presignId, key, expiresAtMs: parsed.expiresAtMs };
-        const nextWalletIndex = [...withoutEd25519PresignIndexEntry(walletIndex, presignId), entry];
-        const nextGlobalIndex = [...withoutEd25519PresignIndexEntry(globalIndex, presignId), entry];
-        await store.put(key, parsed, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
-        await store.put(
-          walletIndexKey,
-          nextWalletIndex,
-          ttlSeconds ? { expirationTtl: ttlSeconds } : undefined,
-        );
-        await store.put(
-          globalIndexKey,
-          nextGlobalIndex,
-          ttlSeconds ? { expirationTtl: ttlSeconds } : undefined,
-        );
-        return { ok: true as const };
-      });
-
-      return json(ok(result));
-    }
-
-    if (op === 'ed25519PresignTake') {
-      const key = toKey((req as { key?: unknown }).key);
-      const presignId = toKey((req as { presignId?: unknown }).presignId);
-      const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
-      const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
-      const expectedScope = (req as { expectedScope?: unknown }).expectedScope;
-      if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!presignId) return json(err('invalid_body', 'Missing presignId'));
-      if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
-      if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
-      if (!isPlainObject(expectedScope)) return json(err('invalid_body', 'Invalid expectedScope'));
-
-      const result = await withTxn(this.state, async (store) => {
-        const raw = await store.get(key);
-        if (raw === null || raw === undefined) return { ok: false as const, code: 'not_found' };
-
-        const parsed = parseRouterAbEd25519PresignRecord(raw);
-        if (!parsed) {
-          await store.delete(key);
-          const nowMs = Date.now();
-          await store.put(
-            walletIndexKey,
-            withoutEd25519PresignIndexEntry(
-              parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs),
-              presignId,
-            ),
-          );
-          await store.put(
-            globalIndexKey,
-            withoutEd25519PresignIndexEntry(
-              parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs),
-              presignId,
-            ),
-          );
-          return { ok: false as const, code: 'invalid_record' };
-        }
-        if (parsed.expiresAtMs <= Date.now()) {
-          await store.delete(key);
-          const nowMs = Date.now();
-          await store.put(
-            walletIndexKey,
-            withoutEd25519PresignIndexEntry(
-              parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs),
-              presignId,
-            ),
-          );
-          await store.put(
-            globalIndexKey,
-            withoutEd25519PresignIndexEntry(
-              parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs),
-              presignId,
-            ),
-          );
-          return { ok: false as const, code: 'expired' };
-        }
-        if (!ed25519PresignRecordMatchesExpectedScope(parsed, expectedScope)) {
-          return { ok: false as const, code: 'scope_mismatch' };
-        }
-        await store.delete(key);
-        const nowMs = Date.now();
-        await store.put(
-          walletIndexKey,
-          withoutEd25519PresignIndexEntry(
-            parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs),
-            presignId,
-          ),
-        );
-        await store.put(
-          globalIndexKey,
-          withoutEd25519PresignIndexEntry(
-            parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs),
-            presignId,
-          ),
-        );
-        return { ok: true as const, record: parsed };
-      });
-
-      return json(ok(result));
     }
 
     return json(err('invalid_body', `Unknown op: ${op}`));

@@ -5,7 +5,6 @@ import type {
   EcdsaRelayerKeyId,
   EcdsaThresholdKeyId,
   Ed25519ClientVerifyingShareB64u,
-  Ed25519HssKeyVersion,
   Ed25519RelayerKeyId,
   SigningSessionSealKeyVersion,
   SigningSessionSealShamirPrimeB64u,
@@ -17,7 +16,6 @@ import {
   formatEcdsaRelayerKeyIdForWire,
   formatEcdsaThresholdKeyIdForWire,
   formatEd25519ClientVerifyingShareB64uForWire,
-  formatEd25519HssKeyVersionForWire,
   formatEd25519RelayerKeyIdForWire,
   formatSigningSessionSealKeyVersionForWire,
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -27,7 +25,6 @@ import {
   parseEcdsaRelayerKeyId,
   parseEcdsaThresholdKeyId,
   parseEd25519ClientVerifyingShareB64u,
-  parseEd25519HssKeyVersion,
   parseEd25519RelayerKeyId,
   parseSigningSessionSealKeyVersion,
   parseSigningSessionSealShamirPrimeB64u,
@@ -38,7 +35,6 @@ import {
   type NearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 
-const ed25519 = parseEd25519HssKeyVersion('threshold-ed25519-hss-v1');
 const ecdsa = parseEcdsaHssKeyVersion('ecdsa-hss-material-test-v1');
 const seal = parseSigningSessionSealKeyVersion('signing-session-seal-kek-test-r1');
 const ed25519Verifier = parseEd25519ClientVerifyingShareB64u('ed25519-client-verifier');
@@ -52,10 +48,6 @@ const webAuthnRpIdResult = parseWebAuthnRpId('wallet.example.test');
 if (!webAuthnRpIdResult.ok) throw new Error(webAuthnRpIdResult.error.message);
 const webAuthnRpId = webAuthnRpIdResult.value;
 const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId('ed25519ks_fixture');
-
-function acceptsEd25519(value: Ed25519HssKeyVersion) {
-  return formatEd25519HssKeyVersionForWire(value);
-}
 
 function acceptsEcdsa(value: EcdsaHssKeyVersion) {
   return formatEcdsaHssKeyVersionForWire(value);
@@ -101,7 +93,6 @@ function acceptsNearEd25519SigningKeyId(value: NearEd25519SigningKeyId) {
   return value;
 }
 
-acceptsEd25519(ed25519);
 acceptsEcdsa(ecdsa);
 acceptsSeal(seal);
 acceptsEd25519Verifier(ed25519Verifier);
@@ -113,15 +104,6 @@ acceptsEcdsaKeyHandle(ecdsaKeyHandle);
 acceptsShamirPrime(shamirPrime);
 acceptsWebAuthnRpId(webAuthnRpId);
 acceptsNearEd25519SigningKeyId(nearEd25519SigningKeyId);
-
-// @ts-expect-error Ed25519 HSS key versions cannot be used as seal KEK versions.
-acceptsSeal(ed25519);
-
-// @ts-expect-error signing-session seal KEK versions cannot be used as Ed25519 HSS versions.
-acceptsEd25519(seal);
-
-// @ts-expect-error ECDSA HSS key versions cannot be used as Ed25519 HSS versions.
-acceptsEd25519(ecdsa);
 
 // @ts-expect-error raw strings must be parsed at a boundary before core use.
 acceptsSeal('signing-session-seal-kek-test-r1');

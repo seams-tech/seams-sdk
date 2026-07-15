@@ -1,9 +1,7 @@
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type {
-  RouterApiWebAuthnService,
-} from '../authServicePort';
+import type { RouterApiWebAuthnService } from '../authServicePort';
 import {
   d1HostIsWithinWebAuthnRpId,
   d1WebAuthnCredentialIdB64uFromCredential,
@@ -29,30 +27,37 @@ import {
   type WebAuthnSyncWalletBinding,
 } from './d1WebAuthnRecords';
 
-type ListWebAuthnAuthenticatorsInput =
-  Parameters<RouterApiWebAuthnService['listWebAuthnAuthenticatorsForUser']>[0];
+type ListWebAuthnAuthenticatorsInput = Parameters<
+  RouterApiWebAuthnService['listWebAuthnAuthenticatorsForUser']
+>[0];
 type ListWebAuthnAuthenticatorsResult = Awaited<
   ReturnType<RouterApiWebAuthnService['listWebAuthnAuthenticatorsForUser']>
 >;
-type CreateWebAuthnLoginOptionsInput =
-  Parameters<RouterApiWebAuthnService['createWebAuthnLoginOptions']>[0];
+type CreateWebAuthnLoginOptionsInput = Parameters<
+  RouterApiWebAuthnService['createWebAuthnLoginOptions']
+>[0];
 type CreateWebAuthnLoginOptionsResult = Awaited<
   ReturnType<RouterApiWebAuthnService['createWebAuthnLoginOptions']>
 >;
-type CreateWebAuthnSyncAccountOptionsInput =
-  Parameters<RouterApiWebAuthnService['createWebAuthnSyncAccountOptions']>[0];
-type CreateWebAuthnSyncAccountOptionsResult =
-  Awaited<ReturnType<RouterApiWebAuthnService['createWebAuthnSyncAccountOptions']>>;
-type VerifyWebAuthnAuthenticationLiteInput =
-  Parameters<RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']>[0];
-type VerifyWebAuthnAuthenticationLiteResult =
-  Awaited<ReturnType<RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']>>;
+type CreateWebAuthnSyncAccountOptionsInput = Parameters<
+  RouterApiWebAuthnService['createWebAuthnSyncAccountOptions']
+>[0];
+type CreateWebAuthnSyncAccountOptionsResult = Awaited<
+  ReturnType<RouterApiWebAuthnService['createWebAuthnSyncAccountOptions']>
+>;
+type VerifyWebAuthnAuthenticationLiteInput = Parameters<
+  RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']
+>[0];
+type VerifyWebAuthnAuthenticationLiteResult = Awaited<
+  ReturnType<RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']>
+>;
 type VerifyWebAuthnLoginInput = Parameters<RouterApiWebAuthnService['verifyWebAuthnLogin']>[0];
 type VerifyWebAuthnLoginResult = Awaited<
   ReturnType<RouterApiWebAuthnService['verifyWebAuthnLogin']>
 >;
-type VerifyWebAuthnSyncAccountInput =
-  Parameters<RouterApiWebAuthnService['verifyWebAuthnSyncAccount']>[0];
+type VerifyWebAuthnSyncAccountInput = Parameters<
+  RouterApiWebAuthnService['verifyWebAuthnSyncAccount']
+>[0];
 type VerifyWebAuthnSyncAccountResult = Awaited<
   ReturnType<RouterApiWebAuthnService['verifyWebAuthnSyncAccount']>
 >;
@@ -586,17 +591,6 @@ export class CloudflareD1WebAuthnAuthService {
           code: 'internal',
           message: 'Credential binding is missing wallet identity fields',
         };
-      }
-      if (isRecordValue(input.threshold_ed25519)) {
-        const thresholdSessionPolicy = parseJsonObject(input.threshold_ed25519.session_policy);
-        if (thresholdSessionPolicy) {
-          return {
-            ok: false,
-            verified: false,
-            code: 'not_configured',
-            message: 'Threshold signing is not configured on this Worker',
-          };
-        }
       }
       const thresholdEd25519 =
         binding.relayerKeyId && binding.publicKey

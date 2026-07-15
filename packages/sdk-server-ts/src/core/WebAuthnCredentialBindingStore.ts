@@ -22,7 +22,7 @@ import {
   parseD1JsonColumn,
   resolveD1DatabaseFromConfig,
 } from '../storage/d1Sql';
-import type { D1DatabaseLike } from '../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
 
 export type WebAuthnCredentialBindingRecord = {
   version: 'webauthn_credential_binding_v1';
@@ -84,12 +84,64 @@ type NormalizedD1WebAuthnCredentialBindingStoreOptions = {
   readonly ensureSchema: boolean;
 };
 
-type D1WebAuthnCredentialBindingScope = {
+export type D1WebAuthnCredentialBindingScope = {
   readonly namespace: string;
   readonly orgId: string;
   readonly projectId: string;
   readonly envId: string;
 };
+
+export function prepareD1WebAuthnCredentialBindingPutStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WebAuthnCredentialBindingScope;
+  readonly record: WebAuthnCredentialBindingRecord;
+}): D1PreparedStatementLike {
+  const parsed = parseWebAuthnCredentialBindingRecord(input.record);
+  if (!parsed) throw new Error('Invalid credential binding record');
+  return input.database
+    .prepare(
+      `INSERT INTO webauthn_credential_bindings (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        rp_id,
+        credential_id_b64u,
+        user_id,
+        signer_slot,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, rp_id, credential_id_b64u)
+      DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        signer_slot = EXCLUDED.signer_slot,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = MIN(
+          webauthn_credential_bindings.created_at_ms,
+          EXCLUDED.created_at_ms
+        ),
+        updated_at_ms = MAX(
+          webauthn_credential_bindings.updated_at_ms,
+          EXCLUDED.updated_at_ms
+        )`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      parsed.rpId,
+      parsed.credentialIdB64u,
+      parsed.userId,
+      parsed.signerSlot,
+      JSON.stringify(parsed),
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    );
+}
 
 type D1WebAuthnCredentialBindingRow = {
   readonly record_json?: unknown;
@@ -386,52 +438,11 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
 
   async put(record: WebAuthnCredentialBindingRecord): Promise<void> {
     await this.ensureSchema();
-    const parsed = parseWebAuthnCredentialBindingRecord(record);
-    if (!parsed) throw new Error('Invalid credential binding record');
-    await this.database
-      .prepare(
-        `INSERT INTO webauthn_credential_bindings (
-          namespace,
-          org_id,
-          project_id,
-          env_id,
-          rp_id,
-          credential_id_b64u,
-          user_id,
-          signer_slot,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (namespace, org_id, project_id, env_id, rp_id, credential_id_b64u)
-        DO UPDATE SET
-          user_id = EXCLUDED.user_id,
-          signer_slot = EXCLUDED.signer_slot,
-          record_json = EXCLUDED.record_json,
-          created_at_ms = MIN(
-            webauthn_credential_bindings.created_at_ms,
-            EXCLUDED.created_at_ms
-          ),
-          updated_at_ms = MAX(
-            webauthn_credential_bindings.updated_at_ms,
-            EXCLUDED.updated_at_ms
-          )`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        parsed.rpId,
-        parsed.credentialIdB64u,
-        parsed.userId,
-        parsed.signerSlot,
-        JSON.stringify(parsed),
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      )
-      .run();
+    await prepareD1WebAuthnCredentialBindingPutStatement({
+      database: this.database,
+      scope: this.scope,
+      record,
+    }).run();
   }
 
   async del(rpId: string, credentialIdB64u: string): Promise<void> {

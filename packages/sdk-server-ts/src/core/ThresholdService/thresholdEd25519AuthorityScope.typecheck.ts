@@ -2,8 +2,6 @@ import type { Ed25519SessionPolicy, ThresholdEd25519AuthorityScope } from '../ty
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
-  RouterAbEd25519PresignExpectedScope,
-  RouterAbEd25519PresignRecord,
   ThresholdEd25519MpcSessionRecord,
   ThresholdEd25519SigningSessionRecord,
 } from './stores/SessionStore';
@@ -101,46 +99,6 @@ const keyRecord: ThresholdEd25519ReadyKeyRecord = {
 
 const broadKeyRecord: ThresholdEd25519KeyRecord = keyRecord;
 
-const presignRecord: RouterAbEd25519PresignRecord = {
-  kind: 'router_ab_ed25519_presign_record_v2',
-  expiresAtMs: 1,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'grant-1',
-  relayerKeyId: 'ed25519:relayer',
-  nearAccountId: 'alice.near',
-  nearNetworkId: 'testnet',
-  signerPublicKey: 'ed25519:public',
-  rpcPolicyId: 'policy',
-  authorityScope,
-  runtimePolicyScope: {
-    orgId: 'org',
-    projectId: 'project',
-    envId: 'env',
-    signingRootVersion: 'root-v1',
-  },
-  protocolVersion: 'ed25519_frost_2p_presign_v1',
-  participantIds: [1, 2],
-  groupPublicKey: 'ed25519:group',
-  clientVerifyingShareB64u: 'client-share',
-  clientCommitments: { hiding: 'hiding', binding: 'binding' },
-  relayerCommitments: { hiding: 'hiding', binding: 'binding' },
-  relayerVerifyingShareB64u: 'relayer-share',
-  relayerNoncesB64u: 'relayer-nonces',
-};
-
-const expectedScope: RouterAbEd25519PresignExpectedScope = {
-  thresholdSessionId: presignRecord.thresholdSessionId,
-  signingGrantId: presignRecord.signingGrantId,
-  relayerKeyId: presignRecord.relayerKeyId,
-  nearAccountId: presignRecord.nearAccountId,
-  nearNetworkId: presignRecord.nearNetworkId,
-  signerPublicKey: presignRecord.signerPublicKey,
-  rpcPolicyId: presignRecord.rpcPolicyId,
-  authorityScope,
-  runtimePolicyScope: presignRecord.runtimePolicyScope,
-  participantIds: presignRecord.participantIds,
-  groupPublicKey: presignRecord.groupPublicKey,
-};
 
 void sessionPolicy;
 void walletSession;
@@ -149,7 +107,6 @@ void keyStoreShareSigningSession;
 void embeddedShareSigningSession;
 void keyRecord;
 void broadKeyRecord;
-void expectedScope;
 requireReadyKeyRecord(keyRecord);
 
 const invalidSessionPolicy = {
@@ -241,11 +198,6 @@ const invalidProvisioningKeyRecordWithRouterMaterial: ThresholdEd25519KeyRecord 
 // @ts-expect-error core signing/session code must receive a ready key record.
 requireReadyKeyRecord({} as ThresholdEd25519KeyRecord);
 
-const invalidPresignScope = {
-  ...expectedScope,
-  // @ts-expect-error Ed25519 presign scopes carry authorityScope, never root rpId.
-  rpId: 'wallet.example.test',
-} satisfies RouterAbEd25519PresignExpectedScope;
 
 const invalidEmailOtpAuthorityScopeWithProofKind = {
   kind: 'email_otp',
@@ -273,6 +225,5 @@ void invalidEmbeddedShareSigningSession;
 void invalidKeyRecord;
 void invalidReadyKeyRecordMissingRouterMaterial;
 void invalidProvisioningKeyRecordWithRouterMaterial;
-void invalidPresignScope;
 void invalidEmailOtpAuthorityScopeWithProofKind;
 void invalidEmailOtpAuthorityScopeWithChallengeId;

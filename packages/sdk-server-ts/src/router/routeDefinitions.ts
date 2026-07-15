@@ -18,13 +18,8 @@ import {
 } from '@shared/utils/routerAbEcdsaHss';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
-  ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
-  ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
-  ROUTER_AB_ED25519_HSS_PREPARE_PATH,
-  ROUTER_AB_ED25519_HSS_RESPOND_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
 import {
@@ -141,8 +136,9 @@ const ROUTER_API_AUTH_PROVIDER_SERVICES = [
 ] as const satisfies readonly RouteServiceKey[];
 const ROUTER_API_SYNC_ACCOUNT_SERVICES = ['webAuthn'] as const satisfies readonly RouteServiceKey[];
 const ROUTER_API_ED25519_WALLET_SESSION_SERVICES = [
+  'walletRegistration',
+  'webAuthn',
   'thresholdRuntime',
-  'sessionVersions',
   'session',
 ] as const satisfies readonly RouteServiceKey[];
 const ROUTER_API_THRESHOLD_RUNTIME_SERVICES = [
@@ -1515,18 +1511,6 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
-      'wallet_registration_hss_advance_state',
-      'POST',
-      '/wallets/register/hss/advance-state',
-      'Advance a wallet registration HSS ceremony',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale: 'Registration HSS advance-state is bound to an unexpired ceremony id.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-    publicRoute(
       'wallet_registration_finalize',
       'POST',
       '/wallets/register/finalize',
@@ -1724,50 +1708,10 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_ED25519_WALLET_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
-      'router_ab_ed25519_hss_prepare',
-      'POST',
-      ROUTER_AB_ED25519_HSS_PREPARE_PATH,
-      'Prepare Router A/B Ed25519 HSS Router API ceremony step',
-      'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
-    ),
-    thresholdSessionRoute(
-      'router_ab_ed25519_hss_respond',
-      'POST',
-      ROUTER_AB_ED25519_HSS_RESPOND_PATH,
-      'Respond to Router A/B Ed25519 HSS client request',
-      'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
-    ),
-    thresholdSessionRoute(
-      'router_ab_ed25519_hss_advance',
-      'POST',
-      ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
-      'Advance Router A/B Ed25519 HSS server eval state',
-      'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
-    ),
-    thresholdSessionRoute(
-      'router_ab_ed25519_hss_finalize',
-      'POST',
-      ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
-      'Finalize Router A/B Ed25519 HSS server ceremony step',
-      'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
-    ),
-    thresholdSessionRoute(
       'router_ab_ed25519_sign_prepare',
       'POST',
       ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B Ed25519 normal signing',
-      'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
-    ),
-    thresholdSessionRoute(
-      'router_ab_ed25519_sign_presign_pool_prepare',
-      'POST',
-      ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
-      'Prepare Router A/B Ed25519 presign-pool signing',
       'ed25519',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
@@ -2089,22 +2033,6 @@ export function createRouterApiRouteDefinitions(
     ),
   );
 
-  definitions.push(
-    publicRoute(
-      'wallet_registration_prepare',
-      'POST',
-      '/wallets/register/prepare',
-      'Prepare inert wallet registration HSS material',
-      {
-        plane: 'public',
-        proof: 'intent_grant',
-        rationale:
-          'Registration prepare is bound to an unconsumed registration intent grant and creates only inert HSS material.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-  );
-
   if (options.enableEmailRecoveryPrepare) {
     definitions.push(
       publicRoute(
@@ -2116,32 +2044,6 @@ export function createRouterApiRouteDefinitions(
           plane: 'public',
           proof: 'recovery_proof',
           rationale: 'Email recovery preparation is a public recovery bootstrap route.',
-        },
-        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
-      ),
-      publicRoute(
-        'email_recovery_ed25519_respond',
-        'POST',
-        '/email-recovery/ed25519/respond',
-        'Respond to email recovery Ed25519 HSS prepare context',
-        {
-          plane: 'public',
-          proof: 'recovery_proof',
-          rationale:
-            'Email recovery Ed25519 respond is scoped by the recovery request id and stored prepare context.',
-        },
-        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
-      ),
-      publicRoute(
-        'email_recovery_ed25519_finalize',
-        'POST',
-        '/email-recovery/ed25519/finalize',
-        'Finalize email recovery Ed25519 HSS material',
-        {
-          plane: 'public',
-          proof: 'recovery_proof',
-          rationale:
-            'Email recovery Ed25519 finalize publishes recovered signing material before recovery email creation.',
         },
         ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
       ),

@@ -5,7 +5,8 @@ import type {
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
 import type { ThresholdStoreConfigInput } from '../../core/types';
-import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
+import type { ThresholdSigningRuntimeBundle } from '../../core/ThresholdService/createThresholdSigningService';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 import {
   formatSigningSessionSealKeyVersionForWire,
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -87,7 +88,8 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly thresholdSigningService?: ThresholdSigningService | null;
+  readonly thresholdSigningRuntimes?: ThresholdSigningRuntimeBundle | null;
+  readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
 }
 
 export type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'dev_d1_outbox';
@@ -163,7 +165,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
   | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
   | 'thresholdStore'
-  | 'thresholdSigningService'
+  | 'thresholdSigningRuntimes'
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
@@ -177,7 +179,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   readonly emailOtp: EmailOtpRuntimeConfig;
   readonly emailOtpServerSeal: EmailOtpServerSealRuntimeConfig;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly thresholdSigningService?: ThresholdSigningService | null;
+  readonly thresholdSigningRuntimes?: ThresholdSigningRuntimeBundle | null;
 };
 
 export function requireD1RouterApiAuthScopeString(input: unknown, field: string): string {
@@ -231,7 +233,8 @@ export function normalizeD1RouterApiAuthOptions(
     emailOtp: normalizeEmailOtpConfig(input),
     emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),
     thresholdStore: input.thresholdStore,
-    thresholdSigningService: input.thresholdSigningService,
+    thresholdSigningRuntimes: input.thresholdSigningRuntimes,
+    ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
   };
 }
 
@@ -312,9 +315,7 @@ function normalizeEmailOtpConfig(
     : { limit: 200, windowMs: 60_000 };
   return {
     deliveryMode,
-    ...(input.emailOtpDeliveryProvider
-      ? { deliveryProvider: input.emailOtpDeliveryProvider }
-      : {}),
+    ...(input.emailOtpDeliveryProvider ? { deliveryProvider: input.emailOtpDeliveryProvider } : {}),
     production,
     devOutboxEnabled:
       deliveryMode === 'dev_d1_outbox' &&

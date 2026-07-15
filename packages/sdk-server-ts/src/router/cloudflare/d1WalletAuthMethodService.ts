@@ -19,6 +19,12 @@ import {
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  type EmailOtpProvider,
+  type EmailOtpWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthMethodStore } from '../../core/d1WalletAuthMethodStore';
 import type {
   WalletAddAuthMethodFinalizeRequest,
@@ -29,7 +35,7 @@ import type {
   WalletRegistrationStartAuthority,
   WalletRegistrationStartRequest,
   WalletRevokeAuthMethodRequest,
-  WalletRevokeAuthMethodResponse
+  WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import {
@@ -56,11 +62,11 @@ import {
   resolveD1AddSignerExistingAuth,
   revokedD1WalletAuthMethodRecord,
   validateD1RevokeWalletAuthMethodPolicy,
+  walletAuthAuthorityFromRegistrationAuthority,
   walletAuthMethodRecordFromRegistrationAuthority,
   type D1AddAuthMethodExistingAuthResolution,
   type D1AddSignerExistingAuthResolution,
 } from './d1WalletAuthMethodBoundary';
-import { d1WalletAuthAuthorityFromRegistrationAuthority } from './d1NearEd25519RegistrationBranch';
 import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
@@ -272,7 +278,7 @@ export class CloudflareD1WalletAuthMethodService {
         authority: consumed.authority,
         now: Date.now(),
       });
-      const authority = d1WalletAuthAuthorityFromRegistrationAuthority(consumed.authority);
+      const authority = walletAuthAuthorityFromRegistrationAuthority(consumed.authority);
       return {
         ok: true,
         walletId: consumed.intent.walletId,
@@ -355,6 +361,109 @@ export class CloudflareD1WalletAuthMethodService {
         });
     }
     return unreachableRegistrationStartAuthority(authority);
+  }
+
+  async verifyActivePasskeyAuthority(
+    authority: PasskeyWalletAuthAuthority,
+  ): Promise<{ readonly ok: true } | WalletAuthMethodError> {
+    const record = await this.getWalletAuthMethodStore().getPasskey({
+      rpId: authority.verifier.rpId,
+      credentialIdB64u: authority.factor.credentialIdB64u,
+    });
+    if (
+      !record ||
+      record.kind !== 'passkey' ||
+      record.status !== 'active' ||
+      record.walletId !== authority.walletId ||
+      record.rpId !== authority.verifier.rpId ||
+      record.credentialIdB64u !== authority.factor.credentialIdB64u
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Passkey authority is not active for this wallet',
+      };
+    }
+    return { ok: true };
+  }
+
+  async verifyActiveEmailOtpAuthority(
+    authority: EmailOtpWalletAuthAuthority,
+  ): Promise<{ readonly ok: true } | WalletAuthMethodError> {
+    const record = await this.getWalletAuthMethodStore().getEmailOtp({
+      walletId: authority.walletId,
+      emailHashHex: authority.verifier.emailHashHex,
+    });
+    if (
+      !record ||
+      record.kind !== 'email_otp' ||
+      record.status !== 'active' ||
+      record.walletId !== authority.walletId ||
+      record.emailHashHex !== authority.verifier.emailHashHex
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Email OTP authority is not active for this wallet',
+      };
+    }
+    return { ok: true };
+  }
+
+  async resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
+    readonly walletId: string;
+    readonly providerUserId: string;
+  }): Promise<
+    { readonly ok: true; readonly authority: EmailOtpWalletAuthAuthority } | WalletAuthMethodError
+  > {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const providerUserId = toOptionalTrimmedString(input.providerUserId);
+    if (!walletId || !providerUserId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Verified Email OTP authority identity is required',
+      };
+    }
+    const records = [];
+    for (const record of await this.getWalletAuthMethodStore().listForWallet({ walletId })) {
+      if (record.kind === 'email_otp' && record.status === 'active') {
+        records.push(record);
+      }
+    }
+    if (records.length !== 1) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Wallet requires one exact active Email OTP authority',
+      };
+    }
+    const record = records[0];
+    if (!record || record.kind !== 'email_otp') {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Wallet Email OTP authority is unavailable',
+      };
+    }
+    const provider: EmailOtpProvider = providerUserId.startsWith('google:') ? 'google' : 'email';
+    try {
+      return {
+        ok: true,
+        authority: buildEmailOtpWalletAuthAuthority({
+          walletId,
+          provider,
+          providerUserId,
+          emailHashHex: record.emailHashHex,
+        }),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: errorMessage(error) || 'Stored Email OTP authority is invalid',
+      };
+    }
   }
 
   async verifyAddAuthMethodAuthority(input: {

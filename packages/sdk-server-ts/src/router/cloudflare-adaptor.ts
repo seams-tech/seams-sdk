@@ -67,6 +67,52 @@ export type {
 } from './routeExtensions';
 export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './modules';
 export { createRouterApiModule } from './modules';
+export { CloudflareD1WebAuthnStore } from './cloudflare/d1WebAuthnStore';
+export { CloudflareD1WebAuthnAuthService } from './cloudflare/d1WebAuthnAuthService';
+export {
+  InMemoryRouterAbEd25519YaoRegistrationService,
+  createRouterAbEd25519YaoRegistrationModule,
+} from './routerAbEd25519YaoRegistration';
+export { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
+export {
+  buildRouterAbEd25519YaoProductAdmissionRequestV1,
+  createRouterAbEd25519YaoProductRegistrationCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationStateV1,
+  createRouterAbEd25519YaoProductRegistrationRuntimeV1,
+} from './routerAbEd25519YaoProductRegistration';
+export {
+  RouterAbEd25519YaoHttpRegistrationBackend,
+  RouterAbEd25519YaoHttpRegistrationBackendStateV1,
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+} from './routerAbEd25519YaoHttpRegistrationBackend';
+export type {
+  RouterAbEd25519YaoHttpRegistrationBackendConfig,
+  RouterAbEd25519YaoHttpRegistrationBackendRawEnv,
+} from './routerAbEd25519YaoHttpRegistrationBackend';
+export type {
+  RouterAbEd25519YaoRegistrationAuthorizationAdapter,
+  RouterAbEd25519YaoRegistrationAuthorizationInput,
+  RouterAbEd25519YaoRegistrationAuthorizationResult,
+  RouterAbEd25519YaoRegistrationBackend,
+  RouterAbEd25519YaoRegistrationBackendFailure,
+  RouterAbEd25519YaoRegistrationBackendResult,
+  RouterAbEd25519YaoRegistrationFailure,
+  RouterAbEd25519YaoRegistrationService,
+  RouterAbEd25519YaoRegistrationServiceResult,
+  RouterAbEd25519YaoActivationConsumerV1,
+  RouterAbEd25519YaoActivationReferenceV1,
+  RouterAbEd25519YaoActivationConsumptionResultV1,
+} from './routerAbEd25519YaoRegistration';
+export type {
+  RouterAbEd25519YaoVerifiedRegistrationIntentV1,
+  RouterAbEd25519YaoRegistrationIntentBindingResult,
+} from './routerAbEd25519YaoRegistrationIntentAuthorization';
+export type {
+  RouterAbEd25519YaoProductRegistrationRuntimeV1,
+  RouterAbEd25519YaoProductRegistrationCompositionV1,
+  RouterAbEd25519YaoProductRegistrationStateV1,
+  RouterAbEd25519YaoWalletSessionMintResultV1,
+} from './routerAbEd25519YaoProductRegistration';
 export type { RouteDefinition } from './routeDefinitions';
 export { defineRoute } from './routeDefinitions';
 export type {
