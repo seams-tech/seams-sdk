@@ -371,8 +371,7 @@ pub(crate) fn prepare_authenticated_refresh_promotion_v1(
     next_active_state_version: ActiveStoreStateVersionV1,
     transaction_receipt_digest: RefreshPromotionTransactionReceiptDigest32V1,
 ) -> Result<PreparedRefreshPromotionV1, RejectedRefreshPromotionPreparationV1> {
-    let Some(terminal) = activation.state().refresh_terminal_evaluation()
-    else {
+    let Some(terminal) = activation.state().refresh_terminal_evaluation() else {
         return Err(RejectedRefreshPromotionPreparationV1 {
             reason: RefreshPromotionErrorV1::ActivationOriginMismatch,
             activation: Box::new(activation),

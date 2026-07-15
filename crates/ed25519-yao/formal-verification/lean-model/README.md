@@ -1,6 +1,6 @@
 # Ed25519 Yao Lean Model
 
-The current FV1 model contains exactly 122 theorems.
+The current FV1 model contains exactly 158 theorems.
 
 The FV1 Lean model contains three manifest rehearsal theorems for distinct
 activation/export family bytes, seven digest slots, and thirteen metrics. Nine
@@ -106,6 +106,36 @@ not prove same-root evidence validity, selected-mechanism acceptance,
 authenticated store verification, durable replay, selected-profile security, or
 production constant-time behavior.
 
+Twelve refresh evaluator-admission theorems freeze the active-to-prepared
+boundary; durable identity, request, authorization, transcript, ordered
+provenance, authenticated store authority, complete current identity, complete
+next Deriver role states, both continuity-evidence identities, checked-at
+expiry, strict activation and role-state epoch advancement, and execution
+identity; exactly one evaluation; terminal retention through output commitment,
+metadata consumption, worker activation, and promotion; current identity
+continuity into the promoted state; and exact current-active state, terminal,
+and burned-execution retention on abort. They do not prove opposite-delta proof
+validity, refresh-delta entropy or anti-bias, selected-mechanism acceptance,
+authenticated store cryptography, durable replay, selected-profile security,
+or production constant-time behavior.
+
+Twenty-four semantic-frame party-view theorems freeze exactly eleven directed
+frame classes, eleven delivery states, seven roles, the activation-family,
+activation-control, export/redelivery, and evaluator-abort trace shapes,
+activation's zero evaluator frames, export's exclusion of worker states and
+frames, terminal abort, and exact recipient-redelivery identity. They also
+freeze cumulative role-local value-learning labels: Client role-scoped input,
+own Deriver inputs, protocol randomness and output packages, Router-only staged
+control/input-envelope/output-package/delivery-receipt labels, release-scoped Client
+and SigningWorker outputs, Diagnostics observation of every frame direction,
+Observer observation of none, private-value exclusions, and monotonic retention
+across every success and abort transition. The closed corruption surface has
+exactly ten markers, excludes A+B and Client/SigningWorker corruption, and
+exposes only four typed interface shapes. These are structural policy claims.
+They do not provide runtime frame bytes, durable state or transactions,
+transport/authentication/timing behavior, a simulator, indistinguishability,
+selected-profile satisfaction, or a protocol-security theorem.
+
 ```sh
 cargo yao-fv lean-check
 ```
@@ -114,4 +144,5 @@ The task builds the explicit `Ed25519YaoModel` target, checks an exact nonzero
 theorem count, and requires its `.olean` output. This handwritten model has no
 generated production or Verus bridge, so it is not evidence for the checked
 manifest obligations. No complete or executable runtime party-view,
-corruption-game, simulator, privacy, or protocol-security model is present.
+corruption-game, simulator, privacy, or protocol-security model is present; the
+corruption definitions above freeze interface shape only.

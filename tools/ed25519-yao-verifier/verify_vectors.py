@@ -109,6 +109,18 @@ RECOVERY_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1 = (
 RECOVERY_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1 = (
     "host_only_construction_independent_recovery_evaluator_admission_v1"
 )
+REFRESH_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1 = (
+    "seams:router-ab:ed25519-yao:refresh-evaluator-admission-vectors:v1"
+)
+REFRESH_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1 = (
+    "host_only_construction_independent_refresh_evaluator_admission_v1"
+)
+SEMANTIC_FRAME_PARTY_VIEWS_CORPUS_SCHEMA_V1 = (
+    "seams:router-ab:ed25519-yao:semantic-frame-party-views:v1"
+)
+SEMANTIC_FRAME_PARTY_VIEWS_EVIDENCE_SCOPE_V1 = (
+    "construction_independent_semantic_trace_and_value_learning_v1"
+)
 PROTOCOL_ID_V1 = "router_ab_ed25519_yao_v1"
 STABLE_CONTEXT_DOMAIN_V1 = b"seams/router-ab/ed25519-yao/stable-key-context/v1"
 STABLE_CONTEXT_BINDING_DOMAIN_V1 = (
@@ -285,6 +297,12 @@ RECOVERY_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1 = (
 )
 RECOVERY_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1 = (
     b"seams/router-ab/ed25519-yao/recovery-evaluator-admission-digest/v1"
+)
+REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1 = (
+    b"seams/router-ab/ed25519-yao/refresh-evaluator-admission/v1"
+)
+REFRESH_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1 = (
+    b"seams/router-ab/ed25519-yao/refresh-evaluator-admission-digest/v1"
 )
 AUTHENTICATED_STORE_RESOLUTION_ENCODING_DOMAIN_V1 = (
     b"seams/router-ab/ed25519-yao/authenticated-store-resolution/v1"
@@ -1533,6 +1551,127 @@ RECOVERY_EVALUATOR_CLAIM_KEY_ORDER = (
     "selected_mechanism_acceptance_evidence_semantics",
     "excluded_claims",
 )
+REFRESH_EVALUATOR_ADMISSION_CORPUS_KEY_ORDER = (
+    "schema",
+    "protocol_id",
+    "evidence_scope",
+    "cases",
+)
+REFRESH_EVALUATOR_ADMISSION_CASE_KEY_ORDER = (
+    "case_id",
+    "request_kind",
+    "source_references",
+    "authenticated_store_resolution",
+    "admission",
+    "evaluation",
+    "retry",
+    "claim_boundary",
+)
+REFRESH_EVALUATOR_ADMISSION_SOURCE_KEY_ORDER = (
+    "ceremony_context_case_id",
+    "provenance_case_id",
+    "evaluation_input_party_view_case_id",
+    "semantic_lifecycle_case_id",
+    "output_party_view_case_id",
+    "activation_delivery_case_id",
+    "activation_recipient_party_view_case_id",
+    "lifecycle_continuity_case_id",
+    "evaluator_abort_corpus_schema",
+    "evaluator_abort_request_kind",
+)
+REFRESH_EVALUATOR_STORE_KEY_ORDER = (
+    "signing_bytes_hex",
+    "signing_bytes_sha256_hex",
+    "authority_key_epoch",
+    "authority_verifying_key_hex",
+    "authority_key_digest_hex",
+    "authority_signature_hex",
+    "active_state_version",
+    "registered_public_key_hex",
+    "active_credential_binding_digest_hex",
+    "stable_scope_encoding_hex",
+    "active_activation_epoch",
+    "deriver_a_root_record_digest_hex",
+    "deriver_a_root_binding_artifact_digest_hex",
+    "deriver_a_root_epoch",
+    "deriver_a_input_state_record_digest_hex",
+    "deriver_a_input_state_epoch",
+    "deriver_b_root_record_digest_hex",
+    "deriver_b_root_binding_artifact_digest_hex",
+    "deriver_b_root_epoch",
+    "deriver_b_input_state_record_digest_hex",
+    "deriver_b_input_state_epoch",
+)
+REFRESH_EVALUATOR_ADMISSION_KEY_ORDER = (
+    "relation",
+    "durable_identity_scope_encoding_hex",
+    "request_id",
+    "replay_nonce_hex",
+    "request_expiry_unix_ms",
+    "checked_at_unix_ms",
+    "request_context_digest_hex",
+    "authorization_digest_hex",
+    "transcript_digest_hex",
+    "provenance_pair_digest_hex",
+    "deriver_a_statement_digest_hex",
+    "deriver_b_statement_digest_hex",
+    "active_state_version",
+    "active_credential_binding_digest_hex",
+    "registered_public_key_hex",
+    "stable_scope_encoding_hex",
+    "current_activation_epoch",
+    "next_activation_epoch",
+    "current_deriver_a_input_state_epoch",
+    "next_deriver_a",
+    "current_deriver_b_input_state_epoch",
+    "next_deriver_b",
+    "provenance_continuity_evidence_artifact_digest_hex",
+    "selected_mechanism_acceptance_evidence_digest_hex",
+    "one_use_execution_id_hex",
+    "admission_state",
+    "encoding_hex",
+    "digest_hex",
+)
+REFRESH_EVALUATOR_NEXT_ROLE_KEY_ORDER = (
+    "role",
+    "role_root_record_digest_hex",
+    "root_binding_artifact_digest_hex",
+    "role_root_epoch",
+    "input_state_record_digest_hex",
+    "input_state_epoch",
+)
+REFRESH_EVALUATOR_EVALUATION_KEY_ORDER = (
+    "evaluation_plan",
+    "yao_evaluations",
+    "deriver_a_invocations",
+    "deriver_b_invocations",
+    "refresh_delta_contributions",
+    "output_share_samples",
+    "registered_public_key_hex",
+    "package_set_digest_hex",
+    "output_committed_receipt_encoding_hex",
+    "output_committed_receipt_digest_hex",
+    "output_committed_evaluation_evidence_digest_hex",
+    "pending_state",
+    "current_registered_state",
+    "terminal_admission_retained",
+    "proposed_next_role_states_retained",
+)
+REFRESH_EVALUATOR_RETRY_KEY_ORDER = (
+    "evaluator_abort_preserves_public_state",
+    "evaluator_abort_retains_terminal_admission",
+    "evaluator_abort_retains_authenticated_current_state",
+    "evaluator_abort_burns_execution",
+    "retry_requires_fresh_authorization",
+    "retry_requires_fresh_store_resolution",
+    "retry_requires_fresh_execution",
+)
+REFRESH_EVALUATOR_CLAIM_KEY_ORDER = (
+    "provenance_continuity_artifact_semantics",
+    "selected_mechanism_acceptance_evidence_semantics",
+    "excluded_claims",
+    "forbidden_fields",
+)
 EVALUATION_INPUT_PARTY_VIEWS_CORPUS_KEY_ORDER = (
     "schema",
     "protocol_id",
@@ -2341,6 +2480,7 @@ def load_corpus(path: Path | str) -> dict[str, Any]:
         EVALUATION_INPUT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1,
         UNIFORM_ABORT_VECTOR_CORPUS_SCHEMA_V1,
         EVALUATOR_ABORT_VIEW_VECTOR_CORPUS_SCHEMA_V1,
+        SEMANTIC_FRAME_PARTY_VIEWS_CORPUS_SCHEMA_V1,
     }:
         canonical = (json.dumps(corpus, ensure_ascii=False, indent=2) + "\n").encode(
             "utf-8"
@@ -9326,6 +9466,730 @@ def verify_recovery_evaluator_admission_corpus(corpus: Any) -> int:
     return 1
 
 
+def _verify_refresh_evaluator_next_role(
+    value: Any,
+    expected_role: str,
+    current_root_record: bytes,
+    current_root_binding: bytes,
+    current_root_epoch: int,
+    current_input_state_epoch: int,
+    path: str,
+) -> tuple[bytes, bytes, bytes, bytes, bytes]:
+    role = _require_ordered_keys(value, REFRESH_EVALUATOR_NEXT_ROLE_KEY_ORDER, path)
+    _require_exact_value(
+        _require_string(role["role"], f"{path}.role"),
+        expected_role,
+        f"{path}.role",
+    )
+    root_record = _require_nonzero_bytes(
+        _decode_hex(
+            role["role_root_record_digest_hex"],
+            32,
+            f"{path}.role_root_record_digest_hex",
+        ),
+        32,
+        f"{path}.role_root_record_digest_hex",
+    )
+    root_binding = _require_nonzero_bytes(
+        _decode_hex(
+            role["root_binding_artifact_digest_hex"],
+            32,
+            f"{path}.root_binding_artifact_digest_hex",
+        ),
+        32,
+        f"{path}.root_binding_artifact_digest_hex",
+    )
+    root_epoch = _require_epoch(role["role_root_epoch"], f"{path}.role_root_epoch")
+    state_record = _require_nonzero_bytes(
+        _decode_hex(
+            role["input_state_record_digest_hex"],
+            32,
+            f"{path}.input_state_record_digest_hex",
+        ),
+        32,
+        f"{path}.input_state_record_digest_hex",
+    )
+    state_epoch = _require_epoch(role["input_state_epoch"], f"{path}.input_state_epoch")
+    if root_record != current_root_record:
+        raise VerificationError(f"{path}.role_root_record_digest_hex changed the role root")
+    if root_binding != current_root_binding:
+        raise VerificationError(f"{path}.root_binding_artifact_digest_hex changed the root binding")
+    if root_epoch != current_root_epoch:
+        raise VerificationError(f"{path}.role_root_epoch changed the role-root epoch")
+    if state_epoch <= current_input_state_epoch:
+        raise VerificationError(f"{path}.input_state_epoch did not strictly advance")
+    return (
+        root_record,
+        root_binding,
+        root_epoch.to_bytes(8, "big"),
+        state_record,
+        state_epoch.to_bytes(8, "big"),
+    )
+
+
+def _scan_refresh_evaluator_forbidden(
+    value: Any, forbidden: set[str], path: str = "$"
+) -> None:
+    if type(value) is dict:
+        for key, nested in value.items():
+            if key in forbidden:
+                raise VerificationError(f"{path}.{key} is forbidden")
+            _scan_refresh_evaluator_forbidden(nested, forbidden, f"{path}.{key}")
+    elif type(value) is list:
+        for index, nested in enumerate(value):
+            _scan_refresh_evaluator_forbidden(nested, forbidden, f"{path}[{index}]")
+
+
+def verify_refresh_evaluator_admission_corpus(corpus: Any) -> int:
+    document = _require_ordered_keys(
+        corpus, REFRESH_EVALUATOR_ADMISSION_CORPUS_KEY_ORDER, "$"
+    )
+    _require_exact_value(
+        _require_string(document["schema"], "$.schema"),
+        REFRESH_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+        "$.schema",
+    )
+    _require_exact_value(
+        _require_string(document["protocol_id"], "$.protocol_id"),
+        PROTOCOL_ID_V1,
+        "$.protocol_id",
+    )
+    _require_exact_value(
+        _require_string(document["evidence_scope"], "$.evidence_scope"),
+        REFRESH_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1,
+        "$.evidence_scope",
+    )
+    cases = _require_list(document["cases"], "$.cases")
+    if len(cases) != 1:
+        raise VerificationError("$.cases must contain exactly one refresh evaluator case")
+    case_path = "$.cases[0]"
+    case = _require_ordered_keys(
+        cases[0], REFRESH_EVALUATOR_ADMISSION_CASE_KEY_ORDER, case_path
+    )
+    _require_exact_value(
+        _require_string(case["case_id"], f"{case_path}.case_id"),
+        "refresh_admitted_evaluation_output_committed_v1",
+        f"{case_path}.case_id",
+    )
+    _require_exact_value(
+        _require_string(case["request_kind"], f"{case_path}.request_kind"),
+        "refresh",
+        f"{case_path}.request_kind",
+    )
+
+    source_path = f"{case_path}.source_references"
+    sources = _require_ordered_keys(
+        case["source_references"],
+        REFRESH_EVALUATOR_ADMISSION_SOURCE_KEY_ORDER,
+        source_path,
+    )
+    expected_sources = (
+        ("ceremony_context_case_id", "ceremony-refresh-v1"),
+        ("provenance_case_id", "refresh_provenance_outer_v1"),
+        (
+            "evaluation_input_party_view_case_id",
+            "refresh_evaluation_input_party_views_v1",
+        ),
+        (
+            "semantic_lifecycle_case_id",
+            "refresh_semantic_artifacts_output_committed_v1",
+        ),
+        (
+            "output_party_view_case_id",
+            "refresh_output_party_views_package_prepared_v1",
+        ),
+        ("activation_delivery_case_id", "refresh_activation_delivery_v1"),
+        (
+            "activation_recipient_party_view_case_id",
+            "refresh_activation_recipient_party_views_v1",
+        ),
+        ("lifecycle_continuity_case_id", "refresh_opposite_delta_continuity_v1"),
+        ("evaluator_abort_corpus_schema", EVALUATOR_ABORT_VIEW_VECTOR_CORPUS_SCHEMA_V1),
+        ("evaluator_abort_request_kind", "refresh"),
+    )
+    for name, expected in expected_sources:
+        _require_exact_value(
+            _require_string(sources[name], f"{source_path}.{name}"),
+            expected,
+            f"{source_path}.{name}",
+        )
+
+    store_path = f"{case_path}.authenticated_store_resolution"
+    store = _require_ordered_keys(
+        case["authenticated_store_resolution"],
+        REFRESH_EVALUATOR_STORE_KEY_ORDER,
+        store_path,
+    )
+    authority_epoch = _require_epoch(
+        store["authority_key_epoch"], f"{store_path}.authority_key_epoch"
+    )
+    authority_verifying_key = _decode_hex(
+        store["authority_verifying_key_hex"],
+        32,
+        f"{store_path}.authority_verifying_key_hex",
+    )
+    authority_digest = _require_nonzero_bytes(
+        _decode_hex(
+            store["authority_key_digest_hex"],
+            32,
+            f"{store_path}.authority_key_digest_hex",
+        ),
+        32,
+        f"{store_path}.authority_key_digest_hex",
+    )
+    active_state_version = _require_epoch(
+        store["active_state_version"], f"{store_path}.active_state_version"
+    )
+    registered_public_key = _require_nonzero_bytes(
+        _decode_hex(
+            store["registered_public_key_hex"],
+            32,
+            f"{store_path}.registered_public_key_hex",
+        ),
+        32,
+        f"{store_path}.registered_public_key_hex",
+    )
+    active_credential = _require_nonzero_bytes(
+        _decode_hex(
+            store["active_credential_binding_digest_hex"],
+            32,
+            f"{store_path}.active_credential_binding_digest_hex",
+        ),
+        32,
+        f"{store_path}.active_credential_binding_digest_hex",
+    )
+    stable_scope = _decode_variable_hex(
+        store["stable_scope_encoding_hex"], f"{store_path}.stable_scope_encoding_hex"
+    )
+    stable_fields = _parse_lp32_fields(
+        stable_scope, 5, f"{store_path}.stable_scope_encoding_hex"
+    )
+    if stable_fields[0] != PROVENANCE_STABLE_SCOPE_ENCODING_DOMAIN_V1:
+        raise VerificationError("refresh evaluator stable scope has the wrong domain")
+    current_activation_epoch = _require_epoch(
+        store["active_activation_epoch"], f"{store_path}.active_activation_epoch"
+    )
+
+    current_roles: dict[str, dict[str, Any]] = {}
+    registered_role_fields: list[bytes] = []
+    for role in ("deriver_a", "deriver_b"):
+        current = {
+            "root_record": _require_nonzero_bytes(
+                _decode_hex(
+                    store[f"{role}_root_record_digest_hex"],
+                    32,
+                    f"{store_path}.{role}_root_record_digest_hex",
+                ),
+                32,
+                f"{store_path}.{role}_root_record_digest_hex",
+            ),
+            "root_binding": _require_nonzero_bytes(
+                _decode_hex(
+                    store[f"{role}_root_binding_artifact_digest_hex"],
+                    32,
+                    f"{store_path}.{role}_root_binding_artifact_digest_hex",
+                ),
+                32,
+                f"{store_path}.{role}_root_binding_artifact_digest_hex",
+            ),
+            "root_epoch": _require_epoch(
+                store[f"{role}_root_epoch"], f"{store_path}.{role}_root_epoch"
+            ),
+            "state_record": _require_nonzero_bytes(
+                _decode_hex(
+                    store[f"{role}_input_state_record_digest_hex"],
+                    32,
+                    f"{store_path}.{role}_input_state_record_digest_hex",
+                ),
+                32,
+                f"{store_path}.{role}_input_state_record_digest_hex",
+            ),
+            "state_epoch": _require_epoch(
+                store[f"{role}_input_state_epoch"],
+                f"{store_path}.{role}_input_state_epoch",
+            ),
+        }
+        current_roles[role] = current
+        registered_role_fields.extend(
+            (
+                current["root_record"],
+                current["root_binding"],
+                current["root_epoch"].to_bytes(8, "big"),
+                current["state_record"],
+                current["state_epoch"].to_bytes(8, "big"),
+            )
+        )
+
+    admission_path = f"{case_path}.admission"
+    admission = _require_ordered_keys(
+        case["admission"], REFRESH_EVALUATOR_ADMISSION_KEY_ORDER, admission_path
+    )
+    _require_exact_value(
+        _require_string(admission["relation"], f"{admission_path}.relation"),
+        "construction_independent_ideal_acceptance",
+        f"{admission_path}.relation",
+    )
+    identity_scope = _decode_variable_hex(
+        admission["durable_identity_scope_encoding_hex"],
+        f"{admission_path}.durable_identity_scope_encoding_hex",
+    )
+    identity_fields = _parse_lp32_fields(
+        identity_scope, 13, f"{admission_path}.durable_identity_scope_encoding_hex"
+    )
+    if identity_fields[0] != STORE_IDENTITY_SCOPE_DOMAIN_V1:
+        raise VerificationError("refresh evaluator identity scope has the wrong domain")
+    request_id = _ceremony_visible_ascii(
+        admission["request_id"], f"{admission_path}.request_id"
+    )
+    replay_nonce = _require_nonzero_bytes(
+        _decode_hex(
+            admission["replay_nonce_hex"], 32, f"{admission_path}.replay_nonce_hex"
+        ),
+        32,
+        f"{admission_path}.replay_nonce_hex",
+    )
+    request_expiry = _require_epoch(
+        admission["request_expiry_unix_ms"],
+        f"{admission_path}.request_expiry_unix_ms",
+    )
+    checked_at = _require_epoch(
+        admission["checked_at_unix_ms"], f"{admission_path}.checked_at_unix_ms"
+    )
+    if checked_at > request_expiry:
+        raise VerificationError(f"{admission_path} is expired")
+    request_digest = _require_nonzero_bytes(
+        _decode_hex(
+            admission["request_context_digest_hex"],
+            32,
+            f"{admission_path}.request_context_digest_hex",
+        ),
+        32,
+        f"{admission_path}.request_context_digest_hex",
+    )
+    authorization_digest = _require_nonzero_bytes(
+        _decode_hex(
+            admission["authorization_digest_hex"],
+            32,
+            f"{admission_path}.authorization_digest_hex",
+        ),
+        32,
+        f"{admission_path}.authorization_digest_hex",
+    )
+    transcript_digest = _require_nonzero_bytes(
+        _decode_hex(
+            admission["transcript_digest_hex"],
+            32,
+            f"{admission_path}.transcript_digest_hex",
+        ),
+        32,
+        f"{admission_path}.transcript_digest_hex",
+    )
+    provenance_digest = _require_nonzero_bytes(
+        _decode_hex(
+            admission["provenance_pair_digest_hex"],
+            32,
+            f"{admission_path}.provenance_pair_digest_hex",
+        ),
+        32,
+        f"{admission_path}.provenance_pair_digest_hex",
+    )
+    statement_a = _require_nonzero_bytes(
+        _decode_hex(
+            admission["deriver_a_statement_digest_hex"],
+            32,
+            f"{admission_path}.deriver_a_statement_digest_hex",
+        ),
+        32,
+        f"{admission_path}.deriver_a_statement_digest_hex",
+    )
+    statement_b = _require_nonzero_bytes(
+        _decode_hex(
+            admission["deriver_b_statement_digest_hex"],
+            32,
+            f"{admission_path}.deriver_b_statement_digest_hex",
+        ),
+        32,
+        f"{admission_path}.deriver_b_statement_digest_hex",
+    )
+    if statement_a == statement_b:
+        raise VerificationError("refresh evaluator role statement digests must be distinct")
+    if (
+        _require_epoch(
+            admission["active_state_version"], f"{admission_path}.active_state_version"
+        )
+        != active_state_version
+    ):
+        raise VerificationError("refresh admission active state version differs from store")
+    _require_expected_bytes(
+        admission["active_credential_binding_digest_hex"],
+        active_credential,
+        f"{admission_path}.active_credential_binding_digest_hex",
+    )
+    _require_expected_bytes(
+        admission["registered_public_key_hex"],
+        registered_public_key,
+        f"{admission_path}.registered_public_key_hex",
+    )
+    if (
+        _decode_variable_hex(
+            admission["stable_scope_encoding_hex"],
+            f"{admission_path}.stable_scope_encoding_hex",
+        )
+        != stable_scope
+    ):
+        raise VerificationError("refresh admission stable scope differs from store")
+    if (
+        _require_epoch(
+            admission["current_activation_epoch"],
+            f"{admission_path}.current_activation_epoch",
+        )
+        != current_activation_epoch
+    ):
+        raise VerificationError("refresh admission current activation epoch differs from store")
+    next_activation_epoch = _require_epoch(
+        admission["next_activation_epoch"], f"{admission_path}.next_activation_epoch"
+    )
+    if next_activation_epoch <= current_activation_epoch:
+        raise VerificationError("refresh activation epoch did not strictly advance")
+
+    current_a = current_roles["deriver_a"]
+    current_b = current_roles["deriver_b"]
+    if (
+        _require_epoch(
+            admission["current_deriver_a_input_state_epoch"],
+            f"{admission_path}.current_deriver_a_input_state_epoch",
+        )
+        != current_a["state_epoch"]
+    ):
+        raise VerificationError("refresh admission current Deriver A epoch differs from store")
+    next_a_fields = _verify_refresh_evaluator_next_role(
+        admission["next_deriver_a"],
+        "deriver_a",
+        current_a["root_record"],
+        current_a["root_binding"],
+        current_a["root_epoch"],
+        current_a["state_epoch"],
+        f"{admission_path}.next_deriver_a",
+    )
+    if (
+        _require_epoch(
+            admission["current_deriver_b_input_state_epoch"],
+            f"{admission_path}.current_deriver_b_input_state_epoch",
+        )
+        != current_b["state_epoch"]
+    ):
+        raise VerificationError("refresh admission current Deriver B epoch differs from store")
+    next_b_fields = _verify_refresh_evaluator_next_role(
+        admission["next_deriver_b"],
+        "deriver_b",
+        current_b["root_record"],
+        current_b["root_binding"],
+        current_b["root_epoch"],
+        current_b["state_epoch"],
+        f"{admission_path}.next_deriver_b",
+    )
+    continuity_evidence = _require_nonzero_bytes(
+        _decode_hex(
+            admission["provenance_continuity_evidence_artifact_digest_hex"],
+            32,
+            f"{admission_path}.provenance_continuity_evidence_artifact_digest_hex",
+        ),
+        32,
+        f"{admission_path}.provenance_continuity_evidence_artifact_digest_hex",
+    )
+    selected_evidence = _require_nonzero_bytes(
+        _decode_hex(
+            admission["selected_mechanism_acceptance_evidence_digest_hex"],
+            32,
+            f"{admission_path}.selected_mechanism_acceptance_evidence_digest_hex",
+        ),
+        32,
+        f"{admission_path}.selected_mechanism_acceptance_evidence_digest_hex",
+    )
+    execution = _require_nonzero_bytes(
+        _decode_hex(
+            admission["one_use_execution_id_hex"],
+            32,
+            f"{admission_path}.one_use_execution_id_hex",
+        ),
+        32,
+        f"{admission_path}.one_use_execution_id_hex",
+    )
+    _require_exact_value(
+        _require_string(
+            admission["admission_state"], f"{admission_path}.admission_state"
+        ),
+        "accepted_terminal_registered_state_frozen",
+        f"{admission_path}.admission_state",
+    )
+
+    registered_state_encoding = _lp32_join(
+        (
+            registered_public_key,
+            active_credential,
+            stable_scope,
+            current_activation_epoch.to_bytes(8, "big"),
+            *registered_role_fields,
+        )
+    )
+    store_fields = (
+        AUTHENTICATED_STORE_RESOLUTION_ENCODING_DOMAIN_V1,
+        authority_epoch.to_bytes(8, "big"),
+        authority_digest,
+        b"\x04",
+        request_digest,
+        authorization_digest,
+        transcript_digest,
+        provenance_digest,
+        active_state_version.to_bytes(8, "big"),
+        identity_scope,
+        registered_state_encoding,
+    )
+    store_signing_bytes = _decode_variable_hex(
+        store["signing_bytes_hex"], f"{store_path}.signing_bytes_hex"
+    )
+    if (
+        _parse_lp32_fields(
+            store_signing_bytes, len(store_fields), f"{store_path}.signing_bytes_hex"
+        )
+        != store_fields
+    ):
+        raise VerificationError("authenticated refresh store signing bytes changed")
+    store_digest = hashlib.sha256(store_signing_bytes).digest()
+    _require_expected_bytes(
+        store["signing_bytes_sha256_hex"],
+        store_digest,
+        f"{store_path}.signing_bytes_sha256_hex",
+    )
+    expected_authority_digest = hashlib.sha256(
+        _lp32_join((STORE_AUTHORITY_KEY_DIGEST_DOMAIN_V1, authority_verifying_key))
+    ).digest()
+    if authority_digest != expected_authority_digest:
+        raise VerificationError("authenticated refresh store authority key digest changed")
+    _verify_strict_ed25519_signature(
+        authority_verifying_key,
+        store_signing_bytes,
+        _decode_hex(
+            store["authority_signature_hex"],
+            64,
+            f"{store_path}.authority_signature_hex",
+        ),
+        f"{store_path}.authority_signature_hex",
+    )
+
+    admission_fields = (
+        REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+        identity_scope,
+        request_id,
+        replay_nonce,
+        request_expiry.to_bytes(8, "big"),
+        checked_at.to_bytes(8, "big"),
+        request_digest,
+        authorization_digest,
+        transcript_digest,
+        provenance_digest,
+        statement_a,
+        statement_b,
+        store_digest,
+        authority_epoch.to_bytes(8, "big"),
+        authority_digest,
+        active_state_version.to_bytes(8, "big"),
+        active_credential,
+        registered_public_key,
+        stable_scope,
+        current_activation_epoch.to_bytes(8, "big"),
+        next_activation_epoch.to_bytes(8, "big"),
+        current_a["state_epoch"].to_bytes(8, "big"),
+        *next_a_fields,
+        current_b["state_epoch"].to_bytes(8, "big"),
+        *next_b_fields,
+        continuity_evidence,
+        selected_evidence,
+        execution,
+        b"\x01",
+    )
+    if len(admission_fields) != 37:
+        raise VerificationError("refresh admission verifier field-count invariant changed")
+    admission_encoding = _decode_variable_hex(
+        admission["encoding_hex"], f"{admission_path}.encoding_hex"
+    )
+    if (
+        _parse_lp32_fields(
+            admission_encoding, len(admission_fields), f"{admission_path}.encoding_hex"
+        )
+        != admission_fields
+    ):
+        raise VerificationError("refresh admission encoding changed")
+    admission_digest = _digest_encoding(
+        REFRESH_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1, admission_encoding
+    )
+    _require_expected_bytes(
+        admission["digest_hex"], admission_digest, f"{admission_path}.digest_hex"
+    )
+
+    evaluation_path = f"{case_path}.evaluation"
+    evaluation = _require_ordered_keys(
+        case["evaluation"], REFRESH_EVALUATOR_EVALUATION_KEY_ORDER, evaluation_path
+    )
+    _require_exact_value(
+        _require_string(
+            evaluation["evaluation_plan"], f"{evaluation_path}.evaluation_plan"
+        ),
+        "one_refresh_activation_evaluation",
+        f"{evaluation_path}.evaluation_plan",
+    )
+    expected_counts = {
+        "yao_evaluations": 1,
+        "deriver_a_invocations": 1,
+        "deriver_b_invocations": 1,
+        "refresh_delta_contributions": 2,
+        "output_share_samples": 2,
+    }
+    for name, expected in expected_counts.items():
+        if type(evaluation[name]) is not int or evaluation[name] != expected:
+            raise VerificationError(f"{evaluation_path}.{name} must equal {expected}")
+    _require_expected_bytes(
+        evaluation["registered_public_key_hex"],
+        registered_public_key,
+        f"{evaluation_path}.registered_public_key_hex",
+    )
+    package_digest = _require_nonzero_bytes(
+        _decode_hex(
+            evaluation["package_set_digest_hex"],
+            32,
+            f"{evaluation_path}.package_set_digest_hex",
+        ),
+        32,
+        f"{evaluation_path}.package_set_digest_hex",
+    )
+    receipt_path = f"{evaluation_path}.output_committed_receipt_encoding_hex"
+    receipt_encoding = _decode_variable_hex(
+        evaluation["output_committed_receipt_encoding_hex"], receipt_path
+    )
+    receipt_fields = _parse_lp32_fields(receipt_encoding, 19, receipt_path)
+    if (
+        receipt_fields[0] != ACTIVATION_OUTPUT_COMMITTED_RECEIPT_ENCODING_DOMAIN_V1
+        or receipt_fields[1:4] != (b"\x01", b"\x01", b"\x04")
+    ):
+        raise VerificationError(f"{receipt_path} has invalid domain or tags")
+    for index, expected in (
+        (4, request_digest),
+        (5, authorization_digest),
+        (6, transcript_digest),
+        (9, execution),
+        (10, provenance_digest),
+        (11, admission_digest),
+        (12, next_activation_epoch.to_bytes(8, "big")),
+        (13, package_digest),
+        (16, registered_public_key),
+    ):
+        if receipt_fields[index] != expected:
+            raise VerificationError(f"{receipt_path}[{index}] changed")
+    for index in (7, 8, 17, 18):
+        _require_nonzero_bytes(receipt_fields[index], 32, f"{receipt_path}[{index}]")
+    _require_activation_public_relation(
+        receipt_fields[14], receipt_fields[15], registered_public_key, receipt_path
+    )
+    receipt_digest = _digest_encoding(
+        ACTIVATION_OUTPUT_COMMITTED_RECEIPT_DIGEST_DOMAIN_V1, receipt_encoding
+    )
+    _require_expected_bytes(
+        evaluation["output_committed_receipt_digest_hex"],
+        receipt_digest,
+        f"{evaluation_path}.output_committed_receipt_digest_hex",
+    )
+    _require_expected_bytes(
+        evaluation["output_committed_evaluation_evidence_digest_hex"],
+        admission_digest,
+        f"{evaluation_path}.output_committed_evaluation_evidence_digest_hex",
+    )
+    _require_exact_value(
+        _require_string(evaluation["pending_state"], f"{evaluation_path}.pending_state"),
+        "refresh_pending_activation",
+        f"{evaluation_path}.pending_state",
+    )
+    _require_exact_value(
+        _require_string(
+            evaluation["current_registered_state"],
+            f"{evaluation_path}.current_registered_state",
+        ),
+        "unchanged_until_verified_promotion",
+        f"{evaluation_path}.current_registered_state",
+    )
+    for name in ("terminal_admission_retained", "proposed_next_role_states_retained"):
+        if evaluation[name] is not True:
+            raise VerificationError(f"{evaluation_path}.{name} must be true")
+
+    retry_path = f"{case_path}.retry"
+    retry = _require_ordered_keys(
+        case["retry"], REFRESH_EVALUATOR_RETRY_KEY_ORDER, retry_path
+    )
+    _require_exact_value(
+        _require_string(
+            retry["evaluator_abort_preserves_public_state"],
+            f"{retry_path}.evaluator_abort_preserves_public_state",
+        ),
+        "registered_current_state_unchanged",
+        f"{retry_path}.evaluator_abort_preserves_public_state",
+    )
+    for name in REFRESH_EVALUATOR_RETRY_KEY_ORDER[1:]:
+        if retry[name] is not True:
+            raise VerificationError(f"{retry_path}.{name} must be true")
+
+    claim_path = f"{case_path}.claim_boundary"
+    claims = _require_ordered_keys(
+        case["claim_boundary"], REFRESH_EVALUATOR_CLAIM_KEY_ORDER, claim_path
+    )
+    _require_exact_value(
+        _require_string(
+            claims["provenance_continuity_artifact_semantics"],
+            f"{claim_path}.provenance_continuity_artifact_semantics",
+        ),
+        "opaque_opposite_delta_artifact_committed_by_both_provenance_statements",
+        f"{claim_path}.provenance_continuity_artifact_semantics",
+    )
+    _require_exact_value(
+        _require_string(
+            claims["selected_mechanism_acceptance_evidence_semantics"],
+            f"{claim_path}.selected_mechanism_acceptance_evidence_semantics",
+        ),
+        "opaque_acceptance_slot_instantiated_by_phase_6b",
+        f"{claim_path}.selected_mechanism_acceptance_evidence_semantics",
+    )
+    expected_exclusions = [
+        "opposite_delta_proof_validity",
+        "input_opening_consistency",
+        "durable_refresh_state_transition",
+        "global_replay_prevention",
+        "durable_one_use_uniqueness",
+        "atomic_promotion",
+        "rollback_floor",
+        "crash_recovery",
+        "profile_security",
+        "transport_security",
+        "production_constant_time",
+    ]
+    if _require_list(claims["excluded_claims"], f"{claim_path}.excluded_claims") != expected_exclusions:
+        raise VerificationError("refresh evaluator excluded claims changed")
+    expected_forbidden_fields = [
+        "security_profile",
+        "proof_hex",
+        "private_delta_hex",
+        "private_root_hex",
+        "seed_output_hex",
+        "ciphertext_hex",
+        "extension_bag",
+        "retry_counter",
+    ]
+    if (
+        _require_list(claims["forbidden_fields"], f"{claim_path}.forbidden_fields")
+        != expected_forbidden_fields
+    ):
+        raise VerificationError("refresh evaluator forbidden-field policy changed")
+    _scan_refresh_evaluator_forbidden(document, set(expected_forbidden_fields))
+    return 1
+
+
 def _activation_recipient_views_path(path: tuple[str | int, ...]) -> str:
     rendered = "$"
     for component in path:
@@ -11209,6 +12073,757 @@ def verify_evaluator_abort_view_corpus(
     return len(cases)
 
 
+SEMANTIC_FRAME_CORPUS_KEY_ORDER = (
+    "schema",
+    "protocol_id",
+    "evidence_scope",
+    "ordered_roles",
+    "frame_classes",
+    "delivery_states",
+    "corruption_markers",
+    "interface_shapes",
+    "cases",
+)
+SEMANTIC_FRAME_CASE_KEY_ORDER = (
+    "case_id",
+    "request_kind",
+    "outcome",
+    "source_references",
+    "trace_steps",
+    "retry_redelivery_policy",
+    "explicit_nonclaims",
+)
+SEMANTIC_FRAME_SOURCE_REFERENCE_KEY_ORDER = (
+    "artifact_kind",
+    "schema",
+    "case_selector",
+)
+SEMANTIC_FRAME_TRACE_STEP_KEY_ORDER = (
+    "ordinal",
+    "delivery_state",
+    "emitted_frame_classes",
+    "ordered_role_views",
+    "identity_labels",
+)
+SEMANTIC_FRAME_ROLE_VIEW_KEY_ORDER = (
+    "role",
+    "known_values",
+    "observed_frame_classes",
+)
+SEMANTIC_FRAME_RETRY_POLICY_KEY_ORDER = (
+    "evaluator_retry",
+    "redelivery",
+    "fresh_identity_requirements",
+)
+SEMANTIC_FRAME_ROLES = (
+    "deriver_a",
+    "deriver_b",
+    "client",
+    "signing_worker",
+    "router",
+    "observer",
+    "diagnostics",
+)
+SEMANTIC_FRAME_CLASSES = (
+    "client_to_router_evaluation_request",
+    "router_local_activation_control",
+    "router_to_deriver_a_input_delivery",
+    "router_to_deriver_b_input_delivery",
+    "deriver_a_to_deriver_b_peer_protocol",
+    "deriver_b_to_deriver_a_peer_protocol",
+    "deriver_a_to_router_output_packages",
+    "deriver_b_to_router_output_packages",
+    "router_to_client_recipient_delivery",
+    "router_to_signing_worker_recipient_delivery",
+    "signing_worker_to_router_activation_receipt",
+)
+SEMANTIC_FRAME_DELIVERY_STATES = (
+    "ceremony_admitted",
+    "evaluation_inputs_accepted",
+    "peer_protocol_in_progress",
+    "output_committed",
+    "evaluator_aborted",
+    "activation_metadata_consumed",
+    "recipient_delivery_uncertain",
+    "activation_recipients_released",
+    "export_released",
+    "signing_worker_activated",
+    "exact_redelivery",
+)
+SEMANTIC_FRAME_CORRUPTION_MARKERS = (
+    "honest_execution",
+    "router_only",
+    "passive_deriver_a",
+    "passive_deriver_b",
+    "router_and_passive_deriver_a",
+    "router_and_passive_deriver_b",
+    "active_deriver_a",
+    "active_deriver_b",
+    "router_and_active_deriver_a",
+    "router_and_active_deriver_b",
+)
+SEMANTIC_FRAME_INTERFACE_SHAPES = (
+    "corrupted_view_input",
+    "selected_profile_real_execution",
+    "selected_profile_ideal_simulator",
+    "selected_profile_security_experiment",
+)
+SEMANTIC_FRAME_CASES = (
+    ("registration_success_worker_activated_v1", "registration", "success"),
+    ("recovery_success_worker_activated_v1", "recovery", "success"),
+    ("refresh_success_worker_activated_v1", "refresh", "success"),
+    ("export_release_exact_redelivery_v1", "export", "success"),
+    ("registration_evaluator_abort_v1", "registration", "evaluator_abort"),
+    ("recovery_evaluator_abort_v1", "recovery", "evaluator_abort"),
+    ("refresh_evaluator_abort_v1", "refresh", "evaluator_abort"),
+    ("export_evaluator_abort_v1", "export", "evaluator_abort"),
+)
+SEMANTIC_FRAME_ACTIVATION_SUCCESS_STATES = (
+    "ceremony_admitted",
+    "evaluation_inputs_accepted",
+    "peer_protocol_in_progress",
+    "output_committed",
+    "activation_metadata_consumed",
+    "recipient_delivery_uncertain",
+    "activation_recipients_released",
+    "exact_redelivery",
+    "signing_worker_activated",
+)
+SEMANTIC_FRAME_EXPORT_SUCCESS_STATES = (
+    "ceremony_admitted",
+    "evaluation_inputs_accepted",
+    "peer_protocol_in_progress",
+    "output_committed",
+    "recipient_delivery_uncertain",
+    "export_released",
+    "exact_redelivery",
+)
+SEMANTIC_FRAME_ABORT_STATES = (
+    "ceremony_admitted",
+    "evaluation_inputs_accepted",
+    "peer_protocol_in_progress",
+    "evaluator_aborted",
+)
+SEMANTIC_FRAME_PUBLIC_VALUES = (
+    "ceremony_public",
+    "evaluation_inputs_accepted_public",
+    "peer_progress_public",
+    "output_commitment_public",
+    "uniform_abort_public",
+    "activation_metadata_public",
+    "recipient_delivery_uncertainty_public",
+    "activation_recipient_release_public",
+    "export_release_public",
+    "exact_redelivery_identity_public",
+    "signing_worker_activation_receipt_public",
+)
+SEMANTIC_FRAME_PRIVATE_VALUES = (
+    "client_role_scoped_inputs",
+    "deriver_a_activation_inputs",
+    "deriver_b_activation_inputs",
+    "deriver_a_export_inputs",
+    "deriver_b_export_inputs",
+    "deriver_a_peer_local_state",
+    "deriver_b_peer_local_state",
+    "deriver_a_protocol_randomness",
+    "deriver_b_protocol_randomness",
+    "deriver_a_activation_output_shares",
+    "deriver_b_activation_output_shares",
+    "deriver_a_export_seed_share",
+    "deriver_b_export_seed_share",
+    "client_activation_scalar",
+    "signing_worker_activation_authority",
+    "client_export_seed",
+    "signing_worker_activated_scalar",
+    "router_opaque_role_envelope_identities",
+    "router_opaque_output_package_identities",
+    "router_opaque_recipient_delivery_identities",
+    "router_lifecycle_control_knowledge",
+    "router_receipt_control_knowledge",
+)
+SEMANTIC_FRAME_OBSERVERS = {
+    "client_to_router_evaluation_request": ("client", "router", "diagnostics"),
+    "router_local_activation_control": ("router", "diagnostics"),
+    "router_to_deriver_a_input_delivery": ("router", "deriver_a", "diagnostics"),
+    "router_to_deriver_b_input_delivery": ("router", "deriver_b", "diagnostics"),
+    "deriver_a_to_deriver_b_peer_protocol": ("deriver_a", "deriver_b", "diagnostics"),
+    "deriver_b_to_deriver_a_peer_protocol": ("deriver_b", "deriver_a", "diagnostics"),
+    "deriver_a_to_router_output_packages": ("deriver_a", "router", "diagnostics"),
+    "deriver_b_to_router_output_packages": ("deriver_b", "router", "diagnostics"),
+    "router_to_client_recipient_delivery": ("router", "client", "diagnostics"),
+    "router_to_signing_worker_recipient_delivery": ("router", "signing_worker", "diagnostics"),
+    "signing_worker_to_router_activation_receipt": ("signing_worker", "router", "diagnostics"),
+}
+SEMANTIC_FRAME_FORBIDDEN_KEY_FRAGMENTS = (
+    "bytes",
+    "hex",
+    "size",
+    "length",
+    "timing",
+    "latency",
+    "authentication",
+    "signature",
+    "ciphertext",
+    "ticket",
+    "durable",
+    "transaction",
+    "security_profile",
+    "profile_negotiation",
+    "simulator_output",
+    "advantage",
+    "proof",
+)
+SEMANTIC_FRAME_SCHEMA_ARTIFACT_KINDS = {
+    CEREMONY_CONTEXT_VECTOR_CORPUS_SCHEMA_V1: "ceremony_context",
+    PROVENANCE_VECTOR_CORPUS_SCHEMA_V1: "input_provenance",
+    EVALUATION_INPUT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1: "evaluation_input_party_views",
+    REGISTRATION_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1: "registration_evaluator_admission",
+    RECOVERY_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1: "recovery_evaluator_admission",
+    REFRESH_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1: "refresh_evaluator_admission",
+    EXPORT_EVALUATOR_AUTHORIZATION_VECTOR_CORPUS_SCHEMA_V1: "export_evaluator_authorization",
+    SEMANTIC_LIFECYCLE_VECTOR_CORPUS_SCHEMA_V1: "semantic_lifecycle",
+    OUTPUT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1: "output_party_views",
+    ACTIVATION_DELIVERY_VECTOR_CORPUS_SCHEMA_V1: "activation_delivery",
+    ACTIVATION_RECIPIENT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1: "activation_recipient_party_views",
+    EXPORT_DELIVERY_VECTOR_CORPUS_SCHEMA_V1: "export_delivery",
+    UNIFORM_ABORT_VECTOR_CORPUS_SCHEMA_V1: "uniform_abort",
+    EVALUATOR_ABORT_VIEW_VECTOR_CORPUS_SCHEMA_V1: "evaluator_abort_party_views",
+    RECOVERY_CREDENTIAL_TRANSITION_VECTOR_CORPUS_SCHEMA_V1: "recovery_credential_transition",
+    LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1: "lifecycle_continuity",
+}
+
+
+def _semantic_frame_required_source_schemas(
+    request_kind: str, outcome: str
+) -> tuple[str, ...]:
+    evaluator_schemas = {
+        "registration": REGISTRATION_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+        "recovery": RECOVERY_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+        "refresh": REFRESH_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+        "export": EXPORT_EVALUATOR_AUTHORIZATION_VECTOR_CORPUS_SCHEMA_V1,
+    }
+    common = (
+        CEREMONY_CONTEXT_VECTOR_CORPUS_SCHEMA_V1,
+        PROVENANCE_VECTOR_CORPUS_SCHEMA_V1,
+        EVALUATION_INPUT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1,
+        evaluator_schemas[request_kind],
+    )
+    if outcome == "evaluator_abort":
+        return common + (
+            UNIFORM_ABORT_VECTOR_CORPUS_SCHEMA_V1,
+            EVALUATOR_ABORT_VIEW_VECTOR_CORPUS_SCHEMA_V1,
+        )
+    success = common + (
+        SEMANTIC_LIFECYCLE_VECTOR_CORPUS_SCHEMA_V1,
+        OUTPUT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1,
+    )
+    if request_kind == "export":
+        return success + (EXPORT_DELIVERY_VECTOR_CORPUS_SCHEMA_V1,)
+    activation = success + (
+        ACTIVATION_DELIVERY_VECTOR_CORPUS_SCHEMA_V1,
+        ACTIVATION_RECIPIENT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1,
+    )
+    if request_kind == "recovery":
+        return activation + (RECOVERY_CREDENTIAL_TRANSITION_VECTOR_CORPUS_SCHEMA_V1,)
+    if request_kind == "refresh":
+        return activation + (LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1,)
+    return activation
+
+
+def _semantic_frame_expected_states(request_kind: str, outcome: str) -> tuple[str, ...]:
+    if outcome == "evaluator_abort":
+        return SEMANTIC_FRAME_ABORT_STATES
+    if request_kind == "export":
+        return SEMANTIC_FRAME_EXPORT_SUCCESS_STATES
+    return SEMANTIC_FRAME_ACTIVATION_SUCCESS_STATES
+
+
+def _semantic_frame_emitted_frames(
+    state: str, request_kind: str
+) -> tuple[str, ...]:
+    if state == "ceremony_admitted":
+        return ("client_to_router_evaluation_request",)
+    if state == "evaluation_inputs_accepted":
+        return (
+            "router_to_deriver_a_input_delivery",
+            "router_to_deriver_b_input_delivery",
+        )
+    if state == "peer_protocol_in_progress":
+        return (
+            "deriver_a_to_deriver_b_peer_protocol",
+            "deriver_b_to_deriver_a_peer_protocol",
+        )
+    if state == "output_committed":
+        return (
+            "deriver_a_to_router_output_packages",
+            "deriver_b_to_router_output_packages",
+        )
+    if state == "activation_metadata_consumed":
+        return ("router_local_activation_control",)
+    if state == "recipient_delivery_uncertain":
+        if request_kind == "export":
+            return ("router_to_client_recipient_delivery",)
+        return (
+            "router_to_client_recipient_delivery",
+            "router_to_signing_worker_recipient_delivery",
+        )
+    if state == "exact_redelivery":
+        if request_kind == "export":
+            return ("router_to_client_recipient_delivery",)
+        return (
+            "router_to_client_recipient_delivery",
+            "router_to_signing_worker_recipient_delivery",
+        )
+    if state == "signing_worker_activated":
+        return ("signing_worker_to_router_activation_receipt",)
+    return ()
+
+
+def _semantic_frame_public_prefix(state: str, request_kind: str) -> tuple[str, ...]:
+    ceremony = ("ceremony_public",)
+    inputs = ceremony + ("evaluation_inputs_accepted_public",)
+    peer = inputs + ("peer_progress_public",)
+    if state == "ceremony_admitted":
+        return ceremony
+    if state == "evaluation_inputs_accepted":
+        return inputs
+    if state == "peer_protocol_in_progress":
+        return peer
+    if state == "evaluator_aborted":
+        return peer + ("uniform_abort_public",)
+    output = peer + ("output_commitment_public",)
+    if state == "output_committed":
+        return output
+    if request_kind == "export":
+        uncertainty = output + ("recipient_delivery_uncertainty_public",)
+        if state == "recipient_delivery_uncertain":
+            return uncertainty
+        released = uncertainty + ("export_release_public",)
+        if state == "export_released":
+            return released
+        return released + ("exact_redelivery_identity_public",)
+    metadata = output + ("activation_metadata_public",)
+    if state == "activation_metadata_consumed":
+        return metadata
+    uncertainty = metadata + ("recipient_delivery_uncertainty_public",)
+    if state == "recipient_delivery_uncertain":
+        return uncertainty
+    released = uncertainty + ("activation_recipient_release_public",)
+    if state == "activation_recipients_released":
+        return released
+    redelivery = released + ("exact_redelivery_identity_public",)
+    if state == "exact_redelivery":
+        return redelivery
+    return redelivery + ("signing_worker_activation_receipt_public",)
+
+
+def _semantic_frame_deriver_private(
+    role: str, state: str, request_kind: str
+) -> tuple[str, ...]:
+    if state == "ceremony_admitted":
+        return ()
+    side = "a" if role == "deriver_a" else "b"
+    family = "export" if request_kind == "export" else "activation"
+    values = (f"deriver_{side}_{family}_inputs",)
+    if state == "evaluation_inputs_accepted":
+        return values
+    values += (
+        f"deriver_{side}_peer_local_state",
+        f"deriver_{side}_protocol_randomness",
+    )
+    if state in {"peer_protocol_in_progress", "evaluator_aborted"}:
+        return values
+    output = (
+        f"deriver_{side}_export_seed_share"
+        if request_kind == "export"
+        else f"deriver_{side}_activation_output_shares"
+    )
+    return values + (output,)
+
+
+def _semantic_frame_router_private(state: str) -> tuple[str, ...]:
+    control = ("router_lifecycle_control_knowledge",)
+    if state == "ceremony_admitted":
+        return control
+    inputs = control + ("router_opaque_role_envelope_identities",)
+    if state in {
+        "evaluation_inputs_accepted",
+        "peer_protocol_in_progress",
+        "evaluator_aborted",
+    }:
+        return inputs
+    output = inputs + (
+        "router_opaque_output_package_identities",
+        "router_receipt_control_knowledge",
+    )
+    if state in {"output_committed", "activation_metadata_consumed"}:
+        return output
+    return output + ("router_opaque_recipient_delivery_identities",)
+
+
+def _semantic_frame_expected_known_values(
+    role: str, state: str, request_kind: str
+) -> tuple[str, ...]:
+    public = _semantic_frame_public_prefix(state, request_kind)
+    if role in {"deriver_a", "deriver_b"}:
+        return public + _semantic_frame_deriver_private(role, state, request_kind)
+    if role == "client":
+        private = ("client_role_scoped_inputs",)
+        if state in {
+            "activation_recipients_released",
+            "exact_redelivery",
+            "signing_worker_activated",
+        } and request_kind != "export":
+            private += ("client_activation_scalar",)
+        if state in {"export_released", "exact_redelivery"} and request_kind == "export":
+            private += ("client_export_seed",)
+        return public + private
+    if role == "signing_worker":
+        private = ()
+        if request_kind != "export" and state in {
+            "activation_recipients_released",
+            "exact_redelivery",
+            "signing_worker_activated",
+        }:
+            private = ("signing_worker_activation_authority",)
+        if state == "signing_worker_activated":
+            private += ("signing_worker_activated_scalar",)
+        return public + private
+    if role == "router":
+        return public + _semantic_frame_router_private(state)
+    return public
+
+
+def _semantic_frame_ordered_superset(previous: Sequence[str], current: Sequence[str]) -> bool:
+    iterator = iter(current)
+    return all(any(candidate == value for candidate in iterator) for value in previous)
+
+
+def _semantic_frame_scan_forbidden_keys(value: Any, path: str = "$") -> None:
+    if type(value) is dict:
+        for key, child in value.items():
+            lowered = key.lower()
+            for fragment in SEMANTIC_FRAME_FORBIDDEN_KEY_FRAGMENTS:
+                if fragment in lowered:
+                    raise VerificationError(f"{path}.{key} contains forbidden key fragment {fragment!r}")
+            _semantic_frame_scan_forbidden_keys(child, f"{path}.{key}")
+    elif type(value) is list:
+        for index, child in enumerate(value):
+            _semantic_frame_scan_forbidden_keys(child, f"{path}[{index}]")
+
+
+def _semantic_frame_infer_request_kind(label: str) -> str | None:
+    lowered = label.lower()
+    for request_kind in ("registration", "recovery", "refresh", "export"):
+        if request_kind in lowered:
+            return request_kind
+    return None
+
+
+def _semantic_frame_collect_selectors(
+    value: Any,
+    inherited_request_kind: str | None,
+    output: dict[str, set[str]],
+) -> None:
+    if type(value) is dict:
+        request_kind = inherited_request_kind
+        for key in ("request_kind", "origin_kind"):
+            candidate = value.get(key)
+            if type(candidate) is str and candidate in {"registration", "recovery", "refresh", "export"}:
+                request_kind = candidate
+        for key in ("case_id", "source_ceremony_case_id"):
+            selector = value.get(key)
+            if type(selector) is str:
+                selected_kind = request_kind or _semantic_frame_infer_request_kind(selector)
+                if selected_kind is not None:
+                    output.setdefault(selector, set()).add(selected_kind)
+        for child in value.values():
+            _semantic_frame_collect_selectors(child, request_kind, output)
+    elif type(value) is list:
+        for child in value:
+            _semantic_frame_collect_selectors(child, inherited_request_kind, output)
+
+
+def _semantic_frame_source_catalog(
+    directory: Path | str,
+) -> dict[str, dict[str, set[str]]]:
+    root = Path(directory)
+    if not root.is_dir():
+        raise VerificationError(f"source vector directory {root} is not a directory")
+    catalog: dict[str, dict[str, set[str]]] = {}
+    for path in sorted(root.glob("*.json")):
+        corpus = load_corpus(path)
+        schema = _require_string(corpus.get("schema"), f"{path}.schema")
+        if schema == SEMANTIC_FRAME_PARTY_VIEWS_CORPUS_SCHEMA_V1:
+            continue
+        selectors: dict[str, set[str]] = {}
+        _semantic_frame_collect_selectors(corpus, None, selectors)
+        if schema in catalog:
+            raise VerificationError(f"source vector directory contains duplicate schema {schema!r}")
+        catalog[schema] = selectors
+    return catalog
+
+
+def _semantic_frame_verify_source_references(
+    references_value: Any,
+    request_kind: str,
+    outcome: str,
+    catalog: dict[str, dict[str, set[str]]],
+    path: str,
+) -> None:
+    references = _require_list(references_value, path)
+    required_schemas = _semantic_frame_required_source_schemas(request_kind, outcome)
+    if len(references) != len(required_schemas):
+        raise VerificationError(f"{path} must contain exactly {len(required_schemas)} required references")
+    for index, expected_schema in enumerate(required_schemas):
+        reference_path = f"{path}[{index}]"
+        reference = _require_ordered_keys(
+            references[index], SEMANTIC_FRAME_SOURCE_REFERENCE_KEY_ORDER, reference_path
+        )
+        artifact_kind = _require_string(reference["artifact_kind"], f"{reference_path}.artifact_kind")
+        schema = _require_string(reference["schema"], f"{reference_path}.schema")
+        selector = _require_string(reference["case_selector"], f"{reference_path}.case_selector")
+        _require_exact_value(schema, expected_schema, f"{reference_path}.schema")
+        _require_exact_value(
+            artifact_kind,
+            SEMANTIC_FRAME_SCHEMA_ARTIFACT_KINDS[expected_schema],
+            f"{reference_path}.artifact_kind",
+        )
+        if schema not in catalog:
+            raise VerificationError(f"{reference_path}.schema has no sibling source corpus")
+        if selector not in catalog[schema]:
+            raise VerificationError(f"{reference_path}.case_selector does not exist in its sibling corpus")
+        if request_kind not in catalog[schema][selector]:
+            raise VerificationError(f"{reference_path}.case_selector is not applicable to {request_kind!r}")
+
+
+def _semantic_frame_expected_identity_labels(
+    state: str, request_kind: str
+) -> tuple[str, ...]:
+    ceremony = (
+        "ceremony_request_identity",
+        "authorization_identity",
+        "transcript_identity",
+    )
+    inputs = ceremony + (
+        "provenance_pair_identity",
+        "evaluator_admission_identity",
+        "one_use_execution_identity",
+        "evaluation_input_view_identity",
+    )
+    if state == "ceremony_admitted":
+        return ceremony
+    if state == "evaluation_inputs_accepted":
+        return inputs
+    peer = inputs + ("peer_protocol_execution_identity",)
+    if state == "peer_protocol_in_progress":
+        return peer
+    if state == "evaluator_aborted":
+        return peer + ("burned_execution_identity", "uniform_abort_identity")
+    output = peer + (
+        "output_package_set_identity",
+        "output_committed_receipt_identity",
+    )
+    if state == "output_committed":
+        return output
+    if request_kind == "export":
+        uncertain = output + ("export_client_delivery_identity",)
+        if state == "recipient_delivery_uncertain":
+            return uncertain
+        released = uncertain + ("export_client_release_identity",)
+        if state == "export_released":
+            return released
+        return released + ("exact_redelivery_identity",)
+    metadata = output + ("activation_control_identity",)
+    if state == "activation_metadata_consumed":
+        return metadata
+    uncertain = metadata + ("activation_recipient_delivery_identity",)
+    if state == "recipient_delivery_uncertain":
+        return uncertain
+    released = uncertain + ("activation_recipient_release_identity",)
+    if state == "activation_recipients_released":
+        return released
+    redelivery = released + ("exact_redelivery_identity",)
+    if state == "exact_redelivery":
+        return redelivery
+    return redelivery + ("signing_worker_activation_receipt_identity",)
+
+
+def _semantic_frame_verify_identity_labels(
+    value: Any,
+    state: str,
+    request_kind: str,
+    previous: Sequence[str],
+    path: str,
+) -> tuple[str, ...]:
+    labels = _require_list(value, path)
+    if not labels:
+        raise VerificationError(f"{path} must be nonempty")
+    normalized: list[str] = []
+    for index, label_value in enumerate(labels):
+        label = _require_string(label_value, f"{path}[{index}]")
+        if not label or re.fullmatch(r"[a-z][a-z0-9_]*", label) is None:
+            raise VerificationError(f"{path}[{index}] must be a public snake-case identity label")
+        if label in normalized:
+            raise VerificationError(f"{path} contains duplicate identity label {label!r}")
+        normalized.append(label)
+    if previous and not _semantic_frame_ordered_superset(previous, normalized):
+        raise VerificationError(f"{path} must retain prior identity labels in order")
+    expected = _semantic_frame_expected_identity_labels(state, request_kind)
+    if tuple(normalized) != expected:
+        raise VerificationError(f"{path} must equal the exact canonical identity array")
+    return tuple(normalized)
+
+
+def _semantic_frame_verify_nonclaims(value: Any, path: str) -> None:
+    nonclaims = _require_list(value, path)
+    if not nonclaims:
+        raise VerificationError(f"{path} must be nonempty")
+    normalized: list[str] = []
+    for index, nonclaim_value in enumerate(nonclaims):
+        nonclaim = _require_string(nonclaim_value, f"{path}[{index}]")
+        if not nonclaim or re.fullmatch(r"[a-z][a-z0-9_]*", nonclaim) is None:
+            raise VerificationError(f"{path}[{index}] must be a snake-case nonclaim label")
+        if nonclaim in normalized:
+            raise VerificationError(f"{path} contains duplicate nonclaim label {nonclaim!r}")
+        normalized.append(nonclaim)
+    required_topics = (
+        ("runtime", "frame"),
+        ("transport",),
+        ("serialization",),
+        ("secret",),
+        ("corruption",),
+        ("profile",),
+        ("simulator", "security"),
+        ("constant_time", "erasure"),
+    )
+    for alternatives in required_topics:
+        if not any(any(topic in nonclaim for topic in alternatives) for nonclaim in normalized):
+            raise VerificationError(f"{path} omits the Section 13 topic {alternatives[0]!r}")
+
+
+def _semantic_frame_verify_retry_policy(
+    value: Any, request_kind: str, outcome: str, path: str
+) -> None:
+    policy = _require_ordered_keys(value, SEMANTIC_FRAME_RETRY_POLICY_KEY_ORDER, path)
+    evaluator_retry = _require_string(policy["evaluator_retry"], f"{path}.evaluator_retry")
+    redelivery = _require_string(policy["redelivery"], f"{path}.redelivery")
+    fresh = _require_list(policy["fresh_identity_requirements"], f"{path}.fresh_identity_requirements")
+    expected_retry = "terminal_abort_no_resume" if outcome == "evaluator_abort" else "not_applicable"
+    expected_redelivery = "not_applicable"
+    if outcome == "success":
+        expected_redelivery = (
+            "exact_export_client_redelivery"
+            if request_kind == "export"
+            else "exact_activation_recipient_redelivery"
+        )
+    _require_exact_value(evaluator_retry, expected_retry, f"{path}.evaluator_retry")
+    _require_exact_value(redelivery, expected_redelivery, f"{path}.redelivery")
+    if outcome == "success" and fresh:
+        raise VerificationError(f"{path}.fresh_identity_requirements must be empty for success")
+    if outcome == "evaluator_abort" and not fresh:
+        raise VerificationError(f"{path}.fresh_identity_requirements must name fresh retry identities")
+    seen: set[str] = set()
+    for index, label_value in enumerate(fresh):
+        label = _require_string(label_value, f"{path}.fresh_identity_requirements[{index}]")
+        if not label or re.fullmatch(r"[a-z][a-z0-9_]*", label) is None or label in seen:
+            raise VerificationError(f"{path}.fresh_identity_requirements must contain unique snake-case labels")
+        seen.add(label)
+
+
+def verify_semantic_frame_party_views_corpus(
+    corpus: Any, source_vector_directory: Path | str | None
+) -> int:
+    """Verifies the strict construction-independent semantic-frame corpus."""
+    document = _require_ordered_keys(corpus, SEMANTIC_FRAME_CORPUS_KEY_ORDER, "$")
+    _semantic_frame_scan_forbidden_keys(document)
+    _require_exact_value(document["schema"], SEMANTIC_FRAME_PARTY_VIEWS_CORPUS_SCHEMA_V1, "$.schema")
+    _require_exact_value(document["protocol_id"], PROTOCOL_ID_V1, "$.protocol_id")
+    _require_exact_value(
+        document["evidence_scope"],
+        SEMANTIC_FRAME_PARTY_VIEWS_EVIDENCE_SCOPE_V1,
+        "$.evidence_scope",
+    )
+    for key, expected in (
+        ("ordered_roles", SEMANTIC_FRAME_ROLES),
+        ("frame_classes", SEMANTIC_FRAME_CLASSES),
+        ("delivery_states", SEMANTIC_FRAME_DELIVERY_STATES),
+        ("corruption_markers", SEMANTIC_FRAME_CORRUPTION_MARKERS),
+        ("interface_shapes", SEMANTIC_FRAME_INTERFACE_SHAPES),
+    ):
+        actual = _require_list(document[key], f"$.{key}")
+        if actual != list(expected):
+            raise VerificationError(f"$.{key} must equal the exact canonical enumeration")
+    if source_vector_directory is None:
+        raise VerificationError("semantic-frame verification requires a source vector directory")
+    catalog = _semantic_frame_source_catalog(source_vector_directory)
+    cases = _require_list(document["cases"], "$.cases")
+    if len(cases) != len(SEMANTIC_FRAME_CASES):
+        raise VerificationError("$.cases must contain exactly eight canonical cases")
+    known_vocabulary = set(SEMANTIC_FRAME_PUBLIC_VALUES + SEMANTIC_FRAME_PRIVATE_VALUES)
+    for case_index, expected_case in enumerate(SEMANTIC_FRAME_CASES):
+        case_path = f"$.cases[{case_index}]"
+        case = _require_ordered_keys(cases[case_index], SEMANTIC_FRAME_CASE_KEY_ORDER, case_path)
+        case_id, request_kind, outcome = expected_case
+        _require_exact_value(case["case_id"], case_id, f"{case_path}.case_id")
+        _require_exact_value(case["request_kind"], request_kind, f"{case_path}.request_kind")
+        _require_exact_value(case["outcome"], outcome, f"{case_path}.outcome")
+        _semantic_frame_verify_source_references(
+            case["source_references"], request_kind, outcome, catalog, f"{case_path}.source_references"
+        )
+        steps = _require_list(case["trace_steps"], f"{case_path}.trace_steps")
+        expected_states = _semantic_frame_expected_states(request_kind, outcome)
+        if len(steps) != len(expected_states):
+            raise VerificationError(f"{case_path}.trace_steps has the wrong state count")
+        observations: dict[str, list[str]] = {role: [] for role in SEMANTIC_FRAME_ROLES}
+        previous_known: dict[str, tuple[str, ...]] = {role: () for role in SEMANTIC_FRAME_ROLES}
+        previous_identities: tuple[str, ...] = ()
+        for ordinal, expected_state in enumerate(expected_states):
+            step_path = f"{case_path}.trace_steps[{ordinal}]"
+            step = _require_ordered_keys(steps[ordinal], SEMANTIC_FRAME_TRACE_STEP_KEY_ORDER, step_path)
+            if type(step["ordinal"]) is not int or step["ordinal"] != ordinal:
+                raise VerificationError(f"{step_path}.ordinal must equal {ordinal}")
+            _require_exact_value(step["delivery_state"], expected_state, f"{step_path}.delivery_state")
+            expected_frames = _semantic_frame_emitted_frames(expected_state, request_kind)
+            if step["emitted_frame_classes"] != list(expected_frames):
+                raise VerificationError(f"{step_path}.emitted_frame_classes is not canonical")
+            for frame in expected_frames:
+                for role in SEMANTIC_FRAME_OBSERVERS[frame]:
+                    if frame not in observations[role]:
+                        observations[role].append(frame)
+            views = _require_list(step["ordered_role_views"], f"{step_path}.ordered_role_views")
+            if len(views) != len(SEMANTIC_FRAME_ROLES):
+                raise VerificationError(f"{step_path}.ordered_role_views must contain seven views")
+            for role_index, role in enumerate(SEMANTIC_FRAME_ROLES):
+                view_path = f"{step_path}.ordered_role_views[{role_index}]"
+                view = _require_ordered_keys(views[role_index], SEMANTIC_FRAME_ROLE_VIEW_KEY_ORDER, view_path)
+                _require_exact_value(view["role"], role, f"{view_path}.role")
+                known = _require_list(view["known_values"], f"{view_path}.known_values")
+                if any(type(label) is not str or label not in known_vocabulary for label in known):
+                    raise VerificationError(f"{view_path}.known_values contains an unknown label")
+                expected_known = _semantic_frame_expected_known_values(role, expected_state, request_kind)
+                if known != list(expected_known):
+                    raise VerificationError(f"{view_path}.known_values violates the complete learning table")
+                if not _semantic_frame_ordered_superset(previous_known[role], known):
+                    raise VerificationError(f"{view_path}.known_values is not order-preserving cumulative knowledge")
+                previous_known[role] = tuple(known)
+                observed = _require_list(view["observed_frame_classes"], f"{view_path}.observed_frame_classes")
+                if observed != observations[role]:
+                    raise VerificationError(f"{view_path}.observed_frame_classes violates frame ownership or deduplication")
+            previous_identities = _semantic_frame_verify_identity_labels(
+                step["identity_labels"],
+                expected_state,
+                request_kind,
+                previous_identities,
+                f"{step_path}.identity_labels",
+            )
+        _semantic_frame_verify_retry_policy(
+            case["retry_redelivery_policy"], request_kind, outcome, f"{case_path}.retry_redelivery_policy"
+        )
+        _semantic_frame_verify_nonclaims(case["explicit_nonclaims"], f"{case_path}.explicit_nonclaims")
+    return len(cases)
+
+
 def verify_corpus(corpus: Any, *, differential_seed: bytes | None = None) -> int:
     """Verifies every case and returns the nonzero case count."""
     corpus_object = _require_exact_keys(corpus, {"schema", "protocol_id", "cases"}, "$")
@@ -11280,10 +12895,19 @@ def verify_document(
     output_party_views_corpus: Any | None = None,
     activation_delivery_corpus: Any | None = None,
     activation_recipient_party_views_corpus: Any | None = None,
+    source_vector_directory: Path | str | None = None,
 ) -> int:
     """Auto-detects a strict v1 corpus and verifies its required companions."""
     document_object = _require_object(document, "$")
     schema = _require_string(document_object.get("schema"), "$.schema")
+    if schema == SEMANTIC_FRAME_PARTY_VIEWS_CORPUS_SCHEMA_V1:
+        if differential_seed is not None:
+            raise VerificationError(
+                "--differential-seed-hex applies only to the arithmetic vector schema"
+            )
+        return verify_semantic_frame_party_views_corpus(
+            document_object, source_vector_directory
+        )
     if (
         ceremony_context_corpus is not None
         and schema
@@ -11517,6 +13141,12 @@ def verify_document(
                 "--differential-seed-hex applies only to the arithmetic vector schema"
             )
         return verify_recovery_evaluator_admission_corpus(document_object)
+    if schema == REFRESH_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1:
+        if differential_seed is not None:
+            raise VerificationError(
+                "--differential-seed-hex applies only to the arithmetic vector schema"
+            )
+        return verify_refresh_evaluator_admission_corpus(document_object)
     if schema == EVALUATION_INPUT_PARTY_VIEWS_VECTOR_CORPUS_SCHEMA_V1:
         if differential_seed is not None:
             raise VerificationError(
@@ -11635,6 +13265,12 @@ def _parse_arguments(arguments: Sequence[str] | None) -> argparse.Namespace:
         metavar="PATH",
         help="required activation-recipient companion for recovery credential-transition vectors",
     )
+    parser.add_argument(
+        "--source-vector-directory",
+        type=Path,
+        metavar="PATH",
+        help="required sibling corpus directory for semantic-frame party-view vectors",
+    )
     return parser.parse_args(arguments)
 
 
@@ -11686,6 +13322,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             output_party_views_corpus=output_party_views_corpus,
             activation_delivery_corpus=activation_delivery_corpus,
             activation_recipient_party_views_corpus=activation_recipient_party_views_corpus,
+            source_vector_directory=options.source_vector_directory,
         )
     except VerificationError as error:
         print(f"ed25519-yao independent verification failed: {error}", file=sys.stderr)

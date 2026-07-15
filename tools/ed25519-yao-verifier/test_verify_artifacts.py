@@ -24,6 +24,10 @@ VECTOR_CORPUS = (
     / "vectors"
     / "ed25519-yao-v1.json"
 )
+SOURCE_VECTOR_DIRECTORY = VECTOR_CORPUS.parent
+PHASE2B_RECONCILIATION_CORPUS = (
+    SOURCE_VECTOR_DIRECTORY / "ed25519-yao-phase2b-core-reconciliation-v1.json"
+)
 
 
 class IndependentArtifactVerifierTests(unittest.TestCase):
@@ -81,11 +85,43 @@ class IndependentArtifactVerifierTests(unittest.TestCase):
             stdout=subprocess.PIPE,
         ).stdout.strip()
         cls.benchmark_manifest = bytes.fromhex(manifest_hex)
+        cls._certificate_temporary: tempfile.TemporaryDirectory[str] | None = None
+        if PHASE2B_RECONCILIATION_CORPUS.is_file():
+            cls.phase2b_certificate = PHASE2B_RECONCILIATION_CORPUS.read_bytes()
+        else:
+            cls._certificate_temporary = tempfile.TemporaryDirectory(
+                prefix="ed25519-yao-phase2b-certificate-"
+            )
+            certificate_path = (
+                Path(cls._certificate_temporary.name) / "phase2b-reconciliation.json"
+            )
+            subprocess.run(
+                [
+                    "cargo",
+                    "run",
+                    "--locked",
+                    "--quiet",
+                    "--manifest-path",
+                    "tools/ed25519-yao-generator/Cargo.toml",
+                    "--bin",
+                    "ed25519-yao-vectors",
+                    "--",
+                    "emit-phase2b-core-reconciliation",
+                    "--output",
+                    str(certificate_path),
+                ],
+                cwd=REPOSITORY_ROOT,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            cls.phase2b_certificate = certificate_path.read_bytes()
 
     @classmethod
     def tearDownClass(cls) -> None:
         if cls._temporary is not None:
             cls._temporary.cleanup()
+        if cls._certificate_temporary is not None:
+            cls._certificate_temporary.cleanup()
 
     def assert_artifact_rejected(self, action: Callable[[], object]) -> None:
         with self.assertRaises(verify_artifacts.ArtifactVerificationError):
@@ -99,6 +135,22 @@ class IndependentArtifactVerifierTests(unittest.TestCase):
                 (root / filename).write_bytes(data)
         if extra:
             (root / "unexpected.bin").write_bytes(b"extra")
+
+    def _phase2b_document(self) -> dict[str, object]:
+        return json.loads(self.phase2b_certificate.decode("utf-8"))
+
+    def _phase2b_bytes(self, document: dict[str, object]) -> bytes:
+        return (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode(
+            "utf-8"
+        )
+
+    def _verify_phase2b(self, certificate: bytes) -> int:
+        return verify_artifacts.verify_phase2b_core_reconciliation(
+            certificate,
+            self.bundle,
+            self.benchmark_manifest,
+            SOURCE_VECTOR_DIRECTORY,
+        )
 
     def test_artifact_canonical_bundle_and_five_vectors(self) -> None:
         self.assertEqual(
@@ -143,6 +195,81 @@ class IndependentArtifactVerifierTests(unittest.TestCase):
             )
         )
 
+    def test_artifact_phase2b_reconciliation_valid_certificate(self) -> None:
+        self.assertEqual(self._verify_phase2b(self.phase2b_certificate), 5)
+
+    def test_artifact_phase2b_reconciliation_rejects_commitment_and_selector_mutation(
+        self,
+    ) -> None:
+        commitment_mutation = self._phase2b_document()
+        commitment_mutation["phase1_corpus_commitments"][0]["sha256_hex"] = "00" * 32
+        selector_mutation = self._phase2b_document()
+        selector_mutation["cases"][0]["vector"][
+            "evaluator_admission_case_id"
+        ] = "recovery_admitted_evaluation_output_committed_v1"
+        for label, document in (
+            ("commitment", commitment_mutation),
+            ("selector", selector_mutation),
+        ):
+            with self.subTest(label=label):
+                self.assert_artifact_rejected(
+                    lambda document=document: self._verify_phase2b(
+                        self._phase2b_bytes(document)
+                    )
+                )
+
+    def test_artifact_phase2b_reconciliation_rejects_field_order_and_component_splice(
+        self,
+    ) -> None:
+        reordered = self._phase2b_document()
+        schema = reordered.pop("schema")
+        reordered["schema"] = schema
+        mapping_splice = self._phase2b_document()
+        fields = mapping_splice["mapping_contracts"]["activation_family"][
+            "input_fields"
+        ]
+        fields[0], fields[1] = fields[1], fields[0]
+        component_splice = self._phase2b_document()
+        component_splice["cases"][4]["vector"]["component_kind"] = "activation"
+        for label, document in (
+            ("field_order", reordered),
+            ("mapping_order", mapping_splice),
+            ("component", component_splice),
+        ):
+            with self.subTest(label=label):
+                self.assert_artifact_rejected(
+                    lambda document=document: self._verify_phase2b(
+                        self._phase2b_bytes(document)
+                    )
+                )
+
+    def test_artifact_phase2b_reconciliation_rejects_output_and_zero_evaluation_mutation(
+        self,
+    ) -> None:
+        output_mutation = self._phase2b_document()
+        output_mutation["cases"][0]["vector"][
+            "party_output_reconstruction_digest_hex"
+        ] = "00" * 32
+        activation_mutation = self._phase2b_document()
+        activation_mutation["cases"][1]["vector"]["evaluation_plan"]["counts"][
+            "yao_evaluations"
+        ] = 1
+        export_mutation = self._phase2b_document()
+        export_mutation["cases"][4]["vector"][
+            "authorized_client_output_digest_hex"
+        ] = "00" * 32
+        for label, document in (
+            ("party_output", output_mutation),
+            ("zero_evaluation", activation_mutation),
+            ("authorized_client", export_mutation),
+        ):
+            with self.subTest(label=label):
+                self.assert_artifact_rejected(
+                    lambda document=document: self._verify_phase2b(
+                        self._phase2b_bytes(document)
+                    )
+                )
+
     def test_artifact_frozen_index_ir_and_schedule_digests(self) -> None:
         index = self.files[verify_artifacts.INDEX_FILE]
         self.assertEqual(
@@ -177,8 +304,8 @@ class IndependentArtifactVerifierTests(unittest.TestCase):
             )
         document.pop("unexpected")
         document["cases"][0]["vector"]["clear_reference_trace"][
-            "sha512_digest_hex"
-        ] = "GG" * 64
+            "x_client_base_hex"
+        ] = "GG" * 32
         with tempfile.NamedTemporaryFile("w", encoding="utf-8") as temporary:
             json.dump(document, temporary)
             temporary.flush()

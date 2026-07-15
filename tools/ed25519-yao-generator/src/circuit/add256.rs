@@ -8,7 +8,7 @@ pub(super) fn wrapping_add_le_256_bits(
     left: [BuilderBit; BIT_WIDTH],
     right: [BuilderBit; BIT_WIDTH],
 ) -> [BuilderBit; BIT_WIDTH] {
-    add_le_256_bits::<false>(builder, left, right).0
+    add_le_256_bits::<false>(builder, left, right, ZERO).0
 }
 
 pub(super) fn add_le_256_with_final_carry_bits(
@@ -16,16 +16,34 @@ pub(super) fn add_le_256_with_final_carry_bits(
     left: [BuilderBit; BIT_WIDTH],
     right: [BuilderBit; BIT_WIDTH],
 ) -> ([BuilderBit; BIT_WIDTH], BuilderBit) {
-    add_le_256_bits::<true>(builder, left, right)
+    add_le_256_bits::<true>(builder, left, right, ZERO)
+}
+
+pub(super) fn wrapping_subtract_le_256_bits(
+    builder: &mut CircuitBuilder,
+    left: [BuilderBit; BIT_WIDTH],
+    right: [BuilderBit; BIT_WIDTH],
+) -> [BuilderBit; BIT_WIDTH] {
+    subtract_le_256_with_final_no_borrow_bits(builder, left, right).0
+}
+
+pub(super) fn subtract_le_256_with_final_no_borrow_bits(
+    builder: &mut CircuitBuilder,
+    left: [BuilderBit; BIT_WIDTH],
+    right: [BuilderBit; BIT_WIDTH],
+) -> ([BuilderBit; BIT_WIDTH], BuilderBit) {
+    let inverted_right = right.map(|bit| builder.inv(bit));
+    add_le_256_bits::<true>(builder, left, inverted_right, BuilderBit::Constant(true))
 }
 
 fn add_le_256_bits<const COMPUTE_FINAL_CARRY: bool>(
     builder: &mut CircuitBuilder,
     left: [BuilderBit; BIT_WIDTH],
     right: [BuilderBit; BIT_WIDTH],
+    initial_carry: BuilderBit,
 ) -> ([BuilderBit; BIT_WIDTH], BuilderBit) {
     let mut output = [ZERO; BIT_WIDTH];
-    let mut carry = ZERO;
+    let mut carry = initial_carry;
 
     for bit_index in 0..BIT_WIDTH {
         let left_xor_right = builder.xor(left[bit_index], right[bit_index]);

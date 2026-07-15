@@ -7,6 +7,8 @@ pub mod codec;
     any(feature = "threshold-ecdsa", feature = "near-threshold-ed25519")
 ))]
 pub mod commands;
+#[cfg(feature = "ed25519-yao-derivation")]
+pub mod ed25519_yao_derivation;
 #[cfg(feature = "tx-finalization")]
 pub mod eip1559;
 #[cfg(feature = "near-crypto")]

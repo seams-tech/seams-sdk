@@ -11,10 +11,61 @@ use crate::{
 /// Domain and version prefix for canonical draft-manifest SHA-256 identities.
 pub const DRAFT_MANIFEST_DIGEST_DOMAIN_V1: &[u8] = b"seams:router-ab:ed25519-yao:draft-manifest:v1";
 
+/// Exact canonical preimage length for a draft activation manifest.
+pub const ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES: usize = DRAFT_MANIFEST_DIGEST_DOMAIN_V1.len()
+    + 1
+    + 8
+    + ACTIVATION_OUTPUT_SCHEMA_ID_STR.len()
+    + 7 * 32
+    + 13 * 8;
+/// Exact canonical preimage length for a draft export manifest.
+pub const EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES: usize = DRAFT_MANIFEST_DIGEST_DOMAIN_V1.len()
+    + 1
+    + 8
+    + EXPORT_OUTPUT_SCHEMA_ID_STR.len()
+    + 7 * 32
+    + 13 * 8;
+
 /// Canonical family byte for a draft activation manifest.
 pub const ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE: u8 = 0x01;
 /// Canonical family byte for a draft export manifest.
 pub const EXPORT_DRAFT_MANIFEST_FAMILY_BYTE: u8 = 0x02;
+
+macro_rules! define_manifest_preimage_type {
+    ($(#[$metadata:meta])* $name:ident, $length:ident) => {
+        $(#[$metadata])*
+        #[derive(Clone, PartialEq, Eq)]
+        pub struct $name([u8; $length]);
+
+        impl $name {
+            fn from_encoded_bytes(bytes: [u8; $length]) -> Self {
+                Self(bytes)
+            }
+
+            /// Returns the exact canonical bytes hashed for this manifest family.
+            pub const fn as_bytes(&self) -> &[u8; $length] {
+                &self.0
+            }
+
+            /// Consumes the proof-facing value and returns its canonical bytes.
+            pub const fn into_bytes(self) -> [u8; $length] {
+                self.0
+            }
+        }
+    };
+}
+
+define_manifest_preimage_type!(
+    /// Proof-facing canonical preimage for a validated activation manifest.
+    DraftActivationManifestPreimage,
+    ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES
+);
+
+define_manifest_preimage_type!(
+    /// Proof-facing canonical preimage for a validated export manifest.
+    DraftExportManifestPreimage,
+    EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CircuitArtifactDigestsInner {
@@ -289,14 +340,16 @@ impl DraftActivationCircuitManifest {
         output_schema: ActivationOutputSchema,
         metrics: CircuitMetrics,
     ) -> Self {
-        let manifest_digest =
-            DraftActivationManifestDigest32::from_computed_bytes(compute_draft_manifest_digest(
-                ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE,
-                digests.0,
-                output_schema.id_str(),
-                output_schema.digest().as_bytes(),
-                metrics,
-            ));
+        let preimage = encode_draft_manifest_preimage::<ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES>(
+            ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE,
+            digests.0,
+            output_schema.id_str(),
+            output_schema.digest().as_bytes(),
+            metrics,
+        );
+        let manifest_digest = DraftActivationManifestDigest32::from_computed_bytes(
+            compute_draft_manifest_digest(&preimage),
+        );
         Self {
             core: DraftCircuitManifestCore::new(digests, metrics),
             output_schema,
@@ -333,6 +386,19 @@ impl DraftActivationCircuitManifest {
     pub const fn manifest_digest(self) -> DraftActivationManifestDigest32 {
         self.manifest_digest
     }
+
+    /// Reconstructs the exact canonical bytes hashed into the draft identity.
+    pub fn canonical_preimage(self) -> DraftActivationManifestPreimage {
+        DraftActivationManifestPreimage::from_encoded_bytes(encode_draft_manifest_preimage::<
+            ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES,
+        >(
+            ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE,
+            self.core.digests.0,
+            self.output_schema.id_str(),
+            self.output_schema.digest().as_bytes(),
+            self.core.metrics,
+        ))
+    }
 }
 
 /// Draft manifest for explicitly authorized seed export.
@@ -352,14 +418,16 @@ impl DraftExportCircuitManifest {
         output_schema: ExportOutputSchema,
         metrics: CircuitMetrics,
     ) -> Self {
-        let manifest_digest =
-            DraftExportManifestDigest32::from_computed_bytes(compute_draft_manifest_digest(
-                EXPORT_DRAFT_MANIFEST_FAMILY_BYTE,
-                digests.0,
-                output_schema.id_str(),
-                output_schema.digest().as_bytes(),
-                metrics,
-            ));
+        let preimage = encode_draft_manifest_preimage::<EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES>(
+            EXPORT_DRAFT_MANIFEST_FAMILY_BYTE,
+            digests.0,
+            output_schema.id_str(),
+            output_schema.digest().as_bytes(),
+            metrics,
+        );
+        let manifest_digest = DraftExportManifestDigest32::from_computed_bytes(
+            compute_draft_manifest_digest(&preimage),
+        );
         Self {
             core: DraftCircuitManifestCore::new(digests, metrics),
             output_schema,
@@ -395,6 +463,19 @@ impl DraftExportCircuitManifest {
     /// Returns the internally computed canonical draft-manifest identity.
     pub const fn manifest_digest(self) -> DraftExportManifestDigest32 {
         self.manifest_digest
+    }
+
+    /// Reconstructs the exact canonical bytes hashed into the draft identity.
+    pub fn canonical_preimage(self) -> DraftExportManifestPreimage {
+        DraftExportManifestPreimage::from_encoded_bytes(encode_draft_manifest_preimage::<
+            EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES,
+        >(
+            EXPORT_DRAFT_MANIFEST_FAMILY_BYTE,
+            self.core.digests.0,
+            self.output_schema.id_str(),
+            self.output_schema.digest().as_bytes(),
+            self.core.metrics,
+        ))
     }
 }
 
@@ -446,43 +527,70 @@ impl DraftProtocolManifest {
     }
 }
 
-fn compute_draft_manifest_digest(
+fn encode_draft_manifest_preimage<const LENGTH: usize>(
     family_byte: u8,
     digests: CircuitArtifactDigestsInner,
     output_schema_id: &str,
     output_schema_digest: &[u8; 32],
     metrics: CircuitMetrics,
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(DRAFT_MANIFEST_DIGEST_DOMAIN_V1);
-    hasher.update([family_byte]);
-    hasher.update((output_schema_id.len() as u64).to_be_bytes());
-    hasher.update(output_schema_id.as_bytes());
+) -> [u8; LENGTH] {
+    let mut encoded = [0_u8; LENGTH];
+    let mut cursor = 0_usize;
+    append_manifest_preimage_field(&mut encoded, &mut cursor, DRAFT_MANIFEST_DIGEST_DOMAIN_V1);
+    append_manifest_preimage_field(&mut encoded, &mut cursor, &[family_byte]);
+    append_manifest_preimage_field(
+        &mut encoded,
+        &mut cursor,
+        &(output_schema_id.len() as u64).to_be_bytes(),
+    );
+    append_manifest_preimage_field(&mut encoded, &mut cursor, output_schema_id.as_bytes());
 
-    hasher.update(digests.circuit.as_bytes());
-    hasher.update(digests.compiler.as_bytes());
-    hasher.update(digests.source_ir.as_bytes());
-    hasher.update(digests.schedule.as_bytes());
-    hasher.update(digests.constants.as_bytes());
-    hasher.update(digests.input_schema.as_bytes());
-    hasher.update(output_schema_digest);
+    append_manifest_preimage_field(&mut encoded, &mut cursor, digests.circuit.as_bytes());
+    append_manifest_preimage_field(&mut encoded, &mut cursor, digests.compiler.as_bytes());
+    append_manifest_preimage_field(&mut encoded, &mut cursor, digests.source_ir.as_bytes());
+    append_manifest_preimage_field(&mut encoded, &mut cursor, digests.schedule.as_bytes());
+    append_manifest_preimage_field(&mut encoded, &mut cursor, digests.constants.as_bytes());
+    append_manifest_preimage_field(&mut encoded, &mut cursor, digests.input_schema.as_bytes());
+    append_manifest_preimage_field(&mut encoded, &mut cursor, output_schema_digest);
 
     let gates = metrics.gates();
-    hasher.update(gates.and_gate_count().to_be_bytes());
-    hasher.update(gates.xor_gate_count().to_be_bytes());
-    hasher.update(gates.inversion_gate_count().to_be_bytes());
-    hasher.update(gates.total_gate_count().to_be_bytes());
-    hasher.update(gates.circuit_depth().to_be_bytes());
-    hasher.update(gates.and_depth().to_be_bytes());
+    for value in [
+        gates.and_gate_count(),
+        gates.xor_gate_count(),
+        gates.inversion_gate_count(),
+        gates.total_gate_count(),
+        gates.circuit_depth(),
+        gates.and_depth(),
+    ] {
+        append_manifest_preimage_field(&mut encoded, &mut cursor, &value.to_be_bytes());
+    }
 
     let schedule = metrics.schedule();
-    hasher.update(schedule.input_wire_count().to_be_bytes());
-    hasher.update(schedule.output_wire_count().to_be_bytes());
-    hasher.update(schedule.wire_count().to_be_bytes());
-    hasher.update(schedule.scheduled_gate_count().to_be_bytes());
-    hasher.update(schedule.peak_live_wire_count().to_be_bytes());
-    hasher.update(schedule.encoded_schedule_bytes().to_be_bytes());
-    hasher.update(metrics.table_payload_bytes().to_be_bytes());
+    for value in [
+        schedule.input_wire_count(),
+        schedule.output_wire_count(),
+        schedule.wire_count(),
+        schedule.scheduled_gate_count(),
+        schedule.peak_live_wire_count(),
+        schedule.encoded_schedule_bytes(),
+        metrics.table_payload_bytes(),
+    ] {
+        append_manifest_preimage_field(&mut encoded, &mut cursor, &value.to_be_bytes());
+    }
+    assert_eq!(cursor, LENGTH, "draft manifest preimage length is fixed");
+    encoded
+}
 
-    hasher.finalize().into()
+fn append_manifest_preimage_field<const LENGTH: usize>(
+    encoded: &mut [u8; LENGTH],
+    cursor: &mut usize,
+    field: &[u8],
+) {
+    let end = *cursor + field.len();
+    encoded[*cursor..end].copy_from_slice(field);
+    *cursor = end;
+}
+
+fn compute_draft_manifest_digest(preimage: &[u8]) -> [u8; 32] {
+    Sha256::digest(preimage).into()
 }

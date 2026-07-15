@@ -30,9 +30,9 @@ use crate::export_evaluation_acceptance::{
 use crate::provenance::{
     DeriverAProvenanceRoleV1, DeriverBProvenanceRoleV1, ProvenanceRoleStateBindingV1,
     RecoveryContinuityArtifactDigest32V1, RegisteredStateProvenanceBindingV1,
-    RegisteredStateProvenanceErrorV1,
-    RoleInputProvenancePairV1, RoleInputStateEpochV1, RoleInputStateRecordDigest32V1,
-    RoleRootEpochV1, RoleRootRecordDigest32V1, RootBindingArtifactDigest32V1, StableKdfScopeV1,
+    RegisteredStateProvenanceErrorV1, RoleInputProvenancePairV1, RoleInputStateEpochV1,
+    RoleInputStateRecordDigest32V1, RoleRootEpochV1, RoleRootRecordDigest32V1,
+    RootBindingArtifactDigest32V1, StableKdfScopeV1,
 };
 use crate::recovery_credential_transition::AuthenticatedRecoveryCredentialSuspensionV1;
 use crate::recovery_evaluation_admission::{
@@ -50,10 +50,9 @@ use crate::semantic_artifacts::{
     OpaqueHostReferenceActivationPackageBindingsV1,
     OpaqueHostReferenceDeriverAReceiptEvidenceDigest32V1,
     OpaqueHostReferenceDeriverBReceiptEvidenceDigest32V1,
-    OpaqueHostReferenceExportPackageBindingsV1,
-    OutputCommittedExportArtifactsV1, RecoveryActivationSemanticArtifactContextV1,
-    RefreshActivationSemanticArtifactContextV1, RegistrationActivationSemanticArtifactContextV1,
-    SemanticArtifactErrorV1,
+    OpaqueHostReferenceExportPackageBindingsV1, OutputCommittedExportArtifactsV1,
+    RecoveryActivationSemanticArtifactContextV1, RefreshActivationSemanticArtifactContextV1,
+    RegistrationActivationSemanticArtifactContextV1, SemanticArtifactErrorV1,
 };
 use crate::{
     HostOnlyActivationOutputSharesV1, HostOnlyExportIdealCoinV1, HostOnlyExportReferenceInputsV1,
@@ -867,10 +866,7 @@ pub struct FailedRecoveryArtifactAttemptV1 {
 }
 
 impl FailedRecoveryArtifactAttemptV1 {
-    fn new(
-        terminal: TerminalRecoveryEvaluationV1,
-        burned: BurnedArtifactAttemptV1,
-    ) -> Self {
+    fn new(terminal: TerminalRecoveryEvaluationV1, burned: BurnedArtifactAttemptV1) -> Self {
         Self { terminal, burned }
     }
 
@@ -1578,6 +1574,14 @@ pub struct HostOnlyExportOutputCommittedV1 {
 
 #[cfg_attr(not(test), allow(dead_code))]
 impl HostOnlyExportOutputCommittedV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(&self) -> ([u8; 32], [u8; 32]) {
+        (
+            *self.artifacts.packages().digest().as_bytes(),
+            *self.artifacts.receipt().digest().as_bytes(),
+        )
+    }
+
     /// Returns the still-unconsumed export request and authorization.
     pub const fn request(&self) -> &ExportRequestV1 {
         &self.request
@@ -2250,10 +2254,10 @@ mod tests {
         registration_ceremony,
     };
     use crate::semantic_fixture_material::{
-        activation_bindings, export_bindings, export_ideal_coin, export_inputs,
-        recovery_admission, recovery_ideal_coins, recovery_inputs, reference_fixture,
-        refresh_admission, refresh_ideal_coins, refresh_inputs, registration_admission,
-        registration_ideal_coins, registration_inputs,
+        activation_bindings, export_bindings, export_ideal_coin, export_inputs, recovery_admission,
+        recovery_ideal_coins, recovery_inputs, reference_fixture, refresh_admission,
+        refresh_ideal_coins, refresh_inputs, registration_admission, registration_ideal_coins,
+        registration_inputs,
     };
 
     fn activation_receipt_evidence() -> ActivationReceiptEvidenceV1 {
@@ -2463,13 +2467,7 @@ mod tests {
         );
         let activation_epoch = CeremonyActivationEpochV1::new(8).expect("next epoch");
         let execution_id = OneUseExecutionId32V1::new([0xa2; 32]).expect("one use");
-        let admission = recovery_admission(
-            &request,
-            &pair,
-            state,
-            activation_epoch,
-            execution_id,
-        );
+        let admission = recovery_admission(&request, &pair, state, activation_epoch, execution_id);
         let session = request
             .begin_host_reference_artifact_session(admission, &pair)
             .expect("recovery session");
@@ -2618,13 +2616,7 @@ mod tests {
         );
         let activation_epoch = CeremonyActivationEpochV1::new(8).expect("next epoch");
         let execution_id = OneUseExecutionId32V1::new([0xc2; 32]).expect("one use");
-        let admission = recovery_admission(
-            &request,
-            &pair,
-            state,
-            activation_epoch,
-            execution_id,
-        );
+        let admission = recovery_admission(&request, &pair, state, activation_epoch, execution_id);
         let session = request
             .begin_host_reference_artifact_session(admission, &pair)
             .expect("session");
@@ -2701,10 +2693,7 @@ mod tests {
         );
         let state = rejection.into_state();
         assert_eq!(
-            state
-                .state()
-                .active_credential_binding_digest()
-                .as_bytes(),
+            state.state().active_credential_binding_digest().as_bytes(),
             request
                 .authorization()
                 .replacement_credential_binding_digest()
@@ -2730,6 +2719,27 @@ mod tests {
             _ => panic!("recovery activation became another origin"),
         };
         assert_eq!(retained.credential_continuity(), expected);
+        assert_eq!(success.zero_reevaluation().yao_evaluations(), 0);
+    }
+
+    #[test]
+    fn refresh_terminal_admission_survives_metadata_consumption() {
+        let pending = match refresh_pending() {
+            PendingActivationPreStateV1::Refresh(pending) => pending,
+            _ => panic!("refresh helper produced another origin"),
+        };
+        let expected = *pending.terminal().admission_digest();
+        let request = ActivationRequestV1::new(
+            fresh("activate-refresh-terminal-evidence", 0xd3, 151, 0xd4),
+            PendingActivationPreStateV1::Refresh(pending),
+        )
+        .expect("activation request");
+        let success = consume_activation_metadata_v1(request);
+        let retained = match success.post_state() {
+            MetadataConsumedActivationStateV1::Refresh(retained) => retained,
+            _ => panic!("refresh activation became another origin"),
+        };
+        assert_eq!(retained.terminal().admission_digest(), &expected);
         assert_eq!(success.zero_reevaluation().yao_evaluations(), 0);
     }
 
@@ -2835,13 +2845,7 @@ mod tests {
         );
         let activation_epoch = CeremonyActivationEpochV1::new(8).expect("next epoch");
         let execution_id = OneUseExecutionId32V1::new([0xc3; 32]).expect("one use");
-        let admission = recovery_admission(
-            &request,
-            &pair,
-            state,
-            activation_epoch,
-            execution_id,
-        );
+        let admission = recovery_admission(&request, &pair, state, activation_epoch, execution_id);
         let session = request
             .begin_host_reference_artifact_session(admission, &pair)
             .expect("session");

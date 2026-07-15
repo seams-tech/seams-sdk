@@ -56,9 +56,7 @@ impl OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1 {
 
 impl fmt::Debug for OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(
-            "OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1([opaque digest])",
-        )
+        formatter.write_str("OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1([opaque digest])")
     }
 }
 
@@ -267,8 +265,7 @@ impl TerminalRefreshEvaluationV1 {
     pub const fn selected_mechanism_acceptance_evidence_digest(
         &self,
     ) -> OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1 {
-        self.common
-            .selected_mechanism_acceptance_evidence_digest
+        self.common.selected_mechanism_acceptance_evidence_digest
     }
 
     /// Returns the admitted next activation epoch.
@@ -390,7 +387,10 @@ pub fn accept_host_only_refresh_admission_v1(
     };
     let mut encoding = Vec::new();
     let encoded = (|| {
-        push_lp32(&mut encoding, REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1)?;
+        push_lp32(
+            &mut encoding,
+            REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+        )?;
         common.encode_into(&mut encoding)?;
         push_lp32(&mut encoding, &[ACCEPTED_REFRESH_TAG_V1])?;
         let mut digest_input = Vec::new();
@@ -609,4 +609,310 @@ const fn is_zero_32(bytes: &[u8; 32]) -> bool {
         index += 1;
     }
     nonzero == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
+    use curve25519_dalek::scalar::Scalar;
+
+    use super::*;
+    use crate::ceremony_fixtures::canonical_refresh_ceremony_fixture_v1;
+    use crate::joint_refresh_delta::{
+        HostOnlyDeriverARefreshDeltaContributionV1, HostOnlyDeriverBRefreshDeltaContributionV1,
+        HostOnlyJointRefreshDeltaCoinsV1,
+    };
+    use crate::lifecycle_domain::{ActivationReceiptEvidenceV1, ArtifactSessionErrorV1};
+    use crate::provenance_fixtures::canonical_provenance_fixture_pair_for_registered_key_v1;
+    use crate::semantic_artifacts::{
+        OpaqueHostReferenceDeriverAReceiptEvidenceDigest32V1,
+        OpaqueHostReferenceDeriverBReceiptEvidenceDigest32V1,
+    };
+    use crate::semantic_fixture_material::{
+        activation_bindings, reference_fixture, refresh_ideal_coins, refresh_inputs,
+    };
+    use crate::semantic_lifecycle_fixtures::authenticated_state_from_provenance;
+    use crate::{HostOnlyRefreshReferenceInputsV1, RegisteredEd25519PublicKey32V1};
+
+    fn fixture() -> (
+        RefreshRequestV1,
+        RoleInputProvenancePairV1,
+        AuthenticatedRegisteredStoreResolutionV1,
+    ) {
+        let material = reference_fixture();
+        let (context, authorization, transcript) = canonical_refresh_ceremony_fixture_v1();
+        let request = RefreshRequestV1::new(context, authorization, transcript).expect("request");
+        let provenance = canonical_provenance_fixture_pair_for_registered_key_v1(
+            CeremonyRequestKindV1::Refresh,
+            material.registered_public_key,
+        );
+        let binding = provenance
+            .refresh_registered_state_binding()
+            .expect("refresh binding");
+        let state = authenticated_state_from_provenance(
+            request.request_context(),
+            request.validated_dag(),
+            &provenance,
+            binding.current(),
+            10,
+            12,
+        );
+        (request, provenance, state)
+    }
+
+    fn checked_at(request: &RefreshRequestV1) -> RefreshAdmissionCheckedAtUnixMsV1 {
+        RefreshAdmissionCheckedAtUnixMsV1::new(request.request_context().request_expiry().value())
+            .expect("checked at")
+    }
+
+    fn evidence(byte: u8) -> OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1 {
+        OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1::new([byte; 32])
+            .expect("acceptance evidence")
+    }
+
+    fn receipt_evidence() -> ActivationReceiptEvidenceV1 {
+        ActivationReceiptEvidenceV1::new(
+            OpaqueHostReferenceDeriverAReceiptEvidenceDigest32V1::new([0xb7; 32])
+                .expect("A receipt"),
+            OpaqueHostReferenceDeriverBReceiptEvidenceDigest32V1::new([0xb8; 32])
+                .expect("B receipt"),
+        )
+    }
+
+    fn accepted(
+        request: &RefreshRequestV1,
+        provenance: &RoleInputProvenancePairV1,
+        state: AuthenticatedRegisteredStoreResolutionV1,
+        execution: OneUseExecutionId32V1,
+        selected_evidence: OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1,
+    ) -> AcceptedRefreshAdmissionV1 {
+        accept_host_only_refresh_admission_v1(
+            request,
+            provenance,
+            state,
+            CeremonyActivationEpochV1::new(11).expect("next epoch"),
+            execution,
+            checked_at(request),
+            selected_evidence,
+        )
+        .expect("accepted refresh")
+    }
+
+    #[test]
+    fn accepted_admission_is_the_only_evaluation_evidence_and_survives_commitment() {
+        let material = reference_fixture();
+        let (request, provenance, state) = fixture();
+        let admission = accepted(
+            &request,
+            &provenance,
+            state,
+            OneUseExecutionId32V1::new([0xb1; 32]).expect("execution"),
+            evidence(0xa3),
+        );
+        let expected_digest = *admission.terminal().admission_digest();
+        let pending = request
+            .begin_host_reference_artifact_session(admission, &provenance)
+            .expect("session")
+            .evaluate_and_commit_host_reference(
+                refresh_inputs(&material),
+                refresh_ideal_coins(3, 5),
+                activation_bindings(),
+                receipt_evidence(),
+            )
+            .expect("committed refresh");
+        assert_eq!(pending.terminal().admission_digest(), &expected_digest);
+        assert_eq!(
+            pending
+                .artifacts()
+                .receipt()
+                .evaluation_evidence_digest()
+                .as_bytes(),
+            &expected_digest
+        );
+    }
+
+    #[test]
+    fn expired_request_rejects_and_returns_the_authenticated_state() {
+        let (request, provenance, state) = fixture();
+        let expired = RefreshAdmissionCheckedAtUnixMsV1::new(
+            request.request_context().request_expiry().value() + 1,
+        )
+        .expect("expired time");
+        let rejection = match accept_host_only_refresh_admission_v1(
+            &request,
+            &provenance,
+            state,
+            CeremonyActivationEpochV1::new(11).expect("next epoch"),
+            OneUseExecutionId32V1::new([0xb2; 32]).expect("execution"),
+            expired,
+            evidence(0xa3),
+        ) {
+            Err(rejection) => rejection,
+            Ok(_) => panic!("expired request accepted"),
+        };
+        assert_eq!(rejection.reason(), RefreshAdmissionErrorV1::RequestExpired);
+        assert_eq!(rejection.into_state().active_state_version().value(), 12);
+    }
+
+    #[test]
+    fn zero_time_and_selected_mechanism_evidence_are_rejected() {
+        assert_eq!(
+            RefreshAdmissionCheckedAtUnixMsV1::new(0),
+            Err(RefreshAdmissionErrorV1::ZeroCheckedAt)
+        );
+        assert_eq!(
+            OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1::new([0; 32]),
+            Err(RefreshAdmissionErrorV1::ZeroTransitionAcceptanceEvidence)
+        );
+    }
+
+    #[test]
+    fn stale_activation_epoch_rejects_before_evaluation() {
+        let (request, provenance, state) = fixture();
+        let rejection = match accept_host_only_refresh_admission_v1(
+            &request,
+            &provenance,
+            state,
+            CeremonyActivationEpochV1::new(10).expect("stale epoch"),
+            OneUseExecutionId32V1::new([0xb3; 32]).expect("execution"),
+            checked_at(&request),
+            evidence(0xa3),
+        ) {
+            Err(rejection) => rejection,
+            Ok(_) => panic!("stale activation epoch accepted"),
+        };
+        assert_eq!(
+            rejection.reason(),
+            RefreshAdmissionErrorV1::ActivationEpochDidNotAdvance
+        );
+        assert_eq!(
+            rejection
+                .into_state()
+                .state()
+                .active_activation_epoch()
+                .value(),
+            10
+        );
+    }
+
+    #[test]
+    fn provenance_and_registered_identity_splices_are_rejected() {
+        let (request, provenance, state) = fixture();
+        let admission = accepted(
+            &request,
+            &provenance,
+            state,
+            OneUseExecutionId32V1::new([0xb4; 32]).expect("execution"),
+            evidence(0xa3),
+        );
+        let alternate_key = RegisteredEd25519PublicKey32V1::parse(
+            (ED25519_BASEPOINT_POINT + ED25519_BASEPOINT_POINT)
+                .compress()
+                .to_bytes(),
+        )
+        .expect("alternate key");
+        let alternate = canonical_provenance_fixture_pair_for_registered_key_v1(
+            CeremonyRequestKindV1::Refresh,
+            alternate_key,
+        );
+        let rejection = match request.begin_host_reference_artifact_session(admission, &alternate) {
+            Err(rejection) => rejection,
+            Ok(_) => panic!("spliced provenance accepted"),
+        };
+        assert_eq!(
+            rejection.reason(),
+            ArtifactSessionErrorV1::RefreshAdmissionRejected
+        );
+    }
+
+    #[test]
+    fn selected_mechanism_evidence_changes_the_admission_identity() {
+        let (request_a, provenance_a, state_a) = fixture();
+        let a = accepted(
+            &request_a,
+            &provenance_a,
+            state_a,
+            OneUseExecutionId32V1::new([0xb5; 32]).expect("execution"),
+            evidence(0xa3),
+        );
+        let (request_b, provenance_b, state_b) = fixture();
+        let b = accepted(
+            &request_b,
+            &provenance_b,
+            state_b,
+            OneUseExecutionId32V1::new([0xb5; 32]).expect("execution"),
+            evidence(0xa4),
+        );
+        assert_ne!(
+            a.terminal().admission_digest(),
+            b.terminal().admission_digest()
+        );
+    }
+
+    #[test]
+    fn arithmetic_failure_burns_execution_and_retains_terminal_state() {
+        let material = reference_fixture();
+        let (request, provenance, state) = fixture();
+        let execution = OneUseExecutionId32V1::new([0xb6; 32]).expect("execution");
+        let admission = accepted(&request, &provenance, state, execution, evidence(0xa3));
+        let expected_digest = *admission.terminal().admission_digest();
+        let cancelling = HostOnlyJointRefreshDeltaCoinsV1::new(
+            HostOnlyDeriverARefreshDeltaContributionV1::from_host_only_fixture(
+                [0; 32],
+                Scalar::ONE.to_bytes(),
+            )
+            .expect("A contribution"),
+            HostOnlyDeriverBRefreshDeltaContributionV1::from_host_only_fixture(
+                [0; 32],
+                (-Scalar::ONE).to_bytes(),
+            )
+            .expect("B contribution"),
+        );
+        let failure = match request
+            .begin_host_reference_artifact_session(admission, &provenance)
+            .expect("session")
+            .evaluate_and_commit_host_reference(
+                HostOnlyRefreshReferenceInputsV1::new(
+                    &material.deriver_a,
+                    &material.deriver_b,
+                    cancelling,
+                ),
+                refresh_ideal_coins(3, 5),
+                activation_bindings(),
+                receipt_evidence(),
+            ) {
+            Err(failure) => failure,
+            Ok(_) => panic!("cancelling delta accepted"),
+        };
+        let retained = failure.into_retained();
+        assert_eq!(retained.burned().one_use_execution_id(), execution);
+        assert_eq!(retained.terminal().admission_digest(), &expected_digest);
+        assert_eq!(
+            retained
+                .terminal()
+                .state()
+                .state()
+                .active_activation_epoch()
+                .value(),
+            10
+        );
+    }
+
+    #[test]
+    fn source_guards_exclude_legacy_raw_evidence_and_profile_fields() {
+        let lifecycle = include_str!("lifecycle_domain.rs");
+        let admission = include_str!("refresh_evaluation_admission.rs");
+        assert!(!lifecycle.contains("RefreshArtifactIssuanceV1"));
+        assert!(!lifecycle.contains(
+            "input_provenance: &RoleInputProvenancePairV1,\n        evaluation_evidence_digest"
+        ));
+        for forbidden in [
+            ["security", "profile"].join("_"),
+            ["garbled", "circuit"].join("_"),
+            ["private", "delta"].join("_"),
+            ["seed", "output"].join("_"),
+        ] {
+            assert!(!admission.contains(&forbidden));
+        }
+    }
 }

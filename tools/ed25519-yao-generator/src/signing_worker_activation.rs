@@ -1061,10 +1061,7 @@ fn split_origin_state(
             let (origin, terminal, output) = value.into_parts();
             let (artifacts, _shares) = output.into_parts();
             (
-                ActivatedSigningWorkerOriginStateV1::Refresh {
-                    origin,
-                    terminal,
-                },
+                ActivatedSigningWorkerOriginStateV1::Refresh { origin, terminal },
                 artifacts,
             )
         }

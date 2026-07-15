@@ -150,7 +150,8 @@ generic parser that could make arbitrary benchmark artifacts appear approved.
 
 This manifest is deterministic benchmark evidence. It does not establish:
 
-- completion of the Phase 1 lifecycle and runtime party-view contract;
+- production runtime-frame and transport realization of the closed Phase 1
+  lifecycle and party-view contract;
 - reviewer approval of compiler semantics or bit ordering;
 - clean-build reproducibility on independent hosts beyond the two isolated
   local Cargo targets;
@@ -161,6 +162,7 @@ This manifest is deterministic benchmark evidence. It does not establish:
 
 The independent stdlib-Python verifier decodes every field, recomputes the
 manifest digest, cross-checks the wrapped index, and rejects prefix, component,
-and index mutations. Phase 2B remains open until the complete Phase 1 corpus is
-reconciled, independent-host builds reproduce it, filesystem handling closes,
-and a reviewer explicitly approves the candidate.
+and index mutations. The counted Phase 2B mechanical reconciliation gate binds
+the complete Phase 1 corpus and passes. Phase 2B remains open until
+independent-host builds reproduce the candidate and a reviewer explicitly
+approves its circuit semantics and bit ordering.

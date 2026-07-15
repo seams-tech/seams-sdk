@@ -7,6 +7,7 @@ use crate::{
     MAX_DIFFERENTIAL_VECTOR_CASES_V1,
 };
 
+use super::families::{PublicSyntheticActivationCoreOutputsV1, PublicSyntheticExportCoreOutputV1};
 use super::{
     compile_provisional_activation_core_v1, compile_provisional_export_core_v1,
     ProvisionalActivationCoreV1, ProvisionalExportCoreV1, PublicSyntheticActivationCoreInputsV1,
@@ -51,7 +52,7 @@ fn decode_hex_32(hex: &str) -> [u8; 32] {
     decoded
 }
 
-fn case_inputs(case: &VectorCaseV1) -> &VectorInputsV1 {
+fn arithmetic_reference_inputs(case: &VectorCaseV1) -> &VectorInputsV1 {
     match case {
         VectorCaseV1::Registration(case)
         | VectorCaseV1::Activation(case)
@@ -92,10 +93,19 @@ fn export_inputs(inputs: &VectorInputsV1) -> PublicSyntheticExportCoreInputsV1 {
     )
 }
 
-fn assert_case_matches(case: &VectorCaseV1) {
-    let inputs = case_inputs(case);
+fn evaluate_activation_component(case: &VectorCaseV1) -> PublicSyntheticActivationCoreOutputsV1 {
+    let inputs = arithmetic_reference_inputs(case);
+    activation_core().evaluate_public_synthetic(&activation_inputs(inputs))
+}
+
+fn evaluate_export_component(case: &VectorCaseV1) -> PublicSyntheticExportCoreOutputV1 {
+    let inputs = arithmetic_reference_inputs(case);
+    export_core().evaluate_public_synthetic(&export_inputs(inputs))
+}
+
+fn assert_activation_component_matches_reference(case: &VectorCaseV1) {
     let trace = case.clear_reference_trace();
-    let activation = activation_core().evaluate_public_synthetic(&activation_inputs(inputs));
+    let activation = evaluate_activation_component(case);
     assert_eq!(
         activation.x_client_base(),
         decode_hex_32(&trace.x_client_base_hex)
@@ -104,20 +114,135 @@ fn assert_case_matches(case: &VectorCaseV1) {
         activation.x_server_base(),
         decode_hex_32(&trace.x_server_base_hex)
     );
-    let export = export_core().evaluate_public_synthetic(&export_inputs(inputs));
+}
+
+fn assert_export_component_matches_reference(case: &VectorCaseV1) {
+    let trace = case.clear_reference_trace();
+    let export = evaluate_export_component(case);
     assert_eq!(export.seed(), decode_hex_32(&trace.joined_seed_hex));
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LifecycleCoreInvocationV1 {
+    ActivationFamily,
+    ZeroEvaluationContinuation,
+    ExportFamily,
+}
+
+fn evaluate_lifecycle_case(case: &VectorCaseV1) -> LifecycleCoreInvocationV1 {
+    match case {
+        VectorCaseV1::Registration(_) | VectorCaseV1::Recovery(_) | VectorCaseV1::Refresh(_) => {
+            assert_activation_component_matches_reference(case);
+            LifecycleCoreInvocationV1::ActivationFamily
+        }
+        VectorCaseV1::Activation(_) => LifecycleCoreInvocationV1::ZeroEvaluationContinuation,
+        VectorCaseV1::Export(_) => {
+            assert_export_component_matches_reference(case);
+            LifecycleCoreInvocationV1::ExportFamily
+        }
+    }
+}
+
 #[test]
-fn activation_and_export_cores_match_all_frozen_arithmetic_vectors() {
+fn provisional_components_match_all_frozen_arithmetic_reference_inputs() {
     for case in canonical_vector_corpus_v1().cases {
-        assert_case_matches(&case);
+        assert_activation_component_matches_reference(&case);
+        assert_export_component_matches_reference(&case);
     }
     let differential = differential_vector_corpus_v1([0x5a; 32], MAX_DIFFERENTIAL_VECTOR_CASES_V1)
         .expect("maximum public differential corpus is valid");
     for case in differential.cases {
-        assert_case_matches(&case);
+        assert_activation_component_matches_reference(&case);
+        assert_export_component_matches_reference(&case);
     }
+}
+
+#[test]
+fn lifecycle_request_kinds_invoke_only_the_selected_core() {
+    let invocations = canonical_vector_corpus_v1()
+        .cases
+        .iter()
+        .map(evaluate_lifecycle_case)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        invocations,
+        [
+            LifecycleCoreInvocationV1::ActivationFamily,
+            LifecycleCoreInvocationV1::ZeroEvaluationContinuation,
+            LifecycleCoreInvocationV1::ActivationFamily,
+            LifecycleCoreInvocationV1::ActivationFamily,
+            LifecycleCoreInvocationV1::ExportFamily,
+        ]
+    );
+}
+
+fn distinguishable_field(domain: u8) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    for (index, byte) in field.iter_mut().enumerate() {
+        *byte = domain.wrapping_add(index as u8);
+    }
+    field
+}
+
+fn distinguishable_canonical_tau(domain: u8, high_byte: u8) -> [u8; 32] {
+    let mut field = distinguishable_field(domain);
+    field[31] = high_byte;
+    field
+}
+
+fn assert_byte_major_lsb0(bits: &[bool], bytes: &[u8]) {
+    assert_eq!(bits.len(), bytes.len() * 8);
+    for (byte_index, byte) in bytes.iter().copied().enumerate() {
+        for bit_index in 0..8 {
+            assert_eq!(
+                bits[byte_index * 8 + bit_index],
+                ((byte >> bit_index) & 1) == 1,
+                "byte {byte_index}, bit {bit_index}"
+            );
+        }
+    }
+}
+
+#[test]
+fn activation_input_projection_fixes_field_byte_and_lsb0_order() {
+    let fields = [
+        distinguishable_field(0x00),
+        distinguishable_field(0x20),
+        distinguishable_canonical_tau(0x40, 0x01),
+        distinguishable_canonical_tau(0x60, 0x02),
+        distinguishable_field(0x80),
+        distinguishable_field(0xa0),
+        distinguishable_canonical_tau(0xc0, 0x03),
+        distinguishable_canonical_tau(0xe0, 0x04),
+    ];
+    let inputs = PublicSyntheticActivationCoreInputsV1::new(
+        PublicSyntheticDeriverAActivationInputsV1::new(fields[0], fields[1], fields[2], fields[3])
+            .expect("small distinguishable A tau fields are canonical"),
+        PublicSyntheticDeriverBActivationInputsV1::new(fields[4], fields[5], fields[6], fields[7])
+            .expect("small distinguishable B tau fields are canonical"),
+    );
+    let projected = inputs.canonical_input_bytes_v1();
+    let expected = fields.concat();
+    assert_eq!(projected, expected);
+    assert_byte_major_lsb0(&super::families::activation_input_bits(&inputs), &projected);
+}
+
+#[test]
+fn export_input_projection_fixes_field_byte_and_lsb0_order() {
+    let fields = [
+        distinguishable_field(0x11),
+        distinguishable_field(0x33),
+        distinguishable_field(0x55),
+        distinguishable_field(0x77),
+    ];
+    let inputs = PublicSyntheticExportCoreInputsV1::new(
+        PublicSyntheticDeriverAExportInputsV1::new(fields[0], fields[1]),
+        PublicSyntheticDeriverBExportInputsV1::new(fields[2], fields[3]),
+    );
+    let projected = inputs.canonical_input_bytes_v1();
+    let expected = fields.concat();
+    assert_eq!(projected, expected);
+    assert_byte_major_lsb0(&super::families::export_input_bits(&inputs), &projected);
 }
 
 #[test]

@@ -157,6 +157,18 @@ impl std::error::Error for HostOnlyActivationReleaseErrorV1 {}
 pub struct HostOnlyActivationRedeliveryPendingV1(ActivationMetadataConsumptionSuccessV1);
 
 impl HostOnlyActivationRedeliveryPendingV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(
+        &self,
+    ) -> (ActivationPackageOriginV1, [u8; 32], [u8; 32]) {
+        let identity = HostOnlyActivationReleaseIdentityV1::for_metadata(&self.0);
+        (
+            identity.origin(),
+            *identity.package_set_digest().as_bytes(),
+            *identity.output_committed_receipt_digest().as_bytes(),
+        )
+    }
+
     /// Returns the retained package-set identity.
     pub fn package_set_digest(&self) -> ActivationPackageSetDigest32V1 {
         self.0.post_state().artifacts().packages().digest()
@@ -294,6 +306,18 @@ pub struct HostOnlyActivationRecipientsReleasedV1 {
 }
 
 impl HostOnlyActivationRecipientsReleasedV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(
+        &self,
+    ) -> (ActivationPackageOriginV1, [u8; 32], [u8; 32]) {
+        let identity = self.client.release_identity();
+        (
+            identity.origin(),
+            *identity.package_set_digest().as_bytes(),
+            *identity.output_committed_receipt_digest().as_bytes(),
+        )
+    }
+
     /// Returns the witness that release performed no private reevaluation.
     pub const fn zero_private_evaluation_work(&self) -> ZeroReevaluationWitnessV1 {
         self.zero_private_evaluation_work
@@ -330,6 +354,13 @@ pub struct HostOnlyActivationRedeliveryV1 {
 }
 
 impl HostOnlyActivationRedeliveryV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(
+        &self,
+    ) -> (ActivationPackageOriginV1, [u8; 32], [u8; 32]) {
+        self.released.semantic_trace_identity_v1()
+    }
+
     /// Returns the release identity before redelivery.
     pub const fn before_package_set_digest(&self) -> ActivationPackageSetDigest32V1 {
         self.before_package_set_digest

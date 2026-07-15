@@ -2,28 +2,26 @@
 
 use curve25519_dalek::scalar::Scalar;
 
+use crate::authenticated_store::AuthenticatedRegisteredStoreResolutionV1;
 use crate::ceremony_context::CeremonyActivationEpochV1;
 use crate::kdf_fixtures::{
     canonical_registered_public_key_v1, canonical_synthetic_kdf_material_v1,
     SYNTHETIC_CLIENT_ROOT_V1, SYNTHETIC_DERIVER_A_ROOT_V1, SYNTHETIC_DERIVER_B_ROOT_V1,
 };
-use crate::authenticated_store::AuthenticatedRegisteredStoreResolutionV1;
 use crate::lifecycle_domain::{RecoveryRequestV1, RefreshRequestV1, RegistrationRequestV1};
 use crate::provenance::RoleInputProvenancePairV1;
+use crate::recovery_evaluation_admission::{
+    accept_host_only_recovery_admission_v1, AcceptedRecoveryAdmissionV1,
+    OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1, RecoveryAdmissionCheckedAtUnixMsV1,
+};
+use crate::refresh_evaluation_admission::{
+    accept_host_only_refresh_admission_v1, AcceptedRefreshAdmissionV1,
+    OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1, RefreshAdmissionCheckedAtUnixMsV1,
+};
 use crate::registration_evaluation_admission::{
     accept_host_only_registration_admission_v1, AcceptedRegistrationAdmissionV1,
     OpaqueRegistrationInputSelectionEvidenceDigest32V1, RegistrationAdmissionCheckedAtUnixMsV1,
     RegistrationSelectionAttemptId32V1,
-};
-use crate::recovery_evaluation_admission::{
-    accept_host_only_recovery_admission_v1, AcceptedRecoveryAdmissionV1,
-    OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1,
-    RecoveryAdmissionCheckedAtUnixMsV1,
-};
-use crate::refresh_evaluation_admission::{
-    accept_host_only_refresh_admission_v1, AcceptedRefreshAdmissionV1,
-    OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1,
-    RefreshAdmissionCheckedAtUnixMsV1,
 };
 use crate::semantic_artifacts::OneUseExecutionId32V1;
 use crate::semantic_artifacts::{
@@ -117,10 +115,8 @@ pub(crate) fn recovery_admission(
         state,
         activation_epoch,
         one_use_execution_id,
-        RecoveryAdmissionCheckedAtUnixMsV1::new(
-            request.request_context().request_expiry().value(),
-        )
-        .expect("recovery admission time"),
+        RecoveryAdmissionCheckedAtUnixMsV1::new(request.request_context().request_expiry().value())
+            .expect("recovery admission time"),
         OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1::new([0x92; 32])
             .expect("recovery continuity acceptance evidence"),
     )
@@ -140,10 +136,8 @@ pub(crate) fn refresh_admission(
         state,
         activation_epoch,
         one_use_execution_id,
-        RefreshAdmissionCheckedAtUnixMsV1::new(
-            request.request_context().request_expiry().value(),
-        )
-        .expect("refresh admission time"),
+        RefreshAdmissionCheckedAtUnixMsV1::new(request.request_context().request_expiry().value())
+            .expect("refresh admission time"),
         OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1::new([0x93; 32])
             .expect("refresh transition acceptance evidence"),
     )

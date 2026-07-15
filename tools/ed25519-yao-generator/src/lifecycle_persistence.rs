@@ -390,9 +390,7 @@ impl RefreshEvaluationAbortedProjectionV1 {
     }
 
     /// Recovers terminal audit authority without creating a retry path.
-    pub fn into_terminal(
-        self,
-    ) -> crate::refresh_evaluation_admission::TerminalRefreshEvaluationV1 {
+    pub fn into_terminal(self) -> crate::refresh_evaluation_admission::TerminalRefreshEvaluationV1 {
         self.retained.into_terminal()
     }
 }

@@ -7,6 +7,8 @@ const CANONICAL_IR_BIT_ORDER_BYTE_MAJOR_LSB0_V1: u8 = 1;
 const CANONICAL_IR_FIXED_SHA512_32_COMPONENT_V1: u8 = 0x81;
 const CANONICAL_IR_PROVISIONAL_ACTIVATION_CORE_V1: u8 = 0x91;
 const CANONICAL_IR_PROVISIONAL_EXPORT_CORE_V1: u8 = 0x92;
+const CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_ACTIVATION_CORE_V1: u8 = 0x93;
+const CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_EXPORT_CORE_V1: u8 = 0x94;
 const CANONICAL_IR_HEADER_LEN_V1: usize = 86;
 const CANONICAL_GATE_RECORD_LEN_V1: usize = 9;
 
@@ -184,6 +186,42 @@ impl CircuitBuilder {
             CANONICAL_IR_PROVISIONAL_EXPORT_CORE_V1,
             super::families::PROVISIONAL_EXPORT_CORE_INPUT_SCHEMA_V1.as_bytes(),
             super::families::PROVISIONAL_EXPORT_CORE_OUTPUT_SCHEMA_V1.as_bytes(),
+        )
+    }
+
+    pub(super) fn finish_phase4_private_output_activation_core(
+        self,
+        outputs: Vec<BuilderBit>,
+    ) -> Result<CanonicalBooleanCircuitV1, CircuitBuildError> {
+        if self.input_count != 3_072 {
+            return Err(CircuitBuildError::InputSchemaWireCountMismatch);
+        }
+        if outputs.len() != 1_024 {
+            return Err(CircuitBuildError::OutputSchemaWireCountMismatch);
+        }
+        self.finish_with_schema(
+            outputs,
+            CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_ACTIVATION_CORE_V1,
+            super::phase4_families::PHASE4_PRIVATE_OUTPUT_ACTIVATION_INPUT_SCHEMA_V1.as_bytes(),
+            super::phase4_families::PHASE4_PRIVATE_OUTPUT_ACTIVATION_OUTPUT_SCHEMA_V1.as_bytes(),
+        )
+    }
+
+    pub(super) fn finish_phase4_private_output_export_core(
+        self,
+        outputs: Vec<BuilderBit>,
+    ) -> Result<CanonicalBooleanCircuitV1, CircuitBuildError> {
+        if self.input_count != 1_536 {
+            return Err(CircuitBuildError::InputSchemaWireCountMismatch);
+        }
+        if outputs.len() != 512 {
+            return Err(CircuitBuildError::OutputSchemaWireCountMismatch);
+        }
+        self.finish_with_schema(
+            outputs,
+            CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_EXPORT_CORE_V1,
+            super::phase4_families::PHASE4_PRIVATE_OUTPUT_EXPORT_INPUT_SCHEMA_V1.as_bytes(),
+            super::phase4_families::PHASE4_PRIVATE_OUTPUT_EXPORT_OUTPUT_SCHEMA_V1.as_bytes(),
         )
     }
 
@@ -413,7 +451,6 @@ impl CanonicalBooleanCircuitV1 {
         &self.canonical_encoding
     }
 
-    #[cfg(test)]
     pub(super) fn evaluate(&self, inputs: &[bool]) -> Result<Vec<bool>, CircuitEvalError> {
         if inputs.len() != self.input_count as usize {
             return Err(CircuitEvalError::InputCountMismatch {
@@ -441,7 +478,6 @@ impl CanonicalBooleanCircuitV1 {
     }
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum CircuitEvalError {
     InputCountMismatch { expected: u32, actual: usize },

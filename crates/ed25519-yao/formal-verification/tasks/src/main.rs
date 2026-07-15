@@ -1,12 +1,19 @@
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+mod phase2b_exit_evidence;
+mod phase2b_protected_inputs;
+mod phase2b_review_subject;
 
 type DynError = Box<dyn std::error::Error>;
 
@@ -99,6 +106,9 @@ struct EvidenceCounts {
     export_evaluator_authorization_vector_cases: usize,
     registration_evaluator_admission_vector_cases: usize,
     recovery_evaluator_admission_vector_cases: usize,
+    refresh_evaluator_admission_vector_cases: usize,
+    semantic_frame_party_view_vector_cases: usize,
+    phase2b_reconciliation_vector_cases: usize,
     differential_vector_cases: usize,
     independent_verifier_tests: usize,
     ceremony_context_python_tests: usize,
@@ -115,6 +125,9 @@ struct EvidenceCounts {
     export_evaluator_authorization_python_tests: usize,
     registration_evaluator_admission_python_tests: usize,
     recovery_evaluator_admission_python_tests: usize,
+    refresh_evaluator_admission_python_tests: usize,
+    semantic_frame_party_view_python_tests: usize,
+    phase2b_reconciliation_python_tests: usize,
     artifact_python_tests: usize,
     artifact_vector_cases: usize,
     production_rust_tests: usize,
@@ -156,6 +169,17 @@ struct EvidenceCounts {
     registration_evaluator_admission_vector_rust_tests: usize,
     recovery_evaluator_admission_rust_tests: usize,
     recovery_evaluator_admission_vector_rust_tests: usize,
+    refresh_evaluator_admission_rust_tests: usize,
+    refresh_evaluator_admission_vector_rust_tests: usize,
+    semantic_frame_core_rust_tests: usize,
+    semantic_trace_boundary_rust_tests: usize,
+    semantic_frame_party_view_vector_rust_tests: usize,
+    phase2b_reconciliation_rust_tests: usize,
+    phase2b_exit_evidence_rust_tests: usize,
+    phase2b_review_subject_rust_tests: usize,
+    phase2b_protected_inputs_rust_tests: usize,
+    phase2b_change_control_python_tests: usize,
+    phase2b_exit_evidence_spec_sha256: String,
     benchmark_manifest_rust_tests: usize,
     benchmark_manifest_bytes: usize,
     benchmark_manifest_digest: String,
@@ -180,6 +204,8 @@ impl TemporaryDirectory {
     fn create(label: &str) -> Result<Self, DynError> {
         let temporary = Self::reserve(label)?;
         fs::create_dir(&temporary.path)?;
+        #[cfg(unix)]
+        fs::set_permissions(&temporary.path, fs::Permissions::from_mode(0o700))?;
         Ok(temporary)
     }
 
@@ -187,6 +213,12 @@ impl TemporaryDirectory {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
         let parent = repository_root().join("tools/ed25519-yao-generator/target");
         fs::create_dir_all(&parent)?;
+        reject_symlink_path_components(&repository_root(), &parent)?;
+        let canonical_root = fs::canonicalize(repository_root())?;
+        let canonical_parent = fs::canonicalize(&parent)?;
+        if !canonical_parent.starts_with(&canonical_root) {
+            return Err("formal-verification temporary parent escapes the repository".into());
+        }
         let path = parent.join(format!(
             "ed25519-yao-{label}-{}-{timestamp}",
             std::process::id()
@@ -197,6 +229,22 @@ impl TemporaryDirectory {
     fn path(&self) -> &Path {
         &self.path
     }
+}
+
+fn reject_symlink_path_components(root: &Path, path: &Path) -> Result<(), DynError> {
+    let relative = path.strip_prefix(root)?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        if fs::symlink_metadata(&current)?.file_type().is_symlink() {
+            return Err(format!(
+                "formal-verification temporary path contains symlink `{}`",
+                current.display()
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 impl Drop for TemporaryDirectory {
@@ -226,12 +274,32 @@ fn run() -> Result<(), DynError> {
         "verus-check" => run_verus_check(),
         "constant-time-qualification" => run_constant_time_qualification(),
         "benchmark-manifest-reproducibility" => run_benchmark_manifest_reproducibility(),
+        "phase2b-reconciliation-check" => run_phase2b_reconciliation_check(),
+        "phase2b-exit-evidence-readiness-check" => {
+            run_phase2b_exit_evidence_readiness_check()
+        }
+        "phase2b-change-control-readiness-check" => {
+            run_phase2b_change_control_readiness_check()
+        }
+        "phase2b-review-subject-check" => run_phase2b_review_subject_check(),
+        "phase2b-protected-inputs-check" => {
+            println!("{}", phase2b_protected_inputs::run_protected_inputs_check()?);
+            Ok(())
+        }
+        "phase2b-independent-host-prepare" => run_phase2b_independent_host_prepare(),
+        "phase2b-independent-host-finalize" => run_phase2b_independent_host_finalize(),
+        "phase2b-independent-host-record-check" => run_phase2b_independent_host_record_check(),
+        "phase2b-review-approval-check" => run_phase2b_review_approval_check(),
+        "__phase2b-review-subject-material-v1" => run_internal_phase2b_review_subject_material(),
+        phase2b_review_subject::INTERNAL_REPRODUCTION_MATERIAL_COMMAND => {
+            run_internal_phase2b_reproduction_material()
+        }
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
         }
         unknown => Err(format!(
-            "unknown task `{unknown}`; expected all, check, reference-spec-check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, verus-check, constant-time-qualification, or benchmark-manifest-reproducibility"
+            "unknown task `{unknown}`; expected all, check, reference-spec-check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, verus-check, constant-time-qualification, benchmark-manifest-reproducibility, phase2b-reconciliation-check, phase2b-exit-evidence-readiness-check, phase2b-change-control-readiness-check, phase2b-review-subject-check, phase2b-protected-inputs-check, phase2b-independent-host-prepare, phase2b-independent-host-finalize, phase2b-independent-host-record-check, or phase2b-review-approval-check"
         )
         .into()),
     }
@@ -241,19 +309,23 @@ fn run_all() -> Result<(), DynError> {
     run_reference_spec_check()?;
     run_vectors_check()?;
     run_cross_language_check()?;
+    run_phase2b_reconciliation_check()?;
+    run_phase2b_exit_evidence_readiness_check()?;
+    run_phase2b_change_control_readiness_check()?;
+    run_phase2b_review_subject_check()?;
     run_benchmark_manifest_reproducibility()?;
     run_parity()?;
     run_anti_drift()?;
     run_aeneas_check()?;
     run_lean_check()?;
     run_verus_check()?;
-    println!("all ok: 9 nonempty Ed25519 Yao verification tracks executed");
+    println!("all ok: 13 nonempty Ed25519 Yao verification tracks executed");
     Ok(())
 }
 
 fn print_help() {
     println!(
-        "usage: cargo yao-fv [all|check|reference-spec-check|vectors-check|cross-language-check|parity|anti-drift|lean-check|aeneas-check|verus-check|constant-time-qualification|benchmark-manifest-reproducibility]"
+        "usage: cargo yao-fv [all|check|reference-spec-check|vectors-check|cross-language-check|parity|anti-drift|lean-check|aeneas-check|verus-check|constant-time-qualification|benchmark-manifest-reproducibility|phase2b-reconciliation-check|phase2b-exit-evidence-readiness-check|phase2b-change-control-readiness-check|phase2b-review-subject-check|phase2b-protected-inputs-check|phase2b-independent-host-prepare|phase2b-independent-host-finalize|phase2b-independent-host-record-check|phase2b-review-approval-check]"
     );
 }
 
@@ -283,6 +355,10 @@ fn run_reference_spec_check() -> Result<(), DynError> {
         generator_dir(&baseline).join("docs/export-evaluator-authorization-v1.md"),
         generator_dir(&baseline).join("docs/registration-evaluator-admission-v1.md"),
         generator_dir(&baseline).join("docs/recovery-evaluator-admission-v1.md"),
+        generator_dir(&baseline).join("docs/refresh-evaluator-admission-v1.md"),
+        generator_dir(&baseline).join("docs/semantic-frame-party-views-v1.md"),
+        generator_dir(&baseline).join("docs/phase2b-core-reconciliation-v1.md"),
+        formal_verification_dir().join("docs/phase2b-exit-evidence-v1.md"),
     ];
     require_exact_count(
         "fixed-reference specification document",
@@ -382,6 +458,27 @@ fn run_reference_spec_check() -> Result<(), DynError> {
         &reference_specs[22],
         "versioned Ed25519 Yao recovery evaluator-admission specification",
     )?;
+    require_file(
+        &reference_specs[23],
+        "versioned Ed25519 Yao refresh evaluator-admission specification",
+    )?;
+    require_file(
+        &reference_specs[24],
+        "versioned Ed25519 Yao semantic-frame party-view specification",
+    )?;
+    require_file(
+        &reference_specs[25],
+        "versioned Ed25519 Yao Phase 2B core-reconciliation specification",
+    )?;
+    require_file(
+        &reference_specs[26],
+        "versioned Ed25519 Yao Phase 2B exit-evidence specification",
+    )?;
+    verify_sha256(
+        &reference_specs[26],
+        &baseline.evidence.phase2b_exit_evidence_spec_sha256,
+        "Phase 2B exit-evidence specification",
+    )?;
 
     let generator_manifest = generator_manifest(&baseline);
     let generator_manifest_string = path_string(&generator_manifest)?;
@@ -449,6 +546,12 @@ fn run_vectors_check() -> Result<(), DynError> {
         .join("vectors/ed25519-yao-registration-evaluator-admission-v1.json");
     let recovery_evaluator_admission_file =
         generator_dir(&baseline).join("vectors/ed25519-yao-recovery-evaluator-admission-v1.json");
+    let refresh_evaluator_admission_file =
+        generator_dir(&baseline).join("vectors/ed25519-yao-refresh-evaluator-admission-v1.json");
+    let semantic_frame_party_view_file =
+        generator_dir(&baseline).join("vectors/ed25519-yao-semantic-frame-party-views-v1.json");
+    let phase2b_reconciliation_file =
+        generator_dir(&baseline).join("vectors/ed25519-yao-phase2b-core-reconciliation-v1.json");
     let generator_manifest = generator_manifest(&baseline);
     require_file(&vector_file, "committed Ed25519 Yao vector corpus")?;
     require_file(&kdf_file, "committed Ed25519 Yao KDF-continuity corpus")?;
@@ -515,6 +618,18 @@ fn run_vectors_check() -> Result<(), DynError> {
     require_file(
         &recovery_evaluator_admission_file,
         "committed Ed25519 Yao recovery evaluator-admission corpus",
+    )?;
+    require_file(
+        &refresh_evaluator_admission_file,
+        "committed Ed25519 Yao refresh evaluator-admission corpus",
+    )?;
+    require_file(
+        &semantic_frame_party_view_file,
+        "committed Ed25519 Yao semantic-frame party-view corpus",
+    )?;
+    require_file(
+        &phase2b_reconciliation_file,
+        "committed Ed25519 Yao Phase 2B core-reconciliation corpus",
     )?;
     let generator_manifest_string = path_string(&generator_manifest)?;
     let vector_file_string = path_string(&vector_file)?;
@@ -995,6 +1110,84 @@ fn run_vectors_check() -> Result<(), DynError> {
         )
         .into());
     }
+    let refresh_evaluator_admission_file_string = path_string(&refresh_evaluator_admission_file)?;
+    let refresh_evaluator_admission_output = run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-vectors",
+            "--",
+            "check-refresh-evaluator-admission",
+            "--input",
+            refresh_evaluator_admission_file_string,
+        ],
+        "vectors-check refresh evaluator-admission corpus",
+    )?;
+    let refresh_evaluator_admission_summary = format!(
+        "checked {} refresh evaluator-admission cases",
+        baseline.evidence.refresh_evaluator_admission_vector_cases
+    );
+    if !refresh_evaluator_admission_output.contains(&refresh_evaluator_admission_summary) {
+        return Err(format!(
+            "refresh evaluator-admission command did not report expected nonzero case count `{refresh_evaluator_admission_summary}`"
+        )
+        .into());
+    }
+    let semantic_frame_party_view_file_string = path_string(&semantic_frame_party_view_file)?;
+    let semantic_frame_party_view_output = run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-vectors",
+            "--",
+            "check-semantic-frame-party-views",
+            "--input",
+            semantic_frame_party_view_file_string,
+        ],
+        "vectors-check semantic-frame party-view corpus",
+    )?;
+    let semantic_frame_party_view_summary = format!(
+        "checked {} semantic-frame party-view cases",
+        baseline.evidence.semantic_frame_party_view_vector_cases
+    );
+    if !semantic_frame_party_view_output.contains(&semantic_frame_party_view_summary) {
+        return Err(format!(
+            "semantic-frame party-view command did not report expected nonzero case count `{semantic_frame_party_view_summary}`"
+        )
+        .into());
+    }
+    let phase2b_reconciliation_file_string = path_string(&phase2b_reconciliation_file)?;
+    let phase2b_reconciliation_output = run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-vectors",
+            "--",
+            "check-phase2b-core-reconciliation",
+            "--input",
+            phase2b_reconciliation_file_string,
+        ],
+        "vectors-check Phase 2B core-reconciliation corpus",
+    )?;
+    let phase2b_reconciliation_summary = format!(
+        "checked {} Phase 2B core-reconciliation cases",
+        baseline.evidence.phase2b_reconciliation_vector_cases
+    );
+    if !phase2b_reconciliation_output.contains(&phase2b_reconciliation_summary) {
+        return Err(format!(
+            "Phase 2B core-reconciliation command did not report expected nonzero case count `{phase2b_reconciliation_summary}`"
+        )
+        .into());
+    }
     println!(
         "vectors-check ok: {} canonical cases in {}; {} KDF-continuity cases in {}; {} ceremony-context cases in {}; {} lifecycle-continuity cases in {}; {} provenance outer-contract cases in {}; {} output-sharing cases in {}; {} semantic-lifecycle cases in {}; {} output-party-view cases in {}; {} activation-delivery cases in {}; {} activation-recipient party-view cases in {}; {} evaluation-input party-view cases in {}; {} uniform-abort cases in {}; {} evaluator-abort state/party-view cases in {}; {} export-delivery cases in {}; {} recovery credential-transition cases in {}",
         baseline.evidence.vector_cases,
@@ -1051,6 +1244,21 @@ fn run_vectors_check() -> Result<(), DynError> {
         baseline.evidence.recovery_evaluator_admission_vector_cases,
         recovery_evaluator_admission_file.display()
     );
+    println!(
+        "vectors-check refresh evaluator-admission: {} cases in {}",
+        baseline.evidence.refresh_evaluator_admission_vector_cases,
+        refresh_evaluator_admission_file.display()
+    );
+    println!(
+        "vectors-check semantic-frame party views: {} cases in {}",
+        baseline.evidence.semantic_frame_party_view_vector_cases,
+        semantic_frame_party_view_file.display()
+    );
+    println!(
+        "vectors-check Phase 2B core reconciliation: {} cases in {}",
+        baseline.evidence.phase2b_reconciliation_vector_cases,
+        phase2b_reconciliation_file.display()
+    );
     Ok(())
 }
 
@@ -1100,6 +1308,10 @@ fn run_cross_language_check() -> Result<(), DynError> {
         .join("vectors/ed25519-yao-registration-evaluator-admission-v1.json");
     let recovery_evaluator_admission_corpus =
         generator_dir(&baseline).join("vectors/ed25519-yao-recovery-evaluator-admission-v1.json");
+    let refresh_evaluator_admission_corpus =
+        generator_dir(&baseline).join("vectors/ed25519-yao-refresh-evaluator-admission-v1.json");
+    let semantic_frame_party_view_corpus =
+        generator_dir(&baseline).join("vectors/ed25519-yao-semantic-frame-party-views-v1.json");
     require_file(&verifier, "independent Python vector verifier")?;
     require_file(&verifier_tests, "independent Python vector verifier tests")?;
     require_file(&artifact_verifier, "independent Python artifact verifier")?;
@@ -1172,6 +1384,14 @@ fn run_cross_language_check() -> Result<(), DynError> {
     require_file(
         &recovery_evaluator_admission_corpus,
         "committed Ed25519 Yao recovery evaluator-admission corpus",
+    )?;
+    require_file(
+        &refresh_evaluator_admission_corpus,
+        "committed Ed25519 Yao refresh evaluator-admission corpus",
+    )?;
+    require_file(
+        &semantic_frame_party_view_corpus,
+        "committed Ed25519 Yao semantic-frame party-view corpus",
     )?;
 
     let generator_manifest = generator_manifest(&baseline);
@@ -1320,6 +1540,29 @@ fn run_cross_language_check() -> Result<(), DynError> {
         "recovery evaluator-admission independent verifier test",
         recovery_evaluator_admission_python_test_count,
         baseline.evidence.recovery_evaluator_admission_python_tests,
+    )?;
+    let refresh_evaluator_admission_python_test_count =
+        count_prefixed_python_tests(&verifier_tests, "def test_refresh_evaluator_admission_")?;
+    require_exact_count(
+        "refresh evaluator-admission independent verifier test",
+        refresh_evaluator_admission_python_test_count,
+        baseline.evidence.refresh_evaluator_admission_python_tests,
+    )?;
+    let semantic_frame_party_view_python_test_count =
+        count_prefixed_python_tests(&verifier_tests, "def test_semantic_frame_party_views_")?;
+    require_exact_count(
+        "semantic-frame party-view independent verifier test",
+        semantic_frame_party_view_python_test_count,
+        baseline.evidence.semantic_frame_party_view_python_tests,
+    )?;
+    let phase2b_reconciliation_python_test_count = count_prefixed_python_tests(
+        &artifact_verifier_tests,
+        "def test_artifact_phase2b_reconciliation_",
+    )?;
+    require_exact_count(
+        "Phase 2B reconciliation independent verifier test",
+        phase2b_reconciliation_python_test_count,
+        baseline.evidence.phase2b_reconciliation_python_tests,
     )?;
     let artifact_python_test_count =
         count_prefixed_python_tests(&artifact_verifier_tests, "def test_artifact_")?;
@@ -1633,6 +1876,32 @@ fn run_cross_language_check() -> Result<(), DynError> {
         baseline.evidence.recovery_evaluator_admission_vector_cases,
         "recovery evaluator-admission vector",
     )?;
+    let refresh_evaluator_admission_output = capture_command(
+        Command::new(&python)
+            .arg(&verifier)
+            .arg(&refresh_evaluator_admission_corpus),
+        "cross-language-check refresh evaluator-admission corpus",
+        true,
+    )?;
+    require_reported_case_count(
+        &refresh_evaluator_admission_output,
+        baseline.evidence.refresh_evaluator_admission_vector_cases,
+        "refresh evaluator-admission vector",
+    )?;
+    let semantic_frame_party_view_output = capture_command(
+        Command::new(&python)
+            .arg(&verifier)
+            .arg(&semantic_frame_party_view_corpus)
+            .arg("--source-vector-directory")
+            .arg(generator_dir(&baseline).join("vectors")),
+        "cross-language-check semantic-frame party-view corpus",
+        true,
+    )?;
+    require_reported_case_count(
+        &semantic_frame_party_view_output,
+        baseline.evidence.semantic_frame_party_view_vector_cases,
+        "semantic-frame party-view vector",
+    )?;
 
     let temporary = TemporaryDirectory::create("differential")?;
     let differential_corpus = temporary.path().join("ed25519-yao-differential-v1.json");
@@ -1672,7 +1941,7 @@ fn run_cross_language_check() -> Result<(), DynError> {
     )?;
 
     println!(
-        "cross-language-check ok: {verifier_test_count} verifier tests, including {artifact_python_test_count} artifact tests, {ceremony_context_python_test_count} ceremony-context tests, {semantic_lifecycle_python_test_count} semantic-lifecycle tests, {output_party_view_python_test_count} output-party-view tests, {activation_delivery_python_test_count} activation-delivery tests, {activation_recipient_party_view_python_test_count} activation-recipient party-view tests, {evaluation_input_party_view_python_test_count} evaluation-input party-view tests, {uniform_abort_python_test_count} uniform-abort tests, {evaluator_abort_view_python_test_count} evaluator-abort-view tests, {export_delivery_python_test_count} export-delivery tests, {recovery_credential_transition_python_test_count} recovery credential-transition tests, {export_evaluator_authorization_python_test_count} export evaluator-authorization tests, {registration_evaluator_admission_python_test_count} registration evaluator-admission tests, and {recovery_evaluator_admission_python_test_count} recovery evaluator-admission tests; Phase 2A artifact cases: {}; committed arithmetic cases: {}; KDF continuity cases: {}; ceremony-context cases: {}; lifecycle-continuity cases: {}; provenance outer-contract cases: {}; output-sharing cases: {}; semantic-lifecycle cases: {}; output-party-view cases: {}; activation-delivery cases: {}; activation-recipient party-view cases: {}; evaluation-input party-view cases: {}; uniform-abort cases: {}; evaluator-abort state/party-view cases: {}; export-delivery cases: {}; recovery credential-transition cases: {}; export evaluator-authorization cases: {}; registration evaluator-admission cases: {}; recovery evaluator-admission cases: {}; independently regenerated differential cases: {}",
+        "cross-language-check ok: {verifier_test_count} verifier tests, including {artifact_python_test_count} artifact tests, {ceremony_context_python_test_count} ceremony-context tests, {semantic_lifecycle_python_test_count} semantic-lifecycle tests, {output_party_view_python_test_count} output-party-view tests, {activation_delivery_python_test_count} activation-delivery tests, {activation_recipient_party_view_python_test_count} activation-recipient party-view tests, {evaluation_input_party_view_python_test_count} evaluation-input party-view tests, {uniform_abort_python_test_count} uniform-abort tests, {evaluator_abort_view_python_test_count} evaluator-abort-view tests, {export_delivery_python_test_count} export-delivery tests, {recovery_credential_transition_python_test_count} recovery credential-transition tests, {export_evaluator_authorization_python_test_count} export evaluator-authorization tests, {registration_evaluator_admission_python_test_count} registration evaluator-admission tests, {recovery_evaluator_admission_python_test_count} recovery evaluator-admission tests, {refresh_evaluator_admission_python_test_count} refresh evaluator-admission tests, and {semantic_frame_party_view_python_test_count} semantic-frame party-view tests; Phase 2A artifact cases: {}; committed arithmetic cases: {}; KDF continuity cases: {}; ceremony-context cases: {}; lifecycle-continuity cases: {}; provenance outer-contract cases: {}; output-sharing cases: {}; semantic-lifecycle cases: {}; output-party-view cases: {}; activation-delivery cases: {}; activation-recipient party-view cases: {}; evaluation-input party-view cases: {}; uniform-abort cases: {}; evaluator-abort state/party-view cases: {}; export-delivery cases: {}; recovery credential-transition cases: {}; export evaluator-authorization cases: {}; registration evaluator-admission cases: {}; recovery evaluator-admission cases: {}; refresh evaluator-admission cases: {}; semantic-frame party-view cases: {}; independently regenerated differential cases: {}",
         baseline.evidence.artifact_vector_cases,
         baseline.evidence.vector_cases,
         baseline.evidence.kdf_vector_cases,
@@ -1700,6 +1969,8 @@ fn run_cross_language_check() -> Result<(), DynError> {
             .evidence
             .registration_evaluator_admission_vector_cases,
         baseline.evidence.recovery_evaluator_admission_vector_cases,
+        baseline.evidence.refresh_evaluator_admission_vector_cases,
+        baseline.evidence.semantic_frame_party_view_vector_cases,
         baseline.evidence.differential_vector_cases
     );
     Ok(())
@@ -1828,6 +2099,26 @@ fn run_parity() -> Result<(), DynError> {
         baseline
             .evidence
             .recovery_evaluator_admission_vector_rust_tests,
+    )?;
+    let refresh_evaluator_admission_count = count_cargo_tests(
+        &generator_manifest,
+        &["--lib", "refresh_evaluation_admission::tests::"],
+    )?;
+    require_exact_count(
+        "refresh evaluator-admission Rust test",
+        refresh_evaluator_admission_count,
+        baseline.evidence.refresh_evaluator_admission_rust_tests,
+    )?;
+    let refresh_evaluator_admission_vector_count = count_cargo_tests(
+        &generator_manifest,
+        &["--test", "refresh_evaluator_admission_vectors"],
+    )?;
+    require_exact_count(
+        "refresh evaluator-admission vector Rust test",
+        refresh_evaluator_admission_vector_count,
+        baseline
+            .evidence
+            .refresh_evaluator_admission_vector_rust_tests,
     )?;
     let benchmark_manifest_count = count_cargo_tests(
         &generator_manifest,
@@ -2031,6 +2322,56 @@ fn run_parity() -> Result<(), DynError> {
             .evidence
             .activation_recipient_party_view_vector_rust_tests,
     )?;
+    let semantic_delivery_view_count = count_cargo_tests(
+        &generator_manifest,
+        &["--lib", "semantic_delivery_views::tests::"],
+    )?;
+    let semantic_frame_class_count = count_cargo_tests(
+        &generator_manifest,
+        &["--lib", "semantic_frame_classes::tests::"],
+    )?;
+    let corruption_interface_count = count_cargo_tests(
+        &generator_manifest,
+        &["--lib", "corruption_game_interfaces::tests::"],
+    )?;
+    let semantic_frame_core_count = semantic_delivery_view_count
+        .checked_add(semantic_frame_class_count)
+        .and_then(|count| count.checked_add(corruption_interface_count))
+        .ok_or("semantic-frame core Rust test count overflow")?;
+    require_exact_count(
+        "semantic-frame core Rust test",
+        semantic_frame_core_count,
+        baseline.evidence.semantic_frame_core_rust_tests,
+    )?;
+    let semantic_trace_boundary_count = count_cargo_tests(
+        &generator_manifest,
+        &["--test", "semantic_trace_boundaries"],
+    )?;
+    require_exact_count(
+        "semantic-trace boundary Rust test",
+        semantic_trace_boundary_count,
+        baseline.evidence.semantic_trace_boundary_rust_tests,
+    )?;
+    let semantic_frame_party_view_vector_count = count_cargo_tests(
+        &generator_manifest,
+        &["--test", "semantic_frame_party_view_vectors"],
+    )?;
+    require_exact_count(
+        "semantic-frame party-view vector Rust test",
+        semantic_frame_party_view_vector_count,
+        baseline
+            .evidence
+            .semantic_frame_party_view_vector_rust_tests,
+    )?;
+    let phase2b_reconciliation_count = count_cargo_tests(
+        &generator_manifest,
+        &["--lib", "phase2b_core_reconciliation::tests::"],
+    )?;
+    require_exact_count(
+        "Phase 2B reconciliation Rust test",
+        phase2b_reconciliation_count,
+        baseline.evidence.phase2b_reconciliation_rust_tests,
+    )?;
     let production_count = run_cargo_test_suite(
         &production_manifest(),
         &[],
@@ -2050,7 +2391,7 @@ fn run_parity() -> Result<(), DynError> {
         "artifact filesystem policy crate",
     )?;
     println!(
-        "parity ok: {production_count} production, {generator_count} generator, and {artifact_filesystem_policy_count} artifact-filesystem-policy tests, including {circuit_count} Phase 2A circuit, {artifact_bundle_count} artifact-bundle, {benchmark_manifest_count} benchmark-manifest, {joint_refresh_delta_count} joint-refresh-delta, {authenticated_store_count} authenticated-store, {signing_worker_activation_count} SigningWorker-activation, {refresh_promotion_count} refresh-promotion, {recovery_credential_transition_count} recovery credential-transition core, {recovery_credential_transition_vector_count} recovery credential-transition vector, {registration_reference_count} registration-reference, {recovery_reference_count} recovery-reference, {refresh_reference_count} refresh-reference, {export_reference_count} export-reference, {output_sharing_core_count} output-sharing core, {output_sharing_vector_count} output-sharing vector, {semantic_lifecycle_vector_count} semantic-lifecycle vector, {output_party_view_core_count} output-party-view core, {output_party_view_guard_count} output-party-view API/static-guard, {output_party_view_vector_count} output-party-view vector, {evaluation_input_party_view_core_count} evaluation-input party-view core, {evaluation_input_party_view_guard_count} evaluation-input party-view API/static-guard, {evaluation_input_party_view_vector_count} evaluation-input party-view vector, {uniform_abort_vector_count} uniform-abort vector, {evaluator_abort_view_vector_count} evaluator-abort-view vector, {export_delivery_core_count} export-delivery core, {export_delivery_vector_count} export-delivery vector, {activation_delivery_core_count} activation-delivery core, {activation_delivery_vector_count} activation-delivery vector, {activation_recipient_party_view_core_count} activation-recipient party-view core, {activation_recipient_party_view_guard_count} activation-recipient party-view API/static-guard, and {activation_recipient_party_view_vector_count} activation-recipient party-view vector tests"
+        "parity ok: {production_count} production, {generator_count} generator, and {artifact_filesystem_policy_count} artifact-filesystem-policy tests, including {circuit_count} Phase 2A circuit, {artifact_bundle_count} artifact-bundle, {benchmark_manifest_count} benchmark-manifest, {joint_refresh_delta_count} joint-refresh-delta, {authenticated_store_count} authenticated-store, {signing_worker_activation_count} SigningWorker-activation, {refresh_promotion_count} refresh-promotion, {recovery_credential_transition_count} recovery credential-transition core, {recovery_credential_transition_vector_count} recovery credential-transition vector, {registration_reference_count} registration-reference, {recovery_reference_count} recovery-reference, {refresh_reference_count} refresh-reference, {export_reference_count} export-reference, {output_sharing_core_count} output-sharing core, {output_sharing_vector_count} output-sharing vector, {semantic_lifecycle_vector_count} semantic-lifecycle vector, {output_party_view_core_count} output-party-view core, {output_party_view_guard_count} output-party-view API/static-guard, {output_party_view_vector_count} output-party-view vector, {evaluation_input_party_view_core_count} evaluation-input party-view core, {evaluation_input_party_view_guard_count} evaluation-input party-view API/static-guard, {evaluation_input_party_view_vector_count} evaluation-input party-view vector, {uniform_abort_vector_count} uniform-abort vector, {evaluator_abort_view_vector_count} evaluator-abort-view vector, {export_delivery_core_count} export-delivery core, {export_delivery_vector_count} export-delivery vector, {activation_delivery_core_count} activation-delivery core, {activation_delivery_vector_count} activation-delivery vector, {activation_recipient_party_view_core_count} activation-recipient party-view core, {activation_recipient_party_view_guard_count} activation-recipient party-view API/static-guard, {activation_recipient_party_view_vector_count} activation-recipient party-view vector, {semantic_frame_core_count} semantic-frame core, {semantic_trace_boundary_count} semantic-trace boundary, {semantic_frame_party_view_vector_count} semantic-frame corpus, and {phase2b_reconciliation_count} Phase 2B reconciliation tests"
     );
     Ok(())
 }
@@ -2106,6 +2447,14 @@ fn run_lean_check() -> Result<(), DynError> {
         lean_model_dir().join("Ed25519YaoModel/RecoveryEvaluatorAdmission.lean");
     let recovery_evaluator_admission_theorem_count =
         count_lean_theorems(&recovery_evaluator_admission_model)?;
+    let refresh_evaluator_admission_model =
+        lean_model_dir().join("Ed25519YaoModel/RefreshEvaluatorAdmission.lean");
+    let refresh_evaluator_admission_theorem_count =
+        count_lean_theorems(&refresh_evaluator_admission_model)?;
+    let semantic_frame_party_views_model =
+        lean_model_dir().join("Ed25519YaoModel/SemanticFramePartyViews.lean");
+    let semantic_frame_party_views_theorem_count =
+        count_lean_theorems(&semantic_frame_party_views_model)?;
     let theorem_count = count_lean_theorems(&manifest_model)?
         .checked_add(count_lean_theorems(&party_views_model)?)
         .and_then(|count| count.checked_add(evaluation_input_theorem_count))
@@ -2118,6 +2467,8 @@ fn run_lean_check() -> Result<(), DynError> {
         .and_then(|count| count.checked_add(export_evaluator_authorization_theorem_count))
         .and_then(|count| count.checked_add(registration_evaluator_admission_theorem_count))
         .and_then(|count| count.checked_add(recovery_evaluator_admission_theorem_count))
+        .and_then(|count| count.checked_add(refresh_evaluator_admission_theorem_count))
+        .and_then(|count| count.checked_add(semantic_frame_party_views_theorem_count))
         .ok_or("Lean model theorem count overflow")?;
     require_exact_count(
         "Lean model theorem",
@@ -2279,6 +2630,358 @@ fn run_benchmark_manifest_reproducibility() -> Result<(), DynError> {
         "benchmark-manifest-reproducibility ok: 2 isolated clean builds reproduced {expected}"
     );
     Ok(())
+}
+
+fn run_phase2b_reconciliation_check() -> Result<(), DynError> {
+    let baseline = load_baseline()?;
+    let generator_manifest = generator_manifest(&baseline);
+    let generator_manifest_string = path_string(&generator_manifest)?;
+    let generator = generator_dir(&baseline);
+    let certificate = generator.join("vectors/ed25519-yao-phase2b-core-reconciliation-v1.json");
+    let source_vector_dir = generator.join("vectors");
+    let verifier_dir = independent_verifier_dir();
+    let artifact_verifier = verifier_dir.join("verify_artifacts.py");
+    let artifact_verifier_tests = verifier_dir.join("test_verify_artifacts.py");
+    require_file(
+        &certificate,
+        "committed Phase 2B reconciliation certificate",
+    )?;
+    require_file(&artifact_verifier, "independent Python artifact verifier")?;
+    require_file(
+        &artifact_verifier_tests,
+        "independent Python artifact verifier tests",
+    )?;
+
+    let certificate_string = path_string(&certificate)?;
+    run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-vectors",
+            "--",
+            "check-phase2b-core-reconciliation",
+            "--input",
+            certificate_string,
+        ],
+        "Phase 2B committed-certificate check",
+    )?;
+
+    let rust_test_count = run_cargo_test_suite(
+        &generator_manifest,
+        &["--lib", "phase2b_core_reconciliation::tests::"],
+        baseline.evidence.phase2b_reconciliation_rust_tests,
+        "Phase 2B reconciliation Rust suite",
+    )?;
+    let python_test_count = count_prefixed_python_tests(
+        &artifact_verifier_tests,
+        "def test_artifact_phase2b_reconciliation_",
+    )?;
+    require_exact_count(
+        "Phase 2B reconciliation independent verifier test",
+        python_test_count,
+        baseline.evidence.phase2b_reconciliation_python_tests,
+    )?;
+
+    let temporary = TemporaryDirectory::create("phase2b-reconciliation")?;
+    let artifact_directory = temporary.path().join("bundle");
+    let artifact_directory_string = path_string(&artifact_directory)?;
+    run_cargo_capture(
+        &[
+            "run",
+            "--locked",
+            "--manifest-path",
+            generator_manifest_string,
+            "--bin",
+            "ed25519-yao-circuit-artifacts",
+            "--",
+            "emit",
+            "--output-dir",
+            artifact_directory_string,
+        ],
+        "Phase 2B fresh artifact generation",
+    )?;
+    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let manifest_hex = capture_command(
+        Command::new(cargo)
+            .args(["run", "--locked", "--quiet", "--manifest-path"])
+            .arg(&generator_manifest)
+            .args(["--bin", "ed25519-yao-benchmark-manifest", "--", "hex"]),
+        "Phase 2B candidate benchmark-manifest regeneration",
+        false,
+    )?;
+    let manifest_hex_path = temporary.path().join("benchmark-manifest-v1.hex");
+    fs::write(&manifest_hex_path, manifest_hex.trim())?;
+
+    let python = resolve_program("python3", "install the pinned minimum Python version")?;
+    verify_python_version(&python, &baseline.python)?;
+    let unit_output = capture_command(
+        Command::new(&python)
+            .args(["-m", "unittest", "test_verify_artifacts.py"])
+            .current_dir(&verifier_dir)
+            .env("ED25519_YAO_ARTIFACT_DIR", &artifact_directory),
+        "Phase 2B independent Python mutation suite",
+        true,
+    )?;
+    let artifact_test_count = parse_python_test_count(&unit_output)?;
+    require_exact_count(
+        "artifact independent verifier test",
+        artifact_test_count,
+        baseline.evidence.artifact_python_tests,
+    )?;
+
+    const PYTHON_RECONCILIATION_DRIVER: &str = r#"
+import sys
+from pathlib import Path
+from verify_artifacts import verify_bundle_directory, verify_phase2b_core_reconciliation
+
+certificate = Path(sys.argv[1])
+artifact_dir = Path(sys.argv[2])
+manifest = bytes.fromhex(Path(sys.argv[3]).read_text(encoding="ascii"))
+source_vector_dir = Path(sys.argv[4])
+bundle = verify_bundle_directory(artifact_dir)
+count = verify_phase2b_core_reconciliation(
+    certificate,
+    bundle,
+    manifest,
+    source_vector_dir,
+)
+print(f"verified {count} Phase 2B reconciliation cases")
+"#;
+    let reconciliation_output = capture_command(
+        Command::new(&python)
+            .args(["-c", PYTHON_RECONCILIATION_DRIVER])
+            .arg(&certificate)
+            .arg(&artifact_directory)
+            .arg(&manifest_hex_path)
+            .arg(&source_vector_dir)
+            .current_dir(&verifier_dir),
+        "Phase 2B independent cross-corpus reconciliation",
+        true,
+    )?;
+    let expected_summary = format!(
+        "verified {} Phase 2B reconciliation cases",
+        baseline.evidence.phase2b_reconciliation_vector_cases
+    );
+    if !reconciliation_output.contains(&expected_summary) {
+        return Err(format!(
+            "Phase 2B verifier did not report expected nonzero case count `{expected_summary}`"
+        )
+        .into());
+    }
+
+    println!(
+        "phase2b-reconciliation-check ok: {} cases, {rust_test_count} Rust tests, {python_test_count} focused Python tests, and {artifact_test_count} total artifact-verifier tests",
+        baseline.evidence.phase2b_reconciliation_vector_cases,
+    );
+    Ok(())
+}
+
+fn run_phase2b_exit_evidence_readiness_check() -> Result<(), DynError> {
+    let baseline = load_baseline()?;
+    let specification = formal_verification_dir().join("docs/phase2b-exit-evidence-v1.md");
+    require_file(
+        &specification,
+        "normative Phase 2B external exit-evidence specification",
+    )?;
+    verify_sha256(
+        &specification,
+        &baseline.evidence.phase2b_exit_evidence_spec_sha256,
+        "Phase 2B exit-evidence specification",
+    )?;
+
+    let tasks_manifest = formal_verification_dir().join("tasks/Cargo.toml");
+    let test_count = run_cargo_test_suite(
+        &tasks_manifest,
+        &[
+            "--bin",
+            "ed25519-yao-formal-verification-tasks",
+            "phase2b_exit_evidence::tests::",
+        ],
+        baseline.evidence.phase2b_exit_evidence_rust_tests,
+        "Phase 2B exit-evidence readiness suite",
+    )?;
+    let protected_test_count = run_cargo_test_suite(
+        &tasks_manifest,
+        &[
+            "--bin",
+            "ed25519-yao-formal-verification-tasks",
+            "phase2b_protected_inputs::tests::",
+        ],
+        baseline.evidence.phase2b_protected_inputs_rust_tests,
+        "Phase 2B protected-input readiness suite",
+    )?;
+
+    let mut authority_forbidden_sources = Vec::new();
+    collect_source_files(
+        &repository_root().join("crates/ed25519-yao/src"),
+        "rs",
+        &["target"],
+        &mut authority_forbidden_sources,
+    )?;
+    collect_source_files(
+        &generator_dir(&baseline).join("src"),
+        "rs",
+        &["target"],
+        &mut authority_forbidden_sources,
+    )?;
+    reject_tokens(
+        &authority_forbidden_sources,
+        &[
+            "Phase2bReviewApprovalV1",
+            "Phase2bIndependentHostReproductionV1",
+            "phase2b_review_approval",
+            "phase2b_independent_host_reproduction",
+            "reviewer_signature",
+            "operator_signature",
+        ],
+        "Phase 2B generator/production authority",
+    )?;
+
+    println!(
+        "phase2b-exit-evidence-readiness-check ok: {test_count} signed-record boundary tests, {protected_test_count} protected-input tests, pinned normative specification, and generator/production authority exclusion"
+    );
+    Ok(())
+}
+
+fn run_phase2b_change_control_readiness_check() -> Result<(), DynError> {
+    let baseline = load_baseline()?;
+    let python = resolve_program("python3", "install the pinned minimum Python version")?;
+    verify_python_version(&python, &baseline.python)?;
+    let scripts = formal_verification_dir().join("scripts");
+    let checker = scripts.join("phase2b_change_control.py");
+    let tests = scripts.join("test_phase2b_change_control.py");
+    let workflow = repository_root().join(".github/workflows/phase2b-change-control.yml");
+    require_file(&checker, "Phase 2B change-control state checker")?;
+    require_file(&tests, "Phase 2B change-control state tests")?;
+    require_file(&workflow, "Phase 2B non-authoritative staging workflow")?;
+
+    let mut command = Command::new(&python);
+    command
+        .args(["-m", "unittest", "discover", "-s"])
+        .arg(&scripts)
+        .args(["-p", "test_phase2b_change_control.py"]);
+    let output = capture_command(
+        &mut command,
+        "Phase 2B change-control readiness suite",
+        true,
+    )?;
+    let test_count = parse_python_test_count(&output)?;
+    require_exact_count(
+        "Phase 2B change-control Python test",
+        test_count,
+        baseline.evidence.phase2b_change_control_python_tests,
+    )?;
+    println!(
+        "phase2b-change-control-readiness-check ok: {test_count} staging-state tests and non-authoritative workflow present"
+    );
+    Ok(())
+}
+
+fn run_phase2b_review_subject_check() -> Result<(), DynError> {
+    let baseline = load_baseline()?;
+    let tasks_manifest = formal_verification_dir().join("tasks/Cargo.toml");
+    let test_count = run_cargo_test_suite(
+        &tasks_manifest,
+        &[
+            "--bin",
+            "ed25519-yao-formal-verification-tasks",
+            "phase2b_review_subject::tests::",
+        ],
+        baseline.evidence.phase2b_review_subject_rust_tests,
+        "Phase 2B review-subject builder suite",
+    )?;
+    println!(
+        "{}; {test_count} builder tests passed",
+        phase2b_review_subject::run_review_subject_check()?
+    );
+    Ok(())
+}
+
+fn run_internal_phase2b_review_subject_material() -> Result<(), DynError> {
+    require_no_task_arguments()?;
+    let material = phase2b_review_subject::run_review_subject_material()?;
+    std::io::stdout().lock().write_all(&material)?;
+    Ok(())
+}
+
+fn run_phase2b_independent_host_prepare() -> Result<(), DynError> {
+    require_no_task_arguments()?;
+    let prepared = phase2b_exit_evidence::prepare_independent_host_reproduction()?;
+    std::io::stdout().lock().write_all(&prepared)?;
+    Ok(())
+}
+
+fn run_phase2b_independent_host_finalize() -> Result<(), DynError> {
+    require_no_task_arguments()?;
+    let request = read_bounded_stdin(phase2b_exit_evidence::MAX_FINALIZE_REQUEST_BYTES)?;
+    let finalized = phase2b_exit_evidence::finalize_independent_host_reproduction(&request)?;
+    std::io::stdout().lock().write_all(&finalized)?;
+    Ok(())
+}
+
+fn run_phase2b_independent_host_record_check() -> Result<(), DynError> {
+    require_no_task_arguments()?;
+    println!(
+        "{}",
+        phase2b_exit_evidence::run_independent_host_record_check()?
+    );
+    Ok(())
+}
+
+fn run_phase2b_review_approval_check() -> Result<(), DynError> {
+    require_no_task_arguments()?;
+    println!("{}", phase2b_exit_evidence::run_review_approval_check()?);
+    Ok(())
+}
+
+fn read_bounded_stdin(maximum_bytes: usize) -> Result<Vec<u8>, DynError> {
+    let limit = u64::try_from(maximum_bytes)? + 1;
+    let mut input = Vec::new();
+    std::io::stdin()
+        .lock()
+        .take(limit)
+        .read_to_end(&mut input)?;
+    if input.len() > maximum_bytes {
+        return Err(Box::new(
+            phase2b_exit_evidence::ExitEvidenceErrorV1::InputTooLarge,
+        ));
+    }
+    Ok(input)
+}
+
+fn run_internal_phase2b_reproduction_material() -> Result<(), DynError> {
+    require_no_task_arguments()?;
+    let current_executable = env::current_exe()?;
+    let reconciliation = capture_command(
+        Command::new(current_executable).arg("phase2b-reconciliation-check"),
+        "isolated independent-host Phase 2B reconciliation",
+        false,
+    )?;
+    const EXPECTED_SUMMARY: &str = "phase2b-reconciliation-check ok: 5 cases, 6 Rust tests, 4 focused Python tests, and 24 total artifact-verifier tests";
+    if reconciliation
+        .lines()
+        .filter(|line| *line == EXPECTED_SUMMARY)
+        .count()
+        != 1
+    {
+        return Err(
+            "isolated independent-host reconciliation returned an unexpected summary".into(),
+        );
+    }
+    let material = phase2b_review_subject::run_review_subject_material()?;
+    std::io::stdout().lock().write_all(&material)?;
+    Ok(())
+}
+
+fn require_no_task_arguments() -> Result<(), DynError> {
+    if env::args_os().nth(2).is_some() {
+        Err("this task accepts no arguments".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn run_constant_time_qualification() -> Result<(), DynError> {
@@ -2773,6 +3476,7 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
         || baseline.constant_time.uv_version.is_empty()
         || !is_sha256_hex(&baseline.constant_time.analyzer_sha256)
         || !is_sha256_hex(&baseline.constant_time.uv_lock_sha256)
+        || !is_sha256_hex(&baseline.evidence.phase2b_exit_evidence_spec_sha256)
         || !is_sha256_hex(&baseline.evidence.benchmark_manifest_digest)
         || !is_sha256_hex(&baseline.evidence.benchmark_bundle_index_digest)
     {
@@ -2817,6 +3521,8 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
             .evidence
             .registration_evaluator_admission_vector_cases,
         baseline.evidence.recovery_evaluator_admission_vector_cases,
+        baseline.evidence.refresh_evaluator_admission_vector_cases,
+        baseline.evidence.semantic_frame_party_view_vector_cases,
         baseline.evidence.differential_vector_cases,
         baseline.evidence.independent_verifier_tests,
         baseline.evidence.ceremony_context_python_tests,
@@ -2841,6 +3547,9 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
             .evidence
             .registration_evaluator_admission_python_tests,
         baseline.evidence.recovery_evaluator_admission_python_tests,
+        baseline.evidence.refresh_evaluator_admission_python_tests,
+        baseline.evidence.semantic_frame_party_view_python_tests,
+        baseline.evidence.phase2b_reconciliation_python_tests,
         baseline.evidence.artifact_python_tests,
         baseline.evidence.artifact_vector_cases,
         baseline.evidence.production_rust_tests,
@@ -2904,6 +3613,20 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
         baseline
             .evidence
             .recovery_evaluator_admission_vector_rust_tests,
+        baseline.evidence.refresh_evaluator_admission_rust_tests,
+        baseline
+            .evidence
+            .refresh_evaluator_admission_vector_rust_tests,
+        baseline.evidence.semantic_frame_core_rust_tests,
+        baseline.evidence.semantic_trace_boundary_rust_tests,
+        baseline
+            .evidence
+            .semantic_frame_party_view_vector_rust_tests,
+        baseline.evidence.phase2b_reconciliation_rust_tests,
+        baseline.evidence.phase2b_exit_evidence_rust_tests,
+        baseline.evidence.phase2b_review_subject_rust_tests,
+        baseline.evidence.phase2b_protected_inputs_rust_tests,
+        baseline.evidence.phase2b_change_control_python_tests,
         baseline.evidence.benchmark_manifest_rust_tests,
         baseline.evidence.benchmark_manifest_bytes,
         baseline.evidence.benchmark_bundle_index_bytes,

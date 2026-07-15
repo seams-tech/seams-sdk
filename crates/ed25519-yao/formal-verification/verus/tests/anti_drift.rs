@@ -38,6 +38,14 @@ fn identifiers_and_manifest_domains_match_production() {
         production::EXPORT_DRAFT_MANIFEST_FAMILY_BYTE
     );
     assert_eq!(
+        mirror::ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES,
+        production::ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES
+    );
+    assert_eq!(
+        mirror::EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES,
+        production::EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES
+    );
+    assert_eq!(
         mirror::PROVENANCE_STATEMENT_ENCODING_DOMAIN_V1,
         generator::provenance::PROVENANCE_STATEMENT_ENCODING_DOMAIN_V1
     );

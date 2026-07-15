@@ -880,6 +880,88 @@ fn export_view_set() -> HostOnlyExportEvaluationInputViewSetV1 {
         .expect("canonical export input views")
 }
 
+pub(crate) struct Phase2bActivationEvaluationInputProjectionV1 {
+    pub(crate) case_id: &'static str,
+    pub(crate) deriver_a_y_client: [u8; 32],
+    pub(crate) deriver_a_y_server: [u8; 32],
+    pub(crate) deriver_a_tau_client: [u8; 32],
+    pub(crate) deriver_a_tau_server: [u8; 32],
+    pub(crate) deriver_b_y_client: [u8; 32],
+    pub(crate) deriver_b_y_server: [u8; 32],
+    pub(crate) deriver_b_tau_client: [u8; 32],
+    pub(crate) deriver_b_tau_server: [u8; 32],
+}
+
+pub(crate) struct Phase2bExportEvaluationInputProjectionV1 {
+    pub(crate) case_id: &'static str,
+    pub(crate) deriver_a_y_client: [u8; 32],
+    pub(crate) deriver_a_y_server: [u8; 32],
+    pub(crate) deriver_b_y_client: [u8; 32],
+    pub(crate) deriver_b_y_server: [u8; 32],
+}
+
+pub(crate) fn phase2b_activation_evaluation_input_projection_v1(
+    request_kind: CeremonyRequestKindV1,
+) -> Phase2bActivationEvaluationInputProjectionV1 {
+    match request_kind {
+        CeremonyRequestKindV1::Registration => activation_projection(
+            REGISTRATION_CASE_ID_V1,
+            registration_view_set()
+                .observe_deriver_a_v1()
+                .contribution(),
+            registration_view_set()
+                .observe_deriver_b_v1()
+                .contribution(),
+        ),
+        CeremonyRequestKindV1::Recovery => activation_projection(
+            RECOVERY_CASE_ID_V1,
+            recovery_view_set().observe_deriver_a_v1().contribution(),
+            recovery_view_set().observe_deriver_b_v1().contribution(),
+        ),
+        CeremonyRequestKindV1::Refresh => activation_projection(
+            REFRESH_CASE_ID_V1,
+            refresh_view_set().observe_deriver_a_v1().contribution(),
+            refresh_view_set().observe_deriver_b_v1().contribution(),
+        ),
+        CeremonyRequestKindV1::Activation | CeremonyRequestKindV1::Export => {
+            panic!(
+                "Phase 2B activation projection requires an evaluating activation-family request"
+            )
+        }
+    }
+}
+
+pub(crate) fn phase2b_export_evaluation_input_projection_v1(
+) -> Phase2bExportEvaluationInputProjectionV1 {
+    let deriver_a = export_view_set().observe_deriver_a_v1();
+    let deriver_b = export_view_set().observe_deriver_b_v1();
+    Phase2bExportEvaluationInputProjectionV1 {
+        case_id: EXPORT_CASE_ID_V1,
+        deriver_a_y_client: deriver_a.y_client().expose_bytes(),
+        deriver_a_y_server: deriver_a.y_server().expose_bytes(),
+        deriver_b_y_client: deriver_b.y_client().expose_bytes(),
+        deriver_b_y_server: deriver_b.y_server().expose_bytes(),
+    }
+}
+
+fn activation_projection(
+    case_id: &'static str,
+    deriver_a: &crate::DeriverAContribution,
+    deriver_b: &crate::DeriverBContribution,
+) -> Phase2bActivationEvaluationInputProjectionV1 {
+    Phase2bActivationEvaluationInputProjectionV1 {
+        case_id,
+        deriver_a_y_client: deriver_a.y_client().expose_bytes(),
+        deriver_a_y_server: deriver_a.y_server().expose_bytes(),
+        deriver_a_tau_client: deriver_a.tau_client().expose_bytes(),
+        deriver_a_tau_server: deriver_a.tau_server().expose_bytes(),
+        deriver_b_y_client: deriver_b.y_client().expose_bytes(),
+        deriver_b_y_server: deriver_b.y_server().expose_bytes(),
+        deriver_b_tau_client: deriver_b.tau_client().expose_bytes(),
+        deriver_b_tau_server: deriver_b.tau_server().expose_bytes(),
+    }
+}
+
 fn activation_deriver_a_extension<Common>(
     view: &HostOnlyDeriverAActivationEvaluationInputViewV1<Common>,
 ) -> DeriverAActivationEvaluationInputsExtensionV1 {

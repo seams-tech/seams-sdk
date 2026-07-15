@@ -55,11 +55,14 @@ wasm/email_otp_runtime/pkg
 wasm/threshold_prf/pkg
 wasm/email_otp_runtime/target
 wasm/threshold_prf/target
-wasm/hss_client_signer/target/
+wasm/ecdsa_client_signer/target/
 crates/*/target
 tools/*/target
 crates/threshold-prf/wasm-bench/pkg
 crates/threshold-prf/wasm-bench/target
+crates/ed25519-yao/wasm-bench/pkg
+crates/ed25519-yao/wasm-bench/pkg-phase5
+crates/ed25519-yao/wasm-bench/target
 crates/*/formal-verification/**/target
 crates/*/formal-verification/**/.lake
 crates/*/formal-verification/lean-boundary/tools/

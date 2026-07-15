@@ -67,6 +67,9 @@ fn generated_block_commits_the_exact_repository_corpora() {
         "vectors/ed25519-yao-export-evaluator-authorization-v1.json",
         "vectors/ed25519-yao-registration-evaluator-admission-v1.json",
         "vectors/ed25519-yao-recovery-evaluator-admission-v1.json",
+        "vectors/ed25519-yao-refresh-evaluator-admission-v1.json",
+        "vectors/ed25519-yao-semantic-frame-party-views-v1.json",
+        "vectors/ed25519-yao-phase2b-core-reconciliation-v1.json",
     ] {
         let bytes =
             fs::read(manifest_dir.join(relative_path)).expect("committed corpus is readable");
@@ -96,6 +99,9 @@ fn generated_block_commits_the_exact_repository_corpora() {
         "docs/export-evaluator-authorization-v1.md",
         "docs/registration-evaluator-admission-v1.md",
         "docs/recovery-evaluator-admission-v1.md",
+        "docs/refresh-evaluator-admission-v1.md",
+        "docs/semantic-frame-party-views-v1.md",
+        "docs/phase2b-core-reconciliation-v1.md",
     ] {
         let bytes = fs::read(manifest_dir.join(relative_path))
             .expect("companion specification is readable");

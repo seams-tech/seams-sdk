@@ -932,8 +932,9 @@ three separate tests cover the artifact-filesystem policy crate.
 
 This is executable correctness, cost, emitted-file regeneration, and independent
 five-case byte-decoding/evaluation evidence for the host-only benchmark
-components, liveness schedules, and generated bundle. Phase 2B review and wider
-reconciliation, 128-case artifact evaluation, formal circuit refinement,
+components, liveness schedules, and generated bundle. The counted Phase 2B
+mechanical reconciliation gate now passes against the complete Phase 1 corpus.
+Independent-host reproduction and review, 128-case artifact evaluation, formal circuit refinement,
 compiled constant-time behavior, garbling correctness, and every
 protocol-security claim remain open.
 

@@ -254,7 +254,7 @@ Ed25519 public key: `ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537
 | Repository-relative path | Bytes | SHA-256 |
 | --- | ---: | --- |
 | `docs/output-sharing-v1.md` | 7716 | `5035da5d3669bf9a310bb4fa4299ad9eaf8ded700f5805f40f1b0893f716f5e3` |
-| `docs/circuit-ir-v1.md` | 35677 | `6d6ccea7810373bb6aa5497b0936644e2f9650c8ffbdef6180e0f5eb9fd074c1` |
+| `docs/circuit-ir-v1.md` | 35777 | `7124434078de370c9a31bd33efd14a8a6df15478934a8f1bba5ddc39ac73dbdd` |
 | `docs/ceremony-context-v1.md` | 8082 | `46f8cbec72b105a92a1257c267b672820e8eff4a6b12d7aa07075fd0a6f948c8` |
 | `docs/input-provenance-v1.md` | 55505 | `8d7a36f33c22019551591ded3e21316d469f79a6ca339fc2176a22d595e79c57` |
 | `docs/semantic-artifact-lifecycle-v1.md` | 17384 | `ebb6acb308d7a56fa02d673cdf1acb1a466bb67f215ec4f20581320e8c55fe61` |
@@ -265,7 +265,7 @@ Ed25519 public key: `ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537
 | `docs/authenticated-store-resolution-v1.md` | 7253 | `2c1999c2519c011c10ad0b187d78c4f51528931f0dd493247de0a8d162a97267` |
 | `docs/signing-worker-activation-v1.md` | 8358 | `af154c8deb162cf45f919f33c6dbddb62a2f985eacde1765b8be9420ef9ffd50` |
 | `docs/refresh-promotion-v1.md` | 4142 | `3c75567e45267cb79f87214eae622183498ffa1f2f8c8ecf1f0b114184ab290b` |
-| `docs/benchmark-manifest-v1.md` | 5059 | `540e8219302aef1fd0ca7f4f629e12d5a9bcc322113dde2849aa00298507b75c` |
+| `docs/benchmark-manifest-v1.md` | 5162 | `8ab45bef81a1fe9ab1f2df5acbb10365f607fdc2eb447c5e5f20db590766fcfa` |
 | `docs/artifact-filesystem-policy-v1.md` | 4507 | `1c2d8c6765a9df076fb1fe62450934ce764d0b31e4b8fb94dc60223107e9b27d` |
 | `docs/joint-refresh-delta-v1.md` | 4984 | `d37dea6f3a8c4b5eebae4e497e19d936019ae12ee2ff2b2491d9280940313efd` |
 | `docs/export-delivery-lifecycle-v1.md` | 6885 | `a8ba5905102bdf25ae8bfa04b0067073a05197d0d023c1bc849a8e320490e41c` |
@@ -275,6 +275,9 @@ Ed25519 public key: `ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537
 | `docs/export-evaluator-authorization-v1.md` | 7715 | `812c168a15ea5bd0423da598b33ba2374d2d6fc3391fb71a44a93a912a684ce5` |
 | `docs/registration-evaluator-admission-v1.md` | 9883 | `42e3872538c30b82f271774194f89258a088b89e84b6f021e477990e3e1c29dc` |
 | `docs/recovery-evaluator-admission-v1.md` | 10236 | `797ddbd57c0712250fe6f7cc900c7ed803c50203dcc4f9fffdb24dbc39e47e51` |
+| `docs/refresh-evaluator-admission-v1.md` | 14554 | `333714a6990fcc77a187c62d18d2a32db1174360233be7e5e7d77d04cd3de664` |
+| `docs/semantic-frame-party-views-v1.md` | 31603 | `21ada5d4dd3789b870a646797010fec8ecf242247b45156b349cafcbf85e7168` |
+| `docs/phase2b-core-reconciliation-v1.md` | 32091 | `71ff72963c8119487847fabb5b0c354eadf80a7b1ebe0c5adbc73917c868cbd1` |
 
 ### Canonical corpus commitments
 
@@ -286,18 +289,21 @@ Ed25519 public key: `ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537
 | `vectors/ed25519-yao-lifecycle-continuity-v1.json` | `seams:router-ab:ed25519-yao:lifecycle-continuity-vectors:v1` | 6 | 39978 | `c115e81252345985fffd5b6b544d601c5a751b657aca4d1740c27f2f59fc32cd` |
 | `vectors/ed25519-yao-provenance-v1.json` | `seams:router-ab:ed25519-yao:role-input-provenance-vectors:v1` | 4 | 50672 | `8a39d15ddb384fa32111815614a30246e167ec1861d215b89c681e364318d4ba` |
 | `vectors/ed25519-yao-output-sharing-v1.json` | `seams:router-ab:ed25519-yao:output-sharing-vectors:v1` | 6 | 11643 | `c3b340c7f8e181ae38aabb654db7cf6631a11ef634b29e9c46c68c5af6d21965` |
-| `vectors/ed25519-yao-semantic-lifecycle-v1.json` | `seams:router-ab:ed25519-yao:semantic-artifact-lifecycle-vectors:v1` | 5 | 96134 | `b14fa1e2c8141c3804ba526b03174d00693a8779e0efbb466e9beaaa662cc999` |
-| `vectors/ed25519-yao-output-party-views-v1.json` | `seams:router-ab:ed25519-yao:output-party-views-vectors:v1` | 5 | 36950 | `a7402e5e38444dfbdaea34e637e1f1ebe4a5249087e492271a6be6b58395b5c7` |
+| `vectors/ed25519-yao-semantic-lifecycle-v1.json` | `seams:router-ab:ed25519-yao:semantic-artifact-lifecycle-vectors:v1` | 5 | 96134 | `758ae82455c6847e04d1b2ad56bc231f6a6a4f44522a9a6d20401a789ef1ca6f` |
+| `vectors/ed25519-yao-output-party-views-v1.json` | `seams:router-ab:ed25519-yao:output-party-views-vectors:v1` | 5 | 36950 | `5aa0c4cbde69125a995c89598dffac41d0924a9cfc05c64af41ccad289c0f9ae` |
 | `vectors/ed25519-yao-evaluation-input-party-views-v1.json` | `seams:router-ab:ed25519-yao:evaluation-input-party-views-vectors:v1` | 5 | 20929 | `da76dfe6e93be9e2dfe4ebfd1c6f7e269a05cd69732c302b8573126f85409f80` |
 | `vectors/ed25519-yao-uniform-abort-envelope-v1.json` | `seams:router-ab:ed25519-yao:uniform-abort-envelope-vectors:v1` | 5 | 1965 | `bf71321d0896c3a6591b0a0f2f57db9a01994209bfcf12dd1ec905e9d6599df0` |
 | `vectors/ed25519-yao-evaluator-abort-state-party-views-v1.json` | `seams:router-ab:ed25519-yao:evaluator-abort-state-party-views:v1` | 4 | 11508 | `9aa77f2cf1b7f74145789bde79d71b53da3c967081d26e609a95f8829a35ed37` |
 | `vectors/ed25519-yao-export-delivery-v1.json` | `seams:router-ab:ed25519-yao:export-delivery-vectors:v1` | 1 | 5856 | `4fae90165fde33a2642eca0704bbe4ebcf126141a8a7d02d410676a0b3cdbe71` |
-| `vectors/ed25519-yao-activation-delivery-v1.json` | `seams:router-ab:ed25519-yao:activation-delivery-vectors:v1` | 3 | 23164 | `de8b34dceed25a2ca0ed025c265bec59b710d24d61642d7fed8481bd58a2fc53` |
-| `vectors/ed25519-yao-activation-recipient-party-views-v1.json` | `seams:router-ab:ed25519-yao:activation-recipient-party-views:v1` | 3 | 17058 | `266b0880b2fe64c88d49153ecf111d74acab3c01fdf0e91c7cb40caa333be0ac` |
+| `vectors/ed25519-yao-activation-delivery-v1.json` | `seams:router-ab:ed25519-yao:activation-delivery-vectors:v1` | 3 | 23164 | `8a27dfff5b56be062241667026c0c7cc69ae3d1a395a08a87728afc031df1ccb` |
+| `vectors/ed25519-yao-activation-recipient-party-views-v1.json` | `seams:router-ab:ed25519-yao:activation-recipient-party-views:v1` | 3 | 17058 | `27500219743d5f103f7d39a2af80ac8ab897a93e0a9c373291666e2f2429d420` |
 | `vectors/ed25519-yao-recovery-credential-transition-v1.json` | `seams:router-ab:ed25519-yao:recovery-credential-transition-vectors:v1` | 1 | 7228 | `5293dde1a79a1ceea5fc48e2fe6ff71126c2cd56faec43374e8f087b23ce78b2` |
 | `vectors/ed25519-yao-export-evaluator-authorization-v1.json` | `seams:router-ab:ed25519-yao:export-evaluator-authorization-vectors:v1` | 1 | 9805 | `b9059e1d931227863375afd20af009b056e7b9daa976206236cb307dfe920702` |
 | `vectors/ed25519-yao-registration-evaluator-admission-v1.json` | `seams:router-ab:ed25519-yao:registration-evaluator-admission-vectors:v1` | 1 | 13763 | `ceab8a1b60963313716fc6493bf18736f385362e4a04b479bd78005672b6e7d5` |
 | `vectors/ed25519-yao-recovery-evaluator-admission-v1.json` | `seams:router-ab:ed25519-yao:recovery-evaluator-admission-vectors:v1` | 1 | 13727 | `2555067e3a8bbe0b5242aa370a6db650586ab2da533767dcdc53db8b3afdf19f` |
+| `vectors/ed25519-yao-refresh-evaluator-admission-v1.json` | `seams:router-ab:ed25519-yao:refresh-evaluator-admission-vectors:v1` | 1 | 15627 | `9d5327e9a9623fc101be48f414025d9f6fc108542a72b7126b1ed740b2e0c77a` |
+| `vectors/ed25519-yao-semantic-frame-party-views-v1.json` | `seams:router-ab:ed25519-yao:semantic-frame-party-views:v1` | 8 | 249622 | `3dc6d30e9c48b3ff55513bc254193e7ad1c1756b42b4a999773adfa6b89a45e9` |
+| `vectors/ed25519-yao-phase2b-core-reconciliation-v1.json` | `seams:router-ab:ed25519-yao:phase2b-core-reconciliation:v1` | 5 | 20840 | `1442406f3fb7e844724a908b511eee9b68fffde7fde89ae09e0829783874ffea` |
 
 <!-- END GENERATED: ED25519_YAO_FIXED_REFERENCE_V1 -->
 <!-- prettier-ignore-end -->

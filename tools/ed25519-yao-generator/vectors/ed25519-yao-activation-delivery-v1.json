@@ -210,9 +210,9 @@
         "origin_request_context_digest_hex": "011a86f2067d0e41f621881f268bdc4603e17ae21fad3bba5ce7aa22a8de8adb",
         "origin_authorization_digest_hex": "18a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c",
         "origin_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
-        "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "output_committed_receipt_encoding_hex": "0000004b7365616d732f726f757465722d61622f656432353531392d79616f2f73656d616e7469632d726563656970742f61637469766174696f6e2d6f75747075742d636f6d6d69747465642f763100000001010000000101000000010400000020011a86f2067d0e41f621881f268bdc4603e17ae21fad3bba5ce7aa22a8de8adb0000002018a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c000000204b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb000000207474747474747474747474747474747474747474747474747474747474747474000000208484848484848484848484848484848484848484848484848484848484848484000000207575757575757575757575757575757575757575757575757575757575757575000000208f71f2f9df8c94d925b438876cafba4f4c0d7fad276ff2a74256532e4f8df61b00000020787878787878787878787878787878787878787878787878787878787878787800000008000000000000000b00000020dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b0000002051b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72000000204809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e0200000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf07700000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000020a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
-        "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+        "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "output_committed_receipt_encoding_hex": "0000004b7365616d732f726f757465722d61622f656432353531392d79616f2f73656d616e7469632d726563656970742f61637469766174696f6e2d6f75747075742d636f6d6d69747465642f763100000001010000000101000000010400000020011a86f2067d0e41f621881f268bdc4603e17ae21fad3bba5ce7aa22a8de8adb0000002018a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c000000204b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb000000207474747474747474747474747474747474747474747474747474747474747474000000208484848484848484848484848484848484848484848484848484848484848484000000207575757575757575757575757575757575757575757575757575757575757575000000208f71f2f9df8c94d925b438876cafba4f4c0d7fad276ff2a74256532e4f8df61b00000020bd90e3d7af7bf09a77b8f7d8aca41417d5d8c4fdd9907ceaddd2b374557674d800000008000000000000000b00000020bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e0000002051b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72000000204809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e0200000020ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf07700000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000020a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "output_committed_receipt_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
         "x_client_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",
         "x_server_hex": "4809448a1ab1912ec0f4664194d9a6ad23b93ac4c348c4028c760a3c641f0e02",
         "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
@@ -220,18 +220,18 @@
       },
       "activation_control_admitted": {
         "request_context_digest_hex": "589e166a0a51a8b0237ec388f057218c3a4a0ee5d75999a98de1d079d1a8b34f",
-        "authorization_digest_hex": "a34aafca8e377730c096b50ce5b81128fe02b22b52e4d6c9cebb571f25af2282",
-        "transcript_digest_hex": "3b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb81",
-        "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+        "authorization_digest_hex": "063aafc650f774c534e0038853cd45ede7dbaba7895f0083a999f19f179d7011",
+        "transcript_digest_hex": "6d56bdfe0e9a618ed786f98ce818174945dac1e06cafa87ab6e768478419f295",
+        "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "output_committed_receipt_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
         "activation_authorization_state": "unconsumed"
       },
       "metadata_consumed": {
         "request_context_digest_hex": "589e166a0a51a8b0237ec388f057218c3a4a0ee5d75999a98de1d079d1a8b34f",
-        "authorization_digest_hex": "a34aafca8e377730c096b50ce5b81128fe02b22b52e4d6c9cebb571f25af2282",
-        "transcript_digest_hex": "3b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb81",
-        "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+        "authorization_digest_hex": "063aafc650f774c534e0038853cd45ede7dbaba7895f0083a999f19f179d7011",
+        "transcript_digest_hex": "6d56bdfe0e9a618ed786f98ce818174945dac1e06cafa87ab6e768478419f295",
+        "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "output_committed_receipt_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
         "activation_authorization_state": "consumed",
         "zero_private_evaluation_work": {
           "yao_evaluations": 0,
@@ -242,10 +242,10 @@
         }
       },
       "delivery_uncertain": {
-        "before_package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "after_package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
-        "activation_transcript_digest_hex": "3b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb81",
+        "before_package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "after_package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "output_committed_receipt_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
+        "activation_transcript_digest_hex": "6d56bdfe0e9a618ed786f98ce818174945dac1e06cafa87ab6e768478419f295",
         "activation_authorization_state": "consumed",
         "zero_private_evaluation_work": {
           "yao_evaluations": 0,
@@ -256,18 +256,18 @@
         }
       },
       "recipients_released": {
-        "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "output_committed_receipt_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
-        "activation_transcript_digest_hex": "3b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb81",
+        "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "output_committed_receipt_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
+        "activation_transcript_digest_hex": "6d56bdfe0e9a618ed786f98ce818174945dac1e06cafa87ab6e768478419f295",
         "client": {
           "capability_kind": "activation_client_scalar_release",
-          "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+          "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
           "delivery_evidence_digest_hex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
           "x_client_base_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004"
         },
         "signing_worker": {
           "capability_kind": "signing_worker_activation_release_authority",
-          "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+          "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
           "delivery_evidence_digest_hex": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3"
         },
         "activation_authorization_state": "consumed",
@@ -280,16 +280,16 @@
         }
       },
       "redelivered": {
-        "before_package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "after_package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+        "before_package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "after_package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
         "before_client_scalar_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004",
         "after_client_scalar_hex": "20ba45f648a5f2d51ab161a34128cb9d8c2dc58b8e3d43e0c1ea5a866abaa004",
         "before_client_delivery_evidence_digest_hex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
         "after_client_delivery_evidence_digest_hex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
         "before_signing_worker_delivery_evidence_digest_hex": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3",
         "after_signing_worker_delivery_evidence_digest_hex": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3",
-        "before_signing_worker_authority_package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-        "after_signing_worker_authority_package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
+        "before_signing_worker_authority_package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+        "after_signing_worker_authority_package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
         "activation_authorization_state": "consumed",
         "zero_private_evaluation_work": {
           "yao_evaluations": 0,

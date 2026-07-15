@@ -142,18 +142,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519-yao-artifact-fs-policy"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustix",
+]
+
+[[package]]
 name = "ed25519-yao-generator"
 version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "ed25519-yao",
+ "ed25519-yao-artifact-fs-policy",
  "getrandom",
  "hkdf",
  "rustix",
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
+ "zeroize",
 ]
 
 [[package]]

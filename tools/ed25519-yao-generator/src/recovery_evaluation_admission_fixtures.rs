@@ -9,8 +9,7 @@ use crate::ceremony_fixtures::canonical_recovery_ceremony_fixture_v1;
 use crate::lifecycle_domain::{ActivationReceiptEvidenceV1, RecoveryRequestV1};
 use crate::provenance_fixtures::canonical_provenance_fixture_pair_for_registered_key_v1;
 use crate::recovery_evaluation_admission::{
-    accept_host_only_recovery_admission_v1,
-    OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1,
+    accept_host_only_recovery_admission_v1, OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1,
     RecoveryAdmissionCheckedAtUnixMsV1,
 };
 use crate::semantic_artifacts::{
@@ -258,9 +257,7 @@ fn recovery_evaluator_admission_case() -> RecoveryEvaluatorAdmissionVectorCaseV1
     let store_signing_bytes = state
         .signed_resolution_bytes()
         .expect("store signing bytes");
-    let store_digest = state
-        .signed_resolution_digest()
-        .expect("store digest");
+    let store_digest = state.signed_resolution_digest().expect("store digest");
     let store_vector = RecoveryStoreResolutionVectorV1 {
         signing_bytes_hex: encode_hex(&store_signing_bytes),
         signing_bytes_sha256_hex: encode_hex(&store_digest),
@@ -303,16 +300,13 @@ fn recovery_evaluator_admission_case() -> RecoveryEvaluatorAdmissionVectorCaseV1
         ),
         deriver_b_input_state_epoch: state_projection.deriver_b_input_state_epoch.value(),
     };
-    let next_epoch =
-        CeremonyActivationEpochV1::new(NEXT_ACTIVATION_EPOCH_V1).expect("next epoch");
+    let next_epoch = CeremonyActivationEpochV1::new(NEXT_ACTIVATION_EPOCH_V1).expect("next epoch");
     let execution = OneUseExecutionId32V1::new(EXECUTION_ID_V1).expect("execution");
     let checked_at =
         RecoveryAdmissionCheckedAtUnixMsV1::new(CHECKED_AT_UNIX_MS_V1).expect("checked at");
     let selected_evidence =
-        OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1::new(
-            SELECTED_MECHANISM_EVIDENCE_V1,
-        )
-        .expect("selected mechanism evidence");
+        OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1::new(SELECTED_MECHANISM_EVIDENCE_V1)
+            .expect("selected mechanism evidence");
     let admission = accept_host_only_recovery_admission_v1(
         &request,
         &provenance,
@@ -349,10 +343,18 @@ fn recovery_evaluator_admission_case() -> RecoveryEvaluatorAdmissionVectorCaseV1
             provenance.digest().expect("pair digest").as_bytes(),
         ),
         deriver_a_statement_digest_hex: encode_hex(
-            provenance.deriver_a().digest().expect("A digest").as_bytes(),
+            provenance
+                .deriver_a()
+                .digest()
+                .expect("A digest")
+                .as_bytes(),
         ),
         deriver_b_statement_digest_hex: encode_hex(
-            provenance.deriver_b().digest().expect("B digest").as_bytes(),
+            provenance
+                .deriver_b()
+                .digest()
+                .expect("B digest")
+                .as_bytes(),
         ),
         active_credential_binding_digest_hex: encode_hex(
             continuity.active_credential_binding_digest().as_bytes(),
@@ -372,9 +374,7 @@ fn recovery_evaluator_admission_case() -> RecoveryEvaluatorAdmissionVectorCaseV1
         provenance_same_root_artifact_digest_hex: encode_hex(
             continuity.same_root_evidence_artifact_digest().as_bytes(),
         ),
-        selected_mechanism_acceptance_evidence_digest_hex: encode_hex(
-            selected_evidence.as_bytes(),
-        ),
+        selected_mechanism_acceptance_evidence_digest_hex: encode_hex(selected_evidence.as_bytes()),
         current_activation_epoch: CURRENT_ACTIVATION_EPOCH_V1,
         next_activation_epoch: next_epoch.value(),
         one_use_execution_id_hex: encode_hex(execution.as_bytes()),
@@ -409,17 +409,16 @@ fn recovery_evaluator_admission_case() -> RecoveryEvaluatorAdmissionVectorCaseV1
         source_references: RecoveryEvaluatorSourceReferencesV1 {
             ceremony_context_case_id: "ceremony-recovery-v1".to_owned(),
             provenance_case_id: "recovery_provenance_outer_v1".to_owned(),
-            evaluation_input_party_view_case_id:
-                "recovery_evaluation_input_party_views_v1".to_owned(),
-            semantic_lifecycle_case_id:
-                "recovery_semantic_artifacts_output_committed_v1".to_owned(),
-            output_party_view_case_id:
-                "recovery_output_party_views_package_prepared_v1".to_owned(),
+            evaluation_input_party_view_case_id: "recovery_evaluation_input_party_views_v1"
+                .to_owned(),
+            semantic_lifecycle_case_id: "recovery_semantic_artifacts_output_committed_v1"
+                .to_owned(),
+            output_party_view_case_id: "recovery_output_party_views_package_prepared_v1".to_owned(),
             activation_delivery_case_id: "recovery_activation_delivery_v1".to_owned(),
-            activation_recipient_party_view_case_id:
-                "recovery_activation_recipient_party_views_v1".to_owned(),
-            recovery_credential_transition_case_id:
-                "recovery_credential_suspension_promotion_v1".to_owned(),
+            activation_recipient_party_view_case_id: "recovery_activation_recipient_party_views_v1"
+                .to_owned(),
+            recovery_credential_transition_case_id: "recovery_credential_suspension_promotion_v1"
+                .to_owned(),
             evaluator_abort_corpus_schema:
                 "seams:router-ab:ed25519-yao:evaluator-abort-state-party-views:v1".to_owned(),
             evaluator_abort_request_kind: "recovery".to_owned(),
