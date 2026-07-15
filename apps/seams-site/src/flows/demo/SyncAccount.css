@@ -1,17 +1,37 @@
-.account-recovery-link-device-button {
-  margin-top: 1.25rem;
+/* Devices & Recovery: sections follow the grouped-rhythm system (8px inside
+   a group, wider breaks between groups) — no hairline dividers */
+.recovery-section {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin-top: 24px;
 }
 
-.account-recovery-link-device-button .button {
-  min-width: 160px;
+.recovery-section:first-of-type {
+  margin-top: 0;
+}
+
+.recovery-section .action-text {
+  margin-bottom: 0;
+}
+
+/* beta chip rides beside the section title */
+.recovery-beta-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--site-border);
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--site-text-secondary);
+  vertical-align: 2px;
 }
 
 @media (max-width: 640px) {
-  .account-recovery-link-device-button {
-    width: 100%;
-  }
-
-  .account-recovery-link-device-button .button {
-    width: 100%;
+  .recovery-section .button {
+    width: 100% !important;
   }
 }

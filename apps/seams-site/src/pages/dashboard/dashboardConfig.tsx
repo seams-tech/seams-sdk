@@ -28,11 +28,43 @@ import {
   WebhookIcon,
 } from './icons/SidebarIcons';
 import type {
+  DashboardProduct,
+  DashboardProductId,
   DashboardRoute,
   ExpandedSidebarGroupsState,
   SidebarGroup,
   SidebarItem,
 } from './types';
+
+/* Product lines exposed in the sidebar switcher (reference-app style). Only
+   the live product is selectable today; the rest advertise the roadmap with a
+   "Soon" pill until their surfaces ship. Gradients come from the on-brand
+   asset set in src/public/gradients/web. */
+export const DASHBOARD_PRODUCTS: DashboardProduct[] = [
+  {
+    id: 'embedded-wallets',
+    name: 'Embedded wallets',
+    description: 'Passkey wallets, policies & gas',
+    gradient: '/gradients/web/aqua-evergreen.jpg',
+    available: true,
+  },
+  {
+    id: 'ecommerce-agents',
+    name: 'Ecommerce agents',
+    description: 'Agent checkout & payments',
+    gradient: '/gradients/web/dusk-blue-mauve.jpg',
+    available: false,
+  },
+  {
+    id: 'api',
+    name: 'API',
+    description: 'Build on the Seams REST API',
+    gradient: '/gradients/web/sky-sand.jpg',
+    available: false,
+  },
+];
+
+export const DEFAULT_DASHBOARD_PRODUCT_ID: DashboardProductId = 'embedded-wallets';
 
 const walletsRoutesEnabled = FRONTEND_CONFIG.dashboardFlags.walletsRoutesEnabled;
 

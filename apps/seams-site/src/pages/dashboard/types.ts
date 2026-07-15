@@ -23,6 +23,18 @@ export type DashboardRoute =
   | '/dashboard/api-keys'
   | '/dashboard/webhooks';
 
+export type DashboardProductId = 'embedded-wallets' | 'ecommerce-agents' | 'api';
+
+export type DashboardProduct = {
+  id: DashboardProductId;
+  name: string;
+  description: string;
+  /** Public path to a brand gradient asset used for the product avatar. */
+  gradient: string;
+  /** Live products are selectable; not-yet-shipped ones render as "Soon". */
+  available: boolean;
+};
+
 export type TopbarMenuKey = 'organization' | 'project' | 'environment' | 'accountSettings';
 export type TopbarOption = {
   value: string;

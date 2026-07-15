@@ -3,7 +3,6 @@ import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
 import { preloadSeamsAuthMenu, useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
-import { CarouselProvider } from './Carousel/CarouselProvider';
 import { Carousel } from './Carousel/Carousel';
 
 // Lazily load the most common flows to shrink the initial bundle.
@@ -123,6 +122,14 @@ export function DemoPasskeyColumn({
     setCurrentPage(loginState?.isLoggedIn ? 1 : 0);
   }, [loginState?.isLoggedIn, setCurrentPage]);
 
+  // Warm the post-login page chunks on unlock so paginating to them can't
+  // suspend and flash the Suspense fallback mid-transition.
+  React.useEffect(() => {
+    if (!loginState?.isLoggedIn) return;
+    void import('@/flows/demo/DemoPage').catch(() => {});
+    void import('@/flows/demo/SyncAccount').catch(() => {});
+  }, [loginState?.isLoggedIn]);
+
   const pages = React.useMemo(
     () => [
       {
@@ -183,21 +190,13 @@ export function DemoPasskeyColumn({
       >
         {loginState?.isLoggedIn ? <NavbarProfileOverlay /> : null}
         <AuthMenuControlProvider>
-          <CarouselProvider
+          {/* Fixed-width so switching pages never resizes/re-centers the card;
+              the external pager drives `index` (fully controlled). */}
+          <Carousel
             pages={pages}
-            initialKey="login"
-            defaultTransition="fade"
-            showBreadcrumbs={false}
-            currentPage={currentPage}
-            onCurrentPageChange={setCurrentPage}
-            rootStyle={{
-              // padding-bottom for tooltip so it's not clipped
-              display: 'grid',
-              placeContent: 'center',
-            }}
-          >
-            <Carousel />
-          </CarouselProvider>
+            index={currentPage}
+            style={{ width: 'min(480px, calc(100vw - 2rem))', margin: '0 auto' }}
+          />
         </AuthMenuControlProvider>
       </div>
     </ProfileMenuControlProvider>

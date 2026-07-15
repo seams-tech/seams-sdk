@@ -13,31 +13,53 @@
   width: 100%;
 }
 
+/* same face as the Welcome menu's greeting input: shape-token radius and a
+   whisper of the theme's ink so it separates from the card in both modes */
 .email-recovery-fields .email-recovery-fields__input {
   flex: 1;
   min-width: 0;
   width: auto;
   padding: 0.4rem 0.75rem;
-  border-radius: 2rem;
-  border: 1px solid var(--site-border);
-  background: var(--site-form-surface);
+  border-radius: var(--w3a-shape-field, 10px);
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--site-border-strong, var(--site-border)),
+      var(--w3a-colors-textPrimary, var(--site-text-primary)) 10%
+    );
+  background: color-mix(
+    in srgb,
+    var(--w3a-shape-fieldBackground, var(--w3a-colors-surface)),
+    var(--w3a-colors-textPrimary, var(--site-text-primary)) 3%
+  );
   color: var(--site-text-primary);
   outline: none;
   font-size: var(--site-font-size-sm);
   font-family: var(--site-font-sans);
-  transition: all var(--site-duration-fast) var(--site-ease);
+  transition:
+    all var(--site-duration-fast) var(--site-ease),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
   box-sizing: border-box;
 }
 
 .email-recovery-fields .email-recovery-fields__input:focus {
   outline: none;
-  border-color: var(--site-border-strong);
-  box-shadow: 0 0 0 3px var(--w3a-shadows-sm);
+  border-color: var(--w3a-colors-focus, var(--site-border-strong));
 }
 
 .email-recovery-fields .email-recovery-fields__input::placeholder {
   color: var(--site-text-secondary);
   opacity: 0.8;
+}
+
+/* keep Chrome's autofill tint from stomping the theme: defer its background
+   paint indefinitely and pin the text color to the theme token */
+.email-recovery-fields .email-recovery-fields__input:-webkit-autofill,
+.email-recovery-fields .email-recovery-fields__input:-webkit-autofill:hover,
+.email-recovery-fields .email-recovery-fields__input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--w3a-colors-textPrimary, var(--site-text-primary));
+  caret-color: var(--w3a-colors-textPrimary, var(--site-text-primary));
+  transition: background-color 999999s ease-in-out 0s;
 }
 
 .email-recovery-fields .email-recovery-fields__input:disabled {

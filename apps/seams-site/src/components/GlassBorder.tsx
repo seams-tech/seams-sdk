@@ -13,8 +13,8 @@ export const GlassBorder: React.FC<GlassBorderProps> = ({
   style = {},
 }) => {
   return (
-    <div className={`glass-border-root ${className}`} style={style}>
-      <div className={`glass-border-inner`}>{children}</div>
+    <div className={`glass-border-inner ${className}`.trim()} style={style}>
+      {children}
     </div>
   );
 };

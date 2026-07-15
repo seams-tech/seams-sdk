@@ -12,7 +12,7 @@ import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams
 import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
 
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
-import { handleSigningToastEvent } from './signingToast';
+import { friendlySigningErrorMessage, handleSigningToastEvent } from './signingToast';
 
 const SET_GREETING_GAS = '10000000000000';
 
@@ -140,11 +140,12 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
               }, 1000);
             } else {
               const callbackErrorMessage = String(error?.message || '').trim();
-              const message =
+              const message = friendlySigningErrorMessage(
                 normalizedResults.find((item) => item?.error)?.error ||
-                callbackErrorMessage ||
-                signingFailureMessage ||
-                (isSuccess ? 'Missing transaction ID' : 'Unknown error');
+                  callbackErrorMessage ||
+                  signingFailureMessage ||
+                  (isSuccess ? 'Missing transaction ID' : 'Unknown error'),
+              );
               toast.error(`Greeting update failed: ${message}`);
             }
             setTxLoading(false);
@@ -153,8 +154,8 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
       });
     } catch (error: unknown) {
       if (!signingFailureMessage) {
-        const fallbackMessage = String(
-          (error as { message?: unknown })?.message || error || 'Unknown error',
+        const fallbackMessage = friendlySigningErrorMessage(
+          String((error as { message?: unknown })?.message || error || 'Unknown error'),
         );
         toast.error(`Greeting update failed: ${fallbackMessage}`);
       }
@@ -243,9 +244,12 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
       toast.dismiss('delegate-relay');
 
       if (!relayResult.ok) {
-        toast.error(`Relayer execution failed: ${relayResult.error || 'Unknown error'}`, {
-          id: 'delegate-greeting',
-        });
+        toast.error(
+          `Relayer execution failed: ${friendlySigningErrorMessage(
+            relayResult.error || 'Unknown error',
+          )}`,
+          { id: 'delegate-greeting' },
+        );
         return;
       }
 
@@ -264,7 +268,9 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         toast.success('Delegate submitted via relayer (no TxID)', { id: 'delegate-greeting' });
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = friendlySigningErrorMessage(
+        error instanceof Error ? error.message : String(error),
+      );
       toast.error(`Delegate signing failed: ${message}`, { id: 'delegate-greeting' });
     } finally {
       setDelegateLoading(false);

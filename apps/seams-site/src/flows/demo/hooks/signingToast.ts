@@ -15,14 +15,26 @@ type SigningToastOptions = {
   successMessage: string;
 };
 
+/* Maps known relayer/sponsor failures to human copy. An underfunded gas
+   sponsor surfaces as "Send Transaction failed (InvalidTxError:
+   NotEnoughBalance)" (relayer code: funding_failed) — shown raw it reads
+   like a USER balance problem, when it's the sponsor account that's dry. */
+export function friendlySigningErrorMessage(raw: string): string {
+  const message = String(raw || '').trim();
+  if (/NotEnoughBalance/i.test(message) || /funding_failed/i.test(message)) {
+    return 'Gas sponsor out of gas';
+  }
+  return message;
+}
+
 function signingEventErrorMessage(event: SigningFlowEvent, fallback: string): string {
   const error = event.error as { message?: unknown } | string | undefined;
-  if (typeof error === 'string' && error.trim()) return error.trim();
+  if (typeof error === 'string' && error.trim()) return friendlySigningErrorMessage(error);
   if (error && typeof error === 'object') {
     const errorMessage = String(error.message || '').trim();
-    if (errorMessage) return errorMessage;
+    if (errorMessage) return friendlySigningErrorMessage(errorMessage);
   }
-  return event.message || fallback;
+  return friendlySigningErrorMessage(event.message || fallback);
 }
 
 function signingToastMessage(
