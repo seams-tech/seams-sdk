@@ -21,18 +21,24 @@ import {
   storeWalletEd25519RegistrationData,
   storeWalletEd25519RecoveryRegistrationData,
   finalizeWalletEd25519SignerRegistration,
+  rollbackWalletEd25519SignerRegistration,
   storeWalletEmailOtpEd25519RegistrationData,
-  updateLastLogin,
+  storeWalletEmailOtpMixedRegistrationData,
   type StoredRegistrationData,
+  type StoredWalletEd25519SignerRegistration,
   type StoreAuthenticatorInput,
   type StoreWalletEd25519RegistrationInput,
   type StoreWalletEd25519SignerRecordInput,
   type StoreWalletEmailOtpEd25519RegistrationInput,
+  type StoreWalletEmailOtpMixedRegistrationInput,
+  type StoreWalletEmailOtpMixedRegistrationResult,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
+import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 
 export type ActivateAuthenticatedWalletStateInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
+  signerSlot: number;
   nearClient?: NearClient;
 };
 
@@ -42,7 +48,6 @@ export type RegistrationAccountsService = {
   getUserBySignerSlot(nearAccountId: AccountId, signerSlot: number): Promise<ClientUserData | null>;
   getLastUser(): Promise<ClientUserData | null>;
   nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]>;
-  updateLastLogin(walletId: WalletId): Promise<void>;
   setLastUser(walletId: WalletId, signerSlot: number): Promise<void>;
   activateAuthenticatedWalletState(input: ActivateAuthenticatedWalletStateInput): Promise<void>;
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void>;
@@ -57,9 +62,15 @@ export type RegistrationAccountsService = {
   storeWalletEmailOtpEd25519RegistrationData(
     input: StoreWalletEmailOtpEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
+  storeWalletEmailOtpMixedRegistrationData(
+    input: StoreWalletEmailOtpMixedRegistrationInput,
+  ): Promise<StoreWalletEmailOtpMixedRegistrationResult>;
   finalizeWalletEd25519SignerRegistration(
     input: StoreWalletEd25519SignerRecordInput,
-  ): Promise<StoredRegistrationData>;
+  ): Promise<StoredWalletEd25519SignerRegistration>;
+  rollbackWalletEd25519SignerRegistration(
+    receipt: StoreWalletSignerFinalizeRollbackReceipt,
+  ): Promise<void>;
 };
 
 export function createRegistrationAccountsService(
@@ -75,9 +86,7 @@ export function createRegistrationAccountsService(
     getLastUser: () => getLastUser(accountLifecycle),
     nearAuthenticatorsByAccount: (nearAccountId) =>
       nearAuthenticatorsByAccount(accountLifecycle, nearAccountId),
-    updateLastLogin: (walletId) => updateLastLogin(accountLifecycle, walletId),
-    setLastUser: (walletId, signerSlot) =>
-      setLastUser(accountLifecycle, walletId, signerSlot),
+    setLastUser: (walletId, signerSlot) => setLastUser(accountLifecycle, walletId, signerSlot),
     activateAuthenticatedWalletState: (input) =>
       activateAuthenticatedWalletState(accountLifecycle, input),
     storeAuthenticator: (authenticatorData) =>
@@ -91,7 +100,11 @@ export function createRegistrationAccountsService(
       storeWalletEd25519RecoveryRegistrationData(accountLifecycle, input),
     storeWalletEmailOtpEd25519RegistrationData: (input) =>
       storeWalletEmailOtpEd25519RegistrationData(accountLifecycle, input),
+    storeWalletEmailOtpMixedRegistrationData: (input) =>
+      storeWalletEmailOtpMixedRegistrationData(accountLifecycle, input),
     finalizeWalletEd25519SignerRegistration: (input) =>
       finalizeWalletEd25519SignerRegistration(accountLifecycle, input),
+    rollbackWalletEd25519SignerRegistration: (receipt) =>
+      rollbackWalletEd25519SignerRegistration(accountLifecycle, receipt),
   };
 }

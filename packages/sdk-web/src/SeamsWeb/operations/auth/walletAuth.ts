@@ -20,6 +20,7 @@ import {
   getRecentUnlocks as getRecentUnlocksCore,
   unlockResolvedWalletBinding as unlockCoreWithWalletBinding,
   lock as lockCore,
+  type LockOperationContext,
   type LoginResolvedWalletBinding,
 } from '@/SeamsWeb/operations/auth/login';
 import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
@@ -47,7 +48,7 @@ type WalletAuthSigningSurface = Pick<
  * SeamsWeb wallet-auth domain call graph:
  * - unlockDomain -> wallet router unlock OR local unlock workflow (`@/SeamsWeb/operations/auth/login`)
  * - getWalletSessionDomain/getRecentUnlocksDomain -> wallet router read path OR local IndexedDB/session read path
- * - lockDomain -> local lock + best-effort wallet-host lock
+ * - lockDomain -> local lock followed by acknowledged wallet-host lock
  */
 export type WalletAuthDomainDeps = {
   getContext: () => WalletAuthWebContext;
@@ -55,6 +56,14 @@ export type WalletAuthDomainDeps = {
   signingEngine: WalletAuthSigningSurface;
   nearClient: NearClient;
   initWalletIframe: (walletId?: string) => Promise<void>;
+};
+
+export type WalletLockDomainDeps = {
+  getContext: () => LockOperationContext;
+  walletIframe: {
+    shouldUseWalletIframe(): boolean;
+    requireRouter(): Promise<{ lock(): Promise<unknown> }>;
+  };
 };
 
 export function resolveNearAccountIdForWalletAuthUnlockRecord(
@@ -142,6 +151,7 @@ export async function unlockDomain(
     await deps.signingEngine.activateAuthenticatedWalletState({
       walletId,
       nearAccountId,
+      signerSlot: unlockSubject.signerSlot,
       nearClient: deps.nearClient,
     });
   }
@@ -153,13 +163,11 @@ export async function unlockDomain(
   return result;
 }
 
-export async function lockDomain(deps: WalletAuthDomainDeps): Promise<void> {
+export async function lockDomain(deps: WalletLockDomainDeps): Promise<void> {
   await lockCore(deps.getContext());
   if (!deps.walletIframe.shouldUseWalletIframe()) return;
-  try {
-    const router = await deps.walletIframe.requireRouter();
-    await router.lock?.();
-  } catch {}
+  const router = await deps.walletIframe.requireRouter();
+  await router.lock();
 }
 
 export async function getWalletSessionDomain(

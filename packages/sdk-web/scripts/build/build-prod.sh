@@ -88,7 +88,7 @@ print_step "Bundling workers with Bun (minified)..."
 mkdir -p "$BUILD_WORKERS"
 
 if "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
-  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/hss-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/ecdsa-hss-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/email-otp.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/shamir3pass.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
@@ -102,7 +102,8 @@ fi
 print_step "Copying worker WASM binaries next to worker JS..."
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "Signer WASM copied"; else print_warning "Signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
-if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "HSS client signer WASM copied"; else print_warning "HSS client signer WASM not found"; fi
+if cp "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm" "$BUILD_WORKERS/$ED25519_YAO_CLIENT_WASM" 2>/dev/null; then print_success "Ed25519 Yao Client WASM copied"; else print_warning "Ed25519 Yao Client WASM not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA client signer WASM copied"; else print_warning "ECDSA client signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer.wasm" 2>/dev/null; then print_success "eth_signer.wasm copied"; else print_warning "eth_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer_bg.wasm" 2>/dev/null; then print_success "eth_signer_bg.wasm copied"; else print_warning "eth_signer_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
@@ -113,13 +114,22 @@ if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js" "$BUIL
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm" "$BUILD_WORKERS/email_otp_runtime_bg.wasm" 2>/dev/null; then print_success "email_otp_runtime_bg.wasm copied"; else print_warning "email_otp_runtime_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm" "$BUILD_WORKERS/$WORKER_THRESHOLD_PRF_WASM" 2>/dev/null; then print_success "threshold_prf.wasm copied"; else print_warning "threshold_prf.wasm not found"; fi
 
-print_step "Copying browser HSS client WASM binary into dist/esm..."
-HSS_CLIENT_WASM_DIR="$BUILD_ESM/wasm/hss_client_signer/pkg"
-mkdir -p "$HSS_CLIENT_WASM_DIR"
-if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "$HSS_CLIENT_WASM_DIR/" 2>/dev/null; then
-  print_success "Browser HSS client WASM copied"
+print_step "Copying browser ECDSA client WASM binary into dist/esm..."
+ECDSA_HSS_CLIENT_WASM_DIR="$BUILD_ESM/wasm/ecdsa_client_signer/pkg"
+mkdir -p "$ECDSA_HSS_CLIENT_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer_bg.wasm" "$ECDSA_HSS_CLIENT_WASM_DIR/" 2>/dev/null; then
+  print_success "Browser ECDSA client WASM copied"
 else
-  print_warning "Browser HSS client WASM not found"
+  print_warning "Browser ECDSA client WASM not found"
+fi
+
+print_step "Copying Ed25519 Yao Client WASM binary into dist/esm..."
+ED25519_YAO_CLIENT_WASM_DIR="$BUILD_ESM/wasm/router_ab_ed25519_yao_client/pkg"
+mkdir -p "$ED25519_YAO_CLIENT_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm" "$ED25519_YAO_CLIENT_WASM_DIR/" 2>/dev/null; then
+  print_success "Ed25519 Yao Client WASM copied"
+else
+  print_warning "Ed25519 Yao Client WASM not found"
 fi
 
 print_step "Emitting hosted wallet static asset tree..."

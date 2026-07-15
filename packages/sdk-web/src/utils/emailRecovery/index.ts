@@ -2,7 +2,6 @@ import { IndexedDBManager } from '../../core/indexedDB';
 import { toWalletId, type WalletId } from '../../core/signingEngine/interfaces/ecdsaChainTarget';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { base64Decode } from '@shared/utils/base64';
-export { EmailRecoveryPendingStore, type PendingStore } from './emailRecoveryPendingStore';
 
 export type RecoveryEmailEntry = {
   hashHex: string;

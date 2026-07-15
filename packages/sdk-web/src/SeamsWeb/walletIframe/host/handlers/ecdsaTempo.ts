@@ -40,16 +40,14 @@ export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): Handler
       respondOkResult(deps, req.requestId, result);
     },
 
-    PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (
-      req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>,
-    ) => {
+    PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>) => {
       const pm = deps.getSeamsWeb();
       const { walletSession, signedResult, txHash } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportBroadcastAccepted({
         walletSession,
         signedResult,
-        ...(txHash ? { txHash } : {}),
+        txHash,
         options: {
           onEvent: (ev) => deps.postProgress(req.requestId, ev as unknown as ProgressPayload),
         },
@@ -58,9 +56,7 @@ export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): Handler
       respondOk(deps, req.requestId);
     },
 
-    PM_REPORT_TEMPO_BROADCAST_REJECTED: async (
-      req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>,
-    ) => {
+    PM_REPORT_TEMPO_BROADCAST_REJECTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>) => {
       const pm = deps.getSeamsWeb();
       const { walletSession, signedResult, error } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
@@ -154,4 +150,3 @@ export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): Handler
     },
   };
 }
-

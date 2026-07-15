@@ -33,9 +33,9 @@ import {
 import { signEvmFamily as signEvmFamilyOperation } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
-  withThresholdEcdsaCommitQueue,
-  type ThresholdEcdsaCommitQueueByKey,
-} from '@/core/signingEngine/threshold/ecdsa/commitQueue';
+  withThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
@@ -47,14 +47,26 @@ import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/w
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
+import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import { recoverEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
+type EmailOtpEd25519RecoveryRequest = Omit<
+  Parameters<typeof recoverEmailOtpEd25519CapabilityForSigningV1>[0],
+  | 'workerContext'
+  | 'shamirPrimeB64u'
+  | 'resolveActiveCapability'
+  | 'activateCapability'
+  | 'expectedOperationalPublicKey'
+>;
 
 function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   record: ThresholdEcdsaSessionRecord;
 }): void {
-  if (args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind !== 'role_local_worker_handle') {
+  if (
+    args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind !== 'role_local_worker_handle'
+  ) {
     return;
   }
   if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
@@ -63,9 +75,48 @@ function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
   );
 }
 
+async function recoverEmailOtpEd25519CapabilityForSigning(args: {
+  assembly: BrowserSigningSurfaceEnginePortsArgs;
+  request: EmailOtpEd25519RecoveryRequest;
+}) {
+  const user = await registrationPublic.getUserBySignerSlot(
+    args.assembly.getRegistrationPublicDeps(),
+    args.request.nearAccountId,
+    args.request.record.signerSlot,
+  );
+  if (
+    !user ||
+    String(user.walletId) !== String(args.request.record.walletId) ||
+    user.authMethod !== 'email_otp'
+  ) {
+    throw new Error('Email OTP Ed25519 recovery requires one exact persisted signer projection');
+  }
+  const recovered = await recoverEmailOtpEd25519CapabilityForSigningV1({
+    nearAccountId: args.request.nearAccountId,
+    record: args.request.record,
+    committedLane: args.request.committedLane,
+    challengeId: args.request.challengeId,
+    otpCode: args.request.otpCode,
+    remainingUses: args.request.remainingUses,
+    expectedOperationalPublicKey: user.operationalPublicKey,
+    workerContext: args.assembly.signerWorkerManager.getContext(),
+    shamirPrimeB64u: args.assembly.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+    resolveActiveCapability: (identity) =>
+      args.assembly.getEnginePorts().ed25519YaoActiveClients.resolve(identity),
+    activateCapability: (capability) =>
+      args.assembly.getEnginePorts().ed25519YaoActiveClients.activate(capability),
+  });
+  await args.assembly.emailOtpSessions.persistEd25519YaoSessionForRefresh({
+    record: recovered.record,
+    rpId: args.assembly.touchIdPrompt.getRpId(),
+  });
+  return recovered;
+}
+
 export type BrowserSigningSurfaceEnginePortsArgs = {
   runtimePorts: RuntimePorts;
   stores: SigningEngineStorePorts;
+  ed25519YaoPublicCapabilityReferences: Ed25519YaoPublicCapabilityReferenceStorePort;
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   touchIdPrompt: TouchIdPrompt;
@@ -77,17 +128,20 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   warmSigning: WarmSigningPorts;
   ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
-  thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey;
   getWorkerBaseOrigin: () => string;
   workerWarmupPolicy: WorkerResourceWarmupPolicy;
   getTheme: () => ThemeMode;
   ensureSealedRefreshStartupParity: () => Promise<void>;
-  restorePasskeyEd25519SigningMaterial: Parameters<
-    typeof createSigningEnginePorts
-  >[0]['restorePasskeyEd25519SigningMaterial'];
   getEnginePorts: () => SigningEnginePorts;
   getRegistrationPublicDeps: () => registrationPublic.RegistrationPublicDeps;
+  recoverPasskeyEd25519YaoCapabilityForSigning: Parameters<
+    typeof createSigningEnginePorts
+  >[0]['recoverPasskeyEd25519YaoCapabilityForSigning'];
+  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: Parameters<
+    typeof createSigningEnginePorts
+  >[0]['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
 };
 
 export function createBrowserSigningSurfaceEnginePorts(
@@ -96,6 +150,7 @@ export function createBrowserSigningSurfaceEnginePorts(
   return createSigningEnginePorts({
     runtimePorts: args.runtimePorts,
     stores: args.stores,
+    ed25519YaoPublicCapabilityReferences: args.ed25519YaoPublicCapabilityReferences,
     seamsWebConfigs: args.seamsWebConfigs,
     nearClient: args.nearClient,
     touchIdPrompt: args.touchIdPrompt,
@@ -120,11 +175,11 @@ export function createBrowserSigningSurfaceEnginePorts(
     getTheme: args.getTheme,
     signTempo: (signArgs) =>
       signEvmFamilyOperation(args.getEnginePorts().tempoSigningDeps, signArgs),
-    restorePasskeyEd25519SigningMaterial: args.restorePasskeyEd25519SigningMaterial,
     activateAuthenticatedWalletState: (activationArgs) =>
       registrationPublic.activateAuthenticatedWalletState(args.getRegistrationPublicDeps(), {
         walletId: activationArgs.walletId,
         nearAccountId: activationArgs.nearAccountId,
+        signerSlot: activationArgs.signerSlot,
         nearClient: activationArgs.nearClient,
       }),
     persistThresholdEcdsaBootstrapForWalletTarget: (persistArgs) =>
@@ -137,25 +192,31 @@ export function createBrowserSigningSurfaceEnginePorts(
       }),
     upsertThresholdEcdsaSessionFromBootstrap: (upsertArgs) => {
       if (upsertArgs.hasEmailOtpAuthContext) {
-        const record = upsertThresholdEcdsaSessionFromBootstrapOperation(args.warmSigning.ecdsaSessions, {
-          walletId: upsertArgs.walletId,
-          chainTarget: upsertArgs.chainTarget,
-          bootstrap: upsertArgs.bootstrap,
-          source: 'email_otp',
-          emailOtpAuthContext: upsertArgs.emailOtpAuthContext,
-        });
+        const record = upsertThresholdEcdsaSessionFromBootstrapOperation(
+          args.warmSigning.ecdsaSessions,
+          {
+            walletId: upsertArgs.walletId,
+            chainTarget: upsertArgs.chainTarget,
+            bootstrap: upsertArgs.bootstrap,
+            source: 'email_otp',
+            emailOtpAuthContext: upsertArgs.emailOtpAuthContext,
+          },
+        );
         markEcdsaBootstrapWorkerMaterialRuntimeValidated({
           bootstrap: upsertArgs.bootstrap,
           record,
         });
         return;
       }
-      const record = upsertThresholdEcdsaSessionFromBootstrapOperation(args.warmSigning.ecdsaSessions, {
-        walletId: upsertArgs.walletId,
-        chainTarget: upsertArgs.chainTarget,
-        bootstrap: upsertArgs.bootstrap,
-        source: upsertArgs.source,
-      });
+      const record = upsertThresholdEcdsaSessionFromBootstrapOperation(
+        args.warmSigning.ecdsaSessions,
+        {
+          walletId: upsertArgs.walletId,
+          chainTarget: upsertArgs.chainTarget,
+          bootstrap: upsertArgs.bootstrap,
+          source: upsertArgs.source,
+        },
+      );
       markEcdsaBootstrapWorkerMaterialRuntimeValidated({
         bootstrap: upsertArgs.bootstrap,
         record,
@@ -176,27 +237,26 @@ export function createBrowserSigningSurfaceEnginePorts(
         chainTarget: recordArgs.chainTarget,
         source: recordArgs.source,
       }),
-	    requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
-	      'nearAccountId' in challengeArgs
-	        ? args.emailOtpSessions.requestTransactionSigningChallenge({
-	            kind: 'near_account_challenge',
-	            walletSession: challengeArgs.walletSession,
-	            nearAccountId: challengeArgs.nearAccountId,
-	            chain: challengeArgs.chain,
-	            authLane: challengeArgs.committedLane.authLane,
-	          })
-	        : args.emailOtpSessions.requestTransactionSigningChallenge({
-	            kind: 'wallet_session_challenge',
-	            walletSession: challengeArgs.walletSession,
-	            chain: challengeArgs.chain,
-	            authLane: challengeArgs.authLane,
-	          }),
-    isEmailOtpEd25519WarmupPending: (warmupArgs) =>
-      args.emailOtpSessions.isEd25519WarmupPending(warmupArgs),
-    waitForPendingEmailOtpEd25519Warmup: (warmupArgs) =>
-      args.emailOtpSessions.waitForPendingEd25519Warmup(warmupArgs),
-    loginWithEmailOtpEd25519CapabilityForSigning: (loginArgs) =>
-      args.emailOtpSessions.loginWithEd25519CapabilityForSigning(loginArgs),
+    requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
+      args.emailOtpSessions.requestTransactionSigningChallenge({
+        kind: 'wallet_session_challenge',
+        walletSession: challengeArgs.walletSession,
+        chain: challengeArgs.chain,
+        authLane: challengeArgs.authLane,
+      }),
+    requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>
+      args.emailOtpSessions.requestTransactionSigningChallenge({
+        kind: 'near_account_challenge',
+        walletSession: challengeArgs.walletSession,
+        nearAccountId: challengeArgs.nearAccountId,
+        chain: 'near',
+        authLane: challengeArgs.authLane,
+      }),
+    recoverEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
+      recoverEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
+    recoverPasskeyEd25519YaoCapabilityForSigning: args.recoverPasskeyEd25519YaoCapabilityForSigning,
+    recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
+      args.recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning,
     provisionThresholdEd25519Session: (provisionArgs) =>
       provisionThresholdEd25519SessionOperation(
         {
@@ -255,9 +315,9 @@ export function createBrowserSigningSurfaceEnginePorts(
         },
         provisionArgs,
       ),
-    withThresholdEcdsaCommitQueue: (queueArgs) =>
-      withThresholdEcdsaCommitQueue({
-        queueByKey: args.thresholdEcdsaCommitQueueByKey,
+    withThresholdEcdsaSigningQueue: (queueArgs) =>
+      withThresholdEcdsaSigningQueue({
+        queueByKey: args.thresholdEcdsaSigningQueueByKey,
         ...queueArgs,
         walletId: toWalletId(queueArgs.walletId),
       }),

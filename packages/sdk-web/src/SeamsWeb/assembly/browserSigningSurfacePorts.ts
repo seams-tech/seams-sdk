@@ -6,6 +6,7 @@ import type { UserPreferencesManager } from '@/core/signingEngine/session/userPr
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { CreateBrowserSigningRuntimeArgs } from './createBrowserSigningRuntime';
 import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/warmup';
+import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 
 export type InitializeSigningRuntimePort = (args: {
   config: SeamsConfigsReadonly;
@@ -18,6 +19,7 @@ export type BrowserSigningSurfaceConstructorDeps = {
   managerStores: ManagerAssemblyStores;
   signingEngineStores: SigningEngineStorePorts;
   sealedSigningSessionStore: EmailOtpSealedSessionStorePorts;
+  ed25519YaoPublicCapabilityReferences: Ed25519YaoPublicCapabilityReferenceStorePort;
   createRuntime: (args: CreateBrowserSigningRuntimeArgs) => SigningRuntime;
   initializeRuntime: InitializeSigningRuntimePort;
   workerWarmupPolicy: WorkerResourceWarmupPolicy;

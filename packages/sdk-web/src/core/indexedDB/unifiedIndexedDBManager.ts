@@ -36,7 +36,9 @@ import { seamsWalletDB } from './singletons';
 import type { SeamsWalletDBManager } from './seamsWalletDB/manager';
 import {
   SeamsWalletRepositories,
+  type StoreWalletSignerFinalizeBatchResult,
   type StoreWalletSignerFinalizeBatchInput,
+  type StoreWalletSignerFinalizeRollbackReceipt,
   type StoreWalletRegistrationFinalizeBatchInput,
   type StoreWalletRegistrationFinalizeBatchResult,
 } from './seamsWalletDB/repositories';
@@ -179,10 +181,7 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.setLastProfileState(state, this.lastUserScope);
   }
 
-  async setLastProfileStateForProfile(
-    profileId: string,
-    activeSignerSlot: number,
-  ): Promise<void> {
+  async setLastProfileStateForProfile(profileId: string, activeSignerSlot: number): Promise<void> {
     return this.seamsWalletRepositories.setLastProfileStateForProfile(
       profileId,
       activeSignerSlot,
@@ -286,9 +285,7 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.resolveProfileAccountContext(accountRef);
   }
 
-  async getProfileContinuitySnapshot(
-    profileId: string,
-  ): Promise<ProfileContinuitySnapshot | null> {
+  async getProfileContinuitySnapshot(profileId: string): Promise<ProfileContinuitySnapshot | null> {
     return this.seamsWalletRepositories.getProfileContinuitySnapshot(profileId);
   }
 
@@ -408,12 +405,8 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.upsertWalletAuthMethod(record);
   }
 
-  async listWalletAuthMethodsForWallet(
-    walletId: string,
-  ): Promise<LocalWalletAuthMethodRecord[]> {
-    return this.seamsWalletRepositories.listWalletAuthMethodsForWallet(
-      walletId,
-    );
+  async listWalletAuthMethodsForWallet(walletId: string): Promise<LocalWalletAuthMethodRecord[]> {
+    return this.seamsWalletRepositories.listWalletAuthMethodsForWallet(walletId);
   }
 
   async persistWalletRegistrationFinalize(
@@ -424,8 +417,14 @@ export class UnifiedIndexedDBManager {
 
   async persistWalletSignerFinalize(
     input: StoreWalletSignerFinalizeBatchInput,
-  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+  ): Promise<StoreWalletSignerFinalizeBatchResult> {
     return this.seamsWalletRepositories.persistWalletSignerFinalize(input);
+  }
+
+  async rollbackWalletSignerFinalize(
+    receipt: StoreWalletSignerFinalizeRollbackReceipt,
+  ): Promise<void> {
+    return this.seamsWalletRepositories.rollbackWalletSignerFinalize(receipt);
   }
 
   async clearProfileAuthenticators(profileId: string): Promise<void> {
@@ -520,7 +519,7 @@ export class UnifiedIndexedDBManager {
         : DEFAULT_STALE_PENDING_SIGNER_MS;
     const profileId = toTrimmedString(args?.profileId || '');
     const profiles = profileId
-      ? (await this.getProfile(profileId).then((profile) => (profile ? [profile] : [])))
+      ? await this.getProfile(profileId).then((profile) => (profile ? [profile] : []))
       : await this.listProfiles({ limit: args?.limitProfiles });
     const summary: LocalSignerReconciliationSummary = {
       scannedProfiles: 0,
@@ -549,11 +548,9 @@ export class UnifiedIndexedDBManager {
       const activeSlotKeys = new Set<string>();
       for (const signer of signers) {
         if (signer.status !== 'active') continue;
-        const slotKey = [
-          signer.chainIdKey,
-          signer.accountAddress,
-          String(signer.signerSlot),
-        ].join('\0');
+        const slotKey = [signer.chainIdKey, signer.accountAddress, String(signer.signerSlot)].join(
+          '\0',
+        );
         activeSlotKeys.add(slotKey);
         const existing = activeByAccountSlot.get(slotKey) || [];
         existing.push(signer);
@@ -574,7 +571,10 @@ export class UnifiedIndexedDBManager {
       }
 
       for (const signer of signers) {
-        if (signer.status === 'pending' && now - Number(signer.addedAt || 0) > stalePendingSignerMs) {
+        if (
+          signer.status === 'pending' &&
+          now - Number(signer.addedAt || 0) > stalePendingSignerMs
+        ) {
           pushIssue({
             code: 'stale_pending_signer',
             profileId: profile.profileId,
@@ -661,10 +661,7 @@ export class UnifiedIndexedDBManager {
     return await this.repairSignerMutationSagasWithRuntime(args);
   }
 
-  async repairSignerMutationSagasWithRuntime(args?: {
-    limit?: number;
-    now?: number;
-  }): Promise<{
+  async repairSignerMutationSagasWithRuntime(args?: { limit?: number; now?: number }): Promise<{
     scanned: number;
     confirmed: number;
     failed: number;

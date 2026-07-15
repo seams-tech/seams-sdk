@@ -60,6 +60,7 @@ export type SigningKeyKind = 'threshold_ed25519' | 'threshold_ecdsa_secp256k1' |
 export type SigningSessionOrigin =
   | 'login'
   | 'registration'
+  | 'add_signer'
   | 'manual_bootstrap'
   | 'manual_connect'
   | 'bootstrap'
@@ -109,21 +110,21 @@ type BranchSigningSessionRuntimeState =
 
 export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   BranchSigningSessionRuntimeState & {
-  identity: ExactEd25519SigningLaneIdentity;
-  curve: 'ed25519';
-  keyKind: 'threshold_ed25519';
-  chainFamily: 'near';
-  thresholdSessionId: ThresholdEd25519SessionId;
-};
+    identity: ExactEd25519SigningLaneIdentity;
+    curve: 'ed25519';
+    keyKind: 'threshold_ed25519';
+    chainFamily: 'near';
+    thresholdSessionId: ThresholdEd25519SessionId;
+  };
 
 export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   BranchSigningSessionRuntimeState & {
-  identity: ExactEcdsaSigningLaneIdentity;
-  curve: 'ecdsa';
-  keyKind: 'threshold_ecdsa_secp256k1';
-  chainFamily: ThresholdEcdsaChainTarget['kind'];
-  thresholdSessionId: ThresholdEcdsaSessionId;
-};
+    identity: ExactEcdsaSigningLaneIdentity;
+    curve: 'ecdsa';
+    keyKind: 'threshold_ecdsa_secp256k1';
+    chainFamily: ThresholdEcdsaChainTarget['kind'];
+    thresholdSessionId: ThresholdEcdsaSessionId;
+  };
 
 export type SigningSessionPlanningLane =
   | Ed25519SigningSessionPlanningLane
@@ -153,11 +154,11 @@ export type SelectedSigningLaneIdentity =
   | SelectedEd25519SigningLaneIdentity
   | SelectedEcdsaSigningLaneIdentity;
 
-export type SelectedEd25519SigningSessionPlanningLane =
-  Ed25519SigningSessionPlanningLane & SelectedEd25519SigningLaneIdentity;
+export type SelectedEd25519SigningSessionPlanningLane = Ed25519SigningSessionPlanningLane &
+  SelectedEd25519SigningLaneIdentity;
 
-export type SelectedEcdsaSigningSessionPlanningLane =
-  EcdsaSigningSessionPlanningLane & SelectedEcdsaSigningLaneIdentity;
+export type SelectedEcdsaSigningSessionPlanningLane = EcdsaSigningSessionPlanningLane &
+  SelectedEcdsaSigningLaneIdentity;
 
 export type SelectedSigningSessionPlanningLane =
   | SelectedEd25519SigningSessionPlanningLane
@@ -230,9 +231,7 @@ export type EcdsaWalletSigningSpendPlan = {
   reason: SigningOperationIntent;
 };
 
-export type WalletSigningSpendPlan =
-  | Ed25519WalletSigningSpendPlan
-  | EcdsaWalletSigningSpendPlan;
+export type WalletSigningSpendPlan = Ed25519WalletSigningSpendPlan | EcdsaWalletSigningSpendPlan;
 
 export type EmailOtpChallengePlan = {
   challengeId?: EmailOtpChallengeId;

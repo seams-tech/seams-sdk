@@ -129,40 +129,6 @@ export type RouterAbNormalSigningPrepareRequestV2Wire = {
   signing_payload: RouterAbEd25519SigningPayloadV2Wire;
 };
 
-export type RouterAbEd25519PresignPoolClientOfferV2Wire = {
-  client_presign_id: string;
-  client_nonce_handle: string;
-  client_commitments: RouterAbNormalSigningCommitmentsV1Wire;
-  client_verifying_share_b64u: string;
-};
-
-export type RouterAbEd25519PresignPoolPrepareRequestV2Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
-  expires_at_ms: number;
-  generation: number;
-  client_offers: readonly RouterAbEd25519PresignPoolClientOfferV2Wire[];
-};
-
-export type RouterAbEd25519PresignPoolAcceptedEntryV2Wire = {
-  client_presign_id: string;
-  generation: number;
-  pool_entry_binding_digest: RouterAbPublicDigest32Wire;
-  signing_worker: RouterAbServerIdentityV1Wire;
-  server_round1_handle: string;
-  server_commitments: RouterAbNormalSigningCommitmentsV1Wire;
-  server_verifying_share_b64u: string;
-  signature_scheme: 'ed25519_v1';
-  prepared_at_ms: number;
-  expires_at_ms: number;
-};
-
-export type RouterAbEd25519PresignPoolPrepareResponseV2Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
-  generation: number;
-  accepted: readonly RouterAbEd25519PresignPoolAcceptedEntryV2Wire[];
-  rejected_client_presign_ids: readonly string[];
-};
-
 export type RouterAbEd25519NormalSigningPrepareBindingV2Wire = {
   server_round1_handle: string;
   round1_binding_digest: RouterAbPublicDigest32Wire;
@@ -185,23 +151,6 @@ export type RouterAbNormalSigningFinalizeRequestV2Wire = {
   budget_reservation_id: string;
   budget_operation_id: string;
   prepare_binding: RouterAbEd25519NormalSigningPrepareBindingV2Wire;
-  protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2Wire;
-};
-
-export type RouterAbEd25519PresignPoolHitBindingV2Wire = {
-  client_presign_id: string;
-  client_nonce_handle: string;
-  generation: number;
-  server_round1_handle: string;
-  pool_entry_binding_digest: RouterAbPublicDigest32Wire;
-};
-
-export type RouterAbEd25519PresignPoolHitFinalizeRequestV2Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
-  expires_at_ms: number;
-  pool_binding: RouterAbEd25519PresignPoolHitBindingV2Wire;
-  intent: RouterAbEd25519NormalSigningIntentV2Wire;
-  signing_payload: RouterAbEd25519SigningPayloadV2Wire;
   protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2Wire;
 };
 
@@ -528,42 +477,6 @@ export async function buildRouterAbEd25519DelegateActionPrepareRequestV2(args: {
   };
 }
 
-export function buildRouterAbEd25519PresignPoolPrepareRequestV2(args: {
-  scope: RouterAbNormalSigningScopeV1Wire;
-  expiresAtMs: number;
-  generation: number;
-  clientOffers: readonly {
-    clientPresignId: string;
-    clientNonceHandle: string;
-    clientCommitments: RouterAbNormalSigningCommitmentsV1Wire;
-    clientVerifyingShareB64u: string;
-  }[];
-}): RouterAbEd25519PresignPoolPrepareRequestV2Wire {
-  return {
-    scope: parseScope(args.scope, 'scope'),
-    expires_at_ms: requirePositiveInteger(args.expiresAtMs, 'expiresAtMs'),
-    generation: requirePositiveInteger(args.generation, 'generation'),
-    client_offers: args.clientOffers.map((offer, index) => ({
-      client_presign_id: requireNonEmptyString(
-        offer.clientPresignId,
-        `clientOffers[${index}].clientPresignId`,
-      ),
-      client_nonce_handle: requireNonEmptyString(
-        offer.clientNonceHandle,
-        `clientOffers[${index}].clientNonceHandle`,
-      ),
-      client_commitments: parseCommitments(
-        offer.clientCommitments,
-        `clientOffers[${index}].clientCommitments`,
-      ),
-      client_verifying_share_b64u: requireNonEmptyString(
-        offer.clientVerifyingShareB64u,
-        `clientOffers[${index}].clientVerifyingShareB64u`,
-      ),
-    })),
-  };
-}
-
 export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
   scope: RouterAbNormalSigningScopeV1Wire;
   expiresAtMs: number;
@@ -612,54 +525,6 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
       ),
       server_verifying_share_b64u: requireNonEmptyString(
         args.prepareResponse.server_verifying_share_b64u,
-        'serverVerifyingShareB64u',
-      ),
-      client_signature_share_b64u: requireNonEmptyString(
-        args.clientSignatureShareB64u,
-        'clientSignatureShareB64u',
-      ),
-    },
-  };
-}
-
-export function buildRouterAbEd25519PresignPoolHitFinalizeRequestV2(args: {
-  prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
-  clientPresignId: string;
-  clientNonceHandle: string;
-  generation: number;
-  serverRound1Handle: string;
-  poolEntryBindingDigest: RouterAbPublicDigest32Wire;
-  clientCommitments: RouterAbNormalSigningCommitmentsV1Wire;
-  serverCommitments: RouterAbNormalSigningCommitmentsV1Wire;
-  clientVerifyingShareB64u: string;
-  serverVerifyingShareB64u: string;
-  clientSignatureShareB64u: string;
-}): RouterAbEd25519PresignPoolHitFinalizeRequestV2Wire {
-  return {
-    scope: parseScope(args.prepare.request.scope, 'scope'),
-    expires_at_ms: requirePositiveInteger(args.prepare.request.expires_at_ms, 'expiresAtMs'),
-    pool_binding: {
-      client_presign_id: requireNonEmptyString(args.clientPresignId, 'clientPresignId'),
-      client_nonce_handle: requireNonEmptyString(args.clientNonceHandle, 'clientNonceHandle'),
-      generation: requirePositiveInteger(args.generation, 'generation'),
-      server_round1_handle: requireNonEmptyString(args.serverRound1Handle, 'serverRound1Handle'),
-      pool_entry_binding_digest: parseDigest32(
-        args.poolEntryBindingDigest,
-        'poolEntryBindingDigest',
-      ),
-    },
-    intent: args.prepare.request.intent,
-    signing_payload: args.prepare.request.signing_payload,
-    protocol: {
-      kind: 'ed25519_two_party_frost_finalize_v1',
-      client_commitments: parseCommitments(args.clientCommitments, 'clientCommitments'),
-      server_commitments: parseCommitments(args.serverCommitments, 'serverCommitments'),
-      client_verifying_share_b64u: requireNonEmptyString(
-        args.clientVerifyingShareB64u,
-        'clientVerifyingShareB64u',
-      ),
-      server_verifying_share_b64u: requireNonEmptyString(
-        args.serverVerifyingShareB64u,
         'serverVerifyingShareB64u',
       ),
       client_signature_share_b64u: requireNonEmptyString(
@@ -785,137 +650,6 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
   };
 }
 
-function parsePresignPoolAcceptedEntry(
-  value: unknown,
-  label: string,
-): RouterAbEd25519PresignPoolAcceptedEntryV2Wire {
-  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-  if (!record) throw new Error(`${label} must be an object`);
-  const signatureScheme = requireNonEmptyString(
-    record.signature_scheme,
-    `${label}.signature_scheme`,
-  );
-  if (signatureScheme !== 'ed25519_v1') {
-    throw new Error(`Unsupported Router A/B presign-pool signature scheme: ${signatureScheme}`);
-  }
-  return {
-    client_presign_id: requireNonEmptyString(
-      record.client_presign_id,
-      `${label}.client_presign_id`,
-    ),
-    generation: requirePositiveInteger(record.generation, `${label}.generation`),
-    pool_entry_binding_digest: parseDigest32(
-      record.pool_entry_binding_digest,
-      `${label}.pool_entry_binding_digest`,
-    ),
-    signing_worker: parseServerIdentity(record.signing_worker, `${label}.signing_worker`),
-    server_round1_handle: requireNonEmptyString(
-      record.server_round1_handle,
-      `${label}.server_round1_handle`,
-    ),
-    server_commitments: parseCommitments(record.server_commitments, `${label}.server_commitments`),
-    server_verifying_share_b64u: requireNonEmptyString(
-      record.server_verifying_share_b64u,
-      `${label}.server_verifying_share_b64u`,
-    ),
-    signature_scheme: 'ed25519_v1',
-    prepared_at_ms: requirePositiveInteger(record.prepared_at_ms, `${label}.prepared_at_ms`),
-    expires_at_ms: requirePositiveInteger(record.expires_at_ms, `${label}.expires_at_ms`),
-  };
-}
-
-function parsePresignPoolPrepareResponse(
-  value: unknown,
-): RouterAbEd25519PresignPoolPrepareResponseV2Wire {
-  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-  if (!record) {
-    throw new Error('Router A/B normal-signing presign-pool response must be an object');
-  }
-  const accepted = Array.isArray(record.accepted) ? record.accepted : [];
-  const rejected = Array.isArray(record.rejected_client_presign_ids)
-    ? record.rejected_client_presign_ids
-    : [];
-  return {
-    scope: parseScope(record.scope, 'scope'),
-    generation: requirePositiveInteger(record.generation, 'generation'),
-    accepted: accepted.map((entry, index) =>
-      parsePresignPoolAcceptedEntry(entry, `accepted[${index}]`),
-    ),
-    rejected_client_presign_ids: rejected.map((entry, index) =>
-      requireNonEmptyString(entry, `rejected_client_presign_ids[${index}]`),
-    ),
-  };
-}
-
-function sameScope(
-  left: RouterAbNormalSigningScopeV1Wire,
-  right: RouterAbNormalSigningScopeV1Wire,
-): boolean {
-  return (
-    left.request_id === right.request_id &&
-    left.account_id === right.account_id &&
-    left.session_id === right.session_id &&
-    left.signing_worker_id === right.signing_worker_id
-  );
-}
-
-function requirePresignPoolResponseMatchesRequest(args: {
-  request: RouterAbEd25519PresignPoolPrepareRequestV2Wire;
-  response: RouterAbEd25519PresignPoolPrepareResponseV2Wire;
-}): void {
-  if (!sameScope(args.response.scope, args.request.scope)) {
-    throw new Error('Router A/B presign-pool response scope does not match request');
-  }
-  if (args.response.generation !== args.request.generation) {
-    throw new Error('Router A/B presign-pool response generation does not match request');
-  }
-
-  const offeredIds = new Set<string>();
-  args.request.client_offers.forEach((offer, index) => {
-    if (offeredIds.has(offer.client_presign_id)) {
-      throw new Error(`request.client_offers[${index}].client_presign_id is duplicated`);
-    }
-    offeredIds.add(offer.client_presign_id);
-  });
-
-  const acceptedIds = new Set<string>();
-  args.response.accepted.forEach((entry, index) => {
-    if (entry.generation !== args.request.generation) {
-      throw new Error(`accepted[${index}].generation does not match request`);
-    }
-    if (!offeredIds.has(entry.client_presign_id)) {
-      throw new Error(`accepted[${index}].client_presign_id is not in request.client_offers`);
-    }
-    if (acceptedIds.has(entry.client_presign_id)) {
-      throw new Error(`accepted[${index}].client_presign_id is duplicated`);
-    }
-    acceptedIds.add(entry.client_presign_id);
-  });
-
-  const rejectedIds = new Set<string>();
-  args.response.rejected_client_presign_ids.forEach((clientPresignId, index) => {
-    if (!offeredIds.has(clientPresignId)) {
-      throw new Error(`rejected_client_presign_ids[${index}] is not in request.client_offers`);
-    }
-    if (acceptedIds.has(clientPresignId)) {
-      throw new Error(`rejected_client_presign_ids[${index}] was already accepted`);
-    }
-    if (rejectedIds.has(clientPresignId)) {
-      throw new Error(`rejected_client_presign_ids[${index}] is duplicated`);
-    }
-    rejectedIds.add(clientPresignId);
-  });
-}
-
-function parsePresignPoolPrepareResponseForRequest(
-  request: RouterAbEd25519PresignPoolPrepareRequestV2Wire,
-  value: unknown,
-): RouterAbEd25519PresignPoolPrepareResponseV2Wire {
-  const response = parsePresignPoolPrepareResponse(value);
-  requirePresignPoolResponseMatchesRequest({ request, response });
-  return response;
-}
-
 function parseNormalSigningResponse(value: unknown): RouterAbNormalSigningResponseV1Wire {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error('Router A/B normal-signing response must be an object');
@@ -984,7 +718,6 @@ async function postRouterAbNormalSigningJson<T>(args: {
   relayServerUrl: string;
   path:
     | '/router-ab/ed25519/sign/prepare'
-    | '/router-ab/ed25519/sign/presign-pool/prepare'
     | '/router-ab/ed25519/sign'
     | '/router-ab/ecdsa-hss/sign/prepare'
     | '/router-ab/ecdsa-hss/sign';
@@ -1043,20 +776,6 @@ export async function prepareRouterAbEcdsaHssEvmDigestSigningV1(args: {
   });
 }
 
-export async function prepareRouterAbNormalSigningPresignPoolV2(args: {
-  relayServerUrl: string;
-  credential: RouterAbWalletSessionCredential;
-  request: RouterAbEd25519PresignPoolPrepareRequestV2Wire;
-}): Promise<RouterAbEd25519PresignPoolPrepareResponseV2Wire> {
-  return postRouterAbNormalSigningJson({
-    relayServerUrl: args.relayServerUrl,
-    path: '/router-ab/ed25519/sign/presign-pool/prepare',
-    credential: args.credential,
-    body: args.request,
-    parse: (value) => parsePresignPoolPrepareResponseForRequest(args.request, value),
-  });
-}
-
 export async function finalizeRouterAbNormalSigningV2(args: {
   relayServerUrl: string;
   credential: RouterAbWalletSessionCredential;
@@ -1087,20 +806,6 @@ export async function finalizeRouterAbEcdsaHssEvmDigestSigningV1(args: {
     body: args.request,
     parse: (value) =>
       parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1(coreRequest, value),
-  });
-}
-
-export async function finalizeRouterAbNormalSigningPresignPoolHitV2(args: {
-  relayServerUrl: string;
-  credential: RouterAbWalletSessionCredential;
-  request: RouterAbEd25519PresignPoolHitFinalizeRequestV2Wire;
-}): Promise<RouterAbNormalSigningResponseV1Wire> {
-  return postRouterAbNormalSigningJson({
-    relayServerUrl: args.relayServerUrl,
-    path: '/router-ab/ed25519/sign',
-    credential: args.credential,
-    body: args.request,
-    parse: parseNormalSigningResponse,
   });
 }
 

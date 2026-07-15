@@ -30,7 +30,7 @@ threshold types.
 - `ecdsaWarmCapabilityBootstrap.ts`
 - `ecdsaRecovery.ts`
 - `ecdsaSessionProvision.ts`
-- `ed25519Recovery.ts`
+- `ed25519BudgetRefresh.ts`
 - `ed25519SessionProvision.ts`
 
 ## ECDSA Flow Rule

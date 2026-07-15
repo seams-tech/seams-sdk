@@ -12,18 +12,4 @@ export type NearSigningKeyOps = {
     clientVerifyingShareB64u: string;
     error?: string;
   }>;
-  deriveThresholdEd25519HssClientInputs(args: {
-    sessionId: string;
-    applicationBindingDigestB64u: string;
-    participantIds: number[];
-    prfFirstB64u: string;
-  }): Promise<{
-    success: boolean;
-    applicationBindingDigestB64u: string;
-    participantIds: number[];
-    contextBindingB64u: string;
-    yClientB64u: string;
-    tauClientB64u: string;
-    error?: string;
-  }>;
 };

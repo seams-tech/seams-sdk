@@ -1,10 +1,11 @@
 import type { WalletId, WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { authLaneAppSessionJwt } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
   exactSigningLaneWalletId,
   exactSigningLaneIdentityKey,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
   type ExactSigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
 } from '../identity/exactSigningLaneIdentity';
@@ -13,8 +14,37 @@ import {
   decodeJwtPayloadRecord,
   isAppSessionJwt,
   isSessionJwtUnexpired,
+  requireAppSessionJwt,
 } from '@shared/utils/sessionTokens';
+import {
+  parseAppSessionJwt,
+  parseProviderSubject,
+  type AppSessionJwt,
+  type ProviderSubject,
+} from '@shared/utils/domainIds';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
+
+type EmailOtpSigningLaneAuth = Extract<
+  ExactSigningLaneIdentity['auth'],
+  { kind: 'email_otp' }
+>;
+
+type ExactEmailOtpSigningLaneIdentity =
+  | (Omit<ExactEd25519SigningLaneIdentity, 'auth'> & { auth: EmailOtpSigningLaneAuth })
+  | (Omit<ExactEcdsaSigningLaneIdentity, 'auth'> & { auth: EmailOtpSigningLaneAuth });
+
+function isExactEmailOtpSigningLaneIdentity(
+  identity: ExactSigningLaneIdentity,
+): identity is ExactEmailOtpSigningLaneIdentity {
+  return identity.auth.kind === 'email_otp';
+}
+
+export type EmailOtpAppSessionBinding = Readonly<{
+  kind: 'email_otp_app_session_binding';
+  walletId: WalletId;
+  providerSubject: ProviderSubject;
+  appSessionJwt: AppSessionJwt;
+}>;
 
 export type EmailOtpRefreshIdentity = {
   kind: 'email_otp_refresh_identity';
@@ -22,7 +52,7 @@ export type EmailOtpRefreshIdentity = {
   walletSessionUserId: string;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  laneIdentity: ExactSigningLaneIdentity;
+  laneIdentity: ExactEmailOtpSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
 };
 
@@ -46,7 +76,7 @@ export type EmailOtpSessionRefreshResult =
     };
 
 export class EmailOtpAppSessionJwtCache {
-  private readonly byWallet = new Map<string, string>();
+  private readonly byWallet = new Map<string, Map<string, EmailOtpAppSessionBinding>>();
 
   constructor(
     private readonly deps: {
@@ -54,29 +84,33 @@ export class EmailOtpAppSessionJwtCache {
     } = {},
   ) {}
 
-  remember(args: { walletSession: WalletSessionRef; appSessionJwt?: string }): void {
-    const jwt = String(args.appSessionJwt || '').trim();
-    if (!jwt || !isAppSessionJwt(jwt)) return;
-    const walletId = String(args.walletSession.walletId || '').trim();
-    if (!walletId) return;
-    this.byWallet.set(walletId, jwt);
+  remember(binding: EmailOtpAppSessionBinding): void {
+    const walletId = String(binding.walletId);
+    const providerSubject = String(binding.providerSubject);
+    const entries = this.byWallet.get(walletId) ?? new Map<string, EmailOtpAppSessionBinding>();
+    entries.set(providerSubject, binding);
+    this.byWallet.set(walletId, entries);
   }
 
   async resolve(args: {
     identity: EmailOtpRefreshIdentity;
     relayUrl: string;
   }): Promise<EmailOtpSessionRefreshResult> {
-    const cached = this.cachedJwtForIdentity(args.identity);
-    if (cached && isSessionJwtUnexpired(cached, { skewMs: 30_000 })) {
+    const cached = this.cachedBindingForIdentity(args.identity);
+    if (cached && isSessionJwtUnexpired(cached.appSessionJwt, { skewMs: 30_000 })) {
       return {
         kind: 'cached_email_otp_session',
         identity: args.identity,
-        appSessionJwt: cached,
+        appSessionJwt: cached.appSessionJwt,
       };
     }
     const refreshCandidate =
-      cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached) ? cached : '';
-    this.byWallet.delete(String(args.identity.walletId));
+      cached &&
+      isAppSessionJwt(cached.appSessionJwt) &&
+      isSessionJwtUnexpired(cached.appSessionJwt)
+        ? cached.appSessionJwt
+        : '';
+    this.deleteBindingForIdentity(args.identity);
     const refreshed = this.deps.refreshAppSessionJwt
       ? {
           kind: 'refreshed_email_otp_session' as const,
@@ -89,25 +123,34 @@ export class EmailOtpAppSessionJwtCache {
           ...(refreshCandidate ? { appSessionJwt: refreshCandidate } : {}),
         });
     if (refreshed.kind === 'refreshed_email_otp_session') {
-      this.remember({
-        walletSession: walletSessionRefFromSession({
-          walletId: args.identity.walletId,
-          walletSessionUserId: args.identity.walletSessionUserId,
-        }),
+      const binding = emailOtpAppSessionBindingFromJwt({
+        walletId: args.identity.walletId,
         appSessionJwt: refreshed.appSessionJwt,
       });
+      if (binding.providerSubject !== args.identity.laneIdentity.auth.providerSubjectId) {
+        throw new Error('Refreshed Email OTP app session belongs to a different provider subject');
+      }
+      this.remember(binding);
     }
     return refreshed;
   }
 
   async resolveJwt(args: { walletSession: WalletSessionRef; relayUrl: string }): Promise<string> {
     const walletId = String(args.walletSession.walletId || '').trim();
-    const cached = walletId ? String(this.byWallet.get(walletId) || '').trim() : '';
-    if (cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached, { skewMs: 30_000 })) {
-      return cached;
+    const cached = walletId ? this.uniqueBindingForWallet(walletId) : null;
+    if (
+      cached &&
+      isAppSessionJwt(cached.appSessionJwt) &&
+      isSessionJwtUnexpired(cached.appSessionJwt, { skewMs: 30_000 })
+    ) {
+      return cached.appSessionJwt;
     }
     const refreshCandidate =
-      cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached) ? cached : '';
+      cached &&
+      isAppSessionJwt(cached.appSessionJwt) &&
+      isSessionJwtUnexpired(cached.appSessionJwt)
+        ? cached.appSessionJwt
+        : '';
     if (walletId) this.byWallet.delete(walletId);
     const refreshed = this.deps.refreshAppSessionJwt
       ? await this.deps.refreshAppSessionJwt({ relayUrl: args.relayUrl })
@@ -119,21 +162,59 @@ export class EmailOtpAppSessionJwtCache {
       throw new Error('Email OTP export session refresh requires fresh Email OTP verification');
     }
     if (walletId && refreshed) {
-      this.remember({
-        walletSession: walletSessionRefFromSession({
-          walletId,
-          walletSessionUserId: args.walletSession.walletSessionUserId,
+      this.remember(
+        emailOtpAppSessionBindingFromJwt({
+          walletId: args.walletSession.walletId,
+          appSessionJwt: refreshed,
         }),
-        appSessionJwt: refreshed,
-      });
+      );
     }
     return refreshed;
   }
 
-  private cachedJwtForIdentity(identity: EmailOtpRefreshIdentity): string {
-    const walletId = String(identity.walletId || '').trim();
-    return walletId ? String(this.byWallet.get(walletId) || '').trim() : '';
+  private cachedBindingForIdentity(
+    identity: EmailOtpRefreshIdentity,
+  ): EmailOtpAppSessionBinding | null {
+    const entries = this.byWallet.get(String(identity.walletId));
+    return entries?.get(identity.laneIdentity.auth.providerSubjectId) ?? null;
   }
+
+  private deleteBindingForIdentity(identity: EmailOtpRefreshIdentity): void {
+    const walletId = String(identity.walletId);
+    const entries = this.byWallet.get(walletId);
+    if (!entries) return;
+    entries.delete(identity.laneIdentity.auth.providerSubjectId);
+    if (entries.size === 0) this.byWallet.delete(walletId);
+  }
+
+  private uniqueBindingForWallet(walletId: string): EmailOtpAppSessionBinding | null {
+    const entries = this.byWallet.get(walletId);
+    if (!entries || entries.size === 0) return null;
+    if (entries.size !== 1) {
+      throw new Error('Email OTP app-session resolution requires one exact provider subject');
+    }
+    return entries.values().next().value ?? null;
+  }
+}
+
+export function emailOtpAppSessionBindingFromJwt(args: {
+  walletId: WalletId;
+  appSessionJwt: string;
+}): EmailOtpAppSessionBinding {
+  const jwt = requireAppSessionJwt(args.appSessionJwt, 'Email OTP appSessionJwt');
+  const parsedJwt = parseAppSessionJwt(jwt);
+  if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
+  const payload = decodeJwtPayloadRecord(jwt);
+  const parsedSubject = parseProviderSubject(payload?.sub);
+  if (!parsedSubject.ok) {
+    throw new Error(`Email OTP app-session subject is invalid: ${parsedSubject.error.message}`);
+  }
+  return {
+    kind: 'email_otp_app_session_binding',
+    walletId: args.walletId,
+    providerSubject: parsedSubject.value,
+    appSessionJwt: parsedJwt.value,
+  };
 }
 
 export function appSessionJwtFromEmailOtpAuthLane(authLane: EmailOtpAuthLane): string {
@@ -226,6 +307,9 @@ export function emailOtpRefreshIdentity(args: {
   const walletSessionUserId = String(args.walletSessionUserId || '').trim();
   if (!walletSessionUserId) {
     throw new Error('[email-otp] refresh identity requires walletSessionUserId');
+  }
+  if (!isExactEmailOtpSigningLaneIdentity(args.laneIdentity)) {
+    throw new Error('[email-otp] refresh identity requires an Email OTP exact lane');
   }
   return {
     kind: 'email_otp_refresh_identity',

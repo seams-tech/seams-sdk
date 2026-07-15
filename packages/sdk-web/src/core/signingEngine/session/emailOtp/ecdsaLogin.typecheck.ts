@@ -5,7 +5,6 @@ import type {
 import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
-  EmailOtpEcdsaLoginEd25519ReconstructionArgs,
   EmailOtpEcdsaTransactionStepUpInput,
   LoginEmailOtpEcdsaCapabilityForSigningArgs,
   LoginEmailOtpEcdsaCapabilityArgs,
@@ -15,7 +14,6 @@ declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const committedLane: EmailOtpEcdsaCommittedLane;
 declare const routePlan: EmailOtpRoutePlan;
-declare const ed25519ReconstructionArgs: EmailOtpEcdsaLoginEd25519ReconstructionArgs;
 
 const transactionStepUpWithCommittedLane: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
@@ -119,20 +117,6 @@ const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSign
 };
 void signingCapabilityWithoutCommittedLane;
 
-const ed25519ReconstructionWithoutBudget = {
-  ...ed25519ReconstructionArgs,
-  // @ts-expect-error ECDSA login Ed25519 reconstruction requires a concrete budget.
-  remainingUses: undefined,
-} satisfies EmailOtpEcdsaLoginEd25519ReconstructionArgs;
-void ed25519ReconstructionWithoutBudget;
-
-const ed25519ReconstructionWithoutEcdsaSession = {
-  ...ed25519ReconstructionArgs,
-  // @ts-expect-error ECDSA login Ed25519 reconstruction requires the companion ECDSA session id.
-  ecdsaThresholdSessionId: undefined,
-} satisfies EmailOtpEcdsaLoginEd25519ReconstructionArgs;
-void ed25519ReconstructionWithoutEcdsaSession;
-
 const validCapabilityLoginWithDerivedProvider: LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession,
   chainTarget,
@@ -140,12 +124,8 @@ const validCapabilityLoginWithDerivedProvider: LoginEmailOtpEcdsaCapabilityArgs 
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: { kind: 'derive_from_route_auth' },
+  ed25519YaoRecovery: { kind: 'not_requested' },
 };
 void validCapabilityLoginWithDerivedProvider;
 
@@ -156,15 +136,11 @@ const validCapabilityLoginWithExplicitProvider: LoginEmailOtpEcdsaCapabilityArgs
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: {
     kind: 'explicit_provider_user',
     providerUserId: 'google-provider-user-1',
   },
+  ed25519YaoRecovery: { kind: 'not_requested' },
 };
 void validCapabilityLoginWithExplicitProvider;
 
@@ -176,11 +152,6 @@ const invalidCapabilityLoginWithoutProvider: LoginEmailOtpEcdsaCapabilityArgs = 
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
 };
 void invalidCapabilityLoginWithoutProvider;
 
@@ -191,11 +162,6 @@ const invalidCapabilityLoginWithAuthSubject: LoginEmailOtpEcdsaCapabilityArgs = 
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: { kind: 'derive_from_route_auth' },
   // @ts-expect-error authSubjectId is a worker boundary field, not a login authority input.
   authSubjectId: 'legacy-auth-subject',
@@ -209,11 +175,6 @@ const invalidCapabilityLoginWithoutRoutePlan: LoginEmailOtpEcdsaCapabilityArgs =
   otpCode: '123456',
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: { kind: 'derive_from_route_auth' },
 };
 void invalidCapabilityLoginWithoutRoutePlan;
@@ -225,11 +186,6 @@ const invalidCapabilityLoginWithRawAppSession: LoginEmailOtpEcdsaCapabilityArgs 
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: { kind: 'derive_from_route_auth' },
   // @ts-expect-error ECDSA login core must not accept raw app-session JWTs.
   appSessionJwt: 'app-session-jwt',
@@ -243,11 +199,6 @@ const invalidCapabilityLoginWithRawRouteAuth: LoginEmailOtpEcdsaCapabilityArgs =
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: { kind: 'derive_from_route_auth' },
   // @ts-expect-error ECDSA login core must not accept raw route auth.
   routeAuth: { kind: 'app_session', jwt: 'app-session-jwt' },
@@ -261,11 +212,6 @@ const invalidCapabilityLoginWithSessionKind: LoginEmailOtpEcdsaCapabilityArgs = 
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  ed25519ReconstructionMode: 'skip',
-  ed25519SessionReconstruction: {
-    kind: 'defer',
-    reason: 'not_needed_for_ecdsa',
-  },
   providerIdentity: { kind: 'derive_from_route_auth' },
   // @ts-expect-error ECDSA login core receives session transport through routePlan.
   sessionKind: 'jwt',

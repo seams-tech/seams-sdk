@@ -47,6 +47,14 @@ function assertSignedTransactionReadiness(signedTransaction: SignedTransaction):
   );
 }
 
+function requireNearTransactionHash(value: unknown): string {
+  const transactionHash = String(value || '').trim();
+  if (!transactionHash) {
+    throw new Error('NEAR broadcast response is missing transaction hash');
+  }
+  return transactionHash;
+}
+
 function signedTransactionWithSdkReadiness(args: {
   signedTransaction: SignedTransaction;
   signingResult: SignTransactionResult;
@@ -226,7 +234,7 @@ export async function sendTransaction({
   try {
     if (signedTransaction.serverDispatch) {
       transactionResult = signedTransaction.serverDispatch.rpcResult as FinalExecutionOutcome;
-      txId = signedTransaction.serverDispatch.transactionHash;
+      txId = requireNearTransactionHash(signedTransaction.serverDispatch.transactionHash);
       if (nonceLease) {
         await context.signingEngine.getNonceCoordinator().markBroadcastAccepted({
           leaseId: nonceLease.leaseId,
@@ -266,14 +274,16 @@ export async function sendTransaction({
       signedTransaction,
       options?.waitUntil,
     );
-    txId = transactionResult.transaction?.hash || transactionResult.transaction?.id;
+    txId = requireNearTransactionHash(
+      transactionResult.transaction?.hash || transactionResult.transaction?.id,
+    );
 
     if (nonceLease) {
       await context.signingEngine.getNonceCoordinator().markBroadcastAccepted({
         leaseId: nonceLease.leaseId,
         operationId: nonceLease.operationId,
         operationFingerprint: nonceLease.operationFingerprint,
-        ...(txId ? { txHash: txId } : {}),
+        txHash: txId,
       });
       await context.signingEngine.getNonceCoordinator().markFinalized({
         leaseId: nonceLease.leaseId,

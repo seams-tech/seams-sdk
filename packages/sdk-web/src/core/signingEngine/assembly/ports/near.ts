@@ -6,23 +6,28 @@ import {
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
 import type { EvmFamilyWalletSignerStorePort } from '../../flows/signEvmFamily/accountAuth';
-import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
-import { reconnectPasskeyEd25519CapabilityForSigning } from '../../session/passkey/ed25519Recovery';
+import { refreshPasskeyEd25519CapabilityForSigning } from '../../session/passkey/ed25519BudgetRefresh';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
+import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
+import { resolveManagedRuntimeScopeBootstrap } from '../../../config/managedRuntimeScope';
+import { readPersistedEd25519SessionRecordForSigning } from '../../session/availability/persistedAvailableSigningLanes';
 
 export function createNearSigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
   walletSignerStore: EvmFamilyWalletSignerStorePort;
   nearRpcUrl: string;
   signingSessionCoordinator: SigningSessionCoordinator;
+  ed25519YaoActiveClients: Ed25519YaoActiveClientRegistryPort;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }): NearSigningApiDeps {
   const { createArgs, nearRpcUrl, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
     nearRpcUrl,
+    resolveActiveEd25519YaoSigningCapability: (identity) =>
+      args.ed25519YaoActiveClients.resolve(identity),
     resolveThresholdEd25519SessionIdForNearAccount: (nearAccountId: string): string | null => {
       try {
         const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
@@ -32,46 +37,13 @@ export function createNearSigningDeps(args: {
         return null;
       }
     },
+    readPersistedEd25519SessionRecordForSigning,
+    recoverPasskeyEd25519YaoCapabilityForSigning:
+      createArgs.recoverPasskeyEd25519YaoCapabilityForSigning,
+    recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
+      createArgs.recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    requestEmailOtpTransactionSigningChallenge: ({
-      walletSession,
-      nearAccountId,
-      chain,
-      committedLane,
-    }) =>
-      createArgs.requestEmailOtpTransactionSigningChallenge?.({
-        walletSession,
-        nearAccountId,
-        chain,
-        committedLane,
-      }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
-    resolveEmailOtpEd25519SigningSessionAuthority: ({ lane }) =>
-      createWarmSessionCapabilityReader({
-        touchConfirm: createArgs.touchConfirm,
-        signingSessionSeal: null,
-        getEmailOtpWarmSessionStatus,
-      }).resolveEmailOtpEd25519SigningSessionAuthority({ lane }),
-    isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
-      createArgs.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true,
-    waitForPendingEmailOtpEd25519Warmup: ({ nearAccountId }) =>
-      createArgs.waitForPendingEmailOtpEd25519Warmup?.({ nearAccountId }) || Promise.resolve(false),
-    loginWithEmailOtpEd25519CapabilityForSigning: ({
-      nearAccountId,
-      challengeId,
-      otpCode,
-      committedLane,
-      remainingUses,
-    }) =>
-      createArgs.loginWithEmailOtpEd25519CapabilityForSigning?.({
-        nearAccountId,
-        challengeId,
-        otpCode,
-        committedLane,
-        remainingUses,
-      }) || Promise.reject(new Error('Email OTP Ed25519 signing bootstrap is not configured')),
-    restorePersistedSessionForSigning: (restoreArgs) =>
-      createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
     resolveAccountAuthMethodForSigning: async ({ walletId }) => {
@@ -82,28 +54,54 @@ export function createNearSigningDeps(args: {
       });
       return accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
     },
-    reconnectPasskeyEd25519CapabilityForSigning: async ({
+    refreshPasskeyEd25519CapabilityForSigning: async ({
       nearAccountId,
       record,
       policySecretSource,
-      remainingUses,
+      operationUsesNeeded,
       sessionId,
       signingGrantId,
     }) =>
-      reconnectPasskeyEd25519CapabilityForSigning({
+      refreshPasskeyEd25519CapabilityForSigning({
         nearAccountId,
         record,
         policySecretSource,
-        remainingUses,
+        operationUsesNeeded,
         sessionId,
         signingGrantId,
+        runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(createArgs.seamsWebConfigs),
         provisionThresholdEd25519Session: (provisionArgs) =>
           createArgs.provisionThresholdEd25519Session(provisionArgs),
-        restorePasskeyEd25519SigningMaterial: (restoreArgs) =>
-          createArgs.restorePasskeyEd25519SigningMaterial(restoreArgs),
         readStoredThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>
           getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
+        resolveActiveEd25519YaoSigningCapability: (identity) =>
+          args.ed25519YaoActiveClients.resolve(identity),
+        recoverPasskeyEd25519YaoCapabilityForSigning:
+          createArgs.recoverPasskeyEd25519YaoCapabilityForSigning,
+        refreshActiveEd25519YaoWalletSession: ({
+          identity,
+          signingGrantId,
+          nextWalletSessionState,
+        }) =>
+          args.ed25519YaoActiveClients.refreshWalletSession({
+            kind: 'same_identity_wallet_session_refresh_v1',
+            identity,
+            signingGrantId,
+            nextWalletSessionState,
+          }),
       }),
+    ...(createArgs.requestEmailOtpEd25519SigningChallenge
+      ? {
+          requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>
+            createArgs.requestEmailOtpEd25519SigningChallenge!(challengeArgs),
+        }
+      : {}),
+    ...(createArgs.recoverEmailOtpEd25519CapabilityForSigning
+      ? {
+          recoverEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
+            createArgs.recoverEmailOtpEd25519CapabilityForSigning!(recoveryArgs),
+        }
+      : {}),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({

@@ -1,7 +1,7 @@
 import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/keyExportFlow';
-import type { ExactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type {
-  NearAccountRef,
+  ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -9,7 +9,10 @@ import type {
   PMRegistrationActivationPreparePayload,
   ParentToChildType,
 } from '../shared/messages';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  walletIdFromString,
+  type RegistrationSignerSetSelection,
+} from '@shared/utils/registrationIntent';
 import type {
   RegistrationActivationId,
   WalletIframeRequestId,
@@ -17,37 +20,53 @@ import type {
 } from '@/SeamsWeb/publicApi/types';
 
 declare const walletSession: WalletSessionRef;
-declare const nearAccount: NearAccountRef;
-declare const ed25519Lane: ExactEd25519SigningLaneIdentity;
+declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
 declare const activationId: RegistrationActivationId;
 declare const activationRequestId: WalletIframeRequestId;
 declare const activationSurfaceId: WalletIframeSurfaceId;
 
+const activationSignerSelection: RegistrationSignerSetSelection = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: {
+        kind: 'implicit_account',
+        accountIdSource: 'ed25519_public_key',
+      },
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+};
+
 const iframeExportPayload: PMExportKeypairUiPayload = {
-  kind: 'near',
+  kind: 'ecdsa',
   walletSession,
-  nearAccount,
+  chainTarget,
   laneIdentity: { raw: 'untrusted-boundary-payload' },
-  options: { chain: 'near' },
+  options: {},
 };
 void iframeExportPayload;
 
 const coreExportInput: SigningEngineExportKeypairWithUIInput = {
-  kind: 'near',
+  kind: 'ecdsa',
   walletSession,
-  nearAccount,
-  laneIdentity: ed25519Lane,
-  options: { chain: 'near' },
+  chainTarget,
+  laneIdentity: ecdsaLane,
+  options: {},
 };
 void coreExportInput;
 
 const coreExportInputWithRawLane: SigningEngineExportKeypairWithUIInput = {
-  kind: 'near',
+  kind: 'ecdsa',
   walletSession,
-  nearAccount,
+  chainTarget,
   // @ts-expect-error Core export requires parsed exact lane identity.
   laneIdentity: { raw: 'untrusted-boundary-payload' },
-  options: { chain: 'near' },
+  options: {},
 };
 void coreExportInputWithRawLane;
 
@@ -61,6 +80,7 @@ const activationPreparePayload: PMRegistrationActivationPreparePayload = {
   surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  signerSelection: activationSignerSelection,
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',
@@ -74,6 +94,7 @@ void activationPreparePayload;
 const activationPrepareWithoutIdentity: PMRegistrationActivationPreparePayload = {
   expiresAtMs: 1_900_000_000_000,
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  signerSelection: activationSignerSelection,
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',
@@ -89,6 +110,7 @@ const activationPrepareWithoutWallet: PMRegistrationActivationPreparePayload = {
   requestId: activationRequestId,
   surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
+  signerSelection: activationSignerSelection,
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',
@@ -103,6 +125,7 @@ const activationPrepareWithServerAllocatedWallet: PMRegistrationActivationPrepar
   requestId: activationRequestId,
   surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
+  signerSelection: activationSignerSelection,
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',
@@ -120,6 +143,7 @@ const activationPrepareWithNearAccount: PMRegistrationActivationPreparePayload =
   surfaceId: activationSurfaceId,
   expiresAtMs: 1_900_000_000_000,
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  signerSelection: activationSignerSelection,
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',

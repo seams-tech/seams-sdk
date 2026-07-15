@@ -66,6 +66,7 @@ export type EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap = {
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
   preparePublicFacts: EcdsaPreparePublicFacts;
+  retainedClientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
   passkeyPrfFirstB64u?: never;
 };
 
@@ -199,6 +200,7 @@ export async function prepareEmailOtpWalletRegistrationEcdsaClientBootstrap(
     clientBootstrap: result.clientBootstrap,
     pendingStateBlob: result.pendingStateBlob,
     preparePublicFacts: result.preparePublicFacts,
+    retainedClientRootShareHandle: result.retainedClientRootShareHandle,
   };
 }
 

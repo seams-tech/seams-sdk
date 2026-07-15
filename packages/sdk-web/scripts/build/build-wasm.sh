@@ -3,7 +3,7 @@
 # Build the Rust/WASM packages consumed by the SDK build.
 #
 # Modes:
-# - dev:  release NEAR/HSS browser hot paths; dev/no-opt auxiliary runtimes.
+# - dev:  release cryptographic browser hot paths; dev/no-opt auxiliary runtimes.
 # - prod: release all WASM packages.
 
 set -e
@@ -73,22 +73,21 @@ run_in_dir() {
 
 build_near_signer() {
   run_in_dir "$SOURCE_WASM_SIGNER" \
-    with_hss_hot_path_rustflags \
-      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-      wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release --features hss-client-exports
-
-  run_in_dir "$SOURCE_WASM_SIGNER" \
-    with_hss_hot_path_rustflags \
-      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-      env CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
-        wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
+      wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release
 }
 
-build_hss_client_signer() {
-  run_in_dir "$SOURCE_WASM_HSS_CLIENT_SIGNER" \
+build_ed25519_yao_client() {
+  run_in_dir "$SOURCE_ED25519_YAO_CLIENT" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/Cargo.lock" \
+      wasm-pack build --target web --out-dir pkg --out-name router_ab_ed25519_yao_client --release
+}
+
+build_ecdsa_client_signer() {
+  run_in_dir "$SOURCE_WASM_ECDSA_CLIENT_SIGNER" \
     with_hss_hot_path_rustflags \
-      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" \
-      wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release
+      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/Cargo.lock" \
+      wasm-pack build --target web --out-dir pkg --out-name ecdsa_client_signer --release
 }
 
 with_hss_hot_path_rustflags() {
@@ -202,8 +201,8 @@ print_step "Using $WASM_SDK_BUILD_MODE WASM mode (default profile: $DEFAULT_WASM
 print_step "Cleaning previous WASM package outputs..."
 rm -rf \
   "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server" \
-  "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg" \
+  "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg" \
@@ -213,8 +212,9 @@ print_success "WASM package outputs cleaned"
 
 print_step "Building WASM packages in parallel..."
 JOB_LOG_DIR="$(mktemp -d)"
-start_job "NEAR signer WASM (browser + server HSS release)" build_near_signer
-start_job "HSS client signer WASM (release)" build_hss_client_signer
+start_job "NEAR signer WASM (release)" build_near_signer
+start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
+start_job "ECDSA client signer WASM (release)" build_ecdsa_client_signer
 start_job "Eth signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_ETH_SIGNER" eth_signer
 start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
 start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
@@ -228,10 +228,15 @@ if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOUR
 else
   print_warning "Failed to optimize WASM package metadata; bundler may deoptimize tree-shaking"
 fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg" 2>/dev/null; then
-  print_success "HSS client WASM package metadata optimized"
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg" 2>/dev/null; then
+  print_success "Ed25519 Yao Client WASM package metadata optimized"
 else
-  print_warning "Failed to optimize HSS client WASM package metadata"
+  print_warning "Failed to optimize Ed25519 Yao Client WASM package metadata"
+fi
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg" 2>/dev/null; then
+  print_success "ECDSA client WASM package metadata optimized"
+else
+  print_warning "Failed to optimize ECDSA client WASM package metadata"
 fi
 if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg" 2>/dev/null; then
   print_success "Eth WASM package metadata optimized"
@@ -263,12 +268,12 @@ print_step "Checking expected WASM package outputs..."
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
+require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
+require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm"

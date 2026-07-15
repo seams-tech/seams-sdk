@@ -26,7 +26,6 @@ import {
   type AvailableSigningLanesRuntimeEd25519Record,
   type ReadAvailableSigningLanesInput,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
-import { ed25519AvailableMaterialStateFromSessionRecord } from '@/core/signingEngine/session/availability/ed25519AvailableMaterialState';
 import { resolveEmailOtpEcdsaWorkerSessionId } from '@/core/signingEngine/session/availability/readiness';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
@@ -184,8 +183,6 @@ export async function readEmailOtpPersistedSessionSnapshot(
           if (!laneCandidate) continue;
           const candidateAuthMethod = laneCandidateAuthMethod(laneCandidate);
           if (args.authMethod && args.authMethod !== candidateAuthMethod) continue;
-          const material = ed25519AvailableMaterialStateFromSessionRecord(runtimeRecord);
-          if (!material) continue;
           pushRecord({
             auth: laneCandidate.auth,
             curve: 'ed25519',
@@ -197,10 +194,10 @@ export async function readEmailOtpPersistedSessionSnapshot(
             routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
             signingGrantId: String(runtimeRecord.signingGrantId || '').trim(),
+            source: 'runtime_session_record',
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
-            material,
           });
         }
         return records;

@@ -29,10 +29,6 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { SignedTransaction, AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
@@ -424,31 +420,6 @@ export class SeamsWebIframe {
           onEvent: args?.options?.onEvent,
         });
       },
-      startEmailRecovery: async (args) => {
-        await this.requireRouterReady();
-        return await this.router.startEmailRecovery({
-          walletId: args.walletId,
-          onEvent: args.options?.onEvent,
-          options: {
-            ...(args.options?.confirmerText ? { confirmerText: args.options.confirmerText } : {}),
-            ...(args.options?.confirmationConfig
-              ? { confirmationConfig: args.options.confirmationConfig }
-              : {}),
-          },
-        });
-      },
-      finalizeEmailRecovery: async (args) => {
-        await this.requireRouterReady();
-        await this.router.finalizeEmailRecovery({
-          walletId: args.walletId,
-          ...(args.nearPublicKey ? { nearPublicKey: args.nearPublicKey } : {}),
-          onEvent: args.options?.onEvent,
-        });
-      },
-      cancelEmailRecovery: async (args) => {
-        await this.requireRouterReady();
-        await this.router.stopEmailRecovery(args);
-      },
       getEmailOtpRecoveryCodeStatus: async (args) =>
         await this.router.getEmailOtpRecoveryCodeStatus({
           walletId: args.walletId,
@@ -491,8 +462,6 @@ export class SeamsWebIframe {
     this.keys = {
       resolveExactKeyExportLane: async (input) => await this.resolveExactKeyExportLaneDomain(input),
       exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
-      exportThresholdEd25519SeedFromHssReport: async (args) =>
-        await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };
   }
 
@@ -973,7 +942,7 @@ export class SeamsWebIframe {
     await this.router.reportTempoBroadcastAccepted({
       walletSession: args.walletSession,
       signedResult: args.signedResult,
-      ...(args.txHash ? { txHash: args.txHash } : {}),
+      txHash: args.txHash,
       options: {
         onEvent: args.options?.onEvent,
       },
@@ -1214,29 +1183,6 @@ export class SeamsWebIframe {
   ): Promise<Awaited<ReturnType<KeyExportCapability['resolveExactKeyExportLane']>>> {
     await this.requireRouterReady();
     return await this.router.resolveExactKeyExportLane(input);
-  }
-
-  private async exportThresholdEd25519SeedFromHssReportDomain(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: KeyExportHooksOptions['onEvent'];
-    };
-  }): Promise<void> {
-    await this.requireRouterReady();
-    return this.router.exportThresholdEd25519SeedFromHssReport({
-      walletId: args.walletSession.walletId,
-      nearAccountId: String(args.nearAccount.accountId),
-      preparedSession: args.preparedSession,
-      finalizedReport: args.finalizedReport,
-      expectedPublicKey: args.expectedPublicKey,
-      options: args.options,
-    });
   }
 
   private async signAndSendTransactionDomain(args: {

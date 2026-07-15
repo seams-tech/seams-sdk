@@ -6,10 +6,6 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  ExactEcdsaSigningLaneIdentity,
-  ExactEd25519SigningLaneIdentity,
-} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import type {
   EmailOtpDeviceEnrollmentRemoveResult,
   EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpEnrollmentResult,
@@ -49,7 +45,6 @@ import type {
   ActionHooksOptions,
   DelegateActionHooksOptions,
   DelegateRelayHooksOptions,
-  KeyExportHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
   RegistrationFlowEvent,
@@ -68,10 +63,6 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import type {
-  ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { AccountId } from '@/core/types/accountIds';
 import type { ActionArgs, TransactionInput } from '@/core/types/actions';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
@@ -83,7 +74,6 @@ import type {
   SignNEP413MessageResult,
 } from '@/SeamsWeb/operations/near/signNEP413';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
-import type { EmailRecoveryFlowOptions } from '@/core/types/emailRecovery';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
@@ -115,7 +105,6 @@ import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/temp
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
 import type {
-  KeyExportEventCallback,
   SigningEngineResolveExactKeyExportLaneInput,
   SigningEngineResolveExactKeyExportLaneResult,
   SigningEngineExportKeypairWithUIInput,
@@ -134,7 +123,6 @@ import type {
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
-import type * as thresholdEd25519Public from '@/core/signingEngine/threshold/ed25519/public';
 import type {
   DeviceLinkingQRData,
   LinkDeviceResult,
@@ -271,7 +259,7 @@ type ReportTempoNonceLifecycleBaseArgs = {
 };
 
 export type ReportTempoBroadcastAcceptedArgs = ReportTempoNonceLifecycleBaseArgs & {
-  txHash?: `0x${string}`;
+  txHash: `0x${string}`;
 };
 
 export type ReportTempoBroadcastRejectedArgs = ReportTempoNonceLifecycleBaseArgs & {
@@ -492,6 +480,14 @@ export type GoogleEmailOtpRegistrationCandidateId = string & {
 export type RegistrationFinalizeIdempotencyKey = string & {
   readonly __registrationFinalizeIdempotencyKey: unique symbol;
 };
+
+export function registrationFinalizeIdempotencyKeyFromString(
+  value: string,
+): RegistrationFinalizeIdempotencyKey {
+  const normalized = value.trim();
+  if (!normalized) throw new Error('Registration finalize idempotency key is required');
+  return normalized as RegistrationFinalizeIdempotencyKey;
+}
 
 export type GoogleEmailOtpRegistrationBackupActionKind = 'download' | 'copy' | 'print' | 'manual';
 
@@ -799,6 +795,7 @@ export type WalletIframeRegistrationActivationSurface = {
 
 export type CreatePasskeyRegistrationActivationSurfaceArgs = {
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
+  signerSelection: RegistrationSignerSetSelection;
   options?: RegistrationHooksOptions;
   presentation: RegistrationActivationButtonPresentation;
 };
@@ -921,19 +918,6 @@ export interface RecoveryCapability {
     options?: SyncAccountHooksOptions;
   }): Promise<SyncAccountResult>;
 
-  startEmailRecovery(args: {
-    walletId: string;
-    options?: EmailRecoveryFlowOptions;
-  }): Promise<{ mailtoUrl: string; nearPublicKey: string }>;
-
-  finalizeEmailRecovery(args: {
-    walletId: string;
-    nearPublicKey?: string;
-    options?: EmailRecoveryFlowOptions;
-  }): Promise<void>;
-
-  cancelEmailRecovery(args?: { walletId?: string; nearPublicKey?: string }): Promise<void>;
-
   getEmailOtpRecoveryCodeStatus(args: {
     walletId: string;
     relayUrl?: string;
@@ -972,29 +956,9 @@ export interface DevicesCapability {
   }): Promise<ActionResult>;
 }
 
-export type ThresholdEd25519SeedExportUiOptions = {
-  variant?: 'drawer' | 'modal';
-  theme?: 'dark' | 'light';
-  onEvent?: KeyExportHooksOptions['onEvent'];
-};
+export type KeyExportUiOptions = SigningEngineExportKeypairWithUIInput['options'];
 
-export type ExportKeypairWithUIInput =
-  | {
-      kind: 'near';
-      walletSession: WalletSessionRef;
-      nearAccount: NearAccountRef;
-      laneIdentity: ExactEd25519SigningLaneIdentity;
-      options: ThresholdEd25519SeedExportUiOptions & {
-        chain: 'near';
-      };
-    }
-  | {
-      kind: 'ecdsa';
-      chainTarget: ThresholdEcdsaChainTarget;
-      walletSession: WalletSessionRef;
-      laneIdentity: ExactEcdsaSigningLaneIdentity;
-      options: ThresholdEd25519SeedExportUiOptions;
-    };
+export type ExportKeypairWithUIInput = SigningEngineExportKeypairWithUIInput;
 
 export type ResolveExactKeyExportLaneInput = SigningEngineResolveExactKeyExportLaneInput;
 export type ResolveExactKeyExportLaneResult = SigningEngineResolveExactKeyExportLaneResult;
@@ -1004,14 +968,6 @@ export interface KeyExportCapability {
     input: ResolveExactKeyExportLaneInput,
   ): Promise<ResolveExactKeyExportLaneResult>;
   exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void>;
-  exportThresholdEd25519SeedFromHssReport(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-    expectedPublicKey: string;
-    options: ThresholdEd25519SeedExportUiOptions;
-  }): Promise<void>;
 }
 
 export interface PreferencesCapability {

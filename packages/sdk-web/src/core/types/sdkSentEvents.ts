@@ -198,25 +198,6 @@ export enum LinkDeviceEventPhase {
   CANCELLED = 'link_device.cancelled',
 }
 
-export enum EmailRecoveryFlowEventPhase {
-  STEP_01_STARTED = 'email_recovery.started',
-  STEP_02_ACCOUNT_LOOKUP_STARTED = 'email_recovery.account.lookup.started',
-  STEP_02_ACCOUNT_LOOKUP_SUCCEEDED = 'email_recovery.account.lookup.succeeded',
-  STEP_03_PASSKEY_CREATE_STARTED = 'email_recovery.auth.passkey.create.started',
-  STEP_03_PASSKEY_CREATE_SUCCEEDED = 'email_recovery.auth.passkey.create.succeeded',
-  STEP_04_EMAIL_LINK_SENT = 'email_recovery.email.link.sent',
-  STEP_04_EMAIL_LINK_WAITING = 'email_recovery.email.link.waiting',
-  STEP_05_RECOVERY_KEY_POLL_STARTED = 'email_recovery.recovery_key.poll.started',
-  STEP_05_RECOVERY_KEY_POLL_DETECTED = 'email_recovery.recovery_key.poll.detected',
-  STEP_06_FINALIZE_STARTED = 'email_recovery.finalize.started',
-  STEP_06_FINALIZE_SUCCEEDED = 'email_recovery.finalize.succeeded',
-  STEP_06_AUTO_UNLOCK_SKIPPED = 'email_recovery.auto_unlock.skipped',
-  STEP_07_COMPLETED = 'email_recovery.completed',
-  STEP_00_RESUMED_PENDING = 'email_recovery.resumed.pending',
-  FAILED = 'email_recovery.failed',
-  CANCELLED = 'email_recovery.cancelled',
-}
-
 export enum AccountSyncEventPhase {
   STEP_01_STARTED = 'account_sync.started',
   STEP_02_PASSKEY_PROMPT_STARTED = 'account_sync.auth.passkey.prompt.started',
@@ -248,7 +229,6 @@ export type WalletFlowEventPhase =
   | UnlockEventPhase
   | SigningEventPhase
   | LinkDeviceEventPhase
-  | EmailRecoveryFlowEventPhase
   | AccountSyncEventPhase
   | KeyExportEventPhase;
 
@@ -256,10 +236,6 @@ export type RegistrationFlowEvent = WalletFlowEventBase<'registration', Registra
 export type UnlockFlowEvent = WalletFlowEventBase<'unlock', UnlockEventPhase>;
 export type SigningFlowEvent = WalletFlowEventBase<'signing', SigningEventPhase>;
 export type LinkDeviceFlowEvent = WalletFlowEventBase<'link_device', LinkDeviceEventPhase>;
-export type EmailRecoveryFlowEvent = WalletFlowEventBase<
-  'email_recovery',
-  EmailRecoveryFlowEventPhase
->;
 export type AccountSyncFlowEvent = WalletFlowEventBase<'account_sync', AccountSyncEventPhase>;
 export type KeyExportFlowEvent = WalletFlowEventBase<'key_export', KeyExportEventPhase>;
 
@@ -268,7 +244,6 @@ export type WalletFlowEvent =
   | UnlockFlowEvent
   | SigningFlowEvent
   | LinkDeviceFlowEvent
-  | EmailRecoveryFlowEvent
   | AccountSyncFlowEvent
   | KeyExportFlowEvent;
 
@@ -375,22 +350,6 @@ export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED]: 2,
   [LinkDeviceEventPhase.FAILED]: 0,
   [LinkDeviceEventPhase.CANCELLED]: 0,
-  [EmailRecoveryFlowEventPhase.STEP_01_STARTED]: 1,
-  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED]: 2,
-  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED]: 2,
-  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED]: 3,
-  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED]: 3,
-  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT]: 4,
-  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING]: 4,
-  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED]: 5,
-  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED]: 5,
-  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED]: 6,
-  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_SUCCEEDED]: 6,
-  [EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED]: 6,
-  [EmailRecoveryFlowEventPhase.STEP_07_COMPLETED]: 7,
-  [EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING]: 0,
-  [EmailRecoveryFlowEventPhase.FAILED]: 0,
-  [EmailRecoveryFlowEventPhase.CANCELLED]: 0,
   [AccountSyncEventPhase.STEP_01_STARTED]: 1,
   [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED]: 2,
   [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_SUCCEEDED]: 2,
@@ -518,22 +477,6 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED]: 'Scanning QR code',
   [LinkDeviceEventPhase.FAILED]: 'Device link failed',
   [LinkDeviceEventPhase.CANCELLED]: 'Device link cancelled',
-  [EmailRecoveryFlowEventPhase.STEP_01_STARTED]: 'Starting email recovery',
-  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED]: 'Finding wallet account',
-  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED]: 'Wallet account found',
-  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED]: 'Create your recovery passkey',
-  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED]: 'Recovery passkey created',
-  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT]: 'Recovery email sent',
-  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING]: 'Waiting for email confirmation',
-  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED]: 'Checking recovery key status',
-  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED]: 'Recovery key confirmed',
-  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED]: 'Finalizing recovery',
-  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_SUCCEEDED]: 'Recovery finalized',
-  [EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED]: 'Local unlock skipped',
-  [EmailRecoveryFlowEventPhase.STEP_07_COMPLETED]: 'Email recovery complete',
-  [EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING]: 'Resuming email recovery',
-  [EmailRecoveryFlowEventPhase.FAILED]: 'Email recovery failed',
-  [EmailRecoveryFlowEventPhase.CANCELLED]: 'Email recovery cancelled',
   [AccountSyncEventPhase.STEP_01_STARTED]: 'Starting account sync',
   [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED]: 'Confirm with passkey',
   [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_SUCCEEDED]: 'Passkey confirmed',
@@ -602,11 +545,6 @@ export type CreateLinkDeviceFlowEventInput = Omit<
   'flow'
 >;
 
-export type CreateEmailRecoveryFlowEventInput = Omit<
-  CreateWalletFlowEventInput<'email_recovery', EmailRecoveryFlowEventPhase>,
-  'flow'
->;
-
 export type CreateAccountSyncFlowEventInput = Omit<
   CreateWalletFlowEventInput<'account_sync', AccountSyncEventPhase>,
   'flow'
@@ -639,15 +577,6 @@ export function createLinkDeviceFlowEvent(
   return createWalletFlowEvent({
     ...input,
     flow: 'link_device',
-  });
-}
-
-export function createEmailRecoveryFlowEvent(
-  input: CreateEmailRecoveryFlowEventInput,
-): EmailRecoveryFlowEvent {
-  return createWalletFlowEvent({
-    ...input,
-    flow: 'email_recovery',
   });
 }
 

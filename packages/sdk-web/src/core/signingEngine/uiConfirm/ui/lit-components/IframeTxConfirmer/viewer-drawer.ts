@@ -251,7 +251,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                   role="progressbar"
                   aria-label="Creating passkey"
                 ></span>
-                <span>${this.passkeyRegistrationConfirmText()}</span>`
+                <span class="passkey-registration-confirm__busy-label"
+                  >${this.passkeyRegistrationConfirmText()}</span
+                >`
             : this.passkeyRegistrationConfirmText()}
         </button>
       </div>

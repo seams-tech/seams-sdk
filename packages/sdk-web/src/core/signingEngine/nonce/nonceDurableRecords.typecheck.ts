@@ -41,6 +41,28 @@ const validEvmRecord: NonceLaneCoordinationRecord = {
 };
 void validEvmRecord;
 
+const validBroadcastEvmRecord: NonceLaneCoordinationRecord = {
+  ...validEvmRecord,
+  state: NonceDurableLeaseState.BroadcastAccepted,
+  txHash: `0x${'11'.repeat(32)}` as `0x${string}`,
+};
+void validBroadcastEvmRecord;
+
+// @ts-expect-error EVM broadcast records require a normalized 0x-prefixed transaction hash.
+const invalidBroadcastEvmRecordHash: NonceLaneCoordinationRecord = {
+  ...validEvmRecord,
+  state: NonceDurableLeaseState.BroadcastAccepted,
+  txHash: 'legacy-transaction-hash',
+};
+void invalidBroadcastEvmRecordHash;
+
+// @ts-expect-error Broadcast-accepted durable records require the transaction identity.
+const broadcastEvmRecordWithoutTxHash: NonceLaneCoordinationRecord = {
+  ...validEvmRecord,
+  state: NonceDurableLeaseState.BroadcastAccepted,
+};
+void broadcastEvmRecordWithoutTxHash;
+
 // @ts-expect-error EVM durable records require the concrete threshold chain target.
 const evmRecordWithoutChainTarget: NonceLaneCoordinationRecord = {
   v: 1,
@@ -126,13 +148,13 @@ const nearLeaseWithBigintNonce: NearNonceLease = {
   state: NonceLeaseState.Reserved,
   reservedAtMs: 1,
   expiresAtMs: 2,
-	  lane: {
-	    family: 'near',
-	    networkKey: 'testnet',
-	    walletId: 'wallet.testnet',
-	    nearAccountId: 'a'.repeat(64),
-	    publicKey: 'ed25519:public-key',
-	  },
+  lane: {
+    family: 'near',
+    networkKey: 'testnet',
+    walletId: 'wallet.testnet',
+    nearAccountId: 'a'.repeat(64),
+    publicKey: 'ed25519:public-key',
+  },
   // @ts-expect-error NEAR leases carry RPC string nonces.
   nonce: 7n,
 };

@@ -14,11 +14,16 @@ import {
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  IndexedDbEd25519YaoPublicCapabilityReferenceStore,
+  type Ed25519YaoPublicCapabilityReferenceStorePort,
+} from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 
 export type BrowserSigningStorePorts = {
   managerStores: ManagerAssemblyStores;
   signingEngineStores: SigningEngineStorePorts;
   sealedSigningSessionStore: EmailOtpSealedSessionStorePorts;
+  ed25519YaoPublicCapabilityReferences: Ed25519YaoPublicCapabilityReferenceStorePort;
 };
 
 export function createBrowserSigningStores(
@@ -42,7 +47,6 @@ export function createBrowserSigningStores(
       recoveryAndDeviceLinking: {
         credentialStore: indexedDB,
         keyMaterialStore: indexedDB,
-        ed25519MetadataStore: indexedDB,
       },
       warmup: {
         store: indexedDB,
@@ -57,5 +61,7 @@ export function createBrowserSigningStores(
       deleteDurableSealedSessionRecord,
       updateExactSealedSessionPolicy,
     },
+    ed25519YaoPublicCapabilityReferences:
+      new IndexedDbEd25519YaoPublicCapabilityReferenceStore(indexedDB),
   };
 }

@@ -19,7 +19,10 @@ import type {
   DiscoverPersistedSessionsForWalletResult,
   ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,
@@ -37,6 +40,7 @@ import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/temp
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
+import type { ProductEd25519YaoCapabilityActivationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
 import type { AccountId } from '@/core/types/accountIds';
 import type {
   ClientAuthenticatorData,
@@ -51,7 +55,6 @@ import type {
   ReservedRegistrationWebAuthnPrompt,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type {
-  KeyExportEventCallback,
   SigningEngineResolveExactKeyExportLaneInput,
   SigningEngineResolveExactKeyExportLaneResult,
   SigningEngineExportKeypairWithUIInput,
@@ -59,14 +62,20 @@ import type {
 import type {
   StoreAuthenticatorInput,
   StoredRegistrationData,
+  StoredWalletEd25519SignerRegistration,
   StoreWalletEcdsaRegistrationInput,
   StoreWalletEcdsaSignerRecordsInput,
   StoreWalletEcdsaSignerRecordsResult,
   StoreWalletEd25519RegistrationInput,
   StoreWalletEd25519SignerRecordInput,
+  StoreWalletMixedRegistrationInput,
+  StoreWalletMixedRegistrationResult,
   StoreWalletEmailOtpEd25519RegistrationInput,
+  StoreWalletEmailOtpMixedRegistrationInput,
+  StoreWalletEmailOtpMixedRegistrationResult,
   StoreWalletEmailOtpEcdsaRegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
+import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type {
   EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap,
   PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
@@ -78,15 +87,17 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
-import type { WarmSessionEd25519UnsealAuthorizationPutPayload } from '@/core/types/secure-confirm-worker';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
+import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
+import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
+import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type {
   EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
   EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
-  LoginWithEmailOtpEd25519CapabilityInternalArgs,
-  LoginWithEmailOtpEd25519CapabilityInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   LoginWithEmailOtpEcdsaCapabilityInternalResult,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
@@ -103,11 +114,6 @@ import type {
   WarmSessionSealAndPersistResult,
   WarmSessionSealTransportInput,
 } from '@/core/types/secure-confirm-worker';
-import type {
-  ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssPreparedSessionEnvelope,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import type * as thresholdEd25519Public from '@/core/signingEngine/threshold/ed25519/public';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   WorkerResourceWarmupAccountContext,
@@ -177,7 +183,6 @@ export interface UserProfileStoreSurface {
   getUserBySignerSlot(nearAccountId: AccountId, signerSlot: number): Promise<ClientUserData | null>;
   getLastUser(): Promise<ClientUserData | null>;
   nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]>;
-  updateLastLogin(walletId: WalletId): Promise<void>;
   setLastUser(walletId: WalletId, signerSlot: number): Promise<void>;
 }
 
@@ -208,10 +213,7 @@ export type LoginWarmSigningSurface = RuntimeStartupSurface &
   EcdsaSessionBootstrapSurface &
   Ed25519SessionConnectionSurface &
   WorkerOperationContext &
-  Pick<
-    SigningSessionSurface,
-    'hydrateSigningSession' | 'putWarmSessionEd25519UnsealAuthorization'
-  > &
+  Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   NonceCoordinatorSurface &
   RpIdSurface;
 
@@ -219,6 +221,7 @@ export interface RegistrationAccountSurface {
   activateAuthenticatedWalletState(args: {
     walletId: EcdsaWalletId;
     nearAccountId: AccountId;
+    signerSlot: number;
     nearClient?: NearClient;
   }): Promise<void>;
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void>;
@@ -227,15 +230,24 @@ export interface RegistrationAccountSurface {
   storeWalletEd25519RegistrationData(
     input: StoreWalletEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
+  storeWalletMixedRegistrationData(
+    input: StoreWalletMixedRegistrationInput,
+  ): Promise<StoreWalletMixedRegistrationResult>;
   storeWalletEd25519RecoveryRegistrationData(
     input: StoreWalletEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
   storeWalletEmailOtpEd25519RegistrationData(
     input: StoreWalletEmailOtpEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
+  storeWalletEmailOtpMixedRegistrationData(
+    input: StoreWalletEmailOtpMixedRegistrationInput,
+  ): Promise<StoreWalletEmailOtpMixedRegistrationResult>;
   finalizeWalletEd25519SignerRegistration(
     input: StoreWalletEd25519SignerRecordInput,
-  ): Promise<StoredRegistrationData>;
+  ): Promise<StoredWalletEd25519SignerRegistration>;
+  rollbackWalletEd25519SignerRegistration(
+    receipt: StoreWalletSignerFinalizeRollbackReceipt,
+  ): Promise<void>;
 }
 
 export interface EcdsaRegistrationSurface {
@@ -265,15 +277,14 @@ export interface EcdsaRegistrationSurface {
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;
 }
 
+export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilityActivationPortV1;
+
 export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
   persistSigningSessionSealForThresholdSession(input: {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
-  putWarmSessionEd25519UnsealAuthorization(
-    input: WarmSessionEd25519UnsealAuthorizationPutPayload,
-  ): Promise<void>;
   discoverPersistedSessionsForWallet(
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
@@ -307,16 +318,15 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
+  Ed25519YaoRegistrationActivationSurface &
   EcdsaLoginSessionSurface &
   Pick<
     SigningSessionSurface,
     'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
   > &
-  ThresholdEd25519HssClientSurface &
-  ThresholdEd25519HssCeremonySurface &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
-  Pick<UserProfileStoreSurface, 'setLastUser' | 'updateLastLogin'> &
+  Pick<UserProfileStoreSurface, 'setLastUser'> &
   Pick<WarmSessionStatusSurface, 'getWarmThresholdEd25519SessionStatus'>;
 
 export type RecentUnlocksSigningSurface = Pick<
@@ -327,7 +337,7 @@ export type RecentUnlocksSigningSurface = Pick<
 export interface EcdsaSessionControlSurface {
   clearAllThresholdEcdsaSessionRecords(): void;
   clearVolatileWarmSigningMaterial(walletId?: EcdsaWalletId): Promise<void>;
-  clearThresholdEcdsaCommitQueue(): void;
+  clearThresholdEcdsaSigningQueue(): void;
 }
 
 export type LockSigningSurface = NonceCoordinatorSurface & EcdsaSessionControlSurface;
@@ -335,12 +345,12 @@ export type LockSigningSurface = NonceCoordinatorSurface & EcdsaSessionControlSu
 export type LocalLoginStateSurface = WalletSessionReadSurface &
   Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
-    'setLastUser' | 'updateLastLogin' | 'activateAuthenticatedWalletState'
+    'setLastUser' | 'activateAuthenticatedWalletState'
   >;
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
-  ThresholdEd25519HssClientSurface &
-  ThresholdEd25519HssCeremonySurface &
+  Ed25519YaoRegistrationActivationSurface &
+  Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<
     SigningSessionSurface,
     'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
@@ -383,12 +393,26 @@ export interface PasskeyLoginAssertionSurface {
 }
 
 export interface EmailOtpSigningSessionSurface {
+  rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
+  persistEmailOtpEd25519YaoSessionForRefreshInternal(
+    record: ThresholdEd25519SessionRecord,
+  ): Promise<void>;
+  prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
+    walletSession: WalletSessionRef;
+    remainingUses: number;
+    emailHashHex: string;
+  }): Promise<PreparedColdEmailOtpEd25519YaoRecoveryV1 | null>;
+  activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+  }): Promise<ThresholdEd25519SessionRecord>;
+  loginWithEmailOtpEd25519YaoCapabilityInternal(
+    args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
+  ): Promise<ThresholdEd25519SessionRecord>;
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
-  loginWithEmailOtpEd25519CapabilityInternal(
-    args: LoginWithEmailOtpEd25519CapabilityInternalArgs,
-  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -425,100 +449,6 @@ export interface KeyExportSigningSurface {
   exportKeypairWithUI(
     input: SigningEngineExportKeypairWithUIInput,
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }>;
-  exportNearEd25519SeedArtifactWithUI(args: {
-    nearAccountId: AccountId;
-    seedB64u: string;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    };
-  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }>;
-  exportThresholdEd25519SeedFromHssReport(args: {
-    nearAccountId: AccountId;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-    expectedPublicKey: string;
-    options: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: KeyExportEventCallback;
-    };
-  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }>;
-}
-
-export interface ThresholdEd25519HssClientSurface {
-  prepareThresholdEd25519HssClientCeremonyFromCanonicalContext(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCanonicalContext
-  >;
-  prepareThresholdEd25519HssClientCeremonyFromCredential(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
-  >;
-  prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst>;
-  prepareThresholdEd25519HssClientRequest(
-    args: Parameters<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientRequest>[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientRequest>;
-  prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
-  >;
-  prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
-  >;
-  prepareThresholdEd25519HssClientOutputMaskHandle(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle>;
-  prepareThresholdEd25519HssAddStageRequestMessage(
-    args: Parameters<
-      typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssAddStageRequestMessage>;
-  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
-    args: Parameters<
-      typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
-  >;
-}
-
-export interface ThresholdEd25519HssCeremonySurface {
-  runThresholdEd25519HssCeremonyWithSession(
-    args: Parameters<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>[1],
-  ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>;
-  runThresholdEd25519HssCeremonyWithMaterialHandle(
-    args: Parameters<
-      typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle
-    >[1],
-  ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle>;
-  storeThresholdEd25519WorkerMaterialFromFinalizedHssReport(
-    args: Parameters<
-      typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.storeThresholdEd25519WorkerMaterialFromFinalizedHssReport
-  >;
 }
 
 export interface EmailOtpRegistrationEnrollmentSurface {
@@ -528,6 +458,7 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 }
 
 export type RegistrationSigningSurface = RpIdSurface &
+  Ed25519YaoRegistrationActivationSurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   Pick<
     SigningSessionSurface,
@@ -536,6 +467,10 @@ export type RegistrationSigningSurface = RpIdSurface &
   Pick<
     EmailOtpRegistrationEnrollmentSurface,
     'prepareEmailOtpRegistrationEnrollmentMaterialInternal'
+  > &
+  Pick<
+    EmailOtpSigningSessionSurface,
+    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoSessionForRefreshInternal'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &
@@ -552,9 +487,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   WebAuthnRegistrationConfirmationSurface &
   RegistrationAccountSurface &
-  EcdsaRegistrationSurface &
-  ThresholdEd25519HssClientSurface &
-  ThresholdEd25519HssCeremonySurface;
+  EcdsaRegistrationSurface;
 
 export type SeamsWebBaseContext<TSigningEngine> = {
   signingEngine: TSigningEngine;
@@ -590,6 +523,7 @@ export type LocalLoginStateWebContext = SeamsWebBaseContext<LocalLoginStateSurfa
 export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurface>;
 
 export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
+  Ed25519YaoRegistrationActivationSurface &
   WebAuthnRegistrationConfirmationSurface &
   Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
   Pick<
@@ -601,8 +535,6 @@ export type EmailRecoveryWebContext = SeamsWebBaseContext<EmailRecoverySigningSu
 
 export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
   NearSigningSurface &
-  ThresholdEd25519HssClientSurface &
-  ThresholdEd25519HssCeremonySurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   RpIdSurface &
   WebAuthnRegistrationConfirmationSurface &

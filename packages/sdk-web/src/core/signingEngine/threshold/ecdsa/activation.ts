@@ -48,7 +48,7 @@ import {
   parseEcdsaThresholdKeyId,
 } from '../../session/keyMaterialBrands';
 import { buildEcdsaRoleLocalSigningMaterialHandle } from '../../session/identity/ecdsaHssSigningMaterialHandle';
-import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/hssClientSignerWasm';
+import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/ecdsaClientSignerWasm';
 import { hexToBytes } from '../../chains/evm/bytes';
 import { fetchRouterAbPublicKeysetV2 } from '@/core/rpcClients/relayer/routerAbPublicKeyset';
 import {

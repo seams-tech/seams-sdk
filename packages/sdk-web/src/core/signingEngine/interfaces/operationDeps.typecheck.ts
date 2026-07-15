@@ -10,19 +10,13 @@ import type {
   EvmFamilySigningDeps,
   NearSigningApiDeps,
 } from './operationDeps';
-import type { Ed25519SigningLane } from '../session/emailOtp/ed25519Warmup';
-import type {
-  ExactEcdsaSigningLaneIdentity,
-  ExactEd25519SigningLaneIdentity,
-} from '../session/identity/exactSigningLaneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 
 declare const nearAccountId: AccountId;
 declare const walletId: WalletId;
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const exactEcdsaLane: ExactEcdsaSigningLaneIdentity;
-declare const exactEd25519Lane: ExactEd25519SigningLaneIdentity;
-declare const committedEd25519Lane: Ed25519SigningLane;
 
 const ecdsaSigningLookupArgs: EcdsaSigningLookupArgs = {
   walletId,
@@ -53,34 +47,9 @@ void invalidEcdsaSigningListLookupArgs;
 declare const signingDeps: EvmFamilySigningDeps;
 declare const nearSigningDeps: NearSigningApiDeps;
 
-signingDeps.resolveEmailOtpEcdsaSigningSessionAuthority({
+signingDeps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
   lane: exactEcdsaLane,
   chain: 'tempo',
-});
-
-nearSigningDeps.requestEmailOtpTransactionSigningChallenge?.({
-  walletSession,
-  nearAccountId,
-  chain: 'near',
-  committedLane: committedEd25519Lane,
-});
-
-nearSigningDeps.resolveEmailOtpEd25519SigningSessionAuthority?.({
-  lane: exactEd25519Lane,
-});
-
-nearSigningDeps.resolveEmailOtpEd25519SigningSessionAuthority?.({
-  // @ts-expect-error Ed25519 Email OTP signing-session authority resolution requires Ed25519 lane identity.
-  lane: exactEcdsaLane,
-});
-
-nearSigningDeps.requestEmailOtpTransactionSigningChallenge?.({
-  walletSession,
-  nearAccountId,
-  chain: 'near',
-  committedLane: committedEd25519Lane,
-  // @ts-expect-error Email OTP NEAR transaction challenges extract auth from the committed lane.
-  authLane: committedEd25519Lane.authLane,
 });
 
 nearSigningDeps.getWarmThresholdEd25519SessionStatusForSession?.({
@@ -88,7 +57,7 @@ nearSigningDeps.getWarmThresholdEd25519SessionStatusForSession?.({
   thresholdSessionId: 'threshold-session-id',
 });
 
-signingDeps.resolveEmailOtpEcdsaSigningSessionAuthority({
+signingDeps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
   // @ts-expect-error ECDSA Email OTP signing-session auth resolution requires exact lane identity.
   walletId: 'alice.testnet',
   thresholdSessionId: 'threshold-session-id',

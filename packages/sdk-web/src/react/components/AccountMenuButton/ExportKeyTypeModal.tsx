@@ -95,11 +95,9 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
                 onSelectChain('near');
               }}
             >
-              <span className="w3a-export-key-type-option-title">
-                NEAR ed25519 threshold keys
-              </span>
+              <span className="w3a-export-key-type-option-title">NEAR Ed25519 key</span>
               <span className="w3a-export-key-type-option-description">
-                Export the account signing key set for NEAR.
+                Export the exact seed for the active NEAR signing key.
               </span>
             </button>
             <button
@@ -112,7 +110,7 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
                 onSelectChain('evm');
               }}
             >
-              <span className="w3a-export-key-type-option-title">EVM ecdsa threshold keys</span>
+              <span className="w3a-export-key-type-option-title">EVM ECDSA threshold key</span>
               <span className="w3a-export-key-type-option-description">
                 Export the account signing key set for EVM.
               </span>

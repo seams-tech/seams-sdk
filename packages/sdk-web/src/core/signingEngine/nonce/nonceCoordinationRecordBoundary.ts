@@ -8,6 +8,7 @@ import {
   NonceCoordinatorFallback,
   NonceDurableLeaseState,
   type NonceCoordinatorDegradation,
+  type NonceDurableLeaseLifecycle,
   type EvmNonceLane,
   type NonceLaneCoordinationReadResult,
   type NonceLaneCoordinationRecord,
@@ -17,9 +18,7 @@ import { nonceLaneKey } from './nonceLaneKeys';
 
 export type RawNonceLaneCoordinationRecord = Record<string, unknown>;
 
-export function parseNonceLaneCoordinationRecord(
-  value: unknown,
-): NonceLaneCoordinationReadResult {
+export function parseNonceLaneCoordinationRecord(value: unknown): NonceLaneCoordinationReadResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return malformedRecordResult({}, '', '', '');
   }
@@ -37,7 +36,7 @@ export function parseNonceLaneCoordinationRecord(
   }
 
   const nonce = parseDecimalBigint(obj.nonce);
-  const state = parseDurableLeaseState(obj.state);
+  const lifecycle = parseDurableLeaseLifecycle(obj);
   const operationId = rawString(obj.operationId);
   const operationFingerprint = rawString(obj.operationFingerprint);
   const reservedAtMs = parseSafeInteger(obj.reservedAtMs);
@@ -49,7 +48,7 @@ export function parseNonceLaneCoordinationRecord(
     (family !== 'evm' && family !== 'near') ||
     !networkKey ||
     nonce == null ||
-    !state ||
+    !lifecycle ||
     !operationId ||
     !operationFingerprint ||
     reservedAtMs == null ||
@@ -68,7 +67,7 @@ export function parseNonceLaneCoordinationRecord(
       accountId,
       nearAccountId,
       nonce,
-      state,
+      lifecycle,
       operationId,
       operationFingerprint,
       reservedAtMs,
@@ -85,7 +84,7 @@ export function parseNonceLaneCoordinationRecord(
     accountId,
     nearAccountId,
     nonce,
-    state,
+    lifecycle,
     operationId,
     operationFingerprint,
     reservedAtMs,
@@ -102,7 +101,7 @@ type ParsedBaseInput = {
   accountId: string;
   nearAccountId: string;
   nonce: bigint;
-  state: NonceLaneCoordinationRecord['state'];
+  lifecycle: NonceDurableLeaseLifecycle;
   operationId: string;
   operationFingerprint: string;
   reservedAtMs: number;
@@ -113,16 +112,17 @@ type ParsedBaseInput = {
 function parseEvmRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResult {
   const chainTarget = parseChainTarget(input.obj.chainTarget);
   const sender = parseEvmAddress(input.obj.sender);
+  const lifecycle = normalizeEvmDurableLifecycle(input.lifecycle);
   const nonceKey =
     input.obj.nonceKey === undefined || input.obj.nonceKey === null
       ? undefined
       : parseDecimalBigint(input.obj.nonceKey);
-  if (!chainTarget || !input.accountId || !sender || nonceKey === null) {
+  if (!chainTarget || !input.accountId || !sender || !lifecycle || nonceKey === null) {
     return malformedRecordResult(input.obj, input.laneKey, input.leaseId, 'evm');
   }
 
   const record: Extract<NonceLaneCoordinationRecord, { family: 'evm' }> = {
-    ...buildBaseRecord(input),
+    ...buildBaseRecord(input, lifecycle),
     family: 'evm',
     chainTarget,
     accountId: toWalletId(input.accountId),
@@ -161,7 +161,7 @@ function parseNearRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResul
   }
 
   const record: Extract<NonceLaneCoordinationRecord, { family: 'near' }> = {
-    ...buildBaseRecord(input),
+    ...buildBaseRecord(input, input.lifecycle),
     family: 'near',
     walletId,
     nearAccountId: input.nearAccountId,
@@ -186,13 +186,12 @@ function parseNearRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResul
   };
 }
 
-type NonceLaneCoordinationRecordBaseFields = {
+type NonceLaneCoordinationRecordBaseFieldsWithoutLifecycle = {
   v: 1;
   laneKey: string;
   leaseId: string;
   networkKey: string;
   nonce: bigint;
-  state: NonceLaneCoordinationRecord['state'];
   operationId: string;
   operationFingerprint: string;
   reservedAtMs: number;
@@ -204,14 +203,20 @@ type NonceLaneCoordinationRecordBaseFields = {
   txIndex?: number;
 };
 
-function buildBaseRecord(input: ParsedBaseInput): NonceLaneCoordinationRecordBaseFields {
-  const record: NonceLaneCoordinationRecordBaseFields = {
+type NonceLaneCoordinationRecordBaseFields<TTransactionHash extends string> =
+  NonceLaneCoordinationRecordBaseFieldsWithoutLifecycle &
+    NonceDurableLeaseLifecycle<TTransactionHash>;
+
+function buildBaseRecord<TTransactionHash extends string>(
+  input: ParsedBaseInput,
+  lifecycle: NonceDurableLeaseLifecycle<TTransactionHash>,
+): NonceLaneCoordinationRecordBaseFields<TTransactionHash> {
+  const base: NonceLaneCoordinationRecordBaseFieldsWithoutLifecycle = {
     v: 1 as const,
     leaseId: input.leaseId,
     laneKey: input.laneKey,
     networkKey: input.networkKey,
     nonce: input.nonce,
-    state: input.state,
     operationId: input.operationId,
     operationFingerprint: input.operationFingerprint,
     reservedAtMs: input.reservedAtMs,
@@ -219,25 +224,61 @@ function buildBaseRecord(input: ParsedBaseInput): NonceLaneCoordinationRecordBas
     updatedAtMs: input.updatedAtMs,
   };
   const runtimeId = rawString(input.obj.runtimeId);
-  if (runtimeId) record.runtimeId = runtimeId;
+  if (runtimeId) base.runtimeId = runtimeId;
   const fencingToken = rawString(input.obj.fencingToken);
-  if (fencingToken) record.fencingToken = fencingToken;
+  if (fencingToken) base.fencingToken = fencingToken;
   const batchId = rawString(input.obj.batchId);
-  if (batchId) record.batchId = batchId;
+  if (batchId) base.batchId = batchId;
   const txIndex = input.obj.txIndex == null ? null : parseSafeInteger(input.obj.txIndex);
-  if (txIndex != null) record.txIndex = txIndex;
-  return record;
+  if (txIndex != null) base.txIndex = txIndex;
+  switch (lifecycle.state) {
+    case NonceDurableLeaseState.Reserved:
+    case NonceDurableLeaseState.Signed:
+      return { ...base, state: lifecycle.state };
+    case NonceDurableLeaseState.BroadcastAccepted:
+      return {
+        ...base,
+        state: NonceDurableLeaseState.BroadcastAccepted,
+        txHash: lifecycle.txHash,
+      };
+  }
 }
 
-function parseDurableLeaseState(value: unknown): NonceLaneCoordinationRecord['state'] | null {
-  if (
-    value === NonceDurableLeaseState.Reserved ||
-    value === NonceDurableLeaseState.Signed ||
-    value === NonceDurableLeaseState.BroadcastAccepted
-  ) {
-    return value;
+function parseDurableLeaseLifecycle(
+  obj: RawNonceLaneCoordinationRecord,
+): NonceDurableLeaseLifecycle | null {
+  if (obj.state === NonceDurableLeaseState.Reserved) {
+    return obj.txHash === undefined ? { state: NonceDurableLeaseState.Reserved } : null;
+  }
+  if (obj.state === NonceDurableLeaseState.Signed) {
+    return obj.txHash === undefined ? { state: NonceDurableLeaseState.Signed } : null;
+  }
+  if (obj.state === NonceDurableLeaseState.BroadcastAccepted) {
+    const txHash = rawString(obj.txHash);
+    if (txHash) {
+      return { state: NonceDurableLeaseState.BroadcastAccepted, txHash };
+    }
+    // Pre-txHash records remain blocking signed leases until their existing expiry.
+    return { state: NonceDurableLeaseState.Signed };
   }
   return null;
+}
+
+function normalizeEvmDurableLifecycle(
+  lifecycle: NonceDurableLeaseLifecycle,
+): NonceDurableLeaseLifecycle<`0x${string}`> {
+  if (lifecycle.state !== NonceDurableLeaseState.BroadcastAccepted) {
+    return lifecycle;
+  }
+  const txHash = parseTxHash(lifecycle.txHash);
+  return txHash
+    ? { state: NonceDurableLeaseState.BroadcastAccepted, txHash }
+    : { state: NonceDurableLeaseState.Signed };
+}
+
+function parseTxHash(value: unknown): `0x${string}` | null {
+  const normalized = rawString(value).toLowerCase();
+  return /^0x[0-9a-f]{64}$/.test(normalized) ? (normalized as `0x${string}`) : null;
 }
 
 function parseChainTarget(value: unknown): ThresholdEcdsaChainTarget | null {

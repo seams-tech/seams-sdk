@@ -39,6 +39,7 @@ export type WorkerResourceWarmupDeps = {
   activateAuthenticatedWalletState: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;
+    signerSlot: number;
     nearClient?: NearClient;
   }) => Promise<void>;
 };
@@ -84,6 +85,18 @@ async function measureBestEffortWarmupStep(operation: () => Promise<unknown>): P
   return roundWarmupDurationMs(startedAt);
 }
 
+async function resolveWarmupSignerSlot(
+  accountId: AccountId | null,
+  store: WorkerResourceWarmupStorePort,
+): Promise<number | null> {
+  if (!accountId) return null;
+  try {
+    return await getLastLoggedInSignerSlot(accountId, store);
+  } catch {
+    return null;
+  }
+}
+
 export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
   if (!shouldPrewarmWorkers(deps)) return;
   deps.prewarmWorkers().catch(() => {});
@@ -98,11 +111,13 @@ export async function warmCriticalResources(
       ? accountContext.account
       : null;
   const accountId = accountBinding ? toAccountId(accountBinding.nearAccountId) : null;
-  const authenticatedWalletStateMs = accountBinding && accountId
+  const signerSlot = await resolveWarmupSignerSlot(accountId, deps.store);
+  const authenticatedWalletStateMs = accountBinding && accountId && signerSlot
     ? await measureBestEffortWarmupStep(() =>
         deps.activateAuthenticatedWalletState({
           walletId: accountBinding.wallet.walletId,
           nearAccountId: accountId,
+          signerSlot,
           nearClient: deps.nearClient,
         }),
       )
@@ -115,9 +130,8 @@ export async function warmCriticalResources(
     }),
   );
 
-  const keyMaterialReadMs = accountId
+  const keyMaterialReadMs = accountId && signerSlot
     ? await measureBestEffortWarmupStep(async () => {
-        const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.store).catch(() => 1);
         await getNearThresholdKeyMaterial(
           {
             clientDB: deps.store,

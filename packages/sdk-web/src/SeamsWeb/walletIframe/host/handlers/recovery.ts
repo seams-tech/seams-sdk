@@ -1,6 +1,6 @@
 import type { ActionHooksOptions, SyncAccountHooksOptions } from '@/core/types/sdkSentEvents';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
-import { respondOk, respondOkResult, withProgress } from './shared';
+import { respondOkResult, withProgress } from './shared';
 
 export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
@@ -40,47 +40,6 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       });
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
-    },
-
-    PM_START_EMAIL_RECOVERY: async (req: Req<'PM_START_EMAIL_RECOVERY'>) => {
-      const pm = deps.getSeamsWeb();
-      const { walletId, options } = req.payload!;
-      if (deps.respondIfCancelled(req.requestId)) return;
-      const result = await pm.recovery.startEmailRecovery({
-        walletId,
-        options: {
-          ...withProgress(deps, req.requestId, options || {}),
-        },
-      });
-      if (deps.respondIfCancelled(req.requestId)) return;
-      respondOkResult(deps, req.requestId, result);
-    },
-
-    PM_FINALIZE_EMAIL_RECOVERY: async (req: Req<'PM_FINALIZE_EMAIL_RECOVERY'>) => {
-      const pm = deps.getSeamsWeb();
-      const { walletId, nearPublicKey } = req.payload!;
-      if (deps.respondIfCancelled(req.requestId)) return;
-      await pm.recovery.finalizeEmailRecovery({
-        walletId,
-        ...(nearPublicKey ? { nearPublicKey } : {}),
-        options: {
-          ...withProgress(deps, req.requestId, {}),
-        },
-      });
-      if (deps.respondIfCancelled(req.requestId)) return;
-      respondOk(deps, req.requestId);
-    },
-
-    PM_STOP_EMAIL_RECOVERY: async (req: Req<'PM_STOP_EMAIL_RECOVERY'>) => {
-      const pm = deps.getSeamsWeb();
-      const { walletId, nearPublicKey } = req.payload || {};
-      if (deps.respondIfCancelled(req.requestId)) return;
-      await pm.recovery.cancelEmailRecovery({
-        ...(walletId ? { walletId } : {}),
-        ...(nearPublicKey ? { nearPublicKey } : {}),
-      });
-      if (deps.respondIfCancelled(req.requestId)) return;
-      respondOk(deps, req.requestId);
     },
   };
 }

@@ -579,8 +579,9 @@ w3a-tx-tree .file-content-shell.has-mode-toggle .file-content {
 
 w3a-tx-tree .file-content-mode-toggle {
   position: absolute;
-  /* riding the sparse opening-brace line keeps it clear of the arg text */
-  top: var(--w3a-tree__file-content-mode-toggle__top, -0.3rem);
+  /* sit just inside the block on the sparse opening-brace line: clear of the
+     arg text below, and no longer clipped by the block's top edge */
+  top: var(--w3a-tree__file-content-mode-toggle__top, 0.1rem);
   right: var(--w3a-tree__file-content-mode-toggle__right, 0.25rem);
   z-index: 2;
   white-space: nowrap;

@@ -1,13 +1,10 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
-  ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
-import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -20,14 +17,12 @@ import {
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
+import { createEmailOtpEcdsaSigningSessionMaterialRestorer } from './ecdsaRecovery';
 import {
-  createEmailOtpEcdsaSigningSessionMaterialRestorer,
-} from './ecdsaRecovery';
-import { EmailOtpAppSessionJwtCache } from './appSessionJwtCache';
-import {
-  type EmailOtpThresholdEd25519ProvisioningResult,
-  type ReconstructEmailOtpEd25519SessionArgs,
-} from './provisioning';
+  EmailOtpAppSessionJwtCache,
+  emailOtpAppSessionBindingFromJwt,
+  type EmailOtpAppSessionBinding,
+} from './appSessionJwtCache';
 import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
 import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
 import {
@@ -42,19 +37,12 @@ import {
 import { EmailOtpEcdsaLifecycleRuntime } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
-  type EmailOtpEd25519ExportArtifact,
   type EmailOtpEcdsaExportArtifact,
-  type ExportEd25519SeedWithAuthorizationArgs,
   type ExportEcdsaKeyWithAuthorizationArgs,
-  type ExportEcdsaKeyWithFreshEmailOtpLaneArgs,
+  type ExportEcdsaKeyWithDurableAuthorizationArgs,
+  type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs,
   type RequestEmailOtpChallengeArgs,
 } from './exportRecoveryRuntime';
-import {
-  EmailOtpEd25519Warmup,
-  type Ed25519SigningLane,
-  type EmailOtpThresholdEd25519LoginResult,
-  type LoginEmailOtpEd25519CapabilityArgs,
-} from './ed25519Warmup';
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
@@ -63,9 +51,6 @@ import {
   createEmailOtpWarmSessionWorkerClient,
   EmailOtpWarmSessionRuntime,
 } from './warmSessionRuntime';
-import {
-  createEmailOtpEd25519RecoveryCodeWarmSessionHydration,
-} from './recoveryCodeWarmSessionHydration';
 
 export type {
   EmailOtpThresholdEcdsaLoginResult,
@@ -76,14 +61,8 @@ export type {
   EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
 export type {
-  EmailOtpThresholdEd25519LoginResult,
-  LoginEmailOtpEd25519CapabilityArgs,
-} from './ed25519Warmup';
-export type {
   EmailOtpCoordinatorRuntimePorts,
   EmailOtpEcdsaSessionPorts,
-  EmailOtpEd25519SessionPorts,
-  EmailOtpEd25519PersistencePorts,
   EmailOtpSealedSessionStorePorts,
   EmailOtpWalletSessionCoordinatorDeps,
 } from './ports';
@@ -93,7 +72,6 @@ export class EmailOtpWalletSessionRuntime {
   private sealedRefreshDiagnosticLogAtMsByKey: Map<string, number> = new Map();
   private readonly sealedRefreshPolicy: EmailOtpSealedRefreshPolicy;
   private readonly sealedRestoreOrchestrator: EmailOtpSealedRestoreOrchestrator;
-  private readonly ed25519Warmup: EmailOtpEd25519Warmup;
   private readonly runtimeConfig: EmailOtpRuntimeConfig;
   private readonly sealedSessionRegistry: EmailOtpSealedSessionRegistry;
   private readonly warmSessionRuntime: EmailOtpWarmSessionRuntime;
@@ -114,32 +92,19 @@ export class EmailOtpWalletSessionRuntime {
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       writeExactSealedSession: deps.writeExactSealedSession,
       readExactSealedSession: deps.readExactSealedSession,
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        deps.getThresholdEd25519SessionRecordByThresholdSessionId,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
-    const recoveryCodeSigningSessionHydration =
-      createEmailOtpEd25519RecoveryCodeWarmSessionHydration({
-        hydrateSigningSession: deps.hydrateSigningSession,
-      });
     this.ecdsaLifecycleRuntime = new EmailOtpEcdsaLifecycleRuntime({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
       runtimeConfig: this.runtimeConfig,
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
-      reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        deps.getThresholdEd25519SessionRecordByThresholdSessionId,
-      recoveryCodeSigningSessionHydration,
     });
     this.exportRecoveryRuntime = new EmailOtpExportRecoveryRuntime({
       getSignerWorkerContext: deps.getSignerWorkerContext,
       requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
       requireShamirPrimeB64u: () => this.runtimeConfig.requireShamirPrimeB64u(),
-      resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
       loginWithEcdsaCapabilityInternal: (request) =>
         this.ecdsaLifecycleRuntime.loginWithEcdsaCapabilityInternal(request),
     });
@@ -148,8 +113,6 @@ export class EmailOtpWalletSessionRuntime {
         configs: deps.configs,
         getSignerWorkerContext: deps.getSignerWorkerContext,
         commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
-        hydrateSigningSession: deps.hydrateSigningSession,
-        requireRpId: (operation) => this.runtimeConfig.requireRpId(operation),
       });
     const warmSessionWorkerClient = createEmailOtpWarmSessionWorkerClient({
       worker: deps.signerWorkerManager,
@@ -169,44 +132,30 @@ export class EmailOtpWalletSessionRuntime {
       releaseSigningSessionRestoreLease: deps.releaseSigningSessionRestoreLease,
       getThresholdEcdsaSessionRecordByThresholdSessionId:
         deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        deps.getThresholdEd25519SessionRecordByThresholdSessionId,
-      readWarmSessionStatusFromWorker: (sessionId) =>
-        warmSessionWorkerClient.readStatus(sessionId),
+      readWarmSessionStatusFromWorker: (sessionId) => warmSessionWorkerClient.readStatus(sessionId),
       restoreEcdsaSigningSessionMaterialFromSealedRecord: (restoreArgs) =>
         restoreEcdsaSigningSessionMaterialFromSealedRecord(restoreArgs),
       recordSessionMaterialRestored: (sessionId, status) =>
         this.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, status),
       shouldLogDiagnostic: (key) => this.shouldLogSealedRefreshDiagnostic(key),
-      requireRpId: (operation) => this.runtimeConfig.requireRpId(operation),
     });
     this.warmSessionRuntime = new EmailOtpWarmSessionRuntime({
       workerClient: warmSessionWorkerClient,
       sealedRefreshPolicy: this.sealedRefreshPolicy,
       sealedRestoreOrchestrator: this.sealedRestoreOrchestrator,
     });
-    this.ed25519Warmup = new EmailOtpEd25519Warmup({
-      configs: deps.configs,
-      getSignerWorkerContext: deps.getSignerWorkerContext,
-      persistEmailOtpThresholdEd25519LocalMetadata:
-        deps.persistEmailOtpThresholdEd25519LocalMetadata,
-      persistWarmSessionEd25519Capability: deps.persistWarmSessionEd25519Capability,
-      recoveryCodeSigningSessionHydration,
-      readExactSealedSession: deps.readExactSealedSession,
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        deps.getThresholdEd25519SessionRecordByThresholdSessionId,
-      registerSigningSession: (record) =>
-        this.sealedSessionRegistry.registerSigningSession(record),
-      requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.runtimeConfig.requireShamirPrimeB64u(),
-      requireRpId: (operation) => this.runtimeConfig.requireRpId(operation),
-      resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
-      listThresholdEcdsaSessionRecordsForWallet: deps.listThresholdEcdsaSessionRecordsForWallet,
-      loginWithEcdsaCapabilityInternal: (request) =>
-        this.loginWithEcdsaCapabilityInternal(request),
-    });
+  }
+
+  async persistEd25519YaoSessionForRefresh(
+    args: Parameters<EmailOtpSealedSessionRegistry['persistEd25519YaoSessionForRefresh']>[0],
+  ): Promise<void> {
+    await this.sealedSessionRegistry.persistEd25519YaoSessionForRefresh(args);
+  }
+
+  async persistEcdsaSessionForRefresh(
+    args: Parameters<EmailOtpSealedSessionRegistry['persistEcdsaSessionForRefresh']>[0],
+  ): Promise<void> {
+    await this.sealedSessionRegistry.persistEcdsaSessionForRefresh(args);
   }
 
   private clearEcdsaRestoreCaches(): void {
@@ -244,13 +193,6 @@ export class EmailOtpWalletSessionRuntime {
     });
   }
 
-  async attachEd25519SessionToEmailOtpSigningSessionSeal(args: {
-    ecdsaThresholdSessionId: string;
-    ed25519ThresholdSessionId: string;
-  }) {
-    return await this.sealedSessionRegistry.attachEd25519SessionToEmailOtpSigningSessionSeal(args);
-  }
-
   async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {
     return await this.warmSessionRuntime.readWarmSessionStatusOnly(sessionId);
   }
@@ -280,8 +222,12 @@ export class EmailOtpWalletSessionRuntime {
     await this.warmSessionRuntime.clearVolatileWarmSessionMaterial(sessionId);
   }
 
-  rememberAppSessionJwt(args: { walletSession: WalletSessionRef; appSessionJwt?: string }): void {
-    this.appSessionJwtCache.remember(args);
+  rememberAppSessionJwt(args: { walletId: WalletId; appSessionJwt: string }): void {
+    this.appSessionJwtCache.remember(emailOtpAppSessionBindingFromJwt(args));
+  }
+
+  rememberAppSessionBinding(binding: EmailOtpAppSessionBinding): void {
+    this.appSessionJwtCache.remember(binding);
   }
 
   async resolveAppSessionJwt(args: {
@@ -289,14 +235,6 @@ export class EmailOtpWalletSessionRuntime {
     relayUrl: string;
   }): Promise<string> {
     return await this.appSessionJwtCache.resolveJwt(args);
-  }
-
-  isEd25519WarmupPending(args: { nearAccountId: AccountId }): boolean {
-    return this.ed25519Warmup.isPending(args);
-  }
-
-  async waitForPendingEd25519Warmup(args: { nearAccountId: AccountId }): Promise<boolean> {
-    return await this.ed25519Warmup.waitForPending(args);
   }
 
   async requestTransactionSigningChallenge(
@@ -311,22 +249,22 @@ export class EmailOtpWalletSessionRuntime {
     return await this.exportRecoveryRuntime.requestExportChallenge(args);
   }
 
-  async exportEd25519SeedWithAuthorization(
-    args: ExportEd25519SeedWithAuthorizationArgs,
-  ): Promise<EmailOtpEd25519ExportArtifact> {
-    return await this.exportRecoveryRuntime.exportEd25519SeedWithAuthorization(args);
-  }
-
   async exportEcdsaKeyWithAuthorization(
     args: ExportEcdsaKeyWithAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
     return await this.exportRecoveryRuntime.exportEcdsaKeyWithAuthorization(args);
   }
 
-  async exportEcdsaKeyWithFreshEmailOtpLane(
-    args: ExportEcdsaKeyWithFreshEmailOtpLaneArgs,
+  async exportEcdsaKeyWithDurableAuthorization(
+    args: ExportEcdsaKeyWithDurableAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await this.exportRecoveryRuntime.exportEcdsaKeyWithFreshEmailOtpLane(args);
+    return await this.exportRecoveryRuntime.exportEcdsaKeyWithDurableAuthorization(args);
+  }
+
+  async exportEd25519YaoSeedWithFreshEmailOtpLane(
+    args: ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs,
+  ): Promise<{ artifactKind: 'near-ed25519-seed-v1'; publicKey: string; privateKey: string }> {
+    return await this.exportRecoveryRuntime.exportEd25519YaoSeedWithFreshEmailOtpLane(args);
   }
 
   async loginWithEcdsaCapabilityForSigning(
@@ -341,35 +279,9 @@ export class EmailOtpWalletSessionRuntime {
     return await this.ecdsaLifecycleRuntime.loginWithEcdsaCapabilityInternal(args);
   }
 
-  async loginWithEd25519CapabilityInternal(
-    args: LoginEmailOtpEd25519CapabilityArgs,
-  ): Promise<EmailOtpThresholdEd25519LoginResult> {
-    return await this.ed25519Warmup.loginWithEd25519CapabilityInternal(args);
-  }
-
   async enrollAndLoginWithEcdsaCapabilityInternal(
     args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
     return await this.ecdsaLifecycleRuntime.enrollAndLoginWithEcdsaCapabilityInternal(args);
   }
-
-  async loginWithEd25519CapabilityForSigning(args: {
-    nearAccountId: AccountId;
-    challengeId: string;
-    otpCode: string;
-    committedLane: Ed25519SigningLane;
-    record?: never;
-    routeAuth?: never;
-    authLane?: never;
-    remainingUses: number;
-  }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
-    return await this.ed25519Warmup.loginForSigning(args);
-  }
-
-  async reconstructEd25519Session(
-    args: ReconstructEmailOtpEd25519SessionArgs,
-  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-    return await this.ed25519Warmup.reconstructSession(args);
-  }
-
 }

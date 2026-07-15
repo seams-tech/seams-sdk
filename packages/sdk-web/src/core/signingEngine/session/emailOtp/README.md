@@ -2,12 +2,10 @@
 
 ## Owns
 
-Email OTP-specific session recovery, worker-coordinated bootstrap commit,
-worker request construction, signing-share claims, and Email OTP method
-helpers that sit under the session domain. Generic companion sealed-record
-contracts, restore purpose types, readback verification, and policy checks live
-under `session/sealedRecovery/*`. Email OTP restore uses that same shared
-sealed-recovery boundary and adds method-specific worker/bootstrap logic on top.
+Email OTP-specific ECDSA session recovery, worker-coordinated bootstrap commit,
+worker request construction, signing-share claims, and active Yao Ed25519 lane
+authority. Generic sealed-record contracts, restore purpose types, readback
+verification, and policy checks live under `session/sealedRecovery/*`.
 
 ## May Import
 
@@ -23,15 +21,13 @@ sealed-recovery boundary and adds method-specific worker/bootstrap logic on top.
 
 ## Entrypoints
 
-- `companionSessions.ts`
 - `EmailOtpWalletSessionCoordinator.ts`
 - `appSessionJwtCache.ts`
 - `ecdsaRecovery.ts`
-- `ed25519Recovery.ts`
 - `ecdsaBootstrapCommit.ts`
-- `ed25519LocalMetadata.ts`
+- `ed25519SigningLane.ts`
+- `ed25519SigningSessionAuthority.ts`
 - `exportRecovery.ts`
-- `provisioning.ts`
 - `routePlan.ts`
 - `status.ts`
 - `workerRequests.ts`

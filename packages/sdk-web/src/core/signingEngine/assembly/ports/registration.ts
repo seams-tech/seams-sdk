@@ -1,18 +1,6 @@
-import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
-import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type { CreateSigningEnginePortsArgs } from './shared';
-
-export function createThresholdEd25519LifecycleDeps(
-  args: CreateSigningEnginePortsArgs,
-): ThresholdEd25519LifecycleDeps {
-  return {
-    signingKeyOps: args.signerWorkerManager.nearKeyOps,
-    createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
-    getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
-  };
-}
 
 export function createWalletSessionActivationDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
@@ -29,7 +17,8 @@ export function createWalletSessionActivationDeps(args: {
     defaultRelayerUrl: args.createArgs.seamsWebConfigs.network.relayer?.url || '',
     persistThresholdEcdsaBootstrapForWalletTarget:
       args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,
-    upsertThresholdEcdsaSessionFromBootstrap: args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
+    upsertThresholdEcdsaSessionFromBootstrap:
+      args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
   };
 }
 

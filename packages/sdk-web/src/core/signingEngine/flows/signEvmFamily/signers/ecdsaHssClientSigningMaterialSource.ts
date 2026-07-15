@@ -15,7 +15,7 @@ import {
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionStepWasm,
-} from '../../../threshold/crypto/hssClientSignerWasm';
+} from '../../../threshold/crypto/ecdsaClientSignerWasm';
 import type { RouterAbEcdsaHssClientSigningMaterialSource } from '../../../routerAb/ecdsaHss/presignaturePool';
 import {
   abortRouterAbEcdsaHssClientPresignSession,

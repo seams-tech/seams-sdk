@@ -112,62 +112,62 @@ const emailOtpLaneAsPasskeyLane: EcdsaCommittedLane<PasskeyWalletAuthAuthority> 
   committedEmailOtpLane;
 void emailOtpLaneAsPasskeyLane;
 
-const resolverBackedCommittedEmailOtpLane: EmailOtpEcdsaCommittedLane = {
-  source: 'resolver_backed',
+const durableAuthorityBackedCommittedEmailOtpLane: EmailOtpEcdsaCommittedLane = {
+  source: 'durable_authority_backed',
   lane: reauthLane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
-  durableRestore: 'resolver_restore_metadata',
+  durableRestore: 'sealed_record_authority',
 };
-void resolverBackedCommittedEmailOtpLane;
+void durableAuthorityBackedCommittedEmailOtpLane;
 
-// @ts-expect-error resolver-backed Email OTP ECDSA lanes must not pretend to be record-backed.
-const resolverBackedLaneWithRecord: EmailOtpEcdsaCommittedLane = {
-  source: 'resolver_backed',
+// @ts-expect-error durable-authority Email OTP ECDSA lanes cannot pretend to carry a runtime record.
+const durableAuthorityBackedLaneWithRecord: EmailOtpEcdsaCommittedLane = {
+  source: 'durable_authority_backed',
   lane: reauthLane,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
-  durableRestore: 'resolver_restore_metadata',
+  durableRestore: 'sealed_record_authority',
   record: emailOtpRecord,
 };
-void resolverBackedLaneWithRecord;
+void durableAuthorityBackedLaneWithRecord;
 
-const resolverBackedLaneWithPureFactor: EmailOtpEcdsaCommittedLane = {
-  source: 'resolver_backed',
+const durableAuthorityBackedLaneWithPureFactor: EmailOtpEcdsaCommittedLane = {
+  source: 'durable_authority_backed',
   lane: reauthLane,
-  // @ts-expect-error resolver-backed Email OTP ECDSA lanes require wallet-bound authority.
+  // @ts-expect-error durable-authority Email OTP ECDSA lanes require wallet-bound authority.
   authority: emailOtpFactor,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
-  durableRestore: 'resolver_restore_metadata',
+  durableRestore: 'sealed_record_authority',
 };
-void resolverBackedLaneWithPureFactor;
+void durableAuthorityBackedLaneWithPureFactor;
 
-const resolverBackedLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
-  source: 'resolver_backed',
+const durableAuthorityBackedLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
+  source: 'durable_authority_backed',
   lane: reauthLane,
   authority: emailOtpAuthority,
-  // @ts-expect-error resolver-backed Email OTP ECDSA lanes require ECDSA signing-session auth.
+  // @ts-expect-error durable-authority Email OTP ECDSA lanes require ECDSA signing-session auth.
   authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
   walletSessionAuthority,
   material: missingHotEmailOtpMaterial,
-  durableRestore: 'resolver_restore_metadata',
+  durableRestore: 'sealed_record_authority',
 };
-void resolverBackedLaneWithAppSessionAuth;
+void durableAuthorityBackedLaneWithAppSessionAuth;
 
 const recordBackedProjection: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority> =
   committedEmailOtpLane;
 void recordBackedProjection;
 
-// @ts-expect-error resolver-backed lanes cannot satisfy record-backed committed-lane consumers.
-const resolverBackedRecordBackedProjection: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority> =
-  resolverBackedCommittedEmailOtpLane;
-void resolverBackedRecordBackedProjection;
+// @ts-expect-error durable-authority lanes cannot satisfy runtime-record-backed consumers.
+const durableAuthorityBackedRecordProjection: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority> =
+  durableAuthorityBackedCommittedEmailOtpLane;
+void durableAuthorityBackedRecordProjection;
 
 const readySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   kind: 'ready',
@@ -207,11 +207,12 @@ const invalidEmailOtpRestoreRequiredSelection: RestoreRequiredEvmFamilyEcdsaSign
 };
 void invalidEmailOtpRestoreRequiredSelection;
 
-const invalidRestoreRequiredSelectionWithCommittedLane: RestoreRequiredEvmFamilyEcdsaSigningSelection = {
-  ...restoreRequiredSelection,
-  // @ts-expect-error restore-required selections do not carry committed hot material.
-  committedLane: readyPasskeyCommittedLane,
-};
+const invalidRestoreRequiredSelectionWithCommittedLane: RestoreRequiredEvmFamilyEcdsaSigningSelection =
+  {
+    ...restoreRequiredSelection,
+    // @ts-expect-error restore-required selections do not carry committed hot material.
+    committedLane: readyPasskeyCommittedLane,
+  };
 void invalidRestoreRequiredSelectionWithCommittedLane;
 
 // @ts-expect-error passkey ready selections require a committed lane.

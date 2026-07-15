@@ -3,7 +3,6 @@ import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChai
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
-import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import {
   loginWithEmailOtpEcdsaCapability,
   loginWithEmailOtpEcdsaCapabilityForSigning,
@@ -16,13 +15,6 @@ import {
   type EmailOtpThresholdEcdsaEnrollmentResult,
   type EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
-import type {
-  EmailOtpThresholdEd25519ProvisioningResult,
-  ReconstructEmailOtpEd25519SessionArgs,
-} from './provisioning';
-import type {
-  EmailOtpEd25519RecoveryCodeSigningSessionHydration,
-} from './recoveryCodeWarmSessionHydration';
 
 export class EmailOtpEcdsaLifecycleRuntime {
   constructor(
@@ -31,17 +23,10 @@ export class EmailOtpEcdsaLifecycleRuntime {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       runtimeConfig: EmailOtpRuntimeConfig;
       rememberAppSessionJwt: (args: {
-        walletSession: WalletSessionRef;
-        appSessionJwt?: string;
+        walletId: WalletSessionRef['walletId'];
+        appSessionJwt: string;
       }) => void;
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
-      reconstructEd25519Session: (
-        args: ReconstructEmailOtpEd25519SessionArgs,
-      ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
-      getThresholdEd25519SessionRecordByThresholdSessionId: (
-        thresholdSessionId: string,
-      ) => ThresholdEd25519SessionRecord | null;
-      recoveryCodeSigningSessionHydration: EmailOtpEd25519RecoveryCodeSigningSessionHydration;
     },
   ) {}
 
@@ -62,13 +47,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
-      requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
-      reconstructEd25519Session: (request) => this.ports.reconstructEd25519Session(request),
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        this.ports.getThresholdEd25519SessionRecordByThresholdSessionId,
-      recoveryCodeSigningSessionHydration: this.ports.recoveryCodeSigningSessionHydration,
     });
   }
 

@@ -67,7 +67,6 @@ export type RegistrationCapabilityDomainMethods = {
 export type KeyExportCapabilityDomainMethods = {
   resolveExactKeyExportLane: KeyExportCapability['resolveExactKeyExportLane'];
   exportKeypairWithUI: KeyExportCapability['exportKeypairWithUI'];
-  exportThresholdEd25519SeedFromHssReport: KeyExportCapability['exportThresholdEd25519SeedFromHssReport'];
 };
 
 function createWalletIframeRoutingSurface(
@@ -134,8 +133,7 @@ export function createPublicApi(deps: {
         await deps.getWalletIframe().init(walletId);
       },
       isWalletIframeReady: (): boolean => deps.getWalletIframe().isReady(),
-      onWalletIframeReady: (listener): (() => void) =>
-        deps.getWalletIframe().onReady(listener),
+      onWalletIframeReady: (listener): (() => void) => deps.getWalletIframe().onReady(listener),
       onWalletIframeLoginStatusChanged: (listener): (() => void) =>
         deps.getWalletIframe().onLoginStatusChanged(listener),
       onWalletIframePreferencesChanged: (listener): (() => void) =>
@@ -156,8 +154,7 @@ export function createPublicApi(deps: {
       registerPasskey: deps.registration.registerPasskey,
       createPasskeyRegistrationActivationSurface:
         deps.registration.createPasskeyRegistrationActivationSurface,
-      requestEmailOtpEnrollmentChallenge:
-        deps.registration.requestEmailOtpEnrollmentChallenge,
+      requestEmailOtpEnrollmentChallenge: deps.registration.requestEmailOtpEnrollmentChallenge,
       enrollEmailOtp: deps.registration.enrollEmailOtp,
       enrollAndLoginWithEmailOtpEcdsaCapability:
         deps.registration.enrollAndLoginWithEmailOtpEcdsaCapability,
@@ -175,8 +172,6 @@ export function createPublicApi(deps: {
     keys: {
       resolveExactKeyExportLane: deps.keys.resolveExactKeyExportLane,
       exportKeypairWithUI: deps.keys.exportKeypairWithUI,
-      exportThresholdEd25519SeedFromHssReport:
-        deps.keys.exportThresholdEd25519SeedFromHssReport,
     },
     near: createNearSignerCapability({
       signingEngine: deps.signingEngine,

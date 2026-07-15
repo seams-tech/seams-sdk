@@ -1,8 +1,4 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
@@ -18,10 +14,14 @@ import {
   type writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
-  attachEd25519SessionToEmailOtpSigningSessionSeal,
-  type EmailOtpCompanionSessionAttachResult,
-} from './companionSessions';
-import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
+  persistEmailOtpEcdsaSigningSessionForRefresh,
+  type EmailOtpEcdsaPublicationPorts,
+} from './ecdsaPublication';
+import {
+  persistEmailOtpEd25519YaoSessionForRefresh,
+  type EmailOtpEd25519YaoPublicationPorts,
+} from './ed25519YaoPublication';
+import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 
 export class EmailOtpSealedSessionRegistry {
   constructor(
@@ -40,12 +40,6 @@ export class EmailOtpSealedSessionRegistry {
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
       readExactSealedSession: typeof readExactSealedSession;
-      getThresholdEcdsaSessionRecordByThresholdSessionId: (
-        thresholdSessionId: string,
-      ) => ThresholdEcdsaSessionRecord | null;
-      getThresholdEd25519SessionRecordByThresholdSessionId: (
-        thresholdSessionId: string,
-      ) => ThresholdEd25519SessionRecord | null;
       clearEcdsaRestoreCaches: () => void;
     },
   ) {}
@@ -61,30 +55,49 @@ export class EmailOtpSealedSessionRegistry {
     this.ports.clearEcdsaRestoreCaches();
   }
 
-  async attachEd25519SessionToEmailOtpSigningSessionSeal(args: {
-    ecdsaThresholdSessionId: string;
-    ed25519ThresholdSessionId: string;
-  }): Promise<EmailOtpCompanionSessionAttachResult> {
-    return await attachEd25519SessionToEmailOtpSigningSessionSeal({
-      sessionPersistenceMode: this.ports.configs.signing.sessionPersistenceMode,
-      ecdsaThresholdSessionId: args.ecdsaThresholdSessionId,
-      ed25519ThresholdSessionId: args.ed25519ThresholdSessionId,
-      readExactSealedSession: (thresholdSessionId, filter) =>
-        this.ports.readExactSealedSession(thresholdSessionId, filter),
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        this.ports.getThresholdEd25519SessionRecordByThresholdSessionId,
-      registerSigningSession: (record) => this.registerSigningSession(record),
-    });
-  }
-
   ecdsaPublicationPorts(): EmailOtpEcdsaPublicationPorts {
     return {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       commitEvmFamilyThresholdEcdsaSessions:
         this.ports.commitEvmFamilyThresholdEcdsaSessions,
+      registerSigningSession: (record) => this.registerSigningSession(record),
+      readExactSealedSession: this.ports.readExactSealedSession,
+    };
+  }
+
+  async persistEd25519YaoSessionForRefresh(args: {
+    record: ThresholdEd25519SessionRecord;
+    rpId: string;
+  }): Promise<void> {
+    await persistEmailOtpEd25519YaoSessionForRefresh(args, this.ed25519YaoPublicationPorts());
+  }
+
+  async persistEcdsaSessionForRefresh(args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    runtimePolicyScope: Parameters<typeof persistEmailOtpEcdsaSigningSessionForRefresh>[0]['runtimePolicyScope'];
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  }): Promise<void> {
+    await persistEmailOtpEcdsaSigningSessionForRefresh(
+      {
+        walletId: args.walletId,
+        chainTarget: args.chainTarget,
+        bootstrap: args.bootstrap,
+        runtimePolicyScope: args.runtimePolicyScope,
+        emailOtpAuthContext: args.emailOtpAuthContext,
+        relayerUrl: this.ports.configs.network.relayer?.url || '',
+        shamirPrimeB64u: this.ports.configs.signing.sessionSeal?.shamirPrimeB64u || '',
+      },
+      this.ecdsaPublicationPorts(),
+    );
+  }
+
+  private ed25519YaoPublicationPorts(): EmailOtpEd25519YaoPublicationPorts {
+    return {
+      configs: this.ports.configs,
+      getSignerWorkerContext: this.ports.getSignerWorkerContext,
       registerSigningSession: (record) => this.registerSigningSession(record),
       readExactSealedSession: this.ports.readExactSealedSession,
     };

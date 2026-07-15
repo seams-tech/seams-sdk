@@ -11,7 +11,7 @@ import {
 import { type ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { ReadyEcdsaExportLane } from './ecdsaExportMaterial';
-import { buildEcdsaRoleLocalExportArtifactCommandWasm } from '../../threshold/crypto/hssClientSignerWasm';
+import { buildEcdsaRoleLocalExportArtifactCommandWasm } from '../../threshold/crypto/ecdsaClientSignerWasm';
 import {
   parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,

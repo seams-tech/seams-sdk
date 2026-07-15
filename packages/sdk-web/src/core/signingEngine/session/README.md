@@ -53,11 +53,9 @@ Current child owners are explicit folders:
   and generic readback verification.
 - `sealedRecovery/*` must not accept `SigningSessionSealedStoreRecord` except
   at the explicit raw normalization boundary.
-- Method folders consume the same sealed-recovery orchestration boundary:
-  passkey reconnect/restore-before-claim goes through
-  `sealedRecovery/restoreCoordinator.ts`, while Email OTP reuses
-  `sealedRecovery/readback.ts` and owns its companion-session persisted write
-  assembly in `emailOtp/companionSessions.ts`.
+- Method folders consume the same sealed-recovery orchestration boundary.
+  Passkey reconnect/restore-before-claim goes through
+  `sealedRecovery/restoreCoordinator.ts`; Email OTP sealed restore is ECDSA-only.
 - Warm capabilities: `warmCapabilities/*` for warm-session material,
   sealed-refresh parity, provisioning, runtime reads, status reads, capability
   state, and the warm-session public facade in `warmCapabilities/public.ts`.
@@ -65,12 +63,11 @@ Current child owners are explicit folders:
   `passkey/ecdsaProvisioner.ts`, `passkey/ed25519Provisioner.ts`,
   `passkey/ecdsaBootstrap.ts`, `passkey/ecdsaWarmCapabilityBootstrap.ts`,
   `passkey/ecdsaSessionProvision.ts`, `passkey/ed25519SessionProvision.ts`,
-  `passkey/ecdsaRecovery.ts`, and `passkey/ed25519Recovery.ts`.
+  `passkey/ecdsaRecovery.ts`, and `passkey/ed25519BudgetRefresh.ts`.
 - Email OTP method helpers: `emailOtp/EmailOtpWalletSessionCoordinator.ts`,
-  `emailOtp/companionSessions.ts`,
-  `emailOtp/ecdsaRecovery.ts`, `emailOtp/ed25519Recovery.ts`,
-  `emailOtp/ecdsaBootstrapCommit.ts`, `emailOtp/ed25519LocalMetadata.ts`,
-  `emailOtp/exportRecovery.ts`, `emailOtp/provisioning.ts`,
+  `emailOtp/ecdsaRecovery.ts`, `emailOtp/ecdsaBootstrapCommit.ts`,
+  `emailOtp/ed25519SigningLane.ts`, `emailOtp/ed25519SigningSessionAuthority.ts`,
+  `emailOtp/exportRecovery.ts`,
   `emailOtp/status.ts`, and `emailOtp/workerRequests.ts`.
 
 ## Final ECDSA Path

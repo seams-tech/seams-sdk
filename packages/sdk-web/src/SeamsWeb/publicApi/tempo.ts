@@ -71,7 +71,7 @@ export function createTempoSignerCapability(deps: {
       await deps.signingEngine.reportTempoBroadcastAccepted({
         walletId,
         signedResult: args.signedResult,
-        ...(args.txHash ? { txHash: args.txHash } : {}),
+        txHash: args.txHash,
         onEvent: args.options?.onEvent,
       });
       return;
@@ -81,7 +81,7 @@ export function createTempoSignerCapability(deps: {
       await router.reportTempoBroadcastAccepted({
         walletSession: args.walletSession,
         signedResult: args.signedResult,
-        ...(args.txHash ? { txHash: args.txHash } : {}),
+        txHash: args.txHash,
         options: {
           onEvent: args.options?.onEvent,
         },

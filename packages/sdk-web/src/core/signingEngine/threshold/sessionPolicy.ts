@@ -3,7 +3,10 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import {
+  requireEvmFamilySigningKeySlotId,
+  type EvmFamilySigningKeySlotId,
+} from '@shared/signing-lanes';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   EmailOtpWalletAuthAuthority,
@@ -61,13 +64,12 @@ export type Ed25519AuthorityScope =
       googleEmailOtpRegistrationCandidateId?: never;
     };
 
-export type Ed25519SessionPolicyAuthority =
-  {
-    kind: 'wallet_auth_authority';
-    authority: WalletAuthAuthority;
-    authorityScope?: never;
-    rpId?: never;
-  };
+export type Ed25519SessionPolicyAuthority = {
+  kind: 'wallet_auth_authority';
+  authority: WalletAuthAuthority;
+  authorityScope?: never;
+  rpId?: never;
+};
 
 export type PasskeyEd25519SessionPolicyAuthority = {
   kind: 'wallet_auth_authority';
@@ -425,7 +427,10 @@ export function buildEcdsaHssSessionPolicy(params: {
   return {
     version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
     walletId: toWalletId(params.walletId),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(params.evmFamilySigningKeySlotId, 'threshold-ecdsa evmFamilySigningKeySlotId'),
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+      params.evmFamilySigningKeySlotId,
+      'threshold-ecdsa evmFamilySigningKeySlotId',
+    ),
     chainTarget: params.chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
     ...(ecdsaThresholdKeyId
@@ -465,17 +470,5 @@ export function isThresholdSignerMissingKeyError(err: unknown): boolean {
     msg.includes('"code":"missing_key"') ||
     msg.includes('missing_key') ||
     msg.includes('unknown relayerkeyid')
-  );
-}
-
-export function isThresholdSignerRepairableMaterialError(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return (
-    isThresholdSignerMissingKeyError(err) ||
-    msg.includes('ed25519 verifying shares do not sum to group public key') ||
-    msg.includes('client verifying share does not match x_client_base') ||
-    msg.includes('router a/b ed25519 signing material handle') ||
-    msg.includes('ed25519 hss material handle is not loaded') ||
-    msg.includes('ed25519 worker material handle is not loaded')
   );
 }

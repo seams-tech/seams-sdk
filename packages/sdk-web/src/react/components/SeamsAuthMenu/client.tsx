@@ -20,6 +20,10 @@ import { useSDKEvents } from './controller/useSDKEvents';
 import type { SeamsWeb } from '@/SeamsWeb';
 import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
 import type { RegisterWalletInput } from '@shared/utils/registrationIntent';
+import {
+  buildNearWalletRegistrationSignerSetSelection,
+  resolvePasskeyRegistrationAccountProvisioning,
+} from '@/SeamsWeb/operations/registration/registrationSignerSet';
 
 type CSSVarStyle = React.CSSProperties & {
   [key: `--${string}`]: string | number | undefined;
@@ -40,11 +44,27 @@ type MountPasskeyRegistrationActivationSurfaceArgs = {
   onStateChange(state: RegistrationActivationSurfaceState): void;
 };
 
+function passkeyRegistrationActivationSignerSelection(
+  args: Pick<MountPasskeyRegistrationActivationSurfaceArgs, 'seamsWeb' | 'wallet'>,
+) {
+  const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
+    configs: args.seamsWeb.configs,
+    wallet: args.wallet,
+    preference: args.seamsWeb.configs.registration.nearAccountProvisioning,
+  });
+  return buildNearWalletRegistrationSignerSetSelection({
+    configs: args.seamsWeb.configs,
+    accountProvisioning,
+    options: {},
+  });
+}
+
 function mountPasskeyRegistrationActivationSurface(
   args: MountPasskeyRegistrationActivationSurfaceArgs,
 ): () => void {
   const surface = args.seamsWeb.registration.createPasskeyRegistrationActivationSurface({
     wallet: args.wallet,
+    signerSelection: passkeyRegistrationActivationSignerSelection(args),
     presentation: {
       kind: 'outline_overlay',
       label: getPasskeyButtonLabel(AuthMenuMode.Register),
@@ -438,9 +458,9 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
               <p className="w3a-otp-error" role="alert">
                 {controller.registrationPrompt.error}
               </p>
-            ) : (
+            ) : controller.registrationPrompt.helperText ? (
               <p className="w3a-otp-helper">{controller.registrationPrompt.helperText}</p>
-            )}
+            ) : null}
             <button
               type="button"
               className="w3a-auth-method-btn w3a-auth-method-btn-primary"
@@ -595,9 +615,9 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
               <p className="w3a-otp-error" role="alert">
                 {controller.otpPrompt.error}
               </p>
-            ) : (
+            ) : controller.otpPrompt.helperText ? (
               <p className="w3a-otp-helper">{controller.otpPrompt.helperText}</p>
-            )}
+            ) : null}
             <button
               type="button"
               className="w3a-auth-method-btn w3a-auth-method-btn-primary"

@@ -9,6 +9,8 @@ import type {
 import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaAuthMethod } from './ecdsaLanes';
 import type { EcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
+import type { EvmFamilyBroadcastAcceptedArgs } from './types';
 
 declare const walletId: string;
 declare const authMethod: EvmFamilyEcdsaAuthMethod;
@@ -18,6 +20,21 @@ declare const sharedPublicFacts: VerifiedEcdsaPublicFacts;
 declare const identity: EcdsaSessionIdentity;
 declare const remainingSignatureUses: PositiveSignatureUses;
 declare const expiresAtMs: FutureEpochMs;
+declare const tempoSignedResult: TempoSignedResult;
+
+const acceptedBroadcast: EvmFamilyBroadcastAcceptedArgs = {
+  walletId,
+  signedResult: tempoSignedResult,
+  txHash: `0x${'11'.repeat(32)}`,
+};
+void acceptedBroadcast;
+
+// @ts-expect-error Broadcast acceptance requires the network transaction identity.
+const acceptedBroadcastWithoutTxHash: EvmFamilyBroadcastAcceptedArgs = {
+  walletId,
+  signedResult: tempoSignedResult,
+};
+void acceptedBroadcastWithoutTxHash;
 
 const readyState: EvmFamilySharedEcdsaReadyState = {
   kind: 'ready_to_sign',

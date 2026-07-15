@@ -7,7 +7,7 @@ import {
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionStepWasm,
-} from '../../threshold/crypto/hssClientSignerWasm';
+} from '../../threshold/crypto/ecdsaClientSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { RouterAbEcdsaHssClientSigningMaterialSource } from '../../routerAb/ecdsaHss/presignaturePool';
 import {

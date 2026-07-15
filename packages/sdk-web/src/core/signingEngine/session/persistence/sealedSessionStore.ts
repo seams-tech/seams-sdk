@@ -15,7 +15,6 @@ import {
   SIGNING_SESSION_SECRET_KIND,
   type SealedSigningSessionEcdsaRestoreMetadata,
   type SealedSigningSessionEcdsaRestoreSource,
-  type SealedSigningSessionEd25519RestoreMetadata,
   type SealedSigningSessionRecord,
   type SealedSigningSessionWalletSessionAuth,
 } from '@shared/utils/signingSessionSeal';
@@ -75,35 +74,29 @@ export type EcdsaSealedRecordThresholdSessionIds = {
   ecdsa: string;
 };
 
-type CurrentEd25519RestoreMetadataBase<TMetadata> = TMetadata extends unknown
-  ? Omit<
-      TMetadata,
-      | 'clientVerifyingShareB64u'
-      | 'ed25519WorkerMaterialHandle'
-      | 'ed25519WorkerMaterialBindingDigest'
-      | 'sealedWorkerMaterialRef'
-      | 'sealedWorkerMaterialB64u'
-      | 'materialFormatVersion'
-      | 'materialKeyId'
-      | 'materialCreatedAtMs'
-      | 'keyVersion'
-      | 'routerAbNormalSigning'
-    >
-  : never;
-
-export type CurrentEd25519RestoreMetadata = CurrentEd25519RestoreMetadataBase<
-  SealedSigningSessionEd25519RestoreMetadata
-> & {
-  clientVerifyingShareB64u: string;
-  ed25519WorkerMaterialHandle?: string;
-  ed25519WorkerMaterialBindingDigest: string;
-  sealedWorkerMaterialRef: string;
-  sealedWorkerMaterialB64u?: string;
-  materialFormatVersion: string;
-  materialKeyId: string;
-  materialCreatedAtMs: number;
+type CurrentEd25519RestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  rpId: string;
+  relayerKeyId: string;
+  participantIds: number[];
+  runtimePolicyScope?: unknown;
+  signerSlot: number;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
+
+export type CurrentEd25519RestoreMetadata =
+  | (CurrentEd25519RestoreMetadataBase & {
+      credentialIdB64u: string;
+      providerSubjectId?: never;
+      emailHashHex?: never;
+    })
+  | (CurrentEd25519RestoreMetadataBase & {
+      provider: 'google' | 'email';
+      providerSubjectId: string;
+      emailHashHex: string;
+      credentialIdB64u?: never;
+    });
 
 export type CurrentEd25519SealedSessionRecord = Omit<
   SigningSessionSealedStoreRecord,
@@ -613,6 +606,7 @@ function normalizeCurrentEd25519RestoreMetadata(
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
+  const provider = obj.provider === 'google' || obj.provider === 'email' ? obj.provider : null;
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
   const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
@@ -622,23 +616,13 @@ function normalizeCurrentEd25519RestoreMetadata(
         .map((participantId) => Math.floor(Number(participantId)))
         .filter((participantId) => Number.isFinite(participantId) && participantId > 0)
     : [];
-  const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
-  const ed25519WorkerMaterialHandle = normalizeOptionalNonEmptyString(obj.ed25519WorkerMaterialHandle);
-  const ed25519WorkerMaterialBindingDigest = normalizeOptionalNonEmptyString(
-    obj.ed25519WorkerMaterialBindingDigest,
-  );
-  const sealedWorkerMaterialRef = normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialRef);
-  const sealedWorkerMaterialB64u = normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialB64u);
-  const materialFormatVersion = normalizeOptionalNonEmptyString(obj.materialFormatVersion);
-  const materialKeyId = normalizeOptionalNonEmptyString(obj.materialKeyId);
-  const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
   const signerSlot = normalizeInteger(obj.signerSlot);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   const authBranch =
     credentialIdB64u && !providerSubjectId
       ? ({ credentialIdB64u } as const)
-      : providerSubjectId && emailHashHex && !credentialIdB64u
-        ? ({ providerSubjectId, emailHashHex } as const)
+      : provider && providerSubjectId && emailHashHex && !credentialIdB64u
+        ? ({ provider, providerSubjectId, emailHashHex } as const)
         : null;
   if (
     !nearAccountId ||
@@ -647,13 +631,6 @@ function normalizeCurrentEd25519RestoreMetadata(
     !relayerKeyId ||
     !walletSessionAuth ||
     !participantIds.length ||
-    !clientVerifyingShareB64u ||
-    !ed25519WorkerMaterialBindingDigest ||
-    !sealedWorkerMaterialRef ||
-    !materialFormatVersion ||
-    !materialKeyId ||
-    materialCreatedAtMs == null ||
-    materialCreatedAtMs <= 0 ||
     signerSlot == null ||
     signerSlot <= 0 ||
     !routerAbNormalSigning ||
@@ -673,74 +650,9 @@ function normalizeCurrentEd25519RestoreMetadata(
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }
       : {}),
-    clientVerifyingShareB64u,
-    ...(ed25519WorkerMaterialHandle ? { ed25519WorkerMaterialHandle } : {}),
-    ed25519WorkerMaterialBindingDigest,
-    sealedWorkerMaterialRef,
-    ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
-    materialFormatVersion,
-    materialKeyId,
-    materialCreatedAtMs,
     signerSlot,
     routerAbNormalSigning,
   };
-}
-
-function hasRouterAbEd25519NormalSigningState(value: unknown): boolean {
-  try {
-    return Boolean(parseRouterAbEd25519NormalSigningState(value));
-  } catch {
-    return false;
-  }
-}
-
-function ed25519WorkerMaterialMissingFields(value: unknown): string[] {
-  const obj =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  const missing: string[] = [];
-  if (!normalizeOptionalNonEmptyString(obj.nearAccountId)) {
-    missing.push('nearAccountId');
-  }
-  if (!normalizeOptionalNonEmptyString(obj.nearEd25519SigningKeyId)) {
-    missing.push('nearEd25519SigningKeyId');
-  }
-  if (!normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u)) {
-    missing.push('clientVerifyingShareB64u');
-  }
-  if (!normalizeOptionalNonEmptyString(obj.ed25519WorkerMaterialBindingDigest)) {
-    missing.push('ed25519WorkerMaterialBindingDigest');
-  }
-  if (!normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialRef)) {
-    missing.push('sealedWorkerMaterialRef');
-  }
-  if (!normalizeOptionalNonEmptyString(obj.materialFormatVersion)) {
-    missing.push('materialFormatVersion');
-  }
-  if (!normalizeOptionalNonEmptyString(obj.materialKeyId)) {
-    missing.push('materialKeyId');
-  }
-  const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
-  if (materialCreatedAtMs == null || materialCreatedAtMs <= 0) {
-    missing.push('materialCreatedAtMs');
-  }
-  const signerSlot = normalizeInteger(obj.signerSlot);
-  if (signerSlot == null || signerSlot <= 0) {
-    missing.push('signerSlot');
-  }
-  if (!hasRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning)) {
-    missing.push('routerAbNormalSigning');
-  }
-  return missing;
-}
-
-function ed25519RestoreHasRawMaterial(value: unknown): boolean {
-  const obj =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
-  return Boolean(normalizeOptionalNonEmptyString(obj?.xClientBaseB64u));
 }
 
 type SealedRecordStoreKeyInput =
@@ -1181,13 +1093,6 @@ function buildSealedSessionSafeSummary(
     thresholdSessionIds: normalizeThresholdSessionIdsFromStoredRecord(obj),
     hasEcdsaRestore: Boolean(asRawSealedSessionRecord(obj?.ecdsaRestore)),
     hasEd25519Restore: Boolean(asRawSealedSessionRecord(obj?.ed25519Restore)),
-    ...(asRawSealedSessionRecord(obj?.ed25519Restore)
-      ? {
-          ed25519WorkerMaterialMissingFields: ed25519WorkerMaterialMissingFields(
-            obj?.ed25519Restore,
-          ),
-        }
-      : {}),
     issuedAtMs: normalizeInteger(obj?.issuedAtMs),
     expiresAtMs: normalizeInteger(obj?.expiresAtMs),
     remainingUses: normalizeInteger(obj?.remainingUses),
@@ -1344,9 +1249,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         ...(keyVersion ? { keyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
         ecdsaRestore,
-        ...(ed25519Restore && !ed25519RestoreHasRawMaterial(ed25519RestoreObj)
-          ? { ed25519Restore }
-          : {}),
+        ...(ed25519Restore ? { ed25519Restore } : {}),
         issuedAtMs,
         expiresAtMs,
         remainingUses,
@@ -1372,9 +1275,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   }
   if (!ed25519Restore) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
-  }
-  if (normalizeOptionalNonEmptyString(ed25519RestoreObj.xClientBaseB64u)) {
-    return classifyNonCurrentRecord('delete_required', obj, 'missing_restore_metadata');
   }
   if (
     authMethod === 'email_otp' &&

@@ -10,7 +10,7 @@ import {
   prepareEcdsaClientBootstrapCommandWasm,
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   storeEcdsaRoleLocalSigningMaterialWasm,
-} from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
+} from '../../signingEngine/threshold/crypto/ecdsaClientSignerWasm';
 import type { WorkerOperationContext } from '../../signingEngine/workerManager/executeWorkerOperation';
 import {
   getSignerWorkerOperationCoreCode,

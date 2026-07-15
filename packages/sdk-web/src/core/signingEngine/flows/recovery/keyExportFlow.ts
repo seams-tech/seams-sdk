@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import {
   createKeyExportFlowEvent,
   KeyExportEventPhase,
@@ -13,7 +12,6 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 import type {
   ExactEcdsaSigningLaneIdentity,
   ExactEd25519SigningLaneIdentity,
@@ -21,52 +19,86 @@ import type {
 
 export type KeyExportEventCallback = (event: KeyExportFlowEvent) => void;
 
+export type SigningEngineKeyExportUiOptions = {
+  variant?: 'drawer' | 'modal';
+  theme?: 'dark' | 'light';
+  onEvent?: KeyExportEventCallback;
+};
+
 export type SigningEngineExportKeypairWithUIInput =
-  | {
-      kind: 'near';
-      walletSession: WalletSessionRef;
-      nearAccount: NearAccountRef;
-      laneIdentity: ExactEd25519SigningLaneIdentity;
-      options: {
-        chain: 'near';
-        variant?: 'drawer' | 'modal';
-        theme?: 'dark' | 'light';
-        onEvent?: KeyExportEventCallback;
-      };
-    }
   | {
       kind: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
       laneIdentity: ExactEcdsaSigningLaneIdentity;
-      options: {
-        variant?: 'drawer' | 'modal';
-        theme?: 'dark' | 'light';
-        onEvent?: KeyExportEventCallback;
-      };
+      nearAccount?: never;
+      options: SigningEngineKeyExportUiOptions;
+    }
+  | {
+      kind: 'ed25519';
+      nearAccount: NearAccountRef;
+      walletSession: WalletSessionRef;
+      laneIdentity: ExactEd25519SigningLaneIdentity;
+      chainTarget?: never;
+      options: SigningEngineKeyExportUiOptions;
     };
 
 export type SigningEngineResolveExactKeyExportLaneInput =
   | {
-      kind: 'near';
-      walletSession: WalletSessionRef;
-      nearAccount: NearAccountRef;
-    }
-  | {
       kind: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
+      nearAccount?: never;
+    }
+  | {
+      kind: 'ed25519';
+      nearAccount: NearAccountRef;
+      walletSession: WalletSessionRef;
+      chainTarget?: never;
     };
 
 export type SigningEngineResolveExactKeyExportLaneResult =
   | {
-      kind: 'near';
-      laneIdentity: ExactEd25519SigningLaneIdentity;
-    }
-  | {
       kind: 'ecdsa';
       laneIdentity: ExactEcdsaSigningLaneIdentity;
+    }
+  | {
+      kind: 'ed25519';
+      laneIdentity: ExactEd25519SigningLaneIdentity;
     };
+
+type KeyExportFlowContext = {
+  subject: string;
+  chain: 'near' | ThresholdEcdsaChainTarget['kind'];
+  data:
+    | { curve: 'ed25519'; chain: 'near'; nearAccount: NearAccountRef }
+    | {
+        curve: 'ecdsa';
+        chain: ThresholdEcdsaChainTarget['kind'];
+        chainTarget: ThresholdEcdsaChainTarget;
+      };
+};
+
+function keyExportFlowContext(input: SigningEngineExportKeypairWithUIInput): KeyExportFlowContext {
+  switch (input.kind) {
+    case 'ecdsa':
+      return {
+        subject: `${String(input.walletSession.walletId)}:${thresholdEcdsaChainTargetKey(input.chainTarget)}`,
+        chain: input.chainTarget.kind,
+        data: {
+          curve: 'ecdsa',
+          chain: input.chainTarget.kind,
+          chainTarget: input.chainTarget,
+        },
+      };
+    case 'ed25519':
+      return {
+        subject: `${String(input.walletSession.walletId)}:near:${String(input.nearAccount.accountId)}`,
+        chain: 'near',
+        data: { curve: 'ed25519', chain: 'near', nearAccount: input.nearAccount },
+      };
+  }
+}
 
 export function emitKeyExportEvent(
   onEvent: KeyExportEventCallback | undefined,
@@ -82,40 +114,18 @@ export function createExportUiRequestId(prefix: string): string {
   return secureRandomId(prefix, 32, 'key export UI request IDs');
 }
 
-export function createKeyExportFlowId(nearAccountId: AccountId | string, chain: string): string {
-  return `key-export:${String(nearAccountId)}:${chain}:${createExportUiRequestId('flow')}`;
-}
-
-export function requirePrfFirstForPrivateKeyExport(args: {
-  credential: unknown;
-  errorContext: string;
-}): string {
-  const prfFirstB64u = String(getPrfResultsFromCredential(args.credential).first || '').trim();
-  if (!prfFirstB64u) {
-    throw new Error(`Missing PRF.first output for ${args.errorContext}`);
-  }
-  return prfFirstB64u;
+export function createKeyExportFlowId(subjectId: string, chain: string): string {
+  return `key-export:${subjectId}:${chain}:${createExportUiRequestId('flow')}`;
 }
 
 export async function runKeyExportWithFlowEvents<TResult>(
   input: SigningEngineExportKeypairWithUIInput,
   execute: (args: SigningEngineExportKeypairWithUIInput & { flowId: string }) => Promise<TResult>,
 ): Promise<TResult> {
-  const flowSubject =
-    input.kind === 'near'
-      ? input.nearAccount.accountId
-      : `${String(input.walletSession.walletId)}:${thresholdEcdsaChainTargetKey(input.chainTarget)}`;
-  const flowChain = input.kind === 'near' ? 'near' : input.chainTarget.kind;
-  const flowId = createKeyExportFlowId(flowSubject, flowChain);
-  const accountId =
-    input.kind === 'near' ? input.nearAccount.accountId : input.walletSession.walletId;
-  const eventData =
-    input.kind === 'near'
-      ? { chain: 'near' as const }
-      : {
-          chain: input.chainTarget.kind,
-          chainTarget: input.chainTarget,
-        };
+  const context = keyExportFlowContext(input);
+  const flowId = createKeyExportFlowId(context.subject, context.chain);
+  const accountId = input.walletSession.walletId;
+  const eventData = context.data;
 
   emitKeyExportEvent(input.options.onEvent, {
     phase: KeyExportEventPhase.STEP_01_STARTED,

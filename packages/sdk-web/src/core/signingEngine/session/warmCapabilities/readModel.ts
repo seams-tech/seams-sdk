@@ -259,29 +259,19 @@ export function deriveEd25519CapabilityState(args: {
     return 'prf_missing';
   }
   const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  if (persistedState.kind === 'runtime_validated') {
-    return 'ready';
-  }
+  if (persistedState.kind === 'ready') return 'ready';
   if (
     persistedState.kind === 'non_signing' ||
     persistedState.reason === 'missing_wallet_session_jwt'
   ) {
     return 'auth_missing';
   }
-  if (persistedState.kind === 'restore_available') return 'material_pending';
   if (persistedState.kind === 'invalid') return 'invalid';
-  if (args.record.source !== 'email_otp') {
-    if (!args.prfClaim || args.prfClaim.state === 'missing' || args.prfClaim.state === 'warm') {
-      return 'material_pending';
-    }
-    return args.prfClaim.state === 'unavailable' ? 'prf_unavailable' : 'prf_missing';
-  }
   if (!args.prfClaim) return 'prf_missing';
   switch (args.prfClaim.state) {
-    case 'warm':
-      return 'material_pending';
     case 'unavailable':
       return 'prf_unavailable';
+    case 'warm':
     case 'missing':
     case 'expired':
     case 'exhausted':
@@ -430,9 +420,7 @@ export function resolveEcdsaSealTransport(args: {
     chainTarget: args.record.chainTarget,
     relayerUrl,
     ...(signingGrantId ? { signingGrantId } : {}),
-    ...(walletSessionJwt
-      ? { walletSessionJwt: walletSessionJwt }
-      : {}),
+    ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
     walletSessionJwtSource,
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),

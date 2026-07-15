@@ -13,12 +13,10 @@ import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import type { SigningSessionSealedStoreRecord } from '../persistence/sealedSessionStore';
 import {
-  ed25519SealedRecoveryMaterialIdentity,
   normalizeSealedRecoveryRecord,
   sealedRecoveryWalletSessionJwt,
 } from '../sealedRecovery/recoveryRecord';
 import type {
-  EmailOtpEcdsaCompanionEd25519Recovery,
   EmailOtpEcdsaSealedRecoveryRecord,
   PasskeyEcdsaSealedRecoveryRecord,
   SealedRecoveryRecord,
@@ -36,7 +34,6 @@ import {
   buildVerifiedEcdsaPublicFacts,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   resolveThresholdEcdsaKeyIdFromRecord,
-  toEvmFamilyEcdsaKeyHandle,
   toRpId,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
   type EvmFamilyKeyFingerprint,
@@ -75,12 +72,6 @@ import {
   type ReauthAnchorSourceState,
 } from '../operationState/transactionState';
 import type { SigningOperationFingerprint, SigningOperationId } from '../operationState/types';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-  type Ed25519WorkerMaterialBindingDigest,
-  type Ed25519WorkerMaterialKeyId,
-} from '../keyMaterialBrands';
 import {
   canonicalizeLaneFacts,
   serverIssuedGenerationFromNumber,
@@ -240,43 +231,7 @@ export type MissingAvailableEd25519SigningLane = {
   policyHint?: never;
   updatedAtMs?: never;
   source?: never;
-  material?: never;
 };
-
-export type Ed25519AvailableWorkerMaterialIdentity = {
-  bindingDigest: Ed25519WorkerMaterialBindingDigest;
-  materialKeyId: Ed25519WorkerMaterialKeyId;
-};
-
-// A sealed lane's material identity is an OBSERVATION, not authority: available-lane
-// reads run outside the per-session commit queue, and material re-seals rotate the
-// identity underneath any snapshot (every mint bakes a fresh createdAtMs into
-// materialKeyId). The field is named `hint` — with its origin store attached — so
-// consumers cannot mistake it for the live record's identity. Effects (restores)
-// must resolve the identity at their own boundary via
-// resolveEd25519RestoreMaterialIdentity, passing the hint only as a fallback.
-export type Ed25519AvailableMaterialHint = Ed25519AvailableWorkerMaterialIdentity & {
-  source: 'runtime_snapshot' | 'durable_seal';
-};
-
-export type Ed25519AvailableWorkerMaterialState =
-  | {
-      kind: 'material_pending';
-      identity?: never;
-      hint?: never;
-    }
-  | {
-      // Loaded material was validated against the live worker within the same
-      // read; it is the one lane state allowed to claim a concrete identity.
-      kind: 'loaded_worker_material';
-      identity: Ed25519AvailableWorkerMaterialIdentity;
-      hint?: never;
-    }
-  | {
-      kind: 'sealed_worker_material';
-      hint: Ed25519AvailableMaterialHint;
-      identity?: never;
-    };
 
 export type ConcreteAvailableEd25519SigningLane = {
   auth: SigningLaneAuthBinding;
@@ -293,19 +248,12 @@ export type ConcreteAvailableEd25519SigningLane = {
   expiresAtMs?: number;
   policyHint?: AvailableSigningLanePolicyHint;
   updatedAtMs?: number;
-  material: Ed25519AvailableWorkerMaterialState;
   source?: 'durable_sealed_record' | 'runtime_session_record';
 };
 
 export type AvailableEd25519SigningLane =
   | MissingAvailableEd25519SigningLane
   | ConcreteAvailableEd25519SigningLane;
-
-function isConcreteEd25519AvailableLane(
-  lane: AvailableEd25519SigningLane | null | undefined,
-): lane is ConcreteAvailableEd25519SigningLane {
-  return Boolean(lane) && lane!.curve === 'ed25519' && lane!.state !== 'missing';
-}
 
 export function availableEd25519SigningLaneAuthMethod(
   lane: Pick<ConcreteAvailableEd25519SigningLane, 'auth'>,
@@ -460,11 +408,78 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   thresholdSessionId: string;
   signingGrantId: string;
+  source: 'durable_sealed_record' | 'runtime_session_record';
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
-  material: Ed25519AvailableWorkerMaterialState;
 };
+
+function durableEd25519AuthBinding(
+  record: Extract<SigningSessionSealedStoreRecord, { curve: 'ed25519' }>,
+): SigningLaneAuthBinding | null {
+  const restore = record.ed25519Restore;
+  if (record.authMethod === 'passkey') {
+    if (!restore.credentialIdB64u) return null;
+    try {
+      return {
+        kind: 'passkey',
+        rpId: toRpId(restore.rpId),
+        credentialIdB64u: restore.credentialIdB64u,
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (!restore.providerSubjectId) return null;
+  return {
+    kind: 'email_otp',
+    providerSubjectId: restore.providerSubjectId,
+  };
+}
+
+function recordToEd25519Lane(
+  record: SigningSessionSealedStoreRecord,
+): ConcreteAvailableEd25519SigningLane | null {
+  if (record.curve !== 'ed25519') return null;
+  const thresholdSessionId = String(record.thresholdSessionIds.ed25519 || '').trim();
+  const signingGrantId = String(record.signingGrantId || '').trim();
+  const walletId = String(record.walletId || '').trim();
+  const restore = record.ed25519Restore;
+  const signerSlot = parseSignerSlot(restore.signerSlot);
+  const auth = durableEd25519AuthBinding(record);
+  if (!thresholdSessionId || !signingGrantId || !walletId || signerSlot === null || !auth) {
+    return null;
+  }
+  const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+  const remainingUses = Math.max(0, Math.floor(Number(record.remainingUses) || 0));
+  const state: AvailableSigningLaneState =
+    expiresAtMs > 0 && expiresAtMs <= Date.now()
+      ? 'expired'
+      : remainingUses === 0
+        ? 'exhausted'
+        : 'restorable';
+  try {
+    return {
+      auth,
+      curve: 'ed25519',
+      chain: 'near',
+      walletId: toWalletId(walletId),
+      nearAccountId: toAccountId(restore.nearAccountId),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
+      signerSlot,
+      state,
+      source: 'durable_sealed_record',
+      signingGrantId,
+      thresholdSessionId,
+      remainingUses,
+      ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
+      updatedAtMs: Math.floor(Number(record.updatedAtMs) || 0),
+      ...(durablePolicyHint(record) ? { policyHint: durablePolicyHint(record) } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export type InvalidAvailableSigningLaneDiagnostic =
   | {
@@ -597,10 +612,7 @@ export function isConcreteAvailableSigningLane(
   if (lane.signingGrantId !== signingGrantId) return false;
   if (!thresholdSessionId || !signingGrantId) return false;
   if (lane.curve !== 'ecdsa') {
-    return (
-      (lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey') &&
-      isEd25519AvailableWorkerMaterialState(lane.material)
-    );
+    return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
   }
   if (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey') return false;
   const hasEcdsaFields = Boolean(
@@ -660,65 +672,6 @@ function nullablePositiveInteger(value: unknown): number | null {
 function nullableNonNegativeInteger(value: unknown): number | null {
   const normalized = Math.max(0, Math.floor(Number(value)));
   return Number.isFinite(normalized) ? normalized : null;
-}
-
-export function ed25519AvailableMaterialStateFromBoundaryFields(args: {
-  bindingDigest: unknown;
-  materialKeyId: unknown;
-  kind: 'loaded_worker_material' | 'sealed_worker_material';
-  /** Which store the boundary fields came from; recorded on sealed hints. */
-  source: 'runtime_snapshot' | 'durable_seal';
-}): Ed25519AvailableWorkerMaterialState | null {
-  const bindingDigest = String(args.bindingDigest || '').trim();
-  const materialKeyId = String(args.materialKeyId || '').trim();
-  if (!bindingDigest && !materialKeyId) return { kind: 'material_pending' };
-  if (!bindingDigest || !materialKeyId) return null;
-  const identity = {
-    bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
-    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
-  };
-  return args.kind === 'loaded_worker_material'
-    ? { kind: 'loaded_worker_material', identity }
-    : { kind: 'sealed_worker_material', hint: { ...identity, source: args.source } };
-}
-
-function isEd25519AvailableWorkerMaterialState(
-  value: unknown,
-): value is Ed25519AvailableWorkerMaterialState {
-  if (!value || typeof value !== 'object') return false;
-  const material = value as Partial<Ed25519AvailableWorkerMaterialState>;
-  switch (material.kind) {
-    case 'material_pending':
-      return !('identity' in material) && !('hint' in material);
-    case 'loaded_worker_material':
-      return Boolean(
-        material.identity &&
-        String(material.identity.bindingDigest || '').trim() &&
-        String(material.identity.materialKeyId || '').trim(),
-      );
-    case 'sealed_worker_material':
-      return Boolean(
-        material.hint &&
-        String(material.hint.bindingDigest || '').trim() &&
-        String(material.hint.materialKeyId || '').trim() &&
-        (material.hint.source === 'runtime_snapshot' || material.hint.source === 'durable_seal'),
-      );
-    default:
-      return false;
-  }
-}
-
-function resolveEd25519RuntimeAvailableMaterial(args: {
-  material: Ed25519AvailableWorkerMaterialState;
-  matchingDurableLane: ConcreteAvailableEd25519SigningLane | null;
-}): Ed25519AvailableWorkerMaterialState | null {
-  const runtimeMaterial = args.material;
-  if (!isEd25519AvailableWorkerMaterialState(runtimeMaterial)) return null;
-  if (runtimeMaterial.kind !== 'material_pending') return runtimeMaterial;
-  const durableMaterial = args.matchingDurableLane?.material;
-  return durableMaterial && durableMaterial.kind !== 'material_pending'
-    ? durableMaterial
-    : runtimeMaterial;
 }
 
 export function ed25519LaneCandidateFromAvailableLane(args: {
@@ -1153,9 +1106,7 @@ function durablePolicyHint(
 function ecdsaRecoveryRecordForDurableLane(
   record: SealedRecoveryRecord,
 ): EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord | undefined {
-  if (record.curve === 'ecdsa') return record;
-  if (record.authMethod === 'email_otp') return record.companionEcdsaRecovery;
-  return undefined;
+  return record;
 }
 
 type DurableEcdsaWalletSessionJwtClaims = {
@@ -1419,95 +1370,6 @@ async function recordToEcdsaLane(args: {
   };
 }
 
-function ed25519RecoveryRecordForDurableLane(
-  record: SealedRecoveryRecord,
-):
-  | Extract<SealedRecoveryRecord, { curve: 'ed25519' }>
-  | EmailOtpEcdsaCompanionEd25519Recovery
-  | null {
-  if (record.curve === 'ed25519') return record;
-  if (record.authMethod === 'email_otp') return record.companionEd25519Recovery || null;
-  return null;
-}
-
-function ed25519RecoveryRecordAuthBinding(
-  record:
-    | Extract<SealedRecoveryRecord, { curve: 'ed25519' }>
-    | EmailOtpEcdsaCompanionEd25519Recovery,
-): SigningLaneAuthBinding | null {
-  if (record.authMethod === 'passkey') {
-    return {
-      kind: 'passkey',
-      rpId: toRpId(record.authority.verifier.rpId),
-      credentialIdB64u: record.authority.factor.credentialIdB64u,
-    };
-  }
-  return {
-    kind: 'email_otp',
-    providerSubjectId: record.authority.factor.providerUserId,
-  };
-}
-
-function recordToEd25519Lane(args: {
-  record: SigningSessionSealedStoreRecord;
-}): AvailableEd25519SigningLane | null {
-  const normalized = normalizeSealedRecoveryRecord(args.record, {
-    allowExpired: true,
-    allowExhausted: true,
-  });
-  if (normalized.kind !== 'accepted') return null;
-  const recoveryRecord = ed25519RecoveryRecordForDurableLane(normalized.record);
-  if (!recoveryRecord) return null;
-  const thresholdSessionId = String(recoveryRecord.thresholdSessionId || '').trim();
-  const signingGrantId = String(recoveryRecord.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId) return null;
-  const policyHint = durablePolicyHint(args.record);
-  const expiresAtMs = Math.floor(Number(recoveryRecord.expiresAtMs) || 0);
-  const remainingUses = Math.max(0, Math.floor(Number(recoveryRecord.remainingUses) || 0));
-  const state: AvailableSigningLaneState =
-    expiresAtMs > 0 && expiresAtMs <= Date.now()
-      ? 'expired'
-      : remainingUses <= 0
-        ? 'exhausted'
-        : 'restorable';
-  const auth = ed25519RecoveryRecordAuthBinding(recoveryRecord);
-  if (!auth) return null;
-  const signerSlot = parseSignerSlot(recoveryRecord.signerSlot);
-  if (signerSlot == null) return null;
-  const materialIdentity = ed25519SealedRecoveryMaterialIdentity(recoveryRecord);
-  // The durable record's material identity is seal-time data — a cache that can be
-  // generations behind the live record. Mark its origin so downstream consumers see
-  // it as a hint, never as authority.
-  const material = ed25519AvailableMaterialStateFromBoundaryFields({
-    bindingDigest: materialIdentity.bindingDigest,
-    materialKeyId: materialIdentity.materialKeyId,
-    kind: 'sealed_worker_material',
-    source: 'durable_seal',
-  });
-  if (!material) return null;
-
-  return {
-    auth,
-    curve: 'ed25519',
-    chain: 'near',
-    walletId: toWalletId(recoveryRecord.walletId),
-    nearAccountId: toAccountId(recoveryRecord.nearAccountId),
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-      recoveryRecord.nearEd25519SigningKeyId,
-    ),
-    signerSlot,
-    state,
-    source: 'durable_sealed_record',
-    signingGrantId,
-    updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
-    thresholdSessionId,
-    material,
-    ...(remainingUses >= 0 ? { remainingUses } : {}),
-    ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
-    ...(policyHint ? { policyHint } : {}),
-  };
-}
-
 export function warmStatusToAvailableLaneStateAdvisory(args: {
   thresholdSessionId: string;
   status: { ok: true; remainingUses: number; expiresAtMs: number } | { ok: false; code: string };
@@ -1671,25 +1533,11 @@ async function runtimeRecordToEcdsaLane(args: {
 function runtimeRecordToEd25519Lane(args: {
   record: AvailableSigningLanesRuntimeEd25519Record;
   advisory: AvailableLaneStateAdvisory | null;
-  durableLane: AvailableEd25519SigningLane;
 }): ConcreteAvailableEd25519SigningLane | null {
   const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
   const signingGrantId = String(args.record.signingGrantId || '').trim();
   if (!thresholdSessionId || !signingGrantId) return null;
-  const durableSigningGrantId = String(args.durableLane.signingGrantId || '').trim();
   const advisory = args.advisory;
-  const hasMatchingDurableLane =
-    args.durableLane.source === 'durable_sealed_record' &&
-    isConcreteAvailableSigningLane(args.durableLane) &&
-    args.durableLane.curve === 'ed25519' &&
-    availableEd25519SigningLaneAuthMethod(args.durableLane) ===
-      signingLaneAuthMethod(args.record.auth) &&
-    durableSigningGrantId === signingGrantId &&
-    String(args.durableLane.thresholdSessionId || '').trim() === thresholdSessionId;
-  const matchingDurableLane =
-    hasMatchingDurableLane && isConcreteEd25519AvailableLane(args.durableLane)
-      ? args.durableLane
-      : null;
   const remainingUses = nullableNonNegativeInteger(
     advisoryRemainingUses(advisory) ?? args.record.remainingUses,
   );
@@ -1698,17 +1546,9 @@ function runtimeRecordToEd25519Lane(args: {
   );
   const recordPolicyState = runtimeRecordPolicyState({ remainingUses, expiresAtMs });
   const runtimeUpdatedAtMs = nullablePositiveInteger(args.record.updatedAtMs) || 0;
-  const durableUpdatedAtMs = hasMatchingDurableLane
-    ? nullablePositiveInteger(args.durableLane.updatedAtMs) || 0
-    : 0;
-  const updatedAtMs = Math.max(runtimeUpdatedAtMs, durableUpdatedAtMs);
+  const updatedAtMs = runtimeUpdatedAtMs;
   const signerSlot = parseSignerSlot(args.record.signerSlot);
   if (signerSlot == null) return null;
-  const material = resolveEd25519RuntimeAvailableMaterial({
-    material: args.record.material,
-    matchingDurableLane,
-  });
-  if (!material) return null;
 
   return {
     auth: args.record.auth,
@@ -1718,18 +1558,13 @@ function runtimeRecordToEd25519Lane(args: {
     nearAccountId: args.record.nearAccountId,
     nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
     signerSlot,
-    state: advisoryToLaneState(
-      advisory,
-      hasMatchingDurableLane ? args.durableLane : undefined,
-      recordPolicyState,
-    ),
-    source: 'runtime_session_record',
+    state: advisoryToLaneState(advisory, undefined, recordPolicyState),
+    source: args.record.source,
     signingGrantId,
     thresholdSessionId,
     ...(remainingUses == null ? {} : { remainingUses }),
     ...(expiresAtMs == null ? {} : { expiresAtMs }),
     ...(updatedAtMs > 0 ? { updatedAtMs } : {}),
-    material,
   };
 }
 
@@ -1822,25 +1657,10 @@ function compareAvailableLanePriority(
   return availableLaneUpdatedAtMs(left) - availableLaneUpdatedAtMs(right);
 }
 
-function ed25519AvailableLaneMaterialPriority(lane: AvailableEd25519SigningLane): number {
-  if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return 0;
-  switch (lane.material.kind) {
-    case 'loaded_worker_material':
-      return 3;
-    case 'sealed_worker_material':
-      return 2;
-    case 'material_pending':
-      return 0;
-  }
-}
-
 function compareEd25519AvailableLanePriority(
   left: AvailableEd25519SigningLane,
   right: AvailableEd25519SigningLane,
 ): number {
-  const materialDelta =
-    ed25519AvailableLaneMaterialPriority(left) - ed25519AvailableLaneMaterialPriority(right);
-  if (materialDelta) return materialDelta;
   return compareAvailableLanePriority(left, right);
 }
 
@@ -1878,20 +1698,12 @@ function ed25519LaneGroupKey(
 }
 
 function ed25519LaneGroupKeyString(key: Ed25519LaneGroupKey): string {
-  return [
-    key.walletId,
-    key.authKey,
-    key.nearAccountId,
-    key.nearEd25519SigningKeyId,
-    key.signerSlot,
-  ]
+  return [key.walletId, key.authKey, key.nearAccountId, key.nearEd25519SigningKeyId, key.signerSlot]
     .map((part) => encodeURIComponent(part))
     .join('|');
 }
 
-function ed25519LaneRecordFact(
-  lane: AvailableEd25519SigningLane,
-): Ed25519LaneRecordFact | null {
+function ed25519LaneRecordFact(lane: AvailableEd25519SigningLane): Ed25519LaneRecordFact | null {
   if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return null;
   const groupKey = ed25519LaneGroupKey(lane);
   if (!groupKey) return null;
@@ -1936,7 +1748,7 @@ function ed25519LaneGroupConflicts(
 }
 
 function isEd25519CanonicalFactOperationUsable(fact: Ed25519LaneRecordFact): boolean {
-  return fact.lane.state !== 'deferred' && fact.lane.material.kind !== 'material_pending';
+  return fact.lane.state !== 'deferred';
 }
 
 function ed25519CanonicalFactGeneration(
@@ -1961,10 +1773,6 @@ function ed25519CanonicalTieBreak(
     canonicalTieBreakFromNumber(
       availableLaneSourcePriority(left.lane),
       availableLaneSourcePriority(right.lane),
-    ),
-    canonicalTieBreakFromNumber(
-      ed25519AvailableLaneMaterialPriority(left.lane),
-      ed25519AvailableLaneMaterialPriority(right.lane),
     ),
     canonicalTieBreakFromString(
       ed25519CanonicalStableTieBreakKey(left.lane),
@@ -2520,18 +2328,12 @@ function sharedEvmFamilyLaneForTarget(args: {
   chainTarget: ThresholdEcdsaChainTarget;
 }): ConcreteAvailableEcdsaSigningLane {
   const sourceLane = args.sourceLane;
-  const sharedState: AvailableSigningLaneState =
-    sourceLane.state === 'ready' ||
-    sourceLane.state === 'expired' ||
-    sourceLane.state === 'exhausted'
-      ? sourceLane.state
-      : 'deferred';
   const base = {
     key: sourceLane.key,
     publicFacts: sourceLane.publicFacts,
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    state: sharedState,
+    state: sourceLane.state,
     source: 'evm_family_shared_key',
     sourceChainTarget: sourceLane.chainTarget,
     signingGrantId: sourceLane.signingGrantId,
@@ -2587,22 +2389,10 @@ function completeMissingEvmFamilyTargetsFromSharedKey(args: {
       (candidate): candidate is ConcreteAvailableEcdsaSigningLane =>
         isConcreteAvailableSigningLane(candidate) && candidate.curve === 'ecdsa',
     );
+    // Exact target authority owns the lane even when a sibling projection is newer.
+    if (concreteCandidates.length > 0) continue;
     if (thresholdEcdsaChainTargetKey(sourceLane.chainTarget) === targetKey) continue;
     const sharedLane = sharedEvmFamilyLaneForTarget({ sourceLane, chainTarget });
-    const bestTargetCandidate = [...concreteCandidates].sort((left, right) =>
-      compareAvailableLanePriority(right, left),
-    )[0];
-    if (bestTargetCandidate && compareAvailableLanePriority(bestTargetCandidate, sharedLane) >= 0) {
-      continue;
-    }
-    const existingSharedLane = concreteCandidates.find(
-      (candidate) =>
-        candidate.source === 'evm_family_shared_key' &&
-        thresholdEcdsaChainTargetKey(candidate.sourceChainTarget) ===
-          thresholdEcdsaChainTargetKey(sourceLane.chainTarget) &&
-        ecdsaSharedKeyCompletionGroup(candidate) === ecdsaSharedKeyCompletionGroup(sourceLane),
-    );
-    if (existingSharedLane) continue;
     args.candidatesByTarget[targetKey] = [
       ...(args.candidatesByTarget[targetKey] || []),
       sharedLane,
@@ -2695,11 +2485,6 @@ export async function readAvailableSigningLanes(
         },
       })
     : [];
-  const ecdsaRecordsByStoreKey = new Map<string, SigningSessionSealedStoreRecord>();
-  for (const record of [...ecdsaRecordsByTarget.flat(), ...walletScopedEcdsaRecords]) {
-    ecdsaRecordsByStoreKey.set(record.storeKey, record);
-  }
-  const ecdsaRecords = [...ecdsaRecordsByStoreKey.values()];
   const ed25519Records = await ports.listSealedRecordsForWallet({
     walletId,
     filter: {
@@ -2707,7 +2492,11 @@ export async function readAvailableSigningLanes(
       curve: 'ed25519',
     },
   });
-
+  const ecdsaRecordsByStoreKey = new Map<string, SigningSessionSealedStoreRecord>();
+  for (const record of [...ecdsaRecordsByTarget.flat(), ...walletScopedEcdsaRecords]) {
+    ecdsaRecordsByStoreKey.set(record.storeKey, record);
+  }
+  const ecdsaRecords = [...ecdsaRecordsByStoreKey.values()];
   const ecdsaTargets = [...ecdsaChainTargets];
   const ecdsaLanesByTarget: Record<string, AvailableEcdsaSigningLane> = {};
   const ecdsaCandidatesByTarget: Record<string, AvailableEcdsaSigningLane[]> = {};
@@ -2735,6 +2524,18 @@ export async function readAvailableSigningLanes(
       ...result,
     });
   };
+
+  for (const record of ed25519Records) {
+    const lane = recordToEd25519Lane(record);
+    if (!lane) continue;
+    ed25519Candidates.push(lane);
+    const updatedAtMs = availableLaneUpdatedAtMs(lane);
+    generation = Math.max(generation, updatedAtMs);
+    if (updatedAtMs >= ed25519LaneUpdatedAtMs) {
+      ed25519LaneUpdatedAtMs = updatedAtMs;
+      ed25519Lane = lane;
+    }
+  }
 
   for (const record of ecdsaRecords) {
     if (!record.thresholdSessionIds.ecdsa) {
@@ -2789,18 +2590,6 @@ export async function readAvailableSigningLanes(
     ecdsaLanesByTarget[targetKey] = lane;
   }
 
-  for (const record of ed25519Records) {
-    if (!record.thresholdSessionIds.ed25519) continue;
-    const updatedAtMs = Math.floor(Number(record.updatedAtMs) || 0);
-    generation = Math.max(generation, updatedAtMs);
-    const lane = recordToEd25519Lane({ record });
-    if (!lane) continue;
-    ed25519Candidates.push(lane);
-    if (updatedAtMs < ed25519LaneUpdatedAtMs) continue;
-    ed25519Lane = lane;
-    ed25519LaneUpdatedAtMs = updatedAtMs;
-  }
-
   const rawRuntimeEcdsaRecords = ports.listRuntimeEcdsaLanesForWallet
     ? await ports.listRuntimeEcdsaLanesForWallet({ walletId })
     : [];
@@ -2829,8 +2618,6 @@ export async function readAvailableSigningLanes(
   for (const record of rawRuntimeEd25519Records) {
     const recordAuthMethod = signingLaneAuthMethod(record.auth);
     if (input.authMethod && recordAuthMethod !== input.authMethod) continue;
-    const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-    const signingGrantId = String(record.signingGrantId || '').trim();
     runtimeEd25519Records.push(record);
   }
   const advisoriesByEcdsaRecordKey =
@@ -2998,14 +2785,9 @@ export async function readAvailableSigningLanes(
       continue;
     }
     const runtimeLaneKey = ed25519AvailableLaneIdentityKey(runtimeRecord);
-    const durableLane =
-      (runtimeLaneKey
-        ? ed25519Candidates.find((lane) => ed25519AvailableLaneIdentityKey(lane) === runtimeLaneKey)
-        : undefined) || ed25519Lane;
     const runtimeLane = runtimeRecordToEd25519Lane({
       record: runtimeRecord,
       advisory: advisoriesBySessionId.get(thresholdSessionId) || null,
-      durableLane,
     });
     if (!runtimeLane) continue;
     const candidateIndex = runtimeLaneKey
@@ -3024,13 +2806,6 @@ export async function readAvailableSigningLanes(
       ed25519Lane = runtimeLane;
     }
   }
-
-  completeMissingEvmFamilyTargetsFromSharedKey({
-    targets: ecdsaTargets,
-    lanesByTarget: ecdsaLanesByTarget,
-    candidatesByTarget: ecdsaCandidatesByTarget,
-    laneUpdatedAtMsByTarget: ecdsaLaneUpdatedAtMsByTarget,
-  });
 
   const normalizedEd25519Candidates = collapseExactDuplicateAvailableLanes(
     ed25519Candidates,
@@ -3051,9 +2826,20 @@ export async function readAvailableSigningLanes(
     primaryLane: primaryEd25519Lane,
     candidates: activeEd25519Candidates,
   });
-  const canonicalEcdsaAvailableLanes = canonicalizeEcdsaAvailableLanes({
+  const canonicalEcdsaSources = canonicalizeEcdsaAvailableLanes({
     targets: ecdsaTargets,
     candidatesByTarget: ecdsaCandidatesByTarget,
+    invalidLanes,
+  });
+  completeMissingEvmFamilyTargetsFromSharedKey({
+    targets: ecdsaTargets,
+    lanesByTarget: canonicalEcdsaSources.lanesByTarget,
+    candidatesByTarget: canonicalEcdsaSources.candidatesByTarget,
+    laneUpdatedAtMsByTarget: ecdsaLaneUpdatedAtMsByTarget,
+  });
+  const canonicalEcdsaAvailableLanes = canonicalizeEcdsaAvailableLanes({
+    targets: ecdsaTargets,
+    candidatesByTarget: canonicalEcdsaSources.candidatesByTarget,
     invalidLanes,
   });
 

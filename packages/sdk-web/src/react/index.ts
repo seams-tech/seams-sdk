@@ -36,6 +36,10 @@ export type {
   SeamsConfigsInput,
 } from '../core/types/seams';
 export type {
+  RegistrationActivationSurfaceState,
+  WalletIframeRegistrationActivationSurface,
+} from '../SeamsWeb/publicApi/types';
+export type {
   AddSignerIntentV1,
   AddSignerSelection,
   RegisterWalletInput,
@@ -181,7 +185,6 @@ export type {
 
 export {
   AccountSyncEventPhase,
-  EmailRecoveryFlowEventPhase,
   KeyExportEventPhase,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
@@ -190,7 +193,6 @@ export {
   WALLET_FLOW_EVENT_MESSAGES,
   WALLET_FLOW_EVENT_STEPS,
   WALLET_FLOW_EVENT_VERSION,
-  createEmailRecoveryFlowEvent,
   createAccountSyncFlowEvent,
   createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
@@ -202,7 +204,6 @@ export {
 } from '../core/types/sdkSentEvents';
 export type {
   AccountSyncFlowEvent,
-  EmailRecoveryFlowEvent,
   KeyExportHooksOptions,
   KeyExportFlowEvent,
   LinkDeviceFlowEvent,

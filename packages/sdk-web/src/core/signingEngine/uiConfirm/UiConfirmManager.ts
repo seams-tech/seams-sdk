@@ -8,9 +8,6 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
   SigningSessionSealAuthMethod,
-  WarmSessionEd25519UnsealAuthorizationClaimPayload,
-  WarmSessionEd25519UnsealAuthorizationClaimResult,
-  WarmSessionEd25519UnsealAuthorizationPutPayload,
   WarmSessionSealTransportInput,
   WarmSessionStatusBatchResult,
   WarmSessionRehydratePayload,
@@ -62,11 +59,13 @@ import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '../session
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextEmailHashHex,
+  emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
 } from '../session/identity/laneIdentity';
 import { normalizeThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
   UserConfirmMessageType,
+  UserConfirmationType,
   type UserConfirmDecision,
   type UserConfirmPromptEnvelope,
   type UserConfirmRequest,
@@ -82,10 +81,10 @@ import type {
   SigningConfirmationResultSignatureOnly,
   NearTransactionSigningConfirmationResult,
 } from '../stepUpConfirmation/confirmOperation';
-import type { ThresholdEd25519WorkerMaterialCredentialAuthorization } from '@/core/types/signer-worker';
 import { requestRegistrationCredentialConfirmationOnMainThread } from './handlers/flows/requestRegistrationCredentialConfirmation';
 import type {
   RequestRegistrationCredentialConfirmationParams,
+  ExportPrivateKeysWithUiOptions,
   RequestUserConfirmationOptions,
   ClearAllVolatileWarmSessionMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
@@ -100,7 +99,6 @@ import {
 } from '../session/sealedRecovery/restoreCoordinator';
 import { parseClearVolatileWarmMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
-import { restorePasskeyEd25519SealedRecordForAccount } from '../session/passkey/ed25519Recovery';
 import type {
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
@@ -245,17 +243,14 @@ function firstSigningSessionSealKeyVersion(
   return undefined;
 }
 
-function ed25519SealedWorkerMaterialMissingFields(
+function ed25519RestoreMetadataMissingFields(
   value:
     | {
         nearAccountId?: unknown;
         nearEd25519SigningKeyId?: unknown;
-        clientVerifyingShareB64u?: unknown;
-        ed25519WorkerMaterialBindingDigest?: unknown;
-        sealedWorkerMaterialRef?: unknown;
-        materialFormatVersion?: unknown;
-        materialKeyId?: unknown;
-        materialCreatedAtMs?: unknown;
+        rpId?: unknown;
+        relayerKeyId?: unknown;
+        participantIds?: unknown;
         signerSlot?: unknown;
         routerAbNormalSigning?: unknown;
       }
@@ -269,23 +264,14 @@ function ed25519SealedWorkerMaterialMissingFields(
   if (!String(value?.nearEd25519SigningKeyId || '').trim()) {
     missing.push('nearEd25519SigningKeyId');
   }
-  if (!String(value?.clientVerifyingShareB64u || '').trim()) {
-    missing.push('clientVerifyingShareB64u');
+  if (!String(value?.rpId || '').trim()) {
+    missing.push('rpId');
   }
-  if (!String(value?.ed25519WorkerMaterialBindingDigest || '').trim()) {
-    missing.push('ed25519WorkerMaterialBindingDigest');
+  if (!String(value?.relayerKeyId || '').trim()) {
+    missing.push('relayerKeyId');
   }
-  if (!String(value?.sealedWorkerMaterialRef || '').trim()) {
-    missing.push('sealedWorkerMaterialRef');
-  }
-  if (!String(value?.materialFormatVersion || '').trim()) {
-    missing.push('materialFormatVersion');
-  }
-  if (!String(value?.materialKeyId || '').trim()) {
-    missing.push('materialKeyId');
-  }
-  if (!positiveInteger(value?.materialCreatedAtMs)) {
-    missing.push('materialCreatedAtMs');
+  if (!Array.isArray(value?.participantIds) || value.participantIds.length === 0) {
+    missing.push('participantIds');
   }
   if (!positiveInteger(value?.signerSlot)) {
     missing.push('signerSlot');
@@ -296,23 +282,6 @@ function ed25519SealedWorkerMaterialMissingFields(
   return missing;
 }
 
-function hasCompleteEd25519RestoreMetadata(
-  value: SigningSessionSealedStoreRecord['ed25519Restore'] | undefined,
-): value is CurrentEd25519RestoreMetadata {
-  return Boolean(value) && ed25519SealedWorkerMaterialMissingFields(value).length === 0;
-}
-
-function completeEd25519RestoreMetadata(
-  value: SigningSessionSealedStoreRecord['ed25519Restore'] | undefined,
-): CurrentEd25519RestoreMetadata | undefined {
-  return hasCompleteEd25519RestoreMetadata(value) ? value : undefined;
-}
-
-type CurrentEd25519RestoreSessionRecord = Extract<
-  ThresholdEd25519SessionRecord,
-  { materialState: 'restore_available' | 'material_ready' }
->;
-
 type CurrentEd25519RestoreAuthBranch =
   | {
       kind: 'passkey';
@@ -320,44 +289,38 @@ type CurrentEd25519RestoreAuthBranch =
     }
   | {
       kind: 'email_otp';
+      provider: 'google' | 'email';
       providerSubjectId: string;
       emailHashHex: string;
     };
 
-function currentEd25519RestoreAuthBranchFromMaterialRecord(
-  record: CurrentEd25519RestoreSessionRecord,
+function currentEd25519RestoreAuthBranchFromRecord(
+  record: ThresholdEd25519SessionRecord,
 ): CurrentEd25519RestoreAuthBranch | null {
   if (record.source === 'email_otp') {
     if (!record.emailOtpAuthContext) return null;
     const providerSubjectId = emailOtpAuthContextProviderUserId(record.emailOtpAuthContext);
+    const provider = emailOtpAuthContextProvider(record.emailOtpAuthContext);
     const emailHashHex = emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext);
     return providerSubjectId && emailHashHex
-      ? { kind: 'email_otp', providerSubjectId, emailHashHex }
+      ? { kind: 'email_otp', provider, providerSubjectId, emailHashHex }
       : null;
   }
   const credentialIdB64u = String(record.passkeyCredentialIdB64u || '').trim();
   return credentialIdB64u ? { kind: 'passkey', credentialIdB64u } : null;
 }
 
-function currentEd25519RestoreMetadataFromMaterialRecord(
-  record: CurrentEd25519RestoreSessionRecord,
+function currentEd25519RestoreMetadataFromSessionRecord(
+  record: ThresholdEd25519SessionRecord | null | undefined,
 ): CurrentEd25519RestoreMetadata | undefined {
+  if (!record) return undefined;
   const rpId = String(record.rpId || '').trim();
   const nearAccountId = String(record.nearAccountId || '').trim();
   const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
-  const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
-  const ed25519WorkerMaterialBindingDigest = String(
-    record.ed25519WorkerMaterialBindingDigest || '',
-  ).trim();
-  const sealedWorkerMaterialRef = String(record.sealedWorkerMaterialRef || '').trim();
-  const sealedWorkerMaterialB64u = String(record.sealedWorkerMaterialB64u || '').trim();
-  const materialFormatVersion = String(record.materialFormatVersion || '').trim();
-  const materialKeyId = String(record.materialKeyId || '').trim();
-  const materialCreatedAtMs = positiveInteger(record.materialCreatedAtMs);
   const signerSlot = positiveInteger(record.signerSlot);
   const routerAbNormalSigning = record.routerAbNormalSigning;
-  const authBranch = currentEd25519RestoreAuthBranchFromMaterialRecord(record);
+  const authBranch = currentEd25519RestoreAuthBranchFromRecord(record);
   const walletSessionAuth = ed25519RestoreWalletSessionAuthFields(record);
   if (
     !rpId ||
@@ -365,12 +328,6 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
     !nearEd25519SigningKeyId ||
     !relayerKeyId ||
     !record.participantIds.length ||
-    !clientVerifyingShareB64u ||
-    !ed25519WorkerMaterialBindingDigest ||
-    !sealedWorkerMaterialRef ||
-    !materialFormatVersion ||
-    !materialKeyId ||
-    !materialCreatedAtMs ||
     !signerSlot ||
     !routerAbNormalSigning ||
     !authBranch ||
@@ -387,13 +344,6 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
     ...walletSessionAuth,
     signerSlot,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-    clientVerifyingShareB64u,
-    ed25519WorkerMaterialBindingDigest,
-    sealedWorkerMaterialRef,
-    ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
-    materialFormatVersion,
-    materialKeyId,
-    materialCreatedAtMs,
     routerAbNormalSigning,
   };
   switch (authBranch.kind) {
@@ -405,26 +355,12 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
     case 'email_otp':
       return {
         ...commonRestoreMetadata,
+        provider: authBranch.provider,
         providerSubjectId: authBranch.providerSubjectId,
         emailHashHex: authBranch.emailHashHex,
       };
     default:
       return assertNever(authBranch);
-  }
-}
-
-function currentEd25519RestoreMetadataFromSessionRecord(
-  record: ThresholdEd25519SessionRecord | null | undefined,
-): CurrentEd25519RestoreMetadata | undefined {
-  if (!record) return undefined;
-  switch (record.materialState) {
-    case 'auth_ready_material_pending':
-      return undefined;
-    case 'restore_available':
-    case 'material_ready':
-      return currentEd25519RestoreMetadataFromMaterialRecord(record);
-    default:
-      return assertNever(record);
   }
 }
 
@@ -454,6 +390,7 @@ function sealedAuthMethodForThresholdEd25519Source(
       return 'email_otp';
     case 'login':
     case 'registration':
+    case 'add-signer':
     case 'manual-connect':
     case 'bootstrap':
       return 'passkey';
@@ -617,61 +554,6 @@ function parseWarmSessionClaimResult(data: unknown): WarmSessionClaimResult | nu
   };
 }
 
-function parseWorkerMaterialUnsealAuthorization(
-  value: unknown,
-): ThresholdEd25519WorkerMaterialCredentialAuthorization | null {
-  if (!isObjectRecord(value)) return null;
-  if (value.purpose !== 'unseal') return null;
-  if (typeof value.materialBindingDigest !== 'string' || !value.materialBindingDigest.trim()) {
-    return null;
-  }
-  return value as ThresholdEd25519WorkerMaterialCredentialAuthorization;
-}
-
-type WarmSessionEd25519UnsealAuthorizationClaimFailureCode = Extract<
-  WarmSessionEd25519UnsealAuthorizationClaimResult,
-  { ok: false }
->['code'];
-
-function parseWarmSessionEd25519UnsealAuthorizationClaimFailureCode(
-  code: unknown,
-): WarmSessionEd25519UnsealAuthorizationClaimFailureCode {
-  switch (code) {
-    case 'not_found':
-    case 'expired':
-    case 'exhausted':
-    case 'scope_mismatch':
-    case 'invalid_authorization':
-    case 'worker_error':
-      return code;
-    default:
-      return 'worker_error';
-  }
-}
-
-function parseWarmSessionEd25519UnsealAuthorizationClaimResult(
-  data: unknown,
-): WarmSessionEd25519UnsealAuthorizationClaimResult | null {
-  if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
-  if (!data.ok) {
-    return {
-      ok: false,
-      code: parseWarmSessionEd25519UnsealAuthorizationClaimFailureCode(data.code),
-      message:
-        typeof data.message === 'string'
-          ? data.message
-          : 'Ed25519 unseal authorization claim failed',
-    } as WarmSessionEd25519UnsealAuthorizationClaimResult;
-  }
-  const authorization = parseWorkerMaterialUnsealAuthorization(data.authorization);
-  if (!authorization || typeof data.expiresAtMs !== 'number') return null;
-  return {
-    ok: true,
-    authorization,
-    expiresAtMs: data.expiresAtMs,
-  };
-}
-
 function parseUserConfirmProgressEvent(data: unknown): UserConfirmProgressEvent | null {
   if (!isObjectRecord(data)) return null;
   const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
@@ -765,6 +647,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     (progress: UserConfirmProgressEvent) => void
   >();
   private readonly pendingFunctionBearingConfirmRequests = new Map<string, UserConfirmRequest>();
+  private readonly exportViewerLifecycleBySessionId = new Map<
+    string,
+    (event: 'opened' | 'closed') => void
+  >();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
 
@@ -1098,13 +984,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     );
     if (!existing || existing.curve !== 'ed25519') return false;
     const observedExpiresAtMs =
-      args.observation.kind === 'policy'
-        ? args.observation.expiresAtMs
-        : existing.expiresAtMs;
+      args.observation.kind === 'policy' ? args.observation.expiresAtMs : existing.expiresAtMs;
     const observedRemainingUses =
-      args.observation.kind === 'policy'
-        ? args.observation.remainingUses
-        : existing.remainingUses;
+      args.observation.kind === 'policy' ? args.observation.remainingUses : existing.remainingUses;
     await this.updatePasskeySealedRecordPolicy({
       thresholdSessionId: args.thresholdSessionId,
       curve: 'ed25519',
@@ -1133,17 +1015,16 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           });
           return;
         }
-        const retainedExpiredEd25519Record =
-          await this.markPasskeyEd25519SealedRecordExpired({
-            thresholdSessionId: args.sessionId,
-            curve: args.curve,
-            chainTarget: args.chainTarget,
-            observation: {
-              kind: 'policy',
-              expiresAtMs: result.expiresAtMs,
-              remainingUses: result.remainingUses,
-            },
-          });
+        const retainedExpiredEd25519Record = await this.markPasskeyEd25519SealedRecordExpired({
+          thresholdSessionId: args.sessionId,
+          curve: args.curve,
+          chainTarget: args.chainTarget,
+          observation: {
+            kind: 'policy',
+            expiresAtMs: result.expiresAtMs,
+            remainingUses: result.remainingUses,
+          },
+        });
         if (retainedExpiredEd25519Record) return;
         await this.deletePasskeyDurableSealedSessionRecord({
           thresholdSessionId: args.sessionId,
@@ -1164,13 +1045,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       return;
     }
     if (result.code === 'expired') {
-      const retainedExpiredEd25519Record =
-        await this.markPasskeyEd25519SealedRecordExpired({
-          thresholdSessionId: args.sessionId,
-          curve: args.curve,
-          chainTarget: args.chainTarget,
-          observation: { kind: 'status_code' },
-        });
+      const retainedExpiredEd25519Record = await this.markPasskeyEd25519SealedRecordExpired({
+        thresholdSessionId: args.sessionId,
+        curve: args.curve,
+        chainTarget: args.chainTarget,
+        observation: { kind: 'status_code' },
+      });
       if (retainedExpiredEd25519Record) return;
       await this.deletePasskeyDurableSealedSessionRecord({
         thresholdSessionId: args.sessionId,
@@ -1231,9 +1111,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     refreshed: PasskeySealedRecordAccountMetadata;
   }): PasskeySealedRecordAccountMetadata {
     const existing = args.existing;
-    const ed25519Restore =
-      completeEd25519RestoreMetadata(args.refreshed.ed25519Restore) ||
-      completeEd25519RestoreMetadata(existing?.ed25519Restore);
+    const ed25519Restore = args.refreshed.ed25519Restore || existing?.ed25519Restore;
     return {
       ...(args.refreshed.walletId || existing?.walletId
         ? { walletId: args.refreshed.walletId || existing?.walletId }
@@ -1451,32 +1329,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             routerAbEcdsaHssNormalSigning: ecdsaRecord.routerAbEcdsaHssNormalSigning,
           }
         : undefined;
-    const ed25519MaterialMissingFields = ed25519Record
-      ? ed25519SealedWorkerMaterialMissingFields(ed25519Record)
-      : [];
     const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
     if (ed25519Record && !ed25519Restore) {
-      console.warn(
-        '[UiConfirm] skipping Ed25519 durable restore metadata without worker material',
-        {
-          thresholdSessionId: args.thresholdSessionId,
-          curve: args.curve,
-          walletId: String(ed25519Record.walletId || args.walletId || '').trim(),
-          source: ed25519Record.source,
-          missingFields: ed25519MaterialMissingFields,
-          hasRuntimeMaterialHandle: Boolean(
-            String(ed25519Record.ed25519WorkerMaterialHandle || '').trim(),
-          ),
-          hasClientVerifier: Boolean(String(ed25519Record.clientVerifyingShareB64u || '').trim()),
-          hasMaterialBindingDigest: Boolean(
-            String(ed25519Record.ed25519WorkerMaterialBindingDigest || '').trim(),
-          ),
-          hasSealedWorkerMaterialRef: Boolean(
-            String(ed25519Record.sealedWorkerMaterialRef || '').trim(),
-          ),
-          hasMaterialKeyId: Boolean(String(ed25519Record.materialKeyId || '').trim()),
-        },
-      );
+      console.warn('[UiConfirm] skipping incomplete Ed25519 durable session metadata', {
+        thresholdSessionId: args.thresholdSessionId,
+        curve: args.curve,
+        walletId: String(ed25519Record.walletId || args.walletId || '').trim(),
+        source: ed25519Record.source,
+        missingFields: ed25519RestoreMetadataMissingFields(ed25519Record),
+      });
     }
     return {
       ...(walletId ? { walletId } : {}),
@@ -1521,14 +1382,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return 'deferred';
     if (args.record.authMethod !== 'passkey') return 'deferred';
-    const curve = args.purpose.curve;
-    const chainTarget = curve === 'ecdsa' ? args.purpose.chainTarget : undefined;
-    if (curve === 'ecdsa') {
-      if (!chainTarget || args.record.curve !== 'ecdsa') return 'deferred';
-      if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget)) {
-        return 'deferred';
-      }
-    } else if (args.record.curve !== 'ed25519') {
+    const curve = 'ecdsa';
+    const chainTarget = args.purpose.chainTarget;
+    if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget)) {
       return 'deferred';
     }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
@@ -1536,7 +1392,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       thresholdSessionId,
       authMethod: 'passkey',
       curve,
-      ...(chainTarget ? { chainTarget } : {}),
+      chainTarget,
       signingGrantId: args.purpose.signingGrantId,
     });
 
@@ -1602,101 +1458,58 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ).trim();
         if (!shamirPrimeB64u) return null;
 
-        return curve === 'ecdsa' &&
-          chainTarget &&
-          args.purpose.curve === 'ecdsa' &&
-          args.purpose.authMethod === 'passkey' &&
-          args.record.authMethod === 'passkey' &&
-          args.record.curve === 'ecdsa'
-          ? await restorePasskeyEcdsaSealedRecordForWallet({
-              walletId: args.walletId,
-              record: args.record,
-              purpose: { ...args.purpose, authMethod: 'passkey' },
-              transport,
-              shamirPrimeB64u,
-              rehydrateWarmSessionMaterial: (rehydrateArgs) =>
-                this.rehydrateWarmSessionMaterial(rehydrateArgs),
-              deletePersistedRecord: deleteInvalidPersistedRecord,
-              recordSessionMaterialRestored: async (status) =>
-                await this.recordSessionMaterialRestored(
-                  thresholdSessionId,
-                  status,
-                  curve,
-                  chainTarget,
+        if (
+          curve !== 'ecdsa' ||
+          !chainTarget ||
+          args.purpose.curve !== 'ecdsa' ||
+          args.purpose.authMethod !== 'passkey' ||
+          args.record.authMethod !== 'passkey' ||
+          args.record.curve !== 'ecdsa'
+        ) {
+          return null;
+        }
+        return await restorePasskeyEcdsaSealedRecordForWallet({
+          walletId: args.walletId,
+          record: args.record,
+          purpose: { ...args.purpose, authMethod: 'passkey' },
+          transport,
+          shamirPrimeB64u,
+          rehydrateWarmSessionMaterial: (rehydrateArgs) =>
+            this.rehydrateWarmSessionMaterial(rehydrateArgs),
+          deletePersistedRecord: deleteInvalidPersistedRecord,
+          recordSessionMaterialRestored: async (status) =>
+            await this.recordSessionMaterialRestored(
+              thresholdSessionId,
+              status,
+              curve,
+              chainTarget,
+            ),
+          readWarmSessionStatusFromWorker: async (sessionId) => {
+            const rehydratedPeek = await this.sendMessage({
+              type: 'WARM_SESSION_STATUS_READ',
+              id: this.generateMessageId(),
+              payload: { sessionId },
+            });
+            const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
+            if (rehydratedPeek?.success !== true || !parsed) {
+              return {
+                ok: false,
+                code: 'worker_error',
+                message: String(
+                  rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
                 ),
-              readWarmSessionStatusFromWorker: async (sessionId) => {
-                const rehydratedPeek = await this.sendMessage({
-                  type: 'WARM_SESSION_STATUS_READ',
-                  id: this.generateMessageId(),
-                  payload: { sessionId },
-                });
-                const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
-                if (rehydratedPeek?.success !== true || !parsed) {
-                  return {
-                    ok: false,
-                    code: 'worker_error',
-                    message: String(
-                      rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
-                    ),
-                  };
-                }
-                return parsed;
-              },
-              loadEcdsaRoleLocalReadyRecord: this.loadEcdsaRoleLocalReadyRecord.bind(this),
-              updatePersistedPolicy: async (policy) =>
-                await updateExactSealedSessionPolicy({
-                  thresholdSessionId,
-                  filter: sealedRecordFilter,
-                  ...policy,
-                }),
-            })
-          : curve === 'ed25519' &&
-              args.purpose.curve === 'ed25519' &&
-              args.purpose.authMethod === 'passkey' &&
-              args.record.authMethod === 'passkey' &&
-              args.record.curve === 'ed25519'
-            ? await restorePasskeyEd25519SealedRecordForAccount({
-                walletId: args.walletId,
-                record: args.record,
-                purpose: { ...args.purpose, authMethod: 'passkey' },
-                transport,
-                shamirPrimeB64u,
-                rehydrateWarmSessionMaterial: (rehydrateArgs) =>
-                  this.rehydrateWarmSessionMaterial(rehydrateArgs),
-                deletePersistedRecord: deleteInvalidPersistedRecord,
-                recordSessionMaterialRestored: async (status) =>
-                  await this.recordSessionMaterialRestored(
-                    thresholdSessionId,
-                    status,
-                    curve,
-                    chainTarget,
-                  ),
-                readWarmSessionStatusFromWorker: async (sessionId) => {
-                  const rehydratedPeek = await this.sendMessage({
-                    type: 'WARM_SESSION_STATUS_READ',
-                    id: this.generateMessageId(),
-                    payload: { sessionId },
-                  });
-                  const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
-                  if (rehydratedPeek?.success !== true || !parsed) {
-                    return {
-                      ok: false,
-                      code: 'worker_error',
-                      message: String(
-                        rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
-                      ),
-                    };
-                  }
-                  return parsed;
-                },
-                updatePersistedPolicy: async (policy) =>
-                  await updateExactSealedSessionPolicy({
-                    thresholdSessionId,
-                    filter: sealedRecordFilter,
-                    ...policy,
-                  }),
-              })
-            : null;
+              };
+            }
+            return parsed;
+          },
+          loadEcdsaRoleLocalReadyRecord: this.loadEcdsaRoleLocalReadyRecord.bind(this),
+          updatePersistedPolicy: async (policy) =>
+            await updateExactSealedSessionPolicy({
+              thresholdSessionId,
+              filter: sealedRecordFilter,
+              ...policy,
+            }),
+        });
       } finally {
         await releaseSigningSessionRestoreLease(lease);
       }
@@ -1706,16 +1519,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
     signingSessionRehydrateSingleFlight.set(singleFlightKey, task);
     const result = await task;
-    if (result?.ok && curve === 'ed25519') {
-      // Write-through: a successful restore can re-seal worker material, advancing
-      // the runtime record's material generation. The durable sealed record is a
-      // cache of that identity — refresh it now so lane snapshots built from the
-      // durable store keep naming the current generation. Best-effort: a failed
-      // refresh only leaves the cache stale, which downstream consumers already
-      // treat as a hint (resolveEd25519RestoreMaterialIdentity prefers the live
-      // record).
-      await this.ensureSealedRecordPersisted(thresholdSessionId).catch(() => null);
-    }
     return result?.ok ? 'restored' : 'deferred';
   }
 
@@ -2047,15 +1850,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       hasEcdsaRestore: Boolean(recordMetadata.ecdsaRestore),
       hasEd25519Restore: Boolean(recordMetadata.ed25519Restore),
       ed25519RestoreMissingFields: recordMetadata.ed25519Restore
-        ? ed25519SealedWorkerMaterialMissingFields(recordMetadata.ed25519Restore)
+        ? ed25519RestoreMetadataMissingFields(recordMetadata.ed25519Restore)
         : [],
     });
     if (curve === 'ed25519' && !recordMetadata.ed25519Restore) {
       return {
         ok: false,
         code: 'missing_restore_metadata',
-        message:
-          'Ed25519 signing-session seal persistence requires sealed worker-material restore metadata',
+        message: 'Ed25519 signing-session seal persistence requires session restore metadata',
       };
     }
     const chainTarget = curve === 'ecdsa' ? recordMetadata.ecdsaRestore?.chainTarget : undefined;
@@ -2266,22 +2068,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           message: 'Missing shamirPrimeB64u for signing-session seal persistence',
         };
       }
-      if (
-        curve === 'ed25519' &&
-        authMethod === 'email_otp' &&
-        !String(
-          getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId)
-            ?.ed25519WorkerMaterialHandle || '',
-        ).trim()
-      ) {
-        return {
-          ok: false,
-          code: 'missing_material_handle',
-          message:
-            'Email OTP Ed25519 sealed session persistence requires worker-owned signing material',
-        };
-      }
-
       const transport =
         curve === 'ecdsa'
           ? {
@@ -2436,46 +2222,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return parsed;
   };
 
-  putWarmSessionEd25519UnsealAuthorization = async (
-    args: WarmSessionEd25519UnsealAuthorizationPutPayload,
-  ): Promise<WarmSessionStatusResult> => {
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
-      type: 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT',
-      id: this.generateMessageId(),
-      payload: args,
-    });
-    const parsed = parseWarmSessionStatusResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Ed25519 unseal authorization put failed'),
-      };
-    }
-    return parsed;
-  };
-
-  claimWarmSessionEd25519UnsealAuthorization = async (
-    args: WarmSessionEd25519UnsealAuthorizationClaimPayload,
-  ): Promise<WarmSessionEd25519UnsealAuthorizationClaimResult> => {
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
-      type: 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM',
-      id: this.generateMessageId(),
-      payload: args,
-    });
-    const parsed = parseWarmSessionEd25519UnsealAuthorizationClaimResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Ed25519 unseal authorization claim failed'),
-      };
-    }
-    return parsed;
-  };
-
   consumeWarmSessionUses = async (args: {
     sessionId: string;
     uses?: number;
@@ -2507,6 +2253,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   ): Promise<void> => {
     const command = parseClearVolatileWarmMaterialCommand(args);
     if (command?.scope.kind !== 'session') return;
+    if (!this.worker && !this.initializationPromise) return;
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
       type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR',
@@ -2529,6 +2276,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   ): Promise<void> => {
     const command = parseClearVolatileWarmMaterialCommand(args);
     if (command?.scope.kind !== 'all') return;
+    if (!this.worker && !this.initializationPromise) return;
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
       type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL',
@@ -2600,21 +2348,33 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   async exportPrivateKeysWithUi(
     payload: ExportPrivateKeysWithUiWorkerPayload,
+    options?: ExportPrivateKeysWithUiOptions,
   ): Promise<ExportPrivateKeysWithUiWorkerResult> {
     await this.ensureWorkerReady(false);
-    const response = await this.sendMessage({
-      type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
-      id: this.generateMessageId(),
-      payload,
-    });
-    if (!response?.success) {
-      throw new Error(String(response?.error || 'Export private keys request failed'));
+    const viewerSessionId =
+      'viewerSessionId' in payload ? String(payload.viewerSessionId || '').trim() : '';
+    if (viewerSessionId && options?.onViewerLifecycle) {
+      this.exportViewerLifecycleBySessionId.set(viewerSessionId, options.onViewerLifecycle);
     }
-    const parsed = parseExportPrivateKeysWithUiWorkerResult(response.data);
-    if (!parsed) {
-      throw new Error('Export private keys request failed: invalid worker response payload');
+    try {
+      const response = await this.sendMessage({
+        type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
+        id: this.generateMessageId(),
+        payload,
+      });
+      if (!response?.success) {
+        throw new Error(String(response?.error || 'Export private keys request failed'));
+      }
+      const parsed = parseExportPrivateKeysWithUiWorkerResult(response.data);
+      if (!parsed) {
+        throw new Error('Export private keys request failed: invalid worker response payload');
+      }
+      return parsed;
+    } finally {
+      if (viewerSessionId) {
+        this.exportViewerLifecycleBySessionId.delete(viewerSessionId);
+      }
     }
-    return parsed;
   }
 
   /**
@@ -2804,12 +2564,28 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!channelToken) {
       return null;
     }
+    const restoredRequest = this.restoreFunctionBearingConfirmRequestFields(requestId, request);
     return {
       type: UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
       requestId,
       channelToken,
-      data: this.restoreFunctionBearingConfirmRequestFields(requestId, request),
+      data: this.restoreExportViewerLifecycle(restoredRequest),
     };
+  }
+
+  private restoreExportViewerLifecycle(request: UserConfirmRequest): UserConfirmRequest {
+    if (request.type !== UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) return request;
+    const requestPayload = isObjectRecord(request.payload) ? request.payload : null;
+    if (!requestPayload) return request;
+    const viewerSessionId =
+      'viewerSessionId' in requestPayload
+        ? String(requestPayload.viewerSessionId || '').trim()
+        : '';
+    if (!viewerSessionId) return request;
+    const onLifecycle = this.exportViewerLifecycleBySessionId.get(viewerSessionId);
+    if (!onLifecycle) return request;
+    Object.assign(requestPayload, { onLifecycle });
+    return request;
   }
 
   private restoreFunctionBearingConfirmRequestFields(

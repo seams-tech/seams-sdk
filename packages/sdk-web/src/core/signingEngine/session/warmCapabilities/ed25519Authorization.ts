@@ -9,23 +9,6 @@ import {
   type RouterAbEd25519WalletSessionAuthorityFailureReason,
 } from '../routerAbSigningWalletSession';
 
-export type WarmEd25519SigningSessionMaterialState =
-  | {
-      materialState: 'material_ready';
-      persistedMaterialState: 'material_ready';
-      materialPendingReason?: never;
-    }
-  | {
-      materialState: 'material_pending';
-      persistedMaterialState: 'restore_available';
-      materialPendingReason: 'restore_available';
-    }
-  | {
-      materialState: 'material_pending';
-      persistedMaterialState: 'auth_ready_material_pending';
-      materialPendingReason: 'worker_material_missing';
-    };
-
 export type WarmEd25519PrfClaimReady = {
   kind: 'hot_prf_claim';
   sessionId: string;
@@ -58,11 +41,7 @@ export type WarmEd25519SigningSessionAuthorization = {
   availableUses: number;
   expiresAtMs: number;
   prfClaim: WarmEd25519PrfClaimReady;
-  ed25519WorkerMaterialHandle?: never;
-  ed25519WorkerMaterialBindingDigest?: never;
-  clientVerifyingShareB64u?: never;
-  xClientBaseB64u?: never;
-} & WarmEd25519SigningSessionMaterialState;
+};
 
 export type WarmEd25519SigningSessionAuthorizationFailureReason =
   | 'missing_record'
@@ -85,7 +64,7 @@ export type WarmEd25519SigningSessionAuthorizationFailureReason =
   | 'prf_claim_session_mismatch'
   | 'prf_claim_not_active'
   | 'prf_claim_exhausted'
-  | 'material_identity_invalid';
+  | 'session_identity_invalid';
 
 export type WarmEd25519SigningSessionAuthorizationResult =
   | { ok: true; value: WarmEd25519SigningSessionAuthorization }
@@ -107,30 +86,6 @@ function authMethodForEd25519Record(record: ThresholdEd25519SessionRecord): Wall
   return record.source === 'email_otp' ? 'email_otp' : 'passkey';
 }
 
-function materialStateForEd25519Record(
-  record: ThresholdEd25519SessionRecord,
-): WarmEd25519SigningSessionMaterialState {
-  switch (record.materialState) {
-    case 'material_ready':
-      return {
-        materialState: 'material_ready',
-        persistedMaterialState: 'material_ready',
-      };
-    case 'restore_available':
-      return {
-        materialState: 'material_pending',
-        persistedMaterialState: 'restore_available',
-        materialPendingReason: 'restore_available',
-      };
-    case 'auth_ready_material_pending':
-      return {
-        materialState: 'material_pending',
-        persistedMaterialState: 'auth_ready_material_pending',
-        materialPendingReason: 'worker_material_missing',
-      };
-  }
-}
-
 function warmAuthorizationSigningRootFailureReason(
   reason: string,
 ): WarmEd25519SigningSessionAuthorizationFailureReason {
@@ -140,7 +95,7 @@ function warmAuthorizationSigningRootFailureReason(
     case 'signing_root_mismatch':
       return reason;
     default:
-      return 'material_identity_invalid';
+      return 'session_identity_invalid';
   }
 }
 
@@ -156,7 +111,7 @@ function warmAuthorizationWalletSessionFailureReason(
     case 'missing_signing_grant_id':
       return reason;
     case 'wallet_binding_mismatch':
-      return 'material_identity_invalid';
+      return 'session_identity_invalid';
   }
 }
 
@@ -332,7 +287,6 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
       availableUses: prfClaim.availableUses,
       expiresAtMs,
       prfClaim,
-      ...materialStateForEd25519Record(record),
     },
   };
 }

@@ -1,6 +1,5 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { assertThresholdSigningSessionReady } from '../../session/warmCapabilities/thresholdSigningSessionReadiness';
 import { SigningSessionIds } from '../../session/operationState/types';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
@@ -19,11 +18,9 @@ import {
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
-import { resolveThresholdEcdsaCommitQueueKey } from '../../threshold/ecdsa/commitQueue';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
 import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { EvmFamilyLifecycleEventCallback, EvmFamilySenderSignatureAlgorithm } from './types';
-import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoader';
 import type { EcdsaSigningMaterialPlan } from './signingFlow';
 import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
@@ -142,13 +139,6 @@ function resolveEvmFamilyStepUpOperationId(
       SigningSessionIds.signingOperation('evm-family-post-exhaustion-step-up'),
   );
 }
-
-type ThresholdEcdsaCommitQueueArgs = {
-  walletId: WalletId;
-  thresholdSessionId: string;
-  shouldAbort?: () => boolean;
-  task: () => Promise<unknown>;
-};
 
 type EvmFamilyThresholdEcdsaRecordUpdate = {
   record: ThresholdEcdsaSessionRecord;
@@ -556,49 +546,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         getRpId: () => ctx.touchIdPrompt.getRpId(),
         workerCtx: signerWorkerCtx,
         shouldAbort: args.shouldAbort,
-        enqueueThresholdEcdsaCommit: async (queueArgs: ThresholdEcdsaCommitQueueArgs) => {
-          const thresholdSessionId = String(queueArgs.thresholdSessionId || '').trim();
-          const queueKey = resolveThresholdEcdsaCommitQueueKey({
-            chainTarget: requestChainTarget,
-            thresholdSessionId,
-          });
-          try {
-            emitEvmFamilySigningEvent(args.onEvent, {
-              phase: SigningEventPhase.STEP_10_COMMIT_QUEUED,
-              status: 'running',
-              walletId,
-              interaction: { kind: 'none', overlay: 'none' },
-              data: { queueKey, chain: args.request.chain },
-            });
-          } catch {}
-          return await args.deps.withThresholdEcdsaCommitQueue({
-            queueKey,
-            walletId: queueArgs.walletId,
-            enabled: true,
-            shouldAbort: queueArgs.shouldAbort,
-            task: async () => {
-              throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-              await assertThresholdSigningSessionReady({
-                signingSessionCoordinator: warmSessionServices,
-                walletId: toWalletId(queueArgs.walletId),
-                chainTarget: requestChainTarget,
-                sessionId: thresholdSessionId,
-                usesNeeded: 1,
-              });
-              try {
-                emitEvmFamilySigningEvent(args.onEvent, {
-                  phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
-                  status: 'running',
-                  walletId,
-                  interaction: { kind: 'none', overlay: 'none' },
-                  data: { queueKey, chain: args.request.chain },
-                });
-              } catch {}
-              throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-              return await queueArgs.task();
-            },
-          });
-        },
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },

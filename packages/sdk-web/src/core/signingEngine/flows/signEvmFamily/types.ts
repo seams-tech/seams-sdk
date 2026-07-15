@@ -3,10 +3,7 @@ import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  CreateSigningFlowEventInput,
-  SigningFlowEvent,
-} from '@/core/types/sdkSentEvents';
+import type { CreateSigningFlowEventInput, SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EvmFamilyChain as EvmFamilyChainValue } from '../../interfaces/operationDeps';
 
 export type EvmFamilySenderSignatureAlgorithm =
@@ -36,7 +33,9 @@ export function evmFamilySigningTargetFromExplicitTarget(args: {
     throw new Error('[SigningEngine][ecdsa] transaction request requires a concrete chainId');
   }
   if (requestChainId !== args.chainTarget.chainId) {
-    throw new Error('[SigningEngine][ecdsa] transaction request chainId does not match chainTarget');
+    throw new Error(
+      '[SigningEngine][ecdsa] transaction request chainId does not match chainTarget',
+    );
   }
   const requestChainKind = evmFamilyRequestChainKind(args.request);
   if (requestChainKind !== 'evm_compatible' && requestChainKind !== args.chainTarget.kind) {
@@ -63,7 +62,7 @@ export type EvmFamilyLifecycleArgsBase = {
 };
 
 export type EvmFamilyBroadcastAcceptedArgs = EvmFamilyLifecycleArgsBase & {
-  txHash?: `0x${string}`;
+  txHash: `0x${string}`;
 };
 
 export type EvmFamilyBroadcastRejectedArgs = EvmFamilyLifecycleArgsBase & {

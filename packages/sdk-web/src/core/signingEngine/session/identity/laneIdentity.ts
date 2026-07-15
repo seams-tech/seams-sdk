@@ -27,10 +27,7 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
   type ResolvedEvmFamilyEcdsaKey,
 } from './evmFamilyEcdsaIdentity';
-import {
-  signingLaneAuthMethod,
-  type SigningLaneAuthBinding,
-} from './signingLaneAuthBinding';
+import { signingLaneAuthMethod, type SigningLaneAuthBinding } from './signingLaneAuthBinding';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
@@ -69,6 +66,7 @@ export const THRESHOLD_ECDSA_SESSION_STORE_SOURCES = [
 export type ThresholdEd25519SessionStoreSource =
   | 'login'
   | 'registration'
+  | 'add-signer'
   | 'manual-connect'
   | 'bootstrap'
   | 'email_otp';
@@ -93,10 +91,9 @@ export type EmailOtpAuthUse =
       consumedAtMs: number;
     };
 
-export type ThresholdEcdsaEmailOtpSessionAuthContext =
-  ThresholdEcdsaEmailOtpAuthContext & {
-    use: Extract<EmailOtpAuthUse, { kind: 'session' }>;
-  };
+export type ThresholdEcdsaEmailOtpSessionAuthContext = ThresholdEcdsaEmailOtpAuthContext & {
+  use: Extract<EmailOtpAuthUse, { kind: 'session' }>;
+};
 
 export type ThresholdEcdsaEmailOtpPendingSingleUseAuthContext =
   ThresholdEcdsaEmailOtpAuthContext & {

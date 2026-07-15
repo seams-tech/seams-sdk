@@ -45,10 +45,12 @@ export type {
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 
+export * from './core/signingEngine/threshold/ed25519/yaoClient';
+export * from './core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+
 // === Device Linking Types ===
 export {
   AccountSyncEventPhase,
-  EmailRecoveryFlowEventPhase,
   KeyExportEventPhase,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
@@ -57,7 +59,6 @@ export {
   WALLET_FLOW_EVENT_MESSAGES,
   WALLET_FLOW_EVENT_STEPS,
   WALLET_FLOW_EVENT_VERSION,
-  createEmailRecoveryFlowEvent,
   createAccountSyncFlowEvent,
   createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
@@ -69,7 +70,6 @@ export {
 } from './core/types/sdkSentEvents';
 export type {
   AccountSyncFlowEvent,
-  EmailRecoveryFlowEvent,
   KeyExportFlowEvent,
   LinkDeviceFlowEvent,
   RegistrationFlowEvent,

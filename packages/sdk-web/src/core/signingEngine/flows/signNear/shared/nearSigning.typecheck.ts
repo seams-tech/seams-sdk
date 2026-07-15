@@ -15,6 +15,10 @@ import type {
   SigningGrantId,
   ThresholdEd25519SessionId,
 } from '@/core/signingEngine/session/operationState/types';
+import type {
+  NearEd25519YaoCapabilitySource,
+  NearEd25519YaoSigningCapability,
+} from '@/core/signingEngine/interfaces/near';
 
 declare const walletId: WalletId;
 declare const nearAccountId: NamedNearAccountId;
@@ -23,6 +27,8 @@ declare const auth: SigningLaneAuthBinding;
 declare const signingGrantId: SigningGrantId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
+declare const yaoCapability: NearEd25519YaoSigningCapability;
+declare function recoverYaoCapability(): Promise<NearEd25519YaoSigningCapability>;
 
 const wallet = buildWalletIdentity({ walletId });
 const account = buildNamedNearAccountBinding({
@@ -58,5 +64,45 @@ const ed25519LaneWithLegacyAccountId: ExactEd25519SigningLaneIdentity = {
   accountId: nearAccountId,
 };
 void ed25519LaneWithLegacyAccountId;
+
+const activeCapabilitySource: NearEd25519YaoCapabilitySource = {
+  kind: 'active_capability',
+  capability: yaoCapability,
+};
+void activeCapabilitySource;
+
+const capabilityRecoverySource: NearEd25519YaoCapabilitySource = {
+  kind: 'capability_recovery',
+  recover: recoverYaoCapability,
+};
+void capabilityRecoverySource;
+
+const emailOtpReconnectSource: NearEd25519YaoCapabilitySource = {
+  kind: 'email_otp_reconnect',
+};
+void emailOtpReconnectSource;
+
+// @ts-expect-error Email OTP reconnect sources reject unrelated recovery behavior.
+const emailOtpReconnectWithRecovery: NearEd25519YaoCapabilitySource = {
+  kind: 'email_otp_reconnect',
+  recover: recoverYaoCapability,
+};
+void emailOtpReconnectWithRecovery;
+
+// @ts-expect-error Active capability sources reject recovery behavior.
+const activeCapabilityWithRecovery: NearEd25519YaoCapabilitySource = {
+  kind: 'active_capability',
+  capability: yaoCapability,
+  recover: recoverYaoCapability,
+};
+void activeCapabilityWithRecovery;
+
+// @ts-expect-error Recovery sources reject pre-resolved capabilities.
+const recoveryWithCapability: NearEd25519YaoCapabilitySource = {
+  kind: 'capability_recovery',
+  recover: recoverYaoCapability,
+  capability: yaoCapability,
+};
+void recoveryWithCapability;
 
 export {};

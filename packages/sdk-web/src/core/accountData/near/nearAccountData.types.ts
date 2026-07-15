@@ -23,11 +23,10 @@ export interface ClientUserData {
 
 export type StoreUserDataInput = Omit<
   ClientUserData,
-  'walletId' | 'loginDisplayName' | 'signerSlot' | 'lastLogin' | 'registeredAt'
+  'walletId' | 'loginDisplayName' | 'lastLogin' | 'registeredAt'
 > & {
   walletId: string;
   loginDisplayName?: string;
-  signerSlot?: number;
   version?: number;
 };
 

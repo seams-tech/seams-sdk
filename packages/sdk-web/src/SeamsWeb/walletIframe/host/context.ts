@@ -25,6 +25,9 @@ const W3A_LIT_HOST_SELECTORS = [
   'w3a-halo-border',
   'w3a-passkey-halo-loading',
   'w3a-export-key-viewer',
+  /* host-document dialogs (plain DOM, not lit) that must follow the app
+     palette, e.g. the email-OTP recovery codes backup dialog */
+  '.w3a-host-themed-dialog',
 ] as const;
 const W3A_LIT_DARK_SELECTOR = W3A_LIT_HOST_SELECTORS.join(',\n');
 const W3A_LIT_LIGHT_SELECTOR = W3A_LIT_HOST_SELECTORS.map(
@@ -375,6 +378,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
   // Reset runtime instances only when signing/runtime config changes. Cosmetic config updates
   // (theme/tokens/UI registry/assets base) must not drop warm signing session state.
   if (nextRuntimeResetFingerprint !== prevRuntimeResetFingerprint) {
+    ctx.seamsWeb?.dispose();
     ctx.prefsUnsubscribe?.();
     ctx.prefsUnsubscribe = null;
     ctx.nearClient = null;

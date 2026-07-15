@@ -10,6 +10,7 @@ import {
   NonceDurableLeaseState,
   type NearNonceLane,
   type NearNonceLease,
+  type NonceDurableLeaseLifecycle,
 } from './nonceTypes';
 import { nonceLaneKey } from './nonceLaneKeys';
 import { maxBigint, normalizeBigint, normalizeRequiredString } from './nonceUtils';
@@ -492,7 +493,10 @@ export async function markNearBroadcastAcceptedState(input: {
   nowMs: number;
   persistCoordinationLease: (
     lease: NearNonceLease,
-    state: typeof NonceDurableLeaseState.BroadcastAccepted,
+    lifecycle: Extract<
+      NonceDurableLeaseLifecycle,
+      { state: typeof NonceDurableLeaseState.BroadcastAccepted }
+    >,
   ) => Promise<void>;
 }): Promise<void> {
   const nonce = BigInt(input.lease.nonce);
@@ -502,7 +506,10 @@ export async function markNearBroadcastAcceptedState(input: {
     acceptedAtMs: input.nowMs,
     updatedAtMs: input.nowMs,
   });
-  await input.persistCoordinationLease(input.lease, NonceDurableLeaseState.BroadcastAccepted);
+  await input.persistCoordinationLease(input.lease, {
+    state: NonceDurableLeaseState.BroadcastAccepted,
+    txHash: input.txHash,
+  });
 }
 
 export async function reconcileNearLaneState(input: {

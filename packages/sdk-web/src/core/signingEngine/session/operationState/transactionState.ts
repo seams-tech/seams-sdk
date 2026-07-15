@@ -1,4 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
+import type { SignerSlot } from '@shared/utils/signerSlot';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -57,6 +58,7 @@ type TransactionSigningIntentBase = {
 
 type NearEd25519TransactionSigningIntentBase = TransactionSigningIntentBase & {
   walletId: WalletId;
+  signerSelection: NearEd25519TransactionSignerSelection;
 };
 
 type EvmFamilyEcdsaTransactionSigningIntentBase = TransactionSigningIntentBase & {
@@ -67,6 +69,18 @@ export type NearEd25519TransactionSigningIntent = NearEd25519TransactionSigningI
   curve: 'ed25519';
   chain: 'near';
 };
+
+export type NearEd25519TransactionSignerSelection =
+  | {
+      kind: 'near_account';
+      nearAccountId: AccountId;
+      signerSlot?: never;
+    }
+  | {
+      kind: 'signer_slot';
+      nearAccountId: AccountId;
+      signerSlot: SignerSlot;
+    };
 
 export type EvmFamilyEcdsaTransactionSigningIntent =
   | (EvmFamilyEcdsaTransactionSigningIntentBase & {

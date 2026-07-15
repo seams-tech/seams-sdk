@@ -2,7 +2,10 @@ import type {
   CreatePasskeyRegistrationActivationSurfaceArgs,
   RegistrationActivationButtonPresentation,
 } from './publicApi/types';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  walletIdFromString,
+  type RegistrationSignerSetSelection,
+} from '@shared/utils/registrationIntent';
 import type {
   ActivatedPreparedIframePasskeyRegistration,
   PreparedIframePasskeyRegistration,
@@ -11,6 +14,10 @@ import type {
 import type { ReservedRegistrationWebAuthnPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type { RegistrationActivationMessageIdentity } from './publicApi/types';
 import type { RegistrationActivationRecord } from './walletIframe/host/handlers/near';
+import type {
+  PreparedPasskeyRegistrationPrecompute,
+  WalletRegistrationPrecomputeHandle,
+} from './operations/registration/registration';
 
 export const validOutlineOverlayPresentation: RegistrationActivationButtonPresentation = {
   kind: 'outline_overlay',
@@ -19,13 +26,31 @@ export const validOutlineOverlayPresentation: RegistrationActivationButtonPresen
   accessibleLabel: 'Create passkey account',
 };
 
+const validActivationSignerSelection: RegistrationSignerSetSelection = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: {
+        kind: 'implicit_account',
+        accountIdSource: 'ed25519_public_key',
+      },
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+};
+
 export const validActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  signerSelection: validActivationSignerSelection,
   presentation: validOutlineOverlayPresentation,
 };
 
 // @ts-expect-error activation surfaces require the displayed provided wallet ID.
 export const missingWalletActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
+  signerSelection: validActivationSignerSelection,
   presentation: validOutlineOverlayPresentation,
 };
 
@@ -33,6 +58,7 @@ export const serverAllocatedActivationSurfaceArgs: CreatePasskeyRegistrationActi
   {
     // @ts-expect-error visible activation cannot allocate a different wallet later.
     wallet: { kind: 'server_allocated' },
+    signerSelection: validActivationSignerSelection,
     presentation: validOutlineOverlayPresentation,
   };
 
@@ -56,6 +82,7 @@ export const invalidIncompleteIframeButtonPresentation: RegistrationActivationBu
 // @ts-expect-error activation surfaces require an explicit presentation contract.
 export const invalidActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
   wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  signerSelection: validActivationSignerSelection,
   options: {},
 };
 
@@ -65,6 +92,11 @@ declare const activationReservation: ReservedRegistrationWebAuthnPrompt<Registra
 declare const activationCancellation: { kind: 'abort_signal'; signal: AbortSignal };
 declare const preparingRecord: Extract<RegistrationActivationRecord, { kind: 'preparing' }>;
 declare const readyRecord: Extract<RegistrationActivationRecord, { kind: 'ready' }>;
+
+// @ts-expect-error Prepared registration scope is immutable after precompute.
+preparedRegistration.walletId = 'mutated-wallet';
+// @ts-expect-error Prepared registration signer scope is immutable after precompute.
+preparedRegistration.registration.signerSelection.signers = [];
 
 // @ts-expect-error Preparing records cannot enter the activated continuation.
 const preparingAsActivatedRegistration: ActivatedPreparedIframePasskeyRegistration =
@@ -112,3 +144,31 @@ const rawActivatedRegistration: ActivatedPreparedIframePasskeyRegistration = {
   cancellation: activationCancellation,
 };
 void rawActivatedRegistration;
+
+declare const activatedRegistration: ActivatedPreparedIframePasskeyRegistration;
+// @ts-expect-error Activated message identity is immutable after activation.
+activatedRegistration.activation.identity.requestId = activationIdentity.requestId;
+// @ts-expect-error Activated reservation ownership is immutable after activation.
+activatedRegistration.reservation.owner = activationReservation.owner;
+
+// @ts-expect-error Precompute handles are opaque lifecycle capabilities.
+const rawPrecomputeHandle: WalletRegistrationPrecomputeHandle = {
+  kind: 'wallet_registration_precompute_handle_v1',
+  handleId: 'forged-handle',
+  scope: {
+    authMethodKind: 'passkey',
+    walletScopeKey: 'provided:frost-fjord-rgcmpa',
+    authorityScopeKey: 'passkey:wallet.example.localhost',
+    signerSetScopeKey: 'near_ed25519',
+  },
+};
+void rawPrecomputeHandle;
+
+// @ts-expect-error Prepared receipts are minted only after the server intent is verified.
+const rawPreparedPrecompute: PreparedPasskeyRegistrationPrecompute = {
+  kind: 'prepared_passkey_registration_precompute_v1',
+  handle: rawPrecomputeHandle,
+  walletId: 'frost-fjord-rgcmpa',
+  registrationIntentDigestB64u: 'forged-digest',
+};
+void rawPreparedPrecompute;

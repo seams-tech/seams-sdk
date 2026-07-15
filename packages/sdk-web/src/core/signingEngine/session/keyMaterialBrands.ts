@@ -7,20 +7,9 @@ export type { EcdsaThresholdKeyId };
 
 export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 
-export type Ed25519HssKeyVersion = Brand<string, 'Ed25519HssKeyVersion'>;
+export type Ed25519KeyVersion = Brand<string, 'Ed25519KeyVersion'>;
 export type EcdsaHssKeyVersion = Brand<string, 'EcdsaHssKeyVersion'>;
 export type SigningSessionSealKeyVersion = Brand<string, 'SigningSessionSealKeyVersion'>;
-export type Ed25519WorkerMaterialHandle = Brand<string, 'Ed25519WorkerMaterialHandle'>;
-export type Ed25519SealedWorkerMaterialRef = Brand<string, 'Ed25519SealedWorkerMaterialRef'>;
-export type Ed25519WorkerMaterialKeyId = Brand<string, 'Ed25519WorkerMaterialKeyId'>;
-export type Ed25519WorkerMaterialBindingDigest = Brand<
-  string,
-  'Ed25519WorkerMaterialBindingDigest'
->;
-export type Ed25519ClientVerifyingShareB64u = Brand<
-  string,
-  'Ed25519ClientVerifyingShareB64u'
->;
 export type EcdsaClientVerifyingShareB64u = Brand<
   string,
   'EcdsaClientVerifyingShareB64u'
@@ -47,8 +36,8 @@ function parseNonEmptyBrand<T extends string>(value: unknown, label: string): Br
   return normalized as Brand<string, T>;
 }
 
-export function parseEd25519HssKeyVersion(value: unknown): Ed25519HssKeyVersion {
-  return parseNonEmptyBrand<'Ed25519HssKeyVersion'>(value, 'Ed25519 HSS key version');
+export function parseEd25519KeyVersion(value: unknown): Ed25519KeyVersion {
+  return parseNonEmptyBrand<'Ed25519KeyVersion'>(value, 'Ed25519 key version');
 }
 
 export function parseEcdsaHssKeyVersion(value: unknown): EcdsaHssKeyVersion {
@@ -61,49 +50,6 @@ export function parseSigningSessionSealKeyVersion(
   return parseNonEmptyBrand<'SigningSessionSealKeyVersion'>(
     value,
     'signing-session seal key version',
-  );
-}
-
-export function parseEd25519WorkerMaterialHandle(
-  value: unknown,
-): Ed25519WorkerMaterialHandle {
-  return parseNonEmptyBrand<'Ed25519WorkerMaterialHandle'>(
-    value,
-    'Ed25519 worker material handle',
-  );
-}
-
-export function parseEd25519SealedWorkerMaterialRef(
-  value: unknown,
-): Ed25519SealedWorkerMaterialRef {
-  return parseNonEmptyBrand<'Ed25519SealedWorkerMaterialRef'>(
-    value,
-    'Ed25519 sealed worker material ref',
-  );
-}
-
-export function parseEd25519WorkerMaterialKeyId(value: unknown): Ed25519WorkerMaterialKeyId {
-  return parseNonEmptyBrand<'Ed25519WorkerMaterialKeyId'>(
-    value,
-    'Ed25519 worker material key id',
-  );
-}
-
-export function parseEd25519WorkerMaterialBindingDigest(
-  value: unknown,
-): Ed25519WorkerMaterialBindingDigest {
-  return parseNonEmptyBrand<'Ed25519WorkerMaterialBindingDigest'>(
-    value,
-    'Ed25519 worker material binding digest',
-  );
-}
-
-export function parseEd25519ClientVerifyingShareB64u(
-  value: unknown,
-): Ed25519ClientVerifyingShareB64u {
-  return parseNonEmptyBrand<'Ed25519ClientVerifyingShareB64u'>(
-    value,
-    'Ed25519 client verifying share',
   );
 }
 
@@ -168,7 +114,7 @@ export function parseSigningSessionSealShamirPrimeB64u(
   );
 }
 
-export function formatEd25519HssKeyVersionForWire(value: Ed25519HssKeyVersion): string {
+export function formatEd25519KeyVersionForWire(value: Ed25519KeyVersion): string {
   return value;
 }
 
@@ -178,36 +124,6 @@ export function formatEcdsaHssKeyVersionForWire(value: EcdsaHssKeyVersion): stri
 
 export function formatSigningSessionSealKeyVersionForWire(
   value: SigningSessionSealKeyVersion,
-): string {
-  return value;
-}
-
-export function formatEd25519WorkerMaterialHandleForWire(
-  value: Ed25519WorkerMaterialHandle,
-): string {
-  return value;
-}
-
-export function formatEd25519SealedWorkerMaterialRefForWire(
-  value: Ed25519SealedWorkerMaterialRef,
-): string {
-  return value;
-}
-
-export function formatEd25519WorkerMaterialKeyIdForWire(
-  value: Ed25519WorkerMaterialKeyId,
-): string {
-  return value;
-}
-
-export function formatEd25519WorkerMaterialBindingDigestForWire(
-  value: Ed25519WorkerMaterialBindingDigest,
-): string {
-  return value;
-}
-
-export function formatEd25519ClientVerifyingShareB64uForWire(
-  value: Ed25519ClientVerifyingShareB64u,
 ): string {
   return value;
 }

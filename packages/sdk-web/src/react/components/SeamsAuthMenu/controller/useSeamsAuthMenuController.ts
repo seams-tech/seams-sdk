@@ -263,9 +263,9 @@ function resolveOtpPrompt(
   const emailHint = String(prompt.emailHint || '').trim();
   const accountId = String(prompt.accountId || username || '').trim();
   const submitLabel = String(prompt.submitLabel || '').trim() || 'Unlock wallet';
-  const helperText =
-    String(prompt.helperText || '').trim() ||
-    'Google keeps you signed in. This code unlocks wallet signing.';
+  // No default helper: the description already explains the code. Consumers
+  // can still supply one.
+  const helperText = String(prompt.helperText || '').trim();
   const recoveryKeyPrompt = prompt.recoveryKey;
   const scanLabel = String(recoveryKeyPrompt?.scanLabel || '').trim();
   return {
@@ -308,14 +308,14 @@ function resolveRegistrationPrompt(
   if (!accountId) {
     throw new Error('Registration prompt requires an account id');
   }
-  const title = String(prompt.title || '').trim() || 'Create your Email OTP wallet';
+  const title = String(prompt.title || '').trim() || 'Name your wallet';
   const description =
     String(prompt.description || '').trim() || 'Google verified your email address.';
   const emailHint = String(prompt.emailHint || '').trim();
   const submitLabel = String(prompt.submitLabel || '').trim() || 'Create wallet';
-  const helperText =
-    String(prompt.helperText || '').trim() ||
-    'Choose this wallet name or generate another one before creating the wallet.';
+  // No default helper: the field + "Generate another name" + button are
+  // self-evident. Consumers can still supply one.
+  const helperText = String(prompt.helperText || '').trim();
   const onRerollAccount = prompt.onRerollAccount;
   if (!onRerollAccount) {
     throw new Error('Registration prompt requires wallet name reroll');

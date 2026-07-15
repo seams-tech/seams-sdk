@@ -51,10 +51,7 @@ import {
   normalizeLastUserScope,
   toIndexedDbChainTargetKey,
 } from '../normalization';
-import {
-  SEAMS_WALLET_INDEXES,
-  SEAMS_WALLET_STORES,
-} from '../schemaNames';
+import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 
 type AppStateRow<T = unknown> = {
@@ -208,6 +205,26 @@ export type StoreWalletSignerFinalizeBatchInput = {
     activeSignerSlot: number;
     scope?: string | null;
   };
+};
+
+export type StoreWalletSignerFinalizeRollbackReceipt = {
+  kind: 'wallet_signer_finalize_rollback_v1';
+  profiles: readonly {
+    committed: ProfileRecord;
+    previous: ProfileRecord | null;
+  }[];
+  signers: readonly AccountSignerRecord[];
+  keyMaterials: readonly KeyMaterialRecord[];
+  lastProfileState: {
+    key: string;
+    committed: LastProfileState;
+    previousPresent: boolean;
+    previousValue: unknown;
+  } | null;
+};
+
+export type StoreWalletSignerFinalizeBatchResult = StoreWalletRegistrationFinalizeBatchResult & {
+  rollbackReceipt: StoreWalletSignerFinalizeRollbackReceipt;
 };
 
 export type StoreWalletRegistrationFinalizeBatchResult = {
@@ -422,9 +439,7 @@ function walletSignerScalarMirrors(record: AccountSignerRecord): WalletSignerSca
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
     throw new Error('[SeamsWalletDB] Ed25519 signer requires a positive signerSlot');
   }
-  const nearEd25519SigningKeyId = toTrimmedString(
-    record.metadata?.nearEd25519SigningKeyId || '',
-  );
+  const nearEd25519SigningKeyId = toTrimmedString(record.metadata?.nearEd25519SigningKeyId || '');
   if (!nearEd25519SigningKeyId) {
     throw new Error('[SeamsWalletDB] Ed25519 signer requires nearEd25519SigningKeyId');
   }
@@ -478,6 +493,21 @@ function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): Wallet
   };
 }
 
+function profileRowFromRecord(record: ProfileRecord): WalletRow {
+  return {
+    wallet_id: record.profileId,
+    rp_id: DEFAULT_WALLET_RP_ID,
+    status: 'active',
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    record,
+  };
+}
+
+function rollbackRecordsEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function parseProfileRow(value: unknown): ProfileRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Partial<WalletRow>;
@@ -518,9 +548,7 @@ function walletAuthMethodId(record: LocalWalletAuthMethodRecord): string {
   ].join('\0');
 }
 
-function walletAuthMethodFields(
-  record: LocalWalletAuthMethodRecord,
-): WalletAuthMethodBaseRow {
+function walletAuthMethodFields(record: LocalWalletAuthMethodRecord): WalletAuthMethodBaseRow {
   if (record.version !== 'wallet_auth_method_v1') {
     throw new Error('[SeamsWalletDB] auth-method binding version is invalid');
   }
@@ -530,9 +558,7 @@ function walletAuthMethodFields(
   const createdAtMs = Math.floor(Number(record.createdAtMs));
   const updatedAtMs = Math.floor(Number(record.updatedAtMs));
   if (!walletId || !authIdentifierKey || (record.kind === 'passkey' && !rpId)) {
-    throw new Error(
-      '[SeamsWalletDB] auth-method binding requires walletId and branch identity',
-    );
+    throw new Error('[SeamsWalletDB] auth-method binding requires walletId and branch identity');
   }
   if (record.status !== 'active' && record.status !== 'revoked') {
     throw new Error('[SeamsWalletDB] auth-method binding status is invalid');
@@ -567,7 +593,9 @@ function walletAuthMethodFields(
       throw new Error('[SeamsWalletDB] Email OTP auth-method binding has passkey fields');
     }
     if (!toTrimmedString(record.registrationAuthorityId || '')) {
-      throw new Error('[SeamsWalletDB] Email OTP auth-method binding requires registrationAuthorityId');
+      throw new Error(
+        '[SeamsWalletDB] Email OTP auth-method binding requires registrationAuthorityId',
+      );
     }
   }
   return {
@@ -592,7 +620,9 @@ function timestampMsFromIso(value: string, fallbackMs: number): number {
   return Number.isSafeInteger(parsed) ? parsed : fallbackMs;
 }
 
-function normalizeAuthenticatorRecord(record: ProfileAuthenticatorRecord): ProfileAuthenticatorRecord {
+function normalizeAuthenticatorRecord(
+  record: ProfileAuthenticatorRecord,
+): ProfileAuthenticatorRecord {
   const profileId = toTrimmedString(record.profileId || '');
   const credentialId = toTrimmedString(record.credentialId || '');
   const signerSlot = Number(record.signerSlot);
@@ -604,7 +634,9 @@ function normalizeAuthenticatorRecord(record: ProfileAuthenticatorRecord): Profi
   }
   const credentialPublicKey = record.credentialPublicKey;
   if (!(credentialPublicKey instanceof Uint8Array) || credentialPublicKey.byteLength === 0) {
-    throw new Error('[SeamsWalletDB] authenticator credentialPublicKey must be a non-empty Uint8Array');
+    throw new Error(
+      '[SeamsWalletDB] authenticator credentialPublicKey must be a non-empty Uint8Array',
+    );
   }
   return {
     profileId,
@@ -644,13 +676,19 @@ function passkeyBindingFromAuthenticator(
   const credentialPublicKeyB64u = base64UrlEncode(normalized.credentialPublicKey);
   if (existing) {
     if (existing.walletId !== normalized.profileId) {
-      throw new Error('[SeamsWalletDB] passkey auth-method walletId does not match authenticator profileId');
+      throw new Error(
+        '[SeamsWalletDB] passkey auth-method walletId does not match authenticator profileId',
+      );
     }
     if (existing.credentialIdB64u !== normalized.credentialId) {
-      throw new Error('[SeamsWalletDB] passkey auth-method credentialId does not match authenticator credentialId');
+      throw new Error(
+        '[SeamsWalletDB] passkey auth-method credentialId does not match authenticator credentialId',
+      );
     }
     if (existing.credentialPublicKeyB64u !== credentialPublicKeyB64u) {
-      throw new Error('[SeamsWalletDB] passkey auth-method public key does not match authenticator public key');
+      throw new Error(
+        '[SeamsWalletDB] passkey auth-method public key does not match authenticator public key',
+      );
     }
     return existing;
   }
@@ -790,9 +828,7 @@ function parseWalletAuthMethodStorageRow(value: unknown): WalletAuthMethodRow | 
   return normalized;
 }
 
-function parseWalletAuthMethodRow(
-  value: unknown,
-): LocalWalletAuthMethodRecord | null {
+function parseWalletAuthMethodRow(value: unknown): LocalWalletAuthMethodRecord | null {
   const row = parseWalletAuthMethodStorageRow(value);
   if (!row) return null;
   return row.record;
@@ -1002,7 +1038,11 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
     if (requiresActiveMirrors && row.near_signer_slot !== mirrors.nearSignerSlot) {
       return null;
     }
-    if (!requiresActiveMirrors && row.near_signer_slot !== undefined && row.near_signer_slot !== mirrors.nearSignerSlot) {
+    if (
+      !requiresActiveMirrors &&
+      row.near_signer_slot !== undefined &&
+      row.near_signer_slot !== mirrors.nearSignerSlot
+    ) {
       return null;
     }
     if (
@@ -1020,11 +1060,19 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
     }
   } else if (requiresActiveMirrors && row.chain_target_key !== mirrors.chainTargetKey) {
     return null;
-  } else if (!requiresActiveMirrors && row.chain_target_key !== undefined && row.chain_target_key !== mirrors.chainTargetKey) {
+  } else if (
+    !requiresActiveMirrors &&
+    row.chain_target_key !== undefined &&
+    row.chain_target_key !== mirrors.chainTargetKey
+  ) {
     return null;
   }
   if (requiresActiveMirrors && row.key_handle !== mirrors.keyHandle) return null;
-  if (!requiresActiveMirrors && row.key_handle !== undefined && row.key_handle !== mirrors.keyHandle) {
+  if (
+    !requiresActiveMirrors &&
+    row.key_handle !== undefined &&
+    row.key_handle !== mirrors.keyHandle
+  ) {
     return null;
   }
   if (requiresActiveMirrors && row.ecdsa_threshold_key_id !== mirrors.ecdsaThresholdKeyId) {
@@ -1060,9 +1108,9 @@ async function deleteConflictingThresholdEcdsaSignerRows(args: {
   if (row.kind !== SIGNER_KINDS.thresholdEcdsa || row.status === 'revoked') return;
   if (!row.key_handle || !row.ecdsa_threshold_key_id) return;
 
-  const walletRows = (await args.store.index(SEAMS_WALLET_INDEXES.walletId).getAll(row.wallet_id)) as
-    | Partial<WalletSignerRow>[]
-    | undefined;
+  const walletRows = (await args.store
+    .index(SEAMS_WALLET_INDEXES.walletId)
+    .getAll(row.wallet_id)) as Partial<WalletSignerRow>[] | undefined;
   const conflictingRowIds = new Set<string>();
   for (const existing of walletRows || []) {
     const existingRowId = toTrimmedString(existing?.wallet_signer_id || '');
@@ -1130,10 +1178,7 @@ function parseSignerOutboxRow(value: unknown): SignerOpOutboxRecord | null {
   return record;
 }
 
-function keyMaterialId(args: {
-  walletSignerId: string;
-  keyKind: string;
-}): string {
+function keyMaterialId(args: { walletSignerId: string; keyKind: string }): string {
   return [args.walletSignerId, args.keyKind].join('\0');
 }
 
@@ -1384,9 +1429,7 @@ async function readActiveSignersForProfilesInTransaction(
   const store = ctx.store(SEAMS_WALLET_STORES.walletSigners);
   const signers: AccountSignerRecord[] = [];
   for (const profileId of profileIds) {
-    const rows = (await store
-      .index(SEAMS_WALLET_INDEXES.walletId)
-      .getAll(profileId)) as unknown[];
+    const rows = (await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(profileId)) as unknown[];
     for (const row of rows) {
       const parsed = parseAccountSignerRow(row);
       if (parsed?.status === 'active') signers.push(parsed);
@@ -1402,9 +1445,7 @@ async function readThresholdKeyMaterialsForProfilesInTransaction(
   const store = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
   const keyMaterials: KeyMaterialRecord[] = [];
   for (const profileId of profileIds) {
-    const rows = (await store
-      .index(SEAMS_WALLET_INDEXES.walletId)
-      .getAll(profileId)) as unknown[];
+    const rows = (await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(profileId)) as unknown[];
     for (const row of rows) {
       const parsed = parseKeyMaterialRow(row);
       if (parsed?.keyKind === 'threshold_share_v1') keyMaterials.push(parsed);
@@ -1453,9 +1494,7 @@ async function assertSignerKeyMaterialPairsInTransaction(args: {
   const activeSignerKeys = new Set(activeSigners.map(signerKeyMaterialPairKeyForSigner));
   const existingKeyMaterials = (
     await readThresholdKeyMaterialsForProfilesInTransaction(args.ctx, profileIds)
-  ).filter((keyMaterial) =>
-    activeSignerKeys.has(signerKeyMaterialPairKeyForMaterial(keyMaterial)),
-  );
+  ).filter((keyMaterial) => activeSignerKeys.has(signerKeyMaterialPairKeyForMaterial(keyMaterial)));
   assertSignerKeyMaterialPairs({
     signers: activeSigners,
     keyMaterials: mergeKeyMaterialsById({
@@ -1469,8 +1508,7 @@ function isUsableKeyMaterialForRead(record: KeyMaterialRecord): boolean {
   if (record.keyKind !== 'threshold_share_v1' || record.algorithm !== 'ed25519') return true;
   const payload = record.payload || {};
   return (
-    !!toTrimmedString(payload.relayerKeyId || '') &&
-    !!toTrimmedString(payload.keyVersion || '')
+    !!toTrimmedString(payload.relayerKeyId || '') && !!toTrimmedString(payload.keyVersion || '')
   );
 }
 
@@ -1528,9 +1566,11 @@ export class SeamsWalletRepositories {
       Number.isSafeInteger(args?.limit) && Number(args?.limit) > 0
         ? Number(args?.limit)
         : undefined;
-    const rows = (limit
-      ? await db.getAll(SEAMS_WALLET_STORES.wallets, undefined, limit)
-      : await db.getAll(SEAMS_WALLET_STORES.wallets)) as unknown[];
+    const rows = (
+      limit
+        ? await db.getAll(SEAMS_WALLET_STORES.wallets, undefined, limit)
+        : await db.getAll(SEAMS_WALLET_STORES.wallets)
+    ) as unknown[];
     return rows.flatMap((row) => {
       const parsed = parseProfileRow(row);
       return parsed ? [parsed] : [];
@@ -1541,17 +1581,13 @@ export class SeamsWalletRepositories {
     const profileId = toTrimmedString(input.profileId || '');
     if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
     let written: ProfileRecord | null = null;
-    await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.wallets],
-      'readwrite',
-      async (ctx) => {
-        const store = ctx.store(SEAMS_WALLET_STORES.wallets);
-        const existing = parseProfileRow(await store.get(profileId)) || undefined;
-        const next = profileRow(input, existing);
-        written = next.record;
-        await store.put(next);
-      },
-    );
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.wallets], 'readwrite', async (ctx) => {
+      const store = ctx.store(SEAMS_WALLET_STORES.wallets);
+      const existing = parseProfileRow(await store.get(profileId)) || undefined;
+      const next = profileRow(input, existing);
+      written = next.record;
+      await store.put(next);
+    });
     if (!written) throw new Error('[SeamsWalletDB] profile write did not complete');
     return written;
   }
@@ -1576,7 +1612,9 @@ export class SeamsWalletRepositories {
           );
         }
         const store = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
-        const existing = parseWalletAuthMethodStorageRow(await store.get(fields.wallet_auth_method_id));
+        const existing = parseWalletAuthMethodStorageRow(
+          await store.get(fields.wallet_auth_method_id),
+        );
         const row =
           record.kind === 'passkey' && existing?.kind === 'passkey'
             ? passkeyAuthMethodRow({ binding: record, authenticator: existing.authenticator })
@@ -1610,9 +1648,7 @@ export class SeamsWalletRepositories {
     return parsed.length === 1 ? parsed[0] : null;
   }
 
-  async listWalletAuthMethodsForWallet(
-    walletId: string,
-  ): Promise<LocalWalletAuthMethodRecord[]> {
+  async listWalletAuthMethodsForWallet(walletId: string): Promise<LocalWalletAuthMethodRecord[]> {
     const normalizedWalletId = toTrimmedString(walletId || '');
     if (!normalizedWalletId) return [];
     const db = await this.manager.getDB();
@@ -1648,9 +1684,10 @@ export class SeamsWalletRepositories {
         }
         const store = ctx.store(SEAMS_WALLET_STORES.nearAccountProjections);
         const projectionId = chainAccountProjectionId({ chainIdKey, accountAddress });
-        const existing = parseChainAccountProjectionRow(
-          await store.get([profileId, projectionId, CHAIN_ACCOUNT_PROJECTION_SIGNER_SLOT]),
-        ) || undefined;
+        const existing =
+          parseChainAccountProjectionRow(
+            await store.get([profileId, projectionId, CHAIN_ACCOUNT_PROJECTION_SIGNER_SLOT]),
+          ) || undefined;
         const next = chainAccountProjectionRow(input, existing);
         written = next.record;
 
@@ -1779,7 +1816,7 @@ export class SeamsWalletRepositories {
   }): AccountSignerRecord {
     const removedAt =
       args.status === 'revoked'
-        ? args.removedAt ?? args.existing?.removedAt ?? args.now
+        ? (args.removedAt ?? args.existing?.removedAt ?? args.now)
         : undefined;
     return {
       profileId: args.profileId,
@@ -1902,7 +1939,9 @@ export class SeamsWalletRepositories {
           },
         );
       }
-      const thresholdOwnerAddress = normalizeIndexedDbAccountAddress(metadata.thresholdOwnerAddress);
+      const thresholdOwnerAddress = normalizeIndexedDbAccountAddress(
+        metadata.thresholdOwnerAddress,
+      );
       if (!thresholdOwnerAddress || thresholdOwnerAddress !== next.accountAddress) {
         throw makeConstraintError(
           'INVALID_SIGNER_METADATA',
@@ -2019,9 +2058,7 @@ export class SeamsWalletRepositories {
     }
 
     const signerStore = ctx.store(SEAMS_WALLET_STORES.walletSigners);
-    const profile = parseProfileRow(
-      await ctx.store(SEAMS_WALLET_STORES.wallets).get(profileId),
-    );
+    const profile = parseProfileRow(await ctx.store(SEAMS_WALLET_STORES.wallets).get(profileId));
     if (!profile) {
       throw makeConstraintError(
         'MISSING_PROFILE',
@@ -2038,13 +2075,17 @@ export class SeamsWalletRepositories {
           CHAIN_ACCOUNT_PROJECTION_SIGNER_SLOT,
         ]),
       );
-      const chainAccount = chainAccountProjectionRow({
-        profileId,
-        chainIdKey,
-        accountAddress,
-        accountModel,
-        isPrimary: input.selectAsActive === true ? true : existingChainAccount?.isPrimary ?? true,
-      }, existingChainAccount || undefined);
+      const chainAccount = chainAccountProjectionRow(
+        {
+          profileId,
+          chainIdKey,
+          accountAddress,
+          accountModel,
+          isPrimary:
+            input.selectAsActive === true ? true : (existingChainAccount?.isPrimary ?? true),
+        },
+        existingChainAccount || undefined,
+      );
       await chainAccountStore.put(chainAccount);
     }
 
@@ -2056,8 +2097,7 @@ export class SeamsWalletRepositories {
       return parsed ? [parsed] : [];
     });
     const activeSigners = allActiveSigners.flatMap((parsed) => {
-      return parsed.chainIdKey === chainIdKey &&
-        parsed.accountAddress === accountAddress
+      return parsed.chainIdKey === chainIdKey && parsed.accountAddress === accountAddress
         ? [parsed]
         : [];
     });
@@ -2128,8 +2168,7 @@ export class SeamsWalletRepositories {
       });
     }
     if (input.mutation?.routeThroughOutbox ?? false) {
-      const opId =
-        toTrimmedString(input.mutation?.opId || '') || createRandomToken('add-signer');
+      const opId = toTrimmedString(input.mutation?.opId || '') || createRandomToken('add-signer');
       const idempotencyKey =
         toTrimmedString(input.mutation?.idempotencyKey || '') ||
         `add-signer:${signer.chainIdKey}:${signer.accountAddress}:${signer.signerId}:${signer.signerSlot}`;
@@ -2492,9 +2531,7 @@ export class SeamsWalletRepositories {
     const walletId = toTrimmedString(args.walletId || '');
     if (!walletId) return [];
     const signerKind =
-      args.signerFamily === 'ecdsa'
-        ? SIGNER_KINDS.thresholdEcdsa
-        : SIGNER_KINDS.thresholdEd25519;
+      args.signerFamily === 'ecdsa' ? SIGNER_KINDS.thresholdEcdsa : SIGNER_KINDS.thresholdEd25519;
     const signers = await this.listAccountSignersByProfile({
       profileId: walletId,
       status: 'active',
@@ -2509,10 +2546,12 @@ export class SeamsWalletRepositories {
     const walletId = toTrimmedString(args.walletId || '');
     if (!walletId) return null;
     const chainTargetKey = toIndexedDbChainTargetKey(args.chainTarget);
-    const matches = (await this.listActiveWalletSigners({
-      walletId,
-      signerFamily: 'ecdsa',
-    })).filter((signer) => signer.chainIdKey === chainTargetKey);
+    const matches = (
+      await this.listActiveWalletSigners({
+        walletId,
+        signerFamily: 'ecdsa',
+      })
+    ).filter((signer) => signer.chainIdKey === chainTargetKey);
     if (matches.length > 1) {
       throw new Error(
         `[SeamsWalletDB] ambiguous active ECDSA wallet signer for ${walletId}/${chainTargetKey}`,
@@ -2672,10 +2711,12 @@ export class SeamsWalletRepositories {
         | unknown[]
         | undefined;
       await tx.done;
-      collected.push(...(rows || []).flatMap((row) => {
-        const parsed = parseSignerOutboxRow(row);
-        return parsed ? [parsed] : [];
-      }));
+      collected.push(
+        ...(rows || []).flatMap((row) => {
+          const parsed = parseSignerOutboxRow(row);
+          return parsed ? [parsed] : [];
+        }),
+      );
     }
     collected.sort((a, b) => {
       const timeDelta = (a.nextAttemptAt || 0) - (b.nextAttemptAt || 0);
@@ -2730,9 +2771,7 @@ export class SeamsWalletRepositories {
     return updated;
   }
 
-  async getProfileContinuitySnapshot(
-    profileId: string,
-  ): Promise<ProfileContinuitySnapshot | null> {
+  async getProfileContinuitySnapshot(profileId: string): Promise<ProfileContinuitySnapshot | null> {
     const profile = await this.getProfile(profileId);
     if (!profile) return null;
     return {
@@ -2909,7 +2948,7 @@ export class SeamsWalletRepositories {
               activeSignerSlot: input.lastProfileState.activeSignerSlot,
               ...(input.lastProfileState.scope
                 ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
-              : {}),
+                : {}),
             },
           });
           logWalletRegistrationFinalizeProgress('last_profile_state_written', {
@@ -2926,9 +2965,14 @@ export class SeamsWalletRepositories {
 
   async persistWalletSignerFinalize(
     input: StoreWalletSignerFinalizeBatchInput,
-  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+  ): Promise<StoreWalletSignerFinalizeBatchResult> {
     const keyMaterialRows = input.keyMaterials.map((keyMaterial) => keyMaterialRow(keyMaterial));
     const signerActivations: ActivateAccountSignerResult[] = [];
+    const profiles: Array<{
+      committed: ProfileRecord;
+      previous: ProfileRecord | null;
+    }> = [];
+    let lastProfileState: StoreWalletSignerFinalizeRollbackReceipt['lastProfileState'] = null;
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.appState,
@@ -2944,8 +2988,13 @@ export class SeamsWalletRepositories {
         for (const profile of input.profiles) {
           const profileId = toTrimmedString(profile.profileId || '');
           if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
-          const existing = parseProfileRow(await profileStore.get(profileId)) || undefined;
-          await profileStore.put(profileRow(profile, existing));
+          const existing = parseProfileRow(await profileStore.get(profileId));
+          const committedRow = profileRow(profile, existing || undefined);
+          await profileStore.put(committedRow);
+          profiles.push({
+            committed: committedRow.record,
+            previous: existing,
+          });
         }
 
         for (const activation of input.signerActivations) {
@@ -2963,20 +3012,131 @@ export class SeamsWalletRepositories {
         }
 
         if (input.lastProfileState) {
-          await ctx.store(SEAMS_WALLET_STORES.appState).put({
-            key: scopedLastProfileStateAppStateKey(input.lastProfileState.scope),
-            value: {
-              profileId: input.lastProfileState.profileId,
-              activeSignerSlot: input.lastProfileState.activeSignerSlot,
-              ...(input.lastProfileState.scope
-                ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
-                : {}),
-            },
-          });
+          const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
+          const key = scopedLastProfileStateAppStateKey(input.lastProfileState.scope);
+          const previousRow = (await appStateStore.get(key)) as AppStateRow | undefined;
+          const committed: LastProfileState = {
+            profileId: input.lastProfileState.profileId,
+            activeSignerSlot: input.lastProfileState.activeSignerSlot,
+            ...(input.lastProfileState.scope
+              ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
+              : {}),
+          };
+          await appStateStore.put({ key, value: committed });
+          lastProfileState = {
+            key,
+            committed,
+            previousPresent: previousRow !== undefined,
+            previousValue: previousRow?.value,
+          };
         }
       },
     );
-    return { signerActivations };
+    return {
+      signerActivations,
+      rollbackReceipt: {
+        kind: 'wallet_signer_finalize_rollback_v1',
+        profiles,
+        signers: signerActivations.map((activation) => activation.signer),
+        keyMaterials: keyMaterialRows.map((row) => row.record),
+        lastProfileState,
+      },
+    };
+  }
+
+  async rollbackWalletSignerFinalize(
+    receipt: StoreWalletSignerFinalizeRollbackReceipt,
+  ): Promise<void> {
+    if (receipt.kind !== 'wallet_signer_finalize_rollback_v1') {
+      throw new Error('[SeamsWalletDB] invalid wallet signer rollback receipt');
+    }
+    await this.manager.runTransaction(
+      [
+        SEAMS_WALLET_STORES.appState,
+        SEAMS_WALLET_STORES.wallets,
+        SEAMS_WALLET_STORES.walletSigners,
+        SEAMS_WALLET_STORES.keyMaterial,
+      ],
+      'readwrite',
+      async (ctx) => {
+        const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
+        const signerStore = ctx.store(SEAMS_WALLET_STORES.walletSigners);
+        const keyMaterialStore = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
+        const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
+
+        for (const profile of receipt.profiles) {
+          const current = parseProfileRow(await profileStore.get(profile.committed.profileId));
+          if (!rollbackRecordsEqual(current, profile.committed)) {
+            throw new Error('[SeamsWalletDB] wallet signer rollback profile changed');
+          }
+        }
+        for (const signer of receipt.signers) {
+          const id = walletSignerId({
+            chainIdKey: signer.chainIdKey,
+            accountAddress: signer.accountAddress,
+            signerId: signer.signerId,
+          });
+          const current = parseAccountSignerRow(await signerStore.get(id));
+          if (!rollbackRecordsEqual(current, signer)) {
+            throw new Error('[SeamsWalletDB] wallet signer rollback signer changed');
+          }
+        }
+        for (const keyMaterial of receipt.keyMaterials) {
+          const id = keyMaterialId({
+            walletSignerId: walletSignerIdForKeyMaterial(keyMaterial),
+            keyKind: keyMaterial.keyKind,
+          });
+          const current = parseKeyMaterialRow(await keyMaterialStore.get(id));
+          if (!rollbackRecordsEqual(current, keyMaterial)) {
+            throw new Error('[SeamsWalletDB] wallet signer rollback key material changed');
+          }
+        }
+        if (receipt.lastProfileState) {
+          const current = parseLastProfileState(
+            ((await appStateStore.get(receipt.lastProfileState.key)) as AppStateRow | undefined)
+              ?.value,
+          );
+          if (!rollbackRecordsEqual(current, receipt.lastProfileState.committed)) {
+            throw new Error('[SeamsWalletDB] wallet signer rollback selection changed');
+          }
+        }
+
+        for (const signer of receipt.signers) {
+          await signerStore.delete(
+            walletSignerId({
+              chainIdKey: signer.chainIdKey,
+              accountAddress: signer.accountAddress,
+              signerId: signer.signerId,
+            }),
+          );
+        }
+        for (const keyMaterial of receipt.keyMaterials) {
+          await keyMaterialStore.delete(
+            keyMaterialId({
+              walletSignerId: walletSignerIdForKeyMaterial(keyMaterial),
+              keyKind: keyMaterial.keyKind,
+            }),
+          );
+        }
+        for (const profile of receipt.profiles) {
+          if (profile.previous) {
+            await profileStore.put(profileRowFromRecord(profile.previous));
+          } else {
+            await profileStore.delete(profile.committed.profileId);
+          }
+        }
+        if (receipt.lastProfileState) {
+          if (receipt.lastProfileState.previousPresent) {
+            await appStateStore.put({
+              key: receipt.lastProfileState.key,
+              value: receipt.lastProfileState.previousValue,
+            });
+          } else {
+            await appStateStore.delete(receipt.lastProfileState.key);
+          }
+        }
+      },
+    );
   }
 
   async clearProfileAuthenticators(profileId: string): Promise<void> {
@@ -3026,7 +3186,9 @@ export class SeamsWalletRepositories {
       bySignerSlot[0]?.credentialId || authenticators[0]?.credentialId || '',
     );
     const byCredentialId = expectedCredentialId
-      ? authenticators.filter((authenticator) => authenticator.credentialId === expectedCredentialId)
+      ? authenticators.filter(
+          (authenticator) => authenticator.credentialId === expectedCredentialId,
+        )
       : [];
     const authenticatorsForPrompt =
       byCredentialId.length > 0
@@ -3056,29 +3218,25 @@ export class SeamsWalletRepositories {
     const profileId = toTrimmedString(args.profileId || '');
     if (!profileId) return null;
     let updatedPreferences: UserPreferences | null = null;
-    await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.wallets],
-      'readwrite',
-      async (ctx) => {
-        const store = ctx.store(SEAMS_WALLET_STORES.wallets);
-        const profile = parseProfileRow(await store.get(profileId));
-        if (!profile) return;
-        updatedPreferences = {
-          ...(profile.preferences || {}),
-          ...args.preferences,
-        } as UserPreferences;
-        const next = profileRow(
-          {
-            profileId: profile.profileId,
-            defaultSignerSlot: profile.defaultSignerSlot,
-            preferences: updatedPreferences,
-            ...(profile.passkeyCredential ? { passkeyCredential: profile.passkeyCredential } : {}),
-          },
-          profile,
-        );
-        await store.put(next);
-      },
-    );
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.wallets], 'readwrite', async (ctx) => {
+      const store = ctx.store(SEAMS_WALLET_STORES.wallets);
+      const profile = parseProfileRow(await store.get(profileId));
+      if (!profile) return;
+      updatedPreferences = {
+        ...(profile.preferences || {}),
+        ...args.preferences,
+      } as UserPreferences;
+      const next = profileRow(
+        {
+          profileId: profile.profileId,
+          defaultSignerSlot: profile.defaultSignerSlot,
+          preferences: updatedPreferences,
+          ...(profile.passkeyCredential ? { passkeyCredential: profile.passkeyCredential } : {}),
+        },
+        profile,
+      );
+      await store.put(next);
+    });
     return updatedPreferences;
   }
 
@@ -3119,7 +3277,9 @@ export class SeamsWalletRepositories {
         }
         const scopedKey = scopedLastProfileStateAppStateKey(scope);
         if (scopedKey !== scopedLastProfileStateAppStateKey()) {
-          const scopedLastProfile = parseLastProfileState((await appStateStore.get(scopedKey))?.value);
+          const scopedLastProfile = parseLastProfileState(
+            (await appStateStore.get(scopedKey))?.value,
+          );
           if (scopedLastProfile?.profileId === normalizedProfileId) {
             await appStateStore.put({ key: scopedKey, value: null });
           }
@@ -3249,9 +3409,13 @@ export class SeamsWalletRepositories {
 
   async storeKeyMaterial(data: KeyMaterialRecord): Promise<void> {
     const row = keyMaterialRow(data);
-    await this.manager.runTransaction([SEAMS_WALLET_STORES.keyMaterial], 'readwrite', async (ctx) => {
-      await ctx.store(SEAMS_WALLET_STORES.keyMaterial).put(row);
-    });
+    await this.manager.runTransaction(
+      [SEAMS_WALLET_STORES.keyMaterial],
+      'readwrite',
+      async (ctx) => {
+        await ctx.store(SEAMS_WALLET_STORES.keyMaterial).put(row);
+      },
+    );
   }
 
   async getKeyMaterial(
@@ -3299,7 +3463,7 @@ export class SeamsWalletRepositories {
             : [];
         });
         selected = selectKeyMaterialForRead({ matches, activeSigners });
-      }
+      },
     );
     return selected;
   }
@@ -3346,26 +3510,32 @@ export class SeamsWalletRepositories {
     const normalizedKeyKind = toTrimmedString(keyKind || '');
     if (!normalizedProfileId || !normalizedChainIdKey || !normalizedKeyKind) return;
     if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) return;
-    await this.manager.runTransaction([SEAMS_WALLET_STORES.keyMaterial], 'readwrite', async (ctx) => {
-      const store = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
-      const rows = (await store
-        .index(SEAMS_WALLET_INDEXES.walletId)
-        .getAll(normalizedProfileId)) as unknown[];
-      for (const row of rows) {
-        const parsed = parseKeyMaterialRow(row);
-        if (
-          parsed &&
-          parsed.signerSlot === signerSlot &&
-          parsed.chainIdKey === normalizedChainIdKey &&
-          parsed.keyKind === normalizedKeyKind
-        ) {
-          await store.delete(keyMaterialId({
-            walletSignerId: walletSignerIdForKeyMaterial(parsed),
-            keyKind: parsed.keyKind,
-          }));
+    await this.manager.runTransaction(
+      [SEAMS_WALLET_STORES.keyMaterial],
+      'readwrite',
+      async (ctx) => {
+        const store = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
+        const rows = (await store
+          .index(SEAMS_WALLET_INDEXES.walletId)
+          .getAll(normalizedProfileId)) as unknown[];
+        for (const row of rows) {
+          const parsed = parseKeyMaterialRow(row);
+          if (
+            parsed &&
+            parsed.signerSlot === signerSlot &&
+            parsed.chainIdKey === normalizedChainIdKey &&
+            parsed.keyKind === normalizedKeyKind
+          ) {
+            await store.delete(
+              keyMaterialId({
+                walletSignerId: walletSignerIdForKeyMaterial(parsed),
+                keyKind: parsed.keyKind,
+              }),
+            );
+          }
         }
-      }
-    });
+      },
+    );
   }
 
   async readNonceLaneLeaseRecords(laneKey: string): Promise<NonceLaneLeaseStoreRecord[]> {
@@ -3389,9 +3559,11 @@ export class SeamsWalletRepositories {
     const walletId = toTrimmedString(args?.walletId || '');
     const db = await this.manager.getDB();
     const tx = db.transaction(SEAMS_WALLET_STORES.nonceLaneLeases, 'readonly');
-    const rows = (walletId
-      ? await tx.store.index(SEAMS_WALLET_INDEXES.walletId).getAll(walletId)
-      : await tx.store.getAll()) as unknown[];
+    const rows = (
+      walletId
+        ? await tx.store.index(SEAMS_WALLET_INDEXES.walletId).getAll(walletId)
+        : await tx.store.getAll()
+    ) as unknown[];
     await tx.done;
     return rows.flatMap((row) => {
       const parsed = parseNonceLeaseRow(row);
@@ -3435,7 +3607,9 @@ export class SeamsWalletRepositories {
           .getAll(normalizedWalletId)) as unknown[];
         for (const row of rows) {
           const parsed = parseNonceLeaseRow(row);
-          if (parsed) await store.delete(parsed.leaseId);
+          if (parsed && parsed.state !== 'broadcast_accepted') {
+            await store.delete(parsed.leaseId);
+          }
         }
       },
     );
@@ -3464,7 +3638,9 @@ export class SeamsWalletRepositories {
           .getAll(keyRangeUpperBound(normalizedNow))) as unknown[];
         for (const row of rows) {
           const parsed = parseNonceLeaseRow(row);
-          if (parsed) await store.delete(parsed.leaseId);
+          if (parsed && parsed.state !== 'broadcast_accepted') {
+            await store.delete(parsed.leaseId);
+          }
         }
       },
     );

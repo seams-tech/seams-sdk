@@ -275,7 +275,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                   role="progressbar"
                   aria-label="Creating passkey"
                 ></span>
-                <span>${this._passkeyRegistrationConfirmText()}</span>`
+                <span class="passkey-registration-confirm__busy-label"
+                  >${this._passkeyRegistrationConfirmText()}</span
+                >`
             : this._passkeyRegistrationConfirmText()}
         </button>
       </div>

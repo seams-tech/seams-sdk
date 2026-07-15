@@ -22,7 +22,10 @@ export async function restoreLocalLoginState(args: {
   const walletId = args.walletId;
   const nearAccountId = args.nearAccountId;
   const nearEd25519SigningKeyId = args.nearEd25519SigningKeyId;
-  const signerSlot = normalizePositiveInteger(args.signerSlot) ?? 1;
+  const signerSlot = normalizePositiveInteger(args.signerSlot);
+  if (!signerSlot) {
+    throw new Error('restoreLocalLoginState requires an exact signerSlot');
+  }
   if (!String(walletId).trim() || !String(nearEd25519SigningKeyId).trim()) {
     throw new Error('restoreLocalLoginState requires wallet binding fields');
   }
@@ -37,8 +40,7 @@ export async function restoreLocalLoginState(args: {
     }
   }
 
-  await args.context.signingEngine.setLastUser(walletId, signerSlot).catch(() => undefined);
-  await args.context.signingEngine.updateLastLogin(walletId).catch(() => undefined);
+  await args.context.signingEngine.setLastUser(walletId, signerSlot);
   const { login } = await getWalletSession(args.context, walletId);
   const loginWalletId = String(login?.walletId || '').trim();
   const loginNearAccountId = String(login?.nearAccountId || '').trim();
@@ -48,13 +50,12 @@ export async function restoreLocalLoginState(args: {
   if (loginNearAccountId && loginNearAccountId !== String(nearAccountId)) {
     throw new Error('restoreLocalLoginState login nearAccountId mismatch');
   }
-  await args.context.signingEngine
-    .activateAuthenticatedWalletState({
-      walletId,
-      nearAccountId,
-      nearClient: args.context.nearClient,
-    })
-    .catch(() => undefined);
+  await args.context.signingEngine.activateAuthenticatedWalletState({
+    walletId,
+    nearAccountId,
+    signerSlot,
+    nearClient: args.context.nearClient,
+  });
 
   return {
     walletId: String(walletId),

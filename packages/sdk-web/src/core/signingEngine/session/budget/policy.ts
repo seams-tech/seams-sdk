@@ -35,15 +35,13 @@ export type PostExhaustionStepUpBudgetPolicy = {
     kind: 'post_exhaustion_step_up_allowance';
     remainingUses: PositiveRemainingUses;
     requiredSignatureUses: PositiveRemainingUses;
-    source: 'sdk_step_up_default';
+    source: 'sdk_operation_signature_count';
   };
   scope: 'post_exhaustion_step_up';
   operationId: SigningOperationId;
 };
 
-export type SigningBudgetPolicy =
-  | WalletUnlockBudgetPolicy
-  | PostExhaustionStepUpBudgetPolicy;
+export type SigningBudgetPolicy = WalletUnlockBudgetPolicy | PostExhaustionStepUpBudgetPolicy;
 
 export const DEV_DEFAULT_SIGNING_BUDGET_ALLOWANCE: DevDefaultBudgetAllowance = {
   kind: 'dev_default_budget_allowance',
@@ -115,17 +113,13 @@ export function buildPostExhaustionStepUpBudgetPolicy(args: {
     args.requiredSignatureUses,
     'requiredSignatureUses',
   );
-  const remainingUses = Math.max(
-    DEV_DEFAULT_UNLOCK_REMAINING_USES,
-    requiredSignatureUses,
-  ) as PositiveRemainingUses;
   return {
     kind: 'post_exhaustion_step_up_budget_policy',
     allowance: {
       kind: 'post_exhaustion_step_up_allowance',
-      remainingUses,
+      remainingUses: requiredSignatureUses,
       requiredSignatureUses,
-      source: 'sdk_step_up_default',
+      source: 'sdk_operation_signature_count',
     },
     scope: 'post_exhaustion_step_up',
     operationId: args.operationId,

@@ -1,9 +1,6 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import { ROUTER_AB_ED25519_WALLET_SESSION_PATH } from '@shared/utils/signingSessionSeal';
-import {
-  type Ed25519SessionPolicy,
-  type ThresholdRuntimePolicyScope,
-} from '../sessionPolicy';
+import { type Ed25519SessionPolicy, type ThresholdRuntimePolicyScope } from '../sessionPolicy';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   getPrfFirstB64uFromCredential,
@@ -39,6 +36,7 @@ export type Ed25519WalletSessionMintAuthorization =
       kind: 'app_session_jwt';
       appSessionJwt: string;
       localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
+      priorWalletSessionJwt?: never;
       thresholdEcdsaSessionJwt?: never;
       policySecretSource?: never;
       useAppSessionCookie?: never;
@@ -50,6 +48,7 @@ export type Ed25519WalletSessionMintAuthorization =
       kind: 'app_session_cookie';
       localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
       appSessionJwt?: never;
+      priorWalletSessionJwt?: never;
       thresholdEcdsaSessionJwt?: never;
       policySecretSource?: never;
       useAppSessionCookie?: never;
@@ -62,6 +61,7 @@ export type Ed25519WalletSessionMintAuthorization =
       thresholdEcdsaSessionJwt: string;
       localSecretSource: ThresholdEd25519ProvidedPrfSecretSource;
       appSessionJwt?: never;
+      priorWalletSessionJwt?: never;
       localPrfCredential?: never;
       useAppSessionCookie?: never;
       webauthnAuthentication?: never;
@@ -72,6 +72,19 @@ export type Ed25519WalletSessionMintAuthorization =
       kind: 'threshold_session_policy_webauthn';
       policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
       appSessionJwt?: never;
+      priorWalletSessionJwt?: never;
+      thresholdEcdsaSessionJwt?: never;
+      localSecretSource?: never;
+      useAppSessionCookie?: never;
+      localPrfCredential?: never;
+      webauthnAuthentication?: never;
+      localPrfFirstB64u?: never;
+    }
+  | {
+      kind: 'router_ab_ed25519_yao_budget_refresh_v1';
+      policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
+      appSessionJwt?: never;
+      priorWalletSessionJwt?: never;
       thresholdEcdsaSessionJwt?: never;
       localSecretSource?: never;
       useAppSessionCookie?: never;
@@ -121,9 +134,7 @@ export function buildThresholdEd25519WebAuthnPrfSecretSource(args: {
   return {
     kind: 'webauthn_prf_first_credential',
     credential: args.credential,
-    secretSource: buildWebAuthnPrfFirstSecretSource(
-      buildRequiredPrfAuthenticatorSuccess(args),
-    ),
+    secretSource: buildWebAuthnPrfFirstSecretSource(buildRequiredPrfAuthenticatorSuccess(args)),
   };
 }
 
@@ -132,10 +143,7 @@ export function buildThresholdEd25519ProvidedPrfSecretSource(args: {
 }): ThresholdEd25519ProvidedPrfSecretSource {
   return {
     kind: 'provided_prf_first_v1',
-    prfFirstB64u: requireNonEmptyEd25519SecretSourceString(
-      args.prfFirstB64u,
-      'prfFirstB64u',
-    ),
+    prfFirstB64u: requireNonEmptyEd25519SecretSourceString(args.prfFirstB64u, 'prfFirstB64u'),
   };
 }
 
@@ -164,6 +172,7 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
     case 'threshold_ecdsa_session_jwt':
       return localPrfFirstForThresholdEd25519SecretSource(auth.localSecretSource);
     case 'threshold_session_policy_webauthn':
+    case 'router_ab_ed25519_yao_budget_refresh_v1':
       return localPrfFirstForThresholdEd25519SecretSource(auth.policySecretSource);
     default: {
       const exhaustive: never = auth;
@@ -219,7 +228,8 @@ export async function mintEd25519WalletSession(args: {
   }
 
   const webauthn_authentication =
-    args.auth.kind === 'threshold_session_policy_webauthn'
+    args.auth.kind === 'threshold_session_policy_webauthn' ||
+    args.auth.kind === 'router_ab_ed25519_yao_budget_refresh_v1'
       ? redactCredentialExtensionOutputs(args.auth.policySecretSource.credential)
       : undefined;
 
@@ -270,9 +280,7 @@ export async function mintEd25519WalletSession(args: {
       }),
     });
 
-    const data = (await response
-      .json()
-      .catch(() => ({}))) as Ed25519WalletSessionMintResponseBody;
+    const data = (await response.json().catch(() => ({}))) as Ed25519WalletSessionMintResponseBody;
     if (!response.ok) {
       return {
         ok: false,

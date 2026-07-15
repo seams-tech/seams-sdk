@@ -18,10 +18,6 @@ import type {
 import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-} from '../keyMaterialBrands';
 
 const chainTarget = {
   kind: 'evm',
@@ -32,14 +28,6 @@ const chainTarget = {
 const ed25519WalletId = toWalletId('frost-vermillion-k7p9m2');
 const ed25519NearAccountId = toAccountId('alice.testnet');
 const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
-const ed25519LoadedMaterial = {
-  kind: 'loaded_worker_material',
-  identity: {
-    bindingDigest: parseEd25519WorkerMaterialBindingDigest('binding-digest'),
-    materialKeyId: parseEd25519WorkerMaterialKeyId('material-key-id'),
-  },
-} as const;
-
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
@@ -208,16 +196,15 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
-  material: ed25519LoadedMaterial,
 };
 void ed25519Lane;
 
-const invalidEd25519LaneFlatMaterial: ConcreteAvailableEd25519SigningLane = {
+const invalidEd25519LaneWithMaterial: ConcreteAvailableEd25519SigningLane = {
   ...ed25519Lane,
-  // @ts-expect-error Ed25519 available lanes carry material as a union, not flat fields.
-  materialKeyId: 'material-key-id',
+  // @ts-expect-error Yao-backed Ed25519 lanes reject worker material.
+  material: { kind: 'loaded_worker_material' },
 };
-void invalidEd25519LaneFlatMaterial;
+void invalidEd25519LaneWithMaterial;
 
 const runtimeEd25519Record: AvailableSigningLanesRuntimeEd25519Record = {
   auth: passkeyAuth,
@@ -230,31 +217,16 @@ const runtimeEd25519Record: AvailableSigningLanesRuntimeEd25519Record = {
   routerAbNormalSigning: ed25519RouterAbNormalSigning,
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
-  material: ed25519LoadedMaterial,
+  source: 'runtime_session_record',
 };
 void runtimeEd25519Record;
 
-// @ts-expect-error runtime Ed25519 records require an explicit material-state branch.
-const runtimeEd25519RecordMissingMaterial: AvailableSigningLanesRuntimeEd25519Record = {
-  auth: passkeyAuth,
-  curve: 'ed25519',
-  chain: 'near',
-  walletId: ed25519WalletId,
-  nearAccountId: ed25519NearAccountId,
-  nearEd25519SigningKeyId,
-  signerSlot: 1,
-  routerAbNormalSigning: ed25519RouterAbNormalSigning,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
-};
-void runtimeEd25519RecordMissingMaterial;
-
-const runtimeEd25519RecordWithFlatMaterial: AvailableSigningLanesRuntimeEd25519Record = {
+const runtimeEd25519RecordWithMaterial: AvailableSigningLanesRuntimeEd25519Record = {
   ...runtimeEd25519Record,
-  // @ts-expect-error runtime Ed25519 records reject obsolete flat material fields.
-  materialKeyId: 'material-key-id',
+  // @ts-expect-error Yao-backed runtime Ed25519 records reject worker material.
+  material: { kind: 'loaded_worker_material' },
 };
-void runtimeEd25519RecordWithFlatMaterial;
+void runtimeEd25519RecordWithMaterial;
 
 const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane = {
   ...ed25519Lane,

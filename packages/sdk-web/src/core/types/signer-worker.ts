@@ -9,21 +9,6 @@ import type { ActionArgsWasm } from './actions.js';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
-  Ed25519DeleteSealedWorkerMaterialRequest as GeneratedEd25519DeleteSealedWorkerMaterialRequest,
-  Ed25519DeleteSealedWorkerMaterialSuccess as GeneratedEd25519DeleteSealedWorkerMaterialSuccess,
-  Ed25519HssClientOutputMaskTransport as GeneratedEd25519HssClientOutputMaskTransport,
-  Ed25519SealedWorkerMaterialTransport as GeneratedEd25519SealedWorkerMaterialTransport,
-  Ed25519WorkerMaterialBinding as GeneratedEd25519WorkerMaterialBinding,
-  Ed25519WorkerMaterialCredentialAuthorization as GeneratedEd25519WorkerMaterialCredentialAuthorization,
-  Ed25519WorkerMaterialFormatVersion as GeneratedEd25519WorkerMaterialFormatVersion,
-  Ed25519WorkerMaterialSessionBinding as GeneratedEd25519WorkerMaterialSessionBinding,
-  Ed25519PutSealedWorkerMaterialRequest as GeneratedEd25519PutSealedWorkerMaterialRequest,
-  Ed25519PutSealedWorkerMaterialSuccess as GeneratedEd25519PutSealedWorkerMaterialSuccess,
-  Ed25519ReadSealedWorkerMaterialRequest as GeneratedEd25519ReadSealedWorkerMaterialRequest,
-  Ed25519ReadSealedWorkerMaterialSuccess as GeneratedEd25519ReadSealedWorkerMaterialSuccess,
-  Ed25519RestoreWorkerMaterialRequest as GeneratedEd25519RestoreWorkerMaterialRequest,
-  Ed25519WorkerMaterialFailure as GeneratedEd25519WorkerMaterialFailure,
-  Ed25519WorkerMaterialStored as GeneratedEd25519WorkerMaterialStored,
   FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
@@ -38,28 +23,6 @@ export enum WorkerRequestType {
   SignNep413Message = 1,
   SignDelegateAction = 2,
   DeriveThresholdEd25519ClientVerifyingShare = 3,
-  DeriveThresholdEd25519HssClientInputs = 4,
-  PrepareThresholdEd25519HssSession = 5,
-  PrepareThresholdEd25519HssClientRequest = 6,
-  OpenThresholdEd25519HssClientOutput = 7,
-  OpenThresholdEd25519HssSeedOutput = 8,
-  BuildThresholdEd25519SeedExportArtifact = 9,
-  OpenThresholdEcdsaHssRoleLocalSigningShare = 10,
-  BuildThresholdEcdsaHssRoleLocalExportArtifact = 11,
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact = 12,
-  DeriveThresholdEd25519HssClientOutputMask = 13,
-  PrepareThresholdEcdsaHssRoleLocalClientBootstrap = 14,
-  FinalizeThresholdEcdsaHssRoleLocalClientBootstrap = 15,
-  CreateThresholdEd25519RoleSeparatedNormalSigningClientShare = 16,
-  StoreThresholdEd25519WorkerMaterialFromHssOutput = 17,
-  RestoreThresholdEd25519WorkerMaterial = 18,
-  ValidateThresholdEd25519WorkerMaterial = 19,
-  CreateThresholdEd25519ClientPresignFromWorkerMaterial = 20,
-  SignThresholdEd25519ClientPresignFromWorkerMaterial = 21,
-  BurnThresholdEd25519WorkerMaterial = 22,
-  PutThresholdEd25519SealedWorkerMaterial = 23,
-  ReadThresholdEd25519SealedWorkerMaterial = 24,
-  DeleteThresholdEd25519SealedWorkerMaterial = 25,
 }
 
 export enum WorkerResponseType {
@@ -75,50 +38,6 @@ export enum WorkerResponseType {
   ExecuteActionsComplete = 9,
   DeriveThresholdEd25519ClientVerifyingShareSuccess = 10,
   DeriveThresholdEd25519ClientVerifyingShareFailure = 11,
-  DeriveThresholdEd25519HssClientInputsSuccess = 12,
-  DeriveThresholdEd25519HssClientInputsFailure = 13,
-  PrepareThresholdEd25519HssSessionSuccess = 14,
-  PrepareThresholdEd25519HssSessionFailure = 15,
-  PrepareThresholdEd25519HssClientRequestSuccess = 16,
-  PrepareThresholdEd25519HssClientRequestFailure = 17,
-  OpenThresholdEd25519HssClientOutputSuccess = 18,
-  OpenThresholdEd25519HssClientOutputFailure = 19,
-  OpenThresholdEd25519HssSeedOutputSuccess = 20,
-  OpenThresholdEd25519HssSeedOutputFailure = 21,
-  BuildThresholdEd25519SeedExportArtifactSuccess = 22,
-  BuildThresholdEd25519SeedExportArtifactFailure = 23,
-  OpenThresholdEcdsaHssRoleLocalSigningShareSuccess = 24,
-  OpenThresholdEcdsaHssRoleLocalSigningShareFailure = 25,
-  BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 26,
-  BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 27,
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess = 28,
-  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure = 29,
-  DeriveThresholdEd25519HssClientOutputMaskSuccess = 30,
-  DeriveThresholdEd25519HssClientOutputMaskFailure = 31,
-  PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 32,
-  PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure = 33,
-  FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 34,
-  FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 35,
-  CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess = 36,
-  CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure = 37,
-  StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess = 38,
-  StoreThresholdEd25519WorkerMaterialFromHssOutputFailure = 39,
-  RestoreThresholdEd25519WorkerMaterialSuccess = 40,
-  RestoreThresholdEd25519WorkerMaterialFailure = 41,
-  ValidateThresholdEd25519WorkerMaterialSuccess = 42,
-  ValidateThresholdEd25519WorkerMaterialFailure = 43,
-  CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 44,
-  CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure = 45,
-  SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 46,
-  SignThresholdEd25519ClientPresignFromWorkerMaterialFailure = 47,
-  BurnThresholdEd25519WorkerMaterialSuccess = 48,
-  BurnThresholdEd25519WorkerMaterialFailure = 49,
-  PutThresholdEd25519SealedWorkerMaterialSuccess = 50,
-  PutThresholdEd25519SealedWorkerMaterialFailure = 51,
-  ReadThresholdEd25519SealedWorkerMaterialSuccess = 52,
-  ReadThresholdEd25519SealedWorkerMaterialFailure = 53,
-  DeleteThresholdEd25519SealedWorkerMaterialSuccess = 54,
-  DeleteThresholdEd25519SealedWorkerMaterialFailure = 55,
 }
 
 export type ThresholdBehavior = 'strict' | 'fallback';
@@ -136,30 +55,6 @@ export function resolveThresholdBehavior(
 }
 
 export const NearSignerWorkerCustomRequestType = {
-  ThresholdEd25519PrepareHssClientOutputMaskHandle:
-    'thresholdEd25519PrepareHssClientOutputMaskHandle',
-  ThresholdEd25519StoreWorkerMaterialFromHssOutput:
-    'thresholdEd25519StoreWorkerMaterialFromHssOutput',
-  ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorization:
-    'thresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorization',
-  ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorization:
-    'thresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorization',
-  ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization:
-    'thresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization',
-  ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization:
-    'thresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization',
-  ThresholdEd25519RestoreWorkerMaterial: 'thresholdEd25519RestoreWorkerMaterial',
-  ThresholdEd25519ValidateWorkerMaterial: 'thresholdEd25519ValidateWorkerMaterial',
-  ThresholdEd25519PutSealedWorkerMaterial: 'thresholdEd25519PutSealedWorkerMaterial',
-  ThresholdEd25519ReadSealedWorkerMaterial: 'thresholdEd25519ReadSealedWorkerMaterial',
-  ThresholdEd25519DeleteSealedWorkerMaterial: 'thresholdEd25519DeleteSealedWorkerMaterial',
-  ThresholdEd25519ClientPresignCreateFromMaterialHandle:
-    'thresholdEd25519ClientPresignCreateFromMaterialHandle',
-  ThresholdEd25519ClientPresignSignFromMaterialHandle:
-    'thresholdEd25519ClientPresignSignFromMaterialHandle',
-  ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle:
-    'thresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle',
-  ThresholdEd25519ClientPresignBurn: 'thresholdEd25519ClientPresignBurn',
   ThresholdEd25519ComputeNep413SigningDigest: 'thresholdEd25519ComputeNep413SigningDigest',
   ThresholdEd25519ComputeDelegateSigningDigest: 'thresholdEd25519ComputeDelegateSigningDigest',
   ThresholdEd25519BuildDelegateSigningPayload: 'thresholdEd25519BuildDelegateSigningPayload',
@@ -186,292 +81,7 @@ export interface ThresholdSignerConfig {
   relayerParticipantId?: number;
   /** Optional participant ids (signer set) associated with this threshold key/session. */
   participantIds?: number[];
-  /** Optional client-side policy for the Ed25519 background presign pool. */
-  ed25519PresignPoolPolicy?: RouterAbEd25519PresignPoolPolicyConfig;
 }
-
-export type RouterAbEd25519PresignPoolPolicyConfig = {
-  targetDepth?: number;
-  lowWatermark?: number;
-  maxAcceptedRefillCount?: number;
-  ttlMs?: number;
-};
-
-export type RouterAbEd25519PresignPoolPolicy = {
-  targetDepth: number;
-  lowWatermark: number;
-  maxAcceptedRefillCount: number;
-  ttlMs: number;
-};
-
-export type ThresholdEd25519PresignCommitmentsWire = {
-  hiding: string;
-  binding: string;
-};
-
-export type ThresholdEd25519WorkerMaterialResult = {
-  materialHandle: string;
-  clientVerifyingShareB64u: string;
-  bindingDigest: string;
-};
-
-export type ThresholdEd25519WorkerMaterialBinding = GeneratedEd25519WorkerMaterialBinding;
-export type ThresholdEd25519WorkerMaterialFormatVersion =
-  GeneratedEd25519WorkerMaterialFormatVersion;
-export type ThresholdEd25519WorkerMaterialCredentialAuthorization =
-  GeneratedEd25519WorkerMaterialCredentialAuthorization;
-export type ThresholdEd25519WorkerMaterialSessionBinding =
-  GeneratedEd25519WorkerMaterialSessionBinding;
-export type ThresholdEd25519SealedWorkerMaterialTransport =
-  GeneratedEd25519SealedWorkerMaterialTransport;
-
-export type ThresholdEd25519WorkerMaterialStoredResult = {
-  ok: true;
-  materialHandle: string;
-  materialBindingDigest: string;
-  sealedWorkerMaterialRef: string;
-  sealedWorkerMaterialB64u: string;
-  clientVerifyingShareB64u: string;
-  materialFormatVersion: ThresholdEd25519WorkerMaterialFormatVersion;
-  materialKeyId: string;
-  signerSlot: number;
-};
-
-export type ThresholdEd25519StoreWorkerMaterialFromHssOutputRequest = {
-  evaluatorDriverStateB64u: string;
-  clientOutputMessageB64u: string;
-  clientOutputMask: ThresholdEd25519HssClientOutputMaskTransport;
-  expectedContextBindingB64u: string;
-  nearAccountId: string;
-  signerSlot: number;
-  signingRootId: string;
-  signingRootVersion: string;
-  relayerKeyId: string;
-  participantIds: number[];
-  createdAtMs: number;
-  sealAuthorization: ThresholdEd25519WorkerMaterialSealAuthorization;
-};
-
-export type ThresholdEd25519HssClientOutputMaskTransport =
-  GeneratedEd25519HssClientOutputMaskTransport;
-
-export type ThresholdEd25519PrepareHssClientOutputMaskHandleRequest = {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-  contextBindingB64u: string;
-  operation: string;
-  relayerKeyId: string;
-  clientRecoverableSecretB64u: string;
-  expiresAtMs: number;
-};
-
-export type ThresholdEd25519PrepareHssClientOutputMaskHandleResult = {
-  ok: true;
-  clientOutputMaskHandle: string;
-  contextBindingB64u: string;
-  expiresAtMs: number;
-  remainingUses: number;
-};
-
-export type ThresholdEd25519StoreWorkerMaterialFromHssOutputResult =
-  | ThresholdEd25519WorkerMaterialStoredResult
-  | ThresholdEd25519WorkerMaterialFailure;
-
-export type ThresholdEd25519RestoreWorkerMaterialRequest =
-  GeneratedEd25519RestoreWorkerMaterialRequest;
-
-export type ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorizationRequest = {
-  materialBindingDigest: string;
-  rpId: string;
-  credentialIdB64u: string;
-  prfFirstBytes: Uint8Array;
-  expiresAtMs: number;
-};
-
-export type ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier = {
-  nearAccountId: string;
-  signerSlot: number;
-  signingRootId: string;
-  signingRootVersion: string;
-  relayerKeyId: string;
-  participantIds: number[];
-  createdAtMs: number;
-};
-
-export type ThresholdEd25519WorkerMaterialSealAuthorization =
-  | {
-      kind: 'passkey_prf_material_seal_authorization_handle_v1';
-      handle: string;
-      rpId: string;
-      credentialIdB64u: string;
-      materialKeyId: string;
-      expiresAtMs: number;
-    }
-  | {
-      kind: 'recovery_code_material_seal_authorization_handle_v1';
-      handle: string;
-      authSubjectId: string;
-      recoveryCodeBindingDigest: string;
-      materialKeyId: string;
-      expiresAtMs: number;
-    };
-
-export type ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorizationRequest = {
-  bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier;
-  rpId: string;
-  credentialIdB64u: string;
-  prfFirstBytes: Uint8Array;
-  expiresAtMs: number;
-};
-
-export type ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorizationRequest = {
-  bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier;
-  authSubjectId: string;
-  recoveryCodeBindingDigest: string;
-  recoveryCodeSecret32: Uint8Array;
-  expiresAtMs: number;
-};
-
-export type ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult = {
-  ok: true;
-  materialKeyId: string;
-  sealAuthorization: ThresholdEd25519WorkerMaterialSealAuthorization;
-  remainingUses: number;
-};
-
-export type ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorizationRequest = {
-  materialBindingDigest: string;
-  authSubjectId: string;
-  recoveryCodeBindingDigest: string;
-  recoveryCodeSecret32: Uint8Array;
-  expiresAtMs: number;
-};
-
-export type ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult = {
-  ok: true;
-  unsealAuthorization: ThresholdEd25519WorkerMaterialCredentialAuthorization;
-  remainingUses: number;
-};
-export type ThresholdEd25519WorkerMaterialFailure = Omit<
-  GeneratedEd25519WorkerMaterialFailure,
-  'ok'
-> & {
-  ok: false;
-};
-export type ThresholdEd25519RestoreWorkerMaterialSuccess = Omit<
-  GeneratedEd25519WorkerMaterialStored,
-  'ok'
-> & {
-  ok: true;
-  sealedWorkerMaterialB64u: string;
-};
-export type ThresholdEd25519RestoreWorkerMaterialResult =
-  | ThresholdEd25519RestoreWorkerMaterialSuccess
-  | ThresholdEd25519WorkerMaterialFailure;
-
-export type ThresholdEd25519PutSealedWorkerMaterialRequest =
-  GeneratedEd25519PutSealedWorkerMaterialRequest;
-export type ThresholdEd25519PutSealedWorkerMaterialSuccess = Omit<
-  GeneratedEd25519PutSealedWorkerMaterialSuccess,
-  'ok'
-> & {
-  ok: true;
-};
-export type ThresholdEd25519PutSealedWorkerMaterialResult =
-  | ThresholdEd25519PutSealedWorkerMaterialSuccess
-  | ThresholdEd25519WorkerMaterialFailure;
-
-export type ThresholdEd25519ReadSealedWorkerMaterialRequest =
-  GeneratedEd25519ReadSealedWorkerMaterialRequest;
-export type ThresholdEd25519ReadSealedWorkerMaterialSuccess = Omit<
-  GeneratedEd25519ReadSealedWorkerMaterialSuccess,
-  'ok'
-> & {
-  ok: true;
-};
-export type ThresholdEd25519ReadSealedWorkerMaterialResult =
-  | ThresholdEd25519ReadSealedWorkerMaterialSuccess
-  | ThresholdEd25519WorkerMaterialFailure;
-
-export type ThresholdEd25519DeleteSealedWorkerMaterialRequest =
-  GeneratedEd25519DeleteSealedWorkerMaterialRequest;
-export type ThresholdEd25519DeleteSealedWorkerMaterialSuccess = Omit<
-  GeneratedEd25519DeleteSealedWorkerMaterialSuccess,
-  'ok'
-> & {
-  ok: true;
-};
-export type ThresholdEd25519DeleteSealedWorkerMaterialResult =
-  | ThresholdEd25519DeleteSealedWorkerMaterialSuccess
-  | ThresholdEd25519WorkerMaterialFailure;
-
-export type ThresholdEd25519ValidateWorkerMaterialRequest = {
-  materialHandle: string;
-  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
-};
-
-export type ThresholdEd25519ValidateWorkerMaterialResult =
-  | ThresholdEd25519WorkerMaterialResult
-  | ThresholdEd25519WorkerMaterialFailure;
-
-export type ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest = {
-  clientParticipantId: number;
-  relayerParticipantId: number;
-  materialHandle: string;
-  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
-  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
-  expectedSessionBindingDigest: string;
-  groupPublicKey: string;
-};
-
-export type ThresholdEd25519ClientPresignCreateResult = {
-  clientNonceHandleB64u: string;
-  clientVerifyingShareB64u: string;
-  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
-};
-
-export type ThresholdEd25519ClientPresignSignFromMaterialHandleRequest = {
-  clientParticipantId: number;
-  relayerParticipantId: number;
-  materialHandle: string;
-  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
-  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
-  expectedSessionBindingDigest: string;
-  groupPublicKey: string;
-  signingDigestB64u: string;
-  clientNonceHandleB64u: string;
-  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
-  relayerCommitments: ThresholdEd25519PresignCommitmentsWire;
-};
-
-export type ThresholdEd25519ClientPresignSignResult = {
-  clientSignatureShareB64u: string;
-};
-
-export type ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest = {
-  materialHandle: string;
-  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
-  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
-  expectedSessionBindingDigest: string;
-  groupPublicKey: string;
-  serverVerifyingShareB64u: string;
-  serverCommitments: ThresholdEd25519PresignCommitmentsWire;
-  signingDigestB64u: string;
-};
-
-export type ThresholdEd25519RoleSeparatedNormalSigningClientShareResult = {
-  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
-  clientVerifyingShareB64u: string;
-  clientSignatureShareB64u: string;
-};
-
-export type ThresholdEd25519ClientPresignBurnRequest = {
-  clientNonceHandleB64u: string;
-};
-
-export type ThresholdEd25519ClientPresignBurnResult = {
-  burned: true;
-};
 
 export type ThresholdEd25519ComputeNep413SigningDigestRequest = {
   message: string;
@@ -531,57 +141,6 @@ export type ThresholdEd25519DecodeSignedNearTxBorshResult = {
   transactionHash: string;
 };
 
-export type ThresholdEd25519ClientPresignWorkerOffer = {
-  clientPresignId: string;
-  nonceHandle: string;
-  clientVerifyingShareB64u: string;
-  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
-  nonceSecretB64u?: never;
-  hidingNonceB64u?: never;
-  bindingNonceB64u?: never;
-};
-
-export type GetRouterAbEd25519PresignPoolStatusPayload = {
-  kind: 'get_router_ab_ed25519_presign_pool_status_v1';
-  scopeKey: string;
-};
-
-export type GetRouterAbEd25519PresignPoolStatusResult = {
-  kind: 'get_router_ab_ed25519_presign_pool_status_result_v1';
-  scopeKey: string;
-  generation: number;
-  offeredCount: number;
-  readyCount: number;
-  burnedCount: number;
-  refillInFlight: boolean;
-  nextExpiryAtMs: number | null;
-};
-
-export type ClearRouterAbEd25519PresignPoolPayload = {
-  kind: 'clear_router_ab_ed25519_presign_pool_v1';
-  scopeKey: string;
-  generation: number;
-  reason:
-    | 'worker_restart'
-    | 'page_reload'
-    | 'logout'
-    | 'account_switch'
-    | 'signing_session_change'
-    | 'wallet_signing_session_change'
-    | 'relayer_key_change'
-    | 'participant_change'
-    | 'client_base_change';
-};
-
-export type ClearRouterAbEd25519PresignPoolResult = {
-  ok: true;
-  kind: 'clear_router_ab_ed25519_presign_pool_result_v1';
-  scopeKey: string;
-  previousGeneration: number;
-  nextGeneration: number;
-  clearedEntries: number;
-};
-
 export interface TransactionPayload {
   nearAccountId: string;
   receiverId: string;
@@ -607,91 +166,6 @@ type DirectPrfFields = {
 
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
-export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-  sessionId: string;
-  prfFirstB64u?: string;
-}
-export interface WasmDeriveThresholdEd25519HssClientInputsResult {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-  contextBindingB64u: string;
-  yClientB64u: string;
-  tauClientB64u: string;
-}
-export interface WasmPrepareThresholdEd25519HssSessionRequest {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-}
-export interface WasmPrepareThresholdEd25519HssSessionResult {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-  contextBindingB64u: string;
-  evaluatorDriverStateB64u: string;
-}
-
-export type WasmThresholdEd25519HssWorkerSessionSource =
-  | {
-      sessionSource: 'worker_handle';
-      workerSessionHandle: string;
-      evaluatorDriverStateB64u?: never;
-    }
-  | {
-      sessionSource: 'serialized_state';
-      evaluatorDriverStateB64u: string;
-      workerSessionHandle?: never;
-    };
-
-export type WasmThresholdEd25519HssSerializedSessionSource = Extract<
-  WasmThresholdEd25519HssWorkerSessionSource,
-  { sessionSource: 'serialized_state' }
->;
-
-export type WasmPrepareThresholdEd25519HssClientRequestRequest =
-  WasmThresholdEd25519HssSerializedSessionSource & {
-    clientOtOfferMessageB64u: string;
-    yClientB64u: string;
-    tauClientB64u: string;
-  };
-export interface WasmPrepareThresholdEd25519HssClientRequestResult {
-  clientRequestMessageB64u: string;
-  evaluatorOtStateB64u: string;
-  workerSessionHandle?: string;
-}
-export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult {
-  contextBindingB64u: string;
-  stagedEvaluatorArtifactB64u: string;
-  addStageRequestMessageB64u: string;
-  timings?: Record<string, number>;
-}
-export interface WasmPrepareThresholdEd25519HssAddStageRequestMessageResult {
-  contextBindingB64u: string;
-  addStageRequestMessageB64u: string;
-  timings?: Record<string, number>;
-}
-export type WasmOpenThresholdEd25519HssSeedOutputRequest =
-  WasmThresholdEd25519HssSerializedSessionSource & {
-    seedOutputMessageB64u: string;
-  };
-export interface WasmOpenThresholdEd25519HssSeedOutputResult {
-  contextBindingB64u: string;
-  canonicalSeedB64u: string;
-}
-export interface WasmBuildThresholdEd25519SeedExportArtifactRequest {
-  seedB64u: string;
-  expectedPublicKey: string;
-}
-export interface WasmBuildThresholdEd25519SeedExportArtifactResult {
-  artifactKind: string;
-  seedB64u: string;
-  publicKey: string;
-  privateKey: string;
-}
-export type WasmThresholdEd25519RoleSeparatedNormalSigningCommitments = {
-  hidingB64u: string;
-  bindingB64u: string;
-};
 export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest =
   GeneratedPrepareEcdsaClientBootstrapCommand;
 export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult =
@@ -746,14 +220,6 @@ export interface WasmSignNep413MessageRequest {
 }
 export type WasmRequestPayload =
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
-  | WasmDeriveThresholdEd25519HssClientInputsRequest
-  | WasmPrepareThresholdEd25519HssSessionRequest
-  | WasmPrepareThresholdEd25519HssClientRequestRequest
-  | WasmOpenThresholdEd25519HssSeedOutputRequest
-  | WasmBuildThresholdEd25519SeedExportArtifactRequest
-  | WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest
-  | WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest
-  | WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest
   | WasmSignTransactionsWithActionsRequest
   | WasmSignDelegateActionRequest
   | WasmSignNep413MessageRequest;
@@ -776,46 +242,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare;
     request: WasmDeriveThresholdEd25519ClientVerifyingShareRequest;
     result: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
-  };
-  [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: {
-    type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs;
-    request: WasmDeriveThresholdEd25519HssClientInputsRequest;
-    result: WasmDeriveThresholdEd25519HssClientInputsResult;
-  };
-  [WorkerRequestType.PrepareThresholdEd25519HssSession]: {
-    type: WorkerRequestType.PrepareThresholdEd25519HssSession;
-    request: WasmPrepareThresholdEd25519HssSessionRequest;
-    result: WasmPrepareThresholdEd25519HssSessionResult;
-  };
-  [WorkerRequestType.PrepareThresholdEd25519HssClientRequest]: {
-    type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest;
-    request: WasmPrepareThresholdEd25519HssClientRequestRequest;
-    result: WasmPrepareThresholdEd25519HssClientRequestResult;
-  };
-  [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: {
-    type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput;
-    request: WasmOpenThresholdEd25519HssSeedOutputRequest;
-    result: WasmOpenThresholdEd25519HssSeedOutputResult;
-  };
-  [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: {
-    type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
-    request: WasmBuildThresholdEd25519SeedExportArtifactRequest;
-    result: WasmBuildThresholdEd25519SeedExportArtifactResult;
-  };
-  [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: {
-    type: WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap;
-    request: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;
-    result: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
-  };
-  [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: {
-    type: WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap;
-    request: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest;
-    result: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
-  };
-  [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: {
-    type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact;
-    request: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest;
-    result: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
   };
   [WorkerRequestType.SignTransactionsWithActions]: {
     type: WorkerRequestType.SignTransactionsWithActions;
@@ -1014,14 +440,6 @@ export interface BaseWorkerResponse<TPayload = unknown> {
 // Map request types to their expected success response payloads (WASM types)
 export interface RequestResponseMap {
   [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
-  [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: WasmDeriveThresholdEd25519HssClientInputsResult;
-  [WorkerRequestType.PrepareThresholdEd25519HssSession]: WasmPrepareThresholdEd25519HssSessionResult;
-  [WorkerRequestType.PrepareThresholdEd25519HssClientRequest]: WasmPrepareThresholdEd25519HssClientRequestResult;
-  [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: WasmOpenThresholdEd25519HssSeedOutputResult;
-  [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: WasmBuildThresholdEd25519SeedExportArtifactResult;
-  [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
-  [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
-  [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
   [WorkerRequestType.SignNep413Message]: wasmModule.SignNep413Result;
@@ -1039,7 +457,7 @@ export interface WorkerSuccessResponse<T extends RequestTypeKey> extends BaseWor
 
 export type WorkerResponseDiagnostics = {
   kind: 'worker_response_diagnostics_v1';
-  worker: 'hssClient';
+  worker: 'ecdsaHssClient';
   requestType: number;
   queueWaitMs: number;
   wasmInitWaitMs: number;
@@ -1115,15 +533,7 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
     response.type === WorkerResponseType.SignDelegateActionSuccess ||
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess ||
-    response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess ||
-    response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess ||
-    response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess ||
-    response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess ||
-    response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
-    response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
-    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess
+    response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess
   );
 }
 
@@ -1134,15 +544,7 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
     response.type === WorkerResponseType.SignDelegateActionFailure ||
     response.type === WorkerResponseType.SignNep413MessageFailure ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsFailure ||
-    response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionFailure ||
-    response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestFailure ||
-    response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputFailure ||
-    response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactFailure ||
-    response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
-    response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
-    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactFailure
+    response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure
   );
 }
 

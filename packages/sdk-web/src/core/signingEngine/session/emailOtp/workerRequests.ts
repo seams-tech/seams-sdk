@@ -1,17 +1,11 @@
-import type {
-  ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { SignerWorkerOperationResult } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
+import { zeroizeBytes } from './zeroize';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
-
-function zeroizeBytes(bytes?: Uint8Array | null): void {
-  if (!(bytes instanceof Uint8Array)) return;
-  bytes.fill(0);
-}
 
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
@@ -31,12 +25,12 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   participantIds: number[];
   sessionKind: 'jwt';
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  ed25519?: {
-    sessionId: string;
-    runtimePolicyScope: ThresholdRuntimePolicyScope;
-    relayerKeyId: string;
-    participantIds: number[];
-  };
+};
+
+export type EmailOtpEd25519YaoFactorRestore = {
+  sessionId: string;
+  walletId: string;
+  providerSubject: string;
 };
 
 export async function requestSealEmailOtpWarmSessionMaterial(args: {
@@ -157,13 +151,35 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   expiresAtMs: number;
   transport: EmailOtpWarmSessionTransport;
   restore: EmailOtpEcdsaWarmSessionRestore;
-}): Promise<
-  SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEcdsaWarmSessionMaterial'>
-> {
+}): Promise<SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEcdsaWarmSessionMaterial'>> {
   return await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
       type: 'rehydrateEmailOtpEcdsaWarmSessionMaterial',
+      timeoutMs: 60_000,
+      payload: {
+        sealedSecretB64u: args.sealedSecretB64u,
+        remainingUses: args.remainingUses,
+        expiresAtMs: args.expiresAtMs,
+        transport: args.transport,
+        restore: args.restore,
+      },
+    },
+  });
+}
+
+export async function requestRehydrateEmailOtpEd25519YaoFactor(args: {
+  workerCtx: WorkerOperationContext;
+  sealedSecretB64u: string;
+  remainingUses: number;
+  expiresAtMs: number;
+  transport: Required<EmailOtpWarmSessionTransport>;
+  restore: EmailOtpEd25519YaoFactorRestore;
+}): Promise<SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoFactor'>> {
+  return await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'rehydrateEmailOtpEd25519YaoFactor',
       timeoutMs: 60_000,
       payload: {
         sealedSecretB64u: args.sealedSecretB64u,

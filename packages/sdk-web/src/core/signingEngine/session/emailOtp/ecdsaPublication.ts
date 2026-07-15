@@ -17,7 +17,6 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
-  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { EmailOtpEcdsaPublicationTargetPlan } from '@/core/signingEngine/workerManager/workerTypes';
@@ -112,7 +111,10 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
   for (const target of args.additionalChainTargets || []) {
     pushTarget(target);
   }
-  if (!hasExplicitAdditionalTargets) {
+  if (
+    !hasExplicitAdditionalTargets &&
+    emailOtpAuthContextRetention(args.emailOtpAuthContext) === 'session'
+  ) {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);
     }
@@ -180,6 +182,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     publicationChainTargets: ThresholdEcdsaChainTarget[];
     bootstraps: ThresholdEcdsaSessionBootstrapResult[];
     signingGrantId: string;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
     shamirPrimeB64u: string;
@@ -223,12 +226,12 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
       emailOtpAuthContext: args.emailOtpAuthContext,
     });
     addEmailOtpEcdsaPublicationTiming(timings, 'warmCapabilityPersistenceMs', commitStartedAtMs);
-    const sealTimings = await persistEmailOtpEcdsaSigningSessionSealForUnlock(
+    const sealTimings = await persistEmailOtpEcdsaSigningSessionForRefresh(
       {
         walletId: args.walletId,
         chainTarget: expectedTarget,
         bootstrap: result.bootstrap,
-        runtimePolicyScope: result.warmCapability.record?.runtimePolicyScope,
+        runtimePolicyScope: args.runtimePolicyScope,
         emailOtpAuthContext: args.emailOtpAuthContext,
         relayerUrl: args.relayerUrl,
         shamirPrimeB64u: args.shamirPrimeB64u,
@@ -253,12 +256,12 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
   };
 }
 
-async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
+export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
     shamirPrimeB64u: string;
@@ -298,11 +301,8 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   });
 
   const walletSessionJwt = String(session?.jwt || '').trim();
-  const runtimePolicyScope =
-    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
-  const signingRootScope = runtimePolicyScope
-    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
-    : null;
+  const runtimePolicyScope = args.runtimePolicyScope;
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const signingRootId = String(signingRootScope?.signingRootId || '').trim();
   const signingRootVersion = String(signingRootScope?.signingRootVersion || '').trim();
   const keyVersion = ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
