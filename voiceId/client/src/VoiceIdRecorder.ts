@@ -4,10 +4,7 @@ import {
   startVoiceIdClipRecording,
   type VoiceIdRecordingResult,
 } from './capture/mediaRecorder.ts';
-import {
-  requestVoiceIdMicrophone,
-  stopVoiceIdMicrophone,
-} from './capture/microphone.ts';
+import { requestVoiceIdMicrophone, stopVoiceIdMicrophone } from './capture/microphone.ts';
 
 export type VoiceIdRecorderState =
   | { kind: 'idle' }
@@ -29,7 +26,7 @@ export class VoiceIdRecorder {
   async recordClip(input: {
     durationMs: number;
     timeoutMs: number;
-    fixtureSpeakerLabel: string;
+    onRecordingStart?: () => void;
   }): Promise<VoiceIdRecorderState> {
     const microphone = await requestVoiceIdMicrophone();
     if (microphone.kind === 'denied') {
@@ -39,11 +36,19 @@ export class VoiceIdRecorder {
 
     this.state = { kind: 'recording' };
     try {
-      const result = await recordVoiceIdClip({
-        stream: microphone.stream,
-        durationMs: input.durationMs,
-        timeoutMs: input.timeoutMs,
-      });
+      const result =
+        input.onRecordingStart === undefined
+          ? await recordVoiceIdClip({
+              stream: microphone.stream,
+              durationMs: input.durationMs,
+              timeoutMs: input.timeoutMs,
+            })
+          : await recordVoiceIdClip({
+              stream: microphone.stream,
+              durationMs: input.durationMs,
+              timeoutMs: input.timeoutMs,
+              onRecordingStart: input.onRecordingStart,
+            });
       if (result.kind === 'error') {
         this.state = { kind: 'error', reason: result.reason };
         return this.state;
@@ -109,9 +114,7 @@ export class VoiceIdRecorder {
     }
   }
 
-  buildMetadata(input: {
-    fixtureSpeakerLabel: string;
-  }) {
+  buildMetadata() {
     if (this.state.kind !== 'recorded') {
       throw new Error('metadata can only be built after a recording');
     }
@@ -120,7 +123,6 @@ export class VoiceIdRecorder {
       blob: this.state.blob,
       durationMs: this.state.durationMs,
       recorder: this.state.recorder,
-      fixtureSpeakerLabel: input.fixtureSpeakerLabel,
     });
   }
 

@@ -10,13 +10,14 @@ import {
   parseModelVersion,
   parseTemplateVersion,
   parseThresholdVersion,
+  type VoiceIdAudioInput,
 } from '../../shared/src/index.ts';
 import {
   PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION,
   PythonVoiceIdVerifier,
+  parsePythonEnrollmentTemplateResponse,
   parsePythonSpeakerVerificationResponse,
-  type PythonBuildTemplateRequest,
-  type PythonExtractEnrollmentEmbeddingRequest,
+  type PythonBuildEnrollmentTemplateRequest,
   type PythonVerifySpeakerRequest,
 } from '../../server/src/verifier/PythonVoiceIdVerifier.ts';
 import {
@@ -28,17 +29,14 @@ import {
   PythonSubprocessVoiceIdVerifierTransport,
 } from '../../server/src/verifier/PythonSubprocessVoiceIdVerifierTransport.ts';
 
-test('PythonVoiceIdVerifier builds enrollment embedding requests and parses responses', async () => {
-  const capturedRequests: PythonExtractEnrollmentEmbeddingRequest[] = [];
+test('PythonVoiceIdVerifier submits one continuous recording for atomic enrollment', async () => {
+  const capturedRequests: PythonBuildEnrollmentTemplateRequest[] = [];
   const verifier = new PythonVoiceIdVerifier({
-    createRequestId: () => 'request_1',
+    createRequestId: () => 'enrollment_request_1',
     transport: {
-      async extractEnrollmentEmbedding(request) {
+      async buildEnrollmentTemplate(request) {
         capturedRequests.push(request);
-        return enrollmentEmbeddingResponse({ requestId: request.requestId });
-      },
-      async buildTemplate() {
-        throw new Error('unused');
+        return builtEnrollmentTemplateResponse(request.requestId);
       },
       async verifySpeaker() {
         throw new Error('unused');
@@ -46,78 +44,49 @@ test('PythonVoiceIdVerifier builds enrollment embedding requests and parses resp
     },
   });
 
-  const embedding = await verifier.extractEnrollmentEmbedding({ audio: makeAudio() });
+  const result = await verifier.buildEnrollmentTemplate({
+    audio: makeEnrollmentAudio(),
+    expectedPromptCount: 4,
+  });
 
-  assert.deepEqual(embedding.vector, [0.1, 0.2, 0.3, 0.4]);
-  assert.equal(embedding.speakerLabel, 'owner');
-  assert.equal(embedding.quality.kind, 'accepted');
+  assert.equal(result.kind, 'built');
+  assert.equal(result.kind === 'built' ? result.analysis.windows.length : 0, 4);
+  assert.equal(capturedRequests.length, 1);
   const capturedRequest = capturedRequests[0];
   assert.equal(capturedRequest.schemaVersion, PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION);
-  assert.equal(capturedRequest.requestId, 'request_1');
-  assert.equal(capturedRequest.audio.audioBase64, Buffer.from([1, 2, 3, 4]).toString('base64'));
-  assert.equal(capturedRequest.audio.metadata.byteLength, 4);
-  assert.deepEqual(capturedRequest.audio.metadata.sampleRate, { kind: 'known', hertz: 48000 });
+  assert.equal(capturedRequest.requestId, 'enrollment_request_1');
+  assert.equal(capturedRequest.expectedPromptCount, 4);
+  assert.equal(capturedRequest.audio.metadata.byteLength, capturedRequest.audio.audioBase64.length / 4 * 3 - 1);
+  assert.deepEqual(capturedRequest.audio.metadata.sampleRate, { kind: 'known', hertz: 16000 });
 });
 
-test('PythonVoiceIdVerifier builds templates through the Python transport', async () => {
-  const capturedRequests: PythonBuildTemplateRequest[] = [];
-  const verifier = new PythonVoiceIdVerifier({
-    createRequestId: () => 'template_request_1',
-    transport: {
-      async extractEnrollmentEmbedding() {
-        throw new Error('unused');
-      },
-      async buildTemplate(request) {
-        capturedRequests.push(request);
-        return builtTemplateResponse({ requestId: request.requestId });
-      },
-      async verifySpeaker() {
-        throw new Error('unused');
-      },
-    },
+test('Python enrollment parser preserves precise terminal failures', () => {
+  const result = parsePythonEnrollmentTemplateResponse({
+    kind: 'rejected',
+    requestId: 'enrollment_request_1',
+    reason: 'duplicate_windows',
   });
 
-  const template = await verifier.buildTemplate({
-    embeddings: [
-      {
-        vector: [0.1, 0.2, 0.3, 0.4],
-        speakerLabel: 'owner',
-        quality: { kind: 'accepted', durationMs: 1800, signalScore: 0.9 },
-      },
-    ],
-  });
-
-  assert.equal(template.kind, 'built');
-  const capturedRequest = capturedRequests[0];
-  assert.equal(capturedRequest.schemaVersion, PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION);
-  assert.equal(capturedRequest.embeddings[0].speakerLabel, 'owner');
-  assert.deepEqual(capturedRequest.embeddings[0].quality, {
-    kind: 'accepted',
-    durationMs: 1800,
-    signalScore: 0.9,
-  });
+  assert.deepEqual(result, { kind: 'rejected', reason: 'duplicate_windows' });
 });
 
-test('PythonVoiceIdVerifier verifies speakers through the Python transport', async () => {
+test('PythonVoiceIdVerifier verifies speakers through the current transport', async () => {
   const capturedRequests: PythonVerifySpeakerRequest[] = [];
   const verifier = new PythonVoiceIdVerifier({
     createRequestId: () => 'verify_request_1',
     transport: {
-      async extractEnrollmentEmbedding() {
-        throw new Error('unused');
-      },
-      async buildTemplate() {
+      async buildEnrollmentTemplate() {
         throw new Error('unused');
       },
       async verifySpeaker(request) {
         capturedRequests.push(request);
-        return speakerVerificationResponse({ requestId: request.requestId, speakerKind: 'accepted' });
+        return speakerVerificationResponse(request.requestId, 'accepted');
       },
     },
   });
 
   const result = await verifier.verifySpeaker({
-    audio: makeAudio(),
+    audio: makeVerificationAudio(),
     template: {
       encryptedTemplate: parseEncryptedBytes('template_payload'),
       templateVersion: parseTemplateVersion('template-v1'),
@@ -129,17 +98,16 @@ test('PythonVoiceIdVerifier verifies speakers through the Python transport', asy
 
   assert.equal(result.quality.kind, 'accepted');
   assert.equal(result.speaker.kind, 'accepted');
-  const capturedRequest = capturedRequests[0];
-  assert.equal(capturedRequest.threshold, 0.82);
-  assert.equal(capturedRequest.template.encryptedTemplate, 'template_payload');
+  assert.equal(capturedRequests[0].threshold, 0.82);
+  assert.equal(capturedRequests[0].template.encryptedTemplate, 'template_payload');
 });
 
-test('Python verifier response parser handles rejected and uncertain speaker branches', () => {
+test('Python speaker parser handles rejected and uncertain branches', () => {
   const rejected = parsePythonSpeakerVerificationResponse(
-    speakerVerificationResponse({ requestId: 'request_1', speakerKind: 'rejected', score: -0.1 }),
+    speakerVerificationResponse('request_1', 'rejected', -0.1),
   );
   const uncertain = parsePythonSpeakerVerificationResponse(
-    speakerVerificationResponse({ requestId: 'request_2', speakerKind: 'uncertain' }),
+    speakerVerificationResponse('request_2', 'uncertain'),
   );
 
   assert.equal(rejected.speaker.kind, 'rejected');
@@ -149,24 +117,17 @@ test('Python verifier response parser handles rejected and uncertain speaker bra
   assert.equal(uncertain.speaker.kind === 'uncertain' ? uncertain.speaker.reason : '', 'model_low_confidence');
 });
 
-test('Python verifier response parser rejects malformed speaker responses', () => {
+test('Python speaker parser rejects malformed scores', () => {
+  const response = speakerVerificationResponse('request_1', 'accepted');
+  response.speaker.score = 1.5;
+
   assert.throws(
-    () =>
-      parsePythonSpeakerVerificationResponse({
-        ...speakerVerificationResponse({ requestId: 'request_1', speakerKind: 'accepted' }),
-        speaker: {
-          kind: 'accepted',
-          score: 1.5,
-          threshold: 0.82,
-          modelVersion: 'model-v1',
-          thresholdVersion: 'threshold-v1',
-        },
-      }),
+    () => parsePythonSpeakerVerificationResponse(response),
     /speaker.score must be between -1 and 1/,
   );
 });
 
-test('Python subprocess transport calls the verifier app', async () => {
+test('Python subprocess transport builds a template without exporting embeddings', async () => {
   const verifier = new PythonVoiceIdVerifier({
     createRequestId: () => 'subprocess_request_1',
     transport: new PythonSubprocessVoiceIdVerifierTransport({
@@ -174,22 +135,19 @@ test('Python subprocess transport calls the verifier app', async () => {
     }),
   });
 
-  const embedding = await verifier.extractEnrollmentEmbedding({ audio: makeAudio() });
+  const result = await verifier.buildEnrollmentTemplate({
+    audio: makeEnrollmentAudio(),
+    expectedPromptCount: 4,
+  });
 
-  assert.equal(embedding.quality.kind, 'accepted');
-  assert.equal(embedding.speakerLabel, 'unknown_speaker');
-  assert.deepEqual(embedding.vector, [
-    3 / 7,
-    10 / 11,
-    10 / 13,
-    10 / 17,
-  ]);
+  assert.equal(result.kind, 'built');
+  assert.equal(result.kind === 'built' ? result.analysis.windows.length : 0, 4);
 });
 
 test('Python subprocess transport reports timeouts', async () => {
   const tempDir = await mkdtemp(join(tmpdir(), 'voiceid-verifier-'));
   const scriptPath = join(tempDir, 'sleeping_verifier.py');
-  await writeFile(scriptPath, 'import time\\ntime.sleep(2)\\n', 'utf8');
+  await writeFile(scriptPath, 'import time\ntime.sleep(2)\n', 'utf8');
   const verifier = new PythonVoiceIdVerifier({
     transport: new PythonSubprocessVoiceIdVerifierTransport({
       appScriptPath: scriptPath,
@@ -199,14 +157,17 @@ test('Python subprocess transport reports timeouts', async () => {
   });
 
   await assert.rejects(
-    () => verifier.extractEnrollmentEmbedding({ audio: makeAudio() }),
+    () =>
+      verifier.buildEnrollmentTemplate({
+        audio: makeTransportOnlyAudio(),
+        expectedPromptCount: 4,
+      }),
     (error) =>
-      error instanceof PythonSubprocessVoiceIdVerifierError &&
-      /timed out/.test(error.message),
+      error instanceof PythonSubprocessVoiceIdVerifierError && /timed out/.test(error.message),
   );
 });
 
-test('Python HTTP transport posts verifier requests to sidecar endpoints', async () => {
+test('Python HTTP transport posts to the atomic enrollment endpoint', async () => {
   const capturedRequests: Array<{ url: string; body: unknown }> = [];
   const verifier = new PythonVoiceIdVerifier({
     createRequestId: () => 'http_request_1',
@@ -217,19 +178,25 @@ test('Python HTTP transport posts verifier requests to sidecar endpoints', async
           url: String(input),
           body: JSON.parse(String(init?.body)),
         });
-        return new Response(JSON.stringify(enrollmentEmbeddingResponse({ requestId: 'http_request_1' })));
+        return new Response(JSON.stringify(builtEnrollmentTemplateResponse('http_request_1')));
       },
     }),
   });
 
-  const embedding = await verifier.extractEnrollmentEmbedding({ audio: makeAudio() });
+  const result = await verifier.buildEnrollmentTemplate({
+    audio: makeEnrollmentAudio(),
+    expectedPromptCount: 4,
+  });
 
-  assert.equal(embedding.quality.kind, 'accepted');
-  assert.equal(capturedRequests[0].url, 'http://127.0.0.1:9191/voice-id/verifier/extract-enrollment-embedding');
+  assert.equal(result.kind, 'built');
   assert.equal(
-    (capturedRequests[0].body as PythonExtractEnrollmentEmbeddingRequest).schemaVersion,
-    PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION,
+    capturedRequests[0].url,
+    'http://127.0.0.1:9191/voice-id/verifier/build-enrollment-template',
   );
+  const bodyJson = JSON.stringify(capturedRequests[0].body);
+  assert.match(bodyJson, /"schemaVersion":"voice_id_verifier_v2"/);
+  assert.match(bodyJson, /"requestId":"http_request_1"/);
+  assert.match(bodyJson, /"expectedPromptCount":4/);
 });
 
 test('Python HTTP transport reports sidecar HTTP failures', async () => {
@@ -241,10 +208,8 @@ test('Python HTTP transport reports sidecar HTTP failures', async () => {
   });
 
   await assert.rejects(
-    () => verifier.extractEnrollmentEmbedding({ audio: makeAudio() }),
-    (error) =>
-      error instanceof PythonHttpVoiceIdVerifierError &&
-      /HTTP 503/.test(error.message),
+    () => verifier.buildEnrollmentTemplate({ audio: makeEnrollmentAudio(), expectedPromptCount: 4 }),
+    (error) => error instanceof PythonHttpVoiceIdVerifierError && /HTTP 503/.test(error.message),
   );
 });
 
@@ -253,103 +218,159 @@ test('Python HTTP transport reports sidecar timeouts', async () => {
     transport: new PythonHttpVoiceIdVerifierTransport({
       baseUrl: 'http://127.0.0.1:9191',
       timeoutMs: 25,
-      fetchJson: async (_input, init) =>
-        await new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            const error = new Error('aborted');
-            error.name = 'AbortError';
-            reject(error);
-          });
-        }),
+      fetchJson: waitForAbort,
     }),
   });
 
   await assert.rejects(
-    () => verifier.extractEnrollmentEmbedding({ audio: makeAudio() }),
-    (error) =>
-      error instanceof PythonHttpVoiceIdVerifierError &&
-      /timed out/.test(error.message),
+    () => verifier.buildEnrollmentTemplate({ audio: makeEnrollmentAudio(), expectedPromptCount: 4 }),
+    (error) => error instanceof PythonHttpVoiceIdVerifierError && /timed out/.test(error.message),
   );
 });
 
-function makeAudio() {
-  const bytes = new Uint8Array([1, 2, 3, 4]);
+function waitForAbort(_input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    });
+  });
+}
+
+function makeEnrollmentAudio(): VoiceIdAudioInput {
+  const bytes = makeWav([
+    { frequencyHz: 210, durationMs: 2500 },
+    { frequencyHz: null, durationMs: 500 },
+    { frequencyHz: 270, durationMs: 2500 },
+    { frequencyHz: null, durationMs: 500 },
+    { frequencyHz: 330, durationMs: 2500 },
+    { frequencyHz: null, durationMs: 500 },
+    { frequencyHz: 410, durationMs: 2500 },
+    { frequencyHz: null, durationMs: 500 },
+  ]);
+  return makeAudio(bytes, 12000);
+}
+
+function makeVerificationAudio(): VoiceIdAudioInput {
+  return makeAudio(makeWav([{ frequencyHz: 240, durationMs: 1800 }]), 1800);
+}
+
+function makeTransportOnlyAudio(): VoiceIdAudioInput {
+  return makeAudio(new Uint8Array([1, 2, 3, 4]), 6000);
+}
+
+function makeAudio(bytes: Uint8Array, durationMs: number): VoiceIdAudioInput {
   return buildAudioInput(bytes, {
-    mimeType: 'audio/webm',
-    durationMs: 1800,
-    sampleRate: { kind: 'known', hertz: 48000 },
+    mimeType: 'audio/wav',
+    durationMs,
+    sampleRate: { kind: 'known', hertz: 16000 },
     channelCount: { kind: 'known', count: 1 },
     byteLength: bytes.byteLength,
     capturedAt: nowIsoDateTime(new Date('2026-06-09T00:00:00.000Z')),
     recorder: 'MediaRecorder',
-    fixtureBehavior: { kind: 'speaker_label', speakerLabel: 'owner' },
   });
 }
 
-function enrollmentEmbeddingResponse(input: { requestId: string }) {
-  return {
-    kind: 'embedding',
-    requestId: input.requestId,
-    modelVersion: 'python-placeholder-model-v1',
-    thresholdVersion: 'python-placeholder-threshold-v1',
-    speakerLabel: 'owner',
-    embedding: [0.1, 0.2, 0.3, 0.4],
-    quality: { kind: 'accepted', durationMs: 1800, signalScore: 0.9 },
-  };
+type WavSegment = {
+  readonly frequencyHz: number | null;
+  readonly durationMs: number;
+};
+
+function makeWav(segments: readonly WavSegment[]): Uint8Array {
+  const sampleRateHz = 16000;
+  const sampleCount = segments.reduce(
+    (total, segment) => total + Math.round(sampleRateHz * segment.durationMs / 1000),
+    0,
+  );
+  const buffer = Buffer.alloc(44 + sampleCount * 2);
+  writeWavHeader(buffer, sampleCount, sampleRateHz);
+  let sampleOffset = 0;
+  for (const segment of segments) {
+    const segmentSampleCount = Math.round(sampleRateHz * segment.durationMs / 1000);
+    for (let index = 0; index < segmentSampleCount; index += 1) {
+      const sample = segment.frequencyHz === null
+        ? 0
+        : Math.round(0.2 * 32767 * Math.sin(2 * Math.PI * segment.frequencyHz * index / sampleRateHz));
+      buffer.writeInt16LE(sample, 44 + sampleOffset * 2);
+      sampleOffset += 1;
+    }
+  }
+  return buffer;
 }
 
-function builtTemplateResponse(input: { requestId: string }) {
+function writeWavHeader(buffer: Buffer, sampleCount: number, sampleRateHz: number): void {
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + sampleCount * 2, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRateHz, 24);
+  buffer.writeUInt32LE(sampleRateHz * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(sampleCount * 2, 40);
+}
+
+function builtEnrollmentTemplateResponse(requestId: string) {
   return {
     kind: 'built',
-    requestId: input.requestId,
+    requestId,
     encryptedTemplate: 'template_payload',
     templateVersion: 'python-placeholder-template-v1',
     modelVersion: 'python-placeholder-model-v1',
     thresholdVersion: 'python-placeholder-threshold-v1',
-    speakerLabel: 'owner',
+    quality: { kind: 'accepted', durationMs: 12000, signalScore: 0.9 },
+    analysis: {
+      analysisVersion: 'continuous-enrollment-v1',
+      sourceCodec: 'pcm_s16le',
+      sourceSampleRateHz: 16000,
+      sourceChannelCount: 1,
+      decodedDurationMs: 12000,
+      usableSpeechMs: 10000,
+      windows: [0, 1, 2, 3].map(enrollmentWindowResponse),
+    },
   };
 }
 
-function speakerVerificationResponse(input: {
-  requestId: string;
-  speakerKind: 'accepted' | 'rejected' | 'uncertain';
-  score?: number;
-}) {
+function enrollmentWindowResponse(index: number) {
+  return {
+    index,
+    startMs: index * 3000,
+    endMs: index * 3000 + 2500,
+    speechMs: 2500,
+    signalScore: 0.8,
+    templateWeight: 0.25,
+  };
+}
+
+type SpeakerKind = 'accepted' | 'rejected' | 'uncertain';
+
+function speakerVerificationResponse(requestId: string, speakerKind: SpeakerKind, score?: number) {
   return {
     kind: 'speaker_verification',
-    requestId: input.requestId,
+    requestId,
     quality: { kind: 'accepted', durationMs: 1800, signalScore: 0.9 },
-    speaker: speakerResponse(input.speakerKind, input.score),
+    speaker: speakerResponse(speakerKind, score),
   };
 }
 
-function speakerResponse(kind: 'accepted' | 'rejected' | 'uncertain', score?: number) {
+function speakerResponse(kind: SpeakerKind, score?: number) {
+  const common = {
+    score: score ?? (kind === 'accepted' ? 0.94 : kind === 'rejected' ? 0.3 : 0.78),
+    threshold: 0.82,
+    modelVersion: 'python-placeholder-model-v1',
+    thresholdVersion: 'python-placeholder-threshold-v1',
+  };
   switch (kind) {
     case 'accepted':
-      return {
-        kind: 'accepted',
-        score: score ?? 0.94,
-        threshold: 0.82,
-        modelVersion: 'python-placeholder-model-v1',
-        thresholdVersion: 'python-placeholder-threshold-v1',
-      };
+      return { kind: 'accepted', ...common };
     case 'rejected':
-      return {
-        kind: 'rejected',
-        reason: 'speaker_mismatch',
-        score: score ?? 0.3,
-        threshold: 0.82,
-        modelVersion: 'python-placeholder-model-v1',
-        thresholdVersion: 'python-placeholder-threshold-v1',
-      };
+      return { kind: 'rejected', reason: 'speaker_mismatch', ...common };
     case 'uncertain':
-      return {
-        kind: 'uncertain',
-        reason: 'model_low_confidence',
-        score: score ?? 0.78,
-        threshold: 0.82,
-        modelVersion: 'python-placeholder-model-v1',
-        thresholdVersion: 'python-placeholder-threshold-v1',
-      };
+      return { kind: 'uncertain', reason: 'model_low_confidence', ...common };
   }
 }

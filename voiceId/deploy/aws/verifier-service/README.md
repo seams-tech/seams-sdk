@@ -19,15 +19,15 @@ browser, mobile, or robot
   -> Python ECAPA verifier service
   -> VoiceID API service
   -> E0/E1/E2 evidence builder
-  -> browser passkey or server R1 policy
+  -> passkey or approved VoiceID authenticator assertion
   -> atomic Router A/B admission
   -> SigningWorker
 ```
 
 The verifier does not own wallet signing. It returns quality, speaker, and
 template results to the VoiceID API. It does not establish phrase correctness,
-freshness, PAD, device proof, capture provenance, E2, or a signing grant. Router
-A/B admission and SigningWorker remain responsible for the existing
+freshness, PAD, device proof, capture provenance, E2, or signing authorization.
+Router A/B admission and SigningWorker remain responsible for the existing
 normal-signing boundary.
 
 ## Image
@@ -97,8 +97,8 @@ curl http://<verifier-host>:8797/health
 The verifier should receive only the data needed for the active verification
 operation. Enrollment templates, threshold versions, verification state,
 immutable Router bindings, server challenges, device and calibration versions,
-grant/reservation state, revocation, deletion receipts, and audit records belong
-to the VoiceID API and Router storage boundaries.
+revocation, deletion receipts, and audit records belong to the VoiceID API and
+Router storage boundaries.
 
 For ordinary AWS deployments:
 
@@ -112,8 +112,8 @@ For ordinary AWS deployments:
   identities.
 - Keep raw biometric clips out of persistent storage unless diagnostics are
   explicitly enabled.
-- Use a conditional write or transaction for `issued -> reserved`; ordinary
-  sequential request handling is insufficient for one-use grants.
+- Keep E0/E1/E2 records structurally separate from passkey and VoiceID
+  authenticator admission records.
 
 ## Nitro Enclave Boundary
 

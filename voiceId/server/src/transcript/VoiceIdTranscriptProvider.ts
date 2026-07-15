@@ -6,6 +6,5 @@ export type VoiceIdTranscriptProvider = {
   matchPhrase(input: {
     audio: VoiceIdAudioInput;
     expectedPhrase: VoiceIdPromptPhrase;
-    spokenPhrase: VoiceIdPromptPhrase;
   }): Promise<VoiceIdPhraseMatchResult>;
 };

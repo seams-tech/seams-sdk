@@ -1,20 +1,18 @@
 import type { VoiceIdServiceError, VoiceIdServiceResult } from '../VoiceIdService.ts';
+import { assertNever } from '../../../shared/src/assertNever.ts';
 
 export function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
     },
   });
 }
 
 export function serviceResultResponse<TValue>(
   result: VoiceIdServiceResult<TValue>,
-  serialize: (value: TValue) => unknown = (value) => value,
+  serialize: (value: TValue) => unknown,
 ): Response {
   if (result.kind === 'ok') {
     return jsonResponse({ kind: 'ok', value: serialize(result.value) });
@@ -31,11 +29,10 @@ export function statusForServiceError(error: VoiceIdServiceError): number {
     case 'missing_verification':
       return 404;
     case 'invalid_state':
+    case 'identity_mismatch':
     case 'expired':
       return 409;
-    case 'too_many_attempts':
-      return 429;
-    case 'verifier_unavailable':
-      return 503;
+    default:
+      return assertNever(error);
   }
 }

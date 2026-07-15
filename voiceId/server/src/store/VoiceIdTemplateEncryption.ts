@@ -189,13 +189,43 @@ export class VoiceIdTemplateWrappingEnrollmentStore implements VoiceIdEnrollment
     return record === null ? null : await this.unwrapEnrollmentRecord(record);
   }
 
-  async save(record: VoiceIdEnrollmentRecord): Promise<void> {
-    await this.inner.save(await this.wrapEnrollmentRecord(record));
+  async create(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }>,
+  ): Promise<boolean> {
+    return await this.inner.create(record);
   }
 
-  private async wrapEnrollmentRecord(record: VoiceIdEnrollmentRecord): Promise<VoiceIdEnrollmentRecord> {
+  async claimPending(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'analyzing_continuous_recording' }>,
+  ): Promise<boolean> {
+    return await this.inner.claimPending(record);
+  }
+
+  async failPending(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'failed' }>,
+  ): Promise<boolean> {
+    return await this.inner.failPending(record);
+  }
+
+  async completeAnalysis(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'failed' | 'enrolled' }>,
+  ): Promise<boolean> {
+    const wrapped = await this.wrapAnalysisCompletion(record);
+    return await this.inner.completeAnalysis(wrapped);
+  }
+
+  async disable(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'disabled' }>,
+  ): Promise<boolean> {
+    const wrapped = await this.wrapDisabledRecord(record);
+    return await this.inner.disable(wrapped);
+  }
+
+  private async wrapAnalysisCompletion(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'failed' | 'enrolled' }>,
+  ): Promise<Extract<VoiceIdEnrollmentRecord, { state: 'failed' | 'enrolled' }>> {
     switch (record.state) {
-      case 'pending':
+      case 'failed':
         return record;
       case 'enrolled': {
         const encryptedTemplate = await this.cipher.wrapTemplate({ record, encryptedTemplate: record.encryptedTemplate });
@@ -212,28 +242,38 @@ export class VoiceIdTemplateWrappingEnrollmentStore implements VoiceIdEnrollment
           enrolledAt: record.enrolledAt,
         };
       }
-      case 'disabled': {
-        const encryptedTemplate = await this.cipher.wrapTemplate({ record, encryptedTemplate: record.encryptedTemplate });
-        return {
-          state: 'disabled',
-          userId: record.userId,
-          enrollmentId: record.enrollmentId,
-          promptSetId: record.promptSetId,
-          modelVersion: record.modelVersion,
-          templateVersion: record.templateVersion,
-          thresholdVersion: record.thresholdVersion,
-          encryptedTemplate,
-          createdAt: record.createdAt,
-          enrolledAt: record.enrolledAt,
-          disabledAt: record.disabledAt,
-        };
-      }
+      default:
+        return assertNever(record);
     }
+  }
+
+  private async wrapDisabledRecord(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'disabled' }>,
+  ): Promise<Extract<VoiceIdEnrollmentRecord, { state: 'disabled' }>> {
+    const encryptedTemplate = await this.cipher.wrapTemplate({
+      record,
+      encryptedTemplate: record.encryptedTemplate,
+    });
+    return {
+      state: 'disabled',
+      userId: record.userId,
+      enrollmentId: record.enrollmentId,
+      promptSetId: record.promptSetId,
+      modelVersion: record.modelVersion,
+      templateVersion: record.templateVersion,
+      thresholdVersion: record.thresholdVersion,
+      encryptedTemplate,
+      createdAt: record.createdAt,
+      enrolledAt: record.enrolledAt,
+      disabledAt: record.disabledAt,
+    };
   }
 
   private async unwrapEnrollmentRecord(record: VoiceIdEnrollmentRecord): Promise<VoiceIdEnrollmentRecord> {
     switch (record.state) {
-      case 'pending':
+      case 'pending_continuous_recording':
+      case 'analyzing_continuous_recording':
+      case 'failed':
         return record;
       case 'enrolled': {
         const encryptedTemplate = await this.cipher.unwrapTemplate({ record, encryptedTemplate: record.encryptedTemplate });
@@ -266,6 +306,8 @@ export class VoiceIdTemplateWrappingEnrollmentStore implements VoiceIdEnrollment
           disabledAt: record.disabledAt,
         };
       }
+      default:
+        return assertNever(record);
     }
   }
 }

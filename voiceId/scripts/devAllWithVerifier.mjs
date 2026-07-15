@@ -17,6 +17,7 @@ const children = [
   spawnNamed('api', ['run', 'dev:server'], {
     PORT: apiPort,
     VOICEID_VERIFIER_TRANSPORT: 'python-http',
+    VOICEID_TRANSCRIPT_PROVIDER: 'fake',
     VOICEID_VERIFIER_BACKEND: verifierBackend,
     VOICEID_PYTHON_VERIFIER_URL: verifierUrl,
     ...(speakerScoreThreshold !== undefined ? { VOICEID_SPEAKER_SCORE_THRESHOLD: speakerScoreThreshold } : {}),

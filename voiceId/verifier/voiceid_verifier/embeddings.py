@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 
 ECAPA_MODEL_ID = "speechbrain/spkrec-ecapa-voxceleb"
@@ -28,33 +28,29 @@ class ExtractedSpeakerEmbedding:
     speaker_label: str
 
 
-def extract_embedding(audio_bytes: bytes) -> list[float]:
-    if len(audio_bytes) == 0:
+def extract_decoded_embedding(samples: Sequence[float]) -> list[float]:
+    if len(samples) == 0:
         return []
-    total = sum(audio_bytes)
+    absolute_total = sum(abs(float(sample)) for sample in samples)
+    signed_total = sum(float(sample) for sample in samples)
+    peak = max(abs(float(sample)) for sample in samples)
+    mean = signed_total / len(samples)
     return [
-        float(total % 7) / 7.0,
-        float(total % 11) / 11.0,
-        float(total % 13) / 13.0,
-        float(total % 17) / 17.0,
+        min(1.0, absolute_total / len(samples) * 8.0),
+        max(-1.0, min(1.0, mean * 32.0)),
+        min(1.0, peak),
+        min(1.0, len(samples) / 48000.0),
     ]
 
 
 class PlaceholderEmbeddingExtractor:
     embedding_dimensions = 4
 
-    def extract(self, audio_bytes: bytes) -> ExtractedSpeakerEmbedding:
+    def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         return ExtractedSpeakerEmbedding(
-            vector=extract_embedding(audio_bytes),
+            vector=extract_decoded_embedding(samples),
             speaker_label="unknown_speaker",
         )
-
-    def zero_embedding(self) -> ExtractedSpeakerEmbedding:
-        return ExtractedSpeakerEmbedding(
-            vector=[0.0] * self.embedding_dimensions,
-            speaker_label="unknown_speaker",
-        )
-
 
 class SpeechBrainEcapaEmbeddingExtractor:
     embedding_dimensions = ECAPA_EMBEDDING_DIMENSIONS
@@ -75,30 +71,23 @@ class SpeechBrainEcapaEmbeddingExtractor:
         )
         self.classifier = classifier or self._load_classifier()
 
-    def extract_decoded(self, samples: Any) -> ExtractedSpeakerEmbedding:
+    def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         try:
-            import numpy as np
             import torch
         except ImportError as exc:
-            raise EmbeddingExtractionError("torch and numpy are required for ECAPA extraction") from exc
+            raise EmbeddingExtractionError("torch is required for ECAPA extraction") from exc
 
         try:
-            waveform = torch.from_numpy(samples.astype(np.float32)).unsqueeze(0)
+            waveform = torch.tensor(samples, dtype=torch.float32).unsqueeze(0)
             with torch.no_grad():
                 embedding = self.classifier.encode_batch(waveform)
         except Exception as exc:
             raise EmbeddingExtractionError(f"ECAPA embedding extraction failed: {exc}") from exc
 
-        vector = embedding.detach().cpu().numpy().reshape(-1).astype(float).tolist()
+        vector = [float(value) for value in embedding.detach().cpu().reshape(-1).tolist()]
         if len(vector) == 0:
             raise EmbeddingExtractionError("ECAPA embedding extraction returned an empty vector")
         return ExtractedSpeakerEmbedding(vector=vector, speaker_label="unknown_speaker")
-
-    def zero_embedding(self) -> ExtractedSpeakerEmbedding:
-        return ExtractedSpeakerEmbedding(
-            vector=[0.0] * self.embedding_dimensions,
-            speaker_label="unknown_speaker",
-        )
 
     def _load_classifier(self) -> Any:
         try:

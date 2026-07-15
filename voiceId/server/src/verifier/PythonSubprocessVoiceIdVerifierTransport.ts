@@ -2,20 +2,15 @@ import { spawn } from 'node:child_process';
 import { delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
-  PythonBuildTemplateRequest,
-  PythonExtractEnrollmentEmbeddingRequest,
+  PythonBuildEnrollmentTemplateRequest,
   PythonVerifySpeakerRequest,
   PythonVoiceIdVerifierTransport,
 } from './PythonVoiceIdVerifier.ts';
 
 type PythonVerifierOperation =
   | {
-      kind: 'extract_enrollment_embedding';
-      request: PythonExtractEnrollmentEmbeddingRequest;
-    }
-  | {
-      kind: 'build_template';
-      request: PythonBuildTemplateRequest;
+      kind: 'build_enrollment_template';
+      request: PythonBuildEnrollmentTemplateRequest;
     }
   | {
       kind: 'verify_speaker';
@@ -55,12 +50,8 @@ export class PythonSubprocessVoiceIdVerifierTransport implements PythonVoiceIdVe
     this.timeoutMs = config.timeoutMs ?? 10_000;
   }
 
-  extractEnrollmentEmbedding(request: PythonExtractEnrollmentEmbeddingRequest): Promise<unknown> {
-    return this.runOperation({ kind: 'extract_enrollment_embedding', request });
-  }
-
-  buildTemplate(request: PythonBuildTemplateRequest): Promise<unknown> {
-    return this.runOperation({ kind: 'build_template', request });
+  buildEnrollmentTemplate(request: PythonBuildEnrollmentTemplateRequest): Promise<unknown> {
+    return this.runOperation({ kind: 'build_enrollment_template', request });
   }
 
   verifySpeaker(request: PythonVerifySpeakerRequest): Promise<unknown> {

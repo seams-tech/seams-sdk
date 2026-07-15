@@ -17,9 +17,8 @@ import {
 test('fake transcript provider accepts matching phrases', async () => {
   const provider = new FakeTranscriptProvider();
   const result = await provider.matchPhrase({
-    audio: makeTranscriptAudio('normal'),
+    audio: makeTranscriptAudio(0x01),
     expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    spokenPhrase: parsePromptPhrase('walking on clouds'),
   });
 
   assert.equal(result.kind, 'accepted');
@@ -28,9 +27,8 @@ test('fake transcript provider accepts matching phrases', async () => {
 test('fake transcript provider rejects mismatched phrases', async () => {
   const provider = new FakeTranscriptProvider();
   const result = await provider.matchPhrase({
-    audio: makeTranscriptAudio('normal'),
+    audio: makeTranscriptAudio(0xf4),
     expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    spokenPhrase: parsePromptPhrase('Send 1 USDC to Bob'),
   });
 
   assert.equal(result.kind, 'rejected');
@@ -39,9 +37,8 @@ test('fake transcript provider rejects mismatched phrases', async () => {
 test('fake transcript provider returns uncertain for noisy audio', async () => {
   const provider = new FakeTranscriptProvider();
   const result = await provider.matchPhrase({
-    audio: makeTranscriptAudio('noisy'),
+    audio: makeTranscriptAudio(0xf1),
     expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    spokenPhrase: parsePromptPhrase('Walking on clouds'),
   });
 
   assert.equal(result.kind, 'uncertain');
@@ -55,9 +52,8 @@ test('Cloudflare Workers AI transcript provider accepts matching ASR text', asyn
   });
 
   const result = await provider.matchPhrase({
-    audio: makeTranscriptAudio('normal'),
+    audio: makeTranscriptAudio(0x01),
     expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    spokenPhrase: parsePromptPhrase('ignored client phrase'),
   });
 
   assert.equal(result.kind, 'accepted');
@@ -77,9 +73,8 @@ test('Cloudflare Workers AI transcript provider rejects mismatched ASR text', as
   });
 
   const result = await provider.matchPhrase({
-    audio: makeTranscriptAudio('normal'),
+    audio: makeTranscriptAudio(0x01),
     expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    spokenPhrase: parsePromptPhrase('Walking on clouds'),
   });
 
   assert.equal(result.kind, 'rejected');
@@ -155,8 +150,8 @@ test('Cloudflare Workers AI REST binding posts binary audio to the model endpoin
   ]);
 });
 
-function makeTranscriptAudio(fixtureBehavior: 'normal' | 'noisy') {
-  const bytes = new Uint8Array([1, 2, 3]);
+function makeTranscriptAudio(firstByte: number) {
+  const bytes = new Uint8Array([firstByte, 2, 3]);
   return buildAudioInput(bytes, {
     mimeType: 'audio/webm',
     durationMs: 1500,
@@ -165,10 +160,6 @@ function makeTranscriptAudio(fixtureBehavior: 'normal' | 'noisy') {
     byteLength: bytes.byteLength,
     capturedAt: nowIsoDateTime(),
     recorder: 'test',
-    fixtureBehavior:
-      fixtureBehavior === 'noisy'
-        ? { kind: 'noisy', speakerLabel: 'owner' }
-        : { kind: 'speaker_label', speakerLabel: 'owner' },
   });
 }
 

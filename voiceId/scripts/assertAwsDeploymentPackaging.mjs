@@ -22,13 +22,16 @@ const checks = [
       { name: 'SigningWorker boundary', pattern: /SigningWorker/ },
       {
         name: 'component-only verifier boundary',
-        pattern: /does not establish[\s\S]*E2[\s\S]*signing grant/i,
+        pattern: /does not establish[\s\S]*E2[\s\S]*signing authorization/i,
       },
       {
         name: 'authenticated service transport',
         pattern: /requires authenticated and integrity-[\s\S]*protected transport/,
       },
-      { name: 'atomic grant transition', pattern: /issued -> reserved/ },
+      {
+        name: 'evidence authorization separation',
+        pattern: /E0\/E1\/E2 records structurally separate/,
+      },
       { name: 'diagnostic retention cap', pattern: /maximum[\s\S]*seven-day TTL/ },
       { name: 'versioned template AAD', pattern: /versioned AAD/ },
     ],

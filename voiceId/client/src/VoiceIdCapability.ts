@@ -48,11 +48,15 @@ export function createVoiceIdBrowserCaptureCapability(input: {
     kind: 'voice_id_client_capability_v1',
     mode: 'browser_capture',
     client: new VoiceIdClient(input.clientConfig),
-    async createRecorder() {
-      const Recorder = await recorderLoader();
-      return new Recorder();
-    },
+    createRecorder: createVoiceIdRecorder.bind(null, recorderLoader),
   };
+}
+
+async function createVoiceIdRecorder(
+  recorderLoader: VoiceIdRecorderLoader,
+): Promise<VoiceIdRecorderLike> {
+  const Recorder = await recorderLoader();
+  return new Recorder();
 }
 
 async function defaultVoiceIdRecorderLoader(): Promise<VoiceIdRecorderConstructor> {

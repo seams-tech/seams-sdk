@@ -2,7 +2,6 @@ import {
   type VoiceIdAudioChannelCount,
   type VoiceIdAudioMetadata,
   type VoiceIdAudioSampleRate,
-  type VoiceIdFixtureBehavior,
 } from './audio.ts';
 import { parseIsoDateTime } from './ids.ts';
 
@@ -16,8 +15,28 @@ export function parseJsonObject(value: unknown, name: string): JsonObject {
   return value as JsonObject;
 }
 
+export function assertExactObjectKeys(
+  input: JsonObject,
+  allowedKeys: readonly string[],
+  name: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  const unexpected: string[] = [];
+  for (const key of Object.keys(input)) {
+    if (!allowed.has(key)) unexpected.push(key);
+  }
+  if (unexpected.length > 0) {
+    throw new Error(`${name} contains unexpected fields: ${unexpected.join(', ')}`);
+  }
+}
+
 export function parseVoiceIdAudioMetadata(value: unknown): VoiceIdAudioMetadata {
   const input = parseJsonObject(value, 'audio metadata');
+  assertExactObjectKeys(
+    input,
+    ['mimeType', 'durationMs', 'sampleRate', 'channelCount', 'byteLength', 'capturedAt', 'recorder'],
+    'audio metadata',
+  );
   const mimeType = parseString(input.mimeType, 'mimeType');
   const durationMs = parsePositiveNumber(input.durationMs, 'durationMs');
   const byteLength = parsePositiveInteger(input.byteLength, 'byteLength');
@@ -32,16 +51,17 @@ export function parseVoiceIdAudioMetadata(value: unknown): VoiceIdAudioMetadata 
     capturedAt,
     sampleRate: parseSampleRate(input.sampleRate),
     channelCount: parseChannelCount(input.channelCount),
-    fixtureBehavior: parseFixtureBehavior(input.fixtureBehavior),
   };
 }
 
 function parseSampleRate(value: unknown): VoiceIdAudioSampleRate {
   const input = parseJsonObject(value, 'sampleRate');
   if (input.kind === 'unknown') {
+    assertExactObjectKeys(input, ['kind'], 'sampleRate');
     return { kind: 'unknown' };
   }
   if (input.kind === 'known') {
+    assertExactObjectKeys(input, ['kind', 'hertz'], 'sampleRate');
     return { kind: 'known', hertz: parsePositiveInteger(input.hertz, 'sampleRate.hertz') };
   }
 
@@ -51,31 +71,15 @@ function parseSampleRate(value: unknown): VoiceIdAudioSampleRate {
 function parseChannelCount(value: unknown): VoiceIdAudioChannelCount {
   const input = parseJsonObject(value, 'channelCount');
   if (input.kind === 'unknown') {
+    assertExactObjectKeys(input, ['kind'], 'channelCount');
     return { kind: 'unknown' };
   }
   if (input.kind === 'known') {
+    assertExactObjectKeys(input, ['kind', 'count'], 'channelCount');
     return { kind: 'known', count: parsePositiveInteger(input.count, 'channelCount.count') };
   }
 
   throw new Error('channelCount.kind must be known or unknown');
-}
-
-function parseFixtureBehavior(value: unknown): VoiceIdFixtureBehavior {
-  const input = parseJsonObject(value, 'fixtureBehavior');
-  if (input.kind === 'none') {
-    return { kind: 'none' };
-  }
-  if (input.kind === 'speaker_label') {
-    return { kind: 'speaker_label', speakerLabel: parseString(input.speakerLabel, 'speakerLabel') };
-  }
-  if (input.kind === 'low_score') {
-    return { kind: 'low_score', speakerLabel: parseString(input.speakerLabel, 'speakerLabel') };
-  }
-  if (input.kind === 'noisy') {
-    return { kind: 'noisy', speakerLabel: parseString(input.speakerLabel, 'speakerLabel') };
-  }
-
-  throw new Error('fixtureBehavior.kind is invalid');
 }
 
 function parseString(value: unknown, fieldName: string): string {

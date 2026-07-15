@@ -1,6 +1,6 @@
 import type { VoiceIdAudioInput, VoiceIdAudioQualityResult } from '../../../shared/src/audio.ts';
 import {
-  createId,
+  createRandomId,
   parseEncryptedBytes,
   parseModelVersion,
   parseTemplateVersion,
@@ -8,17 +8,18 @@ import {
 } from '../../../shared/src/ids.ts';
 import type { VoiceIdSpeakerMatchResult } from '../../../shared/src/results.ts';
 import type {
-  VoiceIdEnrollmentEmbedding,
+  VoiceIdEnrollmentAnalysis,
+  VoiceIdEnrollmentSpeechWindow,
+  VoiceIdEnrollmentTemplateBuildResult,
+  VoiceIdEnrollmentTemplateFailureReason,
   VoiceIdSpeakerVerification,
-  VoiceIdTemplateBuildResult,
   VoiceIdVerifier,
 } from './VoiceIdVerifier.ts';
 
-export const PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION = 'voice_id_verifier_v1';
+export const PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION = 'voice_id_verifier_v2';
 
 export type PythonVoiceIdVerifierTransport = {
-  extractEnrollmentEmbedding(request: PythonExtractEnrollmentEmbeddingRequest): Promise<unknown>;
-  buildTemplate(request: PythonBuildTemplateRequest): Promise<unknown>;
+  buildEnrollmentTemplate(request: PythonBuildEnrollmentTemplateRequest): Promise<unknown>;
   verifySpeaker(request: PythonVerifySpeakerRequest): Promise<unknown>;
 };
 
@@ -27,16 +28,11 @@ export type PythonVoiceIdVerifierConfig = {
   readonly createRequestId?: () => string;
 };
 
-export type PythonExtractEnrollmentEmbeddingRequest = {
+export type PythonBuildEnrollmentTemplateRequest = {
   readonly schemaVersion: typeof PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION;
   readonly requestId: string;
   readonly audio: PythonAudioRequest;
-};
-
-export type PythonBuildTemplateRequest = {
-  readonly schemaVersion: typeof PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION;
-  readonly requestId: string;
-  readonly embeddings: readonly PythonTemplateEmbeddingRequest[];
+  readonly expectedPromptCount: number;
 };
 
 export type PythonVerifySpeakerRequest = {
@@ -64,12 +60,6 @@ export type PythonAudioRequest = {
   };
 };
 
-export type PythonTemplateEmbeddingRequest = {
-  readonly vector: readonly number[];
-  readonly speakerLabel: string;
-  readonly quality: VoiceIdAudioQualityResult;
-};
-
 export type PythonTemplateReferenceRequest = {
   readonly encryptedTemplate: string;
   readonly templateVersion: string;
@@ -86,30 +76,16 @@ export class PythonVoiceIdVerifier implements VoiceIdVerifier {
     this.createRequestId = config.createRequestId ?? createPythonVerifierRequestId;
   }
 
-  async extractEnrollmentEmbedding(input: {
+  async buildEnrollmentTemplate(input: {
     audio: VoiceIdAudioInput;
-  }): Promise<VoiceIdEnrollmentEmbedding> {
-    return parsePythonEnrollmentEmbeddingResponse(
-      await this.config.transport.extractEnrollmentEmbedding({
+    expectedPromptCount: number;
+  }): Promise<VoiceIdEnrollmentTemplateBuildResult> {
+    return parsePythonEnrollmentTemplateResponse(
+      await this.config.transport.buildEnrollmentTemplate({
         schemaVersion: PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION,
         requestId: this.createRequestId(),
         audio: buildPythonAudioRequest(input.audio),
-      }),
-    );
-  }
-
-  async buildTemplate(input: {
-    embeddings: readonly VoiceIdEnrollmentEmbedding[];
-  }): Promise<VoiceIdTemplateBuildResult> {
-    return parsePythonTemplateBuildResponse(
-      await this.config.transport.buildTemplate({
-        schemaVersion: PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION,
-        requestId: this.createRequestId(),
-        embeddings: input.embeddings.map((embedding) => ({
-          vector: embedding.vector,
-          speakerLabel: embedding.speakerLabel,
-          quality: embedding.quality,
-        })),
+        expectedPromptCount: input.expectedPromptCount,
       }),
     );
   }
@@ -136,48 +112,138 @@ export class PythonVoiceIdVerifier implements VoiceIdVerifier {
   }
 }
 
-export function parsePythonEnrollmentEmbeddingResponse(
+export function parsePythonEnrollmentTemplateResponse(
   value: unknown,
-): VoiceIdEnrollmentEmbedding {
-  const response = requireObject(value, 'enrollment embedding response');
-  requireKind(response, 'embedding');
-  requireNonEmptyString(response, 'requestId');
-  parseModelVersion(requireNonEmptyString(response, 'modelVersion'));
-  parseThresholdVersion(requireNonEmptyString(response, 'thresholdVersion'));
-  return {
-    vector: requireNumberArray(response.embedding, 'embedding'),
-    speakerLabel: requireNonEmptyString(response, 'speakerLabel'),
-    quality: parsePythonAudioQuality(response.quality),
-  };
-}
-
-export function parsePythonTemplateBuildResponse(
-  value: unknown,
-): VoiceIdTemplateBuildResult {
-  const response = requireObject(value, 'template build response');
+): VoiceIdEnrollmentTemplateBuildResult {
+  const response = requireObject(value, 'enrollment template response');
   const kind = requireOneOf(response.kind, ['built', 'rejected'], 'kind');
   switch (kind) {
-    case 'built':
+    case 'built': {
+      requireExactKeys(
+        response,
+        [
+          'kind',
+          'requestId',
+          'encryptedTemplate',
+          'templateVersion',
+          'modelVersion',
+          'thresholdVersion',
+          'quality',
+          'analysis',
+        ],
+        'built enrollment template response',
+      );
       requireNonEmptyString(response, 'requestId');
+      const quality = parsePythonAudioQuality(response.quality);
+      if (quality.kind !== 'accepted') {
+        throw new Error('built enrollment template response requires accepted quality');
+      }
       return {
         kind: 'built',
         encryptedTemplate: parseEncryptedBytes(requireNonEmptyString(response, 'encryptedTemplate')),
         templateVersion: parseTemplateVersion(requireNonEmptyString(response, 'templateVersion')),
         modelVersion: parseModelVersion(requireNonEmptyString(response, 'modelVersion')),
         thresholdVersion: parseThresholdVersion(requireNonEmptyString(response, 'thresholdVersion')),
-        speakerLabel: requireNonEmptyString(response, 'speakerLabel'),
+        quality,
+        analysis: parsePythonEnrollmentAnalysis(response.analysis),
       };
+    }
     case 'rejected':
+      requireExactKeys(
+        response,
+        ['kind', 'requestId', 'reason'],
+        'rejected enrollment template response',
+      );
       requireNonEmptyString(response, 'requestId');
       return {
         kind: 'rejected',
-        reason: requireOneOf(
-          response.reason,
-          ['insufficient_quality', 'inconsistent_speaker'],
-          'reason',
-        ),
+        reason: parsePythonEnrollmentTemplateFailureReason(response.reason),
       };
   }
+}
+
+function parsePythonEnrollmentTemplateFailureReason(
+  value: unknown,
+): VoiceIdEnrollmentTemplateFailureReason {
+  return requireOneOf(
+    value,
+    [
+      'decoder_failure',
+      'metadata_mismatch',
+      'interrupted_capture',
+      'insufficient_speech',
+      'insufficient_windows',
+      'duplicate_windows',
+      'multi_speaker',
+      'clipped_audio',
+      'low_snr',
+      'incoherent_windows',
+      'template_build_failed',
+    ],
+    'enrollment template failure reason',
+  );
+}
+
+function parsePythonEnrollmentAnalysis(value: unknown): VoiceIdEnrollmentAnalysis {
+  const analysis = requireObject(value, 'enrollment analysis');
+  requireExactKeys(
+    analysis,
+    [
+      'analysisVersion',
+      'sourceCodec',
+      'sourceSampleRateHz',
+      'sourceChannelCount',
+      'decodedDurationMs',
+      'usableSpeechMs',
+      'windows',
+    ],
+    'enrollment analysis',
+  );
+  return {
+    analysisVersion: requireNonEmptyString(analysis, 'analysisVersion'),
+    sourceCodec: requireNonEmptyString(analysis, 'sourceCodec'),
+    sourceSampleRateHz: requirePositiveInteger(analysis.sourceSampleRateHz, 'sourceSampleRateHz'),
+    sourceChannelCount: requirePositiveInteger(analysis.sourceChannelCount, 'sourceChannelCount'),
+    decodedDurationMs: requirePositiveNumber(analysis.decodedDurationMs, 'decodedDurationMs'),
+    usableSpeechMs: requirePositiveNumber(analysis.usableSpeechMs, 'usableSpeechMs'),
+    windows: parsePythonEnrollmentWindows(analysis.windows),
+  };
+}
+
+function parsePythonEnrollmentWindows(value: unknown): readonly VoiceIdEnrollmentSpeechWindow[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('enrollment analysis windows must be a non-empty array');
+  }
+  return value.map(parsePythonEnrollmentWindow);
+}
+
+function parsePythonEnrollmentWindow(
+  value: unknown,
+  arrayIndex: number,
+): VoiceIdEnrollmentSpeechWindow {
+  const window = requireObject(value, `enrollment analysis windows[${arrayIndex}]`);
+  requireExactKeys(
+    window,
+    ['index', 'startMs', 'endMs', 'speechMs', 'signalScore', 'templateWeight'],
+    `enrollment analysis windows[${arrayIndex}]`,
+  );
+  const index = requireNonNegativeInteger(window.index, `windows[${arrayIndex}].index`);
+  if (index !== arrayIndex) {
+    throw new Error(`windows[${arrayIndex}].index must equal its array position`);
+  }
+  const startMs = requireNonNegativeNumber(window.startMs, `windows[${arrayIndex}].startMs`);
+  const endMs = requirePositiveNumber(window.endMs, `windows[${arrayIndex}].endMs`);
+  if (endMs <= startMs) {
+    throw new Error(`windows[${arrayIndex}].endMs must be greater than startMs`);
+  }
+  return {
+    index,
+    startMs,
+    endMs,
+    speechMs: requirePositiveNumber(window.speechMs, `windows[${arrayIndex}].speechMs`),
+    signalScore: requireProbability(window.signalScore, `windows[${arrayIndex}].signalScore`),
+    templateWeight: requireProbability(window.templateWeight, `windows[${arrayIndex}].templateWeight`),
+  };
 }
 
 export function parsePythonSpeakerVerificationResponse(
@@ -265,6 +331,7 @@ function parsePythonAudioQuality(value: unknown): VoiceIdAudioQualityResult {
             'clipped_audio',
             'low_speech',
             'low_snr',
+            'metadata_mismatch',
           ],
           'quality.reason',
         ),
@@ -317,6 +384,21 @@ function requireObject(value: unknown, fieldName: string): PythonResponseObject 
   return value as PythonResponseObject;
 }
 
+function requireExactKeys(
+  value: PythonResponseObject,
+  expectedKeys: readonly string[],
+  fieldName: string,
+): void {
+  const actualKeys = Object.keys(value).sort();
+  const sortedExpectedKeys = [...expectedKeys].sort();
+  if (
+    actualKeys.length !== sortedExpectedKeys.length
+    || actualKeys.some((key, index) => key !== sortedExpectedKeys[index])
+  ) {
+    throw new Error(`${fieldName} contains unexpected or missing fields`);
+  }
+}
+
 function requireKind(value: PythonResponseObject, expected: string): void {
   const actual = requireNonEmptyString(value, 'kind');
   if (actual !== expected) {
@@ -347,17 +429,34 @@ function requireOneOf<TValue extends string>(
   return matched;
 }
 
-function requireNumberArray(value: unknown, fieldName: string): readonly number[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${fieldName} must be a non-empty number array`);
-  }
-  return value.map((item, index) => requireFiniteNumber(item, `${fieldName}[${index}]`));
-}
-
 function requirePositiveNumber(value: unknown, fieldName: string): number {
   const parsed = requireFiniteNumber(value, fieldName);
   if (parsed <= 0) {
     throw new Error(`${fieldName} must be positive`);
+  }
+  return parsed;
+}
+
+function requireNonNegativeNumber(value: unknown, fieldName: string): number {
+  const parsed = requireFiniteNumber(value, fieldName);
+  if (parsed < 0) {
+    throw new Error(`${fieldName} must be non-negative`);
+  }
+  return parsed;
+}
+
+function requirePositiveInteger(value: unknown, fieldName: string): number {
+  const parsed = requireFiniteNumber(value, fieldName);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${fieldName} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function requireNonNegativeInteger(value: unknown, fieldName: string): number {
+  const parsed = requireFiniteNumber(value, fieldName);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${fieldName} must be a non-negative integer`);
   }
   return parsed;
 }
@@ -386,5 +485,5 @@ function requireFiniteNumber(value: unknown, fieldName: string): number {
 }
 
 function createPythonVerifierRequestId(): string {
-  return createId<string>('python_voiceid_request');
+  return createRandomId('python_voiceid_request');
 }

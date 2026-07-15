@@ -1,8 +1,7 @@
 import {
-  authorizeVoiceIdOwnerPresence,
-  buildVoiceIdOwnerPresenceResult,
+  assertNever,
   buildAudioInput,
-  evaluateVoiceIdAudioLiveness,
+  combineEnrollmentPromptSequence,
   normalizePromptPhrase,
   nowIsoDateTime,
   parseEnrollmentId,
@@ -12,21 +11,16 @@ import {
   parseThresholdVersion,
   parseUserId,
   parseVerificationId,
-  type VoiceIdAuthPolicyRejectReason,
-  type VoiceIdAudioLivenessSignals,
-  type VoiceIdAudioLivenessPolicy,
-  type VoiceIdAuthPolicyDecision,
-  type VoiceIdAuthPolicyUseCase,
-  type VoiceIdIntentDigest,
-  type VoiceIdIntentNonce,
-  type VoiceIdLivenessResult,
-  type VoiceIdLocalDeviceContext,
-  type VoiceIdOwnerPresenceResult,
   type IsoDateTime,
   type UserId,
+  type VoiceIdAudioInput,
+  type VoiceIdAudioQualityResult,
+  type VoiceIdChallengeNonce,
   type VoiceIdEnrollmentId,
+  type VoiceIdEnrollmentPromptSequence,
   type VoiceIdModelVersion,
-  type VoiceIdPolicyVersion,
+  type VoiceIdOperationError,
+  type VoiceIdPromptPhrase,
   type VoiceIdPromptSetId,
   type VoiceIdThresholdVersion,
   type VoiceIdVerificationId,
@@ -35,20 +29,19 @@ import type {
   VoiceIdEnrollmentRecord,
   VoiceIdVerificationRecord,
 } from '../../shared/src/records.ts';
-import type { VoiceIdPromptPhrase } from '../../shared/src/prompts.ts';
 import type {
-  VoiceIdEnrollmentSample,
-  VoiceIdVerificationSample,
+  VoiceIdEnrollmentRecording,
+  VoiceIdVerificationRecording,
 } from '../../shared/src/samples.ts';
 import type {
+  VoiceIdPhraseMatchResult,
+  VoiceIdSpeakerMatchResult,
   VoiceIdVerificationChecks,
   VoiceIdVerificationResult,
 } from '../../shared/src/results.ts';
-import type { VoiceIdAudioInput, VoiceIdAudioQualityResult } from '../../shared/src/audio.ts';
 import type {
-  VoiceIdEnrollmentEmbedding,
+  VoiceIdEnrollmentTemplateBuildResult,
   VoiceIdSpeakerVerification,
-  VoiceIdTemplateBuildResult,
   VoiceIdVerifier,
 } from './verifier/VoiceIdVerifier.ts';
 import type { VoiceIdEnrollmentStore, VoiceIdVerificationStore } from './store/VoiceIdStores.ts';
@@ -56,6 +49,20 @@ import type { VoiceIdTranscriptProvider } from './transcript/VoiceIdTranscriptPr
 
 export const voiceIdFakeSpeakerScoreThreshold = 0.82;
 export const voiceIdEcapaLocalDevSpeakerScoreThreshold = 0.6352;
+
+const defaultEnrollmentPrompts: VoiceIdEnrollmentPromptSequence = [
+  parsePromptPhrase('Copper river carries morning light'),
+  parsePromptPhrase('Seven quiet lanterns cross the harbor'),
+  parsePromptPhrase('Bright cedar branches move in winter'),
+  parsePromptPhrase('A silver compass points toward home'),
+];
+
+const defaultVerificationPromptBases: readonly VoiceIdPromptPhrase[] = [
+  parsePromptPhrase('River lantern'),
+  parsePromptPhrase('Silver meadow'),
+  parsePromptPhrase('Cedar compass'),
+  parsePromptPhrase('Harbor sunrise'),
+];
 
 export function parseVoiceIdSpeakerScoreThreshold(value: unknown, fieldName: string): number {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -71,20 +78,24 @@ export function parseVoiceIdSpeakerScoreThreshold(value: unknown, fieldName: str
 export type VoiceIdServiceConfig = {
   enrollmentPromptTtlMs: number;
   verificationPromptTtlMs: number;
-  maxEnrollmentSampleAttempts: number;
-  maxVerificationAttempts: number;
-  requiredAcceptedEnrollmentSamples: number;
+  enrollmentAnalysisTtlMs: number;
+  verificationAnalysisTtlMs: number;
+  minimumEnrollmentCaptureMs: number;
+  targetEnrollmentCaptureMs: number;
+  maximumEnrollmentCaptureMs: number;
   speakerScoreThreshold: number;
   promptSetId: VoiceIdPromptSetId;
   modelVersion: VoiceIdModelVersion;
   thresholdVersion: VoiceIdThresholdVersion;
+  enrollmentPrompts: VoiceIdEnrollmentPromptSequence;
+  verificationPromptBases: readonly VoiceIdPromptPhrase[];
 };
 
 export type VoiceIdLifecycleAuditEvent = {
   kind:
     | 'enrollment_started'
-    | 'enrollment_sample_recorded'
-    | 'enrollment_finalized'
+    | 'enrollment_completed'
+    | 'enrollment_failed'
     | 'verification_issued'
     | 'verification_completed';
   userId: UserId;
@@ -93,45 +104,26 @@ export type VoiceIdLifecycleAuditEvent = {
   resultKind: VoiceIdAuditResultKind;
   scoreBands: VoiceIdAuditScoreBands;
   at: IsoDateTime;
-  policyVersion?: never;
-  decisionKind?: never;
-  decisionReason?: never;
 };
 
-export type VoiceIdOwnerPresenceAuditEvent = {
-  kind: 'owner_presence_authorized';
-  userId: UserId;
-  enrollmentId: VoiceIdEnrollmentId;
-  verificationId: VoiceIdVerificationId;
-  resultKind: Extract<VoiceIdAuditResultKind, 'accepted' | 'rejected'>;
-  scoreBands: Extract<VoiceIdAuditScoreBands, { kind: 'none' }>;
-  at: IsoDateTime;
-  policyVersion: VoiceIdPolicyVersion;
-  decisionKind: VoiceIdAuthPolicyDecision['kind'];
-  decisionReason: VoiceIdAuthPolicyRejectReason | null;
-};
-
-export type VoiceIdAuditEvent = VoiceIdLifecycleAuditEvent | VoiceIdOwnerPresenceAuditEvent;
+export type VoiceIdAuditEvent = VoiceIdLifecycleAuditEvent;
 
 export type VoiceIdAuditResultKind =
   | 'issued'
-  | 'accepted'
+  | 'evidence_observed'
   | 'rejected'
   | 'uncertain'
-  | 'enrolled';
+  | 'enrolled'
+  | 'failed';
 
-export type VoiceIdAuditScoreBand =
-  | 'none'
-  | 'very_low'
-  | 'low'
-  | 'medium'
-  | 'high';
+export type VoiceIdAuditScoreBand = 'none' | 'very_low' | 'low' | 'medium' | 'high';
 
 export type VoiceIdAuditScoreBands =
   | { kind: 'none' }
   | {
-      kind: 'enrollment_sample';
+      kind: 'enrollment_recording';
       qualitySignal: VoiceIdAuditScoreBand;
+      phraseConfidence: VoiceIdAuditScoreBand;
     }
   | {
       kind: 'verification';
@@ -141,49 +133,33 @@ export type VoiceIdAuditScoreBands =
       qualitySignal: VoiceIdAuditScoreBand;
     };
 
-export type VoiceIdServiceError =
-  | { kind: 'malformed_request'; message: string }
-  | { kind: 'missing_enrollment'; message: string }
-  | { kind: 'missing_verification'; message: string }
-  | { kind: 'invalid_state'; message: string }
-  | { kind: 'expired'; message: string }
-  | { kind: 'too_many_attempts'; message: string }
-  | { kind: 'verifier_unavailable'; message: string };
+export type VoiceIdServiceError = VoiceIdOperationError;
 
 export type VoiceIdServiceResult<TValue> =
   | { kind: 'ok'; value: TValue }
   | { kind: 'error'; error: VoiceIdServiceError };
 
 export type StartEnrollmentResult = {
-  record: Extract<VoiceIdEnrollmentRecord, { state: 'pending' }>;
-  prompt: VoiceIdPromptPhrase;
+  record: Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }>;
+  promptSequence: VoiceIdEnrollmentPromptSequence;
 };
 
-export type AddEnrollmentSampleResult = {
-  record: Extract<VoiceIdEnrollmentRecord, { state: 'pending' }>;
-  quality: VoiceIdAudioQualityResult;
-  acceptedSampleCount: number;
-};
+export type SubmitEnrollmentRecordingResult =
+  | {
+      kind: 'enrolled';
+      record: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>;
+      quality: Extract<VoiceIdAudioQualityResult, { kind: 'accepted' }>;
+      phrase: Extract<VoiceIdPhraseMatchResult, { kind: 'accepted' }>;
+    }
+  | {
+      kind: 'rejected';
+      record: Extract<VoiceIdEnrollmentRecord, { state: 'failed' }>;
+      reason: Extract<VoiceIdEnrollmentRecord, { state: 'failed' }>['failureReason'];
+    };
 
 export type StartVerificationResult = {
   record: Extract<VoiceIdVerificationRecord, { state: 'issued' }>;
   prompt: VoiceIdPromptPhrase;
-};
-
-export type AuthorizeOwnerPresenceInput = {
-  verificationId: VoiceIdVerificationId;
-  intentDigest: VoiceIdIntentDigest;
-  useCase: VoiceIdAuthPolicyUseCase;
-  policyVersion: VoiceIdPolicyVersion;
-  audio: VoiceIdAudioLivenessSignals;
-  context: VoiceIdLocalDeviceContext;
-  policy: VoiceIdAudioLivenessPolicy;
-};
-
-export type AuthorizeOwnerPresenceResult = {
-  liveness: VoiceIdLivenessResult;
-  ownerPresence: VoiceIdOwnerPresenceResult;
-  decision: VoiceIdAuthPolicyDecision;
 };
 
 export type VoiceIdServiceDependencies = {
@@ -193,142 +169,150 @@ export type VoiceIdServiceDependencies = {
   transcriptProvider: VoiceIdTranscriptProvider;
   config: VoiceIdServiceConfig;
   now: () => Date;
+  createChallengeNonce: () => VoiceIdChallengeNonce;
   emitAuditEvent: (event: VoiceIdAuditEvent) => void;
 };
 
 export class VoiceIdService {
-  private readonly enrollmentEmbeddings = new Map<VoiceIdEnrollmentId, VoiceIdEnrollmentEmbedding[]>();
-
   constructor(private readonly dependencies: VoiceIdServiceDependencies) {}
 
   async startEnrollment(input: {
     userId: UserId;
-    phrase: VoiceIdPromptPhrase;
   }): Promise<VoiceIdServiceResult<StartEnrollmentResult>> {
     const now = this.now();
-    const enrollmentId = parseEnrollmentId(`enroll_${now}_${input.userId}`);
-    const record: Extract<VoiceIdEnrollmentRecord, { state: 'pending' }> = {
-      state: 'pending',
+    const enrollmentId = parseEnrollmentId(`enroll_${this.dependencies.createChallengeNonce()}`);
+    const record: Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }> = {
+      state: 'pending_continuous_recording',
       userId: input.userId,
       enrollmentId,
       promptSetId: this.dependencies.config.promptSetId,
+      promptSequence: this.dependencies.config.enrollmentPrompts,
       modelVersion: this.dependencies.config.modelVersion,
       createdAt: now,
       expiresAt: this.futureIso(this.dependencies.config.enrollmentPromptTtlMs),
-      requiredSampleCount: this.dependencies.config.requiredAcceptedEnrollmentSamples,
-      acceptedSampleCount: 0,
-      attemptCount: 0,
+      minimumCaptureMs: this.dependencies.config.minimumEnrollmentCaptureMs,
+      targetCaptureMs: this.dependencies.config.targetEnrollmentCaptureMs,
+      maximumCaptureMs: this.dependencies.config.maximumEnrollmentCaptureMs,
     };
 
-    await this.dependencies.enrollmentStore.save(record);
-    this.dependencies.emitAuditEvent(this.audit('enrollment_started', record, null, 'issued', noAuditScores()));
-
-    return { kind: 'ok', value: { record, prompt: input.phrase } };
+    const created = await this.dependencies.enrollmentStore.create(record);
+    if (!created) {
+      return lifecycleConflict('enrollment id is already in use');
+    }
+    this.emitAudit('enrollment_started', record, null, 'issued', noAuditScores());
+    return { kind: 'ok', value: { record, promptSequence: record.promptSequence } };
   }
 
-  async addEnrollmentSample(
-    sample: VoiceIdEnrollmentSample,
-  ): Promise<VoiceIdServiceResult<AddEnrollmentSampleResult>> {
-    const record = await this.dependencies.enrollmentStore.getByEnrollmentId(sample.enrollmentId);
+  async submitEnrollmentRecording(
+    recording: VoiceIdEnrollmentRecording,
+  ): Promise<VoiceIdServiceResult<SubmitEnrollmentRecordingResult>> {
+    const record = await this.dependencies.enrollmentStore.getByEnrollmentId(
+      recording.enrollmentId,
+    );
     if (record === null) {
-      return { kind: 'error', error: { kind: 'missing_enrollment', message: 'enrollment does not exist' } };
+      return {
+        kind: 'error',
+        error: { kind: 'missing_enrollment', message: 'enrollment does not exist' },
+      };
     }
-    if (record.state !== 'pending') {
-      return { kind: 'error', error: { kind: 'invalid_state', message: 'enrollment is not pending' } };
+    if (record.userId !== recording.userId) {
+      return {
+        kind: 'error',
+        error: { kind: 'identity_mismatch', message: 'enrollment user does not match' },
+      };
+    }
+    if (record.state === 'analyzing_continuous_recording') {
+      if (this.isExpired(record.analysisExpiresAt)) {
+        return await this.rejectEnrollmentAnalysis(record, 'analysis_timeout');
+      }
+      return {
+        kind: 'error',
+        error: { kind: 'invalid_state', message: 'enrollment recording is being analyzed' },
+      };
+    }
+    if (record.state !== 'pending_continuous_recording') {
+      return {
+        kind: 'error',
+        error: { kind: 'invalid_state', message: 'enrollment recording is already completed' },
+      };
     }
     if (this.isExpired(record.expiresAt)) {
-      return { kind: 'error', error: { kind: 'expired', message: 'enrollment prompt expired' } };
+      return await this.rejectPendingEnrollment(record, 'expired');
     }
-    if (record.attemptCount >= this.dependencies.config.maxEnrollmentSampleAttempts) {
-      return { kind: 'error', error: { kind: 'too_many_attempts', message: 'too many enrollment attempts' } };
+    if (recording.audio.metadata.durationMs < record.minimumCaptureMs) {
+      return await this.rejectPendingEnrollment(record, 'capture_too_short');
     }
-
-    let embedding: VoiceIdEnrollmentEmbedding;
-    try {
-      embedding = await this.dependencies.verifier.extractEnrollmentEmbedding({ audio: sample.audio });
-    } catch (error) {
-      return this.verifierUnavailable('enrollment embedding extraction', error);
-    }
-    const acceptedIncrement = embedding.quality.kind === 'accepted' ? 1 : 0;
-    const updated: Extract<VoiceIdEnrollmentRecord, { state: 'pending' }> = {
-      ...record,
-      acceptedSampleCount: record.acceptedSampleCount + acceptedIncrement,
-      attemptCount: record.attemptCount + 1,
-    };
-
-    if (embedding.quality.kind === 'accepted') {
-      this.enrollmentEmbeddings.set(sample.enrollmentId, [
-        ...(this.enrollmentEmbeddings.get(sample.enrollmentId) ?? []),
-        embedding,
-      ]);
+    if (recording.audio.metadata.durationMs > record.maximumCaptureMs) {
+      return await this.rejectPendingEnrollment(record, 'capture_too_long');
     }
 
-    await this.dependencies.enrollmentStore.save(updated);
-    this.dependencies.emitAuditEvent(
-      this.audit(
-        'enrollment_sample_recorded',
-        updated,
-        null,
-        embedding.quality.kind,
-        enrollmentSampleAuditScoreBands(embedding.quality),
-      ),
+    const analysis = buildEnrollmentAnalysisClaim(
+      record,
+      this.now(),
+      this.futureIso(this.dependencies.config.enrollmentAnalysisTtlMs),
     );
-
-    return {
-      kind: 'ok',
-      value: {
-        record: updated,
-        quality: embedding.quality,
-        acceptedSampleCount: updated.acceptedSampleCount,
-      },
-    };
-  }
-
-  async finalizeEnrollment(input: {
-    userId: UserId;
-    enrollmentId: VoiceIdEnrollmentId;
-  }): Promise<VoiceIdServiceResult<Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>>> {
-    const record = await this.dependencies.enrollmentStore.getByEnrollmentId(input.enrollmentId);
-    if (record === null) {
-      return { kind: 'error', error: { kind: 'missing_enrollment', message: 'enrollment does not exist' } };
-    }
-    if (record.state !== 'pending') {
-      return { kind: 'error', error: { kind: 'invalid_state', message: 'enrollment is not pending' } };
-    }
-    if (record.acceptedSampleCount < record.requiredSampleCount) {
-      return { kind: 'error', error: { kind: 'invalid_state', message: 'insufficient accepted samples' } };
+    const claimed = await this.dependencies.enrollmentStore.claimPending(analysis);
+    if (!claimed) {
+      return lifecycleConflict('enrollment recording was claimed concurrently');
     }
 
-    let template: VoiceIdTemplateBuildResult;
-    try {
-      template = await this.dependencies.verifier.buildTemplate({
-        embeddings: this.enrollmentEmbeddings.get(input.enrollmentId) ?? [],
-      });
-    } catch (error) {
-      return this.verifierUnavailable('template build', error);
+    const expectedPhrase = combineEnrollmentPromptSequence(analysis.promptSequence);
+    const phrase = await this.matchPhrase(recording.audio, expectedPhrase);
+    if (this.isExpired(analysis.analysisExpiresAt)) {
+      return await this.rejectEnrollmentAnalysis(analysis, 'analysis_timeout');
+    }
+    if (phrase.kind === 'rejected') {
+      return await this.rejectEnrollmentAnalysis(analysis, 'phrase_rejected');
+    }
+    if (phrase.kind === 'uncertain') {
+      const reason =
+        phrase.reason === 'transcript_unavailable'
+          ? 'verifier_unavailable'
+          : 'transcript_uncertain';
+      return await this.rejectEnrollmentAnalysis(analysis, reason);
+    }
+
+    const template = await this.buildEnrollmentTemplate(
+      recording.audio,
+      analysis.promptSequence.length,
+    );
+    if (this.isExpired(analysis.analysisExpiresAt)) {
+      return await this.rejectEnrollmentAnalysis(analysis, 'analysis_timeout');
+    }
+    if (template === null) {
+      return await this.rejectEnrollmentAnalysis(analysis, 'verifier_unavailable');
     }
     if (template.kind === 'rejected') {
-      return { kind: 'error', error: { kind: 'invalid_state', message: template.reason } };
+      return await this.rejectEnrollmentAnalysis(analysis, template.reason);
     }
 
     const enrolled: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }> = {
       state: 'enrolled',
-      userId: input.userId,
-      enrollmentId: record.enrollmentId,
-      promptSetId: record.promptSetId,
+      userId: analysis.userId,
+      enrollmentId: analysis.enrollmentId,
+      promptSetId: analysis.promptSetId,
       modelVersion: template.modelVersion,
       templateVersion: template.templateVersion,
       thresholdVersion: template.thresholdVersion,
       encryptedTemplate: template.encryptedTemplate,
-      createdAt: record.createdAt,
+      createdAt: analysis.createdAt,
       enrolledAt: this.now(),
     };
-
-    await this.dependencies.enrollmentStore.save(enrolled);
-    this.enrollmentEmbeddings.delete(input.enrollmentId);
-    this.dependencies.emitAuditEvent(this.audit('enrollment_finalized', enrolled, null, 'enrolled', noAuditScores()));
-
-    return { kind: 'ok', value: enrolled };
+    const completed = await this.dependencies.enrollmentStore.completeAnalysis(enrolled);
+    if (!completed) {
+      return lifecycleConflict('enrollment recording was consumed concurrently');
+    }
+    this.emitAudit(
+      'enrollment_completed',
+      enrolled,
+      null,
+      'enrolled',
+      enrollmentAuditScoreBands(template.quality, phrase),
+    );
+    return {
+      kind: 'ok',
+      value: { kind: 'enrolled', record: enrolled, quality: template.quality, phrase },
+    };
   }
 
   async disableEnrollment(input: {
@@ -337,96 +321,270 @@ export class VoiceIdService {
   }): Promise<VoiceIdServiceResult<Extract<VoiceIdEnrollmentRecord, { state: 'disabled' }>>> {
     const record = await this.dependencies.enrollmentStore.getByEnrollmentId(input.enrollmentId);
     if (record === null) {
-      return { kind: 'error', error: { kind: 'missing_enrollment', message: 'enrollment does not exist' } };
+      return {
+        kind: 'error',
+        error: { kind: 'missing_enrollment', message: 'enrollment does not exist' },
+      };
+    }
+    if (record.userId !== input.userId) {
+      return {
+        kind: 'error',
+        error: { kind: 'identity_mismatch', message: 'enrollment user does not match' },
+      };
     }
     if (record.state !== 'enrolled') {
-      return { kind: 'error', error: { kind: 'invalid_state', message: 'only enrolled records can be disabled' } };
+      return {
+        kind: 'error',
+        error: { kind: 'invalid_state', message: 'only enrolled records can be disabled' },
+      };
     }
 
     const disabled: Extract<VoiceIdEnrollmentRecord, { state: 'disabled' }> = {
-      ...record,
       state: 'disabled',
+      userId: record.userId,
+      enrollmentId: record.enrollmentId,
+      promptSetId: record.promptSetId,
+      modelVersion: record.modelVersion,
+      templateVersion: record.templateVersion,
+      thresholdVersion: record.thresholdVersion,
+      encryptedTemplate: record.encryptedTemplate,
+      createdAt: record.createdAt,
+      enrolledAt: record.enrolledAt,
       disabledAt: this.now(),
     };
-    await this.dependencies.enrollmentStore.save(disabled);
-
+    const transitioned = await this.dependencies.enrollmentStore.disable(disabled);
+    if (!transitioned) {
+      return lifecycleConflict('enrollment changed before disablement completed');
+    }
     return { kind: 'ok', value: disabled };
   }
 
   async startVerification(input: {
     userId: UserId;
     enrollmentId: VoiceIdEnrollmentId;
-    phrase: VoiceIdPromptPhrase;
-    intentDigest: VoiceIdIntentDigest;
-    intentExpiresAt: IsoDateTime;
-    intentNonce: VoiceIdIntentNonce;
   }): Promise<VoiceIdServiceResult<StartVerificationResult>> {
-    const enrollment = await this.dependencies.enrollmentStore.getByEnrollmentId(input.enrollmentId);
+    const enrollment = await this.dependencies.enrollmentStore.getByEnrollmentId(
+      input.enrollmentId,
+    );
     if (enrollment === null || enrollment.state !== 'enrolled') {
-      return { kind: 'error', error: { kind: 'missing_enrollment', message: 'active enrollment does not exist' } };
+      return {
+        kind: 'error',
+        error: { kind: 'missing_enrollment', message: 'active enrollment does not exist' },
+      };
     }
-    if (this.isExpired(input.intentExpiresAt)) {
-      return { kind: 'error', error: { kind: 'expired', message: 'intent expired' } };
+    if (enrollment.userId !== input.userId) {
+      return {
+        kind: 'error',
+        error: { kind: 'identity_mismatch', message: 'enrollment user does not match' },
+      };
     }
 
     const now = this.now();
-    const verificationId = parseVerificationId(`verify_${now}_${input.userId}`);
+    const challengeNonce = this.dependencies.createChallengeNonce();
+    const verificationId = parseVerificationId(`verify_${challengeNonce}`);
+    const expectedPhrase = buildVerificationPrompt(
+      challengeNonce,
+      this.dependencies.config.verificationPromptBases,
+    );
     const record: Extract<VoiceIdVerificationRecord, { state: 'issued' }> = {
       state: 'issued',
       userId: input.userId,
       enrollmentId: input.enrollmentId,
-      expectedPhrase: input.phrase,
-      intentDigest: input.intentDigest,
-      intentExpiresAt: input.intentExpiresAt,
-      intentNonce: input.intentNonce,
       verificationId,
+      expectedPhrase,
+      challengeNonce,
       createdAt: now,
-      expiresAt: earlierIso(this.futureIso(this.dependencies.config.verificationPromptTtlMs), input.intentExpiresAt),
-      attemptCount: 0,
+      expiresAt: this.futureIso(this.dependencies.config.verificationPromptTtlMs),
     };
-    await this.dependencies.verificationStore.save(record);
-    this.dependencies.emitAuditEvent(this.audit('verification_issued', enrollment, verificationId, 'issued', noAuditScores()));
-
-    return { kind: 'ok', value: { record, prompt: input.phrase } };
+    const created = await this.dependencies.verificationStore.create(record);
+    if (!created) {
+      return lifecycleConflict('verification id is already in use');
+    }
+    this.emitAudit('verification_issued', enrollment, verificationId, 'issued', noAuditScores());
+    return { kind: 'ok', value: { record, prompt: expectedPhrase } };
   }
 
-  async verifySample(
-    sample: VoiceIdVerificationSample,
+  async submitVerificationRecording(
+    recording: VoiceIdVerificationRecording,
   ): Promise<VoiceIdServiceResult<VoiceIdVerificationResult>> {
-    const verification = await this.dependencies.verificationStore.getByVerificationId(sample.verificationId);
+    const verification = await this.dependencies.verificationStore.getByVerificationId(
+      recording.verificationId,
+    );
     if (verification === null) {
-      return { kind: 'error', error: { kind: 'missing_verification', message: 'verification does not exist' } };
+      return {
+        kind: 'error',
+        error: { kind: 'missing_verification', message: 'verification does not exist' },
+      };
+    }
+    if (
+      verification.userId !== recording.userId ||
+      verification.enrollmentId !== recording.enrollmentId
+    ) {
+      return {
+        kind: 'error',
+        error: { kind: 'identity_mismatch', message: 'verification identity does not match' },
+      };
+    }
+    if (verification.state === 'analyzing') {
+      if (this.isExpired(verification.analysisExpiresAt)) {
+        return await this.expireVerificationAnalysis(verification);
+      }
+      return {
+        kind: 'error',
+        error: { kind: 'invalid_state', message: 'verification capture is being analyzed' },
+      };
     }
     if (verification.state !== 'issued') {
-      return { kind: 'error', error: { kind: 'invalid_state', message: 'verification is already completed' } };
+      return {
+        kind: 'error',
+        error: { kind: 'invalid_state', message: 'verification capture is already completed' },
+      };
     }
     if (this.isExpired(verification.expiresAt)) {
-      const expired: Extract<VoiceIdVerificationRecord, { state: 'expired' }> = {
-        ...verification,
-        state: 'expired',
-        completedAt: this.now(),
+      const expired = buildExpiredVerificationRecord(verification, this.now());
+      const consumed = await this.dependencies.verificationStore.expireIssued(expired);
+      if (!consumed) {
+        return lifecycleConflict('verification challenge was consumed concurrently');
+      }
+      return {
+        kind: 'error',
+        error: { kind: 'expired', message: 'verification challenge expired' },
       };
-      await this.dependencies.verificationStore.save(expired);
-      return { kind: 'error', error: { kind: 'expired', message: 'verification prompt expired' } };
-    }
-    if (verification.attemptCount >= this.dependencies.config.maxVerificationAttempts) {
-      return { kind: 'error', error: { kind: 'too_many_attempts', message: 'too many verification attempts' } };
     }
 
-    const enrollment = await this.dependencies.enrollmentStore.getByEnrollmentId(sample.enrollmentId);
+    const enrollment = await this.dependencies.enrollmentStore.getByEnrollmentId(
+      recording.enrollmentId,
+    );
     if (enrollment === null || enrollment.state !== 'enrolled') {
-      return { kind: 'error', error: { kind: 'missing_enrollment', message: 'active enrollment does not exist' } };
+      return {
+        kind: 'error',
+        error: { kind: 'missing_enrollment', message: 'active enrollment does not exist' },
+      };
     }
 
-    const phrase = await this.matchPhrase({
-      audio: sample.audio,
-      expectedPhrase: verification.expectedPhrase,
-      spokenPhrase: sample.spokenPhrase,
+    const analysis = buildVerificationAnalysisClaim(
+      verification,
+      this.now(),
+      this.futureIso(this.dependencies.config.verificationAnalysisTtlMs),
+    );
+    const claimed = await this.dependencies.verificationStore.claimIssued(analysis);
+    if (!claimed) {
+      return lifecycleConflict('verification challenge was claimed concurrently');
+    }
+
+    const phrase = await this.matchPhrase(recording.audio, analysis.expectedPhrase);
+    if (this.isExpired(analysis.analysisExpiresAt)) {
+      return await this.expireVerificationAnalysis(analysis);
+    }
+    const speakerVerification = await this.verifySpeaker(recording.audio, enrollment);
+    if (this.isExpired(analysis.analysisExpiresAt)) {
+      return await this.expireVerificationAnalysis(analysis);
+    }
+    const checks: VoiceIdVerificationChecks = {
+      phrase,
+      quality: speakerVerification.quality,
+      speaker: speakerVerification.speaker,
+    };
+    const completedAt = this.now();
+    const result = buildVerificationResult({
+      verification: analysis,
+      enrollment,
+      checks,
+      completedAt,
     });
-    let speakerVerification: VoiceIdSpeakerVerification;
+    const completedRecord = buildCompletedVerificationRecord(analysis, completedAt, result);
+    const consumed = await this.dependencies.verificationStore.completeAnalysis(completedRecord);
+    if (!consumed) {
+      return lifecycleConflict('verification challenge was consumed concurrently');
+    }
+    this.emitAudit(
+      'verification_completed',
+      enrollment,
+      recording.verificationId,
+      result.kind,
+      verificationAuditScoreBands(checks),
+    );
+    return { kind: 'ok', value: result };
+  }
+
+  private async rejectPendingEnrollment(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }>,
+    reason: Extract<VoiceIdEnrollmentRecord, { state: 'failed' }>['failureReason'],
+  ): Promise<VoiceIdServiceResult<SubmitEnrollmentRecordingResult>> {
+    const failed = buildFailedEnrollmentRecord(record, reason, this.now());
+    const completed = await this.dependencies.enrollmentStore.failPending(failed);
+    if (!completed) {
+      return lifecycleConflict('enrollment recording was consumed concurrently');
+    }
+    this.emitAudit('enrollment_failed', failed, null, 'failed', noAuditScores());
+    return { kind: 'ok', value: { kind: 'rejected', record: failed, reason } };
+  }
+
+  private async rejectEnrollmentAnalysis(
+    record: Extract<VoiceIdEnrollmentRecord, { state: 'analyzing_continuous_recording' }>,
+    reason: Extract<VoiceIdEnrollmentRecord, { state: 'failed' }>['failureReason'],
+  ): Promise<VoiceIdServiceResult<SubmitEnrollmentRecordingResult>> {
+    const failed = buildFailedEnrollmentRecord(record, reason, this.now());
+    const completed = await this.dependencies.enrollmentStore.completeAnalysis(failed);
+    if (!completed) {
+      return lifecycleConflict('enrollment analysis was completed concurrently');
+    }
+    this.emitAudit('enrollment_failed', failed, null, 'failed', noAuditScores());
+    return { kind: 'ok', value: { kind: 'rejected', record: failed, reason } };
+  }
+
+  private async expireVerificationAnalysis(
+    record: Extract<VoiceIdVerificationRecord, { state: 'analyzing' }>,
+  ): Promise<VoiceIdServiceResult<VoiceIdVerificationResult>> {
+    const failed = buildFailedVerificationAnalysisRecord(record, this.now());
+    const completed = await this.dependencies.verificationStore.completeAnalysis(failed);
+    if (!completed) {
+      return lifecycleConflict('verification analysis recovery raced another request');
+    }
+    return {
+      kind: 'error',
+      error: { kind: 'expired', message: 'verification analysis lease expired' },
+    };
+  }
+
+  private async buildEnrollmentTemplate(
+    audio: VoiceIdAudioInput,
+    expectedPromptCount: number,
+  ): Promise<VoiceIdEnrollmentTemplateBuildResult | null> {
     try {
-      speakerVerification = await this.dependencies.verifier.verifySpeaker({
-        audio: sample.audio,
+      return await this.dependencies.verifier.buildEnrollmentTemplate({
+        audio,
+        expectedPromptCount,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async matchPhrase(
+    audio: VoiceIdAudioInput,
+    expectedPhrase: VoiceIdPromptPhrase,
+  ): Promise<VoiceIdPhraseMatchResult> {
+    try {
+      return await this.dependencies.transcriptProvider.matchPhrase({ audio, expectedPhrase });
+    } catch {
+      return {
+        kind: 'uncertain',
+        reason: 'transcript_unavailable',
+        expectedNormalized: normalizePromptPhrase(expectedPhrase),
+        spokenNormalized: '',
+        confidence: 0,
+      };
+    }
+  }
+
+  private async verifySpeaker(
+    audio: VoiceIdAudioInput,
+    enrollment: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>,
+  ): Promise<VoiceIdSpeakerVerification> {
+    try {
+      return await this.dependencies.verifier.verifySpeaker({
+        audio,
         threshold: this.dependencies.config.speakerScoreThreshold,
         template: {
           encryptedTemplate: enrollment.encryptedTemplate,
@@ -435,97 +593,27 @@ export class VoiceIdService {
           thresholdVersion: enrollment.thresholdVersion,
         },
       });
-    } catch (error) {
-      return this.verifierUnavailable('speaker verification', error);
+    } catch {
+      return unavailableSpeakerVerification(audio, this.dependencies.config);
     }
-    const checks = {
-      phrase,
-      quality: speakerVerification.quality,
-      speaker: speakerVerification.speaker,
-    };
-    const result = buildVerificationResult({
-      verificationId: sample.verificationId,
-      enrollment,
-      checks,
-    });
-    const completedAt = this.now();
-    const completedRecord = buildCompletedVerificationRecord({
-      record: verification,
-      completedAt,
-      result,
-    });
-
-    await this.dependencies.verificationStore.save(completedRecord);
-    this.dependencies.emitAuditEvent(
-      this.audit(
-        'verification_completed',
-        enrollment,
-        sample.verificationId,
-        result.kind,
-        verificationAuditScoreBands(checks),
-      ),
-    );
-
-    return { kind: 'ok', value: result };
   }
 
-  async authorizeOwnerPresence(
-    input: AuthorizeOwnerPresenceInput,
-  ): Promise<VoiceIdServiceResult<AuthorizeOwnerPresenceResult>> {
-    const record = await this.dependencies.verificationStore.getByVerificationId(input.verificationId);
-    if (record === null) {
-      return { kind: 'error', error: { kind: 'missing_verification', message: 'verification does not exist' } };
-    }
-    if (record.state === 'issued') {
-      return { kind: 'error', error: { kind: 'invalid_state', message: 'verification is not completed' } };
-    }
-
-    const liveness = evaluateVoiceIdAudioLiveness({
-      audio: input.audio,
-      context: input.context,
-      policy: input.policy,
-    });
-    const ownerPresence = buildVoiceIdOwnerPresenceResult({
-      record,
-      liveness,
-    });
-    const decision = authorizeVoiceIdOwnerPresence({
-      ownerPresence,
-      intentDigest: input.intentDigest,
-      useCase: input.useCase,
-      now: this.dependencies.now(),
-    });
-    this.dependencies.emitAuditEvent(this.ownerPresenceAudit(record, input.policyVersion, decision));
-    if (decision.kind === 'accepted' && record.state === 'accepted') {
-      await this.dependencies.verificationStore.save({
-        ...record,
-        ownerPresenceEvidence: {
-          kind: 'consumed' as const,
-          consumedAt: this.now(),
-        },
-      });
-    }
-
-    return { kind: 'ok', value: { liveness, ownerPresence, decision } };
-  }
-
-  private ownerPresenceAudit(
-    record: Exclude<VoiceIdVerificationRecord, { state: 'issued' }>,
-    policyVersion: VoiceIdPolicyVersion,
-    decision: VoiceIdAuthPolicyDecision,
-  ): VoiceIdOwnerPresenceAuditEvent {
-    return {
-      kind: 'owner_presence_authorized',
+  private emitAudit(
+    kind: VoiceIdLifecycleAuditEvent['kind'],
+    record: VoiceIdEnrollmentRecord,
+    verificationId: VoiceIdVerificationId | null,
+    resultKind: VoiceIdAuditResultKind,
+    scoreBands: VoiceIdAuditScoreBands,
+  ): void {
+    this.dependencies.emitAuditEvent({
+      kind,
       userId: record.userId,
       enrollmentId: record.enrollmentId,
-      verificationId: record.verificationId,
-      resultKind: decision.kind === 'accepted' ? 'accepted' : 'rejected',
-      scoreBands: { kind: 'none' },
+      verificationId,
+      resultKind,
+      scoreBands,
       at: this.now(),
-      policyVersion,
-      decisionKind: decision.kind,
-      decisionReason: decision.kind === 'rejected' ? decision.reason : null,
-    };
+    });
   }
 
   private now(): IsoDateTime {
@@ -539,115 +627,33 @@ export class VoiceIdService {
   private isExpired(expiresAt: IsoDateTime): boolean {
     return Date.parse(expiresAt) <= this.dependencies.now().getTime();
   }
-
-  private audit(
-    kind: VoiceIdLifecycleAuditEvent['kind'],
-    record: VoiceIdEnrollmentRecord,
-    verificationId: VoiceIdVerificationId | null,
-    resultKind: VoiceIdAuditResultKind,
-    scoreBands: VoiceIdAuditScoreBands,
-  ): VoiceIdLifecycleAuditEvent {
-    return {
-      kind,
-      userId: record.userId,
-      enrollmentId: record.enrollmentId,
-      verificationId,
-      resultKind,
-      scoreBands,
-      at: this.now(),
-    };
-  }
-
-  private async matchPhrase(input: {
-    audio: VoiceIdAudioInput;
-    expectedPhrase: VoiceIdPromptPhrase;
-    spokenPhrase: VoiceIdPromptPhrase;
-  }): Promise<VoiceIdVerificationChecks['phrase']> {
-    try {
-      return await this.dependencies.transcriptProvider.matchPhrase(input);
-    } catch {
-      return {
-        kind: 'uncertain',
-        reason: 'transcript_unavailable',
-        expectedNormalized: normalizePromptPhrase(input.expectedPhrase),
-        spokenNormalized: normalizePromptPhrase(input.spokenPhrase),
-        confidence: 0,
-      };
-    }
-  }
-
-  private verifierUnavailable(operation: string, error: unknown): VoiceIdServiceResult<never> {
-    return {
-      kind: 'error',
-      error: {
-        kind: 'verifier_unavailable',
-        message: `VoiceID verifier unavailable during ${operation}: ${errorMessage(error)}`,
-      },
-    };
-  }
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
-function noAuditScores(): VoiceIdAuditScoreBands {
-  return { kind: 'none' };
-}
-
-function enrollmentSampleAuditScoreBands(quality: VoiceIdAudioQualityResult): VoiceIdAuditScoreBands {
-  return {
-    kind: 'enrollment_sample',
-    qualitySignal: quality.kind === 'accepted' ? auditScoreBand(quality.signalScore) : 'none',
-  };
-}
-
-function verificationAuditScoreBands(checks: VoiceIdVerificationChecks): VoiceIdAuditScoreBands {
-  return {
-    kind: 'verification',
-    phraseConfidence: auditScoreBand(checks.phrase.confidence),
-    speakerScore: auditScoreBand(checks.speaker.score),
-    speakerThreshold: auditScoreBand(checks.speaker.threshold),
-    qualitySignal: checks.quality.kind === 'accepted' ? auditScoreBand(checks.quality.signalScore) : 'none',
-  };
-}
-
-function auditScoreBand(score: number): VoiceIdAuditScoreBand {
-  if (score < 0.25) {
-    return 'very_low';
-  }
-  if (score < 0.5) {
-    return 'low';
-  }
-  if (score < 0.75) {
-    return 'medium';
-  }
-  return 'high';
-}
-
-export function defaultVoiceIdServiceConfig(input: {
-  speakerScoreThreshold?: number;
-} = {}): VoiceIdServiceConfig {
+export function defaultVoiceIdServiceConfig(
+  input: {
+    speakerScoreThreshold?: number;
+  } = {},
+): VoiceIdServiceConfig {
   return {
     enrollmentPromptTtlMs: 10 * 60 * 1000,
     verificationPromptTtlMs: 2 * 60 * 1000,
-    maxEnrollmentSampleAttempts: 6,
-    maxVerificationAttempts: 2,
-    requiredAcceptedEnrollmentSamples: 3,
+    enrollmentAnalysisTtlMs: 60 * 1000,
+    verificationAnalysisTtlMs: 30 * 1000,
+    minimumEnrollmentCaptureMs: 12_000,
+    targetEnrollmentCaptureMs: 18_000,
+    maximumEnrollmentCaptureMs: 30_000,
     speakerScoreThreshold: input.speakerScoreThreshold ?? voiceIdFakeSpeakerScoreThreshold,
-    promptSetId: parsePromptSetId('voiceid-mvp-prompts-v1'),
-    modelVersion: parseModelVersion('fake-voiceid-model-v1'),
-    thresholdVersion: parseThresholdVersion('fake-threshold-v1'),
+    promptSetId: parsePromptSetId('voiceid-continuous-prompts-v1'),
+    modelVersion: parseModelVersion('voiceid-e0-research-model-v1'),
+    thresholdVersion: parseThresholdVersion('voiceid-e0-research-threshold-v1'),
+    enrollmentPrompts: defaultEnrollmentPrompts,
+    verificationPromptBases: defaultVerificationPromptBases,
   };
 }
 
 export function makeDemoAudioInput(input: {
   durationMs: number;
   bytes?: Uint8Array;
-  speakerLabel?: string;
 }): VoiceIdAudioInput {
   const bytes = input.bytes ?? new Uint8Array([1, 2, 3, 4]);
   return buildAudioInput(bytes, {
@@ -658,122 +664,365 @@ export function makeDemoAudioInput(input: {
     byteLength: bytes.byteLength,
     capturedAt: nowIsoDateTime(),
     recorder: 'test',
-    fixtureBehavior: {
-      kind: 'speaker_label',
-      speakerLabel: input.speakerLabel ?? 'owner',
-    },
   });
 }
 
-export function buildEnrollmentSample(input: {
-  userId: string;
-  enrollmentId: string;
-  expectedPhrase: string;
-  spokenPhrase: string;
-  attemptNumber: number;
-  audio: VoiceIdAudioInput;
-}): VoiceIdEnrollmentSample {
+function buildEnrollmentAnalysisClaim(
+  record: Extract<VoiceIdEnrollmentRecord, { state: 'pending_continuous_recording' }>,
+  analysisStartedAt: IsoDateTime,
+  analysisExpiresAt: IsoDateTime,
+): Extract<VoiceIdEnrollmentRecord, { state: 'analyzing_continuous_recording' }> {
   return {
-    userId: parseUserId(input.userId),
-    enrollmentId: parseEnrollmentId(input.enrollmentId),
-    expectedPhrase: parsePromptPhrase(input.expectedPhrase),
-    spokenPhrase: parsePromptPhrase(input.spokenPhrase),
-    attemptNumber: input.attemptNumber,
-    audio: input.audio,
+    state: 'analyzing_continuous_recording',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    promptSetId: record.promptSetId,
+    promptSequence: record.promptSequence,
+    modelVersion: record.modelVersion,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    minimumCaptureMs: record.minimumCaptureMs,
+    targetCaptureMs: record.targetCaptureMs,
+    maximumCaptureMs: record.maximumCaptureMs,
+    analysisStartedAt,
+    analysisExpiresAt,
+  };
+}
+
+function buildFailedEnrollmentRecord(
+  record: Extract<VoiceIdEnrollmentRecord, {
+    state: 'pending_continuous_recording' | 'analyzing_continuous_recording';
+  }>,
+  failureReason: Extract<VoiceIdEnrollmentRecord, { state: 'failed' }>['failureReason'],
+  failedAt: IsoDateTime,
+): Extract<VoiceIdEnrollmentRecord, { state: 'failed' }> {
+  return {
+    state: 'failed',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    promptSetId: record.promptSetId,
+    modelVersion: record.modelVersion,
+    createdAt: record.createdAt,
+    failedAt,
+    failureReason,
+  };
+}
+
+function buildVerificationAnalysisClaim(
+  record: Extract<VoiceIdVerificationRecord, { state: 'issued' }>,
+  analysisStartedAt: IsoDateTime,
+  analysisExpiresAt: IsoDateTime,
+): Extract<VoiceIdVerificationRecord, { state: 'analyzing' }> {
+  return {
+    state: 'analyzing',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    verificationId: record.verificationId,
+    expectedPhrase: record.expectedPhrase,
+    challengeNonce: record.challengeNonce,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    analysisStartedAt,
+    analysisExpiresAt,
+  };
+}
+
+function buildFailedVerificationAnalysisRecord(
+  record: Extract<VoiceIdVerificationRecord, { state: 'analyzing' }>,
+  completedAt: IsoDateTime,
+): Extract<VoiceIdVerificationRecord, { state: 'analysis_failed' }> {
+  return {
+    state: 'analysis_failed',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    verificationId: record.verificationId,
+    expectedPhrase: record.expectedPhrase,
+    challengeNonce: record.challengeNonce,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    analysisStartedAt: record.analysisStartedAt,
+    analysisExpiresAt: record.analysisExpiresAt,
+    completedAt,
+    failureReason: 'analysis_timeout',
+  };
+}
+
+function buildVerificationPrompt(
+  nonce: VoiceIdChallengeNonce,
+  promptBases: readonly VoiceIdPromptPhrase[],
+): VoiceIdPromptPhrase {
+  if (promptBases.length === 0) {
+    throw new Error('verification prompt bases must not be empty');
+  }
+  const selector = nonce.charCodeAt(nonce.length - 1) % promptBases.length;
+  const base = promptBases[selector];
+  const randomFragment = nonce.slice(-6).split('').join(' ');
+  return parsePromptPhrase(`${base}. ${randomFragment}`);
+}
+
+function unavailableSpeakerVerification(
+  audio: VoiceIdAudioInput,
+  config: VoiceIdServiceConfig,
+): VoiceIdSpeakerVerification {
+  return {
+    quality: {
+      kind: 'uncertain',
+      reason: 'verifier_unavailable',
+      durationMs: audio.metadata.durationMs,
+    },
+    speaker: {
+      kind: 'uncertain',
+      reason: 'verifier_unavailable',
+      score: 0,
+      threshold: config.speakerScoreThreshold,
+      modelVersion: config.modelVersion,
+      thresholdVersion: config.thresholdVersion,
+    },
   };
 }
 
 function buildVerificationResult(input: {
-  verificationId: VoiceIdVerificationId;
+  verification: Extract<VoiceIdVerificationRecord, { state: 'analyzing' }>;
   enrollment: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>;
   checks: VoiceIdVerificationChecks;
+  completedAt: IsoDateTime;
 }): VoiceIdVerificationResult {
   if (input.checks.quality.kind === 'rejected') {
-    return {
-      kind: 'rejected',
-      verificationId: input.verificationId,
-      reason: 'low_audio_quality',
-      checks: input.checks,
-    };
+    return rejectedVerification(
+      input.verification.verificationId,
+      'low_audio_quality',
+      input.checks,
+    );
   }
   if (input.checks.quality.kind === 'uncertain') {
-    return {
-      kind: 'uncertain',
-      verificationId: input.verificationId,
-      reason: input.checks.quality.reason === 'too_short' ? 'too_short' : 'noisy_audio',
-      checks: input.checks,
-    };
+    return uncertainVerification(
+      input.verification.verificationId,
+      uncertainReasonFromQuality(input.checks.quality),
+      input.checks,
+    );
   }
   if (input.checks.phrase.kind === 'rejected') {
-    return {
-      kind: 'rejected',
-      verificationId: input.verificationId,
-      reason: 'phrase_mismatch',
-      checks: input.checks,
-    };
+    return rejectedVerification(input.verification.verificationId, 'phrase_mismatch', input.checks);
   }
   if (input.checks.speaker.kind === 'rejected') {
-    return {
-      kind: 'rejected',
-      verificationId: input.verificationId,
-      reason: 'speaker_mismatch',
-      checks: input.checks,
-    };
+    return rejectedVerification(
+      input.verification.verificationId,
+      'speaker_mismatch',
+      input.checks,
+    );
   }
   if (input.checks.phrase.kind === 'uncertain' || input.checks.speaker.kind === 'uncertain') {
-    return {
-      kind: 'uncertain',
-      verificationId: input.verificationId,
-      reason: 'model_low_confidence',
-      checks: input.checks,
-    };
+    return uncertainVerification(
+      input.verification.verificationId,
+      uncertainReasonFromChecks(input.checks),
+      input.checks,
+    );
   }
 
   return {
-    kind: 'accepted',
-    enrollmentId: input.enrollment.enrollmentId,
-    verificationId: input.verificationId,
-    templateVersion: input.enrollment.templateVersion,
-    checks: {
-      phrase: input.checks.phrase,
-      speaker: input.checks.speaker,
-      quality: input.checks.quality,
+    kind: 'evidence_observed',
+    evidence: {
+      kind: 'experimental_browser_evidence',
+      verificationId: input.verification.verificationId,
+      enrollmentId: input.enrollment.enrollmentId,
+      observedChecks: {
+        phrase: input.checks.phrase,
+        speaker: input.checks.speaker,
+        quality: input.checks.quality,
+        captureFreshness: {
+          kind: 'browser_timing_observation',
+          challengeIssuedAt: input.verification.createdAt,
+          captureReceivedAt: input.completedAt,
+          serverVerifiedFreshness: false,
+        },
+        pad: { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' },
+        captureProfile: {
+          kind: 'ordinary_browser_capture',
+          source: 'media_recorder',
+          microphoneIntegrity: 'unverified',
+        },
+      },
+      modelVersion: input.enrollment.modelVersion,
+      thresholdVersion: input.enrollment.thresholdVersion,
+      completedAt: input.completedAt,
     },
-    modelVersion: input.enrollment.modelVersion,
-    thresholdVersion: input.enrollment.thresholdVersion,
   };
 }
 
-function buildCompletedVerificationRecord(input: {
-  record: Extract<VoiceIdVerificationRecord, { state: 'issued' }>;
-  completedAt: IsoDateTime;
-  result: VoiceIdVerificationResult;
-}): Exclude<VoiceIdVerificationRecord, { state: 'issued' | 'expired' }> {
-  if (input.result.kind === 'accepted') {
-    return {
-      ...input.record,
-      state: 'accepted',
-      completedAt: input.completedAt,
-      result: input.result,
-      ownerPresenceEvidence: { kind: 'available' },
-    };
+function uncertainReasonFromChecks(
+  checks: VoiceIdVerificationChecks,
+): Extract<VoiceIdVerificationResult, { kind: 'uncertain' }>['reason'] {
+  if (checks.phrase.kind === 'uncertain') {
+    const reason = checks.phrase.reason;
+    switch (reason) {
+      case 'transcript_unavailable':
+        return 'verifier_unavailable';
+      case 'transcript_low_confidence':
+        return 'model_low_confidence';
+      default:
+        return assertNever(reason);
+    }
   }
-  if (input.result.kind === 'rejected') {
-    return {
-      ...input.record,
-      state: 'rejected',
-      completedAt: input.completedAt,
-      result: input.result,
-    };
+  if (checks.speaker.kind === 'uncertain') {
+    const reason = checks.speaker.reason;
+    switch (reason) {
+      case 'verifier_unavailable':
+        return 'verifier_unavailable';
+      case 'low_audio_quality':
+        return 'noisy_audio';
+      case 'model_low_confidence':
+        return 'model_low_confidence';
+      default:
+        return assertNever(reason);
+    }
   }
+  throw new Error('uncertain verification requires an uncertain check');
+}
+
+function uncertainReasonFromQuality(
+  quality: Extract<VoiceIdAudioQualityResult, { kind: 'uncertain' }>,
+): Extract<VoiceIdVerificationResult, { kind: 'uncertain' }>['reason'] {
+  switch (quality.reason) {
+    case 'too_short':
+      return 'too_short';
+    case 'verifier_unavailable':
+      return 'verifier_unavailable';
+    case 'noisy_audio':
+    case 'model_low_confidence':
+    case 'undecodable_audio':
+    case 'clipped_audio':
+    case 'low_speech':
+    case 'low_snr':
+    case 'metadata_mismatch':
+      return 'noisy_audio';
+    default:
+      return assertNever(quality.reason);
+  }
+}
+
+function rejectedVerification(
+  verificationId: VoiceIdVerificationId,
+  reason: Extract<VoiceIdVerificationResult, { kind: 'rejected' }>['reason'],
+  checks: VoiceIdVerificationChecks,
+): Extract<VoiceIdVerificationResult, { kind: 'rejected' }> {
+  return { kind: 'rejected', verificationId, reason, checks };
+}
+
+function uncertainVerification(
+  verificationId: VoiceIdVerificationId,
+  reason: Extract<VoiceIdVerificationResult, { kind: 'uncertain' }>['reason'],
+  checks: VoiceIdVerificationChecks,
+): Extract<VoiceIdVerificationResult, { kind: 'uncertain' }> {
+  return { kind: 'uncertain', verificationId, reason, checks };
+}
+
+function buildCompletedVerificationRecord(
+  record: Extract<VoiceIdVerificationRecord, { state: 'analyzing' }>,
+  completedAt: IsoDateTime,
+  result: VoiceIdVerificationResult,
+): Extract<VoiceIdVerificationRecord, { state: 'evidence_observed' | 'rejected' | 'uncertain' }> {
+  switch (result.kind) {
+    case 'evidence_observed':
+      return {
+        state: 'evidence_observed',
+        userId: record.userId,
+        enrollmentId: record.enrollmentId,
+        verificationId: record.verificationId,
+        expectedPhrase: record.expectedPhrase,
+        challengeNonce: record.challengeNonce,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        analysisStartedAt: record.analysisStartedAt,
+        analysisExpiresAt: record.analysisExpiresAt,
+        completedAt,
+        result,
+      };
+    case 'rejected':
+      return {
+        state: 'rejected',
+        userId: record.userId,
+        enrollmentId: record.enrollmentId,
+        verificationId: record.verificationId,
+        expectedPhrase: record.expectedPhrase,
+        challengeNonce: record.challengeNonce,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        analysisStartedAt: record.analysisStartedAt,
+        analysisExpiresAt: record.analysisExpiresAt,
+        completedAt,
+        result,
+      };
+    case 'uncertain':
+      return {
+        state: 'uncertain',
+        userId: record.userId,
+        enrollmentId: record.enrollmentId,
+        verificationId: record.verificationId,
+        expectedPhrase: record.expectedPhrase,
+        challengeNonce: record.challengeNonce,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        analysisStartedAt: record.analysisStartedAt,
+        analysisExpiresAt: record.analysisExpiresAt,
+        completedAt,
+        result,
+      };
+    default:
+      return assertNever(result);
+  }
+}
+
+function buildExpiredVerificationRecord(
+  record: Extract<VoiceIdVerificationRecord, { state: 'issued' }>,
+  completedAt: IsoDateTime,
+): Extract<VoiceIdVerificationRecord, { state: 'expired' }> {
   return {
-    ...input.record,
-    state: 'uncertain',
-    completedAt: input.completedAt,
-    result: input.result,
+    state: 'expired',
+    userId: record.userId,
+    enrollmentId: record.enrollmentId,
+    verificationId: record.verificationId,
+    expectedPhrase: record.expectedPhrase,
+    challengeNonce: record.challengeNonce,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    completedAt,
   };
 }
 
-function earlierIso(left: IsoDateTime, right: IsoDateTime): IsoDateTime {
-  return Date.parse(left) <= Date.parse(right) ? left : right;
+function enrollmentAuditScoreBands(
+  quality: Extract<VoiceIdAudioQualityResult, { kind: 'accepted' }>,
+  phrase: Extract<VoiceIdPhraseMatchResult, { kind: 'accepted' }>,
+): VoiceIdAuditScoreBands {
+  return {
+    kind: 'enrollment_recording',
+    qualitySignal: auditScoreBand(quality.signalScore),
+    phraseConfidence: auditScoreBand(phrase.confidence),
+  };
+}
+
+function verificationAuditScoreBands(checks: VoiceIdVerificationChecks): VoiceIdAuditScoreBands {
+  return {
+    kind: 'verification',
+    phraseConfidence: auditScoreBand(checks.phrase.confidence),
+    speakerScore: auditScoreBand(checks.speaker.score),
+    speakerThreshold: auditScoreBand(checks.speaker.threshold),
+    qualitySignal:
+      checks.quality.kind === 'accepted' ? auditScoreBand(checks.quality.signalScore) : 'none',
+  };
+}
+
+function auditScoreBand(score: number): VoiceIdAuditScoreBand {
+  if (!Number.isFinite(score)) return 'none';
+  if (score < 0.25) return 'very_low';
+  if (score < 0.5) return 'low';
+  if (score < 0.75) return 'medium';
+  return 'high';
+}
+
+function noAuditScores(): Extract<VoiceIdAuditScoreBands, { kind: 'none' }> {
+  return { kind: 'none' };
+}
+
+function lifecycleConflict<TValue>(message: string): VoiceIdServiceResult<TValue> {
+  return { kind: 'error', error: { kind: 'invalid_state', message } };
 }

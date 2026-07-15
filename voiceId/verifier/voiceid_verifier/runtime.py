@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Sequence
 
 from voiceid_verifier.audio_decode import AudioDecodeError, DecodedAudio, decode_audio_bytes
 from voiceid_verifier.audio_quality import AudioQuality, evaluate_audio_quality, evaluate_decoded_audio_quality
@@ -22,6 +22,14 @@ from voiceid_verifier.embeddings import (
 
 
 VerifierBackend = Literal["placeholder", "ecapa"]
+
+
+@dataclass(frozen=True)
+class AudioClaims:
+    mime_type: str
+    duration_ms: int
+    sample_rate_hz: int | None
+    channel_count: int | None
 
 
 @dataclass(frozen=True)
@@ -55,18 +63,14 @@ class PlaceholderVerifierRuntime:
     def __init__(self) -> None:
         self.extractor = PlaceholderEmbeddingExtractor()
 
-    def evaluate_audio(self, audio_bytes: bytes, duration_ms: int) -> EvaluatedAudio:
-        return EvaluatedAudio(
-            quality=evaluate_audio_quality(audio_bytes, duration_ms),
-            decoded_audio=None,
-        )
+    def evaluate_audio(self, audio_bytes: bytes, claims: AudioClaims) -> EvaluatedAudio:
+        return evaluate_decoded_input(audio_bytes=audio_bytes, claims=claims)
 
-    def extract_embedding(self, audio_bytes: bytes, decoded_audio: DecodedAudio | None) -> ExtractedSpeakerEmbedding:
-        return self.extractor.extract(audio_bytes)
+    def extract_verification_embedding(self, decoded_audio: DecodedAudio) -> ExtractedSpeakerEmbedding:
+        return self.extractor.extract_decoded(decoded_audio.samples)
 
-    def zero_embedding(self) -> ExtractedSpeakerEmbedding:
-        return self.extractor.zero_embedding()
-
+    def extract_window_embedding(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        return self.extractor.extract_decoded(samples)
 
 class SpeechBrainEcapaVerifierRuntime:
     def __init__(
@@ -85,39 +89,78 @@ class SpeechBrainEcapaVerifierRuntime:
             embedding_dimensions=self.extractor.embedding_dimensions,
         )
 
-    def evaluate_audio(self, audio_bytes: bytes, duration_ms: int) -> EvaluatedAudio:
-        if len(audio_bytes) == 0:
-            return EvaluatedAudio(
-                quality=evaluate_audio_quality(audio_bytes, duration_ms),
-                decoded_audio=None,
-            )
-        try:
-            decoded_audio = decode_audio_bytes(audio_bytes)
-        except AudioDecodeError:
-            return EvaluatedAudio(
-                quality=AudioQuality(kind="uncertain", duration_ms=duration_ms, reason="undecodable_audio"),
-                decoded_audio=None,
-            )
+    def evaluate_audio(self, audio_bytes: bytes, claims: AudioClaims) -> EvaluatedAudio:
+        return evaluate_decoded_input(audio_bytes=audio_bytes, claims=claims)
+
+    def extract_verification_embedding(self, decoded_audio: DecodedAudio) -> ExtractedSpeakerEmbedding:
+        return self.extractor.extract_decoded(decoded_audio.samples)
+
+    def extract_window_embedding(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        return self.extractor.extract_decoded(samples)
+
+VerifierRuntime = PlaceholderVerifierRuntime | SpeechBrainEcapaVerifierRuntime
+
+
+def evaluate_decoded_input(*, audio_bytes: bytes, claims: AudioClaims) -> EvaluatedAudio:
+    if len(audio_bytes) == 0:
         return EvaluatedAudio(
-            quality=evaluate_decoded_audio_quality(
-                audio_bytes,
-                duration_ms,
-                samples=decoded_audio.samples,
-                sample_rate_hz=decoded_audio.sample_rate_hz,
+            quality=evaluate_audio_quality(audio_bytes, claims.duration_ms),
+            decoded_audio=None,
+        )
+    try:
+        decoded_audio = decode_audio_bytes(audio_bytes)
+    except AudioDecodeError:
+        return EvaluatedAudio(
+            quality=AudioQuality(
+                kind="uncertain",
+                duration_ms=claims.duration_ms,
+                reason="undecodable_audio",
+            ),
+            decoded_audio=None,
+        )
+    if audio_claims_mismatch(claims=claims, decoded_audio=decoded_audio):
+        return EvaluatedAudio(
+            quality=AudioQuality(
+                kind="uncertain",
+                duration_ms=decoded_audio.decoded_duration_ms,
+                reason="metadata_mismatch",
             ),
             decoded_audio=decoded_audio,
         )
+    return EvaluatedAudio(
+        quality=evaluate_decoded_audio_quality(
+            audio_bytes,
+            decoded_audio.decoded_duration_ms,
+            samples=decoded_audio.samples,
+            sample_rate_hz=decoded_audio.sample_rate_hz,
+        ),
+        decoded_audio=decoded_audio,
+    )
 
-    def extract_embedding(self, audio_bytes: bytes, decoded_audio: DecodedAudio | None) -> ExtractedSpeakerEmbedding:
-        if decoded_audio is None:
-            decoded_audio = decode_audio_bytes(audio_bytes)
-        return self.extractor.extract_decoded(decoded_audio.samples)
 
-    def zero_embedding(self) -> ExtractedSpeakerEmbedding:
-        return self.extractor.zero_embedding()
+def audio_claims_mismatch(*, claims: AudioClaims, decoded_audio: DecodedAudio) -> bool:
+    duration_tolerance_ms = max(750, round(decoded_audio.source_duration_ms * 0.1))
+    if abs(claims.duration_ms - decoded_audio.source_duration_ms) > duration_tolerance_ms:
+        return True
+    if claims.sample_rate_hz is not None and claims.sample_rate_hz != decoded_audio.source_sample_rate_hz:
+        return True
+    if claims.channel_count is not None and claims.channel_count != decoded_audio.source_channel_count:
+        return True
+    return decoded_audio.source_codec not in allowed_codecs_for_mime_type(claims.mime_type)
 
 
-VerifierRuntime = PlaceholderVerifierRuntime | SpeechBrainEcapaVerifierRuntime
+def allowed_codecs_for_mime_type(mime_type: str) -> frozenset[str]:
+    normalized = mime_type.split(";", maxsplit=1)[0].strip().lower()
+    codecs_by_mime_type = {
+        "audio/webm": frozenset({"opus", "vorbis"}),
+        "audio/ogg": frozenset({"opus", "vorbis", "flac"}),
+        "audio/wav": frozenset({"pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le"}),
+        "audio/wave": frozenset({"pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le"}),
+        "audio/x-wav": frozenset({"pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le"}),
+        "audio/mp4": frozenset({"aac", "alac", "opus"}),
+        "audio/mpeg": frozenset({"mp3"}),
+    }
+    return codecs_by_mime_type.get(normalized, frozenset())
 
 
 def create_verifier_runtime_from_env() -> VerifierRuntime:

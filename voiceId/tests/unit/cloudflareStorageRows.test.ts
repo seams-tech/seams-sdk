@@ -1,190 +1,130 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  nowIsoDateTime,
+  parseEnrollmentId,
+  parseModelVersion,
+  parsePromptPhrase,
+  parsePromptSetId,
+  parseThresholdVersion,
+  parseUserId,
+  parseVerificationId,
+  parseVoiceIdChallengeNonce,
+  type VoiceIdEnrollmentRecord,
+  type VoiceIdVerificationRecord,
+} from '../../shared/src/index.ts';
+import {
   parseCloudflareEnrollmentRow,
   parseCloudflareVerificationRow,
   serializeEnrollmentRecordForCloudflare,
   serializeVerificationRecordForCloudflare,
-} from '../../server/src/store/CloudflareVoiceIdStorageRows.ts';
-import {
-  parseEncryptedBytes,
-  parseEnrollmentId,
-  parseIsoDateTime,
-  parseModelVersion,
-  parsePromptPhrase,
-  parsePromptSetId,
-  parseTemplateVersion,
-  parseThresholdVersion,
-  parseUserId,
-  parseVerificationId,
-  parseVoiceIdIntentDigest,
-  parseVoiceIdIntentNonce,
-  type VoiceIdEnrollmentRecord,
-  type VoiceIdVerificationRecord,
-  type VoiceIdVerificationResult,
-} from '../../shared/src/index.ts';
+} from '../../server/src/index.ts';
 
-test('Cloudflare enrollment rows keep pending templates impossible', () => {
-  const pending = makePendingEnrollment();
+const now = nowIsoDateTime(new Date('2026-07-13T00:00:00.000Z'));
+const pending = pendingEnrollment();
+
+test('Cloudflare rows round-trip continuous enrollment records', () => {
   const row = serializeEnrollmentRecordForCloudflare(pending);
-
-  assert.equal(row.state, 'pending');
-  assert.equal(row.encryptedTemplate, null);
-  assert.equal(row.templateVersion, null);
-  assert.equal(row.thresholdVersion, null);
+  assert.equal(row.schemaVersion, 4);
+  assert.equal(row.recordKind, 'enrollment');
   assert.deepEqual(parseCloudflareEnrollmentRow(row), pending);
+});
 
+test('Cloudflare rows round-trip E0 verification evidence', () => {
+  const record = observedVerification();
+  const row = serializeVerificationRecordForCloudflare(record);
+  assert.equal(row.schemaVersion, 4);
+  assert.equal(row.recordKind, 'verification');
+  assert.deepEqual(parseCloudflareVerificationRow(row), record);
+});
+
+test('Cloudflare rows reject index and payload mismatches', () => {
+  const row = serializeEnrollmentRecordForCloudflare(pending);
   assert.throws(
-    () => parseCloudflareEnrollmentRow({ ...row, encryptedTemplate: 'ciphertext' }),
-    /pending\.encryptedTemplate must be null/,
+    () => parseCloudflareEnrollmentRow({ ...row, userId: 'different-user' }),
+    /indexes do not match/,
   );
 });
 
-test('Cloudflare enrollment rows require encrypted templates for enrolled records', () => {
-  const enrolled = makeEnrolledEnrollment();
-  const row = serializeEnrollmentRecordForCloudflare(enrolled);
-
-  assert.equal(row.state, 'enrolled');
-  assert.equal(row.encryptedTemplate, 'ciphertext');
-  assert.equal(row.templateVersion, 'template-v1');
-  assert.equal(row.thresholdVersion, 'threshold-v1');
-  assert.deepEqual(parseCloudflareEnrollmentRow(row), enrolled);
-
-  assert.throws(
-    () => parseCloudflareEnrollmentRow({ ...row, encryptedTemplate: null }),
-    /encryptedTemplate must be a non-empty string/,
-  );
-});
-
-test('Cloudflare verification rows do not store raw capture payloads', () => {
-  const issued = makeIssuedVerification();
-  const row = serializeVerificationRecordForCloudflare(issued);
-
-  assert.equal(row.state, 'issued');
-  assert.equal(row.resultJson, null);
-  assert.equal(row.completedAt, null);
-  assert.equal(row.ownerPresenceEvidenceKind, null);
-  assert.equal(row.ownerPresenceConsumedAt, null);
-  assert.equal(Object.hasOwn(row, 'audio'), false);
-  assert.equal(Object.hasOwn(row, 'rawAudioBytes'), false);
-  assert.equal(Object.hasOwn(row, 'rawCaptureBytes'), false);
-  assert.deepEqual(parseCloudflareVerificationRow(row), issued);
-
-  assert.throws(
-    () => parseCloudflareVerificationRow({ ...row, rawCaptureBytes: 'base64-capture' }),
-    /must not contain raw capture column rawCaptureBytes/,
-  );
-});
-
-test('Cloudflare verification rows roundtrip completed results', () => {
-  const completed = makeAcceptedVerification();
-  const row = serializeVerificationRecordForCloudflare(completed);
-
-  assert.equal(row.state, 'accepted');
-  assert.equal(row.attemptCount, null);
-  assert.equal(row.ownerPresenceEvidenceKind, 'available');
-  assert.equal(row.ownerPresenceConsumedAt, null);
-  assert.equal(typeof row.resultJson, 'string');
-  assert.deepEqual(parseCloudflareVerificationRow(row), completed);
-
-  assert.throws(
-    () => parseCloudflareVerificationRow({
-      ...row,
-      resultJson: JSON.stringify({ ...completed.result, kind: 'rejected', reason: 'phrase_mismatch' }),
-    }),
-    /accepted verification row requires accepted result/,
-  );
-});
-
-function makePendingEnrollment(): Extract<VoiceIdEnrollmentRecord, { state: 'pending' }> {
+function pendingEnrollment(): VoiceIdEnrollmentRecord {
   return {
-    state: 'pending',
+    state: 'pending_continuous_recording',
     userId: parseUserId('owner'),
-    enrollmentId: parseEnrollmentId('enroll_1'),
-    promptSetId: parsePromptSetId('prompt-v1'),
-    modelVersion: parseModelVersion('model-v1'),
-    createdAt: parseIsoDateTime('2026-06-13T00:00:00.000Z'),
-    expiresAt: parseIsoDateTime('2026-06-13T00:10:00.000Z'),
-    requiredSampleCount: 3,
-    acceptedSampleCount: 1,
-    attemptCount: 2,
+    enrollmentId: parseEnrollmentId('enrollment_1'),
+    promptSetId: parsePromptSetId('prompt_set_1'),
+    promptSequence: [
+      parsePromptPhrase('Copper river carries morning light'),
+      parsePromptPhrase('Seven quiet lanterns cross the harbor'),
+      parsePromptPhrase('Bright cedar branches move in winter'),
+      parsePromptPhrase('A silver compass points toward home'),
+    ],
+    modelVersion: parseModelVersion('model_1'),
+    createdAt: now,
+    expiresAt: now,
+    minimumCaptureMs: 12_000,
+    targetCaptureMs: 18_000,
+    maximumCaptureMs: 30_000,
   };
 }
 
-function makeEnrolledEnrollment(): Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }> {
-  return {
-    state: 'enrolled',
-    userId: parseUserId('owner'),
-    enrollmentId: parseEnrollmentId('enroll_1'),
-    promptSetId: parsePromptSetId('prompt-v1'),
-    modelVersion: parseModelVersion('model-v1'),
-    templateVersion: parseTemplateVersion('template-v1'),
-    thresholdVersion: parseThresholdVersion('threshold-v1'),
-    encryptedTemplate: parseEncryptedBytes('ciphertext'),
-    createdAt: parseIsoDateTime('2026-06-13T00:00:00.000Z'),
-    enrolledAt: parseIsoDateTime('2026-06-13T00:05:00.000Z'),
+function observedVerification(): VoiceIdVerificationRecord {
+  const verificationId = parseVerificationId('verification_1');
+  const enrollmentId = parseEnrollmentId('enrollment_1');
+  const modelVersion = parseModelVersion('model_1');
+  const thresholdVersion = parseThresholdVersion('threshold_1');
+  const phrase = {
+    kind: 'accepted' as const,
+    expectedNormalized: 'river lantern a b c d e f',
+    spokenNormalized: 'river lantern a b c d e f',
+    confidence: 0.98,
   };
-}
-
-function makeIssuedVerification(): Extract<VoiceIdVerificationRecord, { state: 'issued' }> {
-  return {
-    state: 'issued',
-    userId: parseUserId('owner'),
-    enrollmentId: parseEnrollmentId('enroll_1'),
-    verificationId: parseVerificationId('verify_1'),
-    expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    intentDigest: parseVoiceIdIntentDigest('A'.repeat(43)),
-    intentExpiresAt: parseIsoDateTime('2026-06-13T00:07:00.000Z'),
-    intentNonce: parseVoiceIdIntentNonce('nonce_123456'),
-    createdAt: parseIsoDateTime('2026-06-13T00:06:00.000Z'),
-    expiresAt: parseIsoDateTime('2026-06-13T00:07:00.000Z'),
-    attemptCount: 0,
+  const speaker = {
+    kind: 'accepted' as const,
+    score: 0.94,
+    threshold: 0.82,
+    modelVersion,
+    thresholdVersion,
   };
-}
-
-function makeAcceptedVerification(): Extract<VoiceIdVerificationRecord, { state: 'accepted' }> {
-  const result: VoiceIdVerificationResult = {
-    kind: 'accepted',
-    enrollmentId: parseEnrollmentId('enroll_1'),
-    verificationId: parseVerificationId('verify_1'),
-    templateVersion: parseTemplateVersion('template-v1'),
-    modelVersion: parseModelVersion('model-v1'),
-    thresholdVersion: parseThresholdVersion('threshold-v1'),
-    checks: {
-      phrase: {
-        kind: 'accepted',
-        expectedNormalized: 'walking on clouds',
-        spokenNormalized: 'walking on clouds',
-        confidence: 0.98,
-      },
-      speaker: {
-        kind: 'accepted',
-        score: 0.93,
-        threshold: 0.82,
-        modelVersion: parseModelVersion('model-v1'),
-        thresholdVersion: parseThresholdVersion('threshold-v1'),
-      },
-      quality: {
-        kind: 'accepted',
-        durationMs: 1800,
-        signalScore: 0.94,
+  const quality = { kind: 'accepted' as const, durationMs: 4_000, signalScore: 0.94 };
+  return {
+    state: 'evidence_observed',
+    userId: parseUserId('owner'),
+    enrollmentId,
+    verificationId,
+    expectedPhrase: parsePromptPhrase('River lantern a b c d e f'),
+    challengeNonce: parseVoiceIdChallengeNonce('challenge_nonce_abcdef'),
+    createdAt: now,
+    expiresAt: now,
+    analysisStartedAt: now,
+    analysisExpiresAt: now,
+    completedAt: now,
+    result: {
+      kind: 'evidence_observed',
+      evidence: {
+        kind: 'experimental_browser_evidence',
+        verificationId,
+        enrollmentId,
+        observedChecks: {
+          phrase,
+          speaker,
+          quality,
+          captureFreshness: {
+            kind: 'browser_timing_observation',
+            challengeIssuedAt: now,
+            captureReceivedAt: now,
+            serverVerifiedFreshness: false,
+          },
+          pad: { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' },
+          captureProfile: {
+            kind: 'ordinary_browser_capture',
+            source: 'media_recorder',
+            microphoneIntegrity: 'unverified',
+          },
+        },
+        modelVersion,
+        thresholdVersion,
+        completedAt: now,
       },
     },
-  };
-
-  return {
-    state: 'accepted',
-    userId: parseUserId('owner'),
-    enrollmentId: parseEnrollmentId('enroll_1'),
-    verificationId: parseVerificationId('verify_1'),
-    expectedPhrase: parsePromptPhrase('Walking on clouds'),
-    intentDigest: parseVoiceIdIntentDigest('A'.repeat(43)),
-    intentExpiresAt: parseIsoDateTime('2026-06-13T00:07:00.000Z'),
-    intentNonce: parseVoiceIdIntentNonce('nonce_123456'),
-    createdAt: parseIsoDateTime('2026-06-13T00:06:00.000Z'),
-    expiresAt: parseIsoDateTime('2026-06-13T00:07:00.000Z'),
-    completedAt: parseIsoDateTime('2026-06-13T00:06:20.000Z'),
-    result,
-    ownerPresenceEvidence: { kind: 'available' },
   };
 }

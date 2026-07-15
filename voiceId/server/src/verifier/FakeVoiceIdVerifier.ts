@@ -7,51 +7,54 @@ import {
 } from '../../../shared/src/ids.ts';
 import type { VoiceIdSpeakerMatchResult } from '../../../shared/src/results.ts';
 import type {
-  VoiceIdEnrollmentEmbedding,
+  VoiceIdEnrollmentSpeechWindow,
   VoiceIdSpeakerVerification,
-  VoiceIdTemplateBuildResult,
+  VoiceIdEnrollmentTemplateBuildResult,
   VoiceIdVerifier,
 } from './VoiceIdVerifier.ts';
 
 const modelVersion = parseModelVersion('fake-voiceid-model-v1');
 const templateVersion = parseTemplateVersion('fake-template-v1');
 const thresholdVersion = parseThresholdVersion('fake-threshold-v1');
+const noisyAudioMarker = 0xf1;
+const lowScoreAudioMarker = 0xf2;
+const differentSpeakerAudioMarker = 0xf3;
+const decoderFailureAudioMarker = 0xf5;
+const duplicateWindowsAudioMarker = 0xf6;
+const interruptedCaptureAudioMarker = 0xf7;
 
 export class FakeVoiceIdVerifier implements VoiceIdVerifier {
-  async extractEnrollmentEmbedding(input: {
+  async buildEnrollmentTemplate(input: {
     audio: VoiceIdAudioInput;
-  }): Promise<VoiceIdEnrollmentEmbedding> {
+    expectedPromptCount: number;
+  }): Promise<VoiceIdEnrollmentTemplateBuildResult> {
+    const rejection = fakeEnrollmentRejection(input.audio);
+    if (rejection !== null) return rejection;
     const quality = evaluateAudioQuality(input.audio);
-    const speakerLabel = getSpeakerLabel(input.audio);
-
-    return {
-      vector: deterministicVector(speakerLabel),
-      speakerLabel,
-      quality,
-    };
-  }
-
-  async buildTemplate(input: {
-    embeddings: readonly VoiceIdEnrollmentEmbedding[];
-  }): Promise<VoiceIdTemplateBuildResult> {
-    const accepted = input.embeddings.filter((embedding) => embedding.quality.kind === 'accepted');
-    if (accepted.length === 0) {
-      return { kind: 'rejected', reason: 'insufficient_quality' };
+    if (quality.kind !== 'accepted') {
+      return {
+        kind: 'rejected',
+        reason: quality.reason === 'empty_audio' ? 'decoder_failure' : 'insufficient_speech',
+      };
     }
-
-    const [first] = accepted;
-    const allSameSpeaker = accepted.every((embedding) => embedding.speakerLabel === first.speakerLabel);
-    if (!allSameSpeaker) {
-      return { kind: 'rejected', reason: 'inconsistent_speaker' };
-    }
+    const windows = fakeSpeechWindows(input.audio.metadata.durationMs, input.expectedPromptCount);
 
     return {
       kind: 'built',
-      encryptedTemplate: parseEncryptedBytes(`fake-template:${first.speakerLabel}`),
+      encryptedTemplate: parseEncryptedBytes('fake-template:owner'),
       modelVersion,
       templateVersion,
       thresholdVersion,
-      speakerLabel: first.speakerLabel,
+      quality,
+      analysis: {
+        analysisVersion: 'fake-continuous-analysis-v1',
+        sourceCodec: 'fake-audio',
+        sourceSampleRateHz: 16_000,
+        sourceChannelCount: 1,
+        decodedDurationMs: input.audio.metadata.durationMs,
+        usableSpeechMs: windows.reduce(sumSpeechWindowDuration, 0),
+        windows,
+      },
     };
   }
 
@@ -67,6 +70,50 @@ export class FakeVoiceIdVerifier implements VoiceIdVerifier {
       speaker,
     };
   }
+}
+
+function fakeEnrollmentRejection(
+  audio: VoiceIdAudioInput,
+): Extract<VoiceIdEnrollmentTemplateBuildResult, { kind: 'rejected' }> | null {
+  switch (audio.bytes[0]) {
+    case decoderFailureAudioMarker:
+      return { kind: 'rejected', reason: 'decoder_failure' };
+    case interruptedCaptureAudioMarker:
+      return { kind: 'rejected', reason: 'interrupted_capture' };
+    case duplicateWindowsAudioMarker:
+      return { kind: 'rejected', reason: 'duplicate_windows' };
+    case differentSpeakerAudioMarker:
+      return { kind: 'rejected', reason: 'multi_speaker' };
+    case noisyAudioMarker:
+      return { kind: 'rejected', reason: 'low_snr' };
+    default:
+      return null;
+  }
+}
+
+function fakeSpeechWindows(
+  durationMs: number,
+  expectedPromptCount: number,
+): readonly VoiceIdEnrollmentSpeechWindow[] {
+  const windowDurationMs = Math.floor(durationMs / expectedPromptCount);
+  const windows: VoiceIdEnrollmentSpeechWindow[] = [];
+  for (let index = 0; index < expectedPromptCount; index += 1) {
+    const startMs = index * windowDurationMs;
+    const endMs = index === expectedPromptCount - 1 ? durationMs : startMs + windowDurationMs;
+    windows.push({
+      index,
+      startMs,
+      endMs,
+      speechMs: Math.max(0, endMs - startMs - 250),
+      signalScore: 0.94 - index * 0.01,
+      templateWeight: 1 / expectedPromptCount,
+    });
+  }
+  return windows;
+}
+
+function sumSpeechWindowDuration(total: number, window: VoiceIdEnrollmentSpeechWindow): number {
+  return total + window.speechMs;
 }
 
 function evaluateAudioQuality(audio: VoiceIdAudioInput): VoiceIdAudioQualityResult {
@@ -86,7 +133,7 @@ function evaluateAudioQuality(audio: VoiceIdAudioInput): VoiceIdAudioQualityResu
     };
   }
 
-  if (audio.metadata.fixtureBehavior.kind === 'noisy') {
+  if (audio.bytes[0] === noisyAudioMarker) {
     return {
       kind: 'uncertain',
       reason: 'noisy_audio',
@@ -138,31 +185,12 @@ function matchSpeaker(input: {
 }
 
 function getSpeakerScore(audio: VoiceIdAudioInput): number {
-  if (audio.metadata.fixtureBehavior.kind === 'low_score') {
+  if (audio.bytes[0] === lowScoreAudioMarker) {
     return 0.72;
   }
-  if (audio.metadata.fixtureBehavior.kind === 'speaker_label') {
-    return audio.metadata.fixtureBehavior.speakerLabel === 'owner' ? 0.94 : 0.31;
+  if (audio.bytes[0] === differentSpeakerAudioMarker) {
+    return 0.31;
   }
 
   return 0.9;
-}
-
-function getSpeakerLabel(audio: VoiceIdAudioInput): string {
-  if (audio.metadata.fixtureBehavior.kind === 'speaker_label') {
-    return audio.metadata.fixtureBehavior.speakerLabel;
-  }
-  if (audio.metadata.fixtureBehavior.kind === 'low_score') {
-    return audio.metadata.fixtureBehavior.speakerLabel;
-  }
-  if (audio.metadata.fixtureBehavior.kind === 'noisy') {
-    return audio.metadata.fixtureBehavior.speakerLabel;
-  }
-
-  return 'owner';
-}
-
-function deterministicVector(seed: string): readonly number[] {
-  const base = Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return [base % 7, base % 11, base % 13, base % 17].map((value) => value / 17);
 }

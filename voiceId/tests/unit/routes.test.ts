@@ -1,511 +1,171 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  FakeTranscriptProvider,
-  FakeVoiceIdVerifier,
-  InMemoryVoiceIdEnrollmentStore,
-  InMemoryVoiceIdVerificationStore,
-  VoiceIdService,
-  createDefaultVoiceIdService,
-  defaultVoiceIdServiceConfig,
-} from '../../server/src/index.ts';
-import { createVoiceIdFetchHandler } from '../../server/src/routes.ts';
 import { nowIsoDateTime } from '../../shared/src/index.ts';
+import { createDefaultVoiceIdService, createVoiceIdFetchHandler } from '../../server/src/index.ts';
 
-test('route handler completes enrollment start', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const response = await postJson(handler, '/voice-id/enrollment/start', {
-    userId: 'owner',
-    phrase: 'Walking on clouds',
-  });
-
+test('health identifies the route surface as signing-ineligible E0 evidence', async () => {
+  const handler = createHandler();
+  const response = await handler(new Request('http://localhost/voice-id/health'));
+  const body = (await response.json()) as Record<string, unknown>;
   assert.equal(response.status, 200);
-  const body = (await response.json()) as { kind: string; value: { record: { state: string } } };
-  assert.equal(body.kind, 'ok');
-  assert.equal(body.value.record.state, 'pending');
+  assert.equal(body.evidenceTier, 'experimental_browser_evidence');
+  assert.equal(body.signingEligible, false);
+  assert.deepEqual(body.routes, [
+    'POST /voice-id/evidence/enrollment/start',
+    'POST /voice-id/evidence/enrollment/recording',
+    'POST /voice-id/evidence/enrollment/disable',
+    'POST /voice-id/evidence/verification/start',
+    'POST /voice-id/evidence/verification/recording',
+  ]);
 });
 
-test('route handler completes valid verification flow', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const enrollmentStart = await readOkResponse<{
-    record: { enrollmentId: string };
-  }>(
-    await postJson(handler, '/voice-id/enrollment/start', {
+test('route flow uses one enrollment recording and returns E0 evidence', async () => {
+  const handler = createHandler();
+  const enrollment = await startEnrollment(handler);
+  const enrolled = await postAudio(
+    handler,
+    '/voice-id/evidence/enrollment/recording',
+    {
       userId: 'owner',
-      phrase: 'Walking on clouds',
-    }),
-  );
-
-  for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
-    const sampleResponse = await postSample(handler, '/voice-id/enrollment/sample', {
-      fields: {
-        userId: 'owner',
-        enrollmentId: enrollmentStart.record.enrollmentId,
-        expectedPhrase: 'Walking on clouds',
-        spokenPhrase: 'Walking on clouds',
-        attemptNumber,
-      },
-      speakerLabel: 'owner',
-    });
-    assert.equal(sampleResponse.status, 200);
-  }
-
-  const finalized = await readOkResponse<{ state: string }>(
-    await postJson(handler, '/voice-id/enrollment/finalize', {
-      userId: 'owner',
-      enrollmentId: enrollmentStart.record.enrollmentId,
-    }),
-  );
-  assert.equal(finalized.state, 'enrolled');
-
-  const verificationStart = await readOkResponse<{
-    record: { verificationId: string };
-  }>(
-    await postJson(handler, '/voice-id/verification/start', {
-      userId: 'owner',
-      enrollmentId: enrollmentStart.record.enrollmentId,
-      phrase: 'Walking on clouds',
-      ...testIntentBindingBody(),
-    }),
-  );
-
-  const verificationResponse = await postSample(handler, '/voice-id/verification/sample', {
-    fields: {
-      userId: 'owner',
-      enrollmentId: enrollmentStart.record.enrollmentId,
-      verificationId: verificationStart.record.verificationId,
-      expectedPhrase: 'Walking on clouds',
-      spokenPhrase: 'Walking on clouds',
-      attemptNumber: 1,
+      enrollmentId: enrollment.enrollmentId,
     },
-    speakerLabel: 'owner',
+    18_000,
+  );
+  assert.equal(enrolled.kind, 'enrolled');
+  assert.equal('encryptedTemplate' in enrolled, false);
+  assert.equal('record' in enrolled, false);
+
+  const verificationResponse = await postJson(handler, '/voice-id/evidence/verification/start', {
+    userId: 'owner',
+    enrollmentId: enrollment.enrollmentId,
   });
+  const verification = await readOkValue(verificationResponse);
+  assert.equal(typeof verification.prompt, 'string');
 
-  const verificationResult = await readOkResponse<{ kind: string }>(verificationResponse);
-  assert.equal(verificationResult.kind, 'accepted');
+  const completedResponse = await postAudio(
+    handler,
+    '/voice-id/evidence/verification/recording',
+    {
+      userId: 'owner',
+      enrollmentId: enrollment.enrollmentId,
+      verificationId: requireString(verification.verificationId, 'verificationId'),
+    },
+    4_000,
+  );
+  assert.equal(completedResponse.kind, 'evidence_observed');
+  const evidence = requireObject(completedResponse.evidence, 'evidence');
+  assert.equal(evidence.kind, 'experimental_browser_evidence');
+  assert.equal('signingAuthorization' in evidence, false);
 });
 
-test('route handler authorizes owner presence for accepted verification and liveness', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const completed = await completeAcceptedVerification(handler);
-
-  const response = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId),
-  );
-
-  const result = await readOkResponse<{
-    liveness: { kind: string };
-    ownerPresence: { kind: string; intentDigest: string; liveness: { kind: string } };
-    decision: { kind: string; evidence: { useCase: string; intentDigest: string } };
-  }>(response);
-  assert.equal(result.liveness.kind, 'accepted');
-  assert.equal(result.ownerPresence.kind, 'accepted');
-  assert.equal(result.ownerPresence.intentDigest, 'A'.repeat(43));
-  assert.equal(result.decision.kind, 'accepted');
-  assert.equal(result.decision.evidence.useCase, 'wallet_mpc_signing');
-});
-
-test('route handler rejects owner-presence authorization for mismatched intent digest', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const completed = await completeAcceptedVerification(handler);
-
-  const response = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId, {
-      intentDigest: 'B'.repeat(43),
-    }),
-  );
-
-  const result = await readOkResponse<{
-    ownerPresence: { kind: string; intentDigest: string };
-    decision: { kind: string; reason: string; detail: string; retryable: boolean };
-  }>(response);
-  assert.equal(result.ownerPresence.kind, 'accepted');
-  assert.equal(result.ownerPresence.intentDigest, 'A'.repeat(43));
-  assert.equal(result.decision.kind, 'rejected');
-  assert.equal(result.decision.reason, 'intent_mismatch');
-  assert.equal(result.decision.detail, 'intent_mismatch');
-  assert.equal(result.decision.retryable, false);
-});
-
-test('route handler rejects replayed owner-presence evidence', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const completed = await completeAcceptedVerification(handler);
-
-  const first = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId),
-  );
-  assert.equal((await readOkResponse<{ decision: { kind: string } }>(first)).decision.kind, 'accepted');
-
-  const replayed = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId),
-  );
-
-  const result = await readOkResponse<{
-    ownerPresence: { kind: string; reason: string };
-    decision: { kind: string; reason: string; detail: string; retryable: boolean };
-  }>(replayed);
-  assert.equal(result.ownerPresence.kind, 'rejected');
-  assert.equal(result.ownerPresence.reason, 'evidence_replayed');
-  assert.equal(result.decision.kind, 'rejected');
-  assert.equal(result.decision.reason, 'owner_presence_rejected');
-  assert.equal(result.decision.detail, 'evidence_replayed');
-  assert.equal(result.decision.retryable, false);
-});
-
-test('route handler rejects expired owner-presence evidence', async () => {
-  let now = new Date('2026-06-13T00:00:00.000Z');
-  const handler = createVoiceIdFetchHandler(new VoiceIdService({
-    enrollmentStore: new InMemoryVoiceIdEnrollmentStore(),
-    verificationStore: new InMemoryVoiceIdVerificationStore(),
-    verifier: new FakeVoiceIdVerifier(),
-    transcriptProvider: new FakeTranscriptProvider(),
-    config: defaultVoiceIdServiceConfig(),
-    now: () => now,
-    emitAuditEvent: () => {},
-  }));
-  const completed = await completeAcceptedVerification(handler, {
-    intentDigest: 'A'.repeat(43),
-    intentExpiresAt: '2026-06-13T00:01:00.000Z',
-    intentNonce: 'nonce_123456',
+test('route boundary rejects unexpected security-sensitive fields', async () => {
+  const handler = createHandler();
+  const response = await postJson(handler, '/voice-id/evidence/enrollment/start', {
+    userId: 'owner',
+    clientSelectedPrompt: 'untrusted prompt',
   });
-
-  now = new Date('2026-06-13T00:02:00.000Z');
-  const response = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId),
-  );
-
-  const result = await readOkResponse<{
-    ownerPresence: { kind: string; expiresAt: string };
-    decision: { kind: string; reason: string; detail: string; retryable: boolean };
-  }>(response);
-  assert.equal(result.ownerPresence.kind, 'accepted');
-  assert.equal(result.ownerPresence.expiresAt, '2026-06-13T00:01:00.000Z');
-  assert.equal(result.decision.kind, 'rejected');
-  assert.equal(result.decision.reason, 'owner_presence_expired');
-  assert.equal(result.decision.detail, 'expired');
-  assert.equal(result.decision.retryable, true);
+  assert.equal(response.kind, 'error');
+  const error = requireObject(response.error, 'error');
+  assert.equal(error.kind, 'malformed_request');
 });
 
-test('route handler returns uncertain when audio source is unattested', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const completed = await completeAcceptedVerification(handler);
-
-  const response = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId, {
-      audio: {
-        ...acceptedAudioLivenessSignals(),
-        captureSource: { kind: 'unknown_microphone', reason: 'robot_source_unattested' },
-      },
+test('CORS reflects only an explicitly allowed origin', async () => {
+  const handler = createHandler(['https://wallet.example.test']);
+  const allowed = await handler(
+    new Request('http://localhost/voice-id/health', {
+      headers: { Origin: 'https://wallet.example.test' },
     }),
   );
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.headers.get('Access-Control-Allow-Origin'), 'https://wallet.example.test');
 
-  const result = await readOkResponse<{
-    liveness: { kind: string; reason: string };
-    ownerPresence: { kind: string; reason: string };
-    decision: { kind: string; reason: string; detail: string; retryable: boolean };
-  }>(response);
-  assert.equal(result.liveness.kind, 'uncertain');
-  assert.equal(result.liveness.reason, 'liveness_unavailable');
-  assert.equal(result.ownerPresence.kind, 'uncertain');
-  assert.equal(result.ownerPresence.reason, 'liveness_unavailable');
-  assert.equal(result.decision.kind, 'rejected');
-  assert.equal(result.decision.reason, 'owner_presence_uncertain');
-  assert.equal(result.decision.detail, 'liveness_unavailable');
-  assert.equal(result.decision.retryable, true);
+  const forbidden = await handler(
+    new Request('http://localhost/voice-id/health', {
+      headers: { Origin: 'https://attacker.example.test' },
+    }),
+  );
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.headers.get('Access-Control-Allow-Origin'), null);
 });
 
-test('route handler rejects accepted verification when audio replay risk is high', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const completed = await completeAcceptedVerification(handler);
-
-  const response = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(completed.verificationId, {
-      audio: {
-        ...acceptedAudioLivenessSignals(),
-        replayRisk: { kind: 'high', reason: 'reused_capture_hash' },
-      },
+function createHandler(allowedOrigins: readonly string[] = []) {
+  return createVoiceIdFetchHandler(
+    createDefaultVoiceIdService({
+      verifierMode: 'fake',
+      transcriptProviderMode: 'fake',
     }),
+    { allowedOrigins },
   );
+}
 
-  const result = await readOkResponse<{
-    liveness: { kind: string; reason: string };
-    ownerPresence: { kind: string; reason: string };
-    decision: { kind: string; reason: string; detail: string; retryable: boolean };
-  }>(response);
-  assert.equal(result.liveness.kind, 'rejected');
-  assert.equal(result.liveness.reason, 'replay_detected');
-  assert.equal(result.ownerPresence.kind, 'rejected');
-  assert.equal(result.ownerPresence.reason, 'liveness_mismatch');
-  assert.equal(result.decision.kind, 'rejected');
-  assert.equal(result.decision.reason, 'owner_presence_rejected');
-  assert.equal(result.decision.detail, 'liveness_mismatch');
-  assert.equal(result.decision.retryable, true);
-});
-
-test('route handler requires completed verification before owner-presence authorization', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const enrollmentStart = await completeEnrollment(handler);
-  const verificationStart = await readOkResponse<{
-    record: { verificationId: string };
-  }>(
-    await postJson(handler, '/voice-id/verification/start', {
-      userId: 'owner',
-      enrollmentId: enrollmentStart.enrollmentId,
-      phrase: 'Walking on clouds',
-      ...testIntentBindingBody(),
-    }),
-  );
-
-  const response = await postJson(
-    handler,
-    '/voice-id/owner-presence/authorize',
-    buildOwnerPresenceAuthorizationBody(verificationStart.record.verificationId),
-  );
-
-  assert.equal(response.status, 409);
-  const body = (await response.json()) as { kind: string; error: { kind: string; message: string } };
-  assert.equal(body.kind, 'error');
-  assert.equal(body.error.kind, 'invalid_state');
-  assert.equal(body.error.message, 'verification is not completed');
-});
-
-test('route handler rejects malformed metadata', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const form = new FormData();
-  form.set('audio', new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' }));
-  form.set('metadata', JSON.stringify({ bad: true }));
-  form.set(
-    'fields',
-    JSON.stringify({
-      userId: 'owner',
-      enrollmentId: 'enroll_test',
-      expectedPhrase: 'Walking on clouds',
-      spokenPhrase: 'Walking on clouds',
-      attemptNumber: 1,
-    }),
-  );
-
-  const response = await handler(
-    new Request('http://localhost/voice-id/enrollment/sample', {
-      method: 'POST',
-      body: form,
-    }),
-  );
-
-  assert.equal(response.status, 400);
-});
-
-test('route handler rejects missing audio blob', async () => {
-  const handler = createVoiceIdFetchHandler(createDefaultVoiceIdService());
-  const form = new FormData();
-  form.set('metadata', JSON.stringify(buildTestMetadata(3)));
-  form.set(
-    'fields',
-    JSON.stringify({
-      userId: 'owner',
-      enrollmentId: 'enroll_test',
-      expectedPhrase: 'Walking on clouds',
-      spokenPhrase: 'Walking on clouds',
-      attemptNumber: 1,
-    }),
-  );
-
-  const response = await handler(
-    new Request('http://localhost/voice-id/enrollment/sample', {
-      method: 'POST',
-      body: form,
-    }),
-  );
-
-  assert.equal(response.status, 400);
-});
+async function startEnrollment(handler: ReturnType<typeof createHandler>) {
+  const response = await postJson(handler, '/voice-id/evidence/enrollment/start', {
+    userId: 'owner',
+  });
+  const value = requireObject(response.value, 'enrollment response');
+  const prompts = value.promptSequence;
+  assert.equal(Array.isArray(prompts) ? prompts.length : 0, 4);
+  return { enrollmentId: requireString(value.enrollmentId, 'enrollmentId') };
+}
 
 async function postJson(
-  handler: ReturnType<typeof createVoiceIdFetchHandler>,
+  handler: ReturnType<typeof createHandler>,
   path: string,
   body: Record<string, unknown>,
-): Promise<Response> {
-  return await handler(
+) {
+  const response = await handler(
     new Request(`http://localhost${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
   );
+  return (await response.json()) as Record<string, unknown>;
 }
 
-async function postSample(
-  handler: ReturnType<typeof createVoiceIdFetchHandler>,
+async function postAudio(
+  handler: ReturnType<typeof createHandler>,
   path: string,
-  input: {
-    fields: Record<string, unknown>;
-    speakerLabel: string;
-  },
-): Promise<Response> {
-  const bytes = new Uint8Array([1, 2, 3]);
+  fields: Record<string, unknown>,
+  durationMs: number,
+) {
+  const bytes = new Uint8Array([1, 2, 3, 4]);
   const form = new FormData();
   form.set('audio', new Blob([bytes], { type: 'audio/webm' }));
-  form.set('metadata', JSON.stringify(buildTestMetadata(bytes.byteLength, input.speakerLabel)));
-  form.set('fields', JSON.stringify(input.fields));
-
-  return await handler(
-    new Request(`http://localhost${path}`, {
-      method: 'POST',
-      body: form,
+  form.set(
+    'metadata',
+    JSON.stringify({
+      mimeType: 'audio/webm',
+      durationMs,
+      sampleRate: { kind: 'unknown' },
+      channelCount: { kind: 'unknown' },
+      byteLength: bytes.byteLength,
+      capturedAt: nowIsoDateTime(),
+      recorder: 'test',
     }),
   );
-}
-
-async function completeAcceptedVerification(
-  handler: ReturnType<typeof createVoiceIdFetchHandler>,
-  intentBinding: Record<string, unknown> = testIntentBindingBody(),
-): Promise<{ enrollmentId: string; verificationId: string }> {
-  const enrollment = await completeEnrollment(handler);
-  const verificationStart = await readOkResponse<{
-    record: { verificationId: string };
-  }>(
-    await postJson(handler, '/voice-id/verification/start', {
-      userId: 'owner',
-      enrollmentId: enrollment.enrollmentId,
-      phrase: 'Walking on clouds',
-      ...intentBinding,
-    }),
+  form.set('fields', JSON.stringify(fields));
+  const response = await handler(
+    new Request(`http://localhost${path}`, { method: 'POST', body: form }),
   );
-
-  const verificationResponse = await postSample(handler, '/voice-id/verification/sample', {
-    fields: {
-      userId: 'owner',
-      enrollmentId: enrollment.enrollmentId,
-      verificationId: verificationStart.record.verificationId,
-      expectedPhrase: 'Walking on clouds',
-      spokenPhrase: 'Walking on clouds',
-      attemptNumber: 1,
-    },
-    speakerLabel: 'owner',
-  });
-
-  const verificationResult = await readOkResponse<{ kind: string }>(verificationResponse);
-  assert.equal(verificationResult.kind, 'accepted');
-
-  return {
-    enrollmentId: enrollment.enrollmentId,
-    verificationId: verificationStart.record.verificationId,
-  };
+  return await readOkValue((await response.json()) as Record<string, unknown>);
 }
 
-async function completeEnrollment(
-  handler: ReturnType<typeof createVoiceIdFetchHandler>,
-): Promise<{ enrollmentId: string }> {
-  const enrollmentStart = await readOkResponse<{
-    record: { enrollmentId: string };
-  }>(
-    await postJson(handler, '/voice-id/enrollment/start', {
-      userId: 'owner',
-      phrase: 'Walking on clouds',
-    }),
+async function readOkValue(response: Record<string, unknown>) {
+  assert.equal(response.kind, 'ok');
+  return requireObject(response.value, 'response value');
+}
+
+function requireObject(value: unknown, fieldName: string): Record<string, unknown> {
+  assert.equal(
+    value !== null && typeof value === 'object' && !Array.isArray(value),
+    true,
+    fieldName,
   );
-
-  for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
-    const sampleResponse = await postSample(handler, '/voice-id/enrollment/sample', {
-      fields: {
-        userId: 'owner',
-        enrollmentId: enrollmentStart.record.enrollmentId,
-        expectedPhrase: 'Walking on clouds',
-        spokenPhrase: 'Walking on clouds',
-        attemptNumber,
-      },
-      speakerLabel: 'owner',
-    });
-    assert.equal(sampleResponse.status, 200);
-  }
-
-  const finalized = await readOkResponse<{ state: string }>(
-    await postJson(handler, '/voice-id/enrollment/finalize', {
-      userId: 'owner',
-      enrollmentId: enrollmentStart.record.enrollmentId,
-    }),
-  );
-  assert.equal(finalized.state, 'enrolled');
-
-  return { enrollmentId: enrollmentStart.record.enrollmentId };
+  return value as Record<string, unknown>;
 }
 
-function buildOwnerPresenceAuthorizationBody(
-  verificationId: string,
-  overrides: {
-    audio?: Record<string, unknown>;
-    intentDigest?: string;
-  } = {},
-): Record<string, unknown> {
-  return {
-    verificationId,
-    intentDigest: overrides.intentDigest ?? 'A'.repeat(43),
-    useCase: 'wallet_mpc_signing',
-    policyVersion: 'voiceid-wallet-policy-v1',
-    audio: overrides.audio ?? acceptedAudioLivenessSignals(),
-    context: {
-      kind: 'local_device_context_v1',
-      deviceId: 'reachy-mini-devkit',
-      sidecarId: 'voiceid-sidecar-1',
-      captureStartedAt: '2026-06-13T00:00:00.000Z',
-      evaluatedAt: '2026-06-13T00:00:02.200Z',
-      localPolicyVersion: 'voiceid-liveness-policy-v1',
-    },
-  };
-}
-
-function testIntentBindingBody(): Record<string, unknown> {
-  return {
-    intentDigest: 'A'.repeat(43),
-    intentExpiresAt: '2099-01-01T00:00:00.000Z',
-    intentNonce: 'nonce_123456',
-  };
-}
-
-function acceptedAudioLivenessSignals(): Record<string, unknown> {
-  return {
-    kind: 'audio_liveness_signals_v1',
-    promptOpenedAt: '2026-06-13T00:00:00.000Z',
-    speechStartedAt: '2026-06-13T00:00:00.600Z',
-    speechEndedAt: '2026-06-13T00:00:01.900Z',
-    captureSource: {
-      kind: 'trusted_microphone',
-      deviceId: 'reachy-mic-1',
-    },
-    replayRisk: { kind: 'low' },
-  };
-}
-
-async function readOkResponse<TValue>(response: Response): Promise<TValue> {
-  assert.equal(response.status, 200);
-  const body = (await response.json()) as { kind: string; value: TValue };
-  assert.equal(body.kind, 'ok');
-  return body.value;
-}
-
-export function buildTestMetadata(byteLength: number, speakerLabel = 'owner') {
-  return {
-    mimeType: 'audio/webm',
-    durationMs: 1500,
-    sampleRate: { kind: 'unknown' },
-    channelCount: { kind: 'unknown' },
-    byteLength,
-    capturedAt: nowIsoDateTime(),
-    recorder: 'test',
-    fixtureBehavior: { kind: 'speaker_label', speakerLabel },
-  };
+function requireString(value: unknown, fieldName: string): string {
+  assert.equal(typeof value, 'string', fieldName);
+  return String(value);
 }

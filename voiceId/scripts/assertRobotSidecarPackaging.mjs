@@ -22,8 +22,8 @@ const checks = [
       { name: 'PAD result', pattern: /\bPAD\b/ },
       { name: 'server challenge', pattern: /server challenge/i },
       {
-        name: 'atomic grant reservation',
-        pattern: /atomically reserves|atomic Router grant reservation/i,
+        name: 'evidence authorization separation',
+        pattern: /E0\/E1\/E2 cannot construct wallet signing authorization/i,
       },
       {
         name: 'browser passkey boundary',
@@ -35,8 +35,7 @@ const checks = [
       },
       { name: 'independent robot safety controller', pattern: /independent.*safety controller/is },
       { name: 'raw audio retention boundary', pattern: /Raw audio stays local/ },
-      { name: 'verifier extract endpoint', pattern: /extract-enrollment-embedding/ },
-      { name: 'verifier build endpoint', pattern: /build-template/ },
+      { name: 'atomic verifier enrollment endpoint', pattern: /build-enrollment-template/ },
       { name: 'verifier verify endpoint', pattern: /verify-speaker/ },
       { name: 'Router A/B boundary', pattern: /Router A\/B/ },
       { name: 'SigningWorker boundary', pattern: /SigningWorker/ },

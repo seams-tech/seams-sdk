@@ -34,14 +34,7 @@ export type VoiceIdAudioMetadata = {
   byteLength: number;
   capturedAt: IsoDateTime;
   recorder: string;
-  fixtureBehavior: VoiceIdFixtureBehavior;
 };
-
-export type VoiceIdFixtureBehavior =
-  | { kind: 'none' }
-  | { kind: 'speaker_label'; speakerLabel: string }
-  | { kind: 'low_score'; speakerLabel: string }
-  | { kind: 'noisy'; speakerLabel: string };
 
 export type VoiceIdAudioInput = {
   bytes: Uint8Array;
@@ -65,10 +58,12 @@ export type VoiceIdAudioQualityResult =
         | 'noisy_audio'
         | 'too_short'
         | 'model_low_confidence'
+        | 'verifier_unavailable'
         | 'undecodable_audio'
         | 'clipped_audio'
         | 'low_speech'
-        | 'low_snr';
+        | 'low_snr'
+        | 'metadata_mismatch';
       durationMs: number;
     };
 

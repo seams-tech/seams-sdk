@@ -33,6 +33,7 @@ export async function recordVoiceIdClip(input: {
   stream: MediaStream;
   durationMs: number;
   timeoutMs: number;
+  onRecordingStart?: () => void;
 }): Promise<VoiceIdRecordingResult> {
   const session = startVoiceIdClipRecording({
     stream: input.stream,
@@ -41,6 +42,7 @@ export async function recordVoiceIdClip(input: {
   });
   if (session.kind === 'error') return session;
 
+  input.onRecordingStart?.();
   return await session.stopAfter(input.durationMs);
 }
 
@@ -152,12 +154,7 @@ function stopRecorder(recorder: MediaRecorder): void {
 }
 
 function selectMediaRecorderMimeType(): string | undefined {
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-    'audio/ogg;codecs=opus',
-  ];
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
   if (typeof MediaRecorder.isTypeSupported !== 'function') {
     return undefined;
   }

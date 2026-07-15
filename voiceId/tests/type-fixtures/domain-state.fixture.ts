@@ -1,21 +1,13 @@
 import type {
-  VoiceIdAuthPolicyDecision,
-  VoiceIdEnrollmentSample,
+  VoiceIdAttestedEvidence,
   VoiceIdEnrollmentRecord,
-  VoiceIdEnrollmentState,
-  VoiceIdIntent,
-  VoiceIdWalletPolicyConsumptionRejection,
-  VoiceIdWalletPolicyConsumptionResult,
-  VoiceIdWalletPolicyDecision,
-  VoiceIdWalletPolicyInput,
+  VoiceIdExperimentalBrowserEvidence,
   VoiceIdVerificationRecord,
-  VoiceIdVerificationResult,
 } from '../../shared/src/index.ts';
-import { VoiceIdService } from '../../server/src/VoiceIdService.ts';
 import {
+  nowIsoDateTime,
   parseEncryptedBytes,
   parseEnrollmentId,
-  parseIsoDateTime,
   parseModelVersion,
   parsePromptPhrase,
   parsePromptSetId,
@@ -23,93 +15,111 @@ import {
   parseThresholdVersion,
   parseUserId,
   parseVerificationId,
-  parseVoiceIdIntentDigest,
-  parseVoiceIdIntentDeviceId,
-  parseVoiceIdIntentNonce,
-  parseVoiceIdPaymentRecipient,
-  parseVoiceIdRobotCommandText,
-  parseVoiceIdTokenAmount,
-  parseVoiceIdTokenSymbol,
+  parseVoiceIdChallengeNonce,
 } from '../../shared/src/index.ts';
 
 const userId = parseUserId('owner');
-const enrollmentId = parseEnrollmentId('enroll_1');
-const verificationId = parseVerificationId('verify_1');
+const enrollmentId = parseEnrollmentId('enrollment_1');
+const verificationId = parseVerificationId('verification_1');
+const promptSetId = parsePromptSetId('prompt_set_1');
 const modelVersion = parseModelVersion('model_1');
 const templateVersion = parseTemplateVersion('template_1');
 const thresholdVersion = parseThresholdVersion('threshold_1');
-const promptSetId = parsePromptSetId('prompt_1');
-const isoDateTime = parseIsoDateTime('2026-06-08T00:00:00.000Z');
 const encryptedTemplate = parseEncryptedBytes('ciphertext');
-const intentDigest = parseVoiceIdIntentDigest('A'.repeat(43));
-const intentNonce = parseVoiceIdIntentNonce('nonce_123456');
-declare const acceptedAuthDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'accepted' }>;
-declare const rejectedAuthDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'rejected' }>;
-declare const walletPolicyInput: VoiceIdWalletPolicyInput;
-declare const acceptedWalletPolicyDecision: Extract<VoiceIdWalletPolicyDecision, { kind: 'accepted' }>;
-declare const walletPolicyRejection: VoiceIdWalletPolicyConsumptionRejection;
+const now = nowIsoDateTime(new Date('2026-07-13T00:00:00.000Z'));
+const challengeNonce = parseVoiceIdChallengeNonce('challenge_nonce_123456');
+const promptSequence = [
+  parsePromptPhrase('Copper river carries morning light'),
+  parsePromptPhrase('Seven quiet lanterns cross the harbor'),
+  parsePromptPhrase('Bright cedar branches move in winter'),
+  parsePromptPhrase('A silver compass points toward home'),
+] as const;
 
-const validNotEnrolled: VoiceIdEnrollmentState = {
-  kind: 'not_enrolled',
-  userId,
-};
-
-validNotEnrolled;
-
-// @ts-expect-error enrollmentId is invalid on not_enrolled.
-const invalidNotEnrolled: VoiceIdEnrollmentState = {
-  kind: 'not_enrolled',
-  userId,
-  enrollmentId,
-};
-
-invalidNotEnrolled;
-
-// @ts-expect-error templateVersion is invalid on enrollment_pending.
-const invalidPendingState: VoiceIdEnrollmentState = {
-  kind: 'enrollment_pending',
+const pendingEnrollment: VoiceIdEnrollmentRecord = {
+  state: 'pending_continuous_recording',
   userId,
   enrollmentId,
   promptSetId,
-  requiredSampleCount: 3,
-  acceptedSampleCount: 0,
-  expiresAt: isoDateTime,
-  templateVersion,
-};
-
-invalidPendingState;
-
-// @ts-expect-error disabledAt is invalid on enrolled.
-const invalidEnrolledState: VoiceIdEnrollmentState = {
-  kind: 'enrolled',
-  userId,
-  enrollmentId,
+  promptSequence,
   modelVersion,
-  templateVersion,
-  enrolledAt: isoDateTime,
-  disabledAt: isoDateTime,
+  createdAt: now,
+  expiresAt: now,
+  minimumCaptureMs: 12_000,
+  targetCaptureMs: 18_000,
+  maximumCaptureMs: 30_000,
 };
 
-invalidEnrolledState;
+pendingEnrollment;
 
-// @ts-expect-error encryptedTemplate is invalid on pending enrollment records.
-const invalidPendingRecord: VoiceIdEnrollmentRecord = {
-  state: 'pending',
+const analyzingEnrollment: VoiceIdEnrollmentRecord = {
+  state: 'analyzing_continuous_recording',
   userId,
   enrollmentId,
   promptSetId,
+  promptSequence,
   modelVersion,
-  createdAt: isoDateTime,
-  expiresAt: isoDateTime,
-  requiredSampleCount: 3,
-  acceptedSampleCount: 0,
-  attemptCount: 0,
+  createdAt: now,
+  expiresAt: now,
+  minimumCaptureMs: 12_000,
+  targetCaptureMs: 18_000,
+  maximumCaptureMs: 30_000,
+  analysisStartedAt: now,
+  analysisExpiresAt: now,
+};
+
+analyzingEnrollment;
+
+// @ts-expect-error analyzing enrollment cannot contain template material.
+const invalidAnalyzingEnrollment: VoiceIdEnrollmentRecord = {
+  state: 'analyzing_continuous_recording',
+  userId,
+  enrollmentId,
+  promptSetId,
+  promptSequence,
+  modelVersion,
+  createdAt: now,
+  expiresAt: now,
+  minimumCaptureMs: 12_000,
+  targetCaptureMs: 18_000,
+  maximumCaptureMs: 30_000,
+  analysisStartedAt: now,
+  analysisExpiresAt: now,
   encryptedTemplate,
 };
 
-invalidPendingRecord;
+invalidAnalyzingEnrollment;
 
-const validEnrolledRecord: VoiceIdEnrollmentRecord = {
+// @ts-expect-error an analysis claim cannot be spread directly into enrolled state.
+const invalidEnrolledSpread: VoiceIdEnrollmentRecord = {
+  ...analyzingEnrollment,
+  state: 'enrolled',
+  templateVersion,
+  thresholdVersion,
+  encryptedTemplate,
+  enrolledAt: now,
+};
+
+invalidEnrolledSpread;
+
+// @ts-expect-error pending enrollment cannot contain a template.
+const invalidPendingEnrollment: VoiceIdEnrollmentRecord = {
+  state: 'pending_continuous_recording',
+  userId,
+  enrollmentId,
+  promptSetId,
+  promptSequence,
+  modelVersion,
+  createdAt: now,
+  expiresAt: now,
+  minimumCaptureMs: 12_000,
+  targetCaptureMs: 18_000,
+  maximumCaptureMs: 30_000,
+  encryptedTemplate,
+};
+
+invalidPendingEnrollment;
+
+const enrolled: VoiceIdEnrollmentRecord = {
   state: 'enrolled',
   userId,
   enrollmentId,
@@ -118,240 +128,121 @@ const validEnrolledRecord: VoiceIdEnrollmentRecord = {
   templateVersion,
   thresholdVersion,
   encryptedTemplate,
-  createdAt: isoDateTime,
-  enrolledAt: isoDateTime,
+  createdAt: now,
+  enrolledAt: now,
 };
 
-validEnrolledRecord;
+enrolled;
 
-const invalidIssuedRecord: VoiceIdVerificationRecord = {
+const issued: VoiceIdVerificationRecord = {
   state: 'issued',
   userId,
   enrollmentId,
-  expectedPhrase: parsePromptPhrase('Walking on clouds'),
-  intentDigest,
-  intentExpiresAt: isoDateTime,
-  intentNonce,
   verificationId,
-  createdAt: isoDateTime,
-  expiresAt: isoDateTime,
-  attemptCount: 0,
-  result: {
-    // @ts-expect-error issued verification records cannot contain result data.
-    kind: 'rejected',
-    verificationId,
-    reason: 'phrase_mismatch',
-  },
+  expectedPhrase: parsePromptPhrase('River lantern a b c d e f'),
+  challengeNonce,
+  createdAt: now,
+  expiresAt: now,
 };
 
-invalidIssuedRecord;
+issued;
 
-const invalidRejectedRecordWithOwnerPresenceEvidence: VoiceIdVerificationRecord = {
-  state: 'rejected',
+const analyzingVerification: VoiceIdVerificationRecord = {
+  state: 'analyzing',
   userId,
   enrollmentId,
-  expectedPhrase: parsePromptPhrase('Walking on clouds'),
-  intentDigest,
-  intentExpiresAt: isoDateTime,
-  intentNonce,
   verificationId,
-  createdAt: isoDateTime,
-  expiresAt: isoDateTime,
-  completedAt: isoDateTime,
-  result: {
-    kind: 'rejected',
-    verificationId,
-    reason: 'speaker_mismatch',
-    checks: {
-      phrase: {
-        kind: 'accepted',
-        expectedNormalized: 'walking on clouds',
-        spokenNormalized: 'walking on clouds',
-        confidence: 0.9,
-      },
-      speaker: {
-        kind: 'rejected',
-        reason: 'speaker_mismatch',
-        score: 0.1,
-        threshold: 0.8,
-        modelVersion,
-        thresholdVersion,
-      },
-      quality: {
-        kind: 'accepted',
-        durationMs: 1200,
-        signalScore: 0.9,
-      },
-    },
-  },
-  // @ts-expect-error rejected verification records cannot carry owner-presence evidence state.
-  ownerPresenceEvidence: { kind: 'available' },
+  expectedPhrase: parsePromptPhrase('River lantern a b c d e f'),
+  challengeNonce,
+  createdAt: now,
+  expiresAt: now,
+  analysisStartedAt: now,
+  analysisExpiresAt: now,
 };
 
-invalidRejectedRecordWithOwnerPresenceEvidence;
+analyzingVerification;
 
-const invalidAcceptedResult: VoiceIdVerificationResult = {
-  kind: 'accepted',
+const invalidAnalyzingVerification: VoiceIdVerificationRecord = {
+  state: 'analyzing',
+  userId,
   enrollmentId,
   verificationId,
-  templateVersion,
-  modelVersion,
-  thresholdVersion,
-  checks: {
-    phrase: {
-      kind: 'rejected',
-      // @ts-expect-error accepted verification requires accepted branch checks.
-      reason: 'phrase_mismatch',
-      expectedNormalized: 'a',
-      spokenNormalized: 'b',
-      confidence: 0.9,
-    },
-    speaker: {
-      kind: 'accepted',
-      score: 0.9,
-      threshold: 0.8,
-      modelVersion,
-      thresholdVersion,
-    },
-    quality: {
-      kind: 'accepted',
-      durationMs: 1200,
-      signalScore: 0.9,
-    },
-  },
+  expectedPhrase: parsePromptPhrase('River lantern a b c d e f'),
+  challengeNonce,
+  createdAt: now,
+  expiresAt: now,
+  analysisStartedAt: now,
+  analysisExpiresAt: now,
+  // @ts-expect-error analyzing verification cannot contain a result.
+  result: { kind: 'rejected' },
 };
 
-invalidAcceptedResult;
+invalidAnalyzingVerification;
 
-const validTransferIntent: VoiceIdIntent = {
-  kind: 'token_transfer',
-  schemaVersion: 'voice_id_intent_v1',
-  amount: parseVoiceIdTokenAmount('1'),
-  tokenSymbol: parseVoiceIdTokenSymbol('USDC'),
-  recipient: parseVoiceIdPaymentRecipient('bob.near'),
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
+// @ts-expect-error an analysis claim cannot be spread into an issued-expiry terminal record.
+const invalidExpiredSpread: VoiceIdVerificationRecord = {
+  ...analyzingVerification,
+  state: 'expired',
+  completedAt: now,
 };
 
-validTransferIntent;
+invalidExpiredSpread;
 
-// @ts-expect-error token transfer intents require a recipient.
-const invalidTransferIntentMissingRecipient: VoiceIdIntent = {
-  kind: 'token_transfer',
-  schemaVersion: 'voice_id_intent_v1',
-  amount: parseVoiceIdTokenAmount('1'),
-  tokenSymbol: parseVoiceIdTokenSymbol('USDC'),
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
+const invalidIssued: VoiceIdVerificationRecord = {
+  state: 'issued',
+  userId,
+  enrollmentId,
+  verificationId,
+  expectedPhrase: parsePromptPhrase('River lantern a b c d e f'),
+  challengeNonce,
+  createdAt: now,
+  expiresAt: now,
+  // @ts-expect-error issued verification cannot contain a result.
+  result: { kind: 'rejected' },
 };
 
-invalidTransferIntentMissingRecipient;
+invalidIssued;
 
-const invalidTransferIntentWithDevice: VoiceIdIntent = {
-  kind: 'token_transfer',
-  schemaVersion: 'voice_id_intent_v1',
-  amount: parseVoiceIdTokenAmount('1'),
-  tokenSymbol: parseVoiceIdTokenSymbol('USDC'),
-  recipient: parseVoiceIdPaymentRecipient('bob.near'),
-  // @ts-expect-error wallet-session fields are invalid on token transfer intents.
-  deviceId: parseVoiceIdIntentDeviceId('device-x'),
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
+declare const experimentalEvidence: VoiceIdExperimentalBrowserEvidence;
+declare const attestedEvidence: VoiceIdAttestedEvidence;
+
+// @ts-expect-error attested evidence requires the private boundary-builder brand.
+const invalidDirectAttestedEvidence: VoiceIdAttestedEvidence = {
+  kind: 'attested_evidence',
+  verificationId: attestedEvidence.verificationId,
+  enrollmentId: attestedEvidence.enrollmentId,
+  speaker: attestedEvidence.speaker,
+  phrase: attestedEvidence.phrase,
+  quality: attestedEvidence.quality,
+  captureFreshness: attestedEvidence.captureFreshness,
+  pad: attestedEvidence.pad,
+  deviceProof: attestedEvidence.deviceProof,
+  captureProfile: attestedEvidence.captureProfile,
+  calibration: attestedEvidence.calibration,
+  modelVersion: attestedEvidence.modelVersion,
+  thresholdVersion: attestedEvidence.thresholdVersion,
+  completedAt: attestedEvidence.completedAt,
 };
 
-invalidTransferIntentWithDevice;
+invalidDirectAttestedEvidence;
 
-// @ts-expect-error robot command intents require command text.
-const invalidRobotCommandIntent: VoiceIdIntent = {
-  kind: 'robot_command',
-  schemaVersion: 'voice_id_intent_v1',
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
+type TestWalletSigningAuthorization = {
+  kind: 'test_wallet_signing_authorization';
+  admittedDigest: string;
 };
 
-const validSwapApprovalIntent: VoiceIdIntent = {
-  kind: 'swap_approval',
-  schemaVersion: 'voice_id_intent_v1',
-  sellAmount: parseVoiceIdTokenAmount('100'),
-  sellTokenSymbol: parseVoiceIdTokenSymbol('USDC'),
-  buyTokenSymbol: parseVoiceIdTokenSymbol('ETH'),
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
+declare function testSigningBoundary(authorization: TestWalletSigningAuthorization): void;
+
+// @ts-expect-error E0 evidence is structurally signing-ineligible.
+testSigningBoundary(experimentalEvidence);
+
+// @ts-expect-error E2 evidence is structurally signing-ineligible.
+testSigningBoundary(attestedEvidence);
+
+const invalidExperimentalEvidence: VoiceIdExperimentalBrowserEvidence = {
+  ...experimentalEvidence,
+  // @ts-expect-error evidence cannot carry signing authorization.
+  signingAuthorization: { kind: 'test_wallet_signing_authorization', admittedDigest: 'digest' },
 };
 
-validSwapApprovalIntent;
-
-// @ts-expect-error swap approvals require a buy token.
-const invalidSwapApprovalIntentMissingBuyToken: VoiceIdIntent = {
-  kind: 'swap_approval',
-  schemaVersion: 'voice_id_intent_v1',
-  sellAmount: parseVoiceIdTokenAmount('100'),
-  sellTokenSymbol: parseVoiceIdTokenSymbol('USDC'),
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
-};
-
-invalidSwapApprovalIntentMissingBuyToken;
-
-// @ts-expect-error accepted wallet-policy consumption cannot carry rejection data.
-const invalidAcceptedConsumptionWithRejection: VoiceIdWalletPolicyConsumptionResult = {
-  kind: 'accepted',
-  authDecision: acceptedAuthDecision,
-  input: walletPolicyInput,
-  decision: acceptedWalletPolicyDecision,
-  rejection: walletPolicyRejection,
-};
-
-invalidAcceptedConsumptionWithRejection;
-
-// @ts-expect-error rejected wallet-policy consumption requires a rejected auth decision.
-const invalidRejectedConsumptionWithAcceptedAuth: VoiceIdWalletPolicyConsumptionResult = {
-  kind: 'rejected',
-  authDecision: acceptedAuthDecision,
-  rejection: walletPolicyRejection,
-};
-
-invalidRejectedConsumptionWithAcceptedAuth;
-
-// @ts-expect-error rejected wallet-policy consumption cannot carry policy input.
-const invalidRejectedConsumptionWithPolicyInput: VoiceIdWalletPolicyConsumptionResult = {
-  kind: 'rejected',
-  authDecision: rejectedAuthDecision,
-  rejection: walletPolicyRejection,
-  input: walletPolicyInput,
-};
-
-invalidRejectedConsumptionWithPolicyInput;
-
-invalidRobotCommandIntent;
-
-const validRobotCommandIntent: VoiceIdIntent = {
-  kind: 'robot_command',
-  schemaVersion: 'voice_id_intent_v1',
-  command: parseVoiceIdRobotCommandText('stir the pot'),
-  expiresAt: isoDateTime,
-  nonce: intentNonce,
-};
-
-validRobotCommandIntent;
-
-declare const service: VoiceIdService;
-declare const rawRequestBody: Record<string, unknown>;
-declare const browserBlob: Blob;
-declare const browserFile: File;
-declare const browserFormData: FormData;
-
-// @ts-expect-error raw request bodies cannot cross into core service functions.
-service.addEnrollmentSample(rawRequestBody);
-
-// @ts-expect-error browser Blob cannot cross into core service functions.
-service.addEnrollmentSample(browserBlob);
-
-// @ts-expect-error browser File cannot cross into core service functions.
-service.addEnrollmentSample(browserFile);
-
-// @ts-expect-error browser FormData cannot cross into core service functions.
-service.addEnrollmentSample(browserFormData);
-
-declare const typedEnrollmentSample: VoiceIdEnrollmentSample;
-service.addEnrollmentSample(typedEnrollmentSample);
+invalidExperimentalEvidence;
