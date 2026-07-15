@@ -1,186 +1,133 @@
-# VoiceID MVP
+# VoiceID E0 Evidence Lab
 
-Standalone browser-captured, server-scored speaker verification MVP.
+VoiceID currently provides browser-captured, server-scored voice evidence for
+research. Wallet signing integration is frozen until the evidence service and
+platform authenticator designs meet their own exit gates.
 
-Phase 1 keeps VoiceID isolated from wallet/auth code. The server accepts typed
-audio captures, runs phrase, quality, and speaker checks through a verifier
-boundary, and stores enrollment/verification state without persisting raw audio.
+The active implementation:
 
-## Security Status
+- records one continuous 12–30 second enrollment ceremony containing four
+  server-selected prompts;
+- records one 3–5 second verification response to a fresh, unpredictable,
+  server-selected prompt;
+- evaluates phrase, audio quality, and speaker similarity independently;
+- decodes claimed media to canonical mono 16 kHz audio, extracts internal VAD
+  windows, and builds one quality-weighted template without exporting raw
+  embeddings from the verifier;
+- commits an enrollment template only after the complete recording succeeds;
+- claims enrollment and verification lifecycle state before external model work
+  and expires stale analysis claims;
+- consumes each verification challenge after one capture;
+- persists typed lifecycle records and encrypted templates without raw audio;
+- returns `experimental_browser_evidence`; health and capability metadata publish
+  `signingEligible: false`.
 
-The active browser implementation is an experimental speaker-verification and
-phrase-matching scaffold. Its capture timestamps, microphone classification,
-replay-risk classification, device context, and liveness policy are supplied by
-the client. Those values are useful for exercising typed policy branches and do
-not establish signing-grade liveness, presentation-attack resistance, trusted
-sensor provenance, or device-bound user verification.
+The implementation has no wallet authorization record, signing grant, Router
+continuation, caller-selected transaction digest, or VoiceID signing adapter.
 
-Current VoiceID results must not authorize wallet signing. The authoritative
-requirements for any future signing integration live in
-[VoiceID Signing Security Profile](docs/voiceId-signing-security-profile.md).
-Browser signing requires a user-verified cryptographic authenticator such as a
-passkey. A future embedded hands-free path additionally requires authenticated
-capture, independently measured presentation-attack detection, exact Router
-intent binding, and atomic one-use admission.
+## Security Boundary
 
-## Recording Target
+Ordinary browser microphone capture is E0 evidence. A cross-origin iframe can
+isolate capture code, origin storage, microphone permission, and raw media from
+the parent application. It cannot provide a trusted microphone path, measured
+execution, presentation-attack detection, protected template matching, or
+hardware-bound credential-key release.
 
-The replacement capture flow uses one guided enrollment recording with a
-provisional 12-second usable-speech target and internal VAD windows. Verification
-uses one 3–5 second challenge response and permits at most one quality retry
-under a new challenge. Fixed accepted-sample counts, per-sample upload routes,
-and repeated record-button ceremonies are scheduled for deletion after the
-capture-flow migration.
+Production browser signing requires a passkey over the exact Router operation.
+Direct VoiceID signing requires an approved local user-verifying authenticator
+that owns capture, matching, phrase verification, PAD, lockout, templates, and
+credential-key release inside a protected boundary.
 
-Commands:
+See:
+
+- [Signing security profile](docs/voiceId-signing-security-profile.md)
+- [Current MVP implementation spec](docs/voiceId-mvp-1.md)
+- [Implementation tasks](docs/voiceId-mvp-1-tasks.md)
+- [Provider research](docs/provider-references.md)
+
+## Active API
+
+```text
+GET  /voice-id/health
+POST /voice-id/evidence/enrollment/start
+POST /voice-id/evidence/enrollment/recording
+POST /voice-id/evidence/enrollment/disable
+POST /voice-id/evidence/verification/start
+POST /voice-id/evidence/verification/recording
+```
+
+Enrollment start returns the complete four-prompt sequence and duration gates.
+The recording endpoint accepts one multipart upload containing audio, metadata,
+`userId`, and `enrollmentId`.
+
+Verification start creates the nonce, prompt, expiry, and verification id on the
+server. The recording endpoint accepts identity fields and audio only. Caller
+transcripts, expected phrases, policy labels, risk classifications, and
+transaction fields are outside the request contract.
+
+Route responses use explicit public DTOs. Enrollment template ciphertext,
+challenge internals, and persistence records stay server-side. The browser
+client validates each response once and returns precise result unions.
+
+## Development
 
 ```sh
 pnpm run voiceId:demo
 pnpm -C voiceId type-check
 pnpm -C voiceId test
-pnpm -C voiceId dev:all
-pnpm -C voiceId dev:all:verifier
-pnpm -C voiceId dev:server
-pnpm -C voiceId dev:verifier
-pnpm -C voiceId dev
-pnpm -C voiceId bundle:guard
-pnpm -C voiceId worker:guard
-pnpm -C voiceId server-integration:guard
-pnpm -C voiceId container:guard
-pnpm -C voiceId aws:guard
-pnpm -C voiceId nitro:guard
-pnpm -C voiceId robot:guard
-pnpm -C voiceId smoke:python-http
-pnpm -C voiceId fixtures:validate
-pnpm -C voiceId fixtures:validate:media
-pnpm -C voiceId fixtures:report
-pnpm -C voiceId fixtures:evaluate:spectral
-pnpm -C voiceId fixtures:evaluate:ecapa
+pnpm -C voiceId signing-architecture:guard
 pnpm -C voiceId verifier:test
-pnpm -C voiceId container:build:cloudflare
+pnpm -C voiceId smoke:python-http
 ```
 
-`pnpm run voiceId:demo` is the repo-root alias for `dev:all`. It starts the API
-on `http://127.0.0.1:5052` and the browser demo on `http://127.0.0.1:5050`.
-`dev:all:verifier` starts the Python verifier sidecar with the ECAPA backend,
-on `http://127.0.0.1:5051`, the API configured with
-`VOICEID_VERIFIER_TRANSPORT=python-http`, and the browser demo.
+`pnpm run voiceId:demo` starts the explicitly configured fake verifier, fake
+transcript provider, E0 API on `http://127.0.0.1:5052`, and browser lab on
+`http://127.0.0.1:5050`.
 
-Fixture capture exports should be placed in `voiceId/fixtures` with the manifest
-named `voiceid-fixture-manifest.json`. Raw voice fixtures are local artifacts and
-are ignored from git by default.
-
-Use `fixtures:validate` for manifest and byte-length checks. Use
-`fixtures:validate:media` when `ffprobe` is available and the fixture files
-should be decoded enough to confirm they contain audio streams.
-
-`fixtures:evaluate:ecapa` uses the optional SpeechBrain ECAPA-TDNN evaluator.
-Install its Python dependencies before running it:
-
-```sh
-python3 -m pip install "speechbrain>=1.0.0" "torchaudio==2.6.*"
-```
-
-The first pretrained-model report is
-`voiceId/verifier-spike/reports/speechbrain-ecapa-2026-06-11.md`.
-
-The deployment-shaped research verifier runs with the ECAPA backend by default
-through:
+The deployment-shaped local flow runs the Python verifier sidecar:
 
 ```sh
 pnpm -C voiceId dev:all:verifier
 ```
 
-The current local ECAPA threshold from the browser fixture set is `0.6352`
-(`ecapa-local-dev-v1`). Set `VOICEID_SPEAKER_SCORE_THRESHOLD` on the TypeScript
-API process to override the speaker threshold. `dev:all:verifier` sets this
-threshold automatically for the default ECAPA backend. Use
-`VOICEID_VERIFIER_BACKEND=placeholder pnpm -C voiceId dev:all:verifier` only for
-fast placeholder checks. `ecapa-local-dev-v1` is E0 research configuration and
-is prohibited from E2 construction.
-
-TypeScript server code can call the Python app through
-`PythonSubprocessVoiceIdVerifierTransport` for local dev. It can call a
-long-running sidecar through `PythonHttpVoiceIdVerifierTransport` when the
-Python verifier is hosted as an HTTP process.
-
-The TypeScript API server selects its verifier with:
+Provider selection is required. There are no implicit fake-provider defaults:
 
 ```sh
 VOICEID_VERIFIER_TRANSPORT=fake
 VOICEID_VERIFIER_TRANSPORT=python-subprocess
 VOICEID_VERIFIER_TRANSPORT=python-http
+
+VOICEID_TRANSCRIPT_PROVIDER=fake
+VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai
 ```
 
-`python-http` expects the verifier sidecar at
-`VOICEID_PYTHON_VERIFIER_URL`, defaulting to
-`http://127.0.0.1:5051/voice-id/verifier/`. Run the sidecar locally with:
+Cloudflare also requires an exact comma-separated browser-origin allowlist:
 
 ```sh
-pnpm -C voiceId dev:verifier
+VOICEID_ALLOWED_ORIGINS=https://voice.example.com,https://wallet.example.com
 ```
 
-Run the end-to-end API smoke through the Python HTTP verifier sidecar with:
+The API reflects an allowed origin exactly and never emits wildcard CORS.
+
+`python-http` requires `VOICEID_PYTHON_VERIFIER_URL`; local launchers set it to
+`http://127.0.0.1:5051/voice-id/verifier/`. Cloudflare Workers AI ASR requires
+the `AI` binding in Workers or `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` for the local REST adapter.
+
+The local ECAPA research threshold is `0.6352` under
+`ecapa-local-dev-v1`. It is fixture-derived E0 configuration. Set
+`VOICEID_SPEAKER_SCORE_THRESHOLD` explicitly when running a calibrated
+experiment.
+
+## Persistence And Privacy
+
+In-memory stores support local development. Cloudflare D1 uses the v4 analysis-claim
+tables from `voiceIdCloudflareD1SchemaStatements()`. Durable deployments wrap
+templates with `VoiceIdTemplateWrappingEnrollmentStore` and an AES-GCM-256 key
+configured at the storage boundary.
 
 ```sh
-pnpm -C voiceId smoke:python-http
-```
-
-Check that the Cloudflare Worker entrypoint avoids Node-only APIs with:
-
-```sh
-pnpm -C voiceId worker:guard
-```
-
-Check that the Python ECAPA verifier has a Cloudflare Container packaging
-boundary with:
-
-```sh
-pnpm -C voiceId container:guard
-```
-
-The container Dockerfile lives at
-`voiceId/deploy/cloudflare/verifier-container/Dockerfile`. Build it locally from
-`voiceId/` with:
-
-```sh
-pnpm -C voiceId container:build:cloudflare
-```
-
-Check that the ordinary-server AWS runbook still uses the same Python HTTP
-sidecar contract with:
-
-```sh
-pnpm -C voiceId aws:guard
-```
-
-The AWS verifier-service runbook lives at
-`voiceId/deploy/aws/verifier-service/README.md`.
-
-Check that the Nitro Enclave bridge shape stays narrow and uses the
-parent-instance bridge boundary with:
-
-```sh
-pnpm -C voiceId nitro:guard
-```
-
-The Nitro Enclave bridge runbook lives at
-`voiceId/deploy/aws/nitro-enclave-bridge/README.md`.
-
-Check that the robot-local sidecar path uses the same HTTP verifier API and
-Cloudflare-hosted policy boundary with:
-
-```sh
-pnpm -C voiceId robot:guard
-```
-
-The robot-local sidecar runbook lives at
-`voiceId/deploy/robot-local/sidecar/README.md`.
-
-Template encryption key config is parsed at the storage boundary. Cloudflare
-deployments should provide:
-
-```sh
+VOICEID_STORAGE_KIND=cloudflare-d1
 VOICEID_TEMPLATE_KEY_SOURCE=cloudflare-workers-secret
 VOICEID_TEMPLATE_KEY_ALGORITHM=AES-GCM-256
 VOICEID_TEMPLATE_KEY_ID=voiceid-template-key-<version>
@@ -189,156 +136,50 @@ VOICEID_TEMPLATE_KEY_ROTATION_VERSION=<rotation-version>
 VOICEID_TEMPLATE_KEY_AAD_LABEL=voiceid-template-v1
 ```
 
-Diagnostic artifact retention is disabled by default. Cloudflare R2 diagnostics
-must be explicit:
+Raw audio exists only during request parsing and verifier execution. Stores and
+ordinary audit events exclude audio bytes, embeddings, complete transcripts,
+and raw model output. Diagnostic retention is disabled by default and requires
+explicit bounded configuration. Request and verifier boundaries cap encoded
+audio at 32 MiB; decoding rejects media beyond 30 seconds and times out stalled
+decoder processes.
+
+## Research And Deployment Checks
 
 ```sh
-VOICEID_DIAGNOSTIC_RETENTION=cloudflare-r2
-VOICEID_DIAGNOSTIC_POLICY_VERSION=diagnostics-v1
-VOICEID_DIAGNOSTIC_R2_BUCKET_BINDING=VOICEID_DIAGNOSTICS_BUCKET
-VOICEID_DIAGNOSTIC_RETENTION_TTL_SECONDS=3600
-VOICEID_DIAGNOSTIC_CAPTURE_AUDIO=true
-VOICEID_DIAGNOSTIC_MAX_ARTIFACT_BYTES=1048576
+pnpm -C voiceId bundle:guard
+pnpm -C voiceId worker:guard
+pnpm -C voiceId server-integration:guard
+pnpm -C voiceId container:guard
+pnpm -C voiceId aws:guard
+pnpm -C voiceId nitro:guard
+pnpm -C voiceId robot:guard
+pnpm -C voiceId fixtures:validate
+pnpm -C voiceId fixtures:validate:media
+pnpm -C voiceId fixtures:evaluate:spectral
+pnpm -C voiceId fixtures:evaluate:ecapa
+pnpm -C voiceId pad:test
+pnpm -C voiceId pad:evaluate
 ```
 
-Audit events include result kinds and coarse score bands only. They do not carry
-raw audio, raw diagnostic media, embedding vectors, or full raw model outputs.
+Fixture audio is a local research artifact and remains outside version control.
+Model evaluation must use subject-disjoint speakers, multiple sessions,
+multiple channels, and a representative replay/synthesis/injection corpus
+before any threshold or PAD claim can advance.
 
-The existing-server integration boundary lives in
-`voiceId/server/src/capability.ts`. `createVoiceIdServerCapability()` exposes
-typed route metadata plus `Request -> Response` handlers so SDK server routers
-can mount VoiceID without importing concrete VoiceID stores, verifiers, or
-transcript providers.
+## Next Gate
 
-The SDK router API exposes a generic `RouterApiOptions.routeExtensions` hook.
-Cloudflare-only, Express-only, and universal extensions each carry their own
-route metadata and runtime-native mount handlers. The SDK also exposes generic
-`RouterApiModule` registration for optional capabilities. VoiceID uses that
-module surface to register `/voice-id/*` routes without adding VoiceID imports
-to the wallet/auth router core.
+The active engineering plan is the standalone VoiceID engine:
 
-`voiceId/server/src/sdkRouterApiExtension.ts` provides the server-side adapter:
-`createVoiceIdRouterApiRouteExtension(createVoiceIdServerCapability(...))`
-returns a universal router API route extension, and
-`createVoiceIdRouterApiModule(createVoiceIdServerCapability(...))` wraps that
-extension in the SDK module shape. Cloudflare calls the capability fetch handler
-directly, and Express request/response conversion stays isolated at the adapter
-boundary.
+1. build one reproducible accuracy, latency, and resource benchmark;
+2. share one canonical decode, VAD result, and speech-window set across warm
+   concurrent phrase, speaker, and PAD inference;
+3. select and calibrate speaker, constrained phrase, and PAD models on held-out
+   subjects and attacks;
+4. improve continuous-enrollment template stability;
+5. qualify optimized runtime builds with crash, overload, fuzz, and soak tests.
 
-The experimental owner-presence policy surface lives in
-`voiceId/shared/src/policy.ts`. `buildVoiceIdOwnerPresenceResult()` converts
-completed verification records into intent-associated policy evidence, and
-`evaluateVoiceIdOwnerPresenceForIntent()` rejects mismatched intent digests.
-`voiceId/shared/src/authPolicy.ts` exercises SDK-facing policy branches for
-wallet sessions, wallet MPC signing, and robot commands. Its accepted branch is
-not E2 signing-candidate evidence because the current capture context and
-liveness inputs are caller-controlled.
-
-`POST /voice-id/owner-presence/authorize` is the server route for that policy
-surface. It accepts a completed `verificationId`, `intentDigest`, use case, and
-typed client-reported capture and local device context signals. The route
-returns the experimental capture-freshness result, derived owner-presence
-result, and auth-policy simulation decision. Issued verifications that have not
-submitted an audio capture yet return `invalid_state`. This caller-owned E0
-prototype is replaced by authenticated server-owned Router challenge state in
-the signing plan.
-
-Camera, face, mouth, and lip-sync work is not part of the current MVP. That
-future track lives in
-[Audio-Visual PAD Future Plan](docs/voiceId-camera-liveness-future.md). The
-current MVP keeps a typed client-reported capture-context boundary in active
-code. It must not be described as measured liveness or presentation-attack
-detection.
-
-D1-compatible durable stores live in
-`voiceId/server/src/store/CloudflareVoiceIdD1Stores.ts`. Use
-`voiceIdCloudflareD1SchemaStatements()` to create the enrollment and
-verification tables, then wire the D1 binding into
-`CloudflareD1VoiceIdEnrollmentStore` and `CloudflareD1VoiceIdVerificationStore`.
-The adapter uses Cloudflare-style prepared statements and parses persisted rows
-back into typed VoiceID records at the storage boundary.
-
-Cloudflare Worker runtime storage uses the D1 path when configured with:
-
-```sh
-VOICEID_STORAGE_KIND=cloudflare-d1
-VOICEID_D1_DATABASE=<Cloudflare D1 binding>
-```
-
-Cloudflare Workers AI ASR is the first real transcript provider. It uses the
-cheap `@cf/openai/whisper` model and stays behind the server-side
-`VoiceIdTranscriptProvider` boundary:
-
-```sh
-VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai
-VOICEID_CLOUDFLARE_ASR_MODEL=@cf/openai/whisper
-AI=<Cloudflare Workers AI binding>
-```
-
-The local Node dev server can use the same provider through the Cloudflare
-Workers AI REST API:
-
-```sh
-CLOUDFLARE_ACCOUNT_ID=<account id> \
-CLOUDFLARE_API_TOKEN=<workers ai token> \
-VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai \
-pnpm run voiceId:demo
-```
-
-The browser demo also has a local phrase-check mode that uses the browser
-`SpeechRecognition` API when available. If the demo is switched to simulated
-phrase mode, the UI requires an explicit typed phrase and labels the phrase
-result as simulated.
-
-Keep `VOICEID_TRANSCRIPT_PROVIDER=fake` for deterministic local tests.
-
-Template wrapping lives in
-`voiceId/server/src/store/VoiceIdTemplateEncryption.ts`. The configured secret
-must decode to a 32-byte AES-GCM-256 key. Wrap a durable enrollment store with
-`VoiceIdTemplateWrappingEnrollmentStore` and `VoiceIdAesGcmTemplateCipher` so
-enrolled templates are persisted as AES-GCM envelopes and unwrapped before the
-verifier receives them.
-
-Browser and mobile clients should not bundle PyTorch, SpeechBrain, or model
-weights. They capture audio and call the VoiceID API; the server or local robot
-sidecar owns ECAPA inference.
-
-## Intent Binding
-
-The shared browser/server layer exposes typed intent helpers in
-`voiceId/shared/src/intents.ts`. Supported spoken command examples:
-
-```text
-send 1 USDC to Bob
-send 50 USDC to bob.near
-authorize wallet session for device X
-command robot to stir the pot
-```
-
-`buildVoiceIdSpokenIntentBinding()` parses the spoken command, canonicalizes the
-intent, and returns an unpadded base64url SHA-256 `intentDigest`. The digest
-includes the intent kind, required fields, expiry, and nonce, so changing amount,
-recipient, device, expiry, or nonce changes the digest.
-
-This helper is E0 prototype canonicalization. It is not the authoritative
-wallet signing intent. The target signing flow builds `RouterVoiceIntentBinding`
-server-side with the existing Router A/B typed builders and derives any voice
-challenge digest from that binding.
-
-Client capability constructors live in `voiceId/client/src/VoiceIdCapability.ts`.
-Use `createVoiceIdApiOnlyCapability()` when a host app only needs the route
-client. Use `createVoiceIdBrowserCaptureCapability()` when browser recording is
-available; the recorder module is loaded lazily when `createRecorder()` is
-called.
-
-Cloudflare is the primary hosted deployment target. The TypeScript API/policy
-boundary should stay Worker-compatible, and the Python ECAPA verifier should run
-behind the HTTP sidecar boundary in Cloudflare Containers or a robot-local
-sidecar. AWS ordinary-server and Nitro Enclave notes are optional SDK
-portability references.
-
-Cloudflare MPC signing is an existing Router subsystem. Browser VoiceID reaches
-it only through passkey admission. A future embedded E2 result reaches it only
-after server R1 policy and atomic grant reservation. The architecture is
-[Router A/B signer](../docs/router-a-b-SPEC.md): normal signing goes through the
-active SigningWorker, and Deriver A/B stay off the normal signing path.
+The detailed order and exit gates live in
+[VoiceID MVP 1 Tasks](docs/voiceId-mvp-1-tasks.md). The
+[signing security profile](docs/voiceId-signing-security-profile.md) retains the
+deferred browser, authenticator, WebAuthn/CTAP2, Router, wallet, and
+SigningWorker requirements without placing them in the active engine queue.

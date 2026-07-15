@@ -80,14 +80,18 @@ approved embedded capture
   -> server-owned Router binding and unpredictable challenge
   -> exact-audio-hash device proof
   -> phrase + speaker + quality + freshness + calibrated PAD
-  -> E2 signing candidate
-  -> server R1 policy
-  -> server-side one-use grant
-  -> atomic Router reservation
+  -> E2 attested evidence
+  -> policy shadowing or passkey step-up
+
+approved VoiceID authenticator
+  -> protected local capture + matching + PAD
+  -> protected credential-key release
+  -> signed WebAuthn/CTAP2 assertion
+  -> Router admission
 ```
 
 VoiceID should not derive, unwrap, or store wallet signing material. It should
-supply evidence to server policy, which gates the existing signing path.
+supply evidence or a verified local-UV assertion through separate boundaries.
 
 ### Three Result Layers
 
@@ -116,21 +120,12 @@ covers the challenge, complete Router binding, prompt hash, exact uploaded-audio
 hash, capture interval, and capture profile. A browser application key remains
 E0 because it does not establish endpoint integrity or microphone provenance.
 
-### Short-Lived Action Grants
+### Provider Authority Limit
 
-The provider output is evidence. Server R1 policy may turn accepted E2 into an
-opaque reference backed by a durable one-use record:
-
-```text
-E2 evidence
-  -> issued server-side grant
-  -> reserved for exact Router request digest
-  -> consumed on success
-     or failed_closed on terminal failure
-```
-
-Only explicit R1 policy can issue that grant. Browser, R2, and unsupported flows
-require passkey. R3 operations prohibit VoiceID.
+Provider output remains evidence. Scores, decisions, webhooks, sessions, and
+provider tokens cannot construct wallet authorization. A direct VoiceID path
+requires an approved authenticator whose protected local state machine releases
+an RP-scoped credential and returns a signed UV assertion.
 
 ## Teardown Checklist
 
@@ -154,7 +149,7 @@ Use this checklist when analyzing provider docs, demos, or sales material.
   - Are spoof scores returned separately from speaker scores?
   - Does the product claim real-time detection or async analysis?
 - Policy and authorization
-  - Does the provider issue a reusable session, one-use grant, or risk score?
+  - Does the provider issue a reusable session, evidence token, or risk score?
   - Can the result bind to an operation, transaction, amount, recipient, or
     digest?
   - Does it model step-up requirements?
@@ -172,16 +167,15 @@ Use this checklist when analyzing provider docs, demos, or sales material.
 
 ## Implications For Our SDK
 
-- Treat E0/E1 as per-operation evidence capabilities, outside global wallet
-  auth-method unions.
-- Treat future E2 as input to server R1 policy, followed by a server-side
-  one-use grant and atomic Router reservation.
-- Keep passkeys as the client cryptographic authenticator. VoiceID should not
-  become a key wrapper.
+- Treat E0/E1/E2 as per-operation evidence capabilities outside wallet
+  authorization unions.
+- Keep passkeys as the browser cryptographic authenticator.
+- Add VoiceID to auth-method unions only after an approved local authenticator
+  passes the platform-plan release gates.
 - Keep the VoiceID module responsible for capture, verification, provider
   adapters, template metadata, and policy evidence.
 - Expose typed evidence events and opaque server handles. Wallet signing accepts
-  only passkey admission or a reserved R1 grant.
+  only verified passkey or approved VoiceID authenticator admission.
 - Start with our local verifier and fake/real ASR provider, but shape the
   boundary so a future provider can plug in behind the same result union.
 
@@ -194,5 +188,5 @@ Use this checklist when analyzing provider docs, demos, or sales material.
 4. Sensory: best reference for a later on-device path.
 
 Passive authentication, replay detection, on-device matching, or a short sample
-duration does not make a provider output E2. E2 still requires the complete
-device, capture, PAD, calibration, Router-binding, policy, and grant profile.
+duration does not create authenticator UV. E2 still requires the complete
+attested evidence profile and remains signing-ineligible.
