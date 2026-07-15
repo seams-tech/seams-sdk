@@ -26,6 +26,7 @@ test.describe('touchConfirm near adapter – concurrency', () => {
             nonceCoordinator: nonceCoordinatorMod.createNonceCoordinator({
               evmNonceBackend: {
                 fetchChainNonce: async () => 0n,
+                fetchBroadcastTransactionStatus: async () => ({ kind: 'missing' }),
               },
               nearClient: {
                 viewAccessKey: async () => ({

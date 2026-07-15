@@ -32,6 +32,8 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '@/core/signingEngine/interfaces/operationDeps';
 import { createEvmFamilySigningDeps } from '@/core/signingEngine/assembly/ports/evmFamily';
+import { exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
+import { loginWithEmailOtpEcdsaCapabilityForSigning } from '@/core/signingEngine/session/emailOtp/ecdsaLogin';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
   buildEvmFamilyEcdsaSignerBinding,
@@ -232,7 +234,9 @@ function committedLaneForAuth(args: {
       keyHandle: args.lane.keyHandle,
       relayerKeyId: parseEcdsaRelayerKeyId('relayer-ecdsa'),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.authLane.thresholdSessionId),
-      signingGrantId: SigningSessionIds.signingGrant(String(args.authLane.authorizingSigningGrantId)),
+      signingGrantId: SigningSessionIds.signingGrant(
+        String(args.authLane.authorizingSigningGrantId),
+      ),
       thresholdExpiresAtMs: toWalletSessionThresholdExpiresAtMs(1_900_000_000_000),
       participantIds: [toParticipantId(1), toParticipantId(2)],
     },
@@ -254,6 +258,118 @@ function committedLaneForAuth(args: {
     durableRestore: 'record_restore_metadata',
   };
 }
+
+function durableAuthorityCommittedLaneForAuth(args: {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
+}): EmailOtpEcdsaCommittedLane {
+  const recordBacked = committedLaneForAuth(args);
+  return {
+    source: 'durable_authority_backed',
+    lane: recordBacked.lane,
+    authority: recordBacked.authority,
+    authLane: recordBacked.authLane,
+    walletSessionAuthority: recordBacked.walletSessionAuthority,
+    material: recordBacked.material,
+    durableRestore: 'sealed_record_authority',
+  };
+}
+
+class ExpectedEmailOtpLoginBoundary extends Error {}
+
+test('exhausted durable Email OTP authority starts a fresh ECDSA session for Arc and Tempo', async () => {
+  const walletId = toAccountId('otp-refresh.testnet');
+  const ecdsaWalletId = toWalletId(walletId);
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-exhausted-ecdsa');
+  const signingGrantId = SigningSessionIds.signingGrant('wsess-exhausted-wallet');
+  const keyHandle = 'key-handle-email-otp';
+  const key = buildEvmFamilyEcdsaKeyIdentity({
+    walletId: ecdsaWalletId,
+    evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(ecdsaWalletId),
+    ecdsaThresholdKeyId: 'ehss-email-otp',
+    signingRootId,
+    signingRootVersion,
+    participantIds: [1, 2],
+    thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
+  });
+  const authorityLane = requireResolvedEvmFamilyEcdsaSigningLane({
+    lane: buildEvmTransactionSigningLane({
+      key,
+      keyHandle,
+      walletId: ecdsaWalletId,
+      auth: emailOtpAuth,
+      chainTarget: sourceChainTarget,
+      signingGrantId,
+      thresholdSessionId,
+    }),
+    chain: 'evm',
+    context: 'durable Email OTP signing refresh authority test',
+  });
+  const authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }> = {
+    kind: 'signing_session',
+    jwt: thresholdEcdsaSessionJwt({
+      thresholdSessionId,
+      signingGrantId,
+      walletId: ecdsaWalletId,
+      keyHandle,
+    }),
+    thresholdSessionId,
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(signingGrantId),
+    curve: 'ecdsa',
+    chainTarget: sourceChainTarget,
+  };
+  const committedLane = durableAuthorityCommittedLaneForAuth({
+    lane: authorityLane,
+    authLane,
+  });
+  const requestedTargets = [sourceChainTarget, tempoChainTarget] as const;
+
+  for (const requestedTarget of requestedTargets) {
+    let receivedLoginArgs:
+      | Parameters<
+          Parameters<
+            typeof loginWithEmailOtpEcdsaCapabilityForSigning
+          >[1]['loginWithEcdsaCapabilityInternal']
+        >[0]
+      | null = null;
+    await expect(
+      loginWithEmailOtpEcdsaCapabilityForSigning(
+        {
+          walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
+          chainTarget: requestedTarget,
+          challengeId: 'challenge-1',
+          otpCode: '123456',
+          committedLane,
+          remainingUses: 1,
+        },
+        {
+          requireRelayUrl: () => 'https://relay.example.test',
+          loginWithEcdsaCapabilityInternal: async (loginArgs) => {
+            receivedLoginArgs = loginArgs;
+            throw new ExpectedEmailOtpLoginBoundary();
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(ExpectedEmailOtpLoginBoundary);
+    expect(receivedLoginArgs).toMatchObject({
+      chainTarget: requestedTarget,
+      keyHandle,
+      participantIds: [1, 2],
+      emailHashHex: emailOtpEmailHashHex,
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        providerUserId: emailOtpAuth.providerSubjectId,
+      },
+      remainingUses: 1,
+      runtimePolicyScope: {
+        orgId: 'org-local',
+        projectId: 'proj_local',
+        envId: 'dev',
+        signingRootVersion: 'default',
+      },
+    });
+  }
+});
 
 test('Email OTP ECDSA bridge uses source authority while refreshing the selected target', async () => {
   const walletId = toAccountId('otp-refresh.testnet');
@@ -544,6 +660,10 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     lane: sealedLane,
     sealedRecord,
   });
+  const exactAuthority = exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords({
+    lane: sealedLane,
+    sealedRecords: [sealedRecord],
+  });
 
   expect(authLane).toEqual({
     kind: 'signing_session',
@@ -558,4 +678,11 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     curve: 'ecdsa',
     chainTarget: sourceChainTarget,
   });
+  expect(exactAuthority?.authLane).toEqual(authLane);
+  expect(() =>
+    exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords({
+      lane: sealedLane,
+      sealedRecords: [sealedRecord, sealedRecord],
+    }),
+  ).toThrow('multiple durable Email OTP authorities matched one exact lane');
 });

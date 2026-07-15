@@ -6,16 +6,15 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import type {
-  RouterAbNormalSigningBudgetCommitInput,
+  RouterAbNormalSigningBudgetFinalizeInput,
   RouterAbNormalSigningBudgetReleaseInput,
   RouterAbNormalSigningBudgetReservationInput,
-  RouterAbNormalSigningBudgetValidateInput,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
+} from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 
 type Ed25519RouteInput = Parameters<typeof handleRouterAbEd25519NormalSigningRouteCore>[0];
-type Ed25519ThresholdService = NonNullable<ReturnType<Ed25519RouteInput['getThreshold']>>;
+type Ed25519NormalSigningRuntime = NonNullable<Ed25519RouteInput['runtime']>;
 
 const thresholdSessionId = 'threshold-ed25519-session-1';
 const signingGrantId = 'signing-grant-1';
@@ -25,22 +24,32 @@ const expiresAtMs = Date.now() + 60_000;
 const budgetDigestPattern = /^[A-Za-z0-9_-]{43}$/;
 
 type BudgetRouteHarness = {
-  service: Ed25519ThresholdService;
-  commitCalls: RouterAbNormalSigningBudgetCommitInput[];
-  releaseCalls: RouterAbNormalSigningBudgetReleaseInput[];
+  runtime: Ed25519NormalSigningRuntime;
+  commitCalls: RouterAbNormalSigningBudgetFinalizeInput[];
+  releaseCalls: Array<
+    RouterAbNormalSigningBudgetReleaseInput | RouterAbNormalSigningBudgetFinalizeInput
+  >;
   reserveCalls: RouterAbNormalSigningBudgetReservationInput[];
-  validateCalls: RouterAbNormalSigningBudgetValidateInput[];
+  validateCalls: RouterAbNormalSigningBudgetFinalizeInput[];
 };
 
 function walletSessionClaims(): Record<string, unknown> {
   return {
     sub: walletId,
     walletId,
+    nearAccountId: walletId,
+    nearEd25519SigningKeyId: 'near-ed25519-key-1',
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     thresholdSessionId,
     signingGrantId,
     relayerKeyId: 'near-relayer-key-1',
-    rpId: 'localhost',
+    authority: {
+      walletId,
+      factor: { kind: 'passkey', credentialIdB64u: 'credential-1' },
+      verifier: { kind: 'webauthn', rpId: 'localhost' },
+      bindingId: 'passkey:localhost:credential-1',
+    },
+    authorityScope: { kind: 'passkey_rp', rpId: 'localhost' },
     runtimePolicyScope: {
       orgId: 'org-1',
       projectId: 'project-1',
@@ -90,26 +99,6 @@ function routerAbScope(requestId: string): Record<string, unknown> {
     account_id: walletId,
     session_id: thresholdSessionId,
     signing_worker_id: signingWorkerId,
-  };
-}
-
-function presignPoolFinalizeBody(): Record<string, unknown> {
-  return {
-    scope: routerAbScope('presign-finalize-request-1'),
-    expires_at_ms: expiresAtMs,
-    intent: {
-      kind: 'near_transaction_v1',
-      operation_id: 'operation-1',
-    },
-    signing_payload: {
-      kind: 'near_unsigned_transaction_borsh_v1',
-      unsigned_transaction_borsh_b64u: 'AQID',
-      expected_signing_digest_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-    },
-    pool_binding: {
-      server_round1_handle: 'server-round1-handle-1',
-      pool_entry_binding_digest: { bytes: Array.from(new Uint8Array(32).fill(7)) },
-    },
   };
 }
 
@@ -173,38 +162,29 @@ function budgetFailure(): {
   };
 }
 
-function createThresholdService(args?: {
+function createNormalSigningRuntime(args?: {
   commitBudget?: 'ok' | 'exhausted';
   reserveBudget?: 'ok' | 'exhausted';
   validateBudget?: 'ok' | 'exhausted';
 }): BudgetRouteHarness {
-  const commitCalls: RouterAbNormalSigningBudgetCommitInput[] = [];
-  const releaseCalls: RouterAbNormalSigningBudgetReleaseInput[] = [];
+  const commitCalls: RouterAbNormalSigningBudgetFinalizeInput[] = [];
+  const releaseCalls: Array<
+    RouterAbNormalSigningBudgetReleaseInput | RouterAbNormalSigningBudgetFinalizeInput
+  > = [];
   const reserveCalls: RouterAbNormalSigningBudgetReservationInput[] = [];
-  const validateCalls: RouterAbNormalSigningBudgetValidateInput[] = [];
-  const service: Ed25519ThresholdService = {
-    getRouterAbSigningWorkerPrivateHttpConfig() {
+  const validateCalls: RouterAbNormalSigningBudgetFinalizeInput[] = [];
+  const runtime: Ed25519NormalSigningRuntime = {
+    getSigningWorkerPrivateTransport() {
       return {
+        kind: 'configured',
         signingWorkerBaseUrl: 'https://signing-worker.internal',
-        auth: { kind: 'internal_service_auth_token', token: 'internal-token' },
+        auth: { kind: 'internal_service_auth_secret', secret: 'internal-token' },
       };
     },
-    async resolveRouterAbEd25519SigningWorkerPrivateMaterial() {
-      return {
-        ok: true,
-        material: {
-          kind: 'router_ab_ed25519_signing_worker_material_v1',
-          account_public_key: 'ed25519-public-key-1',
-          x_server_base_b64u: 'server-base-share-1',
-          signing_worker_material_handle: 'worker-material-handle-1',
-          activated_at_ms: 1_800_000_000_000,
-        },
-      };
-    },
-    async reserveRouterAbNormalSigningPrepareReplay() {
+    async reservePrepareReplay() {
       return { ok: true };
     },
-    async reserveRouterAbNormalSigningBudget(input) {
+    async reserveBudget(input) {
       reserveCalls.push(input);
       if (args?.reserveBudget === 'exhausted') return budgetFailure();
       return {
@@ -215,17 +195,17 @@ function createThresholdService(args?: {
         availableUses: 2,
       };
     },
-    async commitRouterAbNormalSigningBudget(input) {
+    async commitBudget(input) {
       commitCalls.push(input);
       if (args?.commitBudget === 'exhausted') return budgetFailure();
       return { ok: true, remainingUses: 2 };
     },
-    async validateRouterAbNormalSigningBudget(input) {
+    async validateBudget(input) {
       validateCalls.push(input);
       if (args?.validateBudget === 'exhausted') return budgetFailure();
       return { ok: true, remainingUses: 3 };
     },
-    async releaseRouterAbNormalSigningBudget(input) {
+    async releaseBudget(input) {
       releaseCalls.push(input);
       return {
         ok: true,
@@ -235,7 +215,7 @@ function createThresholdService(args?: {
         availableUses: 3,
       };
     },
-    async releaseRouterAbNormalSigningBudgetForIdentity(input) {
+    async releaseBudgetForIdentity(input) {
       releaseCalls.push(input);
       return {
         ok: true,
@@ -246,21 +226,21 @@ function createThresholdService(args?: {
       };
     },
   };
-  return { service, commitCalls, releaseCalls, reserveCalls, validateCalls };
+  return { runtime, commitCalls, releaseCalls, reserveCalls, validateCalls };
 }
 
 async function callEd25519RouteCore(input: {
   body: Record<string, unknown>;
   privatePath: Ed25519RouteInput['privatePath'];
   phase: Ed25519RouteInput['phase'];
-  service: Ed25519ThresholdService;
+  runtime: Ed25519NormalSigningRuntime;
 }): Promise<Awaited<ReturnType<typeof handleRouterAbEd25519NormalSigningRouteCore>>> {
   return await handleRouterAbEd25519NormalSigningRouteCore({
     body: input.body,
     rawBody: input.body,
     headers: { authorization: 'Bearer wallet-session.jwt' },
     session: sessionAdapter(),
-    getThreshold: () => input.service,
+    runtime: input.runtime,
     admissionAdapter: allowAllAdmissionAdapter(),
     privatePath: input.privatePath,
     phase: input.phase,
@@ -269,8 +249,11 @@ async function callEd25519RouteCore(input: {
 
 async function okRouterAbEd25519SigningWorkerFetch(
   url: Parameters<typeof fetch>[0],
-  _init?: Parameters<typeof fetch>[1],
+  init?: Parameters<typeof fetch>[1],
 ): Promise<Response> {
+  const privateBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+  expect(privateBody.kind).toBe('router_ab_ed25519_signing_worker_active_state_request_v1');
+  expect(Object.hasOwn(privateBody, 'server_material')).toBe(false);
   const path = String(url).endsWith('/sign/prepare')
     ? ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare
     : ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize;
@@ -279,7 +262,7 @@ async function okRouterAbEd25519SigningWorkerFetch(
 
 test.describe('Router A/B Ed25519 route-core budget gates', () => {
   test('prepare rejects missing admission adapter before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -293,7 +276,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         rawBody: prepareBody(),
         headers: { authorization: 'Bearer wallet-session.jwt' },
         session: sessionAdapter(),
-        getThreshold: () => harness.service,
+        runtime: harness.runtime,
         admissionAdapter: null,
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
@@ -315,106 +298,8 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
     }
   });
 
-  test('presign-pool finalize rejects exhausted budget before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService({ reserveBudget: 'exhausted' });
-    const fetchCalls: string[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url) => {
-      fetchCalls.push(String(url));
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    };
-
-    try {
-      const result = await callEd25519RouteCore({
-        body: presignPoolFinalizeBody(),
-        privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
-        phase: 'finalize',
-        service: harness.service,
-      });
-
-      expect(result).toEqual({
-        status: 409,
-        body: {
-          ok: false,
-          code: 'wallet_budget_exhausted',
-          message: 'Wallet Session signature budget is exhausted',
-        },
-      });
-      expect(fetchCalls).toEqual([]);
-      expect(harness.reserveCalls).toEqual([
-        {
-          curve: 'ed25519',
-          phase: 'finalize',
-          thresholdSessionId,
-          signingGrantId,
-          signingWorkerId,
-          operationId: 'operation-1',
-          requestDigest: expect.stringMatching(budgetDigestPattern),
-          signatureUses: 1,
-          expiresAtMs,
-        },
-      ]);
-      expect(harness.commitCalls).toEqual([]);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test('presign-pool finalize commits canonical budget identity before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService();
-    const fetchCalls: string[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url) => {
-      fetchCalls.push(String(url));
-      return new Response(JSON.stringify({ ok: true, signature_scheme: 'ed25519_v1' }), {
-        status: 200,
-      });
-    };
-
-    try {
-      const result = await callEd25519RouteCore({
-        body: presignPoolFinalizeBody(),
-        privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
-        phase: 'finalize',
-        service: harness.service,
-      });
-
-      expect(result.status).toBe(200);
-      expect(fetchCalls).toEqual([
-        'https://signing-worker.internal/router-ab/signing-worker/sign/presign-pool',
-      ]);
-      expect(harness.reserveCalls).toEqual([
-        {
-          curve: 'ed25519',
-          phase: 'finalize',
-          thresholdSessionId,
-          signingGrantId,
-          signingWorkerId,
-          operationId: 'operation-1',
-          requestDigest: expect.stringMatching(budgetDigestPattern),
-          signatureUses: 1,
-          expiresAtMs,
-        },
-      ]);
-      expect(harness.commitCalls).toEqual([
-        {
-          curve: 'ed25519',
-          phase: 'finalize',
-          thresholdSessionId,
-          signingGrantId,
-          reservationId: 'budget-reservation-1',
-          signingWorkerId,
-          operationId: 'operation-1',
-          requestDigest: expect.stringMatching(budgetDigestPattern),
-        },
-      ]);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
   test('normal prepare rejects exhausted server budget before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService({ reserveBudget: 'exhausted' });
+    const harness = createNormalSigningRuntime({ reserveBudget: 'exhausted' });
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -427,7 +312,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: prepareBody(),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -442,7 +327,6 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
       expect(harness.reserveCalls).toEqual([
         {
           curve: 'ed25519',
-          phase: 'prepare',
           thresholdSessionId,
           signingGrantId,
           signingWorkerId,
@@ -458,7 +342,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
   });
 
   test('prepare private-worker failure releases the reservation as prepare phase', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -471,7 +355,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: prepareBody(),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -501,7 +385,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
   });
 
   test('normal prepare and finalize share the same canonical budget request digest', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = okRouterAbEd25519SigningWorkerFetch;
 
@@ -510,7 +394,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: prepareBody(),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
-        service: harness.service,
+        runtime: harness.runtime,
       });
       expect(prepared.status).toBe(200);
 
@@ -518,7 +402,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: finalizeBody(),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
-        service: harness.service,
+        runtime: harness.runtime,
       });
       expect(finalized.status).toBe(200);
       expect(harness.reserveCalls).toHaveLength(1);
@@ -533,7 +417,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
   });
 
   test('normal prepare budget digest changes when request expiry changes', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = okRouterAbEd25519SigningWorkerFetch;
 
@@ -542,13 +426,13 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: prepareBodyForExpiry(expiresAtMs),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
-        service: harness.service,
+        runtime: harness.runtime,
       });
       await callEd25519RouteCore({
         body: prepareBodyForExpiry(expiresAtMs - 1),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
-        service: harness.service,
+        runtime: harness.runtime,
       });
       expect(harness.reserveCalls).toHaveLength(2);
       expect(harness.reserveCalls[0]?.requestDigest).toEqual(
@@ -566,7 +450,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
   });
 
   test('finalize private-worker failure releases the reservation without committing budget', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -579,7 +463,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: finalizeBody(),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -590,13 +474,10 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
           message: 'private worker failed',
         },
       });
-      expect(fetchCalls).toEqual([
-        'https://signing-worker.internal/router-ab/signing-worker/sign',
-      ]);
+      expect(fetchCalls).toEqual(['https://signing-worker.internal/router-ab/signing-worker/sign']);
       expect(harness.validateCalls).toEqual([
         {
           curve: 'ed25519',
-          phase: 'finalize',
           thresholdSessionId,
           signingGrantId,
           reservationId: 'budget-reservation-1',
@@ -621,7 +502,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
   });
 
   test('normal finalize rejects invalid reservation before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService({ validateBudget: 'exhausted' });
+    const harness = createNormalSigningRuntime({ validateBudget: 'exhausted' });
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -634,7 +515,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         body: finalizeBody(),
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -649,7 +530,6 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
       expect(harness.validateCalls).toEqual([
         {
           curve: 'ed25519',
-          phase: 'finalize',
           thresholdSessionId,
           signingGrantId,
           reservationId: 'budget-reservation-1',
@@ -662,7 +542,6 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
       expect(harness.releaseCalls).toEqual([
         {
           curve: 'ed25519',
-          phase: 'finalize',
           thresholdSessionId,
           signingGrantId,
           reservationId: 'budget-reservation-1',

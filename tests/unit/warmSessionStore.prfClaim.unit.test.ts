@@ -8,10 +8,6 @@ import {
   seedEcdsaWarmSessionRecord,
 } from './helpers/signingSessionRecord.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
-import {
-  clearRouterAbEd25519WorkerMaterialRuntimeValidation,
-  markRouterAbEd25519WorkerMaterialRuntimeValidated,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 test.describe('WarmSessionStore PRF claim handling', () => {
   test('reports signing-session status for warm, missing, expired, exhausted, and unavailable claims', async () => {
@@ -135,49 +131,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         authMethod: 'passkey',
       },
     );
-  });
-
-  test('treats persisted Ed25519 material handles as hints until runtime validation', async () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-    clearRouterAbEd25519WorkerMaterialRuntimeValidation();
-
-    const record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'material-hint-status.testnet',
-      thresholdSessionId: 'material-hint-status-session',
-      walletSessionJwt: 'jwt:material-hint-status-session',
-      remainingUses: 4,
-      expiresAtMs: Date.now() + 120_000,
-    });
-    const store = createWarmSessionTestServices({
-      touchConfirm: createWarmSessionUiConfirmFixture({
-        claimsBySessionId: {
-          [record.thresholdSessionId]: {
-            state: 'missing',
-          },
-        },
-      }).touchConfirm,
-    });
-
-    try {
-      await expect(
-        store.getEd25519SigningSessionStatus(record.nearAccountId),
-      ).resolves.toMatchObject({
-        sessionId: 'material-hint-status-session',
-        status: 'not_found',
-      });
-
-      expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
-      await expect(
-        store.getEd25519SigningSessionStatus(record.nearAccountId),
-      ).resolves.toMatchObject({
-        sessionId: 'material-hint-status-session',
-        status: 'active',
-        remainingUses: 4,
-      });
-    } finally {
-      clearRouterAbEd25519WorkerMaterialRuntimeValidation();
-    }
   });
 
   test('claims warm PRF material and returns it', async () => {

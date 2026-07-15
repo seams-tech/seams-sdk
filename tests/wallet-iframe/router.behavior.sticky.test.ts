@@ -7,31 +7,54 @@ import {
   captureOverlay,
 } from './harness';
 import {
-  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  exactEd25519SigningLaneIdentity,
-  nearEd25519SignerBindingFromBoundaryFields,
+  buildEvmFamilyEcdsaSignerBinding,
+  exactEcdsaSigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  buildEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+  toRpId,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
-const STICKY_NEAR_ACCOUNT = nearAccountRefFromAccountId('sticky.testnet');
-const STICKY_WALLET_SESSION = walletSessionRefFromSession({
-  walletId: 'sticky.testnet',
-  walletSessionUserId: 'sticky.testnet',
+const STICKY_WALLET_ID = toWalletId('sticky.testnet');
+const STICKY_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
 });
-const STICKY_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
-  signer: nearEd25519SignerBindingFromBoundaryFields({
-    walletId: STICKY_WALLET_SESSION.walletId,
-    nearAccountId: 'sticky.testnet',
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('sticky.testnet'),
-    signerSlot: 1,
+const STICKY_WALLET_SESSION = walletSessionRefFromSession({
+  walletId: STICKY_WALLET_ID,
+  walletSessionUserId: STICKY_WALLET_ID,
+});
+const STICKY_ECDSA_KEY = buildEvmFamilyEcdsaKeyIdentity({
+  walletId: STICKY_WALLET_ID,
+  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+    walletId: STICKY_WALLET_ID,
+    signingRootId: 'signing-root-sticky-export',
+    signingRootVersion: 'root-v1',
+  }),
+  ecdsaThresholdKeyId: 'ecdsa-threshold-sticky-export',
+  signingRootId: 'signing-root-sticky-export',
+  signingRootVersion: 'root-v1',
+  participantIds: [1, 2],
+  thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+});
+const STICKY_EXPORT_LANE = exactEcdsaSigningLaneIdentity({
+  signer: buildEvmFamilyEcdsaSignerBinding({
+    walletId: STICKY_WALLET_ID,
+    chainTarget: STICKY_CHAIN_TARGET,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-key-handle-sticky-export'),
+    key: STICKY_ECDSA_KEY,
   }),
   auth: {
     kind: 'passkey',
@@ -184,7 +207,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         waitForSource,
         captureOverlaySource,
         routerPath,
-        stickyNearAccount,
+        stickyChainTarget,
         stickyExportLaneIdentity,
         stickyWalletSession,
       }) => {
@@ -192,7 +215,8 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -205,13 +229,11 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
           await router.init();
 
           const stickyPromise = router.exportKeypairWithUI({
-            kind: 'near',
+            kind: 'ecdsa',
             walletSession: stickyWalletSession,
-            nearAccount: stickyNearAccount,
+            chainTarget: stickyChainTarget,
             laneIdentity: stickyExportLaneIdentity,
-            options: {
-              chain: 'near',
-            },
+            options: {},
           });
 
           const shown = await waitFor(() => {
@@ -246,8 +268,8 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
-        stickyNearAccount: STICKY_NEAR_ACCOUNT,
-        stickyExportLaneIdentity: STICKY_NEAR_EXPORT_LANE,
+        stickyChainTarget: STICKY_CHAIN_TARGET,
+        stickyExportLaneIdentity: STICKY_EXPORT_LANE,
         stickyWalletSession: STICKY_WALLET_SESSION,
       },
     );
@@ -271,7 +293,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         waitForSource,
         captureOverlaySource,
         routerPath,
-        stickyNearAccount,
+        stickyChainTarget,
         stickyExportLaneIdentity,
         stickyWalletSession,
       }) => {
@@ -279,7 +301,8 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -292,13 +315,11 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
           await router.init();
 
           await router.exportKeypairWithUI({
-            kind: 'near',
+            kind: 'ecdsa',
             walletSession: stickyWalletSession,
-            nearAccount: stickyNearAccount,
+            chainTarget: stickyChainTarget,
             laneIdentity: stickyExportLaneIdentity,
-            options: {
-              chain: 'near',
-            },
+            options: {},
           });
 
           // Simulate wallet-host export UI close cleanup (release sticky + hide),
@@ -349,8 +370,8 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
-        stickyNearAccount: STICKY_NEAR_ACCOUNT,
-        stickyExportLaneIdentity: STICKY_NEAR_EXPORT_LANE,
+        stickyChainTarget: STICKY_CHAIN_TARGET,
+        stickyExportLaneIdentity: STICKY_EXPORT_LANE,
         stickyWalletSession: STICKY_WALLET_SESSION,
       },
     );

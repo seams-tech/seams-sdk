@@ -6,6 +6,8 @@ import {
 } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionStatus,
@@ -13,6 +15,12 @@ import type {
 } from '@server/threshold/session/signingSessionSeal/signingSessionSeal.types';
 
 const ECDSA_SIGNING_KEY_SLOT_ID = 'wallet-key:evm-family:wallet-ecdsa:signing-root-1:v1';
+
+function webAuthnRpId(value: string) {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error('invalid rpId fixture');
+  return parsed.value;
+}
 
 function makeSession(claims: Record<string, unknown>) {
   return {
@@ -37,7 +45,9 @@ type ThresholdStatusFixtureInput = {
   | { curve: 'ed25519'; rpId: string; evmFamilySigningKeySlotId?: never }
 );
 
-function makeThresholdStatus(input: ThresholdStatusFixtureInput): SigningSessionSealThresholdSessionStatus {
+function makeThresholdStatus(
+  input: ThresholdStatusFixtureInput,
+): SigningSessionSealThresholdSessionStatus {
   const base = {
     kind: 'wallet_session' as const,
     curve: input.curve,
@@ -59,7 +69,7 @@ function makeThresholdStatus(input: ThresholdStatusFixtureInput): SigningSession
       return {
         ...base,
         curve: 'ed25519',
-        rpId: input.rpId,
+        authorityScope: { kind: 'passkey_rp', rpId: webAuthnRpId(input.rpId) },
       };
   }
 }
@@ -70,7 +80,47 @@ type WalletBudgetStatusFixtureInput = {
   participantIds: number[];
   expiresAtMs: number;
   remainingUses: number;
-};
+} & (
+  | {
+      curve: 'ecdsa';
+      thresholdSessionId: string;
+      evmFamilySigningKeySlotId: string;
+      rpId?: never;
+    }
+  | {
+      curve: 'ed25519';
+      thresholdSessionId: string;
+      rpId: string;
+      evmFamilySigningKeySlotId?: never;
+    }
+);
+
+function walletBudgetStatusBindings(
+  input: WalletBudgetStatusFixtureInput,
+): SigningSessionSealWalletBudgetStatus['bindings'] {
+  switch (input.curve) {
+    case 'ecdsa':
+      return {
+        kind: 'ecdsa_only',
+        ecdsa: [
+          {
+            thresholdSessionId: input.thresholdSessionId,
+            evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+            participantIds: input.participantIds,
+          },
+        ],
+      };
+    case 'ed25519':
+      return {
+        kind: 'ed25519_only',
+        ed25519: {
+          thresholdSessionId: input.thresholdSessionId,
+          authorityScope: { kind: 'passkey_rp', rpId: webAuthnRpId(input.rpId) },
+          participantIds: input.participantIds,
+        },
+      };
+  }
+}
 
 function makeWalletBudgetStatus(
   input: WalletBudgetStatusFixtureInput,
@@ -85,8 +135,35 @@ function makeWalletBudgetStatus(
     reservedUses: 0,
     availableUses: input.remainingUses,
     relayerKeyId: 'wallet-signing-budget',
-    participantIds: input.participantIds,
+    bindings: walletBudgetStatusBindings(input),
   };
+}
+
+type CommonWalletBudgetStatusFixtureInput = Pick<
+  WalletBudgetStatusFixtureInput,
+  'signingGrantId' | 'userId' | 'participantIds' | 'expiresAtMs' | 'remainingUses'
+>;
+
+function makeEcdsaWalletBudgetStatus(
+  input: CommonWalletBudgetStatusFixtureInput,
+): SigningSessionSealWalletBudgetStatus {
+  return makeWalletBudgetStatus({
+    ...input,
+    curve: 'ecdsa',
+    thresholdSessionId: 'threshold-session-ecdsa',
+    evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
+  });
+}
+
+function makeEd25519WalletBudgetStatus(
+  input: CommonWalletBudgetStatusFixtureInput,
+): SigningSessionSealWalletBudgetStatus {
+  return makeWalletBudgetStatus({
+    ...input,
+    curve: 'ed25519',
+    thresholdSessionId: 'threshold-session-ed25519',
+    rpId: 'example.localhost',
+  });
 }
 
 function makePolicy(input: {
@@ -159,6 +236,11 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
 }
 
 function makeEd25519Claims(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: 'wallet-ed25519',
+    rpId: 'example.localhost',
+    credentialIdB64u: 'credential-ed25519',
+  });
   return {
     sub: 'wallet-ed25519',
     walletId: 'wallet-ed25519',
@@ -168,7 +250,11 @@ function makeEd25519Claims(overrides: Record<string, unknown> = {}): Record<stri
     thresholdSessionId: 'threshold-session-ed25519',
     signingGrantId: 'signing-grant-ed25519',
     relayerKeyId: 'ed25519-relayer-1',
-    rpId: 'example.localhost',
+    authority,
+    authorityScope: {
+      kind: 'passkey_rp',
+      rpId: authority.verifier.rpId,
+    },
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
     runtimePolicyScope: {
@@ -203,7 +289,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 5,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEcdsaWalletBudgetStatus({
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
           participantIds: [1, 2],
@@ -224,9 +310,7 @@ test.describe('signing budget status parser', () => {
   test('accepts Router A/B ECDSA-HSS Wallet Session JWT claims for budget status', async () => {
     const result = await parseWalletSigningBudgetStatusRequest({
       headers: { Authorization: 'Bearer router-ab-ecdsa-token' },
-      session: makeSession(
-        makeEcdsaClaims({ kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND }),
-      ),
+      session: makeSession(makeEcdsaClaims({ kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND })),
       sessionPolicy: makePolicy({
         thresholdStatuses: [
           makeThresholdStatus({
@@ -240,7 +324,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 5,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEcdsaWalletBudgetStatus({
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
           participantIds: [1, 2],
@@ -261,9 +345,7 @@ test.describe('signing budget status parser', () => {
   test('accepts Router A/B Ed25519 Wallet Session JWT claims for budget status', async () => {
     const result = await parseWalletSigningBudgetStatusRequest({
       headers: { Authorization: 'Bearer router-ab-ed25519-token' },
-      session: makeSession(
-        makeEd25519Claims({ kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND }),
-      ),
+      session: makeSession(makeEd25519Claims({ kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND })),
       sessionPolicy: makePolicy({
         thresholdStatuses: [
           makeThresholdStatus({
@@ -277,7 +359,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 4,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEd25519WalletBudgetStatus({
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           participantIds: [1, 2],
@@ -335,7 +417,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 4,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEd25519WalletBudgetStatus({
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           participantIds: [1, 2],
@@ -371,7 +453,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 4,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEd25519WalletBudgetStatus({
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           participantIds: [1, 2],
@@ -460,7 +542,7 @@ test.describe('signing budget status parser', () => {
       session: makeSession(makeEd25519Claims()),
       sessionPolicy: makePolicy({
         thresholdStatuses: [],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEd25519WalletBudgetStatus({
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           participantIds: [1, 2],
@@ -520,7 +602,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 4,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEd25519WalletBudgetStatus({
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           participantIds: [7, 8],
@@ -553,7 +635,7 @@ test.describe('signing budget status parser', () => {
             remainingUses: 4,
           }),
         ],
-        walletBudgetStatus: makeWalletBudgetStatus({
+        walletBudgetStatus: makeEcdsaWalletBudgetStatus({
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
           participantIds: [1, 2],

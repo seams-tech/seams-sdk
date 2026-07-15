@@ -9,15 +9,12 @@ const authNeutralDocs = Object.freeze([
   'apps/docs/src/concepts/auth-planes.md',
   'apps/docs/src/concepts/threshold-signing/index.md',
   'apps/docs/src/concepts/threshold-signing/router-ab.md',
-  'apps/docs/src/concepts/threshold-signing/near-ed25519-hss.md',
-  'apps/docs/src/concepts/threshold-signing/evm-ecdsa-hss.md',
-  'apps/docs/src/concepts/threshold-signing/hss-key-derivation.md',
+  'apps/docs/src/concepts/threshold-signing/evm-ecdsa.md',
+  'apps/docs/src/concepts/threshold-signing/blind-deterministic-derivation.md',
   'apps/docs/src/concepts/auth-methods/email-otp.md',
   'apps/docs/src/concepts/sessions/sealed-refresh.md',
   'docs/otp/email-otp.md',
   'docs/signing-session-architecture/sealed-refresh.md',
-  'docs/hss-threshold-ed25519.md',
-  'docs/hss-export-key.md',
   'docs/refactor-62-hss-prepare-preauth.md',
 ]);
 

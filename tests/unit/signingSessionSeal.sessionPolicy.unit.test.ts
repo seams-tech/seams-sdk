@@ -5,6 +5,7 @@ import type {
   Ed25519WalletSessionStatus,
   Ed25519WalletSessionStore,
   WalletSessionConsumeUsesResult,
+  WalletSigningBudgetBindings,
   WalletSigningBudgetSessionStatus,
   WalletSigningBudgetSessionStore,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
@@ -71,18 +72,16 @@ function makeEcdsaStatus(input: {
 
 function makeBudgetStatus(input: {
   userId: string;
-  relayerKeyId: string;
-  participantIds: number[];
   expiresAtMs: number;
   remainingUses: number;
+  bindings: WalletSigningBudgetBindings;
 }): WalletSigningBudgetSessionStatus {
   return {
     record: {
       kind: 'wallet_signing_budget_session',
       walletId: input.userId,
-      relayerKeyId: input.relayerKeyId,
-      participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
+      bindings: input.bindings,
     },
     expiresAtMs: input.expiresAtMs,
     committedRemainingUses: input.remainingUses,
@@ -301,7 +300,10 @@ test.describe('signing session seal session policy', () => {
       userId: 'alice',
       expiresAtMs: 111_000,
       relayerKeyId: 'relayer-ed25519',
-      rpId: 'rp-ed25519.example',
+      authorityScope: {
+        kind: 'passkey_rp',
+        rpId: webAuthnRpId('rp-ed25519.example'),
+      },
       participantIds: [1, 2],
     });
 
@@ -370,7 +372,10 @@ test.describe('signing session seal session policy', () => {
         expiresAtMs: 111_000,
         remainingUses: 4,
         relayerKeyId: 'relayer-ed25519',
-        rpId: 'rp-ed25519.example',
+        authorityScope: {
+          kind: 'passkey_rp',
+          rpId: webAuthnRpId('rp-ed25519.example'),
+        },
         participantIds: [1, 2],
       },
     ]);
@@ -404,10 +409,19 @@ test.describe('signing session seal session policy', () => {
       sessions: {
         [walletBudgetStoreSessionId]: makeBudgetStatus({
           userId: 'alice',
-          relayerKeyId: 'relayer-wallet-budget',
-          participantIds: [5, 6],
           expiresAtMs: 333_000,
           remainingUses: 2,
+          bindings: {
+            kind: 'ed25519_only',
+            ed25519: {
+              thresholdSessionId: 'threshold-session-budget-ed25519',
+              authorityScope: {
+                kind: 'passkey_rp',
+                rpId: webAuthnRpId('rp-budget.example'),
+              },
+              participantIds: [5, 6],
+            },
+          },
         }),
       },
     });
@@ -430,8 +444,18 @@ test.describe('signing session seal session policy', () => {
       committedRemainingUses: 2,
       reservedUses: 0,
       availableUses: 2,
-      relayerKeyId: 'relayer-wallet-budget',
-      participantIds: [5, 6],
+      relayerKeyId: 'wallet-signing-budget',
+      bindings: {
+        kind: 'ed25519_only',
+        ed25519: {
+          thresholdSessionId: 'threshold-session-budget-ed25519',
+          authorityScope: {
+            kind: 'passkey_rp',
+            rpId: webAuthnRpId('rp-budget.example'),
+          },
+          participantIds: [5, 6],
+        },
+      },
     });
 
     await expect(
@@ -447,10 +471,26 @@ test.describe('signing session seal session policy', () => {
       sessions: {
         [walletSigningBudgetSessionId({ signingGrantId })]: makeBudgetStatus({
           userId: 'alice',
-          relayerKeyId: 'relayer-wallet-budget',
-          participantIds: [1, 2],
           expiresAtMs: 444_000,
           remainingUses: 7,
+          bindings: {
+            kind: 'ed25519_and_ecdsa',
+            ed25519: {
+              thresholdSessionId: 'threshold-session-shared-ed25519',
+              authorityScope: {
+                kind: 'passkey_rp',
+                rpId: webAuthnRpId('rp-shared.example'),
+              },
+              participantIds: [1, 2],
+            },
+            ecdsa: [
+              {
+                thresholdSessionId: 'threshold-session-shared-ecdsa',
+                evmFamilySigningKeySlotId: 'evm-family-shared-slot',
+                participantIds: [1, 2, 3],
+              },
+            ],
+          },
         }),
       },
     });
@@ -467,7 +507,11 @@ test.describe('signing session seal session policy', () => {
     ).resolves.toMatchObject({
       signingGrantId,
       remainingUses: 7,
-      participantIds: [1, 2],
+      bindings: {
+        kind: 'ed25519_and_ecdsa',
+        ed25519: { participantIds: [1, 2] },
+        ecdsa: [{ participantIds: [1, 2, 3] }],
+      },
     });
   });
 

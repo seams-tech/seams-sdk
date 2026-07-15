@@ -9,14 +9,10 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
-  type ThresholdEd25519UpsertMaterialFields,
   upsertThresholdEd25519SessionFact,
   upsertThresholdEcdsaSessionFromBootstrap,
 } from '@/core/signingEngine/session/persistence/records';
-import {
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
-  markRouterAbEd25519WorkerMaterialRuntimeValidated,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextProviderUserId,
@@ -43,12 +39,7 @@ type SessionStorageMock = {
 type SeedEd25519WarmSessionRecordArgs = Partial<ThresholdEd25519SessionRecord> & {
   nearAccountId: string;
   thresholdSessionId: string;
-  runtimeValidated?: boolean;
 };
-
-function assertNever(value: never): never {
-  throw new Error(`Unexpected fixture branch: ${String(value)}`);
-}
 
 function ensureWarmSessionTestStorage(): SessionStorageMock {
   const globalObj = globalThis as { sessionStorage?: SessionStorageMock };
@@ -129,11 +120,7 @@ export function seedEd25519WarmSessionRecord(
     relayerKeyId,
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...thresholdEd25519FixtureMaterialFields(args),
     ...(args.signerSlot !== 0 ? { signerSlot: args.signerSlot || 1 } : {}),
-    ...(args.keyVersion !== ''
-      ? { keyVersion: args.keyVersion || 'threshold-ed25519-hss-v1' }
-      : {}),
     routerAbNormalSigning: args.routerAbNormalSigning || {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
       signingWorkerId: 'signing-worker-warm-session-fixture',
@@ -156,9 +143,6 @@ export function seedEd25519WarmSessionRecord(
   });
   if (!record) {
     throw new Error(`Failed to seed Ed25519 warm-session record for ${args.nearAccountId}`);
-  }
-  if (args.runtimeValidated) {
-    markRouterAbEd25519WorkerMaterialRuntimeValidated(record);
   }
   return record;
 }
@@ -245,49 +229,6 @@ export function seedEcdsaWarmSessionRecord(
     markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
   }
   return record;
-}
-
-function thresholdEd25519FixtureMaterialFields(
-  args: SeedEd25519WarmSessionRecordArgs,
-): ThresholdEd25519UpsertMaterialFields {
-  const materialState = args.materialState || 'material_ready';
-  switch (materialState) {
-    case 'auth_ready_material_pending':
-      return {};
-    case 'restore_available':
-      return {
-        clientVerifyingShareB64u: args.clientVerifyingShareB64u || 'fixture-client-verifier',
-        ed25519WorkerMaterialBindingDigest:
-          args.ed25519WorkerMaterialBindingDigest || 'fixture-binding',
-        sealedWorkerMaterialRef:
-          args.sealedWorkerMaterialRef ||
-          `ed25519-worker-material-v1:${args.thresholdSessionId}:fixture-binding`,
-        ...(args.sealedWorkerMaterialB64u
-          ? { sealedWorkerMaterialB64u: args.sealedWorkerMaterialB64u }
-          : {}),
-        materialFormatVersion: args.materialFormatVersion || 'ed25519_worker_material_v1',
-        materialKeyId: args.materialKeyId || `material-key-${args.thresholdSessionId}`,
-        materialCreatedAtMs: args.materialCreatedAtMs || 1_700_000_000_000,
-      };
-    case 'material_ready':
-      return {
-        clientVerifyingShareB64u: args.clientVerifyingShareB64u || 'fixture-client-verifier',
-        ed25519WorkerMaterialHandle:
-          args.ed25519WorkerMaterialHandle ||
-          `ed25519-worker-material:${args.thresholdSessionId}:fixture-binding`,
-        ed25519WorkerMaterialBindingDigest:
-          args.ed25519WorkerMaterialBindingDigest || 'fixture-binding',
-        sealedWorkerMaterialRef:
-          args.sealedWorkerMaterialRef ||
-          `ed25519-worker-material-v1:${args.thresholdSessionId}:fixture-binding`,
-        sealedWorkerMaterialB64u: args.sealedWorkerMaterialB64u || 'fixture-sealed-material',
-        materialFormatVersion: args.materialFormatVersion || 'ed25519_worker_material_v1',
-        materialKeyId: args.materialKeyId || `material-key-${args.thresholdSessionId}`,
-        materialCreatedAtMs: args.materialCreatedAtMs || 1_700_000_000_000,
-      };
-    default:
-      return assertNever(materialState);
-  }
 }
 
 function toFixtureEd25519WalletSessionJwt(

@@ -14,6 +14,7 @@ import {
   refillRouterAbEcdsaHssClientPresignaturePool,
   scheduleRouterAbEcdsaHssClientPresignaturePoolRefill,
   signRouterAbEcdsaHssDigestWithPool,
+  type RouterAbEcdsaHssClientSigningMaterialSource,
 } from '@/core/signingEngine/routerAb/ecdsaHss/presignaturePool';
 import {
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
@@ -89,9 +90,7 @@ async function buildRouterAbEcdsaHssScope(): Promise<RouterAbEcdsaHssNormalSigni
     signing_root_version: 'default',
     context: ROUTER_AB_ECDSA_HSS_CONTEXT,
     public_identity: {
-      context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(
-        ROUTER_AB_ECDSA_HSS_CONTEXT,
-      ),
+      context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(ROUTER_AB_ECDSA_HSS_CONTEXT),
       client_public_key33_b64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       server_public_key33_b64u: GROUP_PUBLIC_KEY_B64U,
       threshold_public_key33_b64u: GROUP_PUBLIC_KEY_B64U,
@@ -115,6 +114,7 @@ type ThresholdFetchCounters = {
   routerPrepare: number;
   routerFinalize: number;
   presignInitBodies: Array<Record<string, unknown>>;
+  presignStepBodies: Array<Record<string, unknown>>;
   presignInitPaths: string[];
   presignStepPaths: string[];
 };
@@ -194,6 +194,9 @@ function makeWorkerCtx(args: {
         }
         return args.clientSignatureShare32.slice().buffer as any;
       }
+      if (type === 'verifySecp256k1RecoverableSignatureAgainstPublicKey33') {
+        return new Uint8Array(payload.publicKey33 as ArrayBuffer).slice().buffer as any;
+      }
       throw new Error(`Unexpected worker operation in test: ${type}`);
     },
   };
@@ -204,6 +207,7 @@ function installThresholdEcdsaFetchMock(args?: {
   presignInitDelayMs?: number;
   failFirstPresignStepAsStale?: boolean;
   failFirstRouterPrepareAsExpired?: boolean;
+  serverCompletesTriplesBeforeClient?: boolean;
 }): {
   counters: ThresholdFetchCounters;
   restore: () => void;
@@ -214,6 +218,7 @@ function installThresholdEcdsaFetchMock(args?: {
     routerPrepare: 0,
     routerFinalize: 0,
     presignInitBodies: [],
+    presignStepBodies: [],
     presignInitPaths: [],
     presignStepPaths: [],
   };
@@ -270,6 +275,7 @@ function installThresholdEcdsaFetchMock(args?: {
     if (path.endsWith(ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH)) {
       counters.presignStep += 1;
       counters.presignStepPaths.push(path);
+      counters.presignStepBodies.push(JSON.parse(String(init?.body || '{}')));
       if (args?.failFirstPresignStepAsStale && counters.presignStep === 1) {
         return new Response(
           JSON.stringify({
@@ -280,6 +286,21 @@ function installThresholdEcdsaFetchMock(args?: {
           }),
           {
             status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      if (args?.serverCompletesTriplesBeforeClient && counters.presignStep < 3) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            stage: 'triples_done',
+            event: 'triples_done',
+            outgoingMessagesB64u:
+              counters.presignStep === 1 ? [base64UrlEncode(new Uint8Array([41]))] : [],
+          }),
+          {
+            status: 200,
             headers: { 'Content-Type': 'application/json' },
           },
         );
@@ -302,7 +323,9 @@ function installThresholdEcdsaFetchMock(args?: {
 
     if (path.endsWith('/router-ab/ecdsa-hss/sign/prepare')) {
       counters.routerPrepare += 1;
-      const body = JSON.parse(String(init?.body || '{}')) as RouterAbEcdsaHssEvmDigestSigningRequestV1Wire;
+      const body = JSON.parse(
+        String(init?.body || '{}'),
+      ) as RouterAbEcdsaHssEvmDigestSigningRequestV1Wire;
       if (args?.failFirstRouterPrepareAsExpired && counters.routerPrepare === 1) {
         return new Response(
           JSON.stringify({
@@ -349,16 +372,13 @@ function installThresholdEcdsaFetchMock(args?: {
       const body = JSON.parse(
         String(init?.body || '{}'),
       ) as RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
-      const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
-        body,
-      );
+      const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(body);
       return new Response(
         JSON.stringify({
           scope: body.scope,
           request_id: body.request_id,
-          request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(
-            coreRequest,
-          ),
+          request_digest:
+            await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest),
           signing_digest: { bytes: Array.from(DIGEST_32) },
           signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
           signature65_b64u: SIGNATURE_65_B64U,
@@ -391,6 +411,70 @@ function installThresholdEcdsaFetchMock(args?: {
   };
 }
 
+class StageSkewClientSigningMaterial implements RouterAbEcdsaHssClientSigningMaterialSource {
+  readonly kind = 'router_ab_ecdsa_hss_client_signing_material_source_v1' as const;
+  readonly requestedStages: Array<'triples' | 'presign'> = [];
+  private stepCount = 0;
+
+  async initClientPresignSession(): ReturnType<
+    RouterAbEcdsaHssClientSigningMaterialSource['initClientPresignSession']
+  > {
+    return {
+      stage: 'triples',
+      event: 'none',
+      outgoingMessages: [new Uint8Array([17])],
+    };
+  }
+
+  async stepClientPresignSession(
+    input: Parameters<RouterAbEcdsaHssClientSigningMaterialSource['stepClientPresignSession']>[0],
+  ): ReturnType<RouterAbEcdsaHssClientSigningMaterialSource['stepClientPresignSession']> {
+    this.requestedStages.push(input.stage);
+    this.stepCount += 1;
+    switch (this.stepCount) {
+      case 1:
+        return {
+          stage: 'triples',
+          event: 'none',
+          outgoingMessages: [new Uint8Array([23])],
+        };
+      case 2:
+        return {
+          stage: 'triples_done',
+          event: 'triples_done',
+          outgoingMessages: [],
+        };
+      case 3:
+        if (input.stage !== 'presign') {
+          throw new Error('client entered presign before both peers completed triples');
+        }
+        return {
+          stage: 'done',
+          event: 'presign_done',
+          outgoingMessages: [],
+          presignatureHandle: 'stage-skew-presignature-handle',
+          presignatureBigR33: PRESIGN_BIG_R_33.slice(),
+        };
+      default:
+        throw new Error(`unexpected stage-skew client step ${this.stepCount}`);
+    }
+  }
+
+  async abortClientPresignSession(): ReturnType<
+    RouterAbEcdsaHssClientSigningMaterialSource['abortClientPresignSession']
+  > {}
+
+  async computeSignatureShareFromPresignatureHandle(): ReturnType<
+    RouterAbEcdsaHssClientSigningMaterialSource['computeSignatureShareFromPresignatureHandle']
+  > {
+    return CLIENT_SIGNATURE_SHARE_32.slice();
+  }
+}
+
+function presignStepBodyStage(body: Record<string, unknown>): unknown {
+  return body.stage;
+}
+
 async function waitForPredicate(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -412,12 +496,16 @@ function clientSigningMaterial(bytes: Uint8Array = CLIENT_SIGNING_SHARE_32) {
         clientSigningShare32: bytes.slice(),
         ...input,
       }),
-    stepClientPresignSession: async (input: Parameters<typeof stepRouterAbEcdsaHssClientPresignSession>[0]) =>
-      await stepRouterAbEcdsaHssClientPresignSession(input),
-    abortClientPresignSession: async (input: Parameters<typeof abortRouterAbEcdsaHssClientPresignSession>[0]) =>
-      await abortRouterAbEcdsaHssClientPresignSession(input),
+    stepClientPresignSession: async (
+      input: Parameters<typeof stepRouterAbEcdsaHssClientPresignSession>[0],
+    ) => await stepRouterAbEcdsaHssClientPresignSession(input),
+    abortClientPresignSession: async (
+      input: Parameters<typeof abortRouterAbEcdsaHssClientPresignSession>[0],
+    ) => await abortRouterAbEcdsaHssClientPresignSession(input),
     computeSignatureShareFromPresignatureHandle: async (
-      input: Parameters<typeof computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle>[0],
+      input: Parameters<
+        typeof computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle
+      >[0],
     ) => await computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle(input),
   };
 }
@@ -430,12 +518,16 @@ function ownedClientSigningMaterial(bytes: Uint8Array) {
         clientSigningShare32: bytes,
         ...input,
       }),
-    stepClientPresignSession: async (input: Parameters<typeof stepRouterAbEcdsaHssClientPresignSession>[0]) =>
-      await stepRouterAbEcdsaHssClientPresignSession(input),
-    abortClientPresignSession: async (input: Parameters<typeof abortRouterAbEcdsaHssClientPresignSession>[0]) =>
-      await abortRouterAbEcdsaHssClientPresignSession(input),
+    stepClientPresignSession: async (
+      input: Parameters<typeof stepRouterAbEcdsaHssClientPresignSession>[0],
+    ) => await stepRouterAbEcdsaHssClientPresignSession(input),
+    abortClientPresignSession: async (
+      input: Parameters<typeof abortRouterAbEcdsaHssClientPresignSession>[0],
+    ) => await abortRouterAbEcdsaHssClientPresignSession(input),
     computeSignatureShareFromPresignatureHandle: async (
-      input: Parameters<typeof computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle>[0],
+      input: Parameters<
+        typeof computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle
+      >[0],
     ) => await computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle(input),
   };
 }
@@ -506,7 +598,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
         clientSigningMaterial: clientSigningMaterial(),
       });
 
-      expect(signed1.ok).toBe(true);
+      expect(signed1.ok, JSON.stringify(signed1)).toBe(true);
       expect(signed2.ok).toBe(true);
       expect(fetchMock.counters.presignInit).toBe(2);
       expect(fetchMock.counters.presignStep).toBe(2);
@@ -563,6 +655,44 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
           expiresAtMs,
         },
       });
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('pool-fill waits for both peers to complete triples before entering presign', async () => {
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignBigR33: PRESIGN_BIG_R_33,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const material = new StageSkewClientSigningMaterial();
+    const fetchMock = installThresholdEcdsaFetchMock({
+      serverCompletesTriplesBeforeClient: true,
+    });
+
+    try {
+      const refill = await refillRouterAbEcdsaHssClientPresignaturePool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningMaterial: material,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        credential: WALLET_SESSION_CREDENTIAL,
+        routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+        workerCtx,
+      });
+
+      expect(refill.ok).toBe(true);
+      expect(material.requestedStages).toEqual(['triples', 'triples', 'presign']);
+      expect(fetchMock.counters.presignStepBodies.map(presignStepBodyStage)).toEqual([
+        'triples',
+        'triples',
+        'presign',
+      ]);
     } finally {
       fetchMock.restore();
     }

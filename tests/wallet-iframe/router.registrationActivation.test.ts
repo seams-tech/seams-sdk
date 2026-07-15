@@ -6,6 +6,24 @@ const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 
+function registrationActivationSignerSelection() {
+  return {
+    kind: 'signer_set' as const,
+    signers: [
+      {
+        kind: 'near_ed25519' as const,
+        accountProvisioning: {
+          kind: 'implicit_account' as const,
+          accountIdSource: 'ed25519_public_key' as const,
+        },
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    ],
+  };
+}
+
 const REGISTRATION_ACTIVATION_STATE_FILTER_SCRIPT = String.raw`
       const activationRequestIds = new Map();
       const validState = {
@@ -368,7 +386,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     );
 
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         try {
           const waitForBrowser = eval(waitForSource) as typeof waitFor;
           const mod = await import(routerPath);
@@ -395,6 +413,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Sign up with Passkey',
@@ -456,6 +475,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -485,7 +505,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     page,
   }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         const waitForBrowser = eval(waitForSource) as typeof waitFor;
         const mod = await import(routerPath);
         const { WalletIframeRouter } =
@@ -507,6 +527,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
         const surface = router.createPasskeyRegistrationActivationSurface({
           wallet: { kind: 'provided', walletId },
+          signerSelection,
           presentation: {
             kind: 'outline_overlay',
             label: 'Create passkey',
@@ -532,6 +553,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -549,7 +571,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     );
 
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         try {
           const waitForBrowser = eval(waitForSource) as typeof waitFor;
           const mod = await import(routerPath);
@@ -576,6 +598,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Sign up with Passkey',
@@ -617,6 +640,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -640,7 +664,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     );
 
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         try {
           const waitForBrowser = eval(waitForSource) as typeof waitFor;
           const mod = await import(routerPath);
@@ -684,6 +708,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Sign up with Passkey',
@@ -722,6 +747,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -744,7 +770,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     );
 
     const setup = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         try {
           const waitForBrowser = eval(waitForSource) as typeof waitFor;
           const mod = await import(routerPath);
@@ -772,6 +798,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Sign up with Passkey',
@@ -806,6 +833,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -856,7 +884,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     page,
   }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         try {
           const waitForBrowser = eval(waitForSource) as typeof waitFor;
           const mod = await import(routerPath);
@@ -890,6 +918,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Sign up with Passkey',
@@ -1007,6 +1036,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -1037,7 +1067,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
 
   test('rejects hidden, detached, undersized, inert, and low-opacity targets', async ({ page }) => {
     const results = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         const waitForBrowser = eval(waitForSource) as typeof waitFor;
         const { WalletIframeRouter } = (await import(
           routerPath
@@ -1093,6 +1123,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         for (const entry of cases) {
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Create passkey',
@@ -1116,6 +1147,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -1132,7 +1164,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     page,
   }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         const waitForBrowser = eval(waitForSource) as typeof waitFor;
         const { WalletIframeRouter } = (await import(
           routerPath
@@ -1159,6 +1191,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
         const surface = router.createPasskeyRegistrationActivationSurface({
           wallet: { kind: 'provided', walletId },
+          signerSelection,
           presentation: {
             kind: 'outline_overlay',
             label: 'Create passkey',
@@ -1204,6 +1237,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 
@@ -1219,7 +1253,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     );
 
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, waitForSource }) => {
+      async ({ routerPath, walletOrigin, waitForSource, signerSelection }) => {
         try {
           const waitForBrowser = eval(waitForSource) as typeof waitFor;
           const mod = await import(routerPath);
@@ -1246,6 +1280,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
             wallet: { kind: 'provided', walletId },
+            signerSelection,
             presentation: {
               kind: 'outline_overlay',
               label: 'Sign up with Passkey',
@@ -1296,6 +1331,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
         waitForSource: WAIT_FOR_SOURCE,
+        signerSelection: registrationActivationSignerSelection(),
       },
     );
 

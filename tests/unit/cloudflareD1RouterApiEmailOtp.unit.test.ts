@@ -12,7 +12,6 @@ import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload
 } from '../../packages/sdk-server-ts/src/core/registrationContracts';
-import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
@@ -20,14 +19,11 @@ import type {
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
-import { buildD1ThresholdEd25519RegistrationSessionPolicy } from '../../packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
-  implicitNearAccountProvisioning,
   parseServerAllocatedWalletId,
-  walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
@@ -57,10 +53,7 @@ import {
   EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U,
   EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U,
   TEST_COMBINED_NEAR_ACCOUNT_ID,
-  TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U,
   googleEmailOtpD1RegistrationAttemptBoundaryFixture,
-  testEd25519PreparedServerState,
-  testEd25519RespondedServerState,
   testEvmFamilyRegistrationSignerSet,
   testCombinedRegistrationSignerSet,
   requireParsedDomainId,
@@ -85,9 +78,6 @@ import {
   requireSingleEcdsaPrepare,
   testEcdsaClientBootstrapTargets,
   testEcdsaServerBootstrapResponse,
-  testEd25519PrepareForRegistration,
-  testEd25519RespondForRegistration,
-  testEd25519FinalizeForRegistration,
   testEd25519RegistrationKeygenFromRegistrationMaterial,
   testEcdsaHssRoleLocalBootstrap,
   testGetCombinedRegistrationSchemeModule,
@@ -377,153 +367,6 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
         ...scope,
       }),
     ).resolves.toEqual([]);
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service starts Google Email OTP wallet registration', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    const runtimePolicyScope = {
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      signingRootVersion: 'root-v1',
-    };
-    const email = 'sso-registration@example.test';
-    const providerSubject = 'google:sso-registration-user';
-    const durableObjects = new RecordingDurableObjectNamespace();
-    const thresholdSigningService = {
-      ed25519Hss: {
-        async prepareForRegistration() {
-          return {
-            ok: true as const,
-            ceremonyHandle: 'google-sso-ed25519-ceremony-handle',
-            preparedSession: {
-              contextBindingB64u: 'google-sso-ed25519-context-binding',
-              evaluatorDriverStateB64u: 'google-sso-ed25519-evaluator-driver-state',
-            },
-            clientOtOfferMessageB64u: 'google-sso-ed25519-client-ot-offer',
-            serverState: testEd25519PreparedServerState(),
-          };
-        },
-      },
-    } as unknown as ThresholdSigningService;
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      accountIdDerivationSecret: 'test-account-id-derivation-secret',
-      relayerAccount: 'relay.local',
-      thresholdSigningService,
-      thresholdStore: {
-        kind: 'cloudflare-do',
-        namespace: durableObjects,
-        THRESHOLD_PREFIX: 'intent-test',
-        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
-      },
-    });
-    const appSession = await service.sessionVersions.getOrCreateAppSessionVersion({
-      userId: providerSubject,
-    });
-    expect(appSession.ok).toBe(true);
-    if (!appSession.ok) throw new Error(appSession.message);
-
-    const resolved = await service.identity.resolveGoogleEmailOtpSession({
-      providerSubject,
-      email,
-      accountMode: 'register',
-      appSessionVersion: appSession.appSessionVersion,
-      runtimePolicyScope,
-    });
-    expect(resolved.ok).toBe(true);
-    expect(resolved.mode).toBe('register_started');
-    if (!resolved.ok || resolved.mode !== 'register_started') return;
-    const selected = resolved.offer.candidates[0];
-    expect(selected).toBeTruthy();
-    if (!selected) return;
-
-    const registration = await service.walletRegistration.createRegistrationIntent({
-      orgId: scope.orgId,
-      signingRootId: `${scope.projectId}:${scope.envId}`,
-      signingRootVersion: 'root-v1',
-      expectedOrigin: 'https://app.example',
-      request: {
-        wallet: { kind: 'provided', walletId: walletIdFromString(selected.walletId) },
-        authMethod: {
-          kind: 'email_otp',
-          proofKind: 'google_sso_registration',
-          email,
-          appSessionJwt: 'google-sso-app-session-jwt',
-          googleEmailOtpRegistrationAttemptId: resolved.registrationAttemptId,
-          googleEmailOtpRegistrationOfferId: resolved.offer.offerId,
-          googleEmailOtpRegistrationCandidateId: selected.candidateId,
-        },
-        signerSelection: {
-          kind: 'signer_set',
-          signers: [
-            {
-              kind: 'near_ed25519',
-              accountProvisioning: implicitNearAccountProvisioning(),
-              signerSlot: 1,
-              participantIds: [1, 2],
-              derivationVersion: 1,
-            },
-          ],
-        },
-      },
-    });
-    if (!registration.ok) throw new Error(registration.message);
-    expect(registration.ok).toBe(true);
-
-    const authority = {
-      kind: 'email_otp' as const,
-      emailOtpRegistrationProof: {
-        version: 'email_otp_registration_proof_v1' as const,
-        proofKind: 'google_sso_registration' as const,
-        providerSubject,
-        email,
-        googleEmailOtpRegistrationAttemptId: resolved.registrationAttemptId,
-        googleEmailOtpRegistrationOfferId: resolved.offer.offerId,
-        googleEmailOtpRegistrationCandidateId: selected.candidateId,
-        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-        appSessionVersion: appSession.appSessionVersion,
-      },
-    };
-
-    const prepared = await service.walletRegistration.prepareWalletRegistration({
-      registrationIntentGrant: registration.registrationIntentGrant,
-      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-      intent: registration.intent,
-      authority,
-      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
-      work: { kind: 'ed25519_hss' },
-    });
-    expect(prepared.ok).toBe(true);
-    if (!prepared.ok) throw new Error(prepared.message);
-
-    const started = await service.walletRegistration.startWalletRegistration({
-      registrationIntentGrant: registration.registrationIntentGrant,
-      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-      registrationPreparationId: prepared.registrationPreparationId,
-      intent: registration.intent,
-    });
-    expect(started.ok).toBe(true);
-    if (!started.ok) throw new Error(started.message);
-    expect(started.ed25519).toMatchObject({
-      ceremonyHandle: 'google-sso-ed25519-ceremony-handle',
-      clientOtOfferMessageB64u: 'google-sso-ed25519-client-ot-offer',
-    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

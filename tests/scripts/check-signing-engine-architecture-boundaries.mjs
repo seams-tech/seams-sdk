@@ -800,7 +800,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
   ];
   const broadShapeMarkers = [
     'ThresholdEcdsaSessionRecord',
@@ -816,30 +815,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
     for (const marker of broadShapeMarkers) {
       assertNotContains(source, marker, relativePath);
     }
-  }
-}
-
-function checkEd25519HssClientBaseReconstructionReceivesResolvedProtocolMaterial() {
-  const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
-  );
-
-  assertNotContains(source, 'session/records', 'workerMaterialHandle.ts');
-  assertNotContains(source, 'getStoredThresholdEd25519SessionRecord', 'workerMaterialHandle.ts');
-}
-
-function checkEd25519HssLifecycleLeavesPersistenceToCallers() {
-  const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
-  );
-
-  for (const marker of [
-    'session/records',
-    'persistStoredThresholdEd25519SessionClientBase',
-    'persistToThresholdSessionId',
-    'persistedThresholdSessionId',
-  ]) {
-    assertNotContains(source, marker, 'hssLifecycle.ts');
   }
 }
 
@@ -1321,8 +1296,6 @@ function runChecks() {
   checkDeletedDuplicateLaneNamesStayDeleted();
   checkThresholdSessionKindHasOneSigningEngineOwner();
   checkThresholdProtocolEntrypointsTakeProtocolMaterial();
-  checkEd25519HssClientBaseReconstructionReceivesResolvedProtocolMaterial();
-  checkEd25519HssLifecycleLeavesPersistenceToCallers();
   checkThresholdSessionIdentityTypesLiveOutsidePersistenceRecords();
   checkEd25519WalletSessionMintHelperHasNoLifecycleCache();
   checkEd25519ConnectSessionLeavesPersistenceToCallers();

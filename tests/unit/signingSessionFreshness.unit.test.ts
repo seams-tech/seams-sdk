@@ -41,10 +41,6 @@ import {
   buildSigningBudgetReservationIdentity,
   signingBudgetReservationKey,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 
@@ -351,15 +347,6 @@ test.describe('step-up freshness identity', () => {
         remainingUses: 1,
         expiresAtMs: 1_700_000_000_000,
         updatedAtMs: 1_700_000_000_001,
-        material: {
-          kind: 'sealed_worker_material',
-          identity: {
-            bindingDigest: parseEd25519WorkerMaterialBindingDigest(
-              'ed25519-freshness-binding-digest',
-            ),
-            materialKeyId: parseEd25519WorkerMaterialKeyId('ed25519-freshness-material-key'),
-          },
-        },
       },
       nowMs: 1_800_000_000_000,
     });

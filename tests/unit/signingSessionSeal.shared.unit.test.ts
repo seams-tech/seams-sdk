@@ -8,10 +8,8 @@ import {
   SIGNING_SESSION_SEAL_STORAGE_SCOPE,
   SIGNING_SESSION_SECRET_KIND,
   emailOtpEcdsaRestoreInfoFields,
-  emailOtpEd25519RestoreInfoFields,
   emailOtpSigningSessionRestoreRootInfoFields,
   emailOtpSigningSessionSecretInfoFields,
-  emailOtpThresholdEd25519HssInfoFields,
   encodeSigningSessionHkdfTuple,
   type SealedSigningSessionRecord,
 } from '@shared/utils/signingSessionSeal';
@@ -80,7 +78,6 @@ test.describe('shared signing-session seal specs', () => {
 
   test('freezes Email OTP signing-session HKDF salts and 32-bit length-prefixed info fields', () => {
     expect(EMAIL_OTP_HKDF_SALTS).toEqual({
-      thresholdEd25519Hss: 'seams/email-otp/threshold-ed25519-hss/v1',
       signingSessionSecret: 'seams/email-otp/signing-session-secret/v1',
       signingSessionRestoreRoot: 'seams/signing-session/restore-root/v1',
       thresholdEcdsaClientRoot: 'seams/signing-session/threshold-ecdsa-client-root/v1',
@@ -118,12 +115,6 @@ test.describe('shared signing-session seal specs', () => {
       }),
     ).toEqual(['email_otp', 'alice.testnet', 'user-1', 'root', 'root-v1', 'wallet-session']);
     expect(
-      emailOtpThresholdEd25519HssInfoFields({
-        walletId: 'alice.testnet',
-        userId: 'user-1',
-      }),
-    ).toEqual(['threshold-ed25519-hss-client-seed', 'alice.testnet', 'user-1']);
-    expect(
       emailOtpEcdsaRestoreInfoFields({
         ecdsaThresholdSessionId: 'ecdsa-session',
         ecdsaThresholdKeyId: 'ecdsa-key',
@@ -144,12 +135,5 @@ test.describe('shared signing-session seal specs', () => {
       '1,3',
       'relayer-key',
     ]);
-    expect(
-      emailOtpEd25519RestoreInfoFields({
-        ed25519ThresholdSessionId: 'ed-session',
-        participantIds: [1, 2],
-        relayerKeyId: 'relayer-key',
-      }),
-    ).toEqual(['ed-session', 'relayer-key', '1,2']);
   });
 });

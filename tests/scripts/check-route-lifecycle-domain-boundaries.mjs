@@ -451,19 +451,6 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
   expect(cloudflareSource).not.toContain("typeof (body as { clientDeviceId?: unknown }).clientDeviceId");
 });
 
-check('route/lifecycle boundary threshold Ed25519 HSS has no legacy email OTP command branch', () => {
-  const guardedFiles = [
-    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
-  ];
-
-  for (const relativePath of guardedFiles) {
-    const source = readRepoSource(relativePath);
-    expect(source).not.toContain('isEmailOtpRegistrationHssRequest');
-    expect(source).not.toContain('rejectLegacyEmailOtpRegistrationHssRequest');
-    expect(source).not.toContain('Router A/B email_otp_registration HSS requests');
-  }
-});
-
 check('route/lifecycle boundary threshold and session exchange routes parse commands before services', () => {
   const ed25519Parser = readRepoSource(
     'packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation.ts',
@@ -492,9 +479,6 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   );
 
   expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');
-  expect(ed25519Parser).toContain('parseThresholdEd25519HssPrepareWithSessionRouteRequest');
-  expect(ed25519Parser).toContain('parseThresholdEd25519HssFinalizeWithSessionRouteRequest');
-  expect(ed25519Parser).toContain('parseThresholdEd25519HssRespondWithSessionRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
   expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
@@ -535,9 +519,6 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
 
   expect(cloudflareEd25519).toContain('parseThresholdEd25519SessionRouteRequest');
   expect(cloudflareEd25519).toContain('buildThresholdEd25519VerifiedWalletAuth');
-  expect(cloudflareEd25519).toContain('parseThresholdEd25519HssPrepareWithSessionRouteRequest');
-  expect(cloudflareEd25519).toContain('parseThresholdEd25519HssFinalizeWithSessionRouteRequest');
-  expect(cloudflareEd25519).toContain('parseThresholdEd25519HssRespondWithSessionRouteRequest');
   expect(cloudflareEd25519).not.toContain('validated.body as unknown as ThresholdEd25519');
   expect(cloudflareEd25519).not.toContain('request: validated.body as');
   expect(cloudflareEd25519).not.toContain('request: validated.body');

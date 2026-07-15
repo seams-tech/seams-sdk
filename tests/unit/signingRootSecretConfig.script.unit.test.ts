@@ -33,7 +33,7 @@ test('threshold signing service reports signing-root resolver configured from se
     },
   };
 
-  const service = createThresholdSigningService({
+  const { thresholdSigningService: service } = createThresholdSigningService({
     authService: createAuthServiceMock(),
     thresholdStore: thresholdConfig,
     isNode: true,

@@ -76,7 +76,7 @@ test.describe('NEAR threshold key material persistence', () => {
             publicKey: 'ed25519:threshold-operational',
             signerId: 'ed25519:threshold-operational',
             relayerKeyId: 'rk-1',
-            keyVersion: 'threshold-ed25519-hss-v1',
+            keyVersion: 'router-ab-ed25519-yao-v1',
             timestamp: Date.now(),
           },
         );
@@ -129,7 +129,7 @@ test.describe('NEAR threshold key material persistence', () => {
     expect(result.rawWrapKeySalt).toBe('');
     expect(result.rawPayload).toMatchObject({
       relayerKeyId: 'ed25519:threshold-operational',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
     });
     expect(Array.isArray(result.rawPayload.participants)).toBe(true);
     expect(result.rawHasRecoveryPublicKey).toBe(false);
@@ -141,7 +141,7 @@ test.describe('NEAR threshold key material persistence', () => {
       kind: 'threshold_ed25519_v1',
       publicKey: 'ed25519:threshold-operational',
       relayerKeyId: 'ed25519:threshold-operational',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
     });
     expect(result.materialHasRecoveryPublicKey).toBe(false);
     expect(result.materialHasWrapKeySalt).toBe(false);
@@ -223,7 +223,7 @@ test.describe('NEAR threshold key material persistence', () => {
           signerId: 'ed25519:threshold-operational',
           payload: {
             relayerKeyId: 'rk-1',
-            keyVersion: 'threshold-ed25519-hss-v1',
+            keyVersion: 'router-ab-ed25519-yao-v1',
           },
           timestamp: Date.now(),
           schemaVersion: 1,
@@ -245,7 +245,7 @@ test.describe('NEAR threshold key material persistence', () => {
       kind: 'threshold_ed25519_v1',
       publicKey: 'ed25519:threshold-operational',
       relayerKeyId: 'ed25519:threshold-operational',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
     });
     expect(Array.isArray(result?.participants)).toBe(true);
     expect(result?.participants).toEqual(

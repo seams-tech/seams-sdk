@@ -683,6 +683,47 @@ test.describe('Wallet Session budget reservation backend contracts', () => {
     });
   });
 
+  test('Cloudflare Durable Object store accepts exact wallet-level budget records', async () => {
+    const store = createWalletSigningBudgetSessionStore({
+      config: storeConfig({
+        kind: 'cloudflare-do',
+        namespace: createMemoryDurableObjectNamespace(),
+        name: randomPrefix('wallet-budget-do-object'),
+      }),
+      logger,
+      isNode: false,
+    });
+    const sessionId = randomPrefix('wallet-budget-do-exact-record');
+    const expiresAtMs = Date.now() + 60_000;
+    await store.putSession(
+      sessionId,
+      {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs,
+        walletId: 'wallet-budget-do-user',
+        bindings: {
+          kind: 'ed25519_only',
+          ed25519: {
+            thresholdSessionId: 'wallet-budget-do-threshold-session',
+            authorityScope: authorityScope(),
+            participantIds: [1, 2],
+          },
+        },
+      },
+      { ttlMs: 60_000, remainingUses: 3 },
+    );
+
+    await expect(store.getSessionStatus(sessionId)).resolves.toMatchObject({
+      record: {
+        kind: 'wallet_signing_budget_session',
+        walletId: 'wallet-budget-do-user',
+      },
+      committedRemainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    });
+  });
+
   test('Redis store preserves reservation lifecycle semantics', async () => {
     const redisUrl = String(process.env.REDIS_URL || '').trim();
     test.skip(!redisUrl, 'REDIS_URL not set');

@@ -14,7 +14,7 @@ import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/ro
 const BASE_EXPIRES_AT_MS = 10_000;
 
 type Ed25519AdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ed25519' }>;
-type EcdsaHssAdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ecdsa-hss' }>;
+type EcdsaAdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ecdsa' }>;
 
 type TestDurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
@@ -110,7 +110,10 @@ function ed25519AdmissionInput(
     curve: 'ed25519',
     phase: 'prepare',
     walletId: 'alice.testnet',
-    rpId: 'example.localhost',
+    authorityScope: {
+      kind: 'passkey_rp',
+      rpId: 'example.localhost',
+    },
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     requestId: 'request-1',
@@ -126,14 +129,14 @@ function ed25519AdmissionInput(
   };
 }
 
-function ecdsaHssAdmissionInput(
-  overrides: Partial<EcdsaHssAdmissionInput> = {},
-): EcdsaHssAdmissionInput {
+function ecdsaAdmissionInput(
+  overrides: Partial<EcdsaAdmissionInput> = {},
+): EcdsaAdmissionInput {
   return {
-    curve: 'ecdsa-hss',
+    curve: 'ecdsa',
     phase: 'prepare',
     walletId: 'alice.testnet',
-    walletKeyId: 'wallet-key-example-localhost',
+    evmFamilySigningKeySlotId: 'evm-family-signing-key-slot-1',
     thresholdSessionId: 'ecdsa-session-1',
     signingGrantId: 'signing-grant-1',
     requestId: 'ecdsa-request-1',
@@ -218,7 +221,7 @@ test.describe('Router A/B normal-signing admission store', () => {
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
     const input = ed25519AdmissionInput();
-    const ecdsaInput = ecdsaHssAdmissionInput();
+    const ecdsaInput = ecdsaAdmissionInput();
 
     await expect(adapter.evaluate(input)).resolves.toEqual({ ok: true });
     await expect(
@@ -226,7 +229,7 @@ test.describe('Router A/B normal-signing admission store', () => {
     ).resolves.toEqual({ ok: true });
     await expect(adapter.evaluate(ecdsaInput)).resolves.toEqual({ ok: true });
     await expect(
-      adapter.evaluate(ecdsaHssAdmissionInput({ requestId: 'ecdsa-request-2' })),
+      adapter.evaluate(ecdsaAdmissionInput({ requestId: 'ecdsa-request-2' })),
     ).resolves.toEqual({ ok: true });
   });
 
@@ -249,7 +252,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   test('expires exact lifecycle reservations before the signing request expiry', async () => {
     let nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
-    const input = ecdsaHssAdmissionInput({ expiresAtMs: 60_000 });
+    const input = ecdsaAdmissionInput({ expiresAtMs: 60_000 });
 
     await expect(store.reserveQuota(input)).resolves.toEqual({
       kind: 'accepted',
@@ -259,7 +262,7 @@ test.describe('Router A/B normal-signing admission store', () => {
       kind: 'reuse_existing',
       requestId: input.requestId,
       existingLifecycleId:
-        'ecdsa-hss:prepare:alice.testnet:wallet-key-example-localhost:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
+        'ecdsa:prepare:alice.testnet:evm-family-signing-key-slot-1:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
     });
 
     nowMs = 6_001;
@@ -270,13 +273,13 @@ test.describe('Router A/B normal-signing admission store', () => {
     });
   });
 
-  test('keeps Ed25519 and ECDSA-HSS quota scopes separate', async () => {
+  test('keeps Ed25519 and ECDSA quota scopes separate', async () => {
     let nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 
     await expect(adapter.evaluate(ed25519AdmissionInput())).resolves.toEqual({ ok: true });
-    await expect(adapter.evaluate(ecdsaHssAdmissionInput())).resolves.toEqual({ ok: true });
+    await expect(adapter.evaluate(ecdsaAdmissionInput())).resolves.toEqual({ ok: true });
   });
 
   test('maps project policy rejection before quota reservation', async () => {

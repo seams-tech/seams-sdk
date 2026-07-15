@@ -244,7 +244,7 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
           throw new SignerWorkerOperationError({
             code: 'TIMEOUT',
             message: 'Worker operation timed out after 1000ms',
-            workerKind: 'hssClient',
+            workerKind: 'ecdsaHssClient',
           });
         }
         if (
@@ -252,8 +252,8 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
         ) {
           throw new SignerWorkerOperationError({
             code: 'WORKER_RUNTIME_ERROR',
-            message: 'HSS client WASM initialization failed: failed to instantiate module_or_path',
-            workerKind: 'hssClient',
+            message: 'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
+            workerKind: 'ecdsaHssClient',
           });
         }
         return {

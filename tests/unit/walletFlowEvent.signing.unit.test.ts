@@ -21,7 +21,6 @@ test.describe('wallet flow event invariants', () => {
           'UnlockEventPhase',
           'SigningEventPhase',
           'LinkDeviceEventPhase',
-          'EmailRecoveryFlowEventPhase',
           'AccountSyncEventPhase',
           'KeyExportEventPhase',
         ] as const;
@@ -91,12 +90,6 @@ test.describe('wallet flow event invariants', () => {
             status: 'cancelled',
             flowId: 'link-device:cancelled',
           }),
-          events.createEmailRecoveryFlowEvent({
-            phase: events.EmailRecoveryFlowEventPhase.CANCELLED,
-            status: 'cancelled',
-            flowId: 'email-recovery:alice.testnet:cancelled',
-            accountId: 'alice.testnet',
-          }),
           events.createKeyExportFlowEvent({
             phase: events.KeyExportEventPhase.CANCELLED,
             status: 'cancelled',
@@ -143,15 +136,6 @@ test.describe('wallet flow event invariants', () => {
         phase: 'link_device.cancelled',
         status: 'cancelled',
         message: 'Device link cancelled',
-        interaction: { kind: 'none', overlay: 'hide' },
-      }),
-      expect.objectContaining({
-        version: 2,
-        flow: 'email_recovery',
-        step: 0,
-        phase: 'email_recovery.cancelled',
-        status: 'cancelled',
-        message: 'Email recovery cancelled',
         interaction: { kind: 'none', overlay: 'hide' },
       }),
       expect.objectContaining({

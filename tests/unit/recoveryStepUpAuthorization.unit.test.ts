@@ -28,11 +28,11 @@ test.describe('recovery step-up authorization', () => {
   test('builds typed Email OTP export authorization with challenge identity', () => {
     const authorization = buildExportStepUpAuthorization({
       method: 'email_otp',
-      nearAccountId: 'alice.testnet',
-      chain: 'near',
-      publicKey: 'ed25519:abc',
-      curve: 'ed25519',
-      intent: 'ed25519_export',
+      walletSessionUserId: 'alice.testnet',
+      chain: 'evm',
+      publicKey: '02'.padEnd(66, '1'),
+      curve: 'ecdsa',
+      intent: 'ecdsa_export',
       emailOtpPrompt: {
         challengeId: 'challenge-1',
         emailHint: 'a***@x.test',
@@ -54,11 +54,11 @@ test.describe('recovery step-up authorization', () => {
           emailHint: 'a***@x.test',
         },
       },
-      nearAccountId: 'alice.testnet',
-      chain: 'near',
-      publicKey: 'ed25519:abc',
-      curve: 'ed25519',
-      intent: 'ed25519_export',
+      walletSessionUserId: 'alice.testnet',
+      chain: 'evm',
+      publicKey: '02'.padEnd(66, '1'),
+      curve: 'ecdsa',
+      intent: 'ecdsa_export',
       challengeId: 'challenge-1',
       otpCode: '123456',
       emailHint: 'a***@x.test',
@@ -92,6 +92,49 @@ test.describe('recovery step-up authorization', () => {
       curve: 'ecdsa',
       intent: 'ecdsa_export',
       credential: TEST_WEBAUTHN_CREDENTIAL,
+    });
+  });
+
+  test('builds Email OTP Ed25519 authorization with every exact signer identity field', () => {
+    const authorization = buildExportStepUpAuthorization({
+      method: 'email_otp',
+      walletSessionUserId: 'wallet-1',
+      publicKey: 'ed25519:public-key-1',
+      curve: 'ed25519',
+      intent: 'ed25519_export',
+      chain: 'near',
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-key-1',
+      signerSlot: 3,
+      thresholdSessionId: 'threshold-session-1',
+      signingGrantId: 'signing-grant-1',
+      emailOtpPrompt: { challengeId: 'challenge-ed25519' },
+      decision: {
+        confirmed: true,
+        otpCode: '654321',
+        emailOtpChallengeId: 'challenge-ed25519',
+      },
+    });
+
+    expect(authorization).toEqual({
+      kind: 'email_otp',
+      signingAuthPlan: {
+        kind: SigningAuthPlanKind.EmailOtpReauth,
+        method: 'email_otp',
+        emailOtpPrompt: { challengeId: 'challenge-ed25519' },
+      },
+      challengeId: 'challenge-ed25519',
+      otpCode: '654321',
+      walletSessionUserId: 'wallet-1',
+      publicKey: 'ed25519:public-key-1',
+      curve: 'ed25519',
+      intent: 'ed25519_export',
+      chain: 'near',
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-key-1',
+      signerSlot: 3,
+      thresholdSessionId: 'threshold-session-1',
+      signingGrantId: 'signing-grant-1',
     });
   });
 });

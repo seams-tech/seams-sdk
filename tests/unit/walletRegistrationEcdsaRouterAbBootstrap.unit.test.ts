@@ -83,8 +83,7 @@ const CLIENT_PUBLIC_KEY_33_B64U = publicKey33(2, 11) as EcdsaHssClientSharePubli
 const RELAYER_PUBLIC_KEY_33_B64U = publicKey33(3, 12) as EcdsaRelayerHssPublicKey33B64u;
 const GROUP_PUBLIC_KEY_33_B64U = publicKey33(2, 13);
 const OWNER_ADDRESS_20_B64U = Buffer.from(OWNER_ADDRESS.slice(2), 'hex').toString('base64url');
-const EVM_FAMILY_SIGNING_KEY_SLOT_ID =
-  `wallet-key:evm-family:${WALLET_ID}:${SIGNING_ROOT_ID}:${SIGNING_ROOT_VERSION}`;
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = `wallet-key:evm-family:${WALLET_ID}:${SIGNING_ROOT_ID}:${SIGNING_ROOT_VERSION}`;
 
 function routerAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
   const state = parseRouterAbEcdsaHssNormalSigningStateV1({
@@ -288,7 +287,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
   });
 
-  test('persists Router A/B JWT state into a non-ready ECDSA lane until worker validation', async () => {
+  test('persists Router A/B JWT state without exposing an unvalidated ECDSA lane', async () => {
     const store = createEcdsaSessionStore();
     const bootstrap = await buildRegistrationBootstrap();
     expect(bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaHssNormalSigning).toEqual(
@@ -325,59 +324,10 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       },
     );
 
+    expect(lanes.diagnostics?.invalidLanes).toEqual([]);
     expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(EVM_TARGET)]).toMatchObject({
-      auth: { kind: 'passkey' },
       curve: 'ecdsa',
-      state: 'deferred',
-      source: 'runtime_session_record',
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: WALLET_SIGNING_SESSION_ID,
-      remainingUses: 3,
-    });
-  });
-
-  test('keeps unvalidated Router A/B ECDSA bootstrap material restore-only in available lanes', async () => {
-    const store = createEcdsaSessionStore();
-    const bootstrap = await buildRegistrationBootstrap();
-
-    upsertThresholdEcdsaSessionFromBootstrap(store, {
-      walletId: toWalletId(WALLET_ID),
-      chainTarget: EVM_TARGET,
-      bootstrap,
-      source: 'registration',
-    });
-
-    const lanes = await readPersistedAvailableSigningLanesForTargets(
-      {
-        ecdsaSessions: store,
-        statusReader: {
-          getWarmSessionStatus: async () => ({
-            ok: true,
-            remainingUses: 3,
-            expiresAtMs: EXPIRES_AT_MS,
-          }),
-        },
-        getEmailOtpWarmSessionStatus: async () => ({
-          ok: false,
-          code: 'not_found',
-          message: 'missing',
-        }),
-      },
-      {
-        walletId: WALLET_ID,
-        authMethod: 'passkey',
-        ecdsaChainTargets: [EVM_TARGET],
-      },
-    );
-
-    expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(EVM_TARGET)]).toMatchObject({
-      auth: { kind: 'passkey' },
-      curve: 'ecdsa',
-      state: 'deferred',
-      source: 'runtime_session_record',
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: WALLET_SIGNING_SESSION_ID,
-      remainingUses: 3,
+      state: 'missing',
     });
   });
 
@@ -413,6 +363,28 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
         serverBootstrap: serverBootstrap({ jwtMode: 'issuer_binding_only' }),
       }),
     ).toThrow(/issuer-binding-only/);
+  });
+
+  test('rejects a server signing grant that differs from the prepared client bootstrap', () => {
+    const substituted = serverBootstrap();
+    substituted.signingGrantId = 'substituted-signing-grant';
+    expect(() =>
+      parseWalletRegistrationEcdsaHssRespond({
+        clientBootstrap: clientBootstrap(),
+        serverBootstrap: substituted,
+      }),
+    ).toThrow(/signingGrantId mismatch/);
+  });
+
+  test('rejects a server use count that differs from the prepared client bootstrap', () => {
+    const substituted = serverBootstrap();
+    substituted.remainingUses = 9;
+    expect(() =>
+      parseWalletRegistrationEcdsaHssRespond({
+        clientBootstrap: clientBootstrap(),
+        serverBootstrap: substituted,
+      }),
+    ).toThrow(/remainingUses mismatch/);
   });
 
   test('keeps persisted ECDSA runtime records without Router A/B state invisible', async () => {

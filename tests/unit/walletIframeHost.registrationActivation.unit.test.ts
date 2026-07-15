@@ -6,6 +6,7 @@ import {
   type ChildToParentEnvelope,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { webAuthnPromptCoordinator } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+import { activatePreparedIframePasskeyRegistration, SeamsWeb } from '@/SeamsWeb/SeamsWeb';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -317,6 +318,103 @@ test.describe('wallet iframe host registration activation', () => {
       ]),
     );
     expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
+  });
+
+  test('prepared Yao continuation starts reserved WebAuthn before its first await', async () => {
+    const identity = {
+      activationId: 'activation-sync-webauthn',
+      surfaceId: 'surface-sync-webauthn',
+      requestId: 'request-sync-webauthn',
+    } as any;
+    const cancellation = { kind: 'abort_signal', signal: new AbortController().signal } as const;
+    const reservation = {
+      kind: 'reserved_registration_webauthn_prompt_v1',
+      reservationId: 'reservation-sync-webauthn',
+      owner: { kind: 'registration_activation', identity },
+      expiresAtMs: Date.now() + 60_000,
+    } as any;
+    const activated = activatePreparedIframePasskeyRegistration({
+      prepared: {
+        kind: 'prepared_iframe_passkey_registration_v1',
+        registration: {
+          wallet: { kind: 'provided', walletId: 'wallet-sync-webauthn' },
+          authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
+          signerSelection: {
+            kind: 'signer_set',
+            signers: [
+              {
+                kind: 'near_ed25519',
+                accountProvisioning: { kind: 'implicit_account' },
+                signerSlot: 3,
+                participantIds: [11, 29],
+                derivationVersion: 1,
+              },
+            ],
+          },
+          options: {},
+        },
+        precompute: {
+          kind: 'prepared_passkey_registration_precompute_v1',
+          handle: {},
+          walletId: 'wallet-sync-webauthn',
+          registrationIntentDigestB64u: 'intent-digest-sync-webauthn',
+        },
+        walletId: 'wallet-sync-webauthn',
+        rpId: 'wallet.example.test',
+        signerSlot: 3,
+        challengeB64u: 'intent-digest-sync-webauthn',
+        expiresAtMs: Date.now() + 60_000,
+      } as any,
+      identity,
+      reservation,
+      cancellation,
+      activatedAtMs: Date.now(),
+    });
+    expect(Object.isFrozen(activated)).toBe(true);
+    expect(Object.isFrozen(activated.activation)).toBe(true);
+    expect(Object.isFrozen(activated.activation.identity)).toBe(true);
+    expect(Object.isFrozen(activated.reservation)).toBe(true);
+    expect(Object.isFrozen(activated.reservation.owner)).toBe(true);
+    expect(Object.isFrozen(activated.cancellation)).toBe(true);
+    const callOrder: string[] = [];
+    const fakeSeamsWeb = {
+      configs: { webauthn: { authenticatorOptions: {} } },
+      signingEngine: {
+        startPreparedPasskeyRegistrationCredential: () => {
+          callOrder.push('webauthn');
+          return Promise.resolve({
+            id: 'credential-sync-webauthn',
+            rawId: 'credential-sync-webauthn',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              attestationObject: 'attestation-object',
+              transports: ['internal'],
+            },
+            clientExtensionResults: {
+              prf: { results: { first: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' } },
+            },
+          });
+        },
+      },
+      getContext: () => {
+        callOrder.push('registration-continuation');
+        return {};
+      },
+    };
+
+    const resultPromise = Reflect.apply(
+      SeamsWeb.prototype.continuePreparedIframePasskeyRegistration,
+      fakeSeamsWeb,
+      [activated],
+    ) as Promise<{ success: boolean; error?: string }>;
+
+    expect(callOrder).toEqual(['webauthn', 'registration-continuation']);
+    await expect(resultPromise).resolves.toMatchObject({
+      success: false,
+      error: expect.stringContaining('Invalid prepared passkey registration precompute'),
+    });
   });
 
   test('cancelling after activation aborts the started registration operation', async () => {

@@ -193,8 +193,8 @@ async function startPasskeyBootstrapRoute(input: {
       rootProofCalls.push(request);
       return { ok: true, value: { keyHandle: 'ecdsa-hss-role-local-key-handle' } };
     },
-    getThresholdSigningService: () => ({
-      getRouterAbNormalSigningWorkerId: () => 'signing-worker-passkey-role-local',
+    getRouterAbNormalSigningRuntime: () => ({
+      getSigningWorkerId: () => 'signing-worker-passkey-role-local',
     }),
     readActiveEmailOtpEnrollment: async () => {
       throw new Error('Email OTP enrollment lookup should not run for this test');

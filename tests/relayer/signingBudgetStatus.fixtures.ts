@@ -21,7 +21,8 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
 ) {
   const nowMs = Date.now();
   const walletRemainingUses = input.walletRemainingUses ?? 2;
-  const walletCommittedRemainingUses = input.walletCommittedRemainingUses ?? walletRemainingUses + 3;
+  const walletCommittedRemainingUses =
+    input.walletCommittedRemainingUses ?? walletRemainingUses + 3;
   const walletReservedUses = input.walletReservedUses ?? 3;
   const walletAvailableUses = input.walletAvailableUses ?? walletRemainingUses;
   const walletKeyId = `wallet-key-curve-collision-${label}`;
@@ -84,25 +85,28 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
     remainingUses: number;
   }) => {
     const base = {
-    thresholdSessionId: input.thresholdSessionId,
-    userId: claims.walletId,
-    expiresAtMs: nowMs + 60_000,
-    remainingUses: input.remainingUses,
-    relayerKeyId: input.relayerKeyId,
-    participantIds: [...claims.participantIds],
+      thresholdSessionId: input.thresholdSessionId,
+      userId: claims.walletId,
+      expiresAtMs: nowMs + 60_000,
+      remainingUses: input.remainingUses,
+      relayerKeyId: input.relayerKeyId,
+      participantIds: [...claims.participantIds],
     };
     switch (input.curve) {
       case 'ecdsa':
         return {
           ...base,
           curve: 'ecdsa' as const,
-          walletKeyId,
+          evmFamilySigningKeySlotId: walletKeyId,
         };
       case 'ed25519':
         return {
           ...base,
           curve: 'ed25519' as const,
-          rpId: 'example.localhost',
+          authorityScope: {
+            kind: 'passkey_rp' as const,
+            rpId: 'example.localhost',
+          },
         };
     }
   };
@@ -123,12 +127,20 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
   }): SigningSessionSealWalletBudgetStatus => ({
     kind: 'wallet_budget',
     signingGrantId: input.signingGrantId,
-    ...baseStatus({
-      curve: 'ecdsa',
-      thresholdSessionId: input.thresholdSessionId,
-      relayerKeyId: input.relayerKeyId,
-      remainingUses: input.remainingUses,
-    }),
+    userId: claims.walletId,
+    expiresAtMs: nowMs + 60_000,
+    relayerKeyId: input.relayerKeyId,
+    bindings: {
+      kind: 'ecdsa_only',
+      ecdsa: [
+        {
+          thresholdSessionId: input.thresholdSessionId,
+          evmFamilySigningKeySlotId: walletKeyId,
+          participantIds: [...claims.participantIds],
+        },
+      ],
+    },
+    remainingUses: input.remainingUses,
     committedRemainingUses: walletCommittedRemainingUses,
     reservedUses: walletReservedUses,
     availableUses: walletAvailableUses,

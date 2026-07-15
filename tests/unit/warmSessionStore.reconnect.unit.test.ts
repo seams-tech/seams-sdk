@@ -55,7 +55,6 @@ function seedSharedEd25519WalletSessionGrant(args: {
     walletSessionJwt,
     remainingUses,
     expiresAtMs,
-    runtimeValidated: true,
   });
   args.fixture.claimsBySessionId[record.thresholdSessionId] = {
     state: 'warm',

@@ -67,9 +67,7 @@ test.describe('IndexedDB consolidation', () => {
           unique: boolean;
         }>;
       }>;
-      const dbName = schemaNames.createSeamsTestWalletDbName(
-        `manifest_${crypto.randomUUID()}`,
-      );
+      const dbName = schemaNames.createSeamsTestWalletDbName(`manifest_${crypto.randomUUID()}`);
 
       await new Promise<void>((resolve) => {
         const request = indexedDB.deleteDatabase(dbName);
@@ -202,12 +200,9 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoryModule = await import(
-        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js'
-      );
-      const dbName = schemaNames.createSeamsTestWalletDbName(
-        `repositories_${crypto.randomUUID()}`,
-      );
+      const repositoryModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(`repositories_${crypto.randomUUID()}`);
 
       await new Promise<void>((resolve) => {
         const request = indexedDB.deleteDatabase(dbName);
@@ -263,26 +258,20 @@ test.describe('IndexedDB consolidation', () => {
       await repositories.deleteProfileData('delete.testnet');
       await repositories.setAppState('selected-wallet', { walletId: 'alice.testnet' });
       await repositories.setLastProfileStateForProfile('alice.testnet', 2);
-      await repositories.setLastProfileStateForProfile(
-        'bob.testnet',
-        1,
-        'https://app.example',
-      );
+      await repositories.setLastProfileStateForProfile('bob.testnet', 1, 'https://app.example');
       await repositories.upsertRecoveryEmails('alice.testnet', [
         { hashHex: '0xabc', email: 'alice@example.test' },
       ]);
       const profile = await repositories.getProfile('alice.testnet');
       const profiles = await repositories.listProfiles();
       const deletedProfile = await repositories.getProfile('delete.testnet');
-      const deletedChainAccounts =
-        await repositories.listChainAccountsByProfile('delete.testnet');
+      const deletedChainAccounts = await repositories.listChainAccountsByProfile('delete.testnet');
       const chainAccount = await repositories.getChainAccount({
         profileId: 'alice.testnet',
         chainIdKey: 'near:testnet',
         accountAddress: 'alice.testnet',
       });
-      const profileChainAccounts =
-        await repositories.listChainAccountsByProfile('alice.testnet');
+      const profileChainAccounts = await repositories.listChainAccountsByProfile('alice.testnet');
       const resolvedAccountContext = await repositories.resolveProfileAccountContext({
         chainIdKey: 'near:testnet',
         accountAddress: 'alice.testnet',
@@ -375,7 +364,8 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const repositoriesModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `signer_mirrors_${crypto.randomUUID()}`,
       );
@@ -552,7 +542,8 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const repositoriesModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `missing_key_material_${crypto.randomUUID()}`,
       );
@@ -617,6 +608,145 @@ test.describe('IndexedDB consolidation', () => {
     });
   });
 
+  test('wallet signer finalize rollback removes only the exact batch and restores selection', async ({
+    page,
+  }) => {
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(async () => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoriesModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `signer_finalize_rollback_${crypto.randomUUID()}`,
+      );
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const repositories = new repositoriesModule.SeamsWalletRepositories(manager);
+      const walletId = 'wallet_rollback';
+      const nearProfileId = 'near-profile:rollback.testnet';
+      await repositories.upsertProfile({ profileId: walletId, defaultSignerSlot: 1 });
+      await repositories.upsertProfile({ profileId: nearProfileId, defaultSignerSlot: 1 });
+      await repositories.setLastProfileState({ profileId: walletId, activeSignerSlot: 1 });
+
+      const signerActivations = [
+        {
+          account: {
+            profileId: walletId,
+            chainIdKey: 'wallet',
+            accountAddress: walletId,
+            accountModel: 'wallet',
+          },
+          signer: {
+            signerId: 'ed25519:rollback-public',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata: { nearEd25519SigningKeyId: 'rollback-signing-key' },
+          },
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot: 2 },
+          preferredSlot: 2,
+          mutation: { routeThroughOutbox: false },
+        },
+        {
+          account: {
+            profileId: nearProfileId,
+            chainIdKey: 'near:testnet',
+            accountAddress: 'rollback.testnet',
+            accountModel: 'near-native',
+          },
+          signer: {
+            signerId: 'ed25519:rollback-public',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata: { nearEd25519SigningKeyId: 'rollback-signing-key' },
+          },
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot: 2 },
+          preferredSlot: 2,
+          mutation: { routeThroughOutbox: false },
+        },
+      ];
+      const keyMaterials = [
+        {
+          profileId: walletId,
+          signerSlot: 2,
+          chainIdKey: 'wallet',
+          accountAddress: walletId,
+          keyKind: 'threshold_share_v1',
+          algorithm: 'ed25519',
+          publicKey: 'ed25519:rollback-public',
+          signerId: 'ed25519:rollback-public',
+          timestamp: 2,
+          schemaVersion: 1,
+        },
+        {
+          profileId: nearProfileId,
+          signerSlot: 2,
+          chainIdKey: 'near:testnet',
+          accountAddress: 'rollback.testnet',
+          keyKind: 'threshold_share_v1',
+          algorithm: 'ed25519',
+          publicKey: 'ed25519:rollback-public',
+          signerId: 'ed25519:rollback-public',
+          timestamp: 2,
+          schemaVersion: 1,
+        },
+      ];
+      const persisted = await repositories.persistWalletSignerFinalize({
+        profiles: [
+          { profileId: walletId, defaultSignerSlot: 2 },
+          { profileId: nearProfileId, defaultSignerSlot: 2 },
+        ],
+        signerActivations,
+        keyMaterials,
+        lastProfileState: { profileId: walletId, activeSignerSlot: 2 },
+      });
+      const signerCountBefore = (
+        await repositories.listAccountSignersByProfile({ profileId: walletId })
+      ).length;
+      await repositories.rollbackWalletSignerFinalize(persisted.rollbackReceipt);
+      const walletProfile = await repositories.getProfile(walletId);
+      const nearProfile = await repositories.getProfile(nearProfileId);
+      const signerCountAfter = (
+        await repositories.listAccountSignersByProfile({ profileId: walletId })
+      ).length;
+      const keyMaterialAfter = await repositories.getKeyMaterial(
+        walletId,
+        2,
+        'wallet',
+        'threshold_share_v1',
+      );
+      const lastProfileState = await repositories.getLastProfileState();
+      manager.close();
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      return {
+        signerCountBefore,
+        signerCountAfter,
+        keyMaterialAfter,
+        walletDefaultSignerSlot: walletProfile?.defaultSignerSlot,
+        nearDefaultSignerSlot: nearProfile?.defaultSignerSlot,
+        lastProfileState,
+      };
+    });
+
+    expect(result).toEqual({
+      signerCountBefore: 1,
+      signerCountAfter: 0,
+      keyMaterialAfter: null,
+      walletDefaultSignerSlot: 1,
+      nearDefaultSignerSlot: 1,
+      lastProfileState: { profileId: 'wallet_rollback', activeSignerSlot: 1 },
+    });
+  });
+
   test('wallet auth-method rows allow shared Email OTP identifiers and reject passkey duplicates plus scalar drift', async ({
     page,
   }) => {
@@ -624,7 +754,8 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const repositoriesModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `auth_method_guards_${crypto.randomUUID()}`,
       );
@@ -716,7 +847,9 @@ test.describe('IndexedDB consolidation', () => {
       const db = await manager.getDB();
       const tx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods, 'readwrite');
       const store = tx.objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods);
-      const row = await store.get(['wallet_auth_a', 'passkey', 'local', 'shared-credential'].join('\0'));
+      const row = await store.get(
+        ['wallet_auth_a', 'passkey', 'local', 'shared-credential'].join('\0'),
+      );
       await store.put({
         ...row,
         auth_identifier_key: 'drifted-credential',
@@ -771,7 +904,8 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const repositoriesModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `existing_missing_key_material_${crypto.randomUUID()}`,
       );
@@ -893,7 +1027,8 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoriesModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const repositoriesModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
       const dbName = schemaNames.createSeamsTestWalletDbName(
         `key_material_shadow_${crypto.randomUUID()}`,
       );
@@ -981,5 +1116,4 @@ test.describe('IndexedDB consolidation', () => {
       relayerKeyId: 'relayer-real',
     });
   });
-
 });

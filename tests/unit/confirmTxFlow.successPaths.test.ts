@@ -165,6 +165,7 @@ test.describe('confirmTxFlow – success paths', () => {
         ctx.nonceCoordinator = nonceCoordinatorMod.createNonceCoordinator({
           evmNonceBackend: {
             fetchChainNonce: async () => 0n,
+            fetchBroadcastTransactionStatus: async () => ({ kind: 'missing' }),
           },
           nearClient,
           onTrace: (event: any) => {

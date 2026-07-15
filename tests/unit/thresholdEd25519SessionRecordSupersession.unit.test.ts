@@ -31,13 +31,6 @@ function makeEd25519Fact(args: {
     relayerUrl: 'https://relay.example',
     relayerKeyId: 'rk-ed25519',
     participantIds: [1, 2],
-    clientVerifyingShareB64u: 'client-share-ed25519',
-    ed25519WorkerMaterialBindingDigest: 'ed25519-binding-digest',
-    sealedWorkerMaterialRef: `sealed-ref-${args.thresholdSessionId}`,
-    sealedWorkerMaterialB64u: `sealed-b64u-${args.thresholdSessionId}`,
-    materialFormatVersion: 'ed25519-material-v1',
-    materialKeyId: `material-${args.thresholdSessionId}`,
-    materialCreatedAtMs: 1,
     signerSlot: 1,
     routerAbNormalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,

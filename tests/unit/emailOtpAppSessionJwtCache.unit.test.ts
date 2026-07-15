@@ -7,6 +7,7 @@ import {
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   EmailOtpAppSessionJwtCache,
+  emailOtpAppSessionBindingFromJwt,
   emailOtpRefreshIdentity,
   refreshEmailOtpAppSessionJwt,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache';
@@ -18,7 +19,7 @@ import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../pack
 function appSessionJwt(args?: { expSeconds?: number; sub?: string }): string {
   const payload = {
     kind: 'app_session_v1',
-    sub: args?.sub || 'wallet.testnet',
+    sub: args?.sub || 'google:wallet.testnet',
     exp: args?.expSeconds || Math.floor(Date.now() / 1000) + 3600,
   };
   return [base64UrlJson({ alg: 'none', typ: 'JWT' }), base64UrlJson(payload), 'signature'].join(
@@ -28,6 +29,10 @@ function appSessionJwt(args?: { expSeconds?: number; sub?: string }): string {
 
 function base64UrlJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+async function failUnexpectedAppSessionRefresh(): Promise<string> {
+  throw new Error('app-session refresh should not run');
 }
 
 function makeIdentity() {
@@ -56,17 +61,36 @@ function makeIdentity() {
 }
 
 test.describe('EmailOtpAppSessionJwtCache', () => {
+  test('rejects a wallet-session JWT at the app-session boundary', () => {
+    const identity = makeIdentity();
+    const cache = new EmailOtpAppSessionJwtCache();
+    const walletSessionJwt = [
+      base64UrlJson({ alg: 'none', typ: 'JWT' }),
+      base64UrlJson({
+        kind: 'router_ab_ed25519_wallet_session_v1',
+        sub: identity.walletSessionUserId,
+      }),
+      'signature',
+    ].join('.');
+
+    expect(() =>
+      emailOtpAppSessionBindingFromJwt({
+        walletId: identity.walletId,
+        appSessionJwt: walletSessionJwt,
+      }),
+    ).toThrow('must be an app-session JWT');
+  });
+
   test('returns a typed cached success for an unexpired app-session JWT', async () => {
     const identity = makeIdentity();
     const jwt = appSessionJwt();
     const cache = new EmailOtpAppSessionJwtCache();
-    cache.remember({
-      walletSession: walletSessionRefFromSession({
+    cache.remember(
+      emailOtpAppSessionBindingFromJwt({
         walletId: toWalletId(identity.walletId),
-        walletSessionUserId: identity.walletSessionUserId,
+        appSessionJwt: jwt,
       }),
-      appSessionJwt: jwt,
-    });
+    );
 
     const result = await cache.resolve({
       identity,
@@ -80,9 +104,31 @@ test.describe('EmailOtpAppSessionJwtCache', () => {
     });
   });
 
+  test('returns the registration app-session JWT for export without refreshing', async () => {
+    const identity = makeIdentity();
+    const jwt = appSessionJwt({ sub: 'google:wallet.testnet' });
+    const cache = new EmailOtpAppSessionJwtCache({
+      refreshAppSessionJwt: failUnexpectedAppSessionRefresh,
+    });
+    const walletSession = walletSessionRefFromSession({
+      walletId: identity.walletId,
+      walletSessionUserId: identity.walletSessionUserId,
+    });
+    cache.remember(
+      emailOtpAppSessionBindingFromJwt({
+        walletId: identity.walletId,
+        appSessionJwt: jwt,
+      }),
+    );
+
+    await expect(
+      cache.resolveJwt({ walletSession, relayUrl: 'https://relay.example.test' }),
+    ).resolves.toBe(jwt);
+  });
+
   test('returns a typed refresh success and remembers the refreshed JWT', async () => {
     const identity = makeIdentity();
-    const refreshedJwt = appSessionJwt({ sub: 'refreshed-wallet.testnet' });
+    const refreshedJwt = appSessionJwt();
     const cache = new EmailOtpAppSessionJwtCache({
       refreshAppSessionJwt: async () => refreshedJwt,
     });

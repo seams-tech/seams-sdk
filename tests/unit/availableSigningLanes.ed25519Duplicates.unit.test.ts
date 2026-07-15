@@ -32,8 +32,6 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp',
   providerSubjectId: 'google:ed25519-duplicates',
 } as const;
-const ED25519_MATERIAL_BINDING_DIGEST = 'material-binding-ed25519';
-const ED25519_MATERIAL_KEY_ID = 'material-key-ed25519';
 
 function concreteEd25519AuthKinds(lanes: AvailableEd25519SigningLane[]): string[] {
   const authKinds: string[] = [];
@@ -73,6 +71,7 @@ function sealedEd25519Record(args: {
       ...(args.authMethod === 'passkey'
         ? { credentialIdB64u: PASSKEY_AUTH.credentialIdB64u }
         : {
+            provider: 'google',
             providerSubjectId: EMAIL_OTP_AUTH.providerSubjectId,
             emailHashHex: 'email-hash-ed25519-duplicates',
           }),
@@ -80,13 +79,6 @@ function sealedEd25519Record(args: {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ed25519',
-      clientVerifyingShareB64u: 'client-verifying-share-ed25519',
-      ed25519WorkerMaterialBindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-      sealedWorkerMaterialRef: 'sealed-worker-material-ed25519',
-      sealedWorkerMaterialB64u: 'sealed-worker-material-blob-ed25519',
-      materialFormatVersion: 'ed25519_worker_material_v1',
-      materialKeyId: ED25519_MATERIAL_KEY_ID,
-      materialCreatedAtMs: issuedAtMs,
       signerSlot: 1,
       routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
       runtimePolicyScope: {
@@ -126,16 +118,10 @@ function runtimeEd25519Record(args: {
     signerSlot: 1,
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
+    source: 'runtime_session_record',
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: args.expiresAtMs ?? EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,
-    material: {
-      kind: 'loaded_worker_material',
-      identity: {
-        bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-        materialKeyId: ED25519_MATERIAL_KEY_ID,
-      },
-    },
   };
 }
 
@@ -214,13 +200,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       thresholdSessionId: 'tsess-expired-ed25519',
       remainingUses: 3,
       expiresAtMs,
-      material: {
-        kind: 'sealed_worker_material',
-        identity: {
-          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-          materialKeyId: ED25519_MATERIAL_KEY_ID,
-        },
-      },
     });
   });
 
@@ -246,13 +225,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
-          material: {
-            kind: 'loaded_worker_material',
-            identity: {
-              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-              materialKeyId: ED25519_MATERIAL_KEY_ID,
-            },
-          },
+          source: 'runtime_session_record',
         },
       ],
       warmStatusAdvisories: new Map([
@@ -277,23 +250,9 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
       remainingUses: 1,
-      material: {
-        kind: 'loaded_worker_material',
-        identity: {
-          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-          materialKeyId: ED25519_MATERIAL_KEY_ID,
-        },
-      },
     });
     expect(availableLanes.lanes.ed25519.near).toMatchObject({
       source: 'runtime_session_record',
-      material: {
-        kind: 'loaded_worker_material',
-        identity: {
-          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-          materialKeyId: ED25519_MATERIAL_KEY_ID,
-        },
-      },
     });
   });
 
@@ -319,13 +278,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-unlock',
           thresholdSessionId: 'tsess-unlock',
-          material: {
-            kind: 'loaded_worker_material',
-            identity: {
-              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-              materialKeyId: ED25519_MATERIAL_KEY_ID,
-            },
-          },
+          source: 'runtime_session_record',
         },
       ],
       warmStatusAdvisories: new Map([
@@ -350,13 +303,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       signingGrantId: 'wsess-unlock',
       thresholdSessionId: 'tsess-unlock',
       remainingUses: 2,
-      material: {
-        kind: 'loaded_worker_material',
-        identity: {
-          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-          materialKeyId: ED25519_MATERIAL_KEY_ID,
-        },
-      },
     });
     expect(availableLanes.lanes.ed25519.near).toMatchObject({
       source: 'runtime_session_record',
@@ -409,13 +355,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
-          material: {
-            kind: 'loaded_worker_material',
-            identity: {
-              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-              materialKeyId: ED25519_MATERIAL_KEY_ID,
-            },
-          },
+          source: 'runtime_session_record',
         },
         {
           auth: EMAIL_OTP_AUTH,
@@ -428,13 +368,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
-          material: {
-            kind: 'loaded_worker_material',
-            identity: {
-              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
-              materialKeyId: ED25519_MATERIAL_KEY_ID,
-            },
-          },
+          source: 'runtime_session_record',
         },
       ],
       warmStatusAdvisories: new Map([

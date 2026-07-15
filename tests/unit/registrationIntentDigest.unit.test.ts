@@ -4,7 +4,6 @@ import {
   computeRegistrationNearEd25519SigningKeyId,
   computeRegistrationIntentDigestB64u,
   implicitNearAccountProvisioning,
-  normalizeNearAccountOwnershipProofV1,
   parseServerAllocatedWalletId,
   registrationEd25519AuthorityScope,
   requireServerAllocatedWalletId,
@@ -49,7 +48,7 @@ const ed25519Spec: ThresholdEd25519RegistrationSpec = {
   signerSlot: 1,
   participantIds: [1, 2],
   keyPurpose: 'near_tx',
-  keyVersion: 'threshold-ed25519-hss-v1',
+  keyVersion: 'router-ab-ed25519-yao-v1',
   derivationVersion: 1,
 };
 
@@ -88,12 +87,11 @@ const baseAddSignerIntent: AddSignerIntentV1 = {
   signerSelection: {
     mode: 'ed25519',
     ed25519: {
-      mode: 'create_near_account',
-      nearAccountId: 'alice.testnet',
+      mode: 'create_implicit_near_account',
       signerSlot: 2,
       participantIds: [1, 2],
       keyPurpose: 'near_tx',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
       derivationVersion: 1,
     },
   },
@@ -101,40 +99,6 @@ const baseAddSignerIntent: AddSignerIntentV1 = {
 };
 
 test.describe('registration intent digest canonicalization', () => {
-  test('rejects stale rpId on NEAR account ownership proof messages', () => {
-    expect(
-      normalizeNearAccountOwnershipProofV1({
-        version: 'near_account_ownership_proof_v1',
-        signatureB64u: 'signature',
-        message: {
-          version: 'near_account_ownership_proof_message_v1',
-          walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
-          nearAccountId: 'alice.testnet',
-          publicKey: 'ed25519:public-key',
-          nonceB64u: 'nonce',
-          issuedAtMs: 1,
-          expiresAtMs: 2,
-        },
-      }),
-    ).toBeNull();
-    expect(
-      normalizeNearAccountOwnershipProofV1({
-        version: 'near_account_ownership_proof_v1',
-        signatureB64u: 'signature',
-        message: {
-          version: 'near_account_ownership_proof_message_v1',
-          walletId: '',
-          nearAccountId: 'alice.testnet',
-          publicKey: 'ed25519:public-key',
-          nonceB64u: 'nonce',
-          issuedAtMs: 1,
-          expiresAtMs: 2,
-        },
-      }),
-    ).toBeNull();
-  });
-
   test('serializes object keys canonically and matches the client helper', async () => {
     const reordered = {
       nonceB64u: baseIntent.nonceB64u,
@@ -314,11 +278,10 @@ test.describe('add-signer intent digest canonicalization', () => {
         ed25519: {
           participantIds: [1, 2],
           signerSlot: 2,
-          nearAccountId: 'alice.testnet',
           keyPurpose: 'near_tx',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          keyVersion: 'router-ab-ed25519-yao-v1',
           derivationVersion: 1,
-          mode: 'create_near_account',
+          mode: 'create_implicit_near_account',
         },
         mode: 'ed25519',
       },
@@ -343,34 +306,32 @@ test.describe('add-signer intent digest canonicalization', () => {
     );
   });
 
-  test('binds signer family, participant order, target account, and runtime scope', async () => {
+  test('binds signer family, participant order, signer slot, and runtime scope', async () => {
     const baseDigest = await computeAddSignerIntentDigestB64u(baseAddSignerIntent);
     const reorderedParticipants: AddSignerIntentV1 = {
       ...baseAddSignerIntent,
       signerSelection: {
         mode: 'ed25519',
         ed25519: {
-          mode: 'create_near_account',
-          nearAccountId: 'alice.testnet',
+          mode: 'create_implicit_near_account',
           signerSlot: 2,
           participantIds: [2, 1],
           keyPurpose: 'near_tx',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          keyVersion: 'router-ab-ed25519-yao-v1',
           derivationVersion: 1,
         },
       },
     };
-    const differentNearAccount: AddSignerIntentV1 = {
+    const differentSignerSlot: AddSignerIntentV1 = {
       ...baseAddSignerIntent,
       signerSelection: {
         mode: 'ed25519',
         ed25519: {
-          mode: 'create_near_account',
-          nearAccountId: 'bob.testnet',
-          signerSlot: 2,
+          mode: 'create_implicit_near_account',
+          signerSlot: 3,
           participantIds: [1, 2],
           keyPurpose: 'near_tx',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          keyVersion: 'router-ab-ed25519-yao-v1',
           derivationVersion: 1,
         },
       },
@@ -396,7 +357,7 @@ test.describe('add-signer intent digest canonicalization', () => {
     await expect(computeAddSignerIntentDigestB64u(reorderedParticipants)).resolves.not.toBe(
       baseDigest,
     );
-    await expect(computeAddSignerIntentDigestB64u(differentNearAccount)).resolves.not.toBe(
+    await expect(computeAddSignerIntentDigestB64u(differentSignerSlot)).resolves.not.toBe(
       baseDigest,
     );
     await expect(computeAddSignerIntentDigestB64u(differentRuntimeScope)).resolves.not.toBe(

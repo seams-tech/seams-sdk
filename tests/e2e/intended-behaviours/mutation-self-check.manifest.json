@@ -67,7 +67,7 @@
         "localCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line",
         "ciCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line"
       },
-      "requiredHarnessEvidence": ["exportEd25519Key", "exportEcdsaKey", "assertKeyExportAuthEvents"]
+      "requiredHarnessEvidence": ["exportEcdsaKey", "assertKeyExportAuthEvents"]
     },
     {
       "id": "cross_chain_ecdsa_material_reuse",

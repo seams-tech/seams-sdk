@@ -146,13 +146,11 @@ test.describe('warmSessionReadModel', () => {
       nearAccountId: 'derive.testnet',
       thresholdSessionId: 'derive-ed25519-session',
       walletSessionJwt: 'jwt:derive-ed25519-session',
-      runtimeValidated: true,
     });
     const unavailableRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'derive-unavailable.testnet',
       thresholdSessionId: 'derive-unavailable-ed25519-session',
       walletSessionJwt: 'jwt:derive-unavailable-ed25519-session',
-      runtimeValidated: true,
     });
 
     expect(
@@ -179,29 +177,6 @@ test.describe('warmSessionReadModel', () => {
         },
       }),
     ).toBe('ready');
-  });
-
-  test('derives material_pending for restored Ed25519 records without worker handle', () => {
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'pending-material.testnet',
-      thresholdSessionId: 'pending-material-session',
-      walletSessionJwt: 'jwt:pending-material-session',
-      materialState: 'restore_available',
-      clientVerifyingShareB64u: 'restored-client-verifier',
-    });
-
-    expect(
-      deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
-        prfClaim: {
-          state: 'warm',
-          sessionId: ed25519Record.thresholdSessionId,
-          remainingUses: 4,
-          expiresAtMs: ed25519Record.expiresAtMs,
-        },
-      }),
-    ).toBe('material_pending');
   });
 
   test('derives invalid for Ed25519 records missing Router A/B state', () => {

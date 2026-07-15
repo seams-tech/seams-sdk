@@ -1260,7 +1260,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     await expect(identity).toContainText('wallet.example.test');
     await expect(page.locator('.passkey-registration-confirm__value').first()).toHaveAttribute(
       'title',
-      'alice',
+      'alice.testnet',
     );
     await expect(page.locator('.passkey-registration-confirm__value').nth(1)).toHaveAttribute(
       'title',
@@ -1275,6 +1275,17 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     await expect(page.locator('.passkey-registration-confirm .btn-confirm')).toContainText(
       'Creating passkey...',
     );
+    const busyLabel = page.locator('.passkey-registration-confirm__busy-label');
+    await expect(busyLabel).toHaveCSS('white-space', 'nowrap');
+    expect(
+      await busyLabel.evaluate((element) => {
+        const labelSize = Number.parseFloat(getComputedStyle(element).fontSize);
+        const button = element.closest('button');
+        if (!button) throw new Error('Busy label must be rendered inside its button');
+        const buttonSize = Number.parseFloat(getComputedStyle(button).fontSize);
+        return labelSize < buttonSize;
+      }),
+    ).toBe(true);
     await expect(page.locator('.passkey-registration-confirm [role="progressbar"]')).toHaveCount(
       1,
     );

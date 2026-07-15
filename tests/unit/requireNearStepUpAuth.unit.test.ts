@@ -124,22 +124,24 @@ test.describe('requireNearStepUpAuth', () => {
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
-    const preparedUses: number[] = [];
+    let challengeRequests = 0;
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLane,
       requiredSignatureUses: 1,
-      emailOtpSigning: {
-        prepare: async ({ requiredSignatureUses }) => {
-          preparedUses.push(requiredSignatureUses);
+      emailOtpEd25519Reconnect: {
+        prepare: async () => {
+          challengeRequests += 1;
           return { challengeId: 'otp-1', emailHint: 'a***@x.test' };
         },
-        complete: async () => ({ sessionId: 'threshold-session-email' }),
+        reconnect: async () => {
+          throw new Error('reconnect should not run during preparation');
+        },
       },
     });
 
-    expect(preparedUses).toEqual([1]);
+    expect(challengeRequests).toBe(1);
     expect(prepared.kind).toBe('email_otp');
     if (prepared.kind !== 'email_otp') throw new Error('expected email_otp branch');
     expect(prepared.emailOtpPrompt.challengeId).toBe('otp-1');

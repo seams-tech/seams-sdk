@@ -113,18 +113,18 @@ check('warm-session policy input requires explicit generated or shared grant lif
     const envelopeType = sourceBetween(
       source,
       'export type ThresholdWarmSessionRequestEnvelope =',
-      'export type WalletRegistrationThresholdEd25519Response =',
+      'export type ThresholdWarmSessionContext =',
     );
     const builder = sourceBetween(
       source,
       'export function createThresholdWarmSessionPolicyDraft',
       'export function buildThresholdWarmSessionRequestEnvelope',
     );
-    const envelopeBuilder = sourceBetween(
-      source,
+    const envelopeBuilderStart = source.indexOf(
       'export function buildThresholdWarmSessionRequestEnvelope',
-      'export async function prepareThresholdEd25519RegistrationHssClientMaterial',
     );
+    expect(envelopeBuilderStart).toBeGreaterThanOrEqual(0);
+    const envelopeBuilder = source.slice(envelopeBuilderStart);
 
     expect(draftType).toContain('signingGrantId: string');
     expect(draftType).not.toContain('signingGrantId?: string');
@@ -134,8 +134,9 @@ check('warm-session policy input requires explicit generated or shared grant lif
     expect(envelopeType).not.toContain('signingGrantId?: string');
     expect(builder).toContain('input: ThresholdWarmSessionPolicyDraftInput');
     expect(builder).not.toContain('input?: ThresholdWarmSessionPolicyDraftInput');
-    expect(builder).toContain("input.kind === 'generated_signing_grant'");
-    expect(builder).toContain("input.kind === 'shared_signing_grant'");
+    expect(builder).toContain('const budget = policyBudget({');
+    expect(source).toContain("case 'generated_signing_grant':");
+    expect(source).toContain("case 'shared_signing_grant':");
     expect(envelopeBuilder).toContain('const signingGrantId =');
     expect(envelopeBuilder).toContain('!thresholdSessionId || !signingGrantId');
     expect(envelopeBuilder).toContain('authority: args.authority');
@@ -162,52 +163,11 @@ check('all warm-session policy call sites choose a grant lifecycle branch', () =
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-check('combined registration uses generated Ed25519 grants and target-scoped ECDSA sessions', () => {
-    const source = readRepoSource(
-      'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-    );
-    const helper = sourceBetween(
-      source,
-      'function createRegistrationThresholdWarmSessionPolicyDraft',
-      'type FinalizedRegistrationEd25519',
-    );
-    const combinedCall = sourceBetween(
-      source,
-      'const requestedPolicy = createRegistrationThresholdWarmSessionPolicyDraft({',
-      'if (!requestedPolicy) {',
-    );
-    const postcondition = sourceBetween(
-      source,
-      'function buildRegistrationActiveRuntimeState',
-      'function logRegistrationActiveRuntimeState',
-    );
-
-    expect(helper).toContain("kind: 'generated_signing_grant'");
-    expect(helper).not.toContain("kind: 'shared_signing_grant'");
-    expect(helper).not.toContain('clientSigningGrantId !== serverSigningGrantId');
-    expect(helper).not.toContain('clientBootstrap.remainingUses');
-    expect(combinedCall).not.toContain('ecdsaPreparedClientBootstrap && ecdsaBootstrap');
-    expect(postcondition).toContain("args.plan.ed25519.kind === 'near_ed25519'");
-    expect(postcondition).toContain("args.plan.ecdsa.kind === 'evm_family_ecdsa'");
-    expect(postcondition).toContain('const session = registrationEcdsaSessionForTarget');
-    expect(postcondition).toContain('signingGrantId: requireRegistrationActiveStateString(');
-    expect(postcondition).toContain(
-      'session.preparedClientBootstrap.clientBootstrap.signingGrantId',
-    );
-    expect(postcondition).toContain('args.ed25519.registrationSessionPolicy.signingGrantId');
-  });
-
 check('key-version domains use branded parsers at high-risk boundaries', () => {
     const sdkBrands = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
     );
     const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
-    const ed25519Binding = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts',
-    );
-    const warmSessionBootstrap = readRepoSource(
-      'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
-    );
     const serverSealOptions = readRepoSource(
       'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
     );
@@ -234,17 +194,11 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     );
 
     for (const source of [sdkBrands, serverBrands]) {
-      expect(source).toContain("Ed25519HssKeyVersion");
       expect(source).toContain("EcdsaHssKeyVersion");
       expect(source).toContain("SigningSessionSealKeyVersion");
-      expect(source).toContain("parseEd25519HssKeyVersion");
       expect(source).toContain("parseEcdsaHssKeyVersion");
       expect(source).toContain("parseSigningSessionSealKeyVersion");
     }
-    expect(ed25519Binding).not.toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
-    expect(ed25519Binding).not.toContain('keyVersion: string;');
-    expect(warmSessionBootstrap).toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
-    expect(warmSessionBootstrap).toContain('return { ed25519HssKeyVersion:');
     expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(input.keyVersion)');
     expect(serverSealOptions).toContain('signingSessionSealKeyVersion: SigningSessionSealKeyVersion');
     expect(serverEmailOtpSeal).toContain(
@@ -302,23 +256,11 @@ check('ECDSA lifecycle identity helpers stay branch-specific', () => {
     expect(evmReadinessSource).toContain('getEcdsaProvisionPlanLaneIdentity');
   });
 
-check('second-tier material brands protect core restore and signing boundaries', () => {
+check('second-tier material brands protect ECDSA restore and signing boundaries', () => {
     const sdkBrands = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
     );
     const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
-    const ed25519Binding = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts',
-    );
-    const ed25519Handle = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
-    );
-    const warmPersistence = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts',
-    );
-    const presignPool = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts',
-    );
     const ecdsaPoolFill = readRepoSource(
       'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
     );
@@ -333,49 +275,14 @@ check('second-tier material brands protect core restore and signing boundaries',
     );
 
     for (const source of [sdkBrands, serverBrands]) {
-      expect(source).toContain('Ed25519ClientVerifyingShareB64u');
       expect(source).toContain('EcdsaClientVerifyingShareB64u');
-      expect(source).toContain('Ed25519RelayerKeyId');
       expect(source).toContain('EcdsaRelayerKeyId');
       expect(source).toContain('EcdsaThresholdKeyId');
       expect(source).toContain('EcdsaKeyHandle');
       expect(source).toContain('SigningSessionSealShamirPrimeB64u');
       expect(source).toContain('parseSigningSessionSealShamirPrimeB64u');
     }
-    expect(sdkBrands).toContain('Ed25519WorkerMaterialHandle');
-    expect(sdkBrands).toContain('Ed25519SealedWorkerMaterialRef');
-    expect(sdkBrands).toContain('Ed25519WorkerMaterialKeyId');
-    expect(sdkBrands).toContain('Ed25519WorkerMaterialBindingDigest');
     expect(sdkBrands).toContain('EcdsaClientAdditiveShareHandle');
-
-    expect(ed25519Binding).toContain('materialHandle: Ed25519WorkerMaterialHandle');
-    expect(ed25519Binding).toContain(
-      'bindingDigest: Ed25519WorkerMaterialBindingDigest',
-    );
-    expect(ed25519Binding).toContain(
-      'clientVerifierB64u: Ed25519ClientVerifyingShareB64u',
-    );
-    expect(ed25519Binding).toContain('relayerKeyId: Ed25519RelayerKeyId');
-    expect(ed25519Binding).toContain(
-      'clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u',
-    );
-    expect(ed25519Handle).toContain(
-      'existingMaterialHandle: Ed25519WorkerMaterialHandle',
-    );
-    expect(ed25519Handle).toContain(
-      'existingMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest',
-    );
-    expect(ed25519Handle).toContain(
-      'existingMaterialClientVerifierB64u: Ed25519ClientVerifyingShareB64u',
-    );
-    expect(warmPersistence).toContain(
-      'sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef',
-    );
-    expect(warmPersistence).toContain('materialKeyId: Ed25519WorkerMaterialKeyId');
-    expect(presignPool).toContain('relayerKeyId: Ed25519RelayerKeyId');
-    expect(presignPool).toContain(
-      'materialBindingDigest: Ed25519WorkerMaterialBindingDigest',
-    );
 
     expect(ecdsaPoolFill).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
     expect(ecdsaPoolFill).toContain('keyHandle: EcdsaKeyHandle');
@@ -418,9 +325,6 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
     const thresholdSigning = readRepoSource(
       'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
     );
-    const clientHssLifecycle = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
-    );
     const serverTypecheck = readRepoSource(
       'packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts',
     );
@@ -458,17 +362,7 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
       'authorityScope: RegistrationEd25519AuthorityScope;',
     );
 
-    const registrationScopeType = sourceBetween(
-      serverTypes,
-      'export type ThresholdEd25519RegistrationAccountScope =',
-      'export interface ThresholdEd25519HssClientInputs',
-    );
-    expect(registrationScopeType).toContain(
-      'nearEd25519SigningKeyId: NearEd25519SigningKeyId',
-    );
-    expect(registrationScopeType).not.toContain('walletKeyId: string');
     expect(serverTypes).toContain('rpId: WebAuthnRpId');
-    expect(serverTypes).toContain('wallet_key_id: NearEd25519SigningKeyId');
 
     expect(serverWebAuthnAuthority).toContain('requireWebAuthnRpId');
     expect(serverWebAuthnOidcHelpers).toContain(
@@ -497,36 +391,8 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
     expect(serverAuthService).not.toContain('input.intent.rpId');
     expect(serverAuthService).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
     expect(serverAuthService).not.toContain('wallet_key_id: registrationAccountScope.walletKeyId');
-    expect(thresholdSigning).toContain('parseWebAuthnRpIdField');
-    expect(thresholdSigning).toContain('parseNearEd25519SigningKeyIdField');
     expect(thresholdSigning).not.toContain('registrationAccountScope.value.walletKeyId');
     expect(thresholdSigning).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
-    const serverHssDigestHelper = sourceBetween(
-      thresholdSigning,
-      'private async expectedThresholdEd25519HssApplicationBindingDigestB64u(input:',
-      'private async validateThresholdEd25519HssSessionScope',
-    );
-    expect(serverHssDigestHelper).toContain(
-      'nearEd25519SigningKeyId: NearEd25519SigningKeyId;',
-    );
-    expect(serverHssDigestHelper).not.toContain('nearEd25519SigningKeyId: unknown');
-    expect(serverHssDigestHelper).not.toContain('nearEd25519SigningKeyIdFromString(String(');
-    const clientHssBindingInput = sourceBetween(
-      clientHssLifecycle,
-      'type ThresholdEd25519HssBindingFactsInput =',
-      'function normalizeThresholdEd25519HssBindingFacts',
-    );
-    expect(clientHssBindingInput).toContain(
-      'nearEd25519SigningKeyId: NearEd25519SigningKeyId;',
-    );
-    expect(clientHssBindingInput).not.toContain('NearEd25519SigningKeyId | string');
-    const clientHssBindingNormalizer = sourceBetween(
-      clientHssLifecycle,
-      'function normalizeThresholdEd25519HssBindingFacts',
-      'async function buildThresholdEd25519HssCanonicalContext',
-    );
-    expect(clientHssBindingNormalizer).not.toContain('nearEd25519SigningKeyIdFromString(String(');
-
     for (const source of [serverTypecheck, sdkTypecheck]) {
       expect(source).toContain('acceptsWebAuthnRpId(nearEd25519SigningKeyId)');
       expect(source).toContain('acceptsNearEd25519SigningKeyId(webAuthnRpId)');
@@ -634,7 +500,7 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
     expect(provisionUseCase).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
     expect(sessionPolicy).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
     expect(sessionPolicy).toContain(
-      'requireEvmFamilySigningKeySlotId(params.evmFamilySigningKeySlotId',
+      'evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(',
     );
     expect(platformPorts).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
     expect(platformPorts).not.toContain('evmFamilySigningKeySlotId: WalletKeyId');

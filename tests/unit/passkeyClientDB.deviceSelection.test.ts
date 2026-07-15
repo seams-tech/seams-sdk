@@ -1648,7 +1648,7 @@ test.describe('Seams wallet device selection', () => {
                 label,
                 nearEd25519SigningKeyId: 'near-ed25519:partial-activation',
                 relayerKeyId: 'partial-rk',
-                keyVersion: 'threshold-ed25519-hss-v1',
+                keyVersion: 'router-ab-ed25519-yao-v1',
                 signerMaterialFingerprint: 'partial-material',
               },
             },
@@ -1675,7 +1675,7 @@ test.describe('Seams wallet device selection', () => {
             signerSlot: second.signerSlot,
             publicKey: 'ed25519:partial-public-key',
             relayerKeyId: 'partial-rk',
-            keyVersion: 'threshold-ed25519-hss-v1',
+            keyVersion: 'router-ab-ed25519-yao-v1',
             signerId,
             timestamp: Date.now(),
           },
@@ -1721,7 +1721,7 @@ test.describe('Seams wallet device selection', () => {
     expect(result.materialAfterRetry).toMatchObject({
       publicKey: 'ed25519:partial-public-key',
       relayerKeyId: 'partial-rk',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
     });
   });
 
@@ -1807,7 +1807,7 @@ test.describe('Seams wallet device selection', () => {
                 label,
                 nearEd25519SigningKeyId: 'near-ed25519:partial-session',
                 relayerKeyId: 'session-rk',
-                keyVersion: 'threshold-ed25519-hss-v1',
+                keyVersion: 'router-ab-ed25519-yao-v1',
                 signerMaterialFingerprint: 'session-material',
               },
             },
@@ -1827,7 +1827,7 @@ test.describe('Seams wallet device selection', () => {
             signerSlot: first.signerSlot,
             publicKey: 'ed25519:session-public-key',
             relayerKeyId: 'session-rk',
-            keyVersion: 'threshold-ed25519-hss-v1',
+            keyVersion: 'router-ab-ed25519-yao-v1',
             signerId,
             timestamp: Date.now(),
           },
@@ -1841,7 +1841,7 @@ test.describe('Seams wallet device selection', () => {
             signerSlot: second.signerSlot,
             publicKey: 'ed25519:session-public-key',
             relayerKeyId: 'session-rk',
-            keyVersion: 'threshold-ed25519-hss-v1',
+            keyVersion: 'router-ab-ed25519-yao-v1',
             signerId,
             timestamp: Date.now(),
           },
@@ -1896,7 +1896,7 @@ test.describe('Seams wallet device selection', () => {
     expect(result.material).toMatchObject({
       publicKey: 'ed25519:session-public-key',
       relayerKeyId: 'session-rk',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      keyVersion: 'router-ab-ed25519-yao-v1',
     });
   });
 

@@ -41,7 +41,6 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'ed25519-only.testnet',
       thresholdSessionId: 'ed25519-session-1',
       walletSessionJwt: 'jwt:ed25519-session-1',
-      runtimeValidated: true,
       remainingUses: 9,
     });
 
@@ -176,7 +175,6 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'batch-status.testnet',
       thresholdSessionId: 'batch-ed25519-session',
       walletSessionJwt: 'jwt:batch-ed25519-session',
-      runtimeValidated: true,
       remainingUses: 9,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -289,7 +287,6 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'dual.testnet',
       thresholdSessionId: 'ed25519-dual-session',
       walletSessionJwt: 'jwt:ed25519-dual-session',
-      runtimeValidated: true,
       remainingUses: 6,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {

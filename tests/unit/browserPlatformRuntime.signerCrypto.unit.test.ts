@@ -120,7 +120,7 @@ function finalizeFailureWorkerCtx(message: string): WorkerOperationContext {
         code: 'SIGNER_CRYPTO_ERROR',
         coreCode: 'HSS_COMMAND_FAILURE',
         message,
-        workerKind: 'hssClient',
+        workerKind: 'ecdsaHssClient',
       });
     },
   };
@@ -179,7 +179,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         throw new SignerWorkerOperationError({
           code: 'TIMEOUT',
           message: 'Worker operation timed out after 1000ms',
-          workerKind: 'hssClient',
+          workerKind: 'ecdsaHssClient',
         });
       },
     };
@@ -193,8 +193,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_POSTMESSAGE_ERROR',
-          message: '[hssClient] failed to postMessage',
-          workerKind: 'hssClient',
+          message: '[ecdsaHssClient] failed to postMessage',
+          workerKind: 'ecdsaHssClient',
         });
       },
     };
@@ -211,8 +211,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_PROTOCOL_ERROR',
-          message: '[hssClient] malformed worker response',
-          workerKind: 'hssClient',
+          message: '[ecdsaHssClient] malformed worker response',
+          workerKind: 'ecdsaHssClient',
         });
       },
     };
@@ -229,8 +229,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_RUNTIME_ERROR',
-          message: '[hssClient] worker runtime error: unknown error',
-          workerKind: 'hssClient',
+          message: '[ecdsaHssClient] worker runtime error: unknown error',
+          workerKind: 'ecdsaHssClient',
         });
       },
     };
@@ -249,8 +249,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_RUNTIME_ERROR',
-          message: 'HSS client WASM initialization failed: failed to instantiate module_or_path',
-          workerKind: 'hssClient',
+          message: 'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
+          workerKind: 'ecdsaHssClient',
         });
       },
     };
@@ -271,7 +271,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
           code: 'SIGNER_CRYPTO_ERROR',
           coreCode: 'HSS_COMMAND_FAILURE',
           message: 'ECDSA bootstrap context validation failed',
-          workerKind: 'hssClient',
+          workerKind: 'ecdsaHssClient',
         });
       },
     };
@@ -292,7 +292,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       [];
     const workerCtx: WorkerOperationContext = {
       async requestWorkerOperation({ kind, request }) {
-        expect(kind).toBe('hssClient');
+        expect(kind).toBe('ecdsaHssClient');
         if (request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap) {
           const payload =
             request.payload as WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;

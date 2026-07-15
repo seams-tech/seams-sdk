@@ -1,156 +1,30 @@
 import { expect, test } from '@playwright/test';
-import { isoCBOR } from '@simplewebauthn/server/helpers';
-import { createHash } from 'node:crypto';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  CloudflareDurableObjectStubLike,
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse
-} from '../../packages/sdk-server-ts/src/core/types';
-import type {
-  WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPreparePayload
-} from '../../packages/sdk-server-ts/src/core/registrationContracts';
 import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
-import type {
-  CloudflareD1EmailOtpDeliveryProviderInput,
-  CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
-import { buildD1ThresholdEd25519RegistrationSessionPolicy } from '../../packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch';
-import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
-import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
-  implicitNearAccountProvisioning,
-  parseServerAllocatedWalletId,
-  walletIdFromString,
-} from '../../packages/shared-ts/src/utils/registrationIntent';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import {
-  EMAIL_OTP_RECOVERY_KEY_COUNT,
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  encodeEmailOtpRecoveryWrappedEnrollmentAad,
-} from '../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
-import {
-  secp256k1PrivateKey32ToPublicKey33,
-  signSecp256k1Recoverable,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
-import { createSigningSessionSealShamir3PassBigIntRuntime } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
-import {
-  applyD1MigrationFiles,
-  cleanupTemporaryD1Database,
-  createTemporaryD1Database,
-  listD1MigrationFiles,
-} from '../helpers/sqliteD1';
-import {
-  EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
-  EMAIL_OTP_SHAMIR_PRIME_B64U,
-  EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U,
-  EMAIL_OTP_SERVER_DECRYPT_EXPONENT_B64U,
-  EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U,
-  EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U,
-  TEST_COMBINED_NEAR_ACCOUNT_ID,
-  TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U,
-  googleEmailOtpD1RegistrationAttemptBoundaryFixture,
-  testEd25519PreparedServerState,
-  testEd25519RespondedServerState,
-  testEvmFamilyRegistrationSignerSet,
-  testCombinedRegistrationSignerSet,
   requireParsedDomainId,
-  RecordingEmailOtpDeliveryProvider,
-  ThrowingDurableObjectStub,
   ThrowingDurableObjectNamespace,
-  RecordingDurableObjectStub,
-  RecordingDurableObjectNamespace,
-  parseRecordingDurableObjectRequest,
-  recordingDurableObjectJson,
-  isActiveRecordingReplayGuard,
-  isRecordingDurableObjectReplayReservationRequest,
-  recordingDurableObjectRequestKey,
-  recordingDurableObjectRequestOp,
-  countRecordingDurableObjectRequests,
-  recordingDurableObjectRequestsIncludeKey,
-  walletRegistrationDoKey,
-  requireRecordingDurableObjectRecord,
-  replaceRecordingDurableObjectRecord,
-  recordingDurableObjectKeysWithPrefix,
-  requireNestedRecordingDurableObjectRecord,
-  requireSingleEcdsaPrepare,
-  testEcdsaClientBootstrapTargets,
-  testEcdsaServerBootstrapResponse,
-  testEd25519PrepareForRegistration,
-  testEd25519RespondForRegistration,
-  testEd25519FinalizeForRegistration,
-  testEd25519RegistrationKeygenFromRegistrationMaterial,
-  testEcdsaHssRoleLocalBootstrap,
-  testGetCombinedRegistrationSchemeModule,
-  testThresholdSchemeHealthz,
-  testThresholdSchemeSession,
-  testCombinedRegistrationThresholdSigningService,
   utf8Bytes,
-  arrayBufferCopy,
-  concatBytes,
-  derIntegerBytes,
-  rawP256SignatureToDer,
   sha256,
   hexBytes,
   createWebAuthnAssertionFixture,
   createWebAuthnAssertion,
-  jsonBase64Url,
-  fakeWebAuthnRegistrationCredential,
-  encodePositiveBigIntB64u,
-  addEmailOtpClientSeal,
-  removeEmailOtpClientSeal,
-  addEmailOtpServerSeal,
-  generateGoogleOidcTestKey,
-  makeSignedGoogleIdToken,
-  googleJwksFetchMockPublicJwk,
-  oidcJwksFetchMockUrl,
-  oidcJwksFetchMockPublicJwk,
-  googleJwksFetchMock,
-  installGoogleJwksFetchMock,
-  restoreGoogleJwksFetchMock,
-  oidcJwksFetchMock,
-  installOidcJwksFetchMock,
-  restoreOidcJwksFetchMock,
   applySignerMigrations,
-  isSqliteJsonRow,
-  toInteger,
   insertIdentity,
   insertWebAuthn,
   readWebAuthnChallengeRow,
   readWebAuthnAuthenticatorRow,
   insertNearPublicKey,
   insertSignerWallet,
-  testWalletAuthMethodIdentity,
   insertWalletAuthMethod,
   readWalletAuthMethodRecord,
-  readSignerWalletRecord,
-  readWalletSignerRecord,
   insertEmailOtpEnrollment,
-  listGoogleEmailOtpRegistrationAttemptRows,
-  registrationAttemptRecordFromRow,
   insertEmailOtpAuthState,
   insertEmailOtpRecoveryEscrow,
   insertEmailOtpGrant,
-  emailOtpGrantRecord,
-  emailOtpRecoveryEscrowRecord,
-  makeRecoveryRotationEscrowInputs,
-  recoveryRotationEscrowInput,
-  makeRecoveryWrappedEnrollmentEscrows,
-  recoveryWrappedEnrollmentEscrowInput,
-  recoveryEscrowAadHashB64u,
-  readRecoveryEscrowStatusCounts,
-  countActiveRecoveryWrappedEnrollmentEscrows,
-  insertRecoverySession,
-  recoverySessionRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
 test('Cloudflare D1 Router API auth service reads signer metadata with tenant scope', async () => {
@@ -455,7 +329,9 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         appSessionVersion: 'grant-session-v2',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
-    const session = await service.sessionVersions.getOrCreateAppSessionVersion({ userId: scope.userId });
+    const session = await service.sessionVersions.getOrCreateAppSessionVersion({
+      userId: scope.userId,
+    });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);
     await expect(
@@ -474,7 +350,10 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       }),
     ).resolves.toMatchObject({ ok: false, code: 'invalid_session_version' });
     await expect(
-      service.webAuthn.listWebAuthnAuthenticatorsForUser({ userId: scope.userId, rpId: 'example.com' }),
+      service.webAuthn.listWebAuthnAuthenticatorsForUser({
+        userId: scope.userId,
+        rpId: 'example.com',
+      }),
     ).resolves.toMatchObject({
       ok: true,
       authenticators: [
@@ -643,7 +522,9 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       code: 'invalid_body',
       message: 'Missing rp_id',
     });
-    await expect(service.nearFunding.listNearPublicKeysForUser({ userId: scope.userId })).resolves.toEqual({
+    await expect(
+      service.nearFunding.listNearPublicKeysForUser({ userId: scope.userId }),
+    ).resolves.toEqual({
       ok: true,
       keys: [
         {
@@ -869,9 +750,11 @@ test('Cloudflare D1 Router API auth service wires threshold signing from Durable
       },
     });
     const threshold = withThreshold.thresholdRuntime.getThresholdSigningService();
+    const normalSigningRuntime =
+      withThreshold.thresholdRuntime.getRouterAbNormalSigningRuntime();
     expect(threshold).not.toBeNull();
     expect(withThreshold.thresholdRuntime.getThresholdSigningService()).toBe(threshold);
-    expect(threshold?.getRouterAbNormalSigningWorkerId()).toBe('test-threshold-signing-worker');
+    expect(normalSigningRuntime?.getSigningWorkerId()).toBe('test-threshold-signing-worker');
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

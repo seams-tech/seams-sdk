@@ -1,10 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type {
-  RouterAbNormalSigningBudgetCommitInput,
+  RouterAbNormalSigningBudgetFinalizeInput,
   RouterAbNormalSigningBudgetReleaseInput,
   RouterAbNormalSigningBudgetReservationInput,
-  RouterAbNormalSigningBudgetValidateInput,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
+} from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import {
   deriveRouterAbEcdsaHssBudgetRequestDigest,
   deriveRouterAbEcdsaHssBudgetOperationId,
@@ -28,7 +27,7 @@ import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessi
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 type EcdsaRouteInput = Parameters<typeof handleRouterAbEcdsaHssNormalSigningRouteCore>[0];
-type EcdsaThresholdService = NonNullable<ReturnType<EcdsaRouteInput['getThreshold']>>;
+type EcdsaNormalSigningRuntime = NonNullable<EcdsaRouteInput['runtime']>;
 
 const signingGrantId = 'signing-grant-ecdsa-1';
 const walletId = 'alice.testnet';
@@ -49,11 +48,13 @@ let scope: RouterAbEcdsaHssNormalSigningScopeV1;
 let thresholdSessionId: string;
 
 type EcdsaBudgetRouteHarness = {
-  service: EcdsaThresholdService;
-  commitCalls: RouterAbNormalSigningBudgetCommitInput[];
-  releaseCalls: RouterAbNormalSigningBudgetReleaseInput[];
+  runtime: EcdsaNormalSigningRuntime;
+  commitCalls: RouterAbNormalSigningBudgetFinalizeInput[];
+  releaseCalls: Array<
+    RouterAbNormalSigningBudgetReleaseInput | RouterAbNormalSigningBudgetFinalizeInput
+  >;
   reserveCalls: RouterAbNormalSigningBudgetReservationInput[];
-  validateCalls: RouterAbNormalSigningBudgetValidateInput[];
+  validateCalls: RouterAbNormalSigningBudgetFinalizeInput[];
 };
 
 function b64u(byte: number, length: number): string {
@@ -206,26 +207,29 @@ async function ecdsaBudgetRequestDigest(
   });
 }
 
-function createThresholdService(args?: {
+function createNormalSigningRuntime(args?: {
   commitBudget?: 'ok' | 'exhausted';
   reserveBudget?: 'ok' | 'exhausted';
   validateBudget?: 'ok' | 'exhausted';
 }): EcdsaBudgetRouteHarness {
-  const commitCalls: RouterAbNormalSigningBudgetCommitInput[] = [];
-  const releaseCalls: RouterAbNormalSigningBudgetReleaseInput[] = [];
+  const commitCalls: RouterAbNormalSigningBudgetFinalizeInput[] = [];
+  const releaseCalls: Array<
+    RouterAbNormalSigningBudgetReleaseInput | RouterAbNormalSigningBudgetFinalizeInput
+  > = [];
   const reserveCalls: RouterAbNormalSigningBudgetReservationInput[] = [];
-  const validateCalls: RouterAbNormalSigningBudgetValidateInput[] = [];
-  const service: EcdsaThresholdService = {
-    getRouterAbSigningWorkerPrivateHttpConfig() {
+  const validateCalls: RouterAbNormalSigningBudgetFinalizeInput[] = [];
+  const runtime: EcdsaNormalSigningRuntime = {
+    getSigningWorkerPrivateTransport() {
       return {
+        kind: 'configured',
         signingWorkerBaseUrl: 'https://signing-worker.internal',
-        auth: { kind: 'internal_service_auth_token', token: 'internal-token' },
+        auth: { kind: 'internal_service_auth_secret', secret: 'internal-token' },
       };
     },
-    async reserveRouterAbNormalSigningPrepareReplay() {
+    async reservePrepareReplay() {
       return { ok: true };
     },
-    async reserveRouterAbNormalSigningBudget(input) {
+    async reserveBudget(input) {
       reserveCalls.push(input);
       if (args?.reserveBudget === 'exhausted') return budgetFailure();
       return {
@@ -236,17 +240,17 @@ function createThresholdService(args?: {
         availableUses: 2,
       };
     },
-    async commitRouterAbNormalSigningBudget(input) {
+    async commitBudget(input) {
       commitCalls.push(input);
       if (args?.commitBudget === 'exhausted') return budgetFailure();
       return { ok: true, remainingUses: 2 };
     },
-    async validateRouterAbNormalSigningBudget(input) {
+    async validateBudget(input) {
       validateCalls.push(input);
       if (args?.validateBudget === 'exhausted') return budgetFailure();
       return { ok: true, remainingUses: 3 };
     },
-    async releaseRouterAbNormalSigningBudget(input) {
+    async releaseBudget(input) {
       releaseCalls.push(input);
       return {
         ok: true,
@@ -256,7 +260,7 @@ function createThresholdService(args?: {
         availableUses: 3,
       };
     },
-    async releaseRouterAbNormalSigningBudgetForIdentity(input) {
+    async releaseBudgetForIdentity(input) {
       releaseCalls.push(input);
       return {
         ok: true,
@@ -267,7 +271,7 @@ function createThresholdService(args?: {
       };
     },
   };
-  return { service, commitCalls, releaseCalls, reserveCalls, validateCalls };
+  return { runtime, commitCalls, releaseCalls, reserveCalls, validateCalls };
 }
 
 async function callEcdsaRouteCore(input: {
@@ -276,14 +280,14 @@ async function callEcdsaRouteCore(input: {
     | RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
   privatePath: EcdsaRouteInput['privatePath'];
   phase: EcdsaRouteInput['phase'];
-  service: EcdsaThresholdService;
+  runtime: EcdsaNormalSigningRuntime;
 }): Promise<Awaited<ReturnType<typeof handleRouterAbEcdsaHssNormalSigningRouteCore>>> {
   return await handleRouterAbEcdsaHssNormalSigningRouteCore({
     body: input.body as unknown as Record<string, unknown>,
     rawBody: input.body,
     headers: { authorization: 'Bearer wallet-session.jwt' },
     session: sessionAdapter(),
-    getThreshold: () => input.service,
+    runtime: input.runtime,
     admissionAdapter: allowAllAdmissionAdapter(),
     privatePath: input.privatePath,
     phase: input.phase,
@@ -315,9 +319,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
       signingDigest32: new Uint8Array(32).fill(12),
     });
 
-    expect(await ecdsaBudgetRequestDigest(prepare)).toBe(
-      await ecdsaBudgetRequestDigest(finalize),
-    );
+    expect(await ecdsaBudgetRequestDigest(prepare)).toBe(await ecdsaBudgetRequestDigest(finalize));
     expect(await ecdsaBudgetRequestDigest(changedDigestPrepare)).not.toBe(
       await ecdsaBudgetRequestDigest(prepare),
     );
@@ -325,7 +327,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
   });
 
   test('prepare rejects missing admission adapter before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const body = prepareBody();
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -340,7 +342,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
         rawBody: body,
         headers: { authorization: 'Bearer wallet-session.jwt' },
         session: sessionAdapter(),
-        getThreshold: () => harness.service,
+        runtime: harness.runtime,
         admissionAdapter: null,
         privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
@@ -363,7 +365,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
   });
 
   test('prepare rejects exhausted budget before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService({ reserveBudget: 'exhausted' });
+    const harness = createNormalSigningRuntime({ reserveBudget: 'exhausted' });
     const body = prepareBody();
     const expectedRequestDigest = await ecdsaBudgetRequestDigest(body);
     const expectedOperationId = await deriveRouterAbEcdsaHssBudgetOperationId({
@@ -383,7 +385,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
         body,
         privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -399,8 +401,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
       expect(fetchCalls).toEqual([]);
       expect(harness.reserveCalls).toEqual([
         {
-          curve: 'ecdsa-hss',
-          phase: 'prepare',
+          curve: 'ecdsa',
           thresholdSessionId,
           signingGrantId,
           signingWorkerId,
@@ -416,7 +417,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
   });
 
   test('finalize rejects invalid reservation before private SigningWorker forwarding', async () => {
-    const harness = createThresholdService({ validateBudget: 'exhausted' });
+    const harness = createNormalSigningRuntime({ validateBudget: 'exhausted' });
     const prepare = prepareBody();
     const budgetOperationId = await deriveRouterAbEcdsaHssBudgetOperationId({
       body: prepare,
@@ -437,7 +438,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
         body,
         privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -451,8 +452,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
       expect(fetchCalls).toEqual([]);
       expect(harness.validateCalls).toEqual([
         {
-          curve: 'ecdsa-hss',
-          phase: 'finalize',
+          curve: 'ecdsa',
           thresholdSessionId,
           signingGrantId,
           reservationId: body.budget_reservation_id,
@@ -464,8 +464,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
       expect(harness.commitCalls).toEqual([]);
       expect(harness.releaseCalls).toEqual([
         {
-          curve: 'ecdsa-hss',
-          phase: 'finalize',
+          curve: 'ecdsa',
           thresholdSessionId,
           signingGrantId,
           reservationId: body.budget_reservation_id,
@@ -480,7 +479,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
   });
 
   test('finalize rejects a transport request id masquerading as the budget operation id', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const body = finalizeBody({ budgetOperationId: 'ecdsa-sign-request-1' });
     const expectedOperationId = await deriveRouterAbEcdsaHssBudgetOperationId({
       body,
@@ -499,7 +498,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
         body,
         privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(expectedOperationId).toMatch(/^router-ab-ecdsa-hss:/);
@@ -522,7 +521,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
   });
 
   test('finalize private-worker failure releases a validated reservation', async () => {
-    const harness = createThresholdService();
+    const harness = createNormalSigningRuntime();
     const prepare = prepareBody();
     const budgetOperationId = await deriveRouterAbEcdsaHssBudgetOperationId({
       body: prepare,
@@ -544,7 +543,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
         body,
         privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
-        service: harness.service,
+        runtime: harness.runtime,
       });
 
       expect(result).toEqual({
@@ -571,7 +570,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
       expect(harness.commitCalls).toEqual([]);
       expect(harness.releaseCalls).toEqual([
         {
-          curve: 'ecdsa-hss',
+          curve: 'ecdsa',
           phase: 'finalize',
           thresholdSessionId,
           signingGrantId,
