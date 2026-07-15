@@ -4,6 +4,7 @@ mod add256;
 mod clamp;
 mod families;
 mod ir;
+mod phase4_families;
 mod scalar;
 mod schedule;
 mod sha512;
@@ -25,6 +26,26 @@ pub use families::{
     PublicSyntheticExportCoreOutputV1, PublicSyntheticTauFieldV1,
     PROVISIONAL_ACTIVATION_CORE_INPUT_SCHEMA_V1, PROVISIONAL_ACTIVATION_CORE_OUTPUT_SCHEMA_V1,
     PROVISIONAL_EXPORT_CORE_INPUT_SCHEMA_V1, PROVISIONAL_EXPORT_CORE_OUTPUT_SCHEMA_V1,
+};
+
+pub use phase4_families::{
+    compile_phase4_private_output_activation_core_v1, compile_phase4_private_output_export_core_v1,
+    Phase4PrivateOutputActivationCoreDigest32V1, Phase4PrivateOutputActivationCoreV1,
+    Phase4PrivateOutputActivationScheduleDigest32V1, Phase4PrivateOutputExportCoreDigest32V1,
+    Phase4PrivateOutputExportCoreV1, Phase4PrivateOutputExportScheduleDigest32V1,
+    PublicSyntheticPhase4ActivationInputsV1, PublicSyntheticPhase4ActivationOutputsV1,
+    PublicSyntheticPhase4DeriverAActivationSharesV1,
+    PublicSyntheticPhase4DeriverAClientScalarCoinV1, PublicSyntheticPhase4DeriverAExportSeedCoinV1,
+    PublicSyntheticPhase4DeriverAExportShareV1,
+    PublicSyntheticPhase4DeriverASigningWorkerScalarCoinV1,
+    PublicSyntheticPhase4DeriverBActivationSharesV1,
+    PublicSyntheticPhase4DeriverBClientScalarCoinV1, PublicSyntheticPhase4DeriverBExportSeedCoinV1,
+    PublicSyntheticPhase4DeriverBExportShareV1,
+    PublicSyntheticPhase4DeriverBSigningWorkerScalarCoinV1, PublicSyntheticPhase4ExportInputsV1,
+    PublicSyntheticPhase4ExportOutputsV1, PublicSyntheticPhase4ScalarCoinErrorV1,
+    PHASE4_PRIVATE_OUTPUT_ACTIVATION_INPUT_SCHEMA_V1,
+    PHASE4_PRIVATE_OUTPUT_ACTIVATION_OUTPUT_SCHEMA_V1,
+    PHASE4_PRIVATE_OUTPUT_EXPORT_INPUT_SCHEMA_V1, PHASE4_PRIVATE_OUTPUT_EXPORT_OUTPUT_SCHEMA_V1,
 };
 
 pub use sha512::{
@@ -114,6 +135,8 @@ pub fn compile_fixed_sha512_32_v1() -> FixedSha512CircuitV1 {
 mod combinator_tests;
 #[cfg(test)]
 mod family_tests;
+#[cfg(test)]
+mod phase4_family_tests;
 #[cfg(test)]
 mod schedule_tests;
 #[cfg(test)]

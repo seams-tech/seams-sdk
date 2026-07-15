@@ -9,40 +9,13 @@ use signer_core::commands::{
     EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1, EcdsaClientBootstrapFactsV1,
     EcdsaClientBootstrapParticipantsV1, EcdsaPreparePublicFactsV1, EcdsaReadyPublicFactsV1,
     EcdsaRoleLocalExportPublicFactsV1, EcdsaRoleLocalPendingStateBlobV1,
-    EcdsaRoleLocalReadyStateBlobV1, Ed25519CreateClientPresignFromWorkerMaterialRequestKindV1,
-    Ed25519CreateClientPresignFromWorkerMaterialRequestV1,
-    Ed25519CreateClientPresignFromWorkerMaterialSuccessV1,
-    Ed25519DeleteSealedWorkerMaterialRequestKindV1, Ed25519DeleteSealedWorkerMaterialRequestV1,
-    Ed25519DeleteSealedWorkerMaterialSuccessV1, Ed25519HssClientOutputMaskTransportV1,
-    Ed25519PutSealedWorkerMaterialRequestKindV1, Ed25519PutSealedWorkerMaterialRequestV1,
-    Ed25519PutSealedWorkerMaterialSuccessV1, Ed25519ReadSealedWorkerMaterialRequestKindV1,
-    Ed25519ReadSealedWorkerMaterialRequestV1, Ed25519ReadSealedWorkerMaterialSuccessV1,
-    Ed25519RestoreWorkerMaterialRequestKindV1, Ed25519RestoreWorkerMaterialRequestV1,
-    Ed25519SealedWorkerMaterialAadKindV1, Ed25519SealedWorkerMaterialAadV1,
-    Ed25519SealedWorkerMaterialKindV1, Ed25519SealedWorkerMaterialTransportV1,
-    Ed25519SealedWorkerMaterialV1, Ed25519ServerCommitmentsV1,
-    Ed25519SignClientPresignFromWorkerMaterialRequestKindV1,
-    Ed25519SignClientPresignFromWorkerMaterialRequestV1,
-    Ed25519SignClientPresignFromWorkerMaterialSuccessV1,
-    Ed25519StoreWorkerMaterialFromHssOutputRequestKindV1,
-    Ed25519StoreWorkerMaterialFromHssOutputRequestV1, Ed25519ValidateWorkerMaterialRequestKindV1,
-    Ed25519ValidateWorkerMaterialRequestV1, Ed25519ValidateWorkerMaterialSuccessV1,
-    Ed25519WorkerMaterialAeadAlgorithmV1, Ed25519WorkerMaterialAeadV1,
-    Ed25519WorkerMaterialBindingKindV1, Ed25519WorkerMaterialBindingV1,
-    Ed25519WorkerMaterialCredentialAuthorizationPurposeV1,
-    Ed25519WorkerMaterialCredentialAuthorizationV1, Ed25519WorkerMaterialCurveV1,
-    Ed25519WorkerMaterialErrorCodeV1, Ed25519WorkerMaterialFailureV1,
-    Ed25519WorkerMaterialFormatVersionV1, Ed25519WorkerMaterialKdfAlgorithmV1,
-    Ed25519WorkerMaterialKdfV1, Ed25519WorkerMaterialKeyIdentityKindV1,
-    Ed25519WorkerMaterialKeyIdentityV1, Ed25519WorkerMaterialProtocolV1,
-    Ed25519WorkerMaterialSessionBindingKindV1, Ed25519WorkerMaterialSessionBindingV1,
-    Ed25519WorkerMaterialStoredV1, FinalizeEcdsaClientBootstrapCommandKindV1,
+    EcdsaRoleLocalReadyStateBlobV1, FinalizeEcdsaClientBootstrapCommandKindV1,
     FinalizeEcdsaClientBootstrapCommandV1, FinalizeEcdsaClientBootstrapErrorCodeV1,
     FinalizeEcdsaClientBootstrapOutputV1, PendingStateBlobKindV1,
     PrepareEcdsaClientBootstrapCommandKindV1, PrepareEcdsaClientBootstrapCommandV1,
     PrepareEcdsaClientBootstrapErrorCodeV1, PrepareEcdsaClientBootstrapOutputV1,
     ReadyStateBlobKindV1, RelayerPublicIdentityV1, Secp256k1CurveNameV1, SignerCommandVersion,
-    SignerCoreProducerV1, ThresholdRuntimePolicyScopeV1,
+    SignerCoreProducerV1,
 };
 use ts_rs::{Config, TS};
 
@@ -103,55 +76,7 @@ fn generated_signer_core_commands_ts() -> String {
     push_decl::<BuildEcdsaRoleLocalExportArtifactCommandV1>(&mut out, &cfg);
     push_decl::<BuildEcdsaRoleLocalExportArtifactOutputV1>(&mut out, &cfg);
     push_decl::<BuildEcdsaRoleLocalExportArtifactErrorCodeV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialFormatVersionV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialCurveV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialProtocolV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialAeadAlgorithmV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialKdfAlgorithmV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialKeyIdentityKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialBindingKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialSessionBindingKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519SealedWorkerMaterialKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519SealedWorkerMaterialAadKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialKeyIdentityV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialBindingV1>(&mut out, &cfg);
-    push_decl::<ThresholdRuntimePolicyScopeV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialSessionBindingV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialAeadV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialKdfV1>(&mut out, &cfg);
-    push_decl::<Ed25519SealedWorkerMaterialV1>(&mut out, &cfg);
-    push_decl::<Ed25519SealedWorkerMaterialAadV1>(&mut out, &cfg);
-    push_decl::<Ed25519SealedWorkerMaterialTransportV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialCredentialAuthorizationPurposeV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialCredentialAuthorizationV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialErrorCodeV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialFailureV1>(&mut out, &cfg);
-    push_decl::<Ed25519WorkerMaterialStoredV1>(&mut out, &cfg);
-    push_decl::<Ed25519ValidateWorkerMaterialSuccessV1>(&mut out, &cfg);
-    push_decl::<Ed25519CreateClientPresignFromWorkerMaterialSuccessV1>(&mut out, &cfg);
-    push_decl::<Ed25519SignClientPresignFromWorkerMaterialSuccessV1>(&mut out, &cfg);
-    push_decl::<Ed25519StoreWorkerMaterialFromHssOutputRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519HssClientOutputMaskTransportV1>(&mut out, &cfg);
-    push_decl::<Ed25519StoreWorkerMaterialFromHssOutputRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519RestoreWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519RestoreWorkerMaterialRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519ValidateWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519ValidateWorkerMaterialRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519CreateClientPresignFromWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519CreateClientPresignFromWorkerMaterialRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519ServerCommitmentsV1>(&mut out, &cfg);
-    push_decl::<Ed25519SignClientPresignFromWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519SignClientPresignFromWorkerMaterialRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519PutSealedWorkerMaterialSuccessV1>(&mut out, &cfg);
-    push_decl::<Ed25519ReadSealedWorkerMaterialSuccessV1>(&mut out, &cfg);
-    push_decl::<Ed25519DeleteSealedWorkerMaterialSuccessV1>(&mut out, &cfg);
-    push_decl::<Ed25519PutSealedWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519PutSealedWorkerMaterialRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519ReadSealedWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519ReadSealedWorkerMaterialRequestV1>(&mut out, &cfg);
-    push_decl::<Ed25519DeleteSealedWorkerMaterialRequestKindV1>(&mut out, &cfg);
-    push_decl::<Ed25519DeleteSealedWorkerMaterialRequestV1>(&mut out, &cfg);
-
+    out.pop();
     out
 }
 

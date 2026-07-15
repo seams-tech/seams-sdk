@@ -21,7 +21,8 @@ justify an Aeneas + Lean stack by themselves.
 `signer-core` is the shared cryptographic helper layer beneath:
 
 - [crates/ecdsa-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss)
-- [crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss)
+- [crates/ed25519-yao](/Users/pta/Dev/rust/seams-sdk/crates/ed25519-yao)
+- [crates/router-ab-ed25519-yao](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-ed25519-yao)
 - wasm consumers
 - platform bindings that re-export these helpers
 
@@ -37,9 +38,9 @@ The best targets are the local formulas and invariants that:
 
 ## Why Not Start With A Full Lean Stack
 
-`signer-core` is mostly shared primitive/helper code. It does not currently
-have the kind of crate-local privacy boundary that justified the Lean boundary
-and Lean privacy tracks in `ecdsa-hss` and `ed25519-hss`.
+`signer-core` is mostly shared primitive/helper code. Its crate-local targets
+are algebraic and encoding invariants; protocol privacy is owned by the
+higher-level ECDSA and Ed25519 Yao verification tracks.
 
 So the recommended sequence is:
 

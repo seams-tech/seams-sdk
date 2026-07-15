@@ -1,0 +1,40 @@
+name: Ed25519 Yao Phase 2B evidence staging
+
+on:
+  push:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  phase2b_evidence_staging:
+    name: Phase 2B evidence-shape staging check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout inspected commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.11.14'
+
+      - name: Check Phase 2B evidence staging shape
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          decision="$(python3 crates/ed25519-yao/formal-verification/scripts/phase2b_change_control.py "$BASE_SHA")"
+          echo "$decision"
+          external_verification_required="$(printf '%s' "$decision" | python3 -c 'import json, sys; print(str(json.load(sys.stdin)["external_verification_required"]).lower())')"
+          if [[ "$external_verification_required" == "true" ]]; then
+            echo "::notice::GitHub is not the Phase 2 release authority; verify this checkpoint using the externally pinned policy and signed evidence."
+          fi

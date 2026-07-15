@@ -8,5 +8,7 @@ import Ed25519YaoModel.ActivationDelivery
 import Ed25519YaoModel.ActivationRecipientPartyViews
 import Ed25519YaoModel.RecoveryCredentialTransition
 import Ed25519YaoModel.RecoveryEvaluatorAdmission
+import Ed25519YaoModel.RefreshEvaluatorAdmission
+import Ed25519YaoModel.SemanticFramePartyViews
 import Ed25519YaoModel.ExportEvaluatorAuthorization
 import Ed25519YaoModel.RegistrationEvaluatorAdmission

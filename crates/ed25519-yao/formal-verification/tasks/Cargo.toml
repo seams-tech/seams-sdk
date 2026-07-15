@@ -11,6 +11,8 @@ name = "ed25519-yao-formal-verification-tasks"
 path = "src/main.rs"
 
 [dependencies]
+ed25519-dalek = "2.1"
+ed25519-yao-generator = { path = "../../../../tools/ed25519-yao-generator" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

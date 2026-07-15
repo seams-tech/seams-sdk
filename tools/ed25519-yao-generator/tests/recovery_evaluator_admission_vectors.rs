@@ -79,7 +79,10 @@ fn corpus_commits_store_admission_output_and_cross_links() {
         case["source_references"]["recovery_credential_transition_case_id"],
         "recovery_credential_suspension_promotion_v1"
     );
-    assert_eq!(case["authenticated_store_resolution"]["active_state_version"], 9);
+    assert_eq!(
+        case["authenticated_store_resolution"]["active_state_version"],
+        9
+    );
     assert_eq!(
         case["authenticated_store_resolution"]["authority_verifying_key_hex"]
             .as_str()

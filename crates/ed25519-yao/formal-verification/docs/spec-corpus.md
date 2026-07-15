@@ -1,6 +1,8 @@
 # Ed25519 Yao Verification Spec Corpus
 
-Status: **FV1 baseline; Phase 1 functionality freeze remains open**
+Status: **FV1 plus a passing benchmark-only Phase 2B reconciliation gate;
+independent reproduction, review approval, and
+runtime/profile realization remain open**
 
 ## Source precedence
 
@@ -127,7 +129,50 @@ Status: **FV1 baseline; Phase 1 functionality freeze remains open**
    Lean model explicitly exclude same-root proof validity, production private-
    input opening, durable replay/atomicity, root custody, transport, constant-
    time execution, and P0-P3 security.
-26. [`tools/ed25519-yao-generator`](../../../../tools/ed25519-yao-generator/README.md)
+26. [`tools/ed25519-yao-generator/docs/refresh-evaluator-admission-v1.md`](../../../../tools/ed25519-yao-generator/docs/refresh-evaluator-admission-v1.md)
+   owns construction-independent refresh admission, checked-at expiry,
+   authenticated current-state binding, exact proposed A/B next-state authority,
+   one evaluation, output binding, registered-state abort retention, promotion
+   gating, and its two distinct opaque transition-evidence identities. Its strict
+   one-case corpus, independent verifier, and Lean model explicitly exclude
+   continuity-proof validity, production private-input opening, delta entropy,
+   independence and anti-bias, selective-abort and retry-grinding resistance,
+   forward security, mobile-adversary healing, secure erasure, durable replay/
+   atomicity/retirement, transport, constant-time execution, and P0-P3 security.
+27. [`tools/ed25519-yao-generator/docs/semantic-frame-party-views-v1.md`](../../../../tools/ed25519-yao-generator/docs/semantic-frame-party-views-v1.md)
+   owns exactly eleven construction-independent directed frame classes, eleven
+   delivery states, seven ordered cumulative value-learning views, exact
+   frame ownership, success/abort/redelivery trace composition, ten closed
+   corruption markers, and four profile-neutral interface shapes. Its strict
+   eight-case corpus, independent verifier, and Lean mirror explicitly exclude
+   runtime frame bytes and payloads, transport/authentication, durable state,
+   secret values, simulators, experiments, noninterference,
+   indistinguishability, profile satisfaction, and protocol security.
+28. [`tools/ed25519-yao-generator/docs/phase2b-core-reconciliation-v1.md`](../../../../tools/ed25519-yao-generator/docs/phase2b-core-reconciliation-v1.md)
+   owns the benchmark-only five-case certificate that binds the provisional
+   compiler, separate IR/schedule clear evaluators, exact `EYAOBM01` candidate,
+   all twenty Phase 1 corpus commitments, closed field/wire/output mappings,
+   party-output reconstruction, authorized export Client reconstruction, and
+   activation's zero-evaluation continuation. Its ten explicit nonclaims retain
+   production authority, profile selection, garbling/OT, randomized output
+   protection, security experiments, runtime transport, durable lifecycle and
+   replay, production constant-time and erasure, independent reproduction, and
+   reviewer approval as exclusions.
+29. [`phase2b-exit-evidence-v1.md`](phase2b-exit-evidence-v1.md) owns the
+   host-only external reproduction/review record schemas, canonical encodings,
+   authority separation, signature domains, private acceptance-capability
+   boundary, and exact nonclaims. Its twenty readiness tests include the
+   unsigned clean-host prepare and bounded signature-only finalize boundaries
+   plus the fixed Git-object `C → E` record and reviewer-approval acceptance
+   boundaries. It also freezes the exact covered change-control surface,
+   historical-checkpoint rule, and non-authoritative public staging workflow
+   through thirteen stdlib-Python staging/workflow tests. These artifacts do not provide genuine
+   externally governed evidence, reviewer approval, or Phase 2 exit. Eleven
+   additional tests cover
+   its fixed-path subject, internally closed tracked symlinks, environment
+   sanitization, and independently decoded fresh-observation builders, while
+   eight cover the protected policy/challenge capabilities.
+30. [`tools/ed25519-yao-generator`](../../../../tools/ed25519-yao-generator/README.md)
    owns the clear reference oracle, role-local KDF, host-only provenance outer
    implementation, narrow host-only registration, registered-key-checked export,
    same-root recovery, and opposite-delta refresh references, typed host-only
@@ -136,15 +181,33 @@ Status: **FV1 baseline; Phase 1 functionality freeze remains open**
    ceremony-context, lifecycle-continuity, provenance, and output-sharing
    corpora plus the public semantic-artifact lifecycle and host output-party-
    view attachments.
-27. [`crates/ed25519-yao`](../../README.md) owns implemented public identifiers,
+31. [`crates/ed25519-yao`](../../README.md) owns implemented public identifiers,
    draft manifests, digest roles, and metric validation.
-28. This formal tree contains derived mirrors, generated translations, models,
+32. This formal tree contains derived mirrors, generated translations, models,
    and explanatory evidence.
 
 The HSS formal tree is historical tooling guidance. Its statements, generated
 artifacts, and theorem names have no authority over this protocol.
 
-## Frozen in the FV1 baseline
+The reconciliation certificate's exact ordered nonclaim vocabulary is
+`production_artifact_authority_absent`, `selected_security_profile_absent`,
+`garbling_and_ot_unimplemented`,
+`randomized_output_protection_unimplemented`,
+`simulator_and_security_experiment_unimplemented`,
+`runtime_frame_and_transport_encoding_absent`,
+`durable_lifecycle_and_replay_semantics_absent`,
+`production_constant_time_and_erasure_unclaimed`,
+`independent_operator_reproducibility_unclaimed`, and
+`reviewer_approval_absent`. These labels are part of the corpus contract.
+
+## Frozen post-attachment baseline
+
+The post-attachment baseline contains 27 documents, 21 corpora, 418 generator
+Rust tests, 186 Python tests, and 158 Lean theorems. The counted reconciliation
+gate passes six focused Rust tests, four focused Python tests, and direct
+five-case verification. A separate host-only readiness gate passes twenty Rust
+tests, the fixed-subject builder passes eleven Rust tests, and the change-
+control readiness gate passes thirteen stdlib-Python tests.
 
 - protocol and activation/export circuit identifiers;
 - activation/export output-schema identifiers;
@@ -156,8 +219,9 @@ artifacts, and theorem names have no authority over this protocol.
 - one benchmark-only `EYAOBM01` candidate derived without caller artifacts that
   binds the compiler contract, bit/wire order, exact schemas, `EYAOBA01` index,
   all IR/schedule identities and metrics, and passive `32*AND` table counts;
-- a twenty-three-document anti-drift gate comprising the fixed reference and
-  complete-document byte commitments for twenty-two companion specifications:
+- a twenty-seven-document anti-drift gate comprising the fixed reference,
+  complete-document byte commitments for twenty-five generator companion
+  specifications, and the separately pinned host-only exit-evidence contract:
   output sharing, circuit IR, ceremony context, input
   provenance, semantic-artifact lifecycle, output party views, evaluation-input
   party views, uniform abort, evaluator-abort state/party views,
@@ -165,14 +229,19 @@ artifacts, and theorem names have no authority over this protocol.
   benchmark manifest, artifact-filesystem policy, ideal joint refresh delta,
   export delivery, activation delivery, activation recipient party views,
   recovery credential transition, export evaluator authorization, registration
-  evaluator admission, and recovery evaluator admission;
-- an eighteen-corpus gate including the strict one-case recovery evaluator-
-  admission corpus and its exact cross-links to the existing recovery ceremony,
-  provenance, input/output/lifecycle, delivery, recipient, transition, and abort
-  attachments;
-- the pinned post-attachment aggregate evidence counts of 166 independent
-  Python verifier tests, 368 generator Rust tests, and 122 Lean model theorems;
-  the counted aggregate gates pass at these totals;
+  evaluator admission, recovery evaluator admission, refresh evaluator
+  admission, semantic-frame party views, and the Phase 2B core reconciliation;
+- a twenty-one-corpus gate including the strict five-case Phase 2B core-
+  reconciliation certificate, strict eight-case semantic-frame party-
+  view corpus, the one-case recovery and refresh evaluator-admission corpora,
+  and their exact cross-links to the existing
+  ceremony, provenance, input/output/lifecycle, delivery, recipient, transition,
+  promotion, and abort attachments;
+- the post-reconciliation aggregate evidence counts of 186 independent
+  Python verifier tests, 418 generator Rust tests, and 158 Lean model theorems;
+  the reconciliation slice contributes six Rust and four Python tests, while
+  three concurrent Rust tests freeze circuit field order and LSB0 bit layout
+  and one additional Python test freezes Phase 5 stream-KAT regeneration;
 - exact stable-context encoding, validation, normalization, and binding digest;
 - exact visible-ASCII Yao-only application-binding facts (`walletId`,
   `nearEd25519SigningKeyId`, `signingRootId`, and positive immutable
@@ -186,6 +255,18 @@ artifacts, and theorem names have no authority over this protocol.
   with activation/export origin and current-context reuse rejection;
 - a disjoint five-lifecycle boundary, activation continuation, output custody,
   common public leakage, ideal sharing distributions, and uniform abort shape;
+- the closed construction-independent semantic trace layer: exactly eleven
+  directed frame classes, eleven delivery states, seven ordered cumulative
+  value-learning views, static frame ownership, terminal evaluator abort,
+  exact activation/export redelivery identity, ten corruption markers, and
+  four typed interface shapes, with runtime bytes and security claims excluded;
+- the attached benchmark-only Phase 2B mechanical reconciliation surface: exact binding
+  to the `EYAOBM01` candidate and all twenty Phase 1 corpus commitments, closed
+  activation/export field-to-wire and wire-to-output maps, separate IR and
+  schedule evaluation, exact party-output reconstruction, authorized export
+  Client reconstruction, and activation with zero evaluation; reconciliation
+  uses coherent output-party-view projections while output-sharing stays an
+  independently committed corpus;
 - canonical ceremony-owning request types, a non-`Clone` registered-state
   projection, crate-private registered-state provenance bridges, move-owned
   issuance and semantic sessions, pre-evaluation input return, and
@@ -250,6 +331,13 @@ artifacts, and theorem names have no authority over this protocol.
   suspends the old credential before one evaluation and retains the exact terminal
   authority through abort, output commitment, worker activation, and promotion in
   a strict one-case corpus;
+- host-only refresh evaluator admission requiring one sealed refresh ceremony,
+  ordered A/B provenance pair, strictly verified current store resolution,
+  checked-at time, exact current and proposed role-state bindings, nonzero
+  selected-mechanism acceptance identity, advancing activation and role epochs,
+  and one-use execution identity; admission preserves current registered state,
+  permits one evaluation, and retains the exact terminal authority through abort,
+  output commitment, worker activation, and promotion in a strict one-case corpus;
 - host-only activation delivery with not-issued, unconsumed, and consumed
   authorization states; exact same-evaluation share retention; atomic Client
   and SigningWorker capability release; exact-identity redelivery; and a strict
@@ -300,16 +388,21 @@ artifacts, and theorem names have no authority over this protocol.
   selected-profile persistence, private output translation, abort timing and
   equivalence, and corruption-game state; accepted-evaluation input and ideal-
   coin custody is frozen only as host evidence;
-- the complete refresh evaluator plus canonical role-private runtime lifecycle/
-  party-view fixtures; the complete construction-independent host-reference
-  registration, recovery, and export evaluators are frozen, while their
-  production realizations remain excluded;
+- canonical role-private runtime lifecycle/party-view fixtures, runtime frame
+  payloads and delivery, durable corruption-game state, and selected-profile
+  simulator/experiment instantiation; the complete construction-independent
+  host-reference evaluators, semantic trace, cumulative value-learning labels,
+  and corruption-interface shapes are frozen, while their production
+  realizations remain excluded;
 - production package opening and wire encodings, authenticated transport
   bindings, replay persistence, durable receipt storage, and verification of
   opaque authorization and artifact digest preimages;
 - production-selected/final circuit IR, compiler, schedules, and promotable
-  artifacts; the deterministic provisional Phase 2A IR, schedules, and bundle
-  remain frozen benchmark evidence only;
+  artifacts; the deterministic provisional Phase 2A IR, schedules, bundle, and
+  Phase 2B reconciliation certificate remain frozen benchmark evidence only;
+- independent-operator or independent-host reproduction and human reviewer
+  approval of the provisional circuit semantics, schemas, bit order, wire order,
+  and candidate manifest; the Phase 2 exit remains open;
 - garbling, OT, streaming, outputs, tickets, and runtime adapters;
 - Phase 6A-selected P0-P3 assumptions, adversary games, and real/ideal or
   honest-execution/passive-security statements.
@@ -386,8 +479,23 @@ execution, and every P0-P3 security property remain excluded.
 
 The executable refresh preparation is likewise variable-time host reference
 code over public synthetic inputs. Its six joint-delta and six focused refresh
-Rust tests do not implement
-the complete `evaluate_refresh_v1` functionality or establish client-root/KDF
+Rust tests do not by themselves implement the complete `evaluate_refresh_v1`
+functionality or establish client-root/KDF
 provenance, deployed unbiased delta generation, contribution custody or proof,
 authorization, state or epoch transitions, packages, receipts, durable persistence,
 distributed cutover, role-private execution, or selected-protocol security.
+
+The refresh evaluator-admission composition closes the Phase 1 host refresh
+evaluator around that arithmetic component. One sealed admission binds the exact
+ceremony, ordered provenance, strictly verified current state, checked-at time,
+current and proposed A/B role-state bindings, continuity-artifact identity,
+selected-mechanism acceptance identity, advancing activation and role epochs,
+and one-use execution. Eight core tests, five strict corpus tests, seven
+independent Python tests, and twelve Lean theorems cover one evaluation, output
+binding, registered-state abort retention, worker-activation gating, and terminal
+retention through promotion. The continuity artifact and selected-mechanism
+digest remain distinct opaque values. Their cryptographic relation, production
+input opening, delta entropy or independence, anti-bias, selective-abort and
+retry-grinding resistance, forward security, mobile-adversary healing, secure
+erasure, durable replay/atomicity/retirement, transport, constant-time execution,
+and every P0-P3 security property remain excluded.

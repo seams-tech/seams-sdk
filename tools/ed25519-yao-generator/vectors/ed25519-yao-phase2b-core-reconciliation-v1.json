@@ -1,0 +1,468 @@
+{
+  "schema": "seams:router-ab:ed25519-yao:phase2b-core-reconciliation:v1",
+  "protocol_id": "router_ab_ed25519_yao_v1",
+  "evidence_scope": "benchmark_only_phase2b_core_cross_corpus_reconciliation_v1",
+  "benchmark_manifest_binding": {
+    "manifest_magic": "EYAOBM01",
+    "manifest_canonical_bytes": 1973,
+    "manifest_digest_hex": "c9c969fd23998509ae07f04fdc9982e2f3b5b21aa92aac9cf62db5ed2f0cce81",
+    "compiler_contract": "seams/router-ab/ed25519-yao/provisional-benchmark/compiler/rust-boolean-ir/v1",
+    "bit_order": "field-order, then byte-index ascending, then bit-index 0..7 (LSB0)",
+    "wire_order": "inputs-consecutive;gate-output=input-count+gate-index;outputs-ordered;commutative-operands-ascending",
+    "bundle_index_file": "ed25519-yao-phase2a-bundle-v1.bin",
+    "bundle_index_canonical_bytes": 387,
+    "bundle_index_digest_hex": "aa62b83b38163bf898c90084f2eb25df1c95ba41274d0f7826250f9168b80db1",
+    "components": [
+      {
+        "component_kind": "fixed_sha512_32",
+        "component_tag": 129,
+        "ir_file": "sha512-fixed32.ir.bin",
+        "schedule_file": "sha512-fixed32.schedule.bin",
+        "input_schema": "seams/router-ab/ed25519-yao/benchmark-component/sha512-fixed32/input/v1:seed[32]:byte-major-lsb0",
+        "output_schema": "seams/router-ab/ed25519-yao/benchmark-component/sha512-fixed32/output/v1:digest[64]:byte-major-lsb0",
+        "ir_digest_hex": "11488ae3b47722d42d4fc7e2d03fa2684312887ab93c3c9a0b080021b468f53b",
+        "schedule_digest_hex": "0d7c79a0ab31b2ae04b91319355bb79aef32c5f3d5f8532a3db632b121f627da"
+      },
+      {
+        "component_kind": "activation",
+        "component_tag": 145,
+        "ir_file": "activation.ir.bin",
+        "schedule_file": "activation.schedule.bin",
+        "input_schema": "seams/router-ab/ed25519-yao/provisional-benchmark/activation/input/v1:a.y_client[32],a.y_server[32],a.tau_client[32]:canonical-l,a.tau_server[32]:canonical-l,b.y_client[32],b.y_server[32],b.tau_client[32]:canonical-l,b.tau_server[32]:canonical-l:field-byte-bit-lsb0",
+        "output_schema": "seams/router-ab/ed25519-yao/provisional-benchmark/activation/output/v1:x_client_base[32]:canonical-l,x_server_base[32]:canonical-l:field-byte-bit-lsb0:no-seed",
+        "ir_digest_hex": "747fa6f1815e3a0c70f0077ffc10508882f321ad6e7bb422f4eef695a853b5a5",
+        "schedule_digest_hex": "e0f9dfb3f3b85eab28fbab81788e0efea25dac7c8de207af8ce9e57567c6ad25"
+      },
+      {
+        "component_kind": "export",
+        "component_tag": 146,
+        "ir_file": "export.ir.bin",
+        "schedule_file": "export.schedule.bin",
+        "input_schema": "seams/router-ab/ed25519-yao/provisional-benchmark/export/input/v1:a.y_client[32],a.y_server[32],b.y_client[32],b.y_server[32]:field-byte-bit-lsb0:no-tau",
+        "output_schema": "seams/router-ab/ed25519-yao/provisional-benchmark/export/output/v1:seed[32]:field-byte-bit-lsb0:no-scalar",
+        "ir_digest_hex": "3cc95694e01966642db7eaed9d68a4116c66bc4d72f14908d0d3b5e25ee79838",
+        "schedule_digest_hex": "bb4b0b1de87baa1bf7b190c8c57538a67367091483a4cb08abc1a2392f55b071"
+      }
+    ]
+  },
+  "phase1_corpus_commitments": [
+    {
+      "path": "vectors/ed25519-yao-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:vectors:v1",
+      "case_count": 5,
+      "canonical_bytes": 14826,
+      "sha256_hex": "13934b86ed57e6634c2a3d8ff1361923e9caf28c2aad160251d0b2af779a7e36"
+    },
+    {
+      "path": "vectors/ed25519-yao-kdf-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:kdf-continuity-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 4036,
+      "sha256_hex": "9b2c99469aaf09c1f63318315bd7c5e359039548365e62d11424e5875bceb469"
+    },
+    {
+      "path": "vectors/ed25519-yao-ceremony-context-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:ceremony-context-vectors:v1",
+      "case_count": 5,
+      "canonical_bytes": 31447,
+      "sha256_hex": "82c6c085f4b5d3b8e9b04e288aa3576763676e90f12fda5644de20dd89f2ee26"
+    },
+    {
+      "path": "vectors/ed25519-yao-lifecycle-continuity-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:lifecycle-continuity-vectors:v1",
+      "case_count": 6,
+      "canonical_bytes": 39978,
+      "sha256_hex": "c115e81252345985fffd5b6b544d601c5a751b657aca4d1740c27f2f59fc32cd"
+    },
+    {
+      "path": "vectors/ed25519-yao-provenance-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:role-input-provenance-vectors:v1",
+      "case_count": 4,
+      "canonical_bytes": 50672,
+      "sha256_hex": "8a39d15ddb384fa32111815614a30246e167ec1861d215b89c681e364318d4ba"
+    },
+    {
+      "path": "vectors/ed25519-yao-output-sharing-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:output-sharing-vectors:v1",
+      "case_count": 6,
+      "canonical_bytes": 11643,
+      "sha256_hex": "c3b340c7f8e181ae38aabb654db7cf6631a11ef634b29e9c46c68c5af6d21965"
+    },
+    {
+      "path": "vectors/ed25519-yao-semantic-lifecycle-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:semantic-artifact-lifecycle-vectors:v1",
+      "case_count": 5,
+      "canonical_bytes": 96134,
+      "sha256_hex": "758ae82455c6847e04d1b2ad56bc231f6a6a4f44522a9a6d20401a789ef1ca6f"
+    },
+    {
+      "path": "vectors/ed25519-yao-output-party-views-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:output-party-views-vectors:v1",
+      "case_count": 5,
+      "canonical_bytes": 36950,
+      "sha256_hex": "5aa0c4cbde69125a995c89598dffac41d0924a9cfc05c64af41ccad289c0f9ae"
+    },
+    {
+      "path": "vectors/ed25519-yao-evaluation-input-party-views-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:evaluation-input-party-views-vectors:v1",
+      "case_count": 5,
+      "canonical_bytes": 20929,
+      "sha256_hex": "da76dfe6e93be9e2dfe4ebfd1c6f7e269a05cd69732c302b8573126f85409f80"
+    },
+    {
+      "path": "vectors/ed25519-yao-uniform-abort-envelope-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:uniform-abort-envelope-vectors:v1",
+      "case_count": 5,
+      "canonical_bytes": 1965,
+      "sha256_hex": "bf71321d0896c3a6591b0a0f2f57db9a01994209bfcf12dd1ec905e9d6599df0"
+    },
+    {
+      "path": "vectors/ed25519-yao-evaluator-abort-state-party-views-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:evaluator-abort-state-party-views:v1",
+      "case_count": 4,
+      "canonical_bytes": 11508,
+      "sha256_hex": "9aa77f2cf1b7f74145789bde79d71b53da3c967081d26e609a95f8829a35ed37"
+    },
+    {
+      "path": "vectors/ed25519-yao-export-delivery-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:export-delivery-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 5856,
+      "sha256_hex": "4fae90165fde33a2642eca0704bbe4ebcf126141a8a7d02d410676a0b3cdbe71"
+    },
+    {
+      "path": "vectors/ed25519-yao-activation-delivery-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:activation-delivery-vectors:v1",
+      "case_count": 3,
+      "canonical_bytes": 23164,
+      "sha256_hex": "8a27dfff5b56be062241667026c0c7cc69ae3d1a395a08a87728afc031df1ccb"
+    },
+    {
+      "path": "vectors/ed25519-yao-activation-recipient-party-views-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:activation-recipient-party-views:v1",
+      "case_count": 3,
+      "canonical_bytes": 17058,
+      "sha256_hex": "27500219743d5f103f7d39a2af80ac8ab897a93e0a9c373291666e2f2429d420"
+    },
+    {
+      "path": "vectors/ed25519-yao-recovery-credential-transition-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:recovery-credential-transition-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 7228,
+      "sha256_hex": "5293dde1a79a1ceea5fc48e2fe6ff71126c2cd56faec43374e8f087b23ce78b2"
+    },
+    {
+      "path": "vectors/ed25519-yao-export-evaluator-authorization-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:export-evaluator-authorization-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 9805,
+      "sha256_hex": "b9059e1d931227863375afd20af009b056e7b9daa976206236cb307dfe920702"
+    },
+    {
+      "path": "vectors/ed25519-yao-registration-evaluator-admission-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:registration-evaluator-admission-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 13763,
+      "sha256_hex": "ceab8a1b60963313716fc6493bf18736f385362e4a04b479bd78005672b6e7d5"
+    },
+    {
+      "path": "vectors/ed25519-yao-recovery-evaluator-admission-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:recovery-evaluator-admission-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 13727,
+      "sha256_hex": "2555067e3a8bbe0b5242aa370a6db650586ab2da533767dcdc53db8b3afdf19f"
+    },
+    {
+      "path": "vectors/ed25519-yao-refresh-evaluator-admission-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:refresh-evaluator-admission-vectors:v1",
+      "case_count": 1,
+      "canonical_bytes": 15627,
+      "sha256_hex": "9d5327e9a9623fc101be48f414025d9f6fc108542a72b7126b1ed740b2e0c77a"
+    },
+    {
+      "path": "vectors/ed25519-yao-semantic-frame-party-views-v1.json",
+      "schema": "seams:router-ab:ed25519-yao:semantic-frame-party-views:v1",
+      "case_count": 8,
+      "canonical_bytes": 249622,
+      "sha256_hex": "3dc6d30e9c48b3ff55513bc254193e7ad1c1756b42b4a999773adfa6b89a45e9"
+    }
+  ],
+  "mapping_contracts": {
+    "activation_family": {
+      "mapping_id": "activation_family_inputs_outputs_v1",
+      "component_kind": "activation",
+      "input_fields": [
+        {
+          "semantic_field": "a.y_client",
+          "source_role": "deriver_a",
+          "source_field": "y_client_hex",
+          "wire_start": 0,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "a.y_server",
+          "source_role": "deriver_a",
+          "source_field": "y_server_hex",
+          "wire_start": 256,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "a.tau_client",
+          "source_role": "deriver_a",
+          "source_field": "tau_client_hex",
+          "wire_start": 512,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "a.tau_server",
+          "source_role": "deriver_a",
+          "source_field": "tau_server_hex",
+          "wire_start": 768,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "b.y_client",
+          "source_role": "deriver_b",
+          "source_field": "y_client_hex",
+          "wire_start": 1024,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "b.y_server",
+          "source_role": "deriver_b",
+          "source_field": "y_server_hex",
+          "wire_start": 1280,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "b.tau_client",
+          "source_role": "deriver_b",
+          "source_field": "tau_client_hex",
+          "wire_start": 1536,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "b.tau_server",
+          "source_role": "deriver_b",
+          "source_field": "tau_server_hex",
+          "wire_start": 1792,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        }
+      ],
+      "output_fields": [
+        {
+          "semantic_field": "x_client_base",
+          "source_role": "circuit_output",
+          "source_field": "x_client_base",
+          "wire_start": 0,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "x_server_base",
+          "source_role": "circuit_output",
+          "source_field": "x_server_base",
+          "wire_start": 256,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        }
+      ]
+    },
+    "activation_continuation": {
+      "mapping_id": "activation_continuation_zero_evaluation_v1",
+      "evaluation_plan": {
+        "kind": "zero_evaluation_continuation",
+        "counts": {
+          "yao_evaluations": 0,
+          "deriver_a_invocations": 0,
+          "deriver_b_invocations": 0,
+          "contribution_derivations": 0,
+          "ideal_output_share_samples": 0
+        }
+      },
+      "input_fields": [],
+      "output_fields": []
+    },
+    "export_family": {
+      "mapping_id": "export_family_inputs_outputs_v1",
+      "component_kind": "export",
+      "input_fields": [
+        {
+          "semantic_field": "a.y_client",
+          "source_role": "deriver_a",
+          "source_field": "y_client_hex",
+          "wire_start": 0,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "a.y_server",
+          "source_role": "deriver_a",
+          "source_field": "y_server_hex",
+          "wire_start": 256,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "b.y_client",
+          "source_role": "deriver_b",
+          "source_field": "y_client_hex",
+          "wire_start": 512,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        },
+        {
+          "semantic_field": "b.y_server",
+          "source_role": "deriver_b",
+          "source_field": "y_server_hex",
+          "wire_start": 768,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        }
+      ],
+      "output_fields": [
+        {
+          "semantic_field": "seed",
+          "source_role": "circuit_output",
+          "source_field": "seed",
+          "wire_start": 0,
+          "wire_count": 256,
+          "byte_order": "little_endian",
+          "bit_order": "byte_index_ascending_lsb0"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "request_kind": "registration",
+      "vector": {
+        "case_kind": "activation_evaluation_reconciliation",
+        "case_id": "registration_phase2b_core_reconciliation_v1",
+        "evaluation_input_party_view_case_id": "registration_evaluation_input_party_views_v1",
+        "output_party_view_case_id": "registration_output_party_views_package_prepared_v1",
+        "semantic_frame_success_case_id": "registration_success_worker_activated_v1",
+        "evaluator_admission_case_id": "registration_admitted_evaluation_output_committed_v1",
+        "mapping_id": "activation_family_inputs_outputs_v1",
+        "component_kind": "activation",
+        "canonical_input_digest_hex": "fde52fef35edc6653b89e029a310ba44b25397239cb50b753a072b33c40b83e8",
+        "ir_evaluated_output_digest_hex": "35b051905496cb1796472495b2321e843c26b986ae00f342e6beb22bbfa6a302",
+        "schedule_evaluated_output_digest_hex": "70c92d82b5f67d5581d01c62ec8228cfca74db3af4a90515a43b00a9c02f14f8",
+        "party_output_reconstruction_digest_hex": "f4fda7a6c197fdfe5cb97ff43ad9929bce17d9a1dba133586fa7b432f1895c7b",
+        "reconciliation_result": "exact_input_ir_schedule_and_party_output_match"
+      }
+    },
+    {
+      "request_kind": "activation",
+      "vector": {
+        "case_kind": "activation_continuation_reconciliation",
+        "case_id": "activation_phase2b_zero_evaluation_reconciliation_v1",
+        "evaluation_input_party_view_case_id": "activation_no_evaluation_input_party_views_v1",
+        "output_party_view_case_id": "activation_output_party_views_metadata_consumed_v1",
+        "semantic_frame_success_case_id": "registration_success_worker_activated_v1",
+        "activation_origin": "registration",
+        "mapping_id": "activation_continuation_zero_evaluation_v1",
+        "evaluation_plan": {
+          "kind": "zero_evaluation_continuation",
+          "counts": {
+            "yao_evaluations": 0,
+            "deriver_a_invocations": 0,
+            "deriver_b_invocations": 0,
+            "contribution_derivations": 0,
+            "ideal_output_share_samples": 0
+          }
+        },
+        "reconciliation_result": "exact_zero_evaluation_and_no_new_private_output"
+      }
+    },
+    {
+      "request_kind": "recovery",
+      "vector": {
+        "case_kind": "activation_evaluation_reconciliation",
+        "case_id": "recovery_phase2b_core_reconciliation_v1",
+        "evaluation_input_party_view_case_id": "recovery_evaluation_input_party_views_v1",
+        "output_party_view_case_id": "recovery_output_party_views_package_prepared_v1",
+        "semantic_frame_success_case_id": "recovery_success_worker_activated_v1",
+        "evaluator_admission_case_id": "recovery_admitted_evaluation_output_committed_v1",
+        "mapping_id": "activation_family_inputs_outputs_v1",
+        "component_kind": "activation",
+        "canonical_input_digest_hex": "fde52fef35edc6653b89e029a310ba44b25397239cb50b753a072b33c40b83e8",
+        "ir_evaluated_output_digest_hex": "35b051905496cb1796472495b2321e843c26b986ae00f342e6beb22bbfa6a302",
+        "schedule_evaluated_output_digest_hex": "70c92d82b5f67d5581d01c62ec8228cfca74db3af4a90515a43b00a9c02f14f8",
+        "party_output_reconstruction_digest_hex": "f4fda7a6c197fdfe5cb97ff43ad9929bce17d9a1dba133586fa7b432f1895c7b",
+        "reconciliation_result": "exact_input_ir_schedule_and_party_output_match"
+      }
+    },
+    {
+      "request_kind": "refresh",
+      "vector": {
+        "case_kind": "activation_evaluation_reconciliation",
+        "case_id": "refresh_phase2b_core_reconciliation_v1",
+        "evaluation_input_party_view_case_id": "refresh_evaluation_input_party_views_v1",
+        "output_party_view_case_id": "refresh_output_party_views_package_prepared_v1",
+        "semantic_frame_success_case_id": "refresh_success_worker_activated_v1",
+        "evaluator_admission_case_id": "refresh_admitted_evaluation_output_committed_v1",
+        "mapping_id": "activation_family_inputs_outputs_v1",
+        "component_kind": "activation",
+        "canonical_input_digest_hex": "1e4c28c177721948b48177554356d03a2fe31fdc8ce4fcc587e1f4301d0028c0",
+        "ir_evaluated_output_digest_hex": "35b051905496cb1796472495b2321e843c26b986ae00f342e6beb22bbfa6a302",
+        "schedule_evaluated_output_digest_hex": "70c92d82b5f67d5581d01c62ec8228cfca74db3af4a90515a43b00a9c02f14f8",
+        "party_output_reconstruction_digest_hex": "f4fda7a6c197fdfe5cb97ff43ad9929bce17d9a1dba133586fa7b432f1895c7b",
+        "reconciliation_result": "exact_input_ir_schedule_and_party_output_match"
+      }
+    },
+    {
+      "request_kind": "export",
+      "vector": {
+        "case_kind": "export_evaluation_reconciliation",
+        "case_id": "export_phase2b_core_reconciliation_v1",
+        "evaluation_input_party_view_case_id": "export_evaluation_input_party_views_v1",
+        "output_party_view_case_id": "export_output_party_views_released_v1",
+        "semantic_frame_success_case_id": "export_release_exact_redelivery_v1",
+        "evaluator_authorization_case_id": "export_authorized_evaluation_released_v1",
+        "mapping_id": "export_family_inputs_outputs_v1",
+        "component_kind": "export",
+        "canonical_input_digest_hex": "1565f928f976ee1d2ce8860334cd18fa2794e7c38b913d266508b12ca46d459b",
+        "ir_evaluated_output_digest_hex": "52685d7da385fc70bcc92a94aa62283638c4a1eb05ea98a24a5311f069a6c660",
+        "schedule_evaluated_output_digest_hex": "7d2d32d373eeab8a541a92c78253e96fed6b76c67cbf8958455bf137c6610842",
+        "party_output_reconstruction_digest_hex": "ef7af29e5b6dc65a8a55d9a6fc8ad0513fe83996c48cfed5b52ec37fb96a82b6",
+        "authorized_client_output_digest_hex": "4a643fa2c9adc6052ebc8de9cf88e4d9bd22bbb9f029b2687db5902e0890f374",
+        "reconciliation_result": "exact_input_ir_schedule_party_output_and_authorized_client_match"
+      }
+    }
+  ],
+  "explicit_nonclaims": [
+    "production_artifact_authority_absent",
+    "selected_security_profile_absent",
+    "garbling_and_ot_unimplemented",
+    "randomized_output_protection_unimplemented",
+    "simulator_and_security_experiment_unimplemented",
+    "runtime_frame_and_transport_encoding_absent",
+    "durable_lifecycle_and_replay_semantics_absent",
+    "production_constant_time_and_erasure_unclaimed",
+    "independent_operator_reproducibility_unclaimed",
+    "reviewer_approval_absent"
+  ]
+}

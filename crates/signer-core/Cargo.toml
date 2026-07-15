@@ -29,7 +29,7 @@ threshold-signatures = { git = "https://github.com/near/threshold-signatures", r
 rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 curve25519-dalek = { version = "=4.1.3", features = ["rand_core", "zeroize"], optional = true }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"], optional = true }
-zeroize = "1.8"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [features]
 default = []
@@ -41,6 +41,7 @@ threshold-ecdsa-hss = ["secp256k1", "threshold-ecdsa", "dep:base64ct", "dep:ecds
 typescript-bindings = ["dep:serde", "dep:serde_json", "dep:ts-rs"]
 near-ed25519-recovery = ["dep:hkdf", "dep:sha2", "dep:base64ct", "dep:curve25519-dalek", "dep:serde", "dep:bs58", "dep:rand_core", "dep:ed25519-dalek"]
 near-threshold-ed25519 = ["near-ed25519-recovery", "dep:frost-ed25519", "dep:borsh"]
+ed25519-yao-derivation = ["dep:hkdf", "dep:sha2", "dep:curve25519-dalek"]
 
 [dev-dependencies]
 serde_json = "1.0"

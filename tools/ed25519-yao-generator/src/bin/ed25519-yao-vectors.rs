@@ -20,13 +20,19 @@ use ed25519_yao_generator::{
     canonical_output_party_view_vector_corpus_json_bytes_v1,
     canonical_output_party_view_vector_corpus_v1,
     canonical_output_sharing_vector_corpus_json_bytes_v1,
-    canonical_output_sharing_vector_corpus_v1, canonical_provenance_vector_corpus_v1,
+    canonical_output_sharing_vector_corpus_v1,
+    canonical_phase2b_core_reconciliation_corpus_json_bytes_v1,
+    canonical_phase2b_core_reconciliation_corpus_v1, canonical_provenance_vector_corpus_v1,
     canonical_recovery_credential_transition_vector_corpus_json_bytes_v1,
     canonical_recovery_credential_transition_vector_corpus_v1,
     canonical_recovery_evaluator_admission_vector_corpus_json_bytes_v1,
     canonical_recovery_evaluator_admission_vector_corpus_v1,
+    canonical_refresh_evaluator_admission_vector_corpus_json_bytes_v1,
+    canonical_refresh_evaluator_admission_vector_corpus_v1,
     canonical_registration_evaluator_admission_vector_corpus_json_bytes_v1,
     canonical_registration_evaluator_admission_vector_corpus_v1,
+    canonical_semantic_frame_party_view_vector_corpus_json_bytes_v1,
+    canonical_semantic_frame_party_view_vector_corpus_v1,
     canonical_semantic_lifecycle_vector_corpus_json_bytes_v1,
     canonical_semantic_lifecycle_vector_corpus_v1,
     canonical_uniform_abort_vector_corpus_json_bytes_v1, canonical_uniform_abort_vector_corpus_v1,
@@ -39,9 +45,12 @@ use ed25519_yao_generator::{
     parse_canonical_export_evaluator_authorization_vector_corpus_json_v1,
     parse_canonical_output_party_view_vector_corpus_json_v1,
     parse_canonical_output_sharing_vector_corpus_json_v1,
+    parse_canonical_phase2b_core_reconciliation_corpus_json_v1,
     parse_canonical_recovery_credential_transition_vector_corpus_json_v1,
     parse_canonical_recovery_evaluator_admission_vector_corpus_json_v1,
+    parse_canonical_refresh_evaluator_admission_vector_corpus_json_v1,
     parse_canonical_registration_evaluator_admission_vector_corpus_json_v1,
+    parse_canonical_semantic_frame_party_view_vector_corpus_json_v1,
     parse_canonical_semantic_lifecycle_vector_corpus_json_v1,
     parse_canonical_uniform_abort_vector_corpus_json_v1, CeremonyContextVectorCorpusV1,
     KdfVectorCorpusV1, LifecycleContinuityCorpusV1, ProvenanceVectorCorpusV1, VectorCorpusV1,
@@ -110,6 +119,15 @@ enum Command {
     EmitRecoveryEvaluatorAdmission {
         output: PathBuf,
     },
+    EmitRefreshEvaluatorAdmission {
+        output: PathBuf,
+    },
+    EmitSemanticFramePartyViews {
+        output: PathBuf,
+    },
+    EmitPhase2bCoreReconciliation {
+        output: PathBuf,
+    },
     Check {
         input: PathBuf,
     },
@@ -161,6 +179,15 @@ enum Command {
     CheckRecoveryEvaluatorAdmission {
         input: PathBuf,
     },
+    CheckRefreshEvaluatorAdmission {
+        input: PathBuf,
+    },
+    CheckSemanticFramePartyViews {
+        input: PathBuf,
+    },
+    CheckPhase2bCoreReconciliation {
+        input: PathBuf,
+    },
     CheckLifecycleContinuity {
         input: PathBuf,
     },
@@ -210,6 +237,13 @@ fn run() -> CliResult<()> {
         Command::EmitRecoveryEvaluatorAdmission { output } => {
             emit_recovery_evaluator_admission(&output)
         }
+        Command::EmitRefreshEvaluatorAdmission { output } => {
+            emit_refresh_evaluator_admission(&output)
+        }
+        Command::EmitSemanticFramePartyViews { output } => emit_semantic_frame_party_views(&output),
+        Command::EmitPhase2bCoreReconciliation { output } => {
+            emit_phase2b_core_reconciliation(&output)
+        }
         Command::Check { input } => check(&input),
         Command::CheckKdf { input } => check_kdf(&input),
         Command::CheckCeremonyContext { input } => check_ceremony_context(&input),
@@ -238,6 +272,13 @@ fn run() -> CliResult<()> {
         }
         Command::CheckRecoveryEvaluatorAdmission { input } => {
             check_recovery_evaluator_admission(&input)
+        }
+        Command::CheckRefreshEvaluatorAdmission { input } => {
+            check_refresh_evaluator_admission(&input)
+        }
+        Command::CheckSemanticFramePartyViews { input } => check_semantic_frame_party_views(&input),
+        Command::CheckPhase2bCoreReconciliation { input } => {
+            check_phase2b_core_reconciliation(&input)
         }
         Command::CheckLifecycleContinuity { input } => check_lifecycle_continuity(&input),
     }
@@ -436,6 +477,48 @@ fn parse_command() -> CliResult<Command> {
                 input: PathBuf::from(path),
             })
         }
+        [action, flag, path]
+            if action == "emit-refresh-evaluator-admission" && flag == "--output" =>
+        {
+            Ok(Command::EmitRefreshEvaluatorAdmission {
+                output: PathBuf::from(path),
+            })
+        }
+        [action, flag, path]
+            if action == "check-refresh-evaluator-admission" && flag == "--input" =>
+        {
+            Ok(Command::CheckRefreshEvaluatorAdmission {
+                input: PathBuf::from(path),
+            })
+        }
+        [action, flag, path]
+            if action == "emit-semantic-frame-party-views" && flag == "--output" =>
+        {
+            Ok(Command::EmitSemanticFramePartyViews {
+                output: PathBuf::from(path),
+            })
+        }
+        [action, flag, path]
+            if action == "check-semantic-frame-party-views" && flag == "--input" =>
+        {
+            Ok(Command::CheckSemanticFramePartyViews {
+                input: PathBuf::from(path),
+            })
+        }
+        [action, flag, path]
+            if action == "emit-phase2b-core-reconciliation" && flag == "--output" =>
+        {
+            Ok(Command::EmitPhase2bCoreReconciliation {
+                output: PathBuf::from(path),
+            })
+        }
+        [action, flag, path]
+            if action == "check-phase2b-core-reconciliation" && flag == "--input" =>
+        {
+            Ok(Command::CheckPhase2bCoreReconciliation {
+                input: PathBuf::from(path),
+            })
+        }
         [action, flag, path] if action == "emit-lifecycle-continuity" && flag == "--output" => {
             Ok(Command::EmitLifecycleContinuity {
                 output: PathBuf::from(path),
@@ -463,7 +546,7 @@ fn parse_command() -> CliResult<Command> {
 }
 
 fn usage_error() -> Box<dyn std::error::Error> {
-    "usage: ed25519-yao-vectors emit --output <path> | emit-differential --seed-hex <64-hex-chars> --cases <count> --output <path> | emit-kdf --output <path> | emit-ceremony-context --output <path> | emit-lifecycle-continuity --output <path> | emit-provenance --output <path> | emit-output-sharing --output <path> | emit-output-party-views --output <path> | emit-export-delivery --output <path> | emit-export-evaluator-authorization --output <path> | emit-registration-evaluator-admission --output <path> | emit-recovery-evaluator-admission --output <path> | emit-activation-delivery --output <path> | emit-activation-recipient-party-views --output <path> | emit-evaluation-input-party-views --output <path> | emit-semantic-lifecycle --output <path> | emit-uniform-abort --output <path> | emit-evaluator-abort-views --output <path> | emit-recovery-credential-transition --output <path> | check --input <path> | check-kdf --input <path> | check-ceremony-context --input <path> | check-lifecycle-continuity --input <path> | check-provenance --input <path> | check-output-sharing --input <path> | check-output-party-views --input <path> | check-export-delivery --input <path> | check-export-evaluator-authorization --input <path> | check-registration-evaluator-admission --input <path> | check-recovery-evaluator-admission --input <path> | check-activation-delivery --input <path> | check-activation-recipient-party-views --input <path> | check-evaluation-input-party-views --input <path> | check-semantic-lifecycle --input <path> | check-uniform-abort --input <path> | check-evaluator-abort-views --input <path> | check-recovery-credential-transition --input <path>".into()
+    "usage: ed25519-yao-vectors emit --output <path> | emit-differential --seed-hex <64-hex-chars> --cases <count> --output <path> | emit-kdf --output <path> | emit-ceremony-context --output <path> | emit-lifecycle-continuity --output <path> | emit-provenance --output <path> | emit-output-sharing --output <path> | emit-output-party-views --output <path> | emit-export-delivery --output <path> | emit-export-evaluator-authorization --output <path> | emit-registration-evaluator-admission --output <path> | emit-recovery-evaluator-admission --output <path> | emit-refresh-evaluator-admission --output <path> | emit-semantic-frame-party-views --output <path> | emit-phase2b-core-reconciliation --output <path> | emit-activation-delivery --output <path> | emit-activation-recipient-party-views --output <path> | emit-evaluation-input-party-views --output <path> | emit-semantic-lifecycle --output <path> | emit-uniform-abort --output <path> | emit-evaluator-abort-views --output <path> | emit-recovery-credential-transition --output <path> | check --input <path> | check-kdf --input <path> | check-ceremony-context --input <path> | check-lifecycle-continuity --input <path> | check-provenance --input <path> | check-output-sharing --input <path> | check-output-party-views --input <path> | check-export-delivery --input <path> | check-export-evaluator-authorization --input <path> | check-registration-evaluator-admission --input <path> | check-recovery-evaluator-admission --input <path> | check-refresh-evaluator-admission --input <path> | check-semantic-frame-party-views --input <path> | check-phase2b-core-reconciliation --input <path> | check-activation-delivery --input <path> | check-activation-recipient-party-views --input <path> | check-evaluation-input-party-views --input <path> | check-semantic-lifecycle --input <path> | check-uniform-abort --input <path> | check-evaluator-abort-views --input <path> | check-recovery-credential-transition --input <path>".into()
 }
 
 fn emit(output: &Path) -> CliResult<()> {
@@ -708,6 +791,48 @@ fn emit_recovery_evaluator_admission(output: &Path) -> CliResult<()> {
     )?;
     println!(
         "wrote {} recovery evaluator-admission cases to {}",
+        corpus.case_count(),
+        output.display()
+    );
+    Ok(())
+}
+
+fn emit_refresh_evaluator_admission(output: &Path) -> CliResult<()> {
+    let corpus = canonical_refresh_evaluator_admission_vector_corpus_v1();
+    write_bytes(
+        output,
+        &canonical_refresh_evaluator_admission_vector_corpus_json_bytes_v1(),
+    )?;
+    println!(
+        "wrote {} refresh evaluator-admission cases to {}",
+        corpus.case_count(),
+        output.display()
+    );
+    Ok(())
+}
+
+fn emit_semantic_frame_party_views(output: &Path) -> CliResult<()> {
+    let corpus = canonical_semantic_frame_party_view_vector_corpus_v1();
+    write_bytes(
+        output,
+        &canonical_semantic_frame_party_view_vector_corpus_json_bytes_v1(),
+    )?;
+    println!(
+        "wrote {} semantic-frame party-view cases to {}",
+        corpus.case_count(),
+        output.display()
+    );
+    Ok(())
+}
+
+fn emit_phase2b_core_reconciliation(output: &Path) -> CliResult<()> {
+    let corpus = canonical_phase2b_core_reconciliation_corpus_v1();
+    write_bytes(
+        output,
+        &canonical_phase2b_core_reconciliation_corpus_json_bytes_v1(),
+    )?;
+    println!(
+        "wrote {} Phase 2B core-reconciliation cases to {}",
         corpus.case_count(),
         output.display()
     );
@@ -965,6 +1090,39 @@ fn check_recovery_evaluator_admission(input: &Path) -> CliResult<()> {
     let parsed = parse_canonical_recovery_evaluator_admission_vector_corpus_json_v1(&encoded)?;
     println!(
         "checked {} recovery evaluator-admission cases in {}",
+        parsed.case_count(),
+        input.display()
+    );
+    Ok(())
+}
+
+fn check_refresh_evaluator_admission(input: &Path) -> CliResult<()> {
+    let encoded = fs::read(input)?;
+    let parsed = parse_canonical_refresh_evaluator_admission_vector_corpus_json_v1(&encoded)?;
+    println!(
+        "checked {} refresh evaluator-admission cases in {}",
+        parsed.case_count(),
+        input.display()
+    );
+    Ok(())
+}
+
+fn check_semantic_frame_party_views(input: &Path) -> CliResult<()> {
+    let encoded = fs::read(input)?;
+    let parsed = parse_canonical_semantic_frame_party_view_vector_corpus_json_v1(&encoded)?;
+    println!(
+        "checked {} semantic-frame party-view cases in {}",
+        parsed.case_count(),
+        input.display()
+    );
+    Ok(())
+}
+
+fn check_phase2b_core_reconciliation(input: &Path) -> CliResult<()> {
+    let encoded = fs::read(input)?;
+    let parsed = parse_canonical_phase2b_core_reconciliation_corpus_json_v1(&encoded)?;
+    println!(
+        "checked {} Phase 2B core-reconciliation cases in {}",
         parsed.case_count(),
         input.display()
     );

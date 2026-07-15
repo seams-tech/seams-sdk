@@ -463,6 +463,20 @@ pub struct HostOnlyActivationPackagePreparedPartyViewSetV1 {
 }
 
 impl HostOnlyActivationPackagePreparedPartyViewSetV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(
+        &self,
+    ) -> (ActivationPackageOriginV1, [u8; 32], [u8; 32]) {
+        match &self.common {
+            HostOnlyCommonOutputPublicLeakageV1::ActivationPackagePrepared(leakage) => (
+                leakage.artifacts().binding().origin(),
+                *leakage.artifacts().packages().digest().as_bytes(),
+                *leakage.artifacts().receipt().digest().as_bytes(),
+            ),
+            _ => unreachable!("activation package view has activation-package leakage"),
+        }
+    }
+
     /// Consumes the validated set into Deriver A's static observation.
     pub fn observe_deriver_a_v1(self) -> HostOnlyDeriverAActivationOutputPartyViewV1 {
         HostOnlyDeriverAActivationOutputPartyViewV1 {
@@ -552,6 +566,23 @@ pub struct HostOnlyActivationMetadataConsumedPartyViewSetV1 {
 }
 
 impl HostOnlyActivationMetadataConsumedPartyViewSetV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(
+        &self,
+    ) -> (ActivationPackageOriginV1, [u8; 32], [u8; 32]) {
+        match &self.common {
+            HostOnlyCommonOutputPublicLeakageV1::ActivationMetadataConsumed(leakage) => {
+                let identity = leakage.projection().committed().identity();
+                (
+                    identity.origin(),
+                    *identity.package_set_digest().as_bytes(),
+                    *identity.receipt_digest().as_bytes(),
+                )
+            }
+            _ => unreachable!("metadata-consumed view has metadata leakage"),
+        }
+    }
+
     /// Consumes the validated set into Deriver A's empty observation.
     pub fn observe_deriver_a_v1(self) -> HostOnlyDeriverAActivationMetadataConsumedPartyViewV1 {
         HostOnlyDeriverAActivationMetadataConsumedPartyViewV1 {

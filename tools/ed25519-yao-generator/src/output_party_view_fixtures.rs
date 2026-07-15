@@ -796,6 +796,57 @@ fn export_released_view_set() -> HostOnlyExportReleasedPartyViewSetV1 {
         .expect("canonical export-released party views")
 }
 
+pub(crate) struct Phase2bActivationOutputPartyProjectionV1 {
+    pub(crate) deriver_a_client_share: [u8; 32],
+    pub(crate) deriver_a_signing_worker_share: [u8; 32],
+    pub(crate) deriver_b_client_share: [u8; 32],
+    pub(crate) deriver_b_signing_worker_share: [u8; 32],
+}
+
+pub(crate) struct Phase2bExportOutputPartyProjectionV1 {
+    pub(crate) deriver_a_seed_share: [u8; 32],
+    pub(crate) deriver_b_seed_share: [u8; 32],
+    pub(crate) authorized_client_seed: [u8; 32],
+}
+
+pub(crate) fn phase2b_activation_output_party_projection_v1(
+    request_kind: CeremonyRequestKindV1,
+) -> Phase2bActivationOutputPartyProjectionV1 {
+    let origin = match request_kind {
+        CeremonyRequestKindV1::Registration => ActivationPackageOriginV1::Registration,
+        CeremonyRequestKindV1::Recovery => ActivationPackageOriginV1::Recovery,
+        CeremonyRequestKindV1::Refresh => ActivationPackageOriginV1::Refresh,
+        CeremonyRequestKindV1::Activation | CeremonyRequestKindV1::Export => {
+            panic!("Phase 2B output projection requires an evaluating activation-family request")
+        }
+    };
+    let deriver_a = activation_package_prepared_view_set(origin).observe_deriver_a_v1();
+    let deriver_b = activation_package_prepared_view_set(origin).observe_deriver_b_v1();
+    Phase2bActivationOutputPartyProjectionV1 {
+        deriver_a_client_share: deriver_a.output_shares().client().expose_fixture_bytes(),
+        deriver_a_signing_worker_share: deriver_a
+            .output_shares()
+            .signing_worker()
+            .expose_fixture_bytes(),
+        deriver_b_client_share: deriver_b.output_shares().client().expose_fixture_bytes(),
+        deriver_b_signing_worker_share: deriver_b
+            .output_shares()
+            .signing_worker()
+            .expose_fixture_bytes(),
+    }
+}
+
+pub(crate) fn phase2b_export_output_party_projection_v1() -> Phase2bExportOutputPartyProjectionV1 {
+    let deriver_a = export_released_view_set().observe_deriver_a_v1();
+    let deriver_b = export_released_view_set().observe_deriver_b_v1();
+    let client = export_released_view_set().observe_client_v1();
+    Phase2bExportOutputPartyProjectionV1 {
+        deriver_a_seed_share: deriver_a.seed_share().expose_fixture_bytes(),
+        deriver_b_seed_share: deriver_b.seed_share().expose_fixture_bytes(),
+        authorized_client_seed: client.seed().expose_bytes(),
+    }
+}
+
 fn activation_deriver_a_extension(
     view: &HostOnlyDeriverAActivationOutputPartyViewV1,
 ) -> DeriverAActivationScalarSharesExtensionV1 {

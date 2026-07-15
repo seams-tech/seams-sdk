@@ -1,33 +1,53 @@
 # Ed25519 Yao Formal Verification Scaffold Plan
 
-Status: **FV1 mechanical scaffold in progress; protocol-security proofs have not started**
+Status: **Phase 1/FV1 and the Phase 2B mechanical reconciliation gate pass;
+the local P0 construction and complete Phase 9C lifecycle pass; the public SDK
+cutover is active; deep proof and external review are deferred until the Phase
+13A go/no-go decision**
 
 This document defines the formal-verification workstream for the fixed
-Router A/B Ed25519 Streaming Yao protocol. It adapts the useful structure from
-`crates/ed25519-hss/formal-verification` and tightens the places where that
-structure currently provides only model or build scaffolding.
+Router A/B Ed25519 Streaming Yao protocol. It uses executable safeguards,
+mechanical anti-drift checks, and proof tracks scoped to the selected protocol.
 
 The workstream covers Ed25519 Yao only. ECDSA remains on the strict Router A/B
 threshold-PRF and additive-share design.
 
 ## Current Decision
 
-The repository retains this approved plan and FV1 mechanical toolchain work has
-begun. The implementation is **not yet complete enough for protocol-security
-proofs**.
+The repository retains this approved plan. Phase 1 and its FV1 mechanical
+baseline are complete, and Phase 2B reconciliation passes. The fixed Half-Gates
+circuits, passive OT path, bounded duplex stream, recipient-specific encrypted
+outputs, separate-process Router/A/B/SigningWorker graph, and the registration,
+activation, recovery, refresh, export, and ordinary-signing lifecycle now pass
+locally. These artifacts are the non-promotable P0 viability implementation
+owned by `yaos-ab.md` Phase 9C.
+
+Independent reproduction, reviewer approval, public SDK cutover, profile
+selection, deployed evidence, and production-promotion evidence remain open.
+The implementation is **not yet complete enough for protocol-security proofs
+or a production security claim**.
+
+Until Yao Phase 13A records a `go`, formal work is limited to executable
+safeguards on the active implementation: exact KATs, committed vectors,
+differential correctness, bounded-parser properties, basic constant-time
+qualification, and anti-drift checks. Deep compiler proofs, profile-security
+experiments, external review ceremonies, and production-release proofs stay
+paused. After `go`, those obligations target only the selected surviving
+implementation.
 
 Meaningful proof work begins in stages:
 
-1. FV0 freezes the reference-functionality and party-view boundary alongside
-   Yao Phase 1. Mechanized lifecycle and view proofs start after Phase 1 closes.
-2. Yao Phase 2 closes before the circuit/compiler proof starts.
+1. FV0 froze the reference-functionality and party-view boundary alongside Yao
+   Phase 1. The construction-independent lifecycle and view models are attached.
+2. Yao Phases 3-5 implement and measure the actual passive protocol before deep
+   circuit/compiler proof starts. Their local viability scope is complete.
 3. Yao Phase 6A selects and freezes one P0-P3 security profile, its exact claim,
    composition, provenance/output scope, lifecycle, garbling hash,
    implementation strategy, platform, and assumptions before selected-profile
    proof work starts.
 4. Yao Phase 6B closes before FV6 claims implementation-linked evidence for
    the selected profile.
-5. Yao Phase 13 closes before deployment-profile evidence is accepted, Yao
+5. Yao Phase 13B closes before deployment-profile evidence is accepted, Yao
    Phase 14 closes before verification gates replace HSS gates, and Yao Phase 15
    closes before final release evidence is complete.
 
@@ -352,9 +372,18 @@ owner. Its current proof-facing scope includes:
   tests, seven independent Python tests, and twelve Lean theorems cover old-
   credential suspension, one evaluation, exact output binding, and terminal
   authority retention through abort, worker activation, and promotion.
+- a complete construction-independent host-reference refresh evaluator that
+  consumes one sealed admission over the exact ceremony, ordered provenance,
+  strictly verified current state, checked-at time, exact current and proposed
+  A/B role-state bindings, continuity-artifact identity, selected-mechanism
+  acceptance identity, advancing activation and role epochs, and one-use
+  execution. Eight core tests, five strict corpus tests, seven independent
+  Python tests, and twelve Lean theorems cover one evaluation, exact output
+  binding, registered-state abort retention, worker-activation gating, and
+  terminal authority retention through promotion.
 
 Full party views covering frames and remaining delivery behavior, durable
-persistence transitions, and the complete refresh evaluator
+persistence transitions, corruption interfaces, and value-learning statements
 remain Phase 1 work. The registration case above is
 a public candidate-metadata snapshot retained as an older continuity
 attachment. The complete host registration evaluator remains variable-time,
@@ -387,11 +416,22 @@ validity, private-input opening, root custody, durable replay/atomicity,
 transport, constant-time execution, and every P0-P3 security claim remain
 excluded.
 The narrow refresh reference is also variable-time public-synthetic evidence.
-It is not the complete `evaluate_refresh_v1` functionality and establishes no
+It does not by itself implement the complete `evaluate_refresh_v1` functionality
+and establishes no
 client-root/KDF provenance; deployed unbiased delta generation, custody, or
 proof; authorization, state, or epoch transition; package; receipt;
 persistence; distributed cutover; role-private execution; or active-security
 claim.
+The separate refresh evaluator-admission composition supplies the complete
+construction-independent host functionality with authenticated current state,
+exact proposed A/B next-state authority, one evaluation, output binding,
+registered-state abort retention, verified-activation gating, and terminal
+retention through promotion. Its continuity artifact and selected-mechanism
+acceptance digest are distinct opaque identities. Production transition-proof
+validity, private-input opening, delta entropy/independence/anti-bias, selective-
+abort and retry-grinding resistance, forward security, mobile-adversary healing,
+secure erasure, durable replay/atomicity/retirement, transport, constant-time
+execution, and every P0-P3 security claim remain excluded.
 
 The output-party-view evidence freezes host-reference output custody only. Its
 portable corpus intentionally exposes synthetic role-private values to the
@@ -449,14 +489,16 @@ Regeneration drift is a gated failure.
 
 ### Lean functionality and selected-profile security model
 
-The pinned post-attachment 122-theorem Lean slice contains three manifest rehearsals, nine
+The pinned post-attachment 158-theorem Lean slice contains three manifest rehearsals, nine
 structural output-view theorems, 22 accepted-evaluation input/coin-custody
 theorems, four uniform-abort theorems, seven evaluator-abort theorems, seven
 export-delivery theorems, ten activation-delivery theorems, twelve
 activation-recipient party-view theorems, twelve recovery credential-transition
 theorems, twelve export evaluator-authorization theorems, and twelve
-registration evaluator-admission theorems, and twelve recovery evaluator-
-admission theorems. The counted Lean gate passes at this total. These theorems cover
+registration evaluator-admission theorems, twelve recovery evaluator-admission
+theorems, twelve refresh evaluator-admission theorems, and twenty-four semantic-
+frame party-view theorems. The counted Lean gate
+passes at this total. These theorems cover
 A/B role exclusion, public-only Router/Observer/diagnostics views, export-client-
 only seed visibility, a public-only SigningWorker across all five frozen stages,
 zero new output during activation metadata consumption, static one-Deriver
@@ -616,10 +658,15 @@ phase whose production owner is absent or blocked.
 | 14                        | 10                      | FV9 verification hard cutover |
 | 15                        | 11                      | FV10 final release evidence   |
 
-Phase 0 is closed, Yao Phase 1 is in progress, and Yao Phase 2 remains blocked.
-The current oracle and manifest code is partial foundation evidence. It does not
-open FV2 circuit proofs or any later security theorem. A checked formal TODO
-means only that exact artifact or proof obligation is complete.
+Phase 0 and Yao Phase 1 are closed. Yao Phase 2A is complete as provisional
+benchmark evidence. The Phase 2B mechanical cross-corpus reconciliation is
+attached; the counted named gate passes six focused Rust tests, four focused
+Python tests, and direct five-case verification. Independent-host
+reproduction, reviewer approval of circuit semantics and bit ordering, and the
+Phase 2 exit remain open. The current oracle,
+compiler, manifest, and reconciliation code do not open later security theorems.
+A checked formal TODO means only that exact artifact or proof obligation is
+complete.
 
 ### FV0: Freeze claims, sources, and proof obligations
 
@@ -715,6 +762,19 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       generation/custody/proof, lifecycle state,
       deployment, role-private execution, and profile-selected security claims
       open.
+- [x] Implement `YAO-RFR-002` as the construction-independent complete host-
+      reference refresh evaluator: consume one sealed admission binding the
+      exact ceremony, ordered provenance, strictly verified current state,
+      current/proposed A/B role-state bindings, two separate opaque transition-
+      evidence identities, advancing activation and role epochs, and one-use
+      execution; perform one evaluation; bind output commitment; preserve the
+      registered state on abort; and retain terminal authority through verified
+      refresh-origin worker activation and promotion. Count eight core Rust
+      tests, five strict corpus tests, seven independent Python tests, and twelve
+      Lean structural theorems. Keep transition-proof validity, production
+      private opening, delta entropy/anti-bias, selective-abort/grinding,
+      erasure/healing, durable replay/atomicity/retirement, transport, constant-
+      time execution, and P0-P3 security open.
 - [x] Freeze the proof-system-neutral provenance statement slots, outer
       encoding, role pairing, and root/input-state epoch meanings.
 - [x] Implement the construction-independent provenance outer layer with sealed
@@ -848,6 +908,74 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       retry bindings in Python, and attach its twelve suspension/retention
       theorems to the Lean model. The counted Rust, Python, Lean, reference-spec,
       and vector gates pass at the pinned post-attachment totals.
+- [x] Add `refresh-evaluator-admission-v1.md` as `YAO-SPEC-024`, commit its
+      strict one-case corpus, independently reconstruct store/admission/current-
+      and-next-state/output/retry bindings in Python, and attach its twelve
+      retention/promotion-gating theorems to the Lean model.
+- [x] Add `semantic-frame-party-views-v1.md` as `YAO-SPEC-025`, commit its
+      strict eight-case corpus, independently reconstruct the eleven frame
+      classes, eleven states, seven cumulative role views, exact observations,
+      retry/redelivery policies, ten corruption markers, and four interface
+      shapes, and attach twenty-four structural Lean theorems. Runtime frame
+      bytes, durable state, simulators, experiments, noninterference,
+      indistinguishability, profile satisfaction, and protocol security remain
+      later gates.
+- [x] Attach `phase2b-core-reconciliation-v1.md` as `YAO-SPEC-026`, commit its
+      strict five-case certificate, bind all twenty Phase 1 corpus commitments
+      and the exact `EYAOBM01` candidate, and register `YAO-CIR-003` for closed
+      field/wire/output mappings, separate IR/schedule evaluation, party-output
+      reconstruction, authorized export Client reconstruction, and activation's
+      zero-evaluation continuation. Six focused Rust and four independent Python
+      tests form the attachment slice. Reconciliation derives output relations
+      from coherent output-party-view projections, while output-sharing remains
+      independently committed. The counted named gate passes six Rust tests,
+      four Python tests, and direct five-case verification.
+      Independent-host reproduction, reviewer approval, and the Phase 2 exit
+      remain open.
+      The certificate's exact ordered nonclaims are
+      `production_artifact_authority_absent`,
+      `selected_security_profile_absent`, `garbling_and_ot_unimplemented`,
+      `randomized_output_protection_unimplemented`,
+      `simulator_and_security_experiment_unimplemented`,
+      `runtime_frame_and_transport_encoding_absent`,
+      `durable_lifecycle_and_replay_semantics_absent`,
+      `production_constant_time_and_erasure_unclaimed`,
+      `independent_operator_reproducibility_unclaimed`, and
+      `reviewer_approval_absent`.
+- [x] Attach the host-only `phase2b-exit-evidence-v1.md` contract as
+      `YAO-SPEC-027`, pin its complete SHA-256 outside the generator-owned
+      fixed-reference block, and add twenty readiness tests for canonical
+      records, distinct non-weak authorities, strict signatures, exact policy,
+      subject/source/observation/challenge/report binding, sequence floors,
+      fixed review scope, and nonclaims. Acceptance consumes private trusted
+      capabilities. The fixed-path subject and independently decoded fresh-
+      observation builders add eleven passing tests and join clean-checkout CI.
+      The isolated captured-commit rebuild passes a disposable clean-checkout
+      integration run, producing one canonical 15757-byte subject and six exact
+      observations. Protected policy/challenge loading adds eight passing tests
+      over fixed environment names and private capabilities. The zero-argument
+      prepare command now executes reconciliation and subject construction in
+      one private captured-commit checkout. The zero-argument bounded finalize
+      command strictly verifies the external raw-digest signature and exact
+      rebuilt subject. Their clean-repository integration passes end to end.
+      The fixed Git-object record checker accepts only the exact four-blob
+      `C → E` evidence shape and passed a disposable clean integration. The
+      approval checker consumes that verified-reproduction capability and
+      validates the fixed report and approval blobs before issuing a stronger
+      private capability. A disposable complete command-boundary integration
+      passes with synthetic test-only authorities and an exact clean `C → E`
+      evidence commit. Genuine externally governed evidence and the Phase 2
+      exit remain open.
+- [x] Precommit the non-authoritative Phase 2B evidence-staging workflow, freeze
+      its exact covered paths and historical-checkpoint rule in `YAO-SPEC-027`,
+      and add a hardened stdlib-Python Git-object state checker with thirteen
+      tests. It accepts zero evidence before activation, rejects partial
+      evidence, preserves a complete checkpoint across unrelated descendants,
+      and requires an exact fresh `C → E` pair for the first evidence or any
+      covered descendant. The external reviewer signature is the Phase 2
+      release decision; the separate reproducer signature and independently
+      pinned out-of-repository policy are also mandatory. GitHub status,
+      branch, tag, workflow, and administrator state carry no release authority.
 - [ ] Add later normative specifications and the Phase 6A decision-record schema
       to the spec corpus as they freeze; regenerate their golden bytes in the
       anti-drift gate.
@@ -856,10 +984,11 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
 
 Exit gate:
 
-- [ ] Yao Phase 1 is complete.
-- [ ] Two independent implementations reproduce the full vector corpus.
-- [ ] Each theorem target has one exact source statement and owner.
-- [ ] No lifecycle, party-view, topology, or export ambiguity remains.
+- [x] Yao Phase 1 construction-independent functionality freeze is complete.
+- [x] Two independent implementations reproduce the full Phase 1 vector corpus.
+- [x] Each Phase 1 theorem target has one exact source statement and owner.
+- [x] No construction-independent lifecycle, party-view, topology, or export
+      ambiguity remains; runtime/profile realization stays in later phases.
 
 ### FV1: Build the mechanical scaffold
 
@@ -874,9 +1003,15 @@ Depends on: plan approval; may run alongside the end of FV0
       tool path without making a production-kernel claim.
 - [x] Add a pinned sparse-checkout of the upstream analyzer and native
       qualification command to CI.
-- [ ] Confirm the clean Linux x86-64 CI qualification, add generated-WASM
-      inspection, and connect the native path to production secret-bearing
-      kernels when they exist.
+- [x] Add a lightweight benchmark-kernel codegen gate over optimized host and
+      exact Deriver A/B Worker WASM, plus a dedicated Linux CI job with the
+      WASM target and `llvm-objdump`. It caught and prevents the secret IKNP
+      branch introduced by optimizing hand-written masking.
+- [x] Bind that Worker-WASM inspection to the exact prebuilt benchmark modules
+      accepted by the v2 deployment receipt and uploaded with Wrangler
+      `--no-bundle`; stale or mismatched digests fail before either role deploys.
+- [ ] Confirm the clean Linux x86-64 CI qualification and connect native plus
+      generated-WASM inspection to the Phase 6B-selected production kernels.
 - [x] Add a counted `cargo yao-fv reference-spec-check` command for the
       generator-owned fixed-reference normative specification.
 - [x] Pin the Verus release, `vstd`, Aeneas/Charon source revisions, and Lean
@@ -909,17 +1044,25 @@ Depends on: plan approval; may run alongside the end of FV0
       registration evaluator-admission corpus tests,
       eight recovery evaluator-admission core tests and five strict recovery
       evaluator-admission corpus tests,
+      eight refresh evaluator-admission core tests and five strict refresh
+      evaluator-admission corpus tests,
+      ten semantic-frame core tests, three semantic-trace boundary tests, and
+      six strict semantic-frame corpus tests,
       ten profile-neutral
       SigningWorker-activation tests, six refresh-promotion tests, and six
       benchmark-manifest tests plus six joint-refresh-delta tests independently.
-      Pin the post-attachment generator evidence total at 368 tests,
-      including 16 circuit, 11 artifact-bundle, and compile-fail tests. Count
+      Pin the post-reconciliation generator evidence total at 418 tests,
+      including 19 circuit, six reconciliation, 11 artifact-bundle, and
+      compile-fail tests. Count
       the isolated artifact-filesystem-policy crate's three platform-stable
-      local-filesystem and ACL tests in the same parity gate.
-- [x] Pin the post-attachment aggregate FV1 evidence at 23 reference documents,
-      18 corpora, 166 independent Python verifier tests, 368 generator Rust
-      tests, and 122 Lean model theorems. Count changes are gated through
-      `toolchain.toml`; all aggregate gates pass at these totals.
+      local-filesystem and ACL tests in the same parity gate. The counted named
+      reconciliation gate passes all six focused Rust tests.
+- [x] Pin the post-readiness aggregate evidence baseline at 27 reference
+      documents, 21 corpora, 186 independent Python verifier tests, 418 generator Rust
+      tests, and 158 Lean model theorems. Count changes are gated through
+      `toolchain.toml`. The counted named reconciliation gate passes six focused
+      Rust and four focused Python tests; the separate host-only readiness gate
+      passes twelve Rust tests.
 - [x] Commit `authenticated-store-resolution-v1.md`, require strictly verified
       request-bound store authority before registered issuance, bind the active
       credential and recovery replacement/same-root artifact, and count seven
@@ -973,8 +1116,15 @@ Depends on: FV0-FV1
       bundle index and counted missing/extra/mutation rejection evidence.
 - [x] Add an independently implemented strict canonical-IR and schedule
       parser/evaluator, byte-for-byte schedule rederivation, frozen artifact
-      digest checks, and dual evaluation over all five committed cases. Wider
-      artifact-vector reconciliation and the remaining FV2 proof work stay open.
+      digest checks, and dual evaluation over all five committed cases.
+- [x] Attach the strict Phase 2B core-reconciliation certificate across all
+      twenty Phase 1 corpora, exact input/output mappings, separate IR/schedule
+      evaluation, party-output reconstruction, export Client reconstruction,
+      and activation zero evaluation. This closes only the mechanical
+      reconciliation deliverable under `YAO-CIR-003`. The counted named gate,
+      six Rust tests, four Python tests, and direct verification pass.
+      Independent reproduction, reviewer approval, and the remaining FV2 proof
+      work stay open.
 - [ ] Replace the provisional path-based artifact emitter/checkers with
       descriptor-relative no-follow I/O and atomic publication, or prove that
       every invocation uses a newly created process-private directory. Static
@@ -1218,11 +1368,20 @@ Exit gate:
 
 ## Command Contract
 
-The scaffold should eventually provide:
+The scaffold provides:
 
 ```sh
 cargo yao-fv reference-spec-check
 cargo yao-fv vectors-check
+cargo yao-fv phase2b-reconciliation-check
+cargo yao-fv phase2b-exit-evidence-readiness-check
+cargo yao-fv phase2b-change-control-readiness-check
+cargo yao-fv phase2b-review-subject-check
+cargo yao-fv phase2b-protected-inputs-check
+cargo yao-fv phase2b-independent-host-prepare
+cargo yao-fv phase2b-independent-host-finalize
+cargo yao-fv phase2b-independent-host-record-check
+cargo yao-fv phase2b-review-approval-check
 cargo yao-fv cross-language-check
 cargo yao-fv parity
 cargo yao-fv anti-drift
@@ -1235,19 +1394,29 @@ make -C crates/ed25519-yao/formal-verification check
 just ed25519-yao-fv
 ```
 
-`all` runs nine nonempty tracks, in order:
+The post-subject-builder `all` target runs thirteen nonempty tracks, in order:
 
 1. fixed-reference normative-spec regeneration and generated-region comparison;
 2. vector regeneration and byte comparison;
 3. independent Python reproduction of committed and deterministic differential
    vector corpora;
-4. two isolated clean-build reproductions of the benchmark-only manifest;
-5. Rust oracle/manifest parity, including compile-fail doctests;
-6. production/mirror anti-drift tests;
-7. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
+4. strict Phase 2B cross-corpus reconciliation against a fresh provisional
+   artifact bundle;
+5. host-only Phase 2B exit-evidence contract and rejection-suite readiness;
+6. Phase 2B public change-control staging-state and non-authoritative workflow
+   readiness;
+7. clean-checkout fixed review-subject and fresh-artifact-observation
+   construction with eleven counted builder tests;
+8. two isolated clean-build reproductions of the benchmark-only manifest;
+9. Rust oracle/manifest parity, including compile-fail doctests;
+10. production/mirror anti-drift tests;
+11. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
    builds;
-8. the explicit Lean model build;
-9. Verus verification through a driver in the same pinned release bundle.
+12. the explicit Lean model build;
+13. Verus verification through a driver in the same pinned release bundle.
+
+Track 4's counted six-test Rust, four-test Python, and direct-verification slices
+pass.
 
 Every track checks an exact nonzero evidence count or explicit artifact list
 from `formal-verification/toolchain.toml`.
@@ -1283,9 +1452,9 @@ lifecycle, or artifact encoding requires:
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Frozen protocol, circuit-family, and output-schema identifiers | complete                                                                                                                                                                             |
 | Typed draft manifest and canonical digest binding              | complete                                                                                                                                                                             |
-| Isolated four-`y`, four-`tau` clear oracle                     | partial Phase 1 foundation                                                                                                                                                           |
-| RFC 8032 reference vectors                                     | partial Phase 1 foundation                                                                                                                                                           |
-| Five lifecycle structural boundary families                    | nonserializable host-semantic types exist; complete executable ideal functionalities remain missing                                                                                  |
+| Isolated four-`y`, four-`tau` clear oracle                     | Phase 1 clear-reference and cross-language corpus complete; circuit-refinement proof remains later work                                                                              |
+| RFC 8032 reference vectors                                     | Phase 1 oracle/vector attachment complete; production circuit and protocol review remain later work                                                                                  |
+| Five lifecycle structural boundary families                    | construction-independent host evaluators and nonserializable semantic types are complete; all five families execute through the local P0 runtime; selected production-profile realization remains missing |
 | Synthetic activation-metadata continuation                     | registration/recovery/refresh origins, semantic public-binding checks, move consumption, and zero reference work are executable                                                      |
 | Six-case lifecycle-continuity corpus                           | committed Rust corpus and independent Python reproduction cover synthetic registration metadata/activation/recovery/activation/refresh/activation                                   |
 | Narrow host-only registration reference                       | three purpose-typed public synthetic roots and one stable context derive four role/source-separated contribution pairs; seed-free activation and typed scalar sharing have six counted Rust tests; complete production registration remains missing |
@@ -1294,7 +1463,8 @@ lifecycle, or artifact encoding requires:
 | Narrow host-only recovery reference                           | equal synthetic roots/current KDF inputs, server preservation, exact activation continuity, and activation scalar sharing have six counted Rust tests; complete production recovery remains missing |
 | Complete host-reference recovery evaluator                    | one sealed ceremony/provenance/authenticated-state admission suspends the old credential, permits one evaluation, binds output, and retains terminal authority through abort, verified worker activation, and promotion; eight core, five corpus, seven Python, and twelve Lean checks form the post-attachment gate, while same-root proof validity, private openings, durable replay/atomicity, root custody, transport, constant-time execution, and P0-P3 security remain missing |
 | Narrow host-only refresh reference                            | move-owned A/B ideal delta contributions derive one nonzero modular sum; unchanged clients, exact opposite server updates, joined/activation continuity, and typed scalar sharing have twelve counted Rust tests plus independent Python corpus checks; complete production refresh remains missing |
-| Complete lifecycle evaluators and party views                  | the complete host-reference registration, recovery, and export evaluators plus construction-independent output-stage, accepted-input, uniform-abort, and admitted evaluator-abort state/role views exist; the refresh evaluator, frames, delivery, durable realization, and selected-profile views remain missing |
+| Complete host-reference refresh evaluator                     | one sealed ceremony/provenance/authenticated-current-state admission fixes exact proposed A/B next-state authority, permits one evaluation, binds output, preserves registered state on abort, and retains terminal authority through verified worker activation and promotion; eight core, five corpus, seven Python, and twelve Lean checks pass, while transition-proof validity, private openings, delta entropy/anti-bias, selective-abort/grinding, erasure/healing, durable replay/atomicity/retirement, transport, constant-time execution, and P0-P3 security remain missing |
+| Complete lifecycle evaluators and party views                  | complete host-reference evaluators, output/input/abort/recipient views, eleven semantic frame classes, seven cumulative role views, and profile-neutral corruption interfaces exist; runtime frame bytes, durable realization, simulators/experiments, and selected-profile views remain missing |
 | Frozen Yao application binding                                 | visible-ASCII four-field encoder with positive immutable `keyCreationSignerSlot`, golden KDF vector, and independent Python reproduction complete                                    |
 | Frozen `StableKeyDerivationContext` encoding and binding       | application binding through stable-context binding implemented in the host reference                                                                                                 |
 | Stable-context KDF integration and continuity vectors          | implemented in isolated host-only reference                                                                                                                                          |
@@ -1306,19 +1476,24 @@ lifecycle, or artifact encoding requires:
 | Construction-independent activation recipient party views     | two post-release stages, seven closed roles, exact Client capability retention, opaque pre-activation worker authority, sealed activated worker custody, a strict three-origin Rust/Python corpus, and twelve Lean policy-shape theorems complete; runtime frames, durable delivery, erasure, noninterference, and selected-profile security remain missing |
 | Construction-independent uniform abort envelope                | exact four-field public shape, five ceremony-linked Rust/Python cases, and four Lean shape theorems complete; actual evaluator/protocol failure integration, timing equivalence, and selective-failure claims remain missing |
 | Complete party views, leakage, and aborts                      | output, accepted-evaluation input/coin, uniform-abort, and evaluator-abort state/role shapes are executable; complete frame/delivery views, durable encoding, abort timing/equivalence, and selected-profile corruption games remain missing |
-| Deterministic circuit IR, compiler, schedule, and artifacts    | provisional construction-independent Phase 2A benchmark bundle complete; Phase 2B review, production digest, and promotable artifacts remain missing                                |
-| Passive garbler/evaluator implementation                       | missing                                                                                                                                                                              |
-| Selected-profile private outputs and streaming state machine   | missing                                                                                                                                                                              |
+| Deterministic circuit IR, compiler, schedule, and artifacts    | provisional Phase 2A benchmark bundle and Phase 2B mechanical reconciliation gate pass; independent reproduction, review, production digest, and promotable artifacts remain open |
+| Phase 2B core-reconciliation and exit-evidence readiness gates | reconciliation passes at the 27-spec/21-corpus/410-generator-Rust/185-Python/158-Lean baseline; twenty host-only readiness and eleven fixed-subject builder tests pass; a complete prepare/sign/finalize/four-blob-commit/record/approval command integration passes with synthetic test-only authorities; genuine independent-host evidence and reviewer approval remain open |
+| Passive garbler/evaluator implementation                       | complete for local viability with fixed Half-Gates circuits, passive OT, deterministic KATs, and separate-process execution; independent review and production promotion remain open |
+| Selected-profile private outputs and streaming state machine   | local P0 recipient-encrypted outputs and bounded duplex streaming pass; the signed production profile and its reviewed output mechanism remain missing |
 | Signed Phase 6A construction and platform decision             | missing; FV5 and construction-specific proof work remain gate-closed                                                                                                                 |
 | Selected reviewed P0-P3 suite                                  | missing                                                                                                                                                                              |
-| Versioned stream, selected session/ticket, deployment, and SLO specifications | missing                                                                                                                                                                  |
-| Selected session/ticket and adapter state machines             | missing                                                                                                                                                                              |
+| Versioned stream, selected session/ticket, deployment, and SLO specifications | local Phase 9C stream framing, profiles, and measurements are frozen; selected production session/ticket, deployment, and SLO specifications remain missing |
+| Selected session/ticket and adapter state machines             | local one-use Router admission, Rust/WASM Client activation, role processes, and lifecycle adapters pass; durable selected-profile state machines remain missing |
 | Formal-verification directory and clean build gate             | local gate green; empty-cache FV1 check pending                                                                                                                                      |
 
-Current verdict: continue Yao Phase 1 plus the FV0 traceability and FV1
-mechanical-scaffold work. Notify the maintainer to begin FV2 when Phase 1 and the
-FV1 exit gate are satisfied. Notify again before FV3, before FV5 when Phase 6A
-closes, and before FV6 when the Phase 6B implementation gate closes.
+Current verdict: the construction-independent scaffold, Phase 2B mechanical
+reconciliation, local P0 construction, and complete local lifecycle pass. Phase
+9C remains open until the public SDK uses those Yao contracts exclusively and
+all Ed25519-HSS runtime surfaces are deleted. Independent-host reproduction,
+reviewer approval, signed profile selection, deployed evidence, and
+profile-specific proofs remain required before production promotion. Notify
+again before FV5 when Phase 6A closes and before FV6 when the Phase 6B
+implementation gate closes.
 
 ## Definition of Done
 

@@ -326,8 +326,12 @@ cargo run --locked \
 
 This candidate has no conversion into a production manifest. The stdlib-Python
 verifier independently decodes it and cross-checks the wrapped bundle index.
-Independent-host reproduction, Phase 1 reconciliation, and reviewer approval
-remain Phase 2B gates.
+The strict `phase2b-core-reconciliation-v1` certificate now binds this candidate
+to all twenty Phase 1 corpora, exact input/output mappings, separate IR and
+schedule evaluation, coherent party-output reconstruction, and activation's
+zero-evaluation continuation. The counted `cargo yao-fv
+phase2b-reconciliation-check` gate passes. Independent-host reproduction and
+reviewer approval remain Phase 2B gates.
 
 The filesystem policy has no runtime override. Adding a filesystem or ACL
 representation requires a reviewed normative change and counted tests.
@@ -517,6 +521,71 @@ commitment; perform cutover or rollback recovery; or provide the complete
 The fallible preparation is a defensive self-check around the typed transform,
 not an independent proof system. Independent test arithmetic covers ordinary,
 carry/borrow, and scalar-wrap cases.
+
+## Host-only refresh evaluator admission
+
+`refresh_evaluation_admission` composes the narrow refresh arithmetic with one
+sealed construction-independent admission. It binds the exact refresh ceremony,
+ordered A/B provenance pair, strictly verified current-state resolution,
+checked-at time, complete current and proposed A/B role-state bindings, the
+provenance continuity-artifact identity, a separate selected-mechanism acceptance
+identity, advancing activation and role epochs, and one-use execution. The
+admission digest is the sole semantic evaluation evidence accepted by the
+refresh session.
+
+The move-only `TerminalRefreshEvaluationV1` retains the unchanged authenticated
+current state and exact proposed next bindings through output commitment,
+metadata consumption, recipient release, verified refresh-origin SigningWorker
+activation, and promotion. Evaluator abort burns the request and execution,
+preserves the registered-state self-loop, and leaves the proposal non-promotable.
+Output commitment checks the request, authorization, transcript, activation
+epoch, execution identity, admission digest, and registered Ed25519 key before
+creating the pending refresh value.
+
+Eight core tests, five strict corpus tests, seven independent Python tests, and
+twelve Lean theorems cover this host relation. The continuity artifact and
+selected-mechanism digest remain distinct opaque evidence identities. This layer
+does not prove production private-input opening, delta entropy or independence,
+anti-bias, selective-abort or retry-grinding resistance, forward security,
+mobile-adversary healing, secure erasure, durable replay/atomicity/retirement,
+transport, constant-time execution, or any P0-P3 security property. See
+`docs/refresh-evaluator-admission-v1.md`.
+
+The construction-independent semantic-frame attachment freezes eleven directed
+frame classes, eleven delivery states, seven closed consuming role views, ten
+static corruption markers, and four uninstantiated real/ideal interface shapes.
+Its strict eight-case corpus covers registration, recovery, and refresh through
+receipt-verified worker activation, export release and exact redelivery, and all
+four evaluator-abort branches. Every step records cumulative value learning,
+frame observation, public identity labels, and retry/redelivery policy. Runtime
+frame bytes, transport, durable coordination, selected-profile security, a
+simulator implementation, production serialization, constant-time execution,
+and erasure remain outside this host-only layer. See
+`docs/semantic-frame-party-views-v1.md`.
+
+The Phase 2B reconciliation attachment advances the audited evidence baseline
+to 26 reference specifications, 21 committed corpora, 418 generator Rust tests,
+186 independent Python tests, and 158 Lean theorems. Its counted gate passes six
+focused Rust tests, four focused Python tests, and independent verification of
+all five request kinds.
+
+```sh
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- emit-refresh-evaluator-admission \
+  --output tools/ed25519-yao-generator/vectors/ed25519-yao-refresh-evaluator-admission-v1.json
+
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- check-refresh-evaluator-admission \
+  --input tools/ed25519-yao-generator/vectors/ed25519-yao-refresh-evaluator-admission-v1.json
+
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- emit-semantic-frame-party-views \
+  --output tools/ed25519-yao-generator/vectors/ed25519-yao-semantic-frame-party-views-v1.json
+
+cargo run --manifest-path tools/ed25519-yao-generator/Cargo.toml \
+  --bin ed25519-yao-vectors -- check-semantic-frame-party-views \
+  --input tools/ed25519-yao-generator/vectors/ed25519-yao-semantic-frame-party-views-v1.json
+```
 
 ## Host-only export reference
 

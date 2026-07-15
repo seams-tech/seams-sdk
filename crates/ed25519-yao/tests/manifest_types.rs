@@ -5,10 +5,12 @@ use ed25519_yao::{
     ExportCircuitArtifactDigests, ExportOutputSchema, ExportOutputSchemaDigest32, GateMetrics,
     InputSchemaDigest32, MetricField, ScheduleDigest32, ScheduleMetrics, SourceIrDigest32,
     ValidationError, ACTIVATION_CIRCUIT_ID_STR, ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE,
-    ACTIVATION_OUTPUT_SCHEMA_ID_STR, DRAFT_MANIFEST_DIGEST_DOMAIN_V1, EXPORT_CIRCUIT_ID_STR,
-    EXPORT_DRAFT_MANIFEST_FAMILY_BYTE, EXPORT_OUTPUT_SCHEMA_ID_STR,
+    ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES, ACTIVATION_OUTPUT_SCHEMA_ID_STR,
+    DRAFT_MANIFEST_DIGEST_DOMAIN_V1, EXPORT_CIRCUIT_ID_STR, EXPORT_DRAFT_MANIFEST_FAMILY_BYTE,
+    EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES, EXPORT_OUTPUT_SCHEMA_ID_STR,
     PASSIVE_HALF_GATES_TABLE_BYTES_PER_AND_GATE, PROTOCOL_ID_STR,
 };
+use sha2::{Digest, Sha256};
 
 fn circuit_digest(marker: u8) -> CircuitDigest32 {
     CircuitDigest32::new([marker; 32]).expect("nonzero circuit digest")
@@ -88,6 +90,36 @@ fn activation_manifest() -> DraftActivationCircuitManifest {
         activation_output_schema(7),
         metrics(),
     )
+}
+
+fn export_manifest() -> DraftExportCircuitManifest {
+    DraftExportCircuitManifest::new(
+        export_artifact_digests(20),
+        export_output_schema(26),
+        metrics(),
+    )
+}
+
+fn append_metrics_preimage(expected: &mut Vec<u8>, metrics: CircuitMetrics) {
+    let gates = metrics.gates();
+    let schedule = metrics.schedule();
+    for value in [
+        gates.and_gate_count(),
+        gates.xor_gate_count(),
+        gates.inversion_gate_count(),
+        gates.total_gate_count(),
+        gates.circuit_depth(),
+        gates.and_depth(),
+        schedule.input_wire_count(),
+        schedule.output_wire_count(),
+        schedule.wire_count(),
+        schedule.scheduled_gate_count(),
+        schedule.peak_live_wire_count(),
+        schedule.encoded_schedule_bytes(),
+        metrics.table_payload_bytes(),
+    ] {
+        expected.extend_from_slice(&value.to_be_bytes());
+    }
 }
 
 #[test]
@@ -333,6 +365,72 @@ fn draft_manifest_digest_matches_v1_golden_value() {
             0x1b, 0xec, 0x4a, 0x92, 0xfc, 0x76, 0xec, 0x3a, 0x3e, 0xda, 0x85, 0xf2, 0x02, 0xe7,
             0x80, 0xdd, 0x3d, 0x9a,
         ]
+    );
+}
+
+#[test]
+fn proof_facing_preimages_freeze_exact_family_role_and_metric_order() {
+    let activation = activation_manifest();
+    let activation_digests = activation.digests();
+    let mut expected_activation = Vec::new();
+    expected_activation.extend_from_slice(DRAFT_MANIFEST_DIGEST_DOMAIN_V1);
+    expected_activation.push(ACTIVATION_DRAFT_MANIFEST_FAMILY_BYTE);
+    expected_activation
+        .extend_from_slice(&(ACTIVATION_OUTPUT_SCHEMA_ID_STR.len() as u64).to_be_bytes());
+    expected_activation.extend_from_slice(ACTIVATION_OUTPUT_SCHEMA_ID_STR.as_bytes());
+    for digest in [
+        activation_digests.circuit().into_bytes(),
+        activation_digests.compiler().into_bytes(),
+        activation_digests.source_ir().into_bytes(),
+        activation_digests.schedule().into_bytes(),
+        activation_digests.constants().into_bytes(),
+        activation_digests.input_schema().into_bytes(),
+        activation.output_schema().digest().into_bytes(),
+    ] {
+        expected_activation.extend_from_slice(&digest);
+    }
+    append_metrics_preimage(&mut expected_activation, activation.metrics());
+
+    let activation_preimage = activation.canonical_preimage();
+    assert_eq!(
+        expected_activation.len(),
+        ACTIVATION_DRAFT_MANIFEST_PREIMAGE_BYTES
+    );
+    assert_eq!(
+        activation_preimage.as_bytes(),
+        expected_activation.as_slice()
+    );
+    assert_eq!(
+        Sha256::digest(activation_preimage.as_bytes()).as_slice(),
+        activation.manifest_digest().as_bytes()
+    );
+
+    let export = export_manifest();
+    let export_digests = export.digests();
+    let mut expected_export = Vec::new();
+    expected_export.extend_from_slice(DRAFT_MANIFEST_DIGEST_DOMAIN_V1);
+    expected_export.push(EXPORT_DRAFT_MANIFEST_FAMILY_BYTE);
+    expected_export.extend_from_slice(&(EXPORT_OUTPUT_SCHEMA_ID_STR.len() as u64).to_be_bytes());
+    expected_export.extend_from_slice(EXPORT_OUTPUT_SCHEMA_ID_STR.as_bytes());
+    for digest in [
+        export_digests.circuit().into_bytes(),
+        export_digests.compiler().into_bytes(),
+        export_digests.source_ir().into_bytes(),
+        export_digests.schedule().into_bytes(),
+        export_digests.constants().into_bytes(),
+        export_digests.input_schema().into_bytes(),
+        export.output_schema().digest().into_bytes(),
+    ] {
+        expected_export.extend_from_slice(&digest);
+    }
+    append_metrics_preimage(&mut expected_export, export.metrics());
+
+    let export_preimage = export.canonical_preimage();
+    assert_eq!(expected_export.len(), EXPORT_DRAFT_MANIFEST_PREIMAGE_BYTES);
+    assert_eq!(export_preimage.as_bytes(), expected_export.as_slice());
+    assert_eq!(
+        Sha256::digest(export_preimage.as_bytes()).as_slice(),
+        export.manifest_digest().as_bytes()
     );
 }
 

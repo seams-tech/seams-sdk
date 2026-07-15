@@ -29,6 +29,7 @@ mod ceremony_fixtures;
 mod circuit;
 mod context;
 mod continuity_reference;
+pub mod corruption_game_interfaces;
 mod evaluation_input_view_fixtures;
 pub mod evaluation_input_views;
 mod evaluator_abort_view_fixtures;
@@ -50,6 +51,7 @@ mod output_party_view_fixtures;
 pub mod output_party_views;
 mod output_sharing;
 mod output_sharing_fixtures;
+mod phase2b_core_reconciliation;
 pub mod provenance;
 mod provenance_fixtures;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -59,6 +61,7 @@ pub mod recovery_evaluation_admission;
 mod recovery_evaluation_admission_fixtures;
 mod recovery_reference;
 pub mod refresh_evaluation_admission;
+mod refresh_evaluation_admission_fixtures;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod refresh_promotion;
 mod refresh_reference;
@@ -69,7 +72,10 @@ mod registration_reference;
 pub mod semantic_artifacts;
 #[cfg(test)]
 mod semantic_artifacts_tests;
+pub mod semantic_delivery_views;
 mod semantic_fixture_material;
+pub mod semantic_frame_classes;
+mod semantic_frame_party_view_fixtures;
 mod semantic_lifecycle_fixtures;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod signing_worker_activation;
@@ -132,8 +138,12 @@ pub use ceremony_fixtures::{
     CEREMONY_CONTEXT_VECTOR_CORPUS_SCHEMA_V1, CEREMONY_CONTEXT_VECTOR_EVIDENCE_SCOPE_V1,
 };
 pub use circuit::{
-    compile_fixed_sha512_32_v1, compile_provisional_activation_core_v1,
+    compile_fixed_sha512_32_v1, compile_phase4_private_output_activation_core_v1,
+    compile_phase4_private_output_export_core_v1, compile_provisional_activation_core_v1,
     compile_provisional_export_core_v1, BooleanCircuitMetricsV1, FixedSha512CircuitV1,
+    Phase4PrivateOutputActivationCoreDigest32V1, Phase4PrivateOutputActivationCoreV1,
+    Phase4PrivateOutputActivationScheduleDigest32V1, Phase4PrivateOutputExportCoreDigest32V1,
+    Phase4PrivateOutputExportCoreV1, Phase4PrivateOutputExportScheduleDigest32V1,
     ProvisionalActivationCoreDigest32V1, ProvisionalActivationCoreV1,
     ProvisionalActivationScheduleDigest32V1, ProvisionalBenchmarkComponentDigest32V1,
     ProvisionalBenchmarkScheduleDigest32V1, ProvisionalExportCoreDigest32V1,
@@ -142,8 +152,20 @@ pub use circuit::{
     PublicSyntheticActivationInputErrorV1, PublicSyntheticDeriverAActivationInputsV1,
     PublicSyntheticDeriverAExportInputsV1, PublicSyntheticDeriverBActivationInputsV1,
     PublicSyntheticDeriverBExportInputsV1, PublicSyntheticExportCoreInputsV1,
-    PublicSyntheticExportCoreOutputV1, PublicSyntheticTauFieldV1, FIXED_SHA512_32_BIT_ORDER_V1,
-    FIXED_SHA512_32_INPUT_SCHEMA_V1, FIXED_SHA512_32_OUTPUT_SCHEMA_V1,
+    PublicSyntheticExportCoreOutputV1, PublicSyntheticPhase4ActivationInputsV1,
+    PublicSyntheticPhase4ActivationOutputsV1, PublicSyntheticPhase4DeriverAActivationSharesV1,
+    PublicSyntheticPhase4DeriverAClientScalarCoinV1, PublicSyntheticPhase4DeriverAExportSeedCoinV1,
+    PublicSyntheticPhase4DeriverAExportShareV1,
+    PublicSyntheticPhase4DeriverASigningWorkerScalarCoinV1,
+    PublicSyntheticPhase4DeriverBActivationSharesV1,
+    PublicSyntheticPhase4DeriverBClientScalarCoinV1, PublicSyntheticPhase4DeriverBExportSeedCoinV1,
+    PublicSyntheticPhase4DeriverBExportShareV1,
+    PublicSyntheticPhase4DeriverBSigningWorkerScalarCoinV1, PublicSyntheticPhase4ExportInputsV1,
+    PublicSyntheticPhase4ExportOutputsV1, PublicSyntheticPhase4ScalarCoinErrorV1,
+    PublicSyntheticTauFieldV1, FIXED_SHA512_32_BIT_ORDER_V1, FIXED_SHA512_32_INPUT_SCHEMA_V1,
+    FIXED_SHA512_32_OUTPUT_SCHEMA_V1, PHASE4_PRIVATE_OUTPUT_ACTIVATION_INPUT_SCHEMA_V1,
+    PHASE4_PRIVATE_OUTPUT_ACTIVATION_OUTPUT_SCHEMA_V1,
+    PHASE4_PRIVATE_OUTPUT_EXPORT_INPUT_SCHEMA_V1, PHASE4_PRIVATE_OUTPUT_EXPORT_OUTPUT_SCHEMA_V1,
     PROVISIONAL_ACTIVATION_CORE_INPUT_SCHEMA_V1, PROVISIONAL_ACTIVATION_CORE_OUTPUT_SCHEMA_V1,
     PROVISIONAL_EXPORT_CORE_INPUT_SCHEMA_V1, PROVISIONAL_EXPORT_CORE_OUTPUT_SCHEMA_V1,
 };
@@ -155,6 +177,15 @@ pub use context::{
     STABLE_KEY_DERIVATION_CONTEXT_ENCODED_LEN,
 };
 pub use continuity_reference::HostOnlyActivationContinuityFieldV1;
+pub use corruption_game_interfaces::{
+    ActiveDeriverAV1, ActiveDeriverBV1, CorruptedViewInputV1, HonestExecutionV1,
+    HostOnlyCorruptionGameInterfaceShapeV1, HostOnlyCorruptionKindV1, HostOnlyCorruptionMarkerV1,
+    PassiveDeriverAV1, PassiveDeriverBV1, RouterAndActiveDeriverAV1, RouterAndActiveDeriverBV1,
+    RouterAndPassiveDeriverAV1, RouterAndPassiveDeriverBV1, RouterOnlyV1,
+    SelectedProfileIdealSimulatorV1, SelectedProfileRealExecutionV1,
+    SelectedProfileSecurityExperimentV1, HOST_ONLY_CORRUPTION_GAME_INTERFACE_SHAPES_V1,
+    HOST_ONLY_CORRUPTION_KINDS_V1,
+};
 pub use evaluation_input_view_fixtures::{
     canonical_evaluation_input_party_view_vector_corpus_json_bytes_v1,
     canonical_evaluation_input_party_view_vector_corpus_v1,
@@ -285,6 +316,13 @@ pub use output_sharing_fixtures::{
     parse_canonical_output_sharing_vector_corpus_json_v1, OutputSharingVectorCorpusParseErrorV1,
     OutputSharingVectorCorpusV1,
 };
+pub use phase2b_core_reconciliation::{
+    canonical_phase2b_core_reconciliation_corpus_json_bytes_v1,
+    canonical_phase2b_core_reconciliation_corpus_v1,
+    parse_canonical_phase2b_core_reconciliation_corpus_json_v1,
+    Phase2bCoreReconciliationCorpusParseErrorV1, Phase2bCoreReconciliationCorpusV1,
+    PHASE2B_CORE_RECONCILIATION_CORPUS_SCHEMA_V1, PHASE2B_CORE_RECONCILIATION_EVIDENCE_SCOPE_V1,
+};
 pub use provenance_fixtures::{
     canonical_provenance_vector_corpus_v1, ProvenanceArtifactWrapperGoldenV1,
     ProvenanceCaseVectorV1, ProvenanceLifecycleVectorCaseV1, ProvenanceRoleStatementVectorV1,
@@ -300,35 +338,39 @@ pub use recovery_credential_transition_fixtures::{
     RECOVERY_CREDENTIAL_TRANSITION_VECTOR_CORPUS_SCHEMA_V1,
     RECOVERY_CREDENTIAL_TRANSITION_VECTOR_EVIDENCE_SCOPE_V1,
 };
+pub use recovery_evaluation_admission::{
+    accept_host_only_recovery_admission_v1, AcceptedRecoveryAdmissionV1,
+    OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1, RecoveryAdmissionCheckedAtUnixMsV1,
+    RecoveryAdmissionErrorV1, RejectedRecoveryAdmissionV1, TerminalRecoveryEvaluationV1,
+    RECOVERY_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1, RECOVERY_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+};
+pub use recovery_evaluation_admission_fixtures::{
+    canonical_recovery_evaluator_admission_vector_corpus_json_bytes_v1,
+    canonical_recovery_evaluator_admission_vector_corpus_v1,
+    parse_canonical_recovery_evaluator_admission_vector_corpus_json_v1,
+    RecoveryEvaluatorAdmissionVectorCorpusParseErrorV1, RecoveryEvaluatorAdmissionVectorCorpusV1,
+    RECOVERY_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+    RECOVERY_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1,
+};
 pub use recovery_reference::{
     evaluate_host_only_recovery_output_sharing_v1, prepare_host_only_recovery_reference_v1,
     HostOnlyPreparedRecoveryReferenceV1, HostOnlyRecoveryContinuityWitnessV1,
     HostOnlyRecoveryReferenceErrorV1, HostOnlyRecoveryReferenceInputsV1,
     HostOnlyRecoveryReferenceSuccessV1,
 };
-pub use recovery_evaluation_admission::{
-    accept_host_only_recovery_admission_v1, AcceptedRecoveryAdmissionV1,
-    OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1,
-    RecoveryAdmissionCheckedAtUnixMsV1, RecoveryAdmissionErrorV1, RejectedRecoveryAdmissionV1,
-    TerminalRecoveryEvaluationV1,
-    RECOVERY_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1,
-    RECOVERY_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
-};
-pub use recovery_evaluation_admission_fixtures::{
-    canonical_recovery_evaluator_admission_vector_corpus_json_bytes_v1,
-    canonical_recovery_evaluator_admission_vector_corpus_v1,
-    parse_canonical_recovery_evaluator_admission_vector_corpus_json_v1,
-    RecoveryEvaluatorAdmissionVectorCorpusParseErrorV1,
-    RecoveryEvaluatorAdmissionVectorCorpusV1,
-    RECOVERY_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
-    RECOVERY_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1,
-};
 pub use refresh_evaluation_admission::{
     accept_host_only_refresh_admission_v1, AcceptedRefreshAdmissionV1,
     OpaqueRefreshTransitionAcceptanceEvidenceDigest32V1, RefreshAdmissionCheckedAtUnixMsV1,
     RefreshAdmissionErrorV1, RejectedRefreshAdmissionV1, TerminalRefreshEvaluationV1,
-    REFRESH_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1,
-    REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+    REFRESH_EVALUATOR_ADMISSION_DIGEST_DOMAIN_V1, REFRESH_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+};
+pub use refresh_evaluation_admission_fixtures::{
+    canonical_refresh_evaluator_admission_vector_corpus_json_bytes_v1,
+    canonical_refresh_evaluator_admission_vector_corpus_v1,
+    parse_canonical_refresh_evaluator_admission_vector_corpus_json_v1,
+    RefreshEvaluatorAdmissionVectorCorpusParseErrorV1, RefreshEvaluatorAdmissionVectorCorpusV1,
+    REFRESH_EVALUATOR_ADMISSION_VECTOR_CORPUS_SCHEMA_V1,
+    REFRESH_EVALUATOR_ADMISSION_VECTOR_EVIDENCE_SCOPE_V1,
 };
 pub use refresh_reference::{
     evaluate_host_only_refresh_output_sharing_v1, prepare_host_only_refresh_reference_v1,
@@ -360,6 +402,30 @@ pub use registration_reference::{
     evaluate_host_only_registration_output_sharing_v1, prepare_host_only_registration_reference_v1,
     HostOnlyPreparedRegistrationReferenceV1, HostOnlyRegistrationReferenceInputsV1,
     HostOnlyRegistrationReferenceSuccessV1,
+};
+pub use semantic_delivery_views::{
+    HostOnlyActivationSuccessSemanticTraceV1, HostOnlyClientSemanticDeliveryViewV1,
+    HostOnlyDeriverASemanticDeliveryViewV1, HostOnlyDeriverBSemanticDeliveryViewV1,
+    HostOnlyDiagnosticsSemanticDeliveryViewV1, HostOnlyEvaluatorAbortSemanticTraceV1,
+    HostOnlyExportSuccessSemanticTraceV1, HostOnlyObserverSemanticDeliveryViewV1,
+    HostOnlyRouterSemanticDeliveryViewV1, HostOnlySemanticDeliveryStateV1,
+    HostOnlySemanticDeliveryViewSetV1, HostOnlySemanticPrivateValueClassV1,
+    HostOnlySemanticPublicEventV1, HostOnlySemanticRoleV1, HostOnlySemanticTraceStepV1,
+    HostOnlySemanticValueClassV1, HostOnlySigningWorkerSemanticDeliveryViewV1,
+    HOST_ONLY_SEMANTIC_DELIVERY_STATES_V1, HOST_ONLY_SEMANTIC_PRIVATE_VALUE_CLASSES_V1,
+    HOST_ONLY_SEMANTIC_PUBLIC_EVENTS_V1, HOST_ONLY_SEMANTIC_ROLES_V1,
+};
+pub use semantic_frame_classes::{
+    HostOnlySemanticFrameClassV1, HostOnlySemanticFrameDirectionV1,
+    HostOnlySemanticFrameEndpointV1, HOST_ONLY_SEMANTIC_FRAME_CLASSES_V1,
+};
+pub use semantic_frame_party_view_fixtures::{
+    canonical_semantic_frame_party_view_vector_corpus_json_bytes_v1,
+    canonical_semantic_frame_party_view_vector_corpus_v1,
+    parse_canonical_semantic_frame_party_view_vector_corpus_json_v1,
+    SemanticFramePartyViewVectorCorpusParseErrorV1, SemanticFramePartyViewVectorCorpusV1,
+    SEMANTIC_FRAME_PARTY_VIEW_VECTOR_CORPUS_SCHEMA_V1,
+    SEMANTIC_FRAME_PARTY_VIEW_VECTOR_EVIDENCE_SCOPE_V1,
 };
 pub use semantic_lifecycle_fixtures::{
     canonical_semantic_lifecycle_vector_corpus_json_bytes_v1,

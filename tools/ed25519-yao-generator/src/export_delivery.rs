@@ -94,12 +94,25 @@ impl HostOnlyExportReleaseReadyV1 {
     fn package_set_digest(&self) -> ExportPackageSetDigest32V1 {
         self.artifacts.packages().digest()
     }
+
+    #[cfg_attr(test, allow(dead_code))]
+    fn semantic_trace_identity_v1(&self) -> ([u8; 32], [u8; 32]) {
+        (
+            *self.artifacts.packages().digest().as_bytes(),
+            *self.artifacts.receipt().digest().as_bytes(),
+        )
+    }
 }
 
 /// Delivery-uncertain export retaining the exact committed packages and shares.
 pub struct HostOnlyExportRedeliveryPendingV1(HostOnlyExportReleaseReadyV1);
 
 impl HostOnlyExportRedeliveryPendingV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(&self) -> ([u8; 32], [u8; 32]) {
+        self.0.semantic_trace_identity_v1()
+    }
+
     /// Returns the package-set identity that every retry must preserve.
     pub fn package_set_digest(&self) -> ExportPackageSetDigest32V1 {
         self.0.package_set_digest()
@@ -184,6 +197,18 @@ pub struct HostOnlyExportReleasedV1 {
 }
 
 impl HostOnlyExportReleasedV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(&self) -> ([u8; 32], [u8; 32]) {
+        (
+            *self.artifacts.packages().digest().as_bytes(),
+            *self
+                .artifacts
+                .output_committed_receipt()
+                .digest()
+                .as_bytes(),
+        )
+    }
+
     /// Returns the unchanged registered state.
     pub const fn state(&self) -> &AuthenticatedRegisteredStoreResolutionV1 {
         &self.state
@@ -241,6 +266,11 @@ pub struct HostOnlyExportRedeliveryV1 {
 }
 
 impl HostOnlyExportRedeliveryV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(&self) -> ([u8; 32], [u8; 32]) {
+        self.released.semantic_trace_identity_v1()
+    }
+
     /// Returns the released receipt identity before redelivery.
     pub const fn before_receipt_digest(&self) -> ExportReleasedReceiptDigest32V1 {
         self.before_receipt_digest

@@ -564,6 +564,17 @@ pub struct HostOnlySigningWorkerActivatedPartyViewSetV1 {
 }
 
 impl HostOnlySigningWorkerActivatedPartyViewSetV1 {
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn semantic_trace_identity_v1(
+        &self,
+    ) -> (ActivationPackageOriginV1, [u8; 32], [u8; 32]) {
+        (
+            self.common.origin(),
+            *self.common.package_set_digest(),
+            *self.common.output_committed_receipt_digest(),
+        )
+    }
+
     /// Consumes the set into Deriver A's public-only view.
     pub fn observe_deriver_a_v1(self) -> HostOnlyDeriverASigningWorkerActivatedPartyViewV1 {
         HostOnlyDeriverASigningWorkerActivatedPartyViewV1 {

@@ -1,0 +1,16 @@
+[package]
+name = "ed25519-yao-wasm-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Incremental Worker-compatible WASM benchmark for the Phase 5 Ed25519 Yao stream"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "ed25519_yao_wasm_bench"
+path = "src/lib.rs"
+
+[dependencies]
+ed25519-yao = { path = "..", features = ["passive-wasm-benchmark"] }
+js-sys = "=0.3.103"
+wasm-bindgen = "=0.2.126"

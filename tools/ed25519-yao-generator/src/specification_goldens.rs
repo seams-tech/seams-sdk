@@ -27,13 +27,19 @@ use crate::{
     canonical_output_party_view_vector_corpus_json_bytes_v1,
     canonical_output_party_view_vector_corpus_v1,
     canonical_output_sharing_vector_corpus_json_bytes_v1,
-    canonical_output_sharing_vector_corpus_v1, canonical_provenance_vector_corpus_v1,
+    canonical_output_sharing_vector_corpus_v1,
+    canonical_phase2b_core_reconciliation_corpus_json_bytes_v1,
+    canonical_phase2b_core_reconciliation_corpus_v1, canonical_provenance_vector_corpus_v1,
     canonical_recovery_credential_transition_vector_corpus_json_bytes_v1,
     canonical_recovery_credential_transition_vector_corpus_v1,
     canonical_recovery_evaluator_admission_vector_corpus_json_bytes_v1,
     canonical_recovery_evaluator_admission_vector_corpus_v1,
+    canonical_refresh_evaluator_admission_vector_corpus_json_bytes_v1,
+    canonical_refresh_evaluator_admission_vector_corpus_v1,
     canonical_registration_evaluator_admission_vector_corpus_json_bytes_v1,
     canonical_registration_evaluator_admission_vector_corpus_v1,
+    canonical_semantic_frame_party_view_vector_corpus_json_bytes_v1,
+    canonical_semantic_frame_party_view_vector_corpus_v1,
     canonical_semantic_lifecycle_vector_corpus_json_bytes_v1,
     canonical_semantic_lifecycle_vector_corpus_v1,
     canonical_uniform_abort_vector_corpus_json_bytes_v1, canonical_uniform_abort_vector_corpus_v1,
@@ -89,6 +95,12 @@ const REGISTRATION_EVALUATOR_ADMISSION_SPECIFICATION_V1: &[u8] =
     include_bytes!("../docs/registration-evaluator-admission-v1.md");
 const RECOVERY_EVALUATOR_ADMISSION_SPECIFICATION_V1: &[u8] =
     include_bytes!("../docs/recovery-evaluator-admission-v1.md");
+const REFRESH_EVALUATOR_ADMISSION_SPECIFICATION_V1: &[u8] =
+    include_bytes!("../docs/refresh-evaluator-admission-v1.md");
+const SEMANTIC_FRAME_PARTY_VIEWS_SPECIFICATION_V1: &[u8] =
+    include_bytes!("../docs/semantic-frame-party-views-v1.md");
+const PHASE2B_CORE_RECONCILIATION_SPECIFICATION_V1: &[u8] =
+    include_bytes!("../docs/phase2b-core-reconciliation-v1.md");
 
 /// Opening marker for the only generated region in `fixed-reference-v1.md`.
 pub const FIXED_REFERENCE_GENERATED_BEGIN_V1: &str =
@@ -257,6 +269,10 @@ pub fn canonical_fixed_reference_generated_block_v1(
         canonical_registration_evaluator_admission_vector_corpus_v1();
     let recovery_evaluator_admission_corpus =
         canonical_recovery_evaluator_admission_vector_corpus_v1();
+    let refresh_evaluator_admission_corpus =
+        canonical_refresh_evaluator_admission_vector_corpus_v1();
+    let semantic_frame_party_view_corpus = canonical_semantic_frame_party_view_vector_corpus_v1();
+    let phase2b_reconciliation_corpus = canonical_phase2b_core_reconciliation_corpus_v1();
     let commitments = [
         corpus_commitment(
             "vectors/ed25519-yao-v1.json",
@@ -370,6 +386,24 @@ pub fn canonical_fixed_reference_generated_block_v1(
             recovery_evaluator_admission_corpus.schema().to_owned(),
             recovery_evaluator_admission_corpus.case_count(),
             &canonical_recovery_evaluator_admission_vector_corpus_json_bytes_v1(),
+        ),
+        corpus_commitment_from_bytes(
+            "vectors/ed25519-yao-refresh-evaluator-admission-v1.json",
+            refresh_evaluator_admission_corpus.schema().to_owned(),
+            refresh_evaluator_admission_corpus.case_count(),
+            &canonical_refresh_evaluator_admission_vector_corpus_json_bytes_v1(),
+        ),
+        corpus_commitment_from_bytes(
+            "vectors/ed25519-yao-semantic-frame-party-views-v1.json",
+            semantic_frame_party_view_corpus.schema().to_owned(),
+            semantic_frame_party_view_corpus.case_count(),
+            &canonical_semantic_frame_party_view_vector_corpus_json_bytes_v1(),
+        ),
+        corpus_commitment_from_bytes(
+            "vectors/ed25519-yao-phase2b-core-reconciliation-v1.json",
+            phase2b_reconciliation_corpus.schema().to_owned(),
+            phase2b_reconciliation_corpus.case_count(),
+            &canonical_phase2b_core_reconciliation_corpus_json_bytes_v1(),
         ),
     ];
 
@@ -860,6 +894,31 @@ pub fn canonical_fixed_reference_generated_block_v1(
         RECOVERY_EVALUATOR_ADMISSION_SPECIFICATION_V1.len(),
         encode_hex(&Sha256::digest(
             RECOVERY_EVALUATOR_ADMISSION_SPECIFICATION_V1
+        ))
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "| `docs/refresh-evaluator-admission-v1.md` | {} | `{}` |",
+        REFRESH_EVALUATOR_ADMISSION_SPECIFICATION_V1.len(),
+        encode_hex(&Sha256::digest(
+            REFRESH_EVALUATOR_ADMISSION_SPECIFICATION_V1
+        ))
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "| `docs/semantic-frame-party-views-v1.md` | {} | `{}` |",
+        SEMANTIC_FRAME_PARTY_VIEWS_SPECIFICATION_V1.len(),
+        encode_hex(&Sha256::digest(SEMANTIC_FRAME_PARTY_VIEWS_SPECIFICATION_V1))
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "| `docs/phase2b-core-reconciliation-v1.md` | {} | `{}` |",
+        PHASE2B_CORE_RECONCILIATION_SPECIFICATION_V1.len(),
+        encode_hex(&Sha256::digest(
+            PHASE2B_CORE_RECONCILIATION_SPECIFICATION_V1
         ))
     )
     .unwrap();

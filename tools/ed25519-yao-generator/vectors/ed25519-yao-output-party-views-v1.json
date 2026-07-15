@@ -196,13 +196,13 @@
               "origin_authorization_digest_hex": "18a9b6a97c93c3e83c75a98a39d4b020e99cc088cea92f8de8008d27ded4252c",
               "origin_transcript_digest_hex": "4b96a3b4b2088ae04ece4da4cb0186d043dfe356aa0bd60376c415764da89efb",
               "one_use_execution_id_hex": "7575757575757575757575757575757575757575757575757575757575757575",
-              "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-              "receipt_body_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+              "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+              "receipt_body_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
               "activation_epoch": 11,
               "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
               "activation_request_context_digest_hex": "589e166a0a51a8b0237ec388f057218c3a4a0ee5d75999a98de1d079d1a8b34f",
-              "activation_authorization_digest_hex": "a34aafca8e377730c096b50ce5b81128fe02b22b52e4d6c9cebb571f25af2282",
-              "activation_transcript_digest_hex": "3b86bd5fc7b04ef16fe16283d3379c1c4164d39c38df74b40220aa013be2eb81",
+              "activation_authorization_digest_hex": "063aafc650f774c534e0038853cd45ede7dbaba7895f0083a999f19f179d7011",
+              "activation_transcript_digest_hex": "6d56bdfe0e9a618ed786f98ce818174945dac1e06cafa87ab6e768478419f295",
               "terminal_state": "metadata_consumed",
               "zero_reevaluation": {
                 "yao_evaluations": 0,
@@ -403,7 +403,7 @@
           "artifact_suite_digest_hex": "8484848484848484848484848484848484848484848484848484848484848484",
           "one_use_execution_id_hex": "7575757575757575757575757575757575757575757575757575757575757575",
           "input_provenance_pair_digest_hex": "8f71f2f9df8c94d925b438876cafba4f4c0d7fad276ff2a74256532e4f8df61b",
-          "host_reference_evaluation_evidence_digest_hex": "7878787878787878787878787878787878787878787878787878787878787878",
+          "host_reference_evaluation_evidence_digest_hex": "bd90e3d7af7bf09a77b8f7d8aca41417d5d8c4fdd9907ceaddd2b374557674d8",
           "package_projection": {
             "deriver_a_client": {
               "role": "deriver_a",
@@ -454,8 +454,8 @@
               "package_authentication_digest_hex": "9090909090909090909090909090909090909090909090909090909090909090"
             }
           },
-          "package_set_digest_hex": "dac2613c033ba7ded094a40d2cd5844dfdf7606be1c6601ddf25f98a892c008b",
-          "receipt_body_digest_hex": "1e5a4afa48b2101374124d271d4ec2adfa699921806d15d440dff9fa2dfe5511",
+          "package_set_digest_hex": "bd971908e3df84acfd9092c51f718fdf654031be7208329adab8bda26c311c7e",
+          "receipt_body_digest_hex": "47a2966d9177f316c2a982c00c2eaf8859b5a0305c323ea148454f269935c4de",
           "activation_epoch": 11,
           "registered_public_key_hex": "ccd255d0b88721771947038f1a7c29b49eee3902d6aa732e5e448251537bf077",
           "x_client_hex": "51b3df90f4b138f15cce318f39b790972440dc6a22122e52839dc83513006b72",

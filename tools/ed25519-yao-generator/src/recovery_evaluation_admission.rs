@@ -22,9 +22,7 @@ use crate::lifecycle_domain::{
 use crate::provenance::{
     ProvenanceEncodingErrorV1, RegisteredStateProvenanceErrorV1, RoleInputProvenancePairV1,
 };
-use crate::recovery_credential_transition::{
-    AuthenticatedRecoveryCredentialSuspensionV1,
-};
+use crate::recovery_credential_transition::AuthenticatedRecoveryCredentialSuspensionV1;
 use crate::semantic_artifacts::{
     CommittedActivationArtifactsV1, OneUseExecutionId32V1,
     OpaqueHostReferenceEvaluationEvidenceDigest32V1, SemanticArtifactErrorV1,
@@ -60,9 +58,7 @@ impl OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1 {
 
 impl fmt::Debug for OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(
-            "OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1([opaque digest])",
-        )
+        formatter.write_str("OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1([opaque digest])")
     }
 }
 
@@ -124,13 +120,8 @@ impl RecoveryAdmissionCommonV1 {
         checked_at: RecoveryAdmissionCheckedAtUnixMsV1,
         selected_mechanism_acceptance_evidence_digest:
             OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1,
-    ) -> Result<
-        (
-            Self,
-            AuthenticatedRecoveryCredentialContinuityEvidenceV1,
-        ),
-        RecoveryAdmissionErrorV1,
-    > {
+    ) -> Result<(Self, AuthenticatedRecoveryCredentialContinuityEvidenceV1), RecoveryAdmissionErrorV1>
+    {
         if request.request_kind() != CeremonyRequestKindV1::Recovery {
             return Err(RecoveryAdmissionErrorV1::RequestKindMismatch);
         }
@@ -213,7 +204,8 @@ impl RecoveryAdmissionCommonV1 {
         push_lp32(output, &self.same_root_evidence_artifact_digest)?;
         push_lp32(
             output,
-            self.selected_mechanism_acceptance_evidence_digest.as_bytes(),
+            self.selected_mechanism_acceptance_evidence_digest
+                .as_bytes(),
         )?;
         push_lp32(output, &self.current_activation_epoch.to_be_bytes())?;
         push_lp32(output, &self.next_activation_epoch.value().to_be_bytes())?;
@@ -257,8 +249,7 @@ impl TerminalRecoveryEvaluationV1 {
     pub const fn selected_mechanism_acceptance_evidence_digest(
         &self,
     ) -> OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1 {
-        self.common
-            .selected_mechanism_acceptance_evidence_digest
+        self.common.selected_mechanism_acceptance_evidence_digest
     }
 
     /// Returns the admitted next activation epoch.
@@ -379,7 +370,10 @@ pub fn accept_host_only_recovery_admission_v1(
     };
     let mut encoding = Vec::new();
     let encoded = (|| {
-        push_lp32(&mut encoding, RECOVERY_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1)?;
+        push_lp32(
+            &mut encoding,
+            RECOVERY_EVALUATOR_ADMISSION_ENCODING_DOMAIN_V1,
+        )?;
         common.encode_into(&mut encoding)?;
         push_lp32(&mut encoding, &[ACCEPTED_RECOVERY_TAG_V1])?;
         let mut digest_input = Vec::new();
@@ -396,18 +390,17 @@ pub fn accept_host_only_recovery_admission_v1(
         Ok(value) => value,
         Err(reason) => return Err(RejectedRecoveryAdmissionV1 { reason, state }),
     };
-    let suspension = match AuthenticatedRecoveryCredentialSuspensionV1::try_from_admitted(
-        state, continuity,
-    ) {
-        Ok(value) => value,
-        Err(rejected) => {
-            let (reason, state) = rejected.into_parts();
-            return Err(RejectedRecoveryAdmissionV1 {
-                reason: RecoveryAdmissionErrorV1::CredentialContinuity(reason),
-                state,
-            });
-        }
-    };
+    let suspension =
+        match AuthenticatedRecoveryCredentialSuspensionV1::try_from_admitted(state, continuity) {
+            Ok(value) => value,
+            Err(rejected) => {
+                let (reason, state) = rejected.into_parts();
+                return Err(RejectedRecoveryAdmissionV1 {
+                    reason: RecoveryAdmissionErrorV1::CredentialContinuity(reason),
+                    state,
+                });
+            }
+        };
     Ok(AcceptedRecoveryAdmissionV1 {
         terminal: TerminalRecoveryEvaluationV1 {
             common,
@@ -482,8 +475,9 @@ impl fmt::Display for RecoveryAdmissionErrorV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroCheckedAt => formatter.write_str("recovery checked-at must be nonzero"),
-            Self::ZeroContinuityAcceptanceEvidence => formatter
-                .write_str("recovery continuity acceptance evidence must be nonzero"),
+            Self::ZeroContinuityAcceptanceEvidence => {
+                formatter.write_str("recovery continuity acceptance evidence must be nonzero")
+            }
             Self::RequestKindMismatch => {
                 formatter.write_str("recovery admission requires a recovery request")
             }
@@ -579,8 +573,7 @@ mod tests {
         StableKeyDerivationContext, SyntheticClientDerivationRootV1,
     };
 
-    fn fixture(
-    ) -> (
+    fn fixture() -> (
         RecoveryRequestV1,
         RoleInputProvenancePairV1,
         AuthenticatedRegisteredStoreResolutionV1,
@@ -606,10 +599,8 @@ mod tests {
     }
 
     fn checked_at(request: &RecoveryRequestV1) -> RecoveryAdmissionCheckedAtUnixMsV1 {
-        RecoveryAdmissionCheckedAtUnixMsV1::new(
-            request.request_context().request_expiry().value(),
-        )
-        .expect("checked at")
+        RecoveryAdmissionCheckedAtUnixMsV1::new(request.request_context().request_expiry().value())
+            .expect("checked at")
     }
 
     fn evidence(byte: u8) -> OpaqueRecoveryContinuityAcceptanceEvidenceDigest32V1 {
@@ -817,11 +808,11 @@ mod tests {
             &material.deriver_b,
         );
         let failure = match session.evaluate_and_commit_host_reference(
-                inputs,
-                recovery_ideal_coins(3, 5),
-                activation_bindings(),
-                receipt_evidence(),
-            ) {
+            inputs,
+            recovery_ideal_coins(3, 5),
+            activation_bindings(),
+            receipt_evidence(),
+        ) {
             Err(failure) => failure,
             Ok(_) => panic!("alternate stable scope accepted"),
         };
@@ -840,10 +831,7 @@ mod tests {
         let (request, provenance, state) = fixture();
         let execution = OneUseExecutionId32V1::new([0xb7; 32]).expect("execution");
         let admission = accepted(&request, &provenance, state, execution);
-        let expected_version = admission
-            .terminal()
-            .suspension()
-            .active_state_version();
+        let expected_version = admission.terminal().suspension().active_state_version();
         let session = request
             .begin_host_reference_artifact_session(admission, &provenance)
             .expect("session");
@@ -856,11 +844,11 @@ mod tests {
             &material.deriver_b,
         );
         let failure = match session.evaluate_and_commit_host_reference(
-                inputs,
-                recovery_ideal_coins(3, 5),
-                activation_bindings(),
-                receipt_evidence(),
-            ) {
+            inputs,
+            recovery_ideal_coins(3, 5),
+            activation_bindings(),
+            receipt_evidence(),
+        ) {
             Err(failure) => failure,
             Ok(_) => panic!("wrong recovered root accepted"),
         };

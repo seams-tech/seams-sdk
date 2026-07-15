@@ -3,40 +3,11 @@ default:
 
 # Run the full formal-verification path for all crate-local FV tracks.
 fv:
-  just ed25519-hss-fv
+  just ed25519-yao-fv
   just ecdsa-hss-fv
   just signer-core-fv
   just threshold-prf-fv
   just router-ab-core-fv
-
-# Run the full gated formal-verification path for `ed25519-hss`, including the Aeneas boundary check.
-ed25519-hss-fv:
-  cargo hss-fv all
-
-# Run the fixture regeneration diff and `fv_hss_` Rust parity tests for `ed25519-hss`.
-ed25519-hss-fv-check:
-  cargo hss-fv check
-
-# Run only the committed fixture regeneration diff for `ed25519-hss`.
-ed25519-hss-fv-vectors:
-  cargo hss-fv vectors-check
-
-# Run only the `fv_hss_` Rust parity tests for `ed25519-hss`.
-ed25519-hss-fv-parity:
-  cargo hss-fv parity
-
-# Run only the Lean/Lake privacy proof workspace build for `ed25519-hss`.
-ed25519-hss-fv-lean:
-  cargo hss-fv lean-check
-
-# Run only the Aeneas/Lean boundary extraction and workspace check for `ed25519-hss`.
-ed25519-hss-fv-aeneas:
-  cargo hss-fv aeneas-check
-
-# Run the committed fixture parity bridge and Verus verification path for `ed25519-hss`.
-ed25519-hss-fv-verus:
-  cargo hss-fv parity
-  cargo hss-fv verus-check
 
 # Run every currently gated Ed25519 Yao formal-verification track.
 ed25519-yao-fv:
@@ -80,6 +51,42 @@ ed25519-yao-fv-constant-time-qualification:
 
 ed25519-yao-fv-benchmark-manifest-reproducibility:
   cargo yao-fv benchmark-manifest-reproducibility
+
+# Reconcile the Phase 2B candidate against all closed Phase 1 corpora.
+ed25519-yao-fv-phase2b-reconciliation:
+  cargo yao-fv phase2b-reconciliation-check
+
+# Check the signed external-evidence parsers without claiming reproduction or approval.
+ed25519-yao-fv-phase2b-exit-evidence-readiness:
+  cargo yao-fv phase2b-exit-evidence-readiness-check
+
+# Check the dormant Phase 2B CI staging state machine and workflow.
+ed25519-yao-fv-phase2b-change-control-readiness:
+  cargo yao-fv phase2b-change-control-readiness-check
+
+# Regenerate the fixed Phase 2B review subject from a clean checkout.
+ed25519-yao-fv-phase2b-review-subject:
+  cargo yao-fv phase2b-review-subject-check
+
+# Validate externally protected Phase 2B policy and challenge capabilities.
+ed25519-yao-fv-phase2b-protected-inputs:
+  cargo yao-fv phase2b-protected-inputs-check
+
+# Prepare the unsigned Phase 2B independent-host reproduction envelope.
+ed25519-yao-fv-phase2b-independent-host-prepare:
+  cargo yao-fv phase2b-independent-host-prepare
+
+# Finalize a bounded canonical Phase 2B request from stdin.
+ed25519-yao-fv-phase2b-independent-host-finalize:
+  cargo yao-fv phase2b-independent-host-finalize
+
+# Verify the fixed Phase 2B evidence commit and signed reproduction record.
+ed25519-yao-fv-phase2b-independent-host-record-check:
+  cargo yao-fv phase2b-independent-host-record-check
+
+# Verify the fixed Phase 2B cryptographic-review approval.
+ed25519-yao-fv-phase2b-review-approval-check:
+  cargo yao-fv phase2b-review-approval-check
 
 # Run the active crate parity tests for `ecdsa-hss`.
 ecdsa-hss-fv-parity:

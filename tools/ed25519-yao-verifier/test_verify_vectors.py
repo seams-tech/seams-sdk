@@ -126,6 +126,12 @@ RECOVERY_EVALUATOR_ADMISSION_CORPUS_PATH = (
     / "vectors"
     / "ed25519-yao-recovery-evaluator-admission-v1.json"
 )
+REFRESH_EVALUATOR_ADMISSION_CORPUS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "ed25519-yao-generator"
+    / "vectors"
+    / "ed25519-yao-refresh-evaluator-admission-v1.json"
+)
 DIFFERENTIAL_SEED_HEX = "5a" * 32
 DIFFERENTIAL_SEED = bytes.fromhex(DIFFERENTIAL_SEED_HEX)
 LIFECYCLE_PUBLIC_STATE_PATHS = (
@@ -768,6 +774,9 @@ class IndependentVectorVerifierTests(unittest.TestCase):
         self.recovery_evaluator_admission_corpus = verify_vectors.load_corpus(
             RECOVERY_EVALUATOR_ADMISSION_CORPUS_PATH
         )
+        self.refresh_evaluator_admission_corpus = verify_vectors.load_corpus(
+            REFRESH_EVALUATOR_ADMISSION_CORPUS_PATH
+        )
         self.committed_lifecycle_corpus = (
             verify_vectors.load_corpus(LIFECYCLE_CONTINUITY_CORPUS_PATH)
             if LIFECYCLE_CONTINUITY_CORPUS_PATH.exists()
@@ -895,6 +904,12 @@ class IndependentVectorVerifierTests(unittest.TestCase):
     ) -> None:
         with self.assertRaises(verify_vectors.VerificationError):
             verify_vectors.verify_recovery_evaluator_admission_corpus(corpus)
+
+    def assert_rejected_refresh_evaluator_admission(
+        self, corpus: dict[str, Any]
+    ) -> None:
+        with self.assertRaises(verify_vectors.VerificationError):
+            verify_vectors.verify_refresh_evaluator_admission_corpus(corpus)
 
     def test_committed_corpus_reproduces_all_five_cases(self) -> None:
         self.assertEqual(verify_vectors.verify_corpus(self.corpus), 5)
@@ -3570,6 +3585,179 @@ class IndependentVectorVerifierTests(unittest.TestCase):
         for mutated in (retry, suspension, claims, forbidden):
             self.assert_rejected_recovery_evaluator_admission(mutated)
 
+    def test_refresh_evaluator_admission_reproduces_canonical_case(self) -> None:
+        self.assertEqual(
+            verify_vectors.verify_refresh_evaluator_admission_corpus(
+                self.refresh_evaluator_admission_corpus
+            ),
+            1,
+        )
+        self.assertEqual(
+            verify_vectors.verify_document(self.refresh_evaluator_admission_corpus),
+            1,
+        )
+
+    def test_refresh_evaluator_admission_rejects_schema_and_order_drift(self) -> None:
+        schema = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        schema["schema"] = "wrong"
+        case_order = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        case = case_order["cases"][0]
+        case_order["cases"][0] = {
+            "request_kind": case["request_kind"],
+            "case_id": case["case_id"],
+            **{
+                key: value
+                for key, value in case.items()
+                if key not in {"case_id", "request_kind"}
+            },
+        }
+        role_order = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        next_a = role_order["cases"][0]["admission"]["next_deriver_a"]
+        role_order["cases"][0]["admission"]["next_deriver_a"] = {
+            "role_root_record_digest_hex": next_a["role_root_record_digest_hex"],
+            "role": next_a["role"],
+            **{
+                key: value
+                for key, value in next_a.items()
+                if key not in {"role", "role_root_record_digest_hex"}
+            },
+        }
+        for mutated in (schema, case_order, role_order):
+            self.assert_rejected_refresh_evaluator_admission(mutated)
+
+    def test_refresh_evaluator_admission_rejects_request_scope_authorization_and_expiry_splice(self) -> None:
+        request = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        request["cases"][0]["admission"]["request_id"] = "request-refresh-spliced"
+        scope = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        encoded_scope = bytearray.fromhex(
+            scope["cases"][0]["admission"]["durable_identity_scope_encoding_hex"]
+        )
+        encoded_scope[-1] ^= 1
+        scope["cases"][0]["admission"][
+            "durable_identity_scope_encoding_hex"
+        ] = encoded_scope.hex()
+        authorization = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        authorization["cases"][0]["admission"]["authorization_digest_hex"] = (
+            "a2" * 32
+        )
+        expired = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        expired["cases"][0]["admission"]["checked_at_unix_ms"] = (
+            expired["cases"][0]["admission"]["request_expiry_unix_ms"] + 1
+        )
+        for mutated in (request, scope, authorization, expired):
+            self.assert_rejected_refresh_evaluator_admission(mutated)
+
+    def test_refresh_evaluator_admission_rejects_store_resolution_state_and_authority_splice(self) -> None:
+        authority = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        authority["cases"][0]["authenticated_store_resolution"][
+            "authority_key_digest_hex"
+        ] = "b1" * 32
+        signature = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        signature["cases"][0]["authenticated_store_resolution"][
+            "authority_signature_hex"
+        ] = "b2" * 64
+        version = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        version["cases"][0]["authenticated_store_resolution"][
+            "active_state_version"
+        ] += 1
+        registered_key = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        registered_key["cases"][0]["authenticated_store_resolution"][
+            "registered_public_key_hex"
+        ] = "b3" * 32
+        signing_bytes = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        encoded_store = bytearray.fromhex(
+            signing_bytes["cases"][0]["authenticated_store_resolution"][
+                "signing_bytes_hex"
+            ]
+        )
+        encoded_store[-1] ^= 1
+        signing_bytes["cases"][0]["authenticated_store_resolution"][
+            "signing_bytes_hex"
+        ] = encoded_store.hex()
+        for mutated in (authority, signature, version, registered_key, signing_bytes):
+            self.assert_rejected_refresh_evaluator_admission(mutated)
+
+    def test_refresh_evaluator_admission_rejects_role_transition_provenance_and_evidence_splice(self) -> None:
+        next_root = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        next_root["cases"][0]["admission"]["next_deriver_a"][
+            "role_root_record_digest_hex"
+        ] = "c1" * 32
+        next_epoch = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        next_epoch["cases"][0]["admission"]["next_deriver_b"][
+            "input_state_epoch"
+        ] = next_epoch["cases"][0]["admission"][
+            "current_deriver_b_input_state_epoch"
+        ]
+        continuity = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        continuity["cases"][0]["admission"][
+            "provenance_continuity_evidence_artifact_digest_hex"
+        ] = "c2" * 32
+        selected = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        selected["cases"][0]["admission"][
+            "selected_mechanism_acceptance_evidence_digest_hex"
+        ] = "c3" * 32
+        statement = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        statement["cases"][0]["admission"]["deriver_a_statement_digest_hex"] = (
+            "c4" * 32
+        )
+        for mutated in (next_root, next_epoch, continuity, selected, statement):
+            self.assert_rejected_refresh_evaluator_admission(mutated)
+
+    def test_refresh_evaluator_admission_rejects_epoch_execution_output_and_receipt_splice(self) -> None:
+        activation_epoch = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        activation_epoch["cases"][0]["admission"]["next_activation_epoch"] += 1
+        current_role_epoch = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        current_role_epoch["cases"][0]["admission"][
+            "current_deriver_a_input_state_epoch"
+        ] += 1
+        execution = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        execution["cases"][0]["admission"]["one_use_execution_id_hex"] = (
+            "d1" * 32
+        )
+        output = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        output["cases"][0]["evaluation"]["package_set_digest_hex"] = "d2" * 32
+        receipt = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        receipt_bytes = bytearray.fromhex(
+            receipt["cases"][0]["evaluation"][
+                "output_committed_receipt_encoding_hex"
+            ]
+        )
+        receipt_bytes[-1] ^= 1
+        receipt["cases"][0]["evaluation"][
+            "output_committed_receipt_encoding_hex"
+        ] = receipt_bytes.hex()
+        receipt_digest = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        receipt_digest["cases"][0]["evaluation"][
+            "output_committed_receipt_digest_hex"
+        ] = "d3" * 32
+        for mutated in (
+            activation_epoch,
+            current_role_epoch,
+            execution,
+            output,
+            receipt,
+            receipt_digest,
+        ):
+            self.assert_rejected_refresh_evaluator_admission(mutated)
+
+    def test_refresh_evaluator_admission_rejects_retry_claim_nonclaim_and_forbidden_drift(self) -> None:
+        retry = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        retry["cases"][0]["retry"]["retry_requires_fresh_execution"] = False
+        terminal = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        terminal["cases"][0]["evaluation"]["terminal_admission_retained"] = False
+        proposal = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        proposal["cases"][0]["evaluation"][
+            "proposed_next_role_states_retained"
+        ] = False
+        claims = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        claims["cases"][0]["claim_boundary"]["excluded_claims"].pop()
+        policy = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        policy["cases"][0]["claim_boundary"]["forbidden_fields"].pop()
+        forbidden = copy.deepcopy(self.refresh_evaluator_admission_corpus)
+        forbidden["cases"][0]["evaluation"]["private_delta_hex"] = "00" * 32
+        for mutated in (retry, terminal, proposal, claims, policy, forbidden):
+            self.assert_rejected_refresh_evaluator_admission(mutated)
+
     def test_provenance_corpus_auto_detection_reproduces_all_four_cases(self) -> None:
         self.assertEqual(
             verify_vectors.verify_provenance_corpus(
@@ -4238,6 +4426,332 @@ class IndependentVectorVerifierTests(unittest.TestCase):
             "signing_worker"
         ]["x_server_base_hex"] = "00" * 32
         self.assert_rejected_activation_recipient_party_views(misplaced_scalar)
+
+
+SEMANTIC_FRAME_CORPUS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "ed25519-yao-generator"
+    / "vectors"
+    / "ed25519-yao-semantic-frame-party-views-v1.json"
+)
+SEMANTIC_FRAME_SOURCE_DIRECTORY = SEMANTIC_FRAME_CORPUS_PATH.parent
+SEMANTIC_FRAME_NONCLAIMS = (
+    "runtime_frame_encoding",
+    "authenticated_transport",
+    "production_role_view_serialization",
+    "secret_values",
+    "excluded_corruption_compositions",
+    "profile_negotiation",
+    "simulator_or_security_theorem",
+    "production_constant_time_or_erasure",
+)
+
+
+def _semantic_frame_test_selector(
+    catalog: dict[str, dict[str, set[str]]], schema: str, request_kind: str
+) -> str:
+    preferred = {
+        (verify_vectors.LIFECYCLE_CONTINUITY_CORPUS_SCHEMA_V1, "refresh"):
+            "refresh_opposite_delta_continuity_v1",
+    }
+    selected = preferred.get((schema, request_kind))
+    if selected is not None:
+        return selected
+    for selector, applicable in sorted(catalog[schema].items()):
+        if request_kind in applicable:
+            return selector
+    raise AssertionError(f"test source corpus {schema!r} has no {request_kind!r} selector")
+
+
+def _semantic_frame_test_source_references(
+    catalog: dict[str, dict[str, set[str]]], request_kind: str, outcome: str
+) -> list[dict[str, str]]:
+    references: list[dict[str, str]] = []
+    for schema in verify_vectors._semantic_frame_required_source_schemas(
+        request_kind, outcome
+    ):
+        references.append(
+            {
+                "artifact_kind": verify_vectors.SEMANTIC_FRAME_SCHEMA_ARTIFACT_KINDS[
+                    schema
+                ],
+                "schema": schema,
+                "case_selector": _semantic_frame_test_selector(
+                    catalog, schema, request_kind
+                ),
+            }
+        )
+    return references
+
+
+def _semantic_frame_test_identity_labels(
+    state: str, request_kind: str
+) -> list[str]:
+    return list(
+        verify_vectors._semantic_frame_expected_identity_labels(state, request_kind)
+    )
+
+
+def _semantic_frame_test_case(
+    catalog: dict[str, dict[str, set[str]]],
+    case_id: str,
+    request_kind: str,
+    outcome: str,
+) -> dict[str, Any]:
+    states = verify_vectors._semantic_frame_expected_states(request_kind, outcome)
+    observations: dict[str, list[str]] = {
+        role: [] for role in verify_vectors.SEMANTIC_FRAME_ROLES
+    }
+    steps: list[dict[str, Any]] = []
+    for ordinal, state in enumerate(states):
+        frames = verify_vectors._semantic_frame_emitted_frames(state, request_kind)
+        for frame in frames:
+            for role in verify_vectors.SEMANTIC_FRAME_OBSERVERS[frame]:
+                if frame not in observations[role]:
+                    observations[role].append(frame)
+        views = []
+        for role in verify_vectors.SEMANTIC_FRAME_ROLES:
+            views.append(
+                {
+                    "role": role,
+                    "known_values": list(
+                        verify_vectors._semantic_frame_expected_known_values(
+                            role, state, request_kind
+                        )
+                    ),
+                    "observed_frame_classes": list(observations[role]),
+                }
+            )
+        steps.append(
+            {
+                "ordinal": ordinal,
+                "delivery_state": state,
+                "emitted_frame_classes": list(frames),
+                "ordered_role_views": views,
+                "identity_labels": _semantic_frame_test_identity_labels(
+                    state, request_kind
+                ),
+            }
+        )
+    evaluator_retry = (
+        "terminal_abort_no_resume" if outcome == "evaluator_abort" else "not_applicable"
+    )
+    redelivery = "not_applicable"
+    if outcome == "success":
+        redelivery = (
+            "exact_export_client_redelivery"
+            if request_kind == "export"
+            else "exact_activation_recipient_redelivery"
+        )
+    fresh = [] if outcome == "success" else ["request_identity", "execution_identity"]
+    return {
+        "case_id": case_id,
+        "request_kind": request_kind,
+        "outcome": outcome,
+        "source_references": _semantic_frame_test_source_references(
+            catalog, request_kind, outcome
+        ),
+        "trace_steps": steps,
+        "retry_redelivery_policy": {
+            "evaluator_retry": evaluator_retry,
+            "redelivery": redelivery,
+            "fresh_identity_requirements": fresh,
+        },
+        "explicit_nonclaims": list(SEMANTIC_FRAME_NONCLAIMS),
+    }
+
+
+def _semantic_frame_test_corpus() -> dict[str, Any]:
+    if SEMANTIC_FRAME_CORPUS_PATH.exists():
+        return verify_vectors.load_corpus(SEMANTIC_FRAME_CORPUS_PATH)
+    catalog = verify_vectors._semantic_frame_source_catalog(
+        SEMANTIC_FRAME_SOURCE_DIRECTORY
+    )
+    cases = [
+        _semantic_frame_test_case(catalog, case_id, request_kind, outcome)
+        for case_id, request_kind, outcome in verify_vectors.SEMANTIC_FRAME_CASES
+    ]
+    return {
+        "schema": verify_vectors.SEMANTIC_FRAME_PARTY_VIEWS_CORPUS_SCHEMA_V1,
+        "protocol_id": verify_vectors.PROTOCOL_ID_V1,
+        "evidence_scope": verify_vectors.SEMANTIC_FRAME_PARTY_VIEWS_EVIDENCE_SCOPE_V1,
+        "ordered_roles": list(verify_vectors.SEMANTIC_FRAME_ROLES),
+        "frame_classes": list(verify_vectors.SEMANTIC_FRAME_CLASSES),
+        "delivery_states": list(verify_vectors.SEMANTIC_FRAME_DELIVERY_STATES),
+        "corruption_markers": list(
+            verify_vectors.SEMANTIC_FRAME_CORRUPTION_MARKERS
+        ),
+        "interface_shapes": list(verify_vectors.SEMANTIC_FRAME_INTERFACE_SHAPES),
+        "cases": cases,
+    }
+
+
+class SemanticFramePartyViewsVerifierTests(unittest.TestCase):
+    def assert_semantic_frame_rejected(self, corpus: dict[str, Any]) -> None:
+        with self.assertRaises(verify_vectors.VerificationError):
+            verify_vectors.verify_semantic_frame_party_views_corpus(
+                corpus, SEMANTIC_FRAME_SOURCE_DIRECTORY
+            )
+
+    def test_semantic_frame_party_views_reproduces_all_eight_cases(self) -> None:
+        corpus = _semantic_frame_test_corpus()
+        self.assertEqual(
+            verify_vectors.verify_semantic_frame_party_views_corpus(
+                corpus, SEMANTIC_FRAME_SOURCE_DIRECTORY
+            ),
+            8,
+        )
+        self.assertEqual(
+            verify_vectors.verify_document(
+                corpus, source_vector_directory=SEMANTIC_FRAME_SOURCE_DIRECTORY
+            ),
+            8,
+        )
+
+    def test_semantic_frame_party_views_rejects_schema_universe_and_case_order_drift(self) -> None:
+        schema = _semantic_frame_test_corpus()
+        schema["schema"] = "wrong"
+        roles = _semantic_frame_test_corpus()
+        roles["ordered_roles"][0], roles["ordered_roles"][1] = (
+            roles["ordered_roles"][1],
+            roles["ordered_roles"][0],
+        )
+        frames = _semantic_frame_test_corpus()
+        frames["frame_classes"].pop()
+        states = _semantic_frame_test_corpus()
+        states["delivery_states"].append("unknown")
+        cases = _semantic_frame_test_corpus()
+        cases["cases"][0], cases["cases"][1] = cases["cases"][1], cases["cases"][0]
+        for mutated in (schema, roles, frames, states, cases):
+            self.assert_semantic_frame_rejected(mutated)
+
+    def test_semantic_frame_party_views_rejects_state_frame_and_terminal_abort_drift(self) -> None:
+        state = _semantic_frame_test_corpus()
+        state["cases"][0]["trace_steps"][3]["delivery_state"] = "evaluator_aborted"
+        frame = _semantic_frame_test_corpus()
+        frame["cases"][0]["trace_steps"][4]["emitted_frame_classes"] = [
+            "router_to_deriver_a_input_delivery"
+        ]
+        abort_output = _semantic_frame_test_corpus()
+        abort_output["cases"][4]["trace_steps"].insert(
+            3, copy.deepcopy(abort_output["cases"][0]["trace_steps"][3])
+        )
+        abort_resume = _semantic_frame_test_corpus()
+        abort_resume["cases"][4]["trace_steps"].append(
+            copy.deepcopy(abort_resume["cases"][0]["trace_steps"][4])
+        )
+        for mutated in (state, frame, abort_output, abort_resume):
+            self.assert_semantic_frame_rejected(mutated)
+
+    def test_semantic_frame_party_views_rejects_nonmonotonic_and_cross_role_learning(self) -> None:
+        missing = _semantic_frame_test_corpus()
+        missing["cases"][0]["trace_steps"][3]["ordered_role_views"][0][
+            "known_values"
+        ].pop()
+        reordering = _semantic_frame_test_corpus()
+        known = reordering["cases"][0]["trace_steps"][3]["ordered_role_views"][0][
+            "known_values"
+        ]
+        known[-1], known[-2] = known[-2], known[-1]
+        leak = _semantic_frame_test_corpus()
+        leak["cases"][0]["trace_steps"][3]["ordered_role_views"][1][
+            "known_values"
+        ].append("deriver_a_activation_output_shares")
+        observer = _semantic_frame_test_corpus()
+        observer["cases"][0]["trace_steps"][3]["ordered_role_views"][5][
+            "known_values"
+        ].append("client_role_scoped_inputs")
+        for mutated in (missing, reordering, leak, observer):
+            self.assert_semantic_frame_rejected(mutated)
+
+    def test_semantic_frame_party_views_rejects_observation_ownership_diagnostics_and_redelivery_drift(self) -> None:
+        owner = _semantic_frame_test_corpus()
+        owner["cases"][0]["trace_steps"][2]["ordered_role_views"][2][
+            "observed_frame_classes"
+        ].append("deriver_a_to_deriver_b_peer_protocol")
+        diagnostics = _semantic_frame_test_corpus()
+        diagnostics["cases"][0]["trace_steps"][3]["ordered_role_views"][6][
+            "observed_frame_classes"
+        ].pop()
+        observer = _semantic_frame_test_corpus()
+        observer["cases"][0]["trace_steps"][0]["ordered_role_views"][5][
+            "observed_frame_classes"
+        ].append("client_to_router_evaluation_request")
+        redelivery = _semantic_frame_test_corpus()
+        redelivery["cases"][0]["trace_steps"][7]["ordered_role_views"][2][
+            "observed_frame_classes"
+        ].append("router_to_client_recipient_delivery")
+        for mutated in (owner, diagnostics, observer, redelivery):
+            self.assert_semantic_frame_rejected(mutated)
+
+    def test_semantic_frame_party_views_rejects_identity_retry_and_redelivery_policy_drift(self) -> None:
+        missing_identity = _semantic_frame_test_corpus()
+        missing_identity["cases"][0]["trace_steps"][2]["identity_labels"].pop(0)
+        reordered_identity = _semantic_frame_test_corpus()
+        labels = reordered_identity["cases"][0]["trace_steps"][3][
+            "identity_labels"
+        ]
+        labels[-1], labels[-2] = labels[-2], labels[-1]
+        inapplicable_identity = _semantic_frame_test_corpus()
+        inapplicable_identity["cases"][3]["trace_steps"][4][
+            "identity_labels"
+        ].append("activation_control_identity")
+        retry = _semantic_frame_test_corpus()
+        retry["cases"][4]["retry_redelivery_policy"]["evaluator_retry"] = (
+            "fresh_trace_required"
+        )
+        fresh = _semantic_frame_test_corpus()
+        fresh["cases"][4]["retry_redelivery_policy"][
+            "fresh_identity_requirements"
+        ] = []
+        redelivery = _semantic_frame_test_corpus()
+        redelivery["cases"][3]["retry_redelivery_policy"]["redelivery"] = (
+            "exact_activation_recipient_redelivery"
+        )
+        for mutated in (
+            missing_identity,
+            reordered_identity,
+            inapplicable_identity,
+            retry,
+            fresh,
+            redelivery,
+        ):
+            self.assert_semantic_frame_rejected(mutated)
+
+    def test_semantic_frame_party_views_rejects_corruption_interface_nonclaim_and_forbidden_drift(self) -> None:
+        corruption = _semantic_frame_test_corpus()
+        corruption["corruption_markers"][1], corruption["corruption_markers"][2] = (
+            corruption["corruption_markers"][2],
+            corruption["corruption_markers"][1],
+        )
+        interface = _semantic_frame_test_corpus()
+        interface["interface_shapes"].pop()
+        nonclaim = _semantic_frame_test_corpus()
+        nonclaim["cases"][0]["explicit_nonclaims"] = ["runtime_frame_encoding"]
+        forbidden = _semantic_frame_test_corpus()
+        forbidden["cases"][0]["runtime_frame_bytes"] = []
+        for mutated in (corruption, interface, nonclaim, forbidden):
+            self.assert_semantic_frame_rejected(mutated)
+
+    def test_semantic_frame_party_views_rejects_missing_mismatched_and_inapplicable_source_crosslinks(self) -> None:
+        missing = _semantic_frame_test_corpus()
+        missing["cases"][0]["source_references"].pop()
+        schema = _semantic_frame_test_corpus()
+        schema["cases"][0]["source_references"][0]["schema"] = (
+            verify_vectors.PROVENANCE_VECTOR_CORPUS_SCHEMA_V1
+        )
+        selector = _semantic_frame_test_corpus()
+        selector["cases"][0]["source_references"][0]["case_selector"] = "missing"
+        inapplicable = _semantic_frame_test_corpus()
+        inapplicable["cases"][0]["source_references"][0]["case_selector"] = (
+            "ceremony-recovery-v1"
+        )
+        for mutated in (missing, schema, selector, inapplicable):
+            self.assert_semantic_frame_rejected(mutated)
+        with self.assertRaises(verify_vectors.VerificationError):
+            verify_vectors.verify_semantic_frame_party_views_corpus(
+                _semantic_frame_test_corpus(), None
+            )
 
 
 if __name__ == "__main__":

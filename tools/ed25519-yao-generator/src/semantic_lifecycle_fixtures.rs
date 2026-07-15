@@ -37,9 +37,9 @@ use crate::lifecycle_domain::{
     ActivationRequestFailureV1, ActivationRequestV1, ActiveCredentialBindingDigest32V1,
     ExportArtifactIssuanceV1, ExportOutputCommitmentEvidenceV1, ExportRequestV1,
     HostOnlyExportOutputCommittedV1, PendingActivationPreStateV1, RecoveryRequestV1,
-    RedactedFailureCodeV1, RefreshRequestV1,
-    RegisteredLifecyclePreStateV1, RegistrationArtifactIssuanceV1, RegistrationRequestV1,
-    RejectedActivationControlProposalV1, UniformLifecycleAbortV1,
+    RedactedFailureCodeV1, RefreshRequestV1, RegisteredLifecyclePreStateV1,
+    RegistrationArtifactIssuanceV1, RegistrationRequestV1, RejectedActivationControlProposalV1,
+    UniformLifecycleAbortV1,
 };
 use crate::lifecycle_persistence::{
     AttemptRejectedActivationProjectionV1, MetadataConsumedActivationProjectionV1,
@@ -56,10 +56,10 @@ use crate::semantic_artifacts::{
     OpaqueHostReferenceDeriverBReceiptEvidenceDigest32V1,
 };
 use crate::semantic_fixture_material::{
-    activation_bindings, export_bindings, export_ideal_coin, export_inputs, recovery_ideal_coins,
-    recovery_admission, recovery_inputs, reference_fixture, refresh_admission,
-    refresh_ideal_coins, refresh_inputs,
-    registration_admission, registration_ideal_coins, registration_inputs,
+    activation_bindings, export_bindings, export_ideal_coin, export_inputs, recovery_admission,
+    recovery_ideal_coins, recovery_inputs, reference_fixture, refresh_admission,
+    refresh_ideal_coins, refresh_inputs, registration_admission, registration_ideal_coins,
+    registration_inputs,
 };
 
 /// Schema identifier for the strict semantic-artifact lifecycle corpus.
@@ -413,13 +413,7 @@ pub(crate) fn recovery_pending() -> PendingActivationPreStateV1 {
     );
     let activation_epoch = CeremonyActivationEpochV1::new(10).expect("next activation epoch");
     let execution_id = OneUseExecutionId32V1::new([0x73; 32]).expect("execution id");
-    let admission = recovery_admission(
-        &request,
-        &pair,
-        state,
-        activation_epoch,
-        execution_id,
-    );
+    let admission = recovery_admission(&request, &pair, state, activation_epoch, execution_id);
     let session = request
         .begin_host_reference_artifact_session(admission, &pair)
         .expect("recovery session");

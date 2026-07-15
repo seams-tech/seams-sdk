@@ -13,30 +13,36 @@ exact claim, composition, and required security games.
 | TCB-AENEAS-003 | Ambient opam resolution builds the pinned Aeneas sources consistently                       | current local extraction evidence                                                          | local green gate; empty-cache reproduction remains open                             | opam repository, OCaml, package, or build-host change                                            |
 | TCB-LEAN-001   | Lean `v4.28.0-rc1` checks the named targets faithfully                                      | current Lean theorems                                                                      | `lean-toolchain`, explicit targets, required `.olean` outputs                       | Lean or dependency change                                                                        |
 | TCB-SHA256-001 | `sha2` implements SHA-256 for draft manifest identity                                       | `YAO-MAN-003`                                                                              | production golden digest test                                                       | dependency, encoder, or algorithm change                                                         |
-| TCB-SHA256-002 | `sha2` implements SHA-256 for the stable-context binding                                    | `YAO-CTX-001`, `YAO-KDF-001`, `YAO-LIFE-002`, `YAO-REG-001`, `YAO-REC-001`, `YAO-REC-002`, `YAO-PROV-001` | frozen golden context binding                                                       | dependency, encoding, or algorithm change                                                        |
+| TCB-SHA256-002 | `sha2` implements SHA-256 for the stable-context binding                                    | `YAO-CTX-001`, `YAO-KDF-001`, `YAO-LIFE-002`, `YAO-REG-001`, `YAO-REC-001`, `YAO-REC-002`, `YAO-RFR-002`, `YAO-PROV-001` | frozen golden context binding                                                       | dependency, encoding, or algorithm change                                                        |
 | TCB-SHA256-003 | `sha2` implements SHA-256 for the immutable four-fact application binding                   | `YAO-APP-001`, `YAO-KDF-001`, `YAO-LIFE-002`                                               | independent Python grammar/encoding/digest reproduction and mutation tests          | dependency, identifier grammar, encoding, `keyCreationSignerSlot`, fact set, or algorithm change |
-| TCB-SHA256-004 | `sha2` implements SHA-256 for provenance wrapper, envelope-set, statement, pair, semantic package, delivery, recovery-transition state, tombstone, export-acceptance authority/statement/pair, registration admission/candidate, recovery admission, and receipt digests | `YAO-PROV-001`, `YAO-SEM-001`, `YAO-VIEW-001`, `YAO-VIEW-002`, `YAO-VIEW-003`, `YAO-DELIVERY-001`, `YAO-DELIVERY-002`, `YAO-RECOVERY-002`, `YAO-EXP-002`, `YAO-REG-002`, `YAO-REC-002` | independent Python LP32/digest reproduction, ceremony/provenance cross-links, and mutation tests | dependency, provenance, semantic, delivery, recovery-transition, export-acceptance, registration-admission, recovery-admission, or party-view encoding, domain, tag, field order, or algorithm change |
-| TCB-SHA512-001 | `sha2` implements the standard SHA-512 comparison oracle for the fixed circuit component  | `YAO-SHA-001`, `YAO-CIR-002`                                                               | fixed padding/bit-order tests plus committed and deterministic circuit comparisons   | dependency, fixed-block mapping, circuit topology, or algorithm change                            |
+| TCB-SHA256-004 | `sha2` implements SHA-256 for provenance wrapper, envelope-set, statement, pair, semantic package, delivery, recovery-transition state, tombstone, export-acceptance authority/statement/pair, registration admission/candidate, recovery admission, refresh admission, and receipt digests | `YAO-PROV-001`, `YAO-SEM-001`, `YAO-VIEW-001`, `YAO-VIEW-002`, `YAO-VIEW-003`, `YAO-DELIVERY-001`, `YAO-DELIVERY-002`, `YAO-RECOVERY-002`, `YAO-EXP-002`, `YAO-REG-002`, `YAO-REC-002`, `YAO-RFR-002` | independent Python LP32/digest reproduction, ceremony/provenance cross-links, and mutation tests | dependency, provenance, semantic, delivery, recovery-transition, export-acceptance, registration-admission, recovery-admission, refresh-admission, or party-view encoding, domain, tag, field order, or algorithm change |
+| TCB-SHA256-005 | Rust `sha2` and Python `hashlib` implement SHA-256 for Phase 1 corpus commitments, benchmark/artifact bindings, and LP32-domain-separated Phase 2B reconciliation digests | `YAO-CIR-003`, `YAO-SPEC-026` | exact Rust/Python certificate reconstruction plus passing counted commitment, selector, mapping, digest, and mutation checks | dependency, domain, LP32 encoding, canonical-byte encoding, field order, or algorithm change |
+| TCB-SHA256-006 | Rust `sha2` implements SHA-256 for the pinned authority policy, subject, source/archive, reproduced artifacts, signed records, and review report | `YAO-SPEC-027`, `YAO-REVIEW-001` | full-document pin, twenty host-only policy/source/observation/report/Git-shape tests, and eleven isolated fixed-subject/fresh-observation tests | dependency, domain, canonical JSON, source/archive rule, fixed path, or algorithm change |
+| TCB-SHA512-001 | `sha2` implements the standard SHA-512 comparison oracle for the fixed circuit component  | `YAO-SHA-001`, `YAO-CIR-002`, `YAO-CIR-003`                                                               | fixed padding/bit-order tests plus committed and deterministic circuit comparisons   | dependency, fixed-block mapping, circuit topology, or algorithm change                            |
 | TCB-HKDF-001   | Rust `hkdf`/`sha2` implement the frozen contribution KDF                                    | `YAO-KDF-001`, `YAO-LIFE-002`, `YAO-REG-001`, `YAO-REC-001`, `YAO-REC-002`                                | independent Python `hmac`/`hashlib` reproduction of committed outputs               | dependency, KDF encoding, or algorithm change                                                    |
-| TCB-PYTHON-001 | Python 3.11+ integer arithmetic, `hashlib`, and `hmac` implement verifier semantics         | `YAO-APP-001`, `YAO-CTX-001`, `YAO-KDF-001`, `YAO-LIFE-002`, `YAO-PROV-001`, `YAO-REF-003`, `YAO-OUT-001`, `YAO-RFR-001`, `YAO-SEM-001`, `YAO-VIEW-001`, `YAO-VIEW-002`, `YAO-VIEW-003`, `YAO-RAND-001`, `YAO-ABORT-001`, `YAO-DELIVERY-001`, `YAO-DELIVERY-002`, `YAO-RECOVERY-002`, `YAO-EXP-002`, `YAO-REG-002`, `YAO-REC-002` | pinned minimum version, mutation suite, counted cross-language gate                 | Python/runtime/hash backend or verifier change                                                   |
-| TCB-FS-001     | Kernel descriptor metadata, `fstatfs`, Linux xattr reporting, and macOS extended-ACL APIs faithfully expose the authority and filesystem semantics used by the benchmark artifact policy | `YAO-ART-001`, `YAO-FS-001` | descriptor-only no-follow traversal, local-filesystem allowlist, authority-expanding ACL rejection, metadata snapshots, bounded reads, atomic no-replace publication, 11 bundle tests, and three policy tests | OS/filesystem, allowlist, ACL ABI, ownership model, or publication model change |
-| TCB-CURVE-001  | `sha2`, `curve25519-dalek`, and `ed25519-dalek` implement oracle primitives correctly       | `YAO-LIFE-002`, `YAO-REG-001`, `YAO-REG-002`, `YAO-EXP-001`, `YAO-EXP-002`, `YAO-REC-001`, `YAO-REC-002`, `YAO-RFR-001`, `YAO-PROV-001`, `YAO-REF-003`, `YAO-OUT-001`, `YAO-SEM-001`, `YAO-VIEW-001`, `YAO-VIEW-002`, `YAO-VIEW-003`, `YAO-RAND-001`, `YAO-DELIVERY-001`, `YAO-DELIVERY-002` | RFC 8032 tests plus independent Python Edwards25519 arithmetic and point validation | dependency or primitive boundary change                                                          |
-| TCB-CURVE-002  | `curve25519-dalek` implements canonical scalar decoding and modulo-`l` comparison arithmetic | `YAO-SCA-001`, `YAO-CIR-002`                                                               | boundary rejection and circuit parity across order, clamp, modular-add, and tau cases | dependency, scalar-order constant, reduction range, or arithmetic change                          |
-| TCB-STORE-SIG-001 | `ed25519-dalek` strict verification authenticates public registered-store resolutions plus refresh- and recovery-promotion receipts under the non-weak authority retained by the authenticated old state | `YAO-STORE-001`, `YAO-RECOVERY-001`, `YAO-RECOVERY-002`, `YAO-PROMOTE-001`, `YAO-REC-002` | signature mutation, key/epoch substitution, state splice, credential substitution, request-family replay, coherent authority re-signing, and promotion authority-substitution tests | dependency, authority-key rule, signed encoding, verification API, or key-distribution change |
-| TCB-WORKER-SIG-001 | `ed25519-dalek` strict verification authenticates the activation receipt under the non-weak key bound to the exact SigningWorker and recipient-key epoch | `YAO-ACTIVATE-001`, `YAO-VIEW-003` | signature, key-epoch, key-digest, and worker-authority substitution tests plus deterministic receipt-byte tests | dependency, authority-key rule, receipt encoding, verification API, or key-distribution change |
-| TCB-WORKER-SCALAR-001 | `curve25519-dalek`, `subtle`, and `zeroize` implement canonical scalar decoding, constant-time point equality, scalar arithmetic, and drop-time erasure for the profile-neutral activation engine | `YAO-ACTIVATE-001`, `YAO-VIEW-003` | canonical-scalar, role-share splice, joined-point, registered-key, and secret-redaction tests plus source review; the analyzer qualification gate validates the tool on isolated O0/O3 fixtures only | dependency, compiler/codegen, comparison/arithmetic path, memory ownership, or erasure implementation change |
+| TCB-PYTHON-001 | Python 3.11+ integer arithmetic, `hashlib`, and `hmac` implement verifier semantics         | `YAO-APP-001`, `YAO-CTX-001`, `YAO-KDF-001`, `YAO-LIFE-002`, `YAO-LIFE-004`, `YAO-PROV-001`, `YAO-REF-003`, `YAO-OUT-001`, `YAO-RFR-001`, `YAO-RFR-002`, `YAO-SEM-001`, `YAO-VIEW-001`, `YAO-VIEW-002`, `YAO-VIEW-003`, `YAO-VIEW-004`, `YAO-RAND-001`, `YAO-ABORT-001`, `YAO-DELIVERY-001`, `YAO-DELIVERY-002`, `YAO-RECOVERY-002`, `YAO-EXP-002`, `YAO-REG-002`, `YAO-REC-002`, `YAO-CIR-003` | pinned minimum version, mutation suite, counted cross-language gate                 | Python/runtime/hash backend or verifier change                                                   |
+| TCB-FS-001     | Kernel descriptor metadata, `fstatfs`, Linux xattr reporting, and macOS extended-ACL APIs faithfully expose the authority and filesystem semantics used by the benchmark artifact policy | `YAO-ART-001`, `YAO-FS-001`, `YAO-CIR-003` | descriptor-only no-follow traversal, local-filesystem allowlist, authority-expanding ACL rejection, metadata snapshots, bounded reads, atomic no-replace publication, 11 bundle tests, and three policy tests | OS/filesystem, allowlist, ACL ABI, ownership model, or publication model change |
+| TCB-CURVE-001  | `sha2`, `curve25519-dalek`, and `ed25519-dalek` implement oracle primitives correctly       | `YAO-LIFE-002`, `YAO-REG-001`, `YAO-REG-002`, `YAO-EXP-001`, `YAO-EXP-002`, `YAO-REC-001`, `YAO-REC-002`, `YAO-RFR-001`, `YAO-RFR-002`, `YAO-PROV-001`, `YAO-REF-003`, `YAO-OUT-001`, `YAO-SEM-001`, `YAO-VIEW-001`, `YAO-VIEW-002`, `YAO-VIEW-003`, `YAO-RAND-001`, `YAO-DELIVERY-001`, `YAO-DELIVERY-002` | RFC 8032 tests plus independent Python Edwards25519 arithmetic and point validation | dependency or primitive boundary change                                                          |
+| TCB-CURVE-002  | `curve25519-dalek` implements canonical scalar decoding and modulo-`l` comparison arithmetic | `YAO-SCA-001`, `YAO-CIR-002`, `YAO-CIR-003`                                                               | boundary rejection and circuit parity across order, clamp, modular-add, tau, and reconciliation cases | dependency, scalar-order constant, reduction range, or arithmetic change                          |
+| TCB-STORE-SIG-001 | `ed25519-dalek` strict verification authenticates public registered-store resolutions plus refresh- and recovery-promotion receipts under the non-weak authority retained by the authenticated old state | `YAO-STORE-001`, `YAO-RECOVERY-001`, `YAO-RECOVERY-002`, `YAO-PROMOTE-001`, `YAO-REC-002`, `YAO-RFR-002` | signature mutation, key/epoch substitution, state splice, credential substitution, request-family replay, coherent authority re-signing, and promotion authority-substitution tests | dependency, authority-key rule, signed encoding, verification API, or key-distribution change |
+| TCB-WORKER-SIG-001 | `ed25519-dalek` strict verification authenticates the activation receipt under the non-weak key bound to the exact SigningWorker and recipient-key epoch | `YAO-ACTIVATE-001`, `YAO-VIEW-003`, `YAO-RFR-002` | signature, key-epoch, key-digest, and worker-authority substitution tests plus deterministic receipt-byte tests | dependency, authority-key rule, receipt encoding, verification API, or key-distribution change |
+| TCB-WORKER-SCALAR-001 | `curve25519-dalek`, `subtle`, and `zeroize` implement canonical scalar decoding, constant-time point equality, scalar arithmetic, and drop-time erasure for the profile-neutral activation engine | `YAO-ACTIVATE-001`, `YAO-VIEW-003`, `YAO-RFR-002` | canonical-scalar, role-share splice, joined-point, registered-key, and secret-redaction tests plus source review; the analyzer qualification gate validates the tool on isolated O0/O3 fixtures only | dependency, compiler/codegen, comparison/arithmetic path, memory ownership, or erasure implementation change |
 | TCB-DERIVER-SIG-001 | `ed25519-dalek` strict verification authenticates export-authorization acceptances under two non-weak, role-distinct A/B authority keys supplied by trusted configuration; the host admission clock reports an accurate nonzero time | `YAO-EXP-002` | seven core tests, five strict corpus tests, seven independent Python tests, signature/expiry/role-key-reuse/splice rejection, and coherent A/B attacker-key re-signing rejection | dependency, authority-key rule or distribution, role/epoch binding, statement encoding, verification API, or admission-clock trust change |
+| TCB-PHASE2B-REVIEW-001 | Governance outside the repository and GitHub account protects and distributes the exact authority-policy digest, canonical policy JSON, project challenge, key epochs, and approval-sequence floor, and establishes independent operator/reviewer identity and competence | `YAO-REVIEW-001` | fixed external-input loader, private policy/challenge capabilities, distinct authority keys, and eight focused tests; operational evidence remains absent | external trust-anchor distribution, challenge process, authority ownership/rotation, reviewer assignment, or sequence-floor change |
+| TCB-PHASE2B-SIG-001 | `ed25519-dalek` strict verification authenticates the domain-separated independent-host record and reviewer approval under distinct non-weak externally pinned keys | `YAO-REVIEW-001` | twenty host-only prepare/finalize/record/approval, signature, key, policy, source, artifact, report, scope, and replay-floor tests | dependency, authority-key rule, canonical payload, signature domain, or verification API change |
+| TCB-PHASE2B-STAGING-001 | The local state checker classifies the inspected immutable Git objects and exact `C → E` shape as implemented; GitHub execution is advisory and supplies no release authority | `YAO-REVIEW-001` | hardened Git-object checker, non-authoritative public workflow, and thirteen local staging/workflow tests | checker semantics, covered paths, evidence paths, Git object interpretation, or staging workflow change |
+| TCB-PHASE2B-RELEASE-001 | A relying party obtains the trusted policy digest and accepted `E` identity from an independently authenticated channel and runs the pinned verifier against exact `E`; repository and GitHub state are untrusted inputs | `YAO-REVIEW-001` | strict reproducer/reviewer signatures, fixed four-blob acceptance, private verified capabilities, and explicit revised claim; genuine policy publication and signed release remain absent | trust-anchor channel, verifier distribution, accepted-commit publication, authority compromise, or relying-party verification change |
 
 The current project-owned Lean and Verus files contain no axioms or admitted
 proofs. Generated Aeneas code imports the pinned external support library;
 `TCB-AENEAS-001` and `TCB-AENEAS-002` keep that dependency explicit.
 
-`YAO-SPEC-001` through `YAO-SPEC-023` add no cryptographic premise. Their
-generated byte-comparison and commitment checks are executable host checks
+`YAO-SPEC-001` through `YAO-SPEC-027` add no protocol-security premise. Their
+byte-comparison and commitment checks are executable host checks
 under `TCB-RUST-001`; independent primitive correctness, specification
 completeness, and protocol-security obligations remain separate.
 
-`YAO-CIR-001`, `YAO-SHA-001`, `YAO-SCA-001`, `YAO-CIR-002`,
+`YAO-CIR-001`, `YAO-SHA-001`, `YAO-SCA-001`, `YAO-CIR-002`, `YAO-CIR-003`,
 `YAO-SCH-001`, and `YAO-ART-001` depend on
 deterministic host compilation, public synthetic clear evaluation,
 `TCB-SHA512-001`, `TCB-CURVE-002`, and `TCB-FS-001`. The evaluator allocates `Vec<bool>`
@@ -54,6 +60,28 @@ format and wrapped index. Treating two isolated local builds as independent-host
 reproducibility, or the frozen candidate digest as reviewer approval, a
 production manifest, or a security-suite identity invalidates the evidence
 boundary.
+
+`YAO-CIR-003` depends on deterministic public synthetic fixture construction,
+all twenty canonical Phase 1 corpus builders, the provisional compiler and
+clear IR/schedule evaluators, the candidate `EYAOBM01` manifest, the independent
+Python verifier, `TCB-SHA256-005`, `TCB-SHA512-001`, `TCB-CURVE-002`, and
+`TCB-FS-001`. Its five cases establish only exact cross-corpus equality and the
+activation zero-evaluation relation. The certificate explicitly records
+`production_artifact_authority_absent`, `selected_security_profile_absent`,
+`garbling_and_ot_unimplemented`,
+`randomized_output_protection_unimplemented`,
+`simulator_and_security_experiment_unimplemented`,
+`runtime_frame_and_transport_encoding_absent`,
+`durable_lifecycle_and_replay_semantics_absent`,
+`production_constant_time_and_erasure_unclaimed`,
+`independent_operator_reproducibility_unclaimed`, and
+`reviewer_approval_absent`. Treating the attachment as an independently
+reproduced or reviewer-approved compiler, a production artifact authority, a
+selected-profile implementation, or a protocol-security result invalidates the
+evidence boundary. Reconciliation derives outputs from coherent output-party-view
+projections while retaining output-sharing as an independently committed
+corpus. The counted named reconciliation gate passes. Phase 2 closure
+remains a separate reviewed gate.
 
 `YAO-FS-001` excludes remote, stacked, and unrecognized filesystems and every
 recognized additional ACL authority from the v1 benchmark artifact boundary.
@@ -126,6 +154,18 @@ runtime leakage, an entropy source, delivery evidence, a pre-state authority,
 a noninterference theorem, or selected-profile security evidence invalidates
 the boundary. The reference code is variable-time and has no production-secret
 or constant-time claim.
+
+`YAO-LIFE-004` and `YAO-VIEW-004` depend on deterministic host construction of
+enum labels and ordered cross-references to the existing ceremony, provenance,
+evaluation, output, delivery, activation, and abort corpora. The independent
+Python verifier trusts filesystem access to those committed sibling corpora and
+checks selectors, request-family applicability, state/frame order, cumulative
+label learning, frame ownership, retry/redelivery policy, and forbidden fields.
+The Lean mirror is a structural policy-shape model. Treating these labels as
+runtime payloads, authenticated identity equality, durable replay state,
+private values, a simulator or experiment implementation, noninterference,
+indistinguishability, selected-profile satisfaction, or protocol-security
+evidence invalidates this boundary.
 
 `YAO-REG-001` depends only on three purpose-typed public synthetic roots, one
 public synthetic stable context, deterministic supplied sharing coins, the KDF
@@ -226,5 +266,21 @@ execution. Client-root/KDF provenance, deployed unbiased delta generation,
 contribution custody or proof, authorization, state or epoch transitions, packages,
 receipts, durable persistence, distributed cutover, role-private execution, and
 selected-protocol security remain outside its assumption set because they remain
-outside its claim. The complete `evaluate_refresh_v1` functionality remains
-unimplemented.
+outside its claim. The complete construction-independent `evaluate_refresh_v1`
+host composition is owned separately by `YAO-RFR-002`.
+
+`YAO-RFR-002` depends on Rust move ownership, the strictly verified registered-
+store resolution, sealed ceremony/provenance composition, `TCB-SHA256-002`,
+`TCB-SHA256-004`, `TCB-CURVE-001`, `TCB-STORE-SIG-001`, `TCB-WORKER-SIG-001`,
+`TCB-WORKER-SCALAR-001`, and the independent Python verifier. It establishes
+one construction-independent host admission over the exact current and proposed
+A/B role-state bindings, performs one refresh activation-family evaluation,
+preserves the current registered state on abort, and retains the terminal
+admission through output commitment, worker activation, and promotion. The
+continuity artifact and selected-mechanism acceptance digest are opaque and
+their cryptographic relation is assumed at this boundary. Treating this evidence
+as proof of production private-input opening, delta entropy or independence,
+anti-bias, selective-abort or retry-grinding resistance, forward security,
+mobile-adversary healing, secure erasure, durable replay or atomic retirement,
+transport, constant-time execution, or any P0-P3 security property invalidates
+the boundary.

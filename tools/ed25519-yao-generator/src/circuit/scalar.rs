@@ -1,10 +1,17 @@
-use super::add256::{add_le_256_with_final_carry_bits, wrapping_add_le_256_bits};
+use super::add256::{
+    add_le_256_with_final_carry_bits, subtract_le_256_with_final_no_borrow_bits,
+    wrapping_add_le_256_bits,
+};
 use super::ir::{BuilderBit, CircuitBuilder};
 
 const SCALAR_BIT_WIDTH: usize = 256;
 const CLAMPED_REDUCTION_ROUNDS: usize = 7;
 const ZERO: BuilderBit = BuilderBit::Constant(false);
 
+const SCALAR_ORDER_LE: [u8; 32] = [
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+];
 const NEGATIVE_SCALAR_ORDER_LE: [u8; 32] = [
     0x13, 0x2c, 0x0a, 0xa3, 0xe5, 0x9c, 0xed, 0xa7, 0x29, 0x63, 0x08, 0x5d, 0x21, 0x06, 0x21, 0xeb,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xef,
@@ -29,6 +36,17 @@ pub(super) fn add_mod_l_bits(
 ) -> [BuilderBit; SCALAR_BIT_WIDTH] {
     let sum = wrapping_add_le_256_bits(builder, left, right);
     conditional_subtract_l_bits(builder, sum)
+}
+
+/// Both inputs must be canonical scalar encodings.
+pub(super) fn subtract_mod_l_bits(
+    builder: &mut CircuitBuilder,
+    left: [BuilderBit; SCALAR_BIT_WIDTH],
+    right: [BuilderBit; SCALAR_BIT_WIDTH],
+) -> [BuilderBit; SCALAR_BIT_WIDTH] {
+    let (difference, no_borrow) = subtract_le_256_with_final_no_borrow_bits(builder, left, right);
+    let wrapped = wrapping_add_le_256_bits(builder, difference, constant_bits_le(SCALAR_ORDER_LE));
+    select_bits(builder, no_borrow, difference, wrapped)
 }
 
 fn conditional_subtract_l_bits(
@@ -72,7 +90,9 @@ mod tests {
 
     use crate::{clamp_rfc8032, wrapping_add_le_256};
 
-    use super::{add_mod_l_bits, reduce_clamped_mod_l_bits, CLAMPED_REDUCTION_ROUNDS};
+    use super::{
+        add_mod_l_bits, reduce_clamped_mod_l_bits, subtract_mod_l_bits, CLAMPED_REDUCTION_ROUNDS,
+    };
     use crate::circuit::ir::{BuilderBit, CanonicalBooleanCircuitV1, CircuitBuilder};
 
     const BYTE_WIDTH: usize = 32;
@@ -126,6 +146,17 @@ mod tests {
         builder
             .finish_test_circuit(output.to_vec())
             .expect("modular-addition circuit finalizes")
+    }
+
+    fn subtraction_circuit() -> CanonicalBooleanCircuitV1 {
+        let mut builder = CircuitBuilder::new(512).expect("512-input subtraction builder");
+        let inputs = builder.input_bits();
+        let left = builder_bits(&inputs[..BIT_WIDTH]);
+        let right = builder_bits(&inputs[BIT_WIDTH..]);
+        let output = subtract_mod_l_bits(&mut builder, left, right);
+        builder
+            .finish_test_circuit(output.to_vec())
+            .expect("modular-subtraction circuit finalizes")
     }
 
     fn tau_aggregation_circuit() -> CanonicalBooleanCircuitV1 {
@@ -268,6 +299,37 @@ mod tests {
                 evaluate_many(&circuit, &[left.to_bytes(), right.to_bytes()]),
                 (left + right).to_bytes(),
                 "modular addition disagrees"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_modular_subtraction_matches_dalek() {
+        let circuit = subtraction_circuit();
+        let zero = Scalar::ZERO;
+        let one = Scalar::ONE;
+        let minus_one = -Scalar::ONE;
+        let mut cases = vec![
+            (zero, zero),
+            (zero, one),
+            (zero, minus_one),
+            (one, zero),
+            (one, one),
+            (minus_one, zero),
+            (minus_one, minus_one),
+        ];
+        for case_index in 0..24 {
+            cases.push((
+                deterministic_scalar(0x28, case_index),
+                deterministic_scalar(0x39, case_index),
+            ));
+        }
+
+        for (left, right) in cases {
+            assert_eq!(
+                evaluate_many(&circuit, &[left.to_bytes(), right.to_bytes()]),
+                (left - right).to_bytes(),
+                "modular subtraction disagrees"
             );
         }
     }

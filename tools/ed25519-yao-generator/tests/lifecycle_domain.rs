@@ -490,7 +490,7 @@ fn external_api_cannot_cross_blocked_lifecycle_boundaries() {
         CompileFailure {
             name: "issuance authority types are internal",
             body: "use ed25519_yao_generator::lifecycle_domain::{\n\
-                       RegistrationArtifactIssuanceV1, RefreshArtifactIssuanceV1,\n\
+                       RegistrationArtifactIssuanceV1,\n\
                        ExportArtifactIssuanceV1,\n\
                    };\n\
                    fn main() {}",
@@ -908,9 +908,8 @@ fn lifecycle_sources_expose_only_profile_neutral_public_metadata() {
     }
     let recovery_session_entry = declaration_body(lifecycle, "impl RecoveryRequestV1");
     assert!(recovery_session_entry.contains("admission: AcceptedRecoveryAdmissionV1"));
-    assert!(!recovery_session_entry.contains(
-        "evaluation_evidence_digest: OpaqueHostReferenceEvaluationEvidenceDigest32V1"
-    ));
+    assert!(!recovery_session_entry
+        .contains("evaluation_evidence_digest: OpaqueHostReferenceEvaluationEvidenceDigest32V1"));
     assert!(!lifecycle.contains("RecoveryArtifactIssuanceV1"));
     for constructor in [
         "from_registration_failure(",
