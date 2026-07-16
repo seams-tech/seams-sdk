@@ -59,7 +59,8 @@ npm run build:a:cross-account
 npm run build:b:cross-account
 ```
 
-The repository-pinned Wrangler 4.105.0 binary drives dry runs and local workerd:
+The repository-pinned Wrangler 4.111.0 binary drives dry runs, local workerd,
+and named-profile deployment preflights:
 
 ```sh
 npm run dry-run:b

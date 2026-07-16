@@ -64,6 +64,6 @@
     "test:isolation": "node scripts/test_benchmark_isolation.mjs"
   },
   "devDependencies": {
-    "wrangler": "4.105.0"
+    "wrangler": "4.111.0"
   }
 }
