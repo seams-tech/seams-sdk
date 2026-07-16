@@ -12,6 +12,8 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 import type {
   EcdsaExportLane,
+  EmailOtpEcdsaPublicReauthExportAuthority,
+  ExactEcdsaExportSession,
   FreshEmailOtpEcdsaExportMaterial,
   FreshPasskeyEcdsaExportMaterial,
   PasskeyEcdsaExportBootstrapContext,
@@ -32,6 +34,11 @@ declare const broadCommittedLane: RecordBackedEcdsaCommittedLane<EmailOtpWalletA
 declare const readyCommittedLane: ReadyEcdsaExportLane<EmailOtpWalletAuthAuthority>;
 declare const readyPasskeyCommittedLane: ReadyEcdsaExportLane<PasskeyWalletAuthAuthority>;
 declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+declare const publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+declare const currentExactExportSession: Extract<
+  ExactEcdsaExportSession,
+  { state: 'ready' | 'restorable' | 'deferred' }
+>;
 declare const passkeyBootstrap: PasskeyEcdsaExportBootstrapContext;
 
 // @ts-expect-error post-finalize ECDSA export lanes require wallet-bound authority, not pure factor identity.
@@ -154,6 +161,34 @@ const durableRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
   authorization: { kind: 'durable_authority_backed', signingSessionAuthority },
 };
 void durableRouteAuthReadyMaterial;
+
+const publicReauthRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
+  kind: 'fresh_email_otp_route_auth_ready',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+  authorization: { kind: 'public_reauth_authority_backed', publicReauthAuthority },
+};
+void publicReauthRouteAuthReadyMaterial;
+
+const invalidMixedPublicReauthAuthority: FreshEmailOtpEcdsaExportMaterial = {
+  ...durableRouteAuthReadyMaterial,
+  // @ts-expect-error one export authorization branch cannot carry public reauth authority.
+  authorization: {
+    kind: 'durable_authority_backed',
+    signingSessionAuthority,
+    publicReauthAuthority,
+  },
+};
+void invalidMixedPublicReauthAuthority;
+
+// @ts-expect-error retired export sessions require an exact durable public reauth authority.
+const retiredExportSessionWithoutAuthority: ExactEcdsaExportSession = {
+  ...currentExactExportSession,
+  state: 'exhausted',
+  source: 'durable_sealed_record',
+};
+void retiredExportSessionWithoutAuthority;
 
 // @ts-expect-error route-auth-ready fresh material requires one exact authority branch.
 const freshRouteAuthReadyWithoutAuthority: FreshEmailOtpEcdsaExportMaterial = {

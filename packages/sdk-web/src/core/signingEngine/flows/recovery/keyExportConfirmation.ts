@@ -43,10 +43,23 @@ export type EmailOtpWalletSessionExportAuthorizationDeps = {
   ) => Promise<{ challengeId: string; emailHint?: string }>;
 };
 
-type WalletSessionEcdsaExportChallengeAuthority = {
-  kind: 'signing_session';
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-};
+export type EmailOtpEcdsaExportAuthorizationDeps =
+  EmailOtpWalletSessionExportAuthorizationDeps & {
+    requestPublicReauthExportChallenge: (args: {
+      walletSession: WalletSessionRef;
+      chain: ThresholdEcdsaChainTarget['kind'];
+    }) => Promise<{ challengeId: string; emailHint?: string }>;
+  };
+
+type WalletSessionEcdsaExportChallengeAuthority =
+  | {
+      kind: 'signing_session';
+      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+    }
+  | {
+      kind: 'public_reauth';
+      authLane?: never;
+    };
 
 type WalletSessionEcdsaExportAuthorizationArgs = {
   kind: 'wallet_session_export_auth';
@@ -73,17 +86,23 @@ type WalletSessionEd25519ExportAuthorizationArgs = {
   authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
 };
 
-function walletSessionEcdsaExportChallengeRequest(
+async function requestWalletSessionEcdsaExportChallenge(
+  deps: EmailOtpEcdsaExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
-): EmailOtpWalletSessionExportChallengeArgs {
+): Promise<{ challengeId: string; emailHint?: string }> {
   switch (args.challengeAuthority.kind) {
     case 'signing_session':
-      return {
+      return await deps.requestExportChallenge({
         kind: 'wallet_session_challenge',
         walletSession: args.walletSession,
         chain: args.chain,
         authLane: args.challengeAuthority.authLane,
-      };
+      });
+    case 'public_reauth':
+      return await deps.requestPublicReauthExportChallenge({
+        walletSession: args.walletSession,
+        chain: args.chain,
+      });
   }
 }
 
@@ -156,7 +175,7 @@ export function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
 }
 
 export async function requestEmailOtpKeyExportAuthorization(
-  deps: EmailOtpWalletSessionExportAuthorizationDeps,
+  deps: EmailOtpEcdsaExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): Promise<ExportEmailOtpStepUpAuthorization> {
   const accountIdForUi = args.walletSession.walletSessionUserId;
@@ -167,7 +186,7 @@ export async function requestEmailOtpKeyExportAuthorization(
     curve: args.curve,
     challengeSource: {
       requestChallenge: async () =>
-        await deps.requestExportChallenge(walletSessionEcdsaExportChallengeRequest(args)),
+        await requestWalletSessionEcdsaExportChallenge(deps, args),
     },
     confirmer: {
       requestUserConfirmation: async (request) =>

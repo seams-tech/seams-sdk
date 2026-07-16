@@ -115,6 +115,12 @@ export class EmailOtpWalletSessionCoordinator {
     return await this.runtime.requestExportChallenge(args);
   }
 
+  async requestPublicReauthExportChallenge(
+    args: Parameters<EmailOtpWalletSessionRuntime['requestPublicReauthExportChallenge']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['requestPublicReauthExportChallenge']> {
+    return await this.runtime.requestPublicReauthExportChallenge(args);
+  }
+
   exportEcdsaKeyWithAuthorization(
     args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithAuthorization']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithAuthorization']> {
@@ -125,6 +131,12 @@ export class EmailOtpWalletSessionCoordinator {
     args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithDurableAuthorization']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithDurableAuthorization']> {
     return this.runtime.exportEcdsaKeyWithDurableAuthorization(args);
+  }
+
+  exportEcdsaKeyWithPublicReauthAuthorization(
+    args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithPublicReauthAuthorization']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithPublicReauthAuthorization']> {
+    return this.runtime.exportEcdsaKeyWithPublicReauthAuthorization(args);
   }
 
   exportEd25519YaoSeedWithFreshEmailOtpLane(

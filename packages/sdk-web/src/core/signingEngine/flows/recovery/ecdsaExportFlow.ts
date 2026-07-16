@@ -35,6 +35,7 @@ import {
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
+  type EmailOtpEcdsaExportAuthorizationDeps,
   type EmailOtpWalletSessionExportAuthorizationDeps,
   createEmailOtpKeyExportRequiresPasskeyError,
   isEmailOtpPasskeyStepUpError,
@@ -63,6 +64,7 @@ export type EcdsaExportFlowDeps = {
   theme?: ThemeMode;
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
+    requestPublicReauthExportChallenge: EmailOtpEcdsaExportAuthorizationDeps['requestPublicReauthExportChallenge'];
     exportEcdsaKeyWithDurableAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
       chainTarget: ThresholdEcdsaChainTarget;
@@ -80,6 +82,16 @@ export type EcdsaExportFlowDeps = {
       challengeId: string;
       otpCode: string;
       committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
+    }) => Promise<EcdsaExportArtifact>;
+    exportEcdsaKeyWithPublicReauthAuthorization: (args: {
+      walletSession: ReturnType<typeof walletSessionRefFromSession>;
+      chainTarget: ThresholdEcdsaChainTarget;
+      challengeId: string;
+      otpCode: string;
+      publicReauthAuthority: Extract<
+        FreshEmailOtpEcdsaExportMaterial['authorization'],
+        { kind: 'public_reauth_authority_backed' }
+      >['publicReauthAuthority'];
     }) => Promise<EcdsaExportArtifact>;
   };
   warmSessionPolicy: Pick<
@@ -381,12 +393,20 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   };
 }
 
-function emailOtpEcdsaExportAuthLane(material: FreshEmailOtpEcdsaExportMaterial) {
+function emailOtpEcdsaExportChallengeAuthority(material: FreshEmailOtpEcdsaExportMaterial) {
   switch (material.authorization.kind) {
     case 'record_backed':
-      return material.authorization.committedLane.authLane;
+      return {
+        kind: 'signing_session' as const,
+        authLane: material.authorization.committedLane.authLane,
+      };
     case 'durable_authority_backed':
-      return material.authorization.signingSessionAuthority.authLane;
+      return {
+        kind: 'signing_session' as const,
+        authLane: material.authorization.signingSessionAuthority.authLane,
+      };
+    case 'public_reauth_authority_backed':
+      return { kind: 'public_reauth' as const };
   }
 }
 
@@ -418,6 +438,14 @@ async function prepareFreshEmailOtpEcdsaExportArtifact(args: {
         runtimePolicyScope: args.material.runtimePolicyScope,
         signingSessionAuthority: args.material.authorization.signingSessionAuthority,
       });
+    case 'public_reauth_authority_backed':
+      return await args.deps.emailOtp.exportEcdsaKeyWithPublicReauthAuthorization({
+        walletSession,
+        chainTarget: args.material.chainTarget,
+        challengeId: args.authorization.challengeId,
+        otpCode: args.authorization.otpCode,
+        publicReauthAuthority: args.material.authorization.publicReauthAuthority,
+      });
   }
 }
 
@@ -433,11 +461,12 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
   const exportChain = ecdsaExportBoundaryChain(args.exportLane);
-  const authLane = emailOtpEcdsaExportAuthLane(args.material);
+  const challengeAuthority = emailOtpEcdsaExportChallengeAuthority(args.material);
   const authorization = await requestEmailOtpKeyExportAuthorization(
     {
       touchConfirm: deps.touchConfirm,
       requestExportChallenge: deps.emailOtp.requestExportChallenge,
+      requestPublicReauthExportChallenge: deps.emailOtp.requestPublicReauthExportChallenge,
     },
     {
       kind: 'wallet_session_export_auth',
@@ -448,7 +477,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       chain: exportChain,
       publicKey: String(args.material.publicFacts.publicKeyB64u),
       curve: 'ecdsa' satisfies WalletAuthCurve,
-      challengeAuthority: { kind: 'signing_session', authLane },
+      challengeAuthority,
     },
   );
   return await prepareAndShowEcdsaExportArtifact(deps, {
@@ -532,6 +561,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       {
         touchConfirm: deps.touchConfirm,
         requestExportChallenge: deps.emailOtp.requestExportChallenge,
+        requestPublicReauthExportChallenge: deps.emailOtp.requestPublicReauthExportChallenge,
       },
       {
         kind: 'wallet_session_export_auth',

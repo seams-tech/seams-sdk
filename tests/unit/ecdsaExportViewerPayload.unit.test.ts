@@ -79,7 +79,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(capturedPayload.keys).toEqual([
       {
         scheme: 'secp256k1',
-        label: 'EVM private key',
+        label: 'EVM',
         publicKey: '0x02abcdef',
         privateKey: '',
         address: '0x1111111111111111111111111111111111111111',
@@ -158,6 +158,9 @@ test.describe('threshold ECDSA export viewer payload', () => {
           capturedChallengeKind = request.kind;
           return { challengeId: 'email-otp-export-1' };
         },
+        requestPublicReauthExportChallenge: async () => {
+          throw new Error('unexpected public-reauth export challenge');
+        },
       },
       {
         kind: 'wallet_session_export_auth',
@@ -178,5 +181,50 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(capturedChallengeKind).toBe('wallet_session_challenge');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedPayloadWalletId).toBe('frost-vermillion-k7p9m2');
+  });
+
+  test('requests fresh Email OTP export authorization from the public reauth authority', async () => {
+    let publicReauthRequest: unknown = null;
+    const walletId = toWalletId('frost-vermillion-k7p9m2');
+
+    const authorization = await requestEmailOtpKeyExportAuthorization(
+      {
+        touchConfirm: {
+          requestUserConfirmation: async (request) => ({
+            requestId: request.requestId,
+            confirmed: true,
+            otpCode: '123456',
+            emailOtpChallengeId: 'email-otp-public-reauth-export-1',
+          }),
+        },
+        requestExportChallenge: async () => {
+          throw new Error('unexpected signing-session export challenge');
+        },
+        requestPublicReauthExportChallenge: async (request) => {
+          publicReauthRequest = request;
+          return { challengeId: 'email-otp-public-reauth-export-1' };
+        },
+      },
+      {
+        kind: 'wallet_session_export_auth',
+        walletSession: {
+          walletId,
+          walletSessionUserId: String(walletId),
+        },
+        chain: 'evm',
+        publicKey: '0x02abcdef',
+        curve: 'ecdsa',
+        challengeAuthority: { kind: 'public_reauth' },
+      },
+    );
+
+    expect(publicReauthRequest).toEqual({
+      walletSession: {
+        walletId,
+        walletSessionUserId: String(walletId),
+      },
+      chain: 'evm',
+    });
+    expect(authorization.challengeId).toBe('email-otp-public-reauth-export-1');
   });
 });

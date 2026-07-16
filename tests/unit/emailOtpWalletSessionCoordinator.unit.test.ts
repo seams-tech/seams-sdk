@@ -275,6 +275,7 @@ function appSessionJwt(expSeconds = Math.floor(Date.now() / 1000) + 3600): strin
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'app_session_v1',
     sub: 'google:subject',
+    walletId: TEST_WALLET_SESSION.walletId,
     exp: expSeconds,
   })}.sig`;
 }
@@ -286,6 +287,7 @@ function appSessionJwtWithRuntimePolicyScope(
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'app_session_v1',
     sub: 'google:subject',
+    walletId: TEST_WALLET_SESSION.walletId,
     runtimePolicyScope,
     exp: expSeconds,
   })}.sig`;
@@ -635,6 +637,7 @@ function buildEcdsaSealedRecordFixture(
   const ecdsaRestore: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'] = {
     chainTarget,
     source: 'email_otp',
+    provider: args.ecdsaRestore?.provider || 'google',
     evmFamilySigningKeySlotId:
       args.ecdsaRestore?.evmFamilySigningKeySlotId ||
       deriveEvmFamilySigningKeySlotId({
@@ -1093,6 +1096,40 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
               curve: 'ed25519',
             },
             operation: 'transaction_sign',
+          },
+          otpChannel: 'email_otp',
+        },
+      },
+    });
+  });
+
+  test('requests page-refresh export challenges with refreshed app-session authority', async () => {
+    const { coordinator, workerCalls, getRefreshCount } = createCoordinator();
+
+    const challenge = await coordinator.requestPublicReauthExportChallenge({
+      walletSession: TEST_WALLET_SESSION,
+      chain: 'evm',
+    });
+
+    expect(challenge).toMatchObject({
+      challengeId: 'challenge-1',
+      emailHint: 'a***@example.com',
+    });
+    expect(getRefreshCount()).toBe(1);
+    expect(workerCalls[0]).toMatchObject({
+      kind: 'emailOtp',
+      request: {
+        type: 'requestEmailOtpChallenge',
+        payload: {
+          relayUrl: 'https://relay.example',
+          walletId: 'alice.testnet',
+          routePlan: {
+            routeFamily: 'login',
+            authLane: {
+              kind: 'app_session',
+              jwt: expect.any(String),
+            },
+            operation: 'export_key',
           },
           otpChannel: 'email_otp',
         },
@@ -1730,6 +1767,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
 
     const record = {
+      purpose: 'transaction_signing',
       walletId: toWalletId('alice.testnet'),
       evmFamilySigningKeySlotId,
       chainTarget: TEMPO_CHAIN_TARGET,
@@ -1857,6 +1895,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
 
     const record = {
+      purpose: 'transaction_signing',
       walletId: toWalletId('alice.testnet'),
       evmFamilySigningKeySlotId,
       chainTarget: tempoChainTarget,

@@ -41,11 +41,15 @@ import {
   resolveEcdsaExportMaterialForLane,
   resolveFreshEmailOtpEcdsaExportMaterialForLane,
   type EcdsaExportSessionStoreDeps,
+  type EmailOtpEcdsaPublicReauthExportAuthority,
   type ExactEcdsaExportLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { buildEcdsaDerivationExportAuthorizationDigestInput } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
-import { exportEcdsaKeyWithDurableAuthorization } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery';
+import {
+  exportEcdsaKeyWithDurableAuthorization,
+  exportEcdsaKeyWithPublicReauthAuthorization,
+} from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery';
 import { buildEmailOtpSigningSessionRoutePlan } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan';
 import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
@@ -392,7 +396,31 @@ async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<Exa
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
       state: 'ready',
       source: 'runtime_session_record',
+      material: { kind: 'loaded_worker_material' },
     },
+  };
+}
+
+function emailOtpPublicReauthAuthority(
+  record: EmailOtpEcdsaSessionRecord,
+): EmailOtpEcdsaPublicReauthExportAuthority {
+  return {
+    source: 'email_otp',
+    provider: 'google',
+    providerSubjectId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
+    emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+    chainTarget: record.chainTarget,
+    signingRootId: record.signingRootId,
+    signingRootVersion: record.signingRootVersion,
+    evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
+    keyHandle: record.keyHandle,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    ethereumAddress: record.ethereumAddress,
+    relayerKeyId: record.relayerKeyId,
+    thresholdEcdsaPublicKeyB64u: String(record.thresholdEcdsaPublicKeyB64u),
+    participantIds: [...record.participantIds],
+    runtimePolicyScope: record.runtimePolicyScope,
+    routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -645,6 +673,9 @@ test.describe('ECDSA export material', () => {
             challengeRequests.push(request);
             return { challengeId: 'export-challenge-1' };
           },
+          requestPublicReauthExportChallenge: async () => {
+            throw new Error('unexpected public-reauth export challenge');
+          },
           exportEcdsaKeyWithDurableAuthorization: async () => {
             throw new Error('unexpected durable-authority export');
           },
@@ -656,6 +687,9 @@ test.describe('ECDSA export material', () => {
               privateKeyHex: '01',
               ethereumAddress: OWNER_ADDRESS,
             };
+          },
+          exportEcdsaKeyWithPublicReauthAuthorization: async () => {
+            throw new Error('unexpected public-reauth export');
           },
         },
         warmSessionPolicy: {
@@ -759,6 +793,95 @@ test.describe('ECDSA export material', () => {
         routeFamily: 'signing_session',
         authLane: authorityResolution.authority.authLane,
       },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        providerUserId: 'google:alice',
+      },
+      includeEcdsaExportArtifact: true,
+    });
+  });
+
+  test('page-refresh Email OTP export uses the durable public reauth authority after session retirement', async () => {
+    const record = makeRecord();
+    const activeLane = await exactExportLane(record);
+    const publicReauthAuthority = emailOtpPublicReauthAuthority(record);
+    const exportLane: ExactEcdsaExportLane = {
+      curve: 'ecdsa',
+      laneIdentity: activeLane.laneIdentity,
+      key: activeLane.key,
+      publicFacts: activeLane.publicFacts,
+      session: {
+        chainTarget: record.chainTarget,
+        authMethod: 'email_otp',
+        signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
+        thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
+        state: 'exhausted',
+        source: 'durable_sealed_record',
+        material: { kind: 'material_pending', reason: 'email_otp_route_auth' },
+        publicReauthAuthority,
+      },
+    };
+    const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
+      {
+        recordsByLane: new Map(),
+        exportArtifactsByLane: new Map(),
+      },
+      exportLane,
+    );
+
+    expect(material.authorization).toEqual({
+      kind: 'public_reauth_authority_backed',
+      publicReauthAuthority,
+    });
+    expect(material.publicFacts).toEqual(activeLane.publicFacts);
+    expect(material.runtimePolicyScope).toEqual(record.runtimePolicyScope);
+  });
+
+  test('public reauth ECDSA export provisions its artifact through an app-session export route', async () => {
+    const record = makeRecord();
+    const publicReauthAuthority = emailOtpPublicReauthAuthority(record);
+    let loginRequest: unknown = null;
+    const artifact = await exportEcdsaKeyWithPublicReauthAuthorization(
+      {
+        requireRelayUrl: () => record.relayerUrl,
+      },
+      {
+        walletSession: {
+          walletId: record.walletId,
+          walletSessionUserId: String(record.walletId),
+        },
+        chainTarget: record.chainTarget,
+        challengeId: 'public-reauth-export-challenge',
+        otpCode: '123456',
+        appSessionJwt: 'app-session-jwt',
+        publicReauthAuthority,
+        loginWithEcdsaCapabilityInternal: async (request) => {
+          loginRequest = request;
+          return {
+            bootstrap: {
+              thresholdEcdsaKeyRef: {
+                ecdsaDerivationExportArtifact: {
+                  publicKeyHex: '02',
+                  privateKeyHex: '01',
+                  ethereumAddress: OWNER_ADDRESS,
+                },
+              },
+            },
+          };
+        },
+      },
+    );
+
+    expect(artifact.ethereumAddress).toBe(OWNER_ADDRESS);
+    expect(loginRequest).toMatchObject({
+      challengeId: 'public-reauth-export-challenge',
+      otpCode: '123456',
+      operation: 'export_key',
+      routePlan: {
+        routeFamily: 'login',
+        authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
+      },
+      keyHandle: record.keyHandle,
       providerIdentity: {
         kind: 'explicit_provider_user',
         providerUserId: 'google:alice',

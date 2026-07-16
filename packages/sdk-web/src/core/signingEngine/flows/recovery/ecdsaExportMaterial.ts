@@ -35,6 +35,7 @@ import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/la
 import {
   listExactSealedSessionsForWallet,
   type CurrentEcdsaSealedSessionRecord,
+  type EcdsaReauthAnchorPublicRestore,
 } from '../../session/persistence/sealedSessionStore';
 import {
   type ThresholdEcdsaChainTarget,
@@ -70,25 +71,41 @@ export type EcdsaExportMaterialAvailability =
   | { kind: 'sealed_worker_material' }
   | { kind: 'material_pending'; reason: 'email_otp_route_auth' };
 
+type ExactEcdsaExportSessionBase = {
+  chainTarget: ThresholdEcdsaChainTarget;
+  authMethod: 'email_otp' | 'passkey';
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  material: EcdsaExportMaterialAvailability;
+  ecdsaThresholdKeyId?: never;
+  signingRootId?: never;
+  signingRootVersion?: never;
+  participantIds?: never;
+  thresholdOwnerAddress?: never;
+};
+
+type CurrentExactEcdsaExportSession = ExactEcdsaExportSessionBase & {
+  state: Exclude<ConcreteAvailableEcdsaSigningLane['state'], 'expired' | 'exhausted'>;
+  source: ConcreteAvailableEcdsaSigningLane['source'];
+  publicReauthAuthority?: never;
+};
+
+type PublicReauthExactEcdsaExportSession = ExactEcdsaExportSessionBase & {
+  state: 'expired' | 'exhausted';
+  source: 'durable_sealed_record';
+  publicReauthAuthority: EcdsaReauthAnchorPublicRestore;
+};
+
+export type ExactEcdsaExportSession =
+  | CurrentExactEcdsaExportSession
+  | PublicReauthExactEcdsaExportSession;
+
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
   laneIdentity: ExactEcdsaSigningLaneIdentity;
   key: EvmFamilyEcdsaKeyIdentity;
   publicFacts: VerifiedEcdsaPublicFacts;
-  session: {
-    chainTarget: ThresholdEcdsaChainTarget;
-    authMethod: 'email_otp' | 'passkey';
-    signingGrantId: SigningGrantId;
-    thresholdSessionId: ThresholdEcdsaSessionId;
-    state: ConcreteAvailableEcdsaSigningLane['state'];
-    source: ConcreteAvailableEcdsaSigningLane['source'];
-    material: EcdsaExportMaterialAvailability;
-    ecdsaThresholdKeyId?: never;
-    signingRootId?: never;
-    signingRootVersion?: never;
-    participantIds?: never;
-    thresholdOwnerAddress?: never;
-  };
+  session: ExactEcdsaExportSession;
 };
 
 export type EcdsaExportSessionStoreDeps = {
@@ -159,12 +176,26 @@ type FreshEmailOtpEcdsaRecordBackedExportAuthority = {
   kind: 'record_backed';
   committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
   signingSessionAuthority?: never;
+  publicReauthAuthority?: never;
 };
 
 type FreshEmailOtpEcdsaDurableExportAuthority = {
   kind: 'durable_authority_backed';
   signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
   committedLane?: never;
+  publicReauthAuthority?: never;
+};
+
+export type EmailOtpEcdsaPublicReauthExportAuthority = Extract<
+  EcdsaReauthAnchorPublicRestore,
+  { source: 'email_otp' }
+>;
+
+type FreshEmailOtpEcdsaPublicReauthExportAuthority = {
+  kind: 'public_reauth_authority_backed';
+  publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+  committedLane?: never;
+  signingSessionAuthority?: never;
 };
 
 export type FreshEmailOtpEcdsaExportMaterial = {
@@ -174,7 +205,8 @@ export type FreshEmailOtpEcdsaExportMaterial = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   authorization:
     | FreshEmailOtpEcdsaRecordBackedExportAuthority
-    | FreshEmailOtpEcdsaDurableExportAuthority;
+    | FreshEmailOtpEcdsaDurableExportAuthority
+    | FreshEmailOtpEcdsaPublicReauthExportAuthority;
   record?: never;
   authLane?: never;
 };
@@ -587,6 +619,42 @@ function passkeyEcdsaExportBootstrapFromSealedRecord(
   };
 }
 
+function emailOtpPublicReauthAuthorityForExportLane(
+  exportLane: ExactEcdsaExportLane,
+): EmailOtpEcdsaPublicReauthExportAuthority | null {
+  switch (exportLane.session.state) {
+    case 'expired':
+    case 'exhausted': {
+      const authority = exportLane.session.publicReauthAuthority;
+      if (authority.source !== 'email_otp') {
+        throw new Error(
+          '[SigningEngine][ecdsa-export] Email OTP public reauth lane has non-Email-OTP authority',
+        );
+      }
+      return authority;
+    }
+    case 'ready':
+    case 'restorable':
+    case 'deferred':
+      return null;
+  }
+}
+
+async function verifiedEcdsaPublicFactsFromPublicReauthAuthority(
+  authority: EmailOtpEcdsaPublicReauthExportAuthority,
+): Promise<VerifiedEcdsaPublicFacts> {
+  return await toVerifiedEcdsaPublicFactsFromDurableRecord({
+    record: {
+      ecdsaRestore: {
+        keyHandle: authority.keyHandle,
+        thresholdEcdsaPublicKeyB64u: authority.thresholdEcdsaPublicKeyB64u,
+        participantIds: authority.participantIds,
+        ethereumAddress: authority.ethereumAddress,
+      },
+    },
+  });
+}
+
 export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
@@ -595,22 +663,29 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
     throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
   }
   const runtimeRecord = readEcdsaExportRecordForLane(deps, exportLane);
-  let sealedRecord = runtimeRecord
-    ? null
-    : await resolveExactSealedEcdsaExportRecordForLane(exportLane);
+  const publicReauthAuthority = emailOtpPublicReauthAuthorityForExportLane(exportLane);
+  let sealedRecord: CurrentEcdsaSealedSessionRecord | null = null;
+  if (!runtimeRecord && !publicReauthAuthority) {
+    sealedRecord = await resolveExactSealedEcdsaExportRecordForLane(exportLane);
+  }
   const sealedRestore = sealedRecord?.ecdsaRestore;
-  const publicFacts = runtimeRecord
-    ? await toVerifiedEcdsaPublicFactsFromRecord({ record: runtimeRecord })
-    : await toVerifiedEcdsaPublicFactsFromDurableRecord({
-        record: {
-          ecdsaRestore: {
-            keyHandle: sealedRestore?.keyHandle || exportLane.publicFacts.keyHandle,
-            thresholdEcdsaPublicKeyB64u: sealedRestore?.thresholdEcdsaPublicKeyB64u,
-            participantIds: sealedRestore?.participantIds,
-            ethereumAddress: sealedRestore?.ethereumAddress,
-          },
+  let publicFacts: VerifiedEcdsaPublicFacts;
+  if (runtimeRecord) {
+    publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record: runtimeRecord });
+  } else if (publicReauthAuthority) {
+    publicFacts = await verifiedEcdsaPublicFactsFromPublicReauthAuthority(publicReauthAuthority);
+  } else {
+    publicFacts = await toVerifiedEcdsaPublicFactsFromDurableRecord({
+      record: {
+        ecdsaRestore: {
+          keyHandle: sealedRestore?.keyHandle || exportLane.publicFacts.keyHandle,
+          thresholdEcdsaPublicKeyB64u: sealedRestore?.thresholdEcdsaPublicKeyB64u,
+          participantIds: sealedRestore?.participantIds,
+          ethereumAddress: sealedRestore?.ethereumAddress,
         },
-      });
+      },
+    });
+  }
   assertMatchingVerifiedEcdsaPublicFacts({
     expected: exportLane.publicFacts,
     actual: publicFacts,
@@ -618,6 +693,7 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   });
   const runtimePolicyScope =
     runtimeRecord?.runtimePolicyScope ||
+    publicReauthAuthority?.runtimePolicyScope ||
     normalizeThresholdRuntimePolicyScope(sealedRestore?.runtimePolicyScope);
   if (!runtimePolicyScope) {
     throw new Error(
@@ -645,6 +721,18 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
         },
       };
     }
+  }
+  if (publicReauthAuthority) {
+    return {
+      kind: 'fresh_email_otp_route_auth_ready',
+      chainTarget: exportLane.session.chainTarget,
+      publicFacts,
+      runtimePolicyScope,
+      authorization: {
+        kind: 'public_reauth_authority_backed',
+        publicReauthAuthority,
+      },
+    };
   }
   sealedRecord ||= await resolveExactSealedEcdsaExportRecordForLane(exportLane);
   const signingSessionAuthority = emailOtpEcdsaSigningSessionAuthorityFromSealedRecord({
