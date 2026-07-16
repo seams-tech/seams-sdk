@@ -62,6 +62,12 @@ import type {
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
+import {
+  loadSecp256k1EngineCtor,
+  loadSignEvmFamilyWithUiConfirmForTempo,
+  loadSignEvmWithUiConfirm,
+  loadWebAuthnP256EngineCtor,
+} from '../../flows/signEvmFamily/signerLoader';
 
 type RequestEmailOtpTransactionSigningChallengeArgs = Parameters<
   NonNullable<EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge']>
@@ -292,7 +298,17 @@ export function createWorkerResourceWarmupDepsFactory(
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
     workerWarmupPolicy: args.workerWarmupPolicy,
     prewarmUiConfirmUi: async () => {
-      await Promise.all([args.touchConfirm.initialize(), prewarmTxConfirmerUi()]);
+      await Promise.all([
+        args.touchConfirm.initialize(),
+        prewarmTxConfirmerUi(),
+        /* Also warm the lazily-imported EVM-family signing flow chunks: the
+           first sign after a page load otherwise pays these dynamic imports
+           before the confirmation modal can open. */
+        loadSignEvmFamilyWithUiConfirmForTempo().catch(() => {}),
+        loadSignEvmWithUiConfirm().catch(() => {}),
+        loadSecp256k1EngineCtor().catch(() => {}),
+        loadWebAuthnP256EngineCtor().catch(() => {}),
+      ]);
     },
     activateAuthenticatedWalletState: args.activateAuthenticatedWalletState,
   });

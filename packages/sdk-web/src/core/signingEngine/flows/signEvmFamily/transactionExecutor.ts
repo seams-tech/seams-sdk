@@ -136,8 +136,15 @@ async function executeConfiguredEvmFamilyTransactionSigning<
   args: EvmFamilyTransactionSigningExecutorArgs<TRequest>,
   config: EvmFamilyTransactionSigningConfig<TRequest>,
 ): Promise<EvmFamilyTransactionSigningResult> {
+  /* Durable-lease recovery only has to finish before the managed-nonce
+     reservation, so it runs concurrently with the signer chunk load and is
+     awaited inside prepareRequestWithManagedNonce — keeping its IndexedDB
+     (and occasional RPC) work off the confirmation modal's critical path. */
+  const recoverDurableLeasesTask = args.deps.nonceCoordinator.recoverDurableLeases({
+    walletId: args.walletId,
+  });
+  recoverDurableLeasesTask.catch(() => {});
   const signWithUiConfirm = await config.loadSigner();
-  await args.deps.nonceCoordinator.recoverDurableLeases({ walletId: args.walletId });
 
   try {
     const result = await signWithUiConfirm({
@@ -146,13 +153,15 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       onConfirmationDisplayed: args.onConfirmationDisplayed,
       thresholdEcdsaStepUp: args.thresholdEcdsaStepUp,
       reserveSigningGrantBudget: args.reserveSigningGrantBudget,
-      prepareRequestWithManagedNonce: async () =>
-        await config.prepareRequestWithManagedNonce({
+      prepareRequestWithManagedNonce: async () => {
+        await recoverDurableLeasesTask;
+        return await config.prepareRequestWithManagedNonce({
           deps: args.deps,
           walletId: args.walletId,
           request: args.request,
           nonceOperation: args.nonceOperation,
-        }),
+        });
+      },
       releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
       },
