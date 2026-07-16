@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ScanIcon } from './icons/ScanIcon';
 import { KeyIcon } from './icons/KeyIcon';
 import { LinkIcon } from './icons/LinkIcon';
+import { GlobeIcon } from './icons/GlobeIcon';
 import { SlidersIcon } from './icons/SlidersIcon';
 import { RecoveryCodesIcon } from './icons/RecoveryCodesIcon';
 import { SpinnerIcon } from './icons/SpinnerIcon';
@@ -10,15 +11,14 @@ import { UserAccountButton } from './UserAccountButton';
 import { ProfileDropdown } from './ProfileDropdown';
 import { useProfileState } from './hooks/useProfileState';
 import { useSeams } from '../../context';
-import type { AccountMenuButtonProps, MenuItem } from './types';
+import type { AccountMenuButtonProps, AccountsSectionRow, MenuItem } from './types';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
-import { LinkedDevicesModal } from './LinkedDevicesModal';
 import { RecoveryCodesModal } from './RecoveryCodesModal';
 import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
-import { requirePrimaryChainByFamily } from '@/core/config/chains';
+import { requirePrimaryChainByFamily, resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type { ConfirmationBehavior, ConfirmationConfig } from '@/core/types/signer-worker';
 import {
   nearAccountRefFromAccountId,
@@ -110,12 +110,13 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [showLinkedDevices, setShowLinkedDevices] = useState(false);
+  const [linkedDevicesOpen, setLinkedDevicesOpen] = useState(false);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
   const [showExportKeyTypeModal, setShowExportKeyTypeModal] = useState(false);
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
   const [exportRestrictionMessage, setExportRestrictionMessage] = useState<string | null>(null);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<ConfirmationConfig | null>(null);
 
   // State management
@@ -263,9 +264,58 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     [exportRestrictionMessage, loginState.isLoggedIn, nearAccountId, seams, walletId],
   );
 
+  // Chain rows for the Accounts expander: one per configured chain with a
+  // known account/address and explorer URL, linking to the account page.
+  const accountsRows: AccountsSectionRow[] = useMemo(() => {
+    const rows: AccountsSectionRow[] = [];
+    const chains = seams?.configs.network.chains ?? [];
+    const nearExplorer = resolvePrimaryExplorerUrl(chains, 'near') || nearExplorerBaseUrl;
+    const tempoExplorer = resolvePrimaryExplorerUrl(chains, 'tempo');
+    const evmExplorer = resolvePrimaryExplorerUrl(chains, 'evm');
+    const evmAddress = loginState.thresholdEcdsaEthereumAddress;
+
+    if (nearAccountId && nearExplorer) {
+      rows.push({
+        id: 'near',
+        label: 'NEAR',
+        address: nearAccountId,
+        href: `${nearExplorer}/address/${nearAccountId}`,
+      });
+    }
+    if (evmAddress && tempoExplorer) {
+      rows.push({
+        id: 'tempo',
+        label: 'Tempo',
+        address: evmAddress,
+        href: `${tempoExplorer}/address/${evmAddress}`,
+      });
+    }
+    if (evmAddress && evmExplorer) {
+      rows.push({
+        id: 'arc',
+        label: 'Arc',
+        address: evmAddress,
+        href: `${evmExplorer}/address/${evmAddress}`,
+      });
+    }
+    return rows;
+  }, [seams, nearAccountId, nearExplorerBaseUrl, loginState.thresholdEcdsaEthereumAddress]);
+
   // Menu items configuration with context-aware handlers
   const MENU_ITEMS: MenuItem[] = useMemo(() => {
     const items: MenuItem[] = [];
+
+    if (accountsRows.length > 0) {
+      items.push({
+        id: PROFILE_MENU_ITEM_IDS.ACCOUNTS,
+        icon: <GlobeIcon />,
+        label: 'Accounts',
+        description: 'View accounts on block explorers',
+        disabled: !loginState.isLoggedIn,
+        onClick: () => setAccountsOpen((v) => !v),
+        keepOpenOnClick: true,
+      });
+    }
 
     items.push({
       id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
@@ -310,7 +360,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         label: 'Linked Devices',
         description: 'View linked devices',
         disabled: !loginState.isLoggedIn,
-        onClick: () => setShowLinkedDevices(true),
+        onClick: () => setLinkedDevicesOpen((v) => !v),
         keepOpenOnClick: true,
       },
     );
@@ -325,7 +375,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn]);
+  }, [accountsRows.length, canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -371,10 +421,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       <UserAccountButton
         username={accountName}
         hideUsername={hideUsername}
-        fullAccountId={nearAccountId || undefined}
+        // identity line under "Settings": the wallet id, not the chain account
+        fullAccountId={walletId || nearAccountId || undefined}
         isOpen={isOpen}
         onClick={handleToggle}
-        nearExplorerBaseUrl={nearExplorerBaseUrl}
         theme={theme}
       />
 
@@ -392,6 +442,11 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         onToggleSkipClick={handleToggleSkipClick}
         onSetDelay={handleSetDelay}
         transactionSettingsOpen={transactionSettingsOpen}
+        accountsRows={accountsRows}
+        accountsOpen={accountsOpen}
+        linkedDevicesOpen={linkedDevicesOpen}
+        walletId={walletId}
+        nearAccountId={nearAccountId}
         theme={theme}
         highlightedMenuItemId={highlightedMenuItemId}
       />
@@ -412,20 +467,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               setShowQRScanner(false);
             }}
             onEvent={(event) => deviceLinkingScannerParams?.onEvent?.(event)}
-          />,
-          portalHost!,
-        )}
-
-      {/* Linked Devices Modal (portaled to nearest root for robustness) */}
-      {canPortal &&
-        walletId &&
-        nearAccountId &&
-        createPortal(
-          <LinkedDevicesModal
-            walletId={walletId}
-            nearAccountId={nearAccountId}
-            isOpen={showLinkedDevices}
-            onClose={() => setShowLinkedDevices(false)}
           />,
           portalHost!,
         )}

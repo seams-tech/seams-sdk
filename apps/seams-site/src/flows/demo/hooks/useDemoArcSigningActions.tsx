@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { walletSessionRefFromSession } from '@seams/sdk/advanced';
-import { type SigningFlowEvent, useSeams } from '@seams/sdk/react';
+import { SigningEventPhase, type SigningFlowEvent, useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
@@ -14,7 +14,6 @@ import {
   isUserCancellationError,
   parseInsufficientFundsError,
   readEvmNativeBalance,
-  resolveClickTimeEip1559FeeCaps,
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
@@ -92,34 +91,52 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     } catch {}
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId, description: null });
-    let arcThresholdOwnerAddressForAttempt: EvmAddress | null = null;
-    let arcNativeBalanceWeiForAttempt: bigint | null = null;
-    let requiredNativeWeiForAttempt: bigint | null = null;
-    try {
-      const requestedGreeting = arcGreetingInput.trim();
-      const feeCaps = await resolveClickTimeEip1559FeeCaps({
+
+    const requestedGreeting = arcGreetingInput.trim();
+    /* Cached caps (interval-refreshed by useDemoEip1559FeeCaps) keep the click
+       path free of RPC latency so the signing modal opens immediately. */
+    const request = buildDemoEip1559Request(requestedGreeting, arcEip1559FeeCaps);
+    const requiredNativeWei = request.tx.gasLimit * request.tx.maxFeePerGas + request.tx.value;
+
+    /* The native-gas preflight runs concurrently with the signing flow instead
+       of gating the modal. A failure flips shouldAbort so the lifecycle
+       cancels before broadcast; once the broadcast starts, the (now stale)
+       preflight result can no longer abort the transaction. The outcome lands
+       in a holder read synchronously at error time, so a still-pending
+       preflight never delays error reporting. */
+    type ArcPreflightOutcome =
+      | { ok: true; thresholdOwnerAddress: EvmAddress; balanceWei: bigint }
+      | { ok: false; error: Error };
+    const preflightState: { outcome: ArcPreflightOutcome | null } = { outcome: null };
+    let broadcastStarted = false;
+    void (async (): Promise<ArcPreflightOutcome> => {
+      const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
+      const balanceWei = await readEvmNativeBalance({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        fallbackFeeCaps: arcEip1559FeeCaps,
-      });
-      const request = buildDemoEip1559Request(requestedGreeting, feeCaps);
-      const arcThresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
-      arcThresholdOwnerAddressForAttempt = arcThresholdOwnerAddress;
-      const requiredNativeWei = request.tx.gasLimit * request.tx.maxFeePerGas + request.tx.value;
-      requiredNativeWeiForAttempt = requiredNativeWei;
-      const arcNativeBalanceWei = await readEvmNativeBalance({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        address: arcThresholdOwnerAddress,
+        address: thresholdOwnerAddress,
         blockTag: 'pending',
       });
-      arcNativeBalanceWeiForAttempt = arcNativeBalanceWei;
-      if (arcNativeBalanceWei < requiredNativeWei) {
+      if (balanceWei < requiredNativeWei) {
         throw createArcNativeGasPreflightFailure({
-          thresholdOwnerAddress: arcThresholdOwnerAddress,
+          thresholdOwnerAddress,
           rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-          balanceWei: arcNativeBalanceWei,
+          balanceWei,
           requiredWei: requiredNativeWei,
         });
       }
+      return { ok: true, thresholdOwnerAddress, balanceWei };
+    })()
+      .catch(
+        (error: unknown): ArcPreflightOutcome => ({
+          ok: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        }),
+      )
+      .then((outcome) => {
+        preflightState.outcome = outcome;
+      });
+
+    try {
       const execution = await seams.tempo.executeEvmFamilyTransaction({
         walletSession: walletSessionRefFromSession({
           walletId,
@@ -137,12 +154,17 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
           input: request.tx.data || '0x',
         },
         options: {
-          onEvent: (event: SigningFlowEvent) =>
+          shouldAbort: () => !broadcastStarted && preflightState.outcome?.ok === false,
+          onEvent: (event: SigningFlowEvent) => {
+            if (event.phase === SigningEventPhase.STEP_12_BROADCAST_STARTED) {
+              broadcastStarted = true;
+            }
             handleSigningToastEvent(event, {
               toastId,
               chainLabel: 'EVM',
               successMessage: 'EVM transaction complete',
-            }),
+            });
+          },
         },
         postFinalizationCheck: async () => {
           await waitForExpectedGreeting({
@@ -174,7 +196,11 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         ),
       });
     } catch (error: unknown) {
-      const resolvedError: unknown = error;
+      /* A preflight failure trips shouldAbort, which surfaces here as a
+         cancellation — report the preflight error instead of "cancelled". */
+      const preflight = preflightState.outcome;
+      const resolvedError: unknown =
+        preflight && !preflight.ok && isUserCancellationError(error) ? preflight.error : error;
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
       const errorCode =
@@ -210,28 +236,35 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       }
       const insufficient = parseInsufficientFundsError(message);
       if (insufficient) {
-        const preflightSawEnoughGas =
-          arcNativeBalanceWeiForAttempt !== null &&
-          requiredNativeWeiForAttempt !== null &&
-          arcNativeBalanceWeiForAttempt >= requiredNativeWeiForAttempt;
+        /* preflight.ok means the concurrent balance check saw enough gas
+           (it rejects otherwise), so a broadcast-side failure is a surprise.
+           A failed gas preflight still carries the observed address/balance. */
+        const preflightGasFailure =
+          preflight && !preflight.ok && isArcNativeGasPreflightFailure(preflight.error)
+            ? preflight.error
+            : null;
+        const preflightOwnerAddress = preflight?.ok
+          ? preflight.thresholdOwnerAddress
+          : (preflightGasFailure?.details.thresholdOwnerAddress ?? null);
+        const preflightBalanceWei = preflight?.ok
+          ? preflight.balanceWei
+          : (preflightGasFailure?.details.balanceWei ?? null);
         let toastMessage: string;
-        if (preflightSawEnoughGas && arcNativeBalanceWeiForAttempt !== null) {
+        if (preflight?.ok) {
           toastMessage = `ARC broadcast reported insufficient funds, but preflight saw ${formatWeiToEth(
-            arcNativeBalanceWeiForAttempt,
-          )} native tokens for ${arcThresholdOwnerAddressForAttempt || 'the threshold owner'}. Refresh the wallet session and retry.`;
+            preflight.balanceWei,
+          )} native tokens for ${preflight.thresholdOwnerAddress}. Refresh the wallet session and retry.`;
         } else {
-          toastMessage = `ARC threshold owner${arcThresholdOwnerAddressForAttempt ? ` ${arcThresholdOwnerAddressForAttempt}` : ''} has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`;
+          toastMessage = `ARC threshold owner${preflightOwnerAddress ? ` ${preflightOwnerAddress}` : ''} has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`;
         }
         toast.error(toastMessage, { id: toastId, description: null });
         console.error('[DemoPage][ArcBroadcastInsufficientFunds]', {
           atIso: new Date().toISOString(),
           rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-          thresholdOwnerAddress: arcThresholdOwnerAddressForAttempt,
-          preflightBalanceWei:
-            arcNativeBalanceWeiForAttempt !== null ? arcNativeBalanceWeiForAttempt.toString() : null,
-          preflightRequiredWei:
-            requiredNativeWeiForAttempt !== null ? requiredNativeWeiForAttempt.toString() : null,
-          preflightSawEnoughGas,
+          thresholdOwnerAddress: preflightOwnerAddress,
+          preflightBalanceWei: preflightBalanceWei !== null ? preflightBalanceWei.toString() : null,
+          preflightRequiredWei: requiredNativeWei.toString(),
+          preflightSawEnoughGas: preflight?.ok ?? false,
           haveWei: insufficient.haveWei.toString(),
           wantWei: insufficient.wantWei.toString(),
           error: resolvedError,

@@ -169,7 +169,7 @@ export const App: React.FC = () => {
           : {}),
         ...(FRONTEND_CONFIG.routerAb ? { routerAb: FRONTEND_CONFIG.routerAb } : {}),
         ...(FRONTEND_CONFIG.enableIntendedE2E
-          ? { routerAbEcdsaHssPresignaturePool: INTENDED_E2E_ECDSA_PRESIGNATURE_POOL }
+          ? { routerAbEcdsaDerivationPresignaturePool: INTENDED_E2E_ECDSA_PRESIGNATURE_POOL }
           : {}),
         chains: FRONTEND_CONFIG.chains,
         relayer: {

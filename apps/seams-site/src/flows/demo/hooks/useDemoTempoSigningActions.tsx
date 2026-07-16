@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { walletSessionRefFromSession } from '@seams/sdk/advanced';
-import { type SigningFlowEvent, useSeams } from '@seams/sdk/react';
+import { SigningEventPhase, type SigningFlowEvent, useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG, type FrontendConfig } from '@/config';
@@ -14,7 +14,6 @@ import {
   isTempoAlphaUsdFeeToken,
   isUserCancellationError,
   parseInsufficientFundsError,
-  resolveClickTimeEip1559FeeCaps,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
@@ -165,45 +164,65 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     } catch {}
     setTempoThresholdSignLoading(true);
     toast.loading('Signing Tempo EIP-2718 transaction…', { id: toastId, description: null });
-    try {
-      const requestedGreeting = tempoGreetingInput.trim();
+
+    const requestedGreeting = tempoGreetingInput.trim();
+    /* Cached caps (interval-refreshed by useDemoEip1559FeeCaps) keep the click
+       path free of RPC latency so the signing modal opens immediately. */
+    const request = buildTempoTransactionGreetingRequest(requestedGreeting, tempoEip1559FeeCaps);
+    const greetingCall = request.tx.calls[0]!;
+
+    /* The fee-token preflight runs concurrently with the signing flow instead
+       of gating the modal. A failure flips shouldAbort so the lifecycle
+       cancels before broadcast; once the broadcast starts, the (now stale)
+       preflight result can no longer abort the transaction. The outcome lands
+       in a holder read synchronously at error time, so a still-pending
+       preflight never delays error reporting. */
+    type TempoPreflightOutcome = { ok: true } | { ok: false; message: string };
+    const preflightState: { outcome: TempoPreflightOutcome | null } = { outcome: null };
+    let broadcastStarted = false;
+    void (async (): Promise<TempoPreflightOutcome> => {
       const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
-      const configuredFeeToken = await refreshTempoUserFeeToken({
-        silent: true,
-        userAddress: thresholdOwnerAddress,
-      });
+      const [configuredFeeToken, alphaUsdBalance] = await Promise.all([
+        refreshTempoUserFeeToken({ silent: true, userAddress: thresholdOwnerAddress }),
+        refreshTempoUserFeeTokenBalance({
+          silent: true,
+          userAddress: thresholdOwnerAddress,
+          feeToken: TEMPO_ALPHA_USD_FEE_TOKEN,
+        }),
+      ]);
       if (!isTempoAlphaUsdFeeToken(configuredFeeToken)) {
-        toast.error(
-          'Tempo threshold owner is not configured to pay fees with AlphaUSD. Run Prepare Tempo Fee Token, then retry.',
-          { id: toastId, description: null },
-        );
-        return;
+        return {
+          ok: false,
+          message:
+            'Tempo threshold owner is not configured to pay fees with AlphaUSD. Run Prepare Tempo Fee Token, then retry.',
+        };
       }
-      const alphaUsdBalance = await refreshTempoUserFeeTokenBalance({
-        silent: true,
-        userAddress: thresholdOwnerAddress,
-        feeToken: TEMPO_ALPHA_USD_FEE_TOKEN,
-      });
       if (alphaUsdBalance === null) {
-        toast.error(
-          'Tempo AlphaUSD balance check failed. Run Prepare Tempo Fee Token, then retry.',
-          { id: toastId, description: null },
-        );
-        return;
+        return {
+          ok: false,
+          message: 'Tempo AlphaUSD balance check failed. Run Prepare Tempo Fee Token, then retry.',
+        };
       }
       if (alphaUsdBalance === 0n) {
-        toast.error(
-          'Tempo threshold owner has no AlphaUSD fee-token balance. Run Prepare Tempo Fee Token, then retry.',
-          { id: toastId, description: null },
-        );
-        return;
+        return {
+          ok: false,
+          message:
+            'Tempo threshold owner has no AlphaUSD fee-token balance. Run Prepare Tempo Fee Token, then retry.',
+        };
       }
-      const feeCaps = await resolveClickTimeEip1559FeeCaps({
-        rpcUrl: frontendConfig.tempoRpcUrl,
-        fallbackFeeCaps: tempoEip1559FeeCaps,
+      return { ok: true };
+    })()
+      .catch(
+        (error: unknown): TempoPreflightOutcome => ({
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
+      .then((outcome) => {
+        preflightState.outcome = outcome;
       });
-      const request = buildTempoTransactionGreetingRequest(requestedGreeting, feeCaps);
-      const greetingCall = request.tx.calls[0]!;
+
+    try {
       const execution = await seams.tempo.executeEvmFamilyTransaction({
         walletSession: walletSessionRefFromSession({
           walletId,
@@ -225,12 +244,17 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           ],
         },
         options: {
-          onEvent: (event: SigningFlowEvent) =>
+          shouldAbort: () => !broadcastStarted && preflightState.outcome?.ok === false,
+          onEvent: (event: SigningFlowEvent) => {
+            if (event.phase === SigningEventPhase.STEP_12_BROADCAST_STARTED) {
+              broadcastStarted = true;
+            }
             handleSigningToastEvent(event, {
               toastId,
               chainLabel: 'Tempo',
               successMessage: 'Tempo EIP-2718 transaction complete',
-            }),
+            });
+          },
         },
         postFinalizationCheck: async () => {
           await waitForExpectedGreeting({
@@ -280,6 +304,18 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         console.error('[DemoPage][TempoPostFinalizationSyncError]', {
           atIso: new Date().toISOString(),
           message,
+          error: resolvedError,
+        });
+        return;
+      }
+      /* A preflight failure trips shouldAbort, which surfaces here as a
+         cancellation — report the preflight failure instead of "cancelled". */
+      const preflight = preflightState.outcome;
+      if (preflight && !preflight.ok && isUserCancellationError(resolvedError)) {
+        toast.error(preflight.message, { id: toastId, description: null });
+        console.error('[DemoPage][TempoPreflightFailure]', {
+          atIso: new Date().toISOString(),
+          message: preflight.message,
           error: resolvedError,
         });
         return;

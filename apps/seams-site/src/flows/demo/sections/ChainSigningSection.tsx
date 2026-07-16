@@ -121,7 +121,7 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
               onClick={props.onPrepareTempoFeeToken}
               loading={props.tempoFeeTokenPrepareLoading}
               loadingText="Funding..."
-              variant="secondary"
+              variant="primary"
               size="medium"
               style={{ width: '100%' }}
               disabled={

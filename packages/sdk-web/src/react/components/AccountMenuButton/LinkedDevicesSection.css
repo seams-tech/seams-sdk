@@ -1,0 +1,121 @@
+/* Expander (LinkedDevicesSection) — same grid-rows collapse mechanism as the
+   Transaction Settings / Accounts expanders */
+.w3a-dropdown-linked-devices-root {
+  background-color: var(--w3a-colors-surface);
+  transform-origin: top;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.w3a-dropdown-linked-devices-root.is-expanded {
+  border-top: 1px solid var(--w3a-colors-borderPrimary);
+  border-bottom: 1px solid var(--w3a-colors-borderPrimary);
+  grid-template-rows: 1fr;
+}
+
+.w3a-dropdown-linked-devices-clip {
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+}
+
+.w3a-dropdown-linked-devices-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  transition:
+    opacity 100ms ease,
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.w3a-dropdown-linked-devices-root.is-expanded .w3a-dropdown-linked-devices-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.w3a-linked-devices-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--w3a-colors-textSecondary);
+}
+
+.w3a-linked-devices-retry {
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-item, 8px);
+  background: transparent;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+/* Cap the list height so many signers scroll instead of stretching the menu */
+.w3a-linked-devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.w3a-linked-devices-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--w3a-shape-item, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.w3a-linked-devices-row:hover:not(:disabled) {
+  background: var(--w3a-colors-surface2);
+}
+
+.w3a-linked-devices-row:disabled {
+  cursor: default;
+}
+
+.w3a-linked-devices-slot {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--w3a-colors-textPrimary);
+  white-space: nowrap;
+}
+
+.w3a-linked-devices-active {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--w3a-colors-textSecondary);
+}
+
+.w3a-linked-devices-key {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--w3a-colors-textSecondary);
+}

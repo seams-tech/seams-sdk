@@ -15,12 +15,22 @@ export interface ProfileAnimationConfig {
 }
 
 export const PROFILE_MENU_ITEM_IDS = {
+  ACCOUNTS: 'accounts',
   EXPORT_KEYS: 'export-keys',
   RECOVERY_CODES: 'recovery-codes',
   SCAN_LINK_DEVICE: 'scan-link-device',
   LINKED_DEVICES: 'linked-devices',
   TRANSACTION_SETTINGS: 'transaction-settings',
 } as const;
+
+/** One chain row in the expandable Accounts section: links out to the chain's
+ * block explorer on the user's account page. */
+export interface AccountsSectionRow {
+  id: string;
+  label: string;
+  address: string;
+  href: string;
+}
 
 export type ProfileSettingsMenuItemId =
   (typeof PROFILE_MENU_ITEM_IDS)[keyof typeof PROFILE_MENU_ITEM_IDS];
@@ -78,7 +88,6 @@ export interface UserAccountButtonProps {
   username: string;
   hideUsername: boolean;
   fullAccountId?: string;
-  nearExplorerBaseUrl?: string;
   isOpen: boolean;
   onClick: () => void;
   onMouseEnter?: () => void;
@@ -102,6 +111,11 @@ export interface ProfileDropdownProps {
   onToggleSkipClick?: () => void;
   onSetDelay?: (delay: number) => void;
   transactionSettingsOpen?: boolean;
+  accountsRows?: AccountsSectionRow[];
+  accountsOpen?: boolean;
+  linkedDevicesOpen?: boolean;
+  walletId?: string | null;
+  nearAccountId?: string | null;
   menuItemsRef: React.MutableRefObject<(HTMLElement | null)[]>;
   // Optional ARIA linkage
   menuId?: string;
