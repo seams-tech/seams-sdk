@@ -113,6 +113,20 @@ try {
     ],
     { SEAMS_YAOS_AB_PHASE9C_EVIDENCE_DIR: lifecycleEvidenceDirectory },
   );
+  runCheck('untrusted Yao stream parser mutation smoke', 'cargo', [
+    'test',
+    '--offline',
+    '--manifest-path',
+    'crates/ed25519-yao/Cargo.toml',
+    'deterministic_untrusted_stream_parser_fuzz_smoke',
+  ]);
+  runCheck('recipient-package parser mutation smoke', 'cargo', [
+    'test',
+    '--offline',
+    '--manifest-path',
+    'crates/router-ab-ed25519-yao-protocol/Cargo.toml',
+    'deterministic_recipient_package_parser_fuzz_smoke',
+  ]);
   runCheck('constant-time code-generation guard', 'node', [
     'crates/ed25519-yao/scripts/check_constant_time_codegen.mjs',
   ]);

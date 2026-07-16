@@ -1,0 +1,20 @@
+[package]
+name = "router-ab-ed25519-yao-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Client-safe wire protocol for Router A/B Ed25519 Yao"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "router_ab_ed25519_yao_protocol"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+curve25519-dalek = { version = "=4.1.3", default-features = false, features = ["alloc", "precomputed-tables", "zeroize"] }
+router-ab-core = { path = "../router-ab-core" }
+serde = { version = "1.0", features = ["derive"] }
+signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation"] }
+subtle = { version = "=2.6.1", default-features = false }
+zeroize = { version = "1.8", features = ["zeroize_derive"] }

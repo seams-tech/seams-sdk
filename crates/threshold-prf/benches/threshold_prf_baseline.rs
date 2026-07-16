@@ -21,7 +21,7 @@ fn policy(threshold: u16, share_count: u16) -> ThresholdPolicy {
 fn wallet_context() -> PrfContext {
     PrfContext::new(
         SuiteId::Ristretto255Sha512,
-        PrfPurpose::EcdsaHssYServer,
+        PrfPurpose::RouterAbEcdsaDerivationYServer,
         b"project:alpha/wallet:0",
     )
 }

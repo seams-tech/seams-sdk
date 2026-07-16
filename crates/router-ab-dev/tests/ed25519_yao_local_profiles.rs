@@ -74,7 +74,7 @@ fn protocol_and_worker_sources_expose_no_runtime_profile_negotiation() {
 }
 
 #[test]
-fn ed25519_yao_and_ecdsa_hss_modules_have_disjoint_backend_imports() {
+fn ed25519_yao_and_router_ab_ecdsa_derivation_modules_have_disjoint_backend_imports() {
     let yao_sources = [
         include_str!("../src/local_ed25519_yao_api.rs"),
         include_str!("../src/local_ed25519_yao_delivery.rs"),
@@ -87,12 +87,21 @@ fn ed25519_yao_and_ecdsa_hss_modules_have_disjoint_backend_imports() {
         include_str!("../src/local_ed25519_yao_worker.rs"),
     ]
     .join("\n");
-    for forbidden in ["ed25519_hss", "ed25519-hss", "ecdsa_hss", "ecdsa-hss"] {
+    for forbidden in [
+        "ed25519_hss",
+        "ed25519-hss",
+        "router_ab_ecdsa_derivation",
+        "router-ab-ecdsa-derivation",
+    ] {
         assert!(!yao_sources.contains(forbidden), "found {forbidden}");
     }
 
-    let ecdsa_hss_source = include_str!("../src/local_ecdsa_hss_pool_store.rs");
+    let router_ab_ecdsa_derivation_source =
+        include_str!("../src/local_router_ab_ecdsa_derivation_pool_store.rs");
     for forbidden in ["ed25519_yao", "ed25519-yao", "router_ab_ed25519_yao"] {
-        assert!(!ecdsa_hss_source.contains(forbidden), "found {forbidden}");
+        assert!(
+            !router_ab_ecdsa_derivation_source.contains(forbidden),
+            "found {forbidden}"
+        );
     }
 }

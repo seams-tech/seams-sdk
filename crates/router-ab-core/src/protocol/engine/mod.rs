@@ -7,6 +7,6 @@ pub mod host;
 pub use deriver_a::DeriverAEngine;
 pub use deriver_b::DeriverBEngine;
 pub use host::{
-    AuditEventV1, AuditSink, Clock, Csprng, EcdsaHssExplicitExportAuditDecisionV1, PeerTransport,
-    SignerKeyStore, SigningRootShareStore,
+    AuditEventV1, AuditSink, Clock, Csprng, PeerTransport,
+    RouterAbEcdsaDerivationExplicitExportAuditDecisionV1, SignerKeyStore, SigningRootShareStore,
 };

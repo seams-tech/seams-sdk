@@ -25,7 +25,7 @@ const cloudflareSource = [
   readRepoFile('crates/router-ab-cloudflare/src/router/mod.rs'),
   readRepoFile('crates/router-ab-cloudflare/src/signing_worker/mod.rs'),
 ].join('\n');
-const ecdsaProtocolSource = readRepoFile('crates/router-ab-core/src/protocol/ecdsa_hss.rs');
+const ecdsaProtocolSource = readRepoFile('crates/router-ab-core/src/protocol/router_ab_ecdsa_derivation.rs');
 const routerWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.router.toml');
 const deriverAWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.deriver-a.toml');
 const deriverBWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.deriver-b.toml');
@@ -148,15 +148,15 @@ for (const [label, startNeedle, endNeedle, requiredNeedle] of [
     'reserve_cloudflare_router_wallet_budget_v1',
   ],
   [
-    'P1: strict ECDSA-HSS prepare route does not reserve Wallet Session budget before SigningWorker forwarding',
-    'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1',
-    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1',
+    'P1: strict Router A/B ECDSA derivation prepare route does not reserve Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1',
+    'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1',
     'reserve_cloudflare_router_wallet_budget_v1',
   ],
   [
-    'P1: strict ECDSA-HSS finalize route does not validate Wallet Session budget before SigningWorker forwarding',
-    'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_finalize_authenticated_public_request_v1',
-    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+    'P1: strict Router A/B ECDSA derivation finalize route does not validate Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1',
+    'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1',
     'validate_cloudflare_router_wallet_budget_v1',
   ],
   [
@@ -170,8 +170,8 @@ for (const [label, startNeedle, endNeedle, requiredNeedle] of [
 }
 for (const [label, startNeedle, endNeedle] of [
   [
-    'P1: strict ECDSA-HSS finalize route does not commit Wallet Session budget after SigningWorker success',
-    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+    'P1: strict Router A/B ECDSA derivation finalize route does not commit Wallet Session budget after SigningWorker success',
+    'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1',
     'CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)',
   ],
   [
@@ -190,8 +190,8 @@ for (const [label, startNeedle, endNeedle] of [
 }
 for (const [label, startNeedle, endNeedle] of [
   [
-    'P1: strict ECDSA-HSS finalize route does not release Wallet Session budget on SigningWorker failure',
-    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+    'P1: strict Router A/B ECDSA derivation finalize route does not release Wallet Session budget on SigningWorker failure',
+    'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1',
     'commit_cloudflare_router_wallet_budget_v1',
   ],
   [
@@ -272,16 +272,16 @@ for (const [label, source, startNeedle] of [
 }
 requireDeployWorkflowSplitEnvironmentBoundary(deployRouterAbWorkflow);
 for (const functionName of [
-  'execute_cloudflare_ecdsa_hss_deriver_registration_service_call_v1',
-  'execute_cloudflare_ecdsa_hss_deriver_export_service_call_v1',
-  'execute_cloudflare_ecdsa_hss_deriver_recovery_service_call_v1',
-  'execute_cloudflare_ecdsa_hss_deriver_activation_refresh_service_call_v1',
-  'execute_cloudflare_ecdsa_hss_signing_worker_activation_service_call_v1',
-  'execute_cloudflare_ecdsa_hss_signing_worker_activation_refresh_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_service_call_v1',
   'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
   'execute_cloudflare_signing_worker_normal_signing_prepare_service_call_v2',
-  'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1',
-  'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+  'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1',
+  'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1',
 ]) {
   requireSourceRangeIncludes(
     `P1: ${functionName} does not attach internal service auth`,
@@ -292,46 +292,46 @@ for (const functionName of [
   );
 }
 for (const [label, source, needle] of [
-  ['P0: ECDSA-HSS protocol id is missing', ecdsaProtocolSource, 'router_ab_ecdsa_hss_secp256k1_v1'],
+  ['P0: Router A/B ECDSA derivation protocol id is missing', ecdsaProtocolSource, 'router_ab_ecdsa_derivation_v1'],
   [
-    'P0: ECDSA-HSS registration public route is missing',
+    'P0: Router A/B ECDSA derivation registration public route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH',
+    'CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH',
   ],
   [
-    'P0: ECDSA-HSS export public route is missing',
+    'P0: Router A/B ECDSA derivation export public route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH',
+    'CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH',
   ],
   [
-    'P0: ECDSA-HSS SigningWorker activation route is missing',
+    'P0: Router A/B ECDSA derivation SigningWorker activation route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH',
+    'CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH',
   ],
   [
-    'P0: ECDSA-HSS activation does not derive identity through the ECDSA-HSS crate',
+    'P0: Router A/B ECDSA derivation activation does not derive identity through the Router A/B ECDSA derivation crate',
     cloudflareSource,
     'derive_relayer_share_for_client_public',
   ],
   [
-    'P0: ECDSA-HSS client-only export Deriver response is missing',
+    'P0: Router A/B ECDSA derivation client-only export Deriver response is missing',
     cloudflareSource,
     'CloudflareSignerClientRecipientProofBundleResponseV1',
   ],
   [
-    'P0: ECDSA-HSS export does not use the client-only Deriver service path',
+    'P0: Router A/B ECDSA derivation export does not use the client-only Deriver service path',
     cloudflareSource,
-    'execute_cloudflare_ecdsa_hss_deriver_export_service_call_v1',
+    'execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1',
   ],
   [
-    'P0: ECDSA-HSS Deriver A export private Deriver route is missing',
+    'P0: Router A/B ECDSA derivation Deriver A export private Deriver route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_DERIVER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
+    'CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH',
   ],
   [
-    'P0: ECDSA-HSS Deriver B export private Deriver route is missing',
+    'P0: Router A/B ECDSA derivation Deriver B export private Deriver route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_DERIVER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
+    'CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH',
   ],
   [
     'P0: Deriver A wrangler config is missing SIGNING_WORKER service binding',
@@ -374,24 +374,24 @@ requireSourceRangeIncludes(
 );
 for (const [label, needle] of [
   [
-    'P0: ECDSA-HSS normal-signing prepare strict-route wiring is not implemented',
-    'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1',
+    'P0: Router A/B ECDSA derivation normal-signing prepare strict-route wiring is not implemented',
+    'handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1',
   ],
   [
-    'P0: ECDSA-HSS normal-signing finalize strict-route wiring is not implemented',
-    'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_finalize_authenticated_public_request_v1',
+    'P0: Router A/B ECDSA derivation normal-signing finalize strict-route wiring is not implemented',
+    'handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1',
   ],
   [
-    'P0: ECDSA-HSS normal-signing production signature computation is not implemented',
-    'CloudflareRoleSeparatedEcdsaHssEvmDigestFinalizeHandlerV1',
+    'P0: Router A/B ECDSA derivation normal-signing production signature computation is not implemented',
+    'CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1',
   ],
   [
-    'P0: ECDSA-HSS recovery flow is not implemented',
-    'handle_cloudflare_router_ecdsa_hss_recovery_authenticated_public_request_v1',
+    'P0: Router A/B ECDSA derivation recovery flow is not implemented',
+    'handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1',
   ],
   [
-    'P0: ECDSA-HSS activation refresh flow is not implemented',
-    'handle_cloudflare_router_ecdsa_hss_activation_refresh_authenticated_public_request_v1',
+    'P0: Router A/B ECDSA derivation activation refresh flow is not implemented',
+    'handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1',
   ],
 ]) {
   if (!cloudflareSource.includes(needle)) {

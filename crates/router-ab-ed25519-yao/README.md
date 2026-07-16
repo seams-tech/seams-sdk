@@ -32,5 +32,5 @@ relation, and exact export-share reconstruction.
 Complete local usability now passes through the frozen signer-core KDF,
 standard Ed25519 signing/export vectors, separate local service routes,
 recovery, refresh, and the one-command lifecycle smoke. The deprecated local
-HSS path is deleted. Deployment evidence and promoted public SDK transport are
+derivation path is deleted. Deployment evidence and promoted public SDK transport are
 tracked in the production phases of `docs/yaos-ab.md`.

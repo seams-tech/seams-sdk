@@ -1,6 +1,6 @@
 # `threshold-prf` Worker Benchmark Harness
 
-This fixture benchmarks the exported `wasm/threshold_prf` HSS derivation
+This fixture benchmarks the exported `wasm/threshold_prf` Router A/B ECDSA derivation
 functions inside a real Cloudflare Worker isolate.
 
 Build the WASM package for the Worker fixture:

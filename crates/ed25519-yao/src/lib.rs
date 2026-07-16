@@ -42,7 +42,24 @@ pub use passive::phase5_wasm_benchmark;
 #[doc(hidden)]
 pub use passive::role_protocol::benchmark as phase9_role_benchmark;
 #[cfg(feature = "local-protocol")]
-pub use passive::role_protocol::benchmark as local_protocol;
+/// Fixed 128 KiB local-product protocol surface.
+pub mod local_protocol {
+    pub use crate::passive::role_protocol::benchmark::{
+        combine_client_activation_packages, combine_export_packages,
+        combine_signing_worker_activation_packages, derive_registration_receipt,
+        verify_activation_continuity, Activation128KiBDeriverA, Activation128KiBDeriverB,
+        ActivationDeriverAClientPackage, ActivationDeriverACompletion, ActivationDeriverAInputs,
+        ActivationDeriverASigningWorkerPackage, ActivationDeriverBClientPackage,
+        ActivationDeriverBCompletion, ActivationDeriverBInputs,
+        ActivationDeriverBSigningWorkerPackage, ActivationPublicCommitments,
+        ActivationPublicReceipt, BenchmarkRoleError, ClientBaseScalar, DirectionalEofEvidence,
+        DirectionalWireDecoder, DirectionalWireEncoder, Export128KiBDeriverA, Export128KiBDeriverB,
+        ExportDeriverAClientPackage, ExportDeriverACompletion, ExportDeriverAInputs,
+        ExportDeriverBClientPackage, ExportDeriverBCompletion, ExportDeriverBInputs,
+        ExportedSeed32, RelayEvent, RelayInstruction, RelayStep, SigningWorkerBaseScalar,
+        StreamMetrics, WireByteLedger, WireDirection, WireMessage, WireMessageKind,
+    };
+}
 
 pub use digest::{
     ActivationOutputSchemaDigest32, CircuitDigest32, CompilerDigest32, ConstantsDigest32,

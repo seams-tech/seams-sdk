@@ -1,0 +1,22 @@
+[package]
+name = "router-ab-ecdsa-presign"
+version = "0.1.0"
+edition = "2021"
+description = "Purpose-built fixed 2-of-2 Router A/B ECDSA presigning"
+license = "Apache-2.0"
+
+[dependencies]
+k256 = { version = "0.13.4", default-features = false, features = ["arithmetic"] }
+rand_core = "0.6"
+router-ab-ecdsa-wire = { path = "../router-ab-ecdsa-wire" }
+sha2 = "0.10"
+subtle = "2.6"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+[features]
+default = []
+test-utils = []
+
+[dev-dependencies]
+rand_chacha = "0.3"
+router-ab-ecdsa-online = { path = "../router-ab-ecdsa-online" }

@@ -1,0 +1,10 @@
+[package]
+name = "router-ab-ecdsa-derivation"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "router_ab_ecdsa_derivation"
+path = "src/lib.rs"
+

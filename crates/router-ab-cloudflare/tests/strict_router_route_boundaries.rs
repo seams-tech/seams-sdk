@@ -78,30 +78,39 @@ fn strict_router_normal_signing_routes_use_boundary_parsers() {
 }
 
 #[test]
-fn strict_router_ecdsa_hss_routes_apply_boundary_parsers() {
+fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for required in [
-        "is_cloudflare_router_ecdsa_hss_public_path",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PUBLIC_REQUEST_PATH",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH",
+        "is_cloudflare_router_ab_ecdsa_derivation_public_path",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH",
         "read_router_public_body_v1",
         "parse_router_public_body_v1",
-        "parse_router_ab_ecdsa_hss_registration_bootstrap_request_v1_json",
-        "parse_router_ab_ecdsa_hss_explicit_export_request_v1_json",
-        "parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json",
-        "parse_cloudflare_router_budgeted_ecdsa_hss_finalize_request_v1_json",
-        "handle_cloudflare_router_ecdsa_hss_registration_bootstrap_authenticated_public_request_v1",
-        "handle_cloudflare_router_ecdsa_hss_explicit_export_authenticated_public_request_v1",
-        "handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1",
-        "handle_cloudflare_router_ecdsa_hss_evm_digest_signing_finalize_authenticated_public_request_v1",
+        "parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json",
+        "router_ab_ecdsa_derivation_registration_purpose_for_public_path",
+        "validate_for_registration_purpose",
+        "parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json",
+        "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
+        "parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
+        "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",
+        "parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json",
+        "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1",
         "cloudflare_router_normal_signing_response_v1",
     ] {
         assert!(
             route_body.contains(required),
-            "strict Router ECDSA-HSS public route must pass through `{required}`"
+            "strict Router Router A/B ECDSA derivation public route must pass through `{required}`"
         );
     }
     let read_body = extract_function_body(&strict_worker_rs, "read_router_public_body_v1");
@@ -110,15 +119,15 @@ fn strict_router_ecdsa_hss_routes_apply_boundary_parsers() {
         "strict Router shared body helper must read raw Worker request bytes"
     );
     for forbidden in [
-        "json::<RouterAbEcdsaHssRegistrationBootstrapRequestV1>",
-        "json::<RouterAbEcdsaHssExplicitExportRequestV1>",
+        "json::<RouterAbEcdsaDerivationRegistrationBootstrapRequestV1>",
+        "json::<RouterAbEcdsaDerivationExplicitExportRequestV1>",
         "CloudflareRouterTrustedAdmissionV1",
         "trusted_admission",
         "handle_cloudflare_router_recipient_proof_bundle_public_request_v1",
     ] {
         assert!(
             !route_body.contains(forbidden),
-            "strict Router ECDSA-HSS route must not cross boundary through `{forbidden}`"
+            "strict Router Router A/B ECDSA derivation route must not cross boundary through `{forbidden}`"
         );
     }
 }
@@ -195,7 +204,7 @@ fn router_normal_signing_uses_admission_candidate_before_worker_forwarding() {
 }
 
 #[test]
-fn ecdsa_hss_router_prepare_admission_uses_wallet_session_and_replay() {
+fn router_ab_ecdsa_derivation_router_prepare_admission_uses_wallet_session_and_replay() {
     let lib_rs = read_src_file("lib.rs");
     for required in [
         "pub client_presignature_id: String",
@@ -204,101 +213,102 @@ fn ecdsa_hss_router_prepare_admission_uses_wallet_session_and_replay() {
     ] {
         assert!(
             lib_rs.contains(required),
-            "ECDSA-HSS Router prepare admission must bind `{required}`"
+            "Router A/B ECDSA derivation Router prepare admission must bind `{required}`"
         );
     }
     let body = extract_function_body(
         &lib_rs,
-        "handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1",
     );
     for required in [
         "verify_wallet_session",
-        "validate_for_ecdsa_hss_evm_digest_signing_request_v1",
-        "CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1::from_prepare_request",
-        "derive_cloudflare_router_ecdsa_hss_evm_digest_prepare_trusted_admission_from_worker_stores_v1",
+        "validate_for_router_ab_ecdsa_derivation_evm_digest_signing_request_v1",
+        "CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1::from_prepare_request",
+        "derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_prepare_trusted_admission_from_worker_stores_v1",
         "allows_signing_worker_forwarding",
-        "ecdsa_hss_evm_digest_prepare_replay_reserve_call",
+        "router_ab_ecdsa_derivation_evm_digest_prepare_replay_reserve_call",
         "execute_cloudflare_router_replay_reserve_v1",
-        "CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1::new",
-        "execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1",
+        "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1::new",
+        "execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1",
     ] {
         assert!(
             body.contains(required),
-            "ECDSA-HSS Router prepare admission must include `{required}`"
+            "Router A/B ECDSA derivation Router prepare admission must include `{required}`"
         );
     }
 
     let admission = body
         .find("from_prepare_request")
-        .expect("ECDSA-HSS Router prepare must build admission");
+        .expect("Router A/B ECDSA derivation Router prepare must build admission");
     let replay = body
         .find("execute_cloudflare_router_replay_reserve_v1")
-        .expect("ECDSA-HSS Router prepare must reserve replay");
+        .expect("Router A/B ECDSA derivation Router prepare must reserve replay");
     let forward = body
-        .find("execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1")
-        .expect("ECDSA-HSS Router prepare must forward to SigningWorker");
+        .find("execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1")
+        .expect("Router A/B ECDSA derivation Router prepare must forward to SigningWorker");
     assert!(
         admission < replay && replay < forward,
-        "ECDSA-HSS Router prepare must derive admission, reserve replay, then forward"
+        "Router A/B ECDSA derivation Router prepare must derive admission, reserve replay, then forward"
     );
     for forbidden in [
-        "execute_cloudflare_ecdsa_hss_deriver_registration_service_call_v1",
-        "execute_cloudflare_ecdsa_hss_deriver_export_service_call_v1",
-        "decrypt_and_handle_cloudflare_ecdsa_hss_export_signer_private_request_v1",
+        "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
+        "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
+        "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1",
         "CloudflareSigningWorkerRecipientProofBundleActivationV1",
     ] {
         assert!(
             !body.contains(forbidden),
-            "ECDSA-HSS Router prepare must not call `{forbidden}`"
+            "Router A/B ECDSA derivation Router prepare must not call `{forbidden}`"
         );
     }
 }
 
 #[test]
-fn ecdsa_hss_router_finalize_admission_uses_wallet_session_and_presignature_take() {
+fn router_ab_ecdsa_derivation_router_finalize_admission_uses_wallet_session_and_presignature_take()
+{
     let lib_rs = read_src_file("lib.rs");
     let body = extract_function_body(
         &lib_rs,
-        "handle_cloudflare_router_ecdsa_hss_evm_digest_signing_finalize_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1",
     );
     for required in [
         "verify_wallet_session",
-        "validate_for_ecdsa_hss_evm_digest_finalize_request_v1",
-        "CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1::from_finalize_request",
-        "derive_cloudflare_router_ecdsa_hss_evm_digest_finalize_trusted_admission_from_worker_stores_v1",
+        "validate_for_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1",
+        "CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1::from_finalize_request",
+        "derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_finalize_trusted_admission_from_worker_stores_v1",
         "allows_signing_worker_forwarding",
-        "CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1::new",
-        "execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1",
+        "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new",
+        "execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1",
     ] {
         assert!(
             body.contains(required),
-            "ECDSA-HSS Router finalize admission must include `{required}`"
+            "Router A/B ECDSA derivation Router finalize admission must include `{required}`"
         );
     }
     assert!(
         !body.contains("execute_cloudflare_router_replay_reserve_v1")
-            && !body.contains("ecdsa_hss_evm_digest_prepare_replay_reserve_call"),
-        "ECDSA-HSS Router finalize must rely on SigningWorker one-use presignature take"
+            && !body.contains("router_ab_ecdsa_derivation_evm_digest_prepare_replay_reserve_call"),
+        "Router A/B ECDSA derivation Router finalize must rely on SigningWorker one-use presignature take"
     );
     let admission = body
         .find("from_finalize_request")
-        .expect("ECDSA-HSS Router finalize must build admission");
+        .expect("Router A/B ECDSA derivation Router finalize must build admission");
     let forward = body
-        .find("execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1")
-        .expect("ECDSA-HSS Router finalize must forward to SigningWorker");
+        .find("execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1")
+        .expect("Router A/B ECDSA derivation Router finalize must forward to SigningWorker");
     assert!(
         admission < forward,
-        "ECDSA-HSS Router finalize must derive admission before forwarding"
+        "Router A/B ECDSA derivation Router finalize must derive admission before forwarding"
     );
     for forbidden in [
-        "execute_cloudflare_ecdsa_hss_deriver_registration_service_call_v1",
-        "execute_cloudflare_ecdsa_hss_deriver_export_service_call_v1",
-        "decrypt_and_handle_cloudflare_ecdsa_hss_export_signer_private_request_v1",
+        "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
+        "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
+        "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1",
         "CloudflareSigningWorkerRecipientProofBundleActivationV1",
     ] {
         assert!(
             !body.contains(forbidden),
-            "ECDSA-HSS Router finalize must not call `{forbidden}`"
+            "Router A/B ECDSA derivation Router finalize must not call `{forbidden}`"
         );
     }
 }

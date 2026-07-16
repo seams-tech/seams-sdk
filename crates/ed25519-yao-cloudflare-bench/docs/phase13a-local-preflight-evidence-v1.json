@@ -1,14 +1,14 @@
 {
   "schema": "phase13a-local-preflight-evidence-v1",
-  "recorded_at": "2026-07-14",
+  "recorded_at": "2026-07-16",
   "scope": "local-evidence-only",
   "phase13a_decision": "unavailable",
   "production_eligible": false,
   "validated_inputs": {
     "schema": "ed25519_yao_local_readiness_inputs_v1",
-    "file_count": 2238,
-    "total_bytes": 36116920,
-    "sha256": "05b3cd278f63cf7667ec4ff6b3cdb836ea60d155f85bdd2a8cbfc2b5ad74479b"
+    "file_count": 2356,
+    "total_bytes": 37908659,
+    "sha256": "33b84b42888a6cefd7ea7085a19f5d054d54d9714354c1d8adc8d4d79209fdce"
   },
   "phase9c_validation": {
     "receipt_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
@@ -85,7 +85,7 @@
     "production_reachable": false,
     "authorized_core_dependents": 5,
     "benchmark_dependents": 0,
-    "product_files_scanned": 4281,
+    "product_files_scanned": 4509,
     "product_references": 0,
     "benchmark_wrangler_configs": 19,
     "production_routes": 0
@@ -116,14 +116,14 @@
     "normal_role_artifacts": 4,
     "fault_artifacts": 9,
     "wrangler_dry_run_artifacts": 4,
-    "core_passive_rust_tests": 99,
+    "core_passive_rust_tests": 100,
     "independent_python_tests": 186,
     "deterministic_differential_cases": 128,
     "phase5_stream_kat_drift_tests": 1,
     "strict_core_clippy_targets": 3,
     "wasm_stream_profiles": 6,
     "wasm_stream_modes": 2,
-    "formal_parity_production_rust_tests": 80,
+    "formal_parity_production_rust_tests": 82,
     "formal_parity_generator_rust_tests": 418,
     "formal_parity_circuit_rust_tests": 25,
     "formal_parity_artifact_filesystem_tests": 3,

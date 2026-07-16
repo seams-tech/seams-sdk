@@ -3,29 +3,31 @@ mod local_dev_process;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use ecdsa_hss::ECDSA_HSS_PARTICIPANT_IDS;
 use local_dev_process::{
     normalize_root, post_json_to_path, post_json_to_path_with_authorization,
     post_json_to_path_with_headers, read_worker_config, wait_for_existing_health,
     LocalWorkerSpawnReceipt, LocalWorkerUrls, LOCAL_WORKER_PROCESS_SPECS,
 };
 use router_ab_core::{
-    LocalServiceRoleV1, Role, RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
-    RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1, RouterAbEcdsaHssEvmDigestSigningRequestV1,
-    RouterAbEcdsaHssEvmDigestSigningResponseV1, RouterAbEcdsaHssNormalSigningScopeV1,
-    RouterAbEcdsaHssPublicIdentityV1, RouterAbEcdsaHssSignatureSchemeV1,
-    RouterAbEcdsaHssStableKeyContextV1, ServerIdentityV1,
+    LocalServiceRoleV1, Role, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
+    RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationSignatureSchemeV1,
+    RouterAbEcdsaDerivationStableKeyContextV1, ServerIdentityV1,
 };
 use router_ab_dev::{
     local_router_ab_internal_service_auth_secret_v1,
     run_example_local_router_ab_dev_http_ceremony_v1, LocalDeriverPeerMessageReceiptV1,
-    LocalSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1,
-    LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1, LocalWorkerRoleConfigV1,
+    LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1,
+    LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_B_PEER_PATH,
-    LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH,
-    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
+    LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
+    LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
+    LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+    LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
 };
+use router_ab_ecdsa_derivation::ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -58,22 +60,22 @@ struct SmokeSummary {
     setup_status: String,
     deriver_b_peer_status: String,
     deriver_a_peer_status: String,
-    ecdsa_hss_live_http_route_dispatch_status: String,
-    ecdsa_hss_pool_fill_status: String,
-    ecdsa_hss_prepare_status: String,
-    ecdsa_hss_finalize_status: String,
-    ecdsa_hss_replay_rejection_status: String,
-    ecdsa_hss_signature_scheme: String,
-    ecdsa_hss_evidence_kind: String,
+    router_ab_ecdsa_derivation_live_http_route_dispatch_status: String,
+    router_ab_ecdsa_derivation_pool_fill_status: String,
+    router_ab_ecdsa_derivation_prepare_status: String,
+    router_ab_ecdsa_derivation_finalize_status: String,
+    router_ab_ecdsa_derivation_replay_rejection_status: String,
+    router_ab_ecdsa_derivation_signature_scheme: String,
+    router_ab_ecdsa_derivation_evidence_kind: String,
     setup_elapsed_ms: u64,
     deriver_b_peer_elapsed_ms: u64,
     deriver_a_peer_elapsed_ms: u64,
-    ecdsa_hss_live_http_elapsed_ms: u64,
+    router_ab_ecdsa_derivation_live_http_elapsed_ms: u64,
     total_elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct EcdsaHssSmokeResult {
+struct RouterAbEcdsaDerivationSmokeResult {
     pool_fill_status: String,
     prepare_status: String,
     finalize_status: String,
@@ -184,8 +186,8 @@ fn run_smoke(
 
     let smoke_run_id = local_smoke_run_id()?;
     let ecdsa_start = Instant::now();
-    let ecdsa_result = run_ecdsa_hss_live_http_smoke(root, &urls, &smoke_run_id)?;
-    let ecdsa_hss_live_http_elapsed_ms = elapsed_ms(ecdsa_start);
+    let ecdsa_result = run_router_ab_ecdsa_derivation_live_http_smoke(root, &urls, &smoke_run_id)?;
+    let router_ab_ecdsa_derivation_live_http_elapsed_ms = elapsed_ms(ecdsa_start);
 
     Ok(SmokeSummary {
         root: root.display().to_string(),
@@ -196,17 +198,17 @@ fn run_smoke(
         setup_status: "accepted".to_owned(),
         deriver_b_peer_status: deriver_b_receipt.status,
         deriver_a_peer_status: deriver_a_receipt.status,
-        ecdsa_hss_live_http_route_dispatch_status: "accepted".to_owned(),
-        ecdsa_hss_pool_fill_status: ecdsa_result.pool_fill_status,
-        ecdsa_hss_prepare_status: ecdsa_result.prepare_status,
-        ecdsa_hss_finalize_status: ecdsa_result.finalize_status,
-        ecdsa_hss_replay_rejection_status: ecdsa_result.replay_rejection_status,
-        ecdsa_hss_signature_scheme: ecdsa_result.signature_scheme,
-        ecdsa_hss_evidence_kind: "live_http_route_dispatch".to_owned(),
+        router_ab_ecdsa_derivation_live_http_route_dispatch_status: "accepted".to_owned(),
+        router_ab_ecdsa_derivation_pool_fill_status: ecdsa_result.pool_fill_status,
+        router_ab_ecdsa_derivation_prepare_status: ecdsa_result.prepare_status,
+        router_ab_ecdsa_derivation_finalize_status: ecdsa_result.finalize_status,
+        router_ab_ecdsa_derivation_replay_rejection_status: ecdsa_result.replay_rejection_status,
+        router_ab_ecdsa_derivation_signature_scheme: ecdsa_result.signature_scheme,
+        router_ab_ecdsa_derivation_evidence_kind: "live_http_route_dispatch".to_owned(),
         setup_elapsed_ms,
         deriver_b_peer_elapsed_ms,
         deriver_a_peer_elapsed_ms,
-        ecdsa_hss_live_http_elapsed_ms,
+        router_ab_ecdsa_derivation_live_http_elapsed_ms,
         total_elapsed_ms: elapsed_ms(total_start),
     })
 }
@@ -225,16 +227,17 @@ fn required_json_string(
     Ok(parsed.to_owned())
 }
 
-fn run_ecdsa_hss_live_http_smoke(
+fn run_router_ab_ecdsa_derivation_live_http_smoke(
     root: &Path,
     urls: &LocalWorkerUrls,
     smoke_run_id: &str,
-) -> Result<EcdsaHssSmokeResult, Box<dyn std::error::Error>> {
+) -> Result<RouterAbEcdsaDerivationSmokeResult, Box<dyn std::error::Error>> {
     let signing_worker_identity = signing_worker_identity_from_root(root)?;
-    let fixture = local_ecdsa_hss_fixture(signing_worker_identity)?;
+    let fixture = local_router_ab_ecdsa_derivation_fixture(signing_worker_identity)?;
     seed_local_ecdsa_wallet_session(&urls.router, &fixture)?;
-    let authorization = local_smoke_ecdsa_hss_wallet_session_authorization_v1(&fixture)?;
-    let pool_put = LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
+    let authorization =
+        local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(&fixture)?;
+    let pool_put = LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
         scope: fixture.scope.clone(),
         server_presignature_id: fixture.server_presignature_id.clone(),
         server_big_r33_b64u: b64u(&fixture.server_big_r33),
@@ -245,7 +248,7 @@ fn run_ecdsa_hss_live_http_smoke(
     let internal_service_auth = local_router_ab_internal_service_auth_secret_v1();
     let (pool_status, pool_body) = post_json_to_path_with_headers(
         &urls.signing_worker,
-        LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
+        LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
         &pool_put,
         &[(
             LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
@@ -254,59 +257,70 @@ fn run_ecdsa_hss_live_http_smoke(
     )?;
     if pool_status != 200 {
         return Err(format!(
-            "SigningWorker ECDSA-HSS pool-fill expected HTTP 200, received {pool_status}: {pool_body}"
+            "SigningWorker Router A/B ECDSA derivation pool-fill expected HTTP 200, received {pool_status}: {pool_body}"
         )
         .into());
     }
-    let pool_receipt: LocalSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1 =
+    let pool_receipt: LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1 =
         serde_json::from_str(&pool_body)?;
     if !pool_receipt.stored
         || pool_receipt.server_presignature_id != fixture.server_presignature_id
         || pool_receipt.server_big_r33_b64u != b64u(&fixture.server_big_r33)
     {
-        return Err("SigningWorker ECDSA-HSS pool-fill receipt did not match request".into());
+        return Err(
+            "SigningWorker Router A/B ECDSA derivation pool-fill receipt did not match request"
+                .into(),
+        );
     }
 
-    let prepare_request = RouterAbEcdsaHssEvmDigestSigningRequestV1::new(
+    let prepare_request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         fixture.scope.clone(),
-        &format!("local-ecdsa-hss-smoke-sign-{smoke_run_id}"),
+        &format!("local-router-ab-ecdsa-derivation-smoke-sign-{smoke_run_id}"),
         fixture.server_presignature_id.clone(),
         fixture.expires_at_ms,
         b64u(&fixture.signing_digest32),
     )?;
     let (prepare_status, prepare_body) = post_json_to_path_with_authorization(
         &urls.router,
-        LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH,
+        LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
         authorization.as_str(),
         &prepare_request,
     )?;
     if prepare_status != 200 {
         return Err(format!(
-            "Router ECDSA-HSS prepare expected HTTP 200, received {prepare_status}: {prepare_body}"
+            "Router Router A/B ECDSA derivation prepare expected HTTP 200, received {prepare_status}: {prepare_body}"
         )
         .into());
     }
     let prepare_value: Value = serde_json::from_str(&prepare_body)?;
-    let budget_reservation_id =
-        required_json_string(&prepare_value, "budget_reservation_id", "ECDSA-HSS prepare")?;
-    let budget_operation_id =
-        required_json_string(&prepare_value, "budget_operation_id", "ECDSA-HSS prepare")?;
+    let budget_reservation_id = required_json_string(
+        &prepare_value,
+        "budget_reservation_id",
+        "Router A/B ECDSA derivation prepare",
+    )?;
+    let budget_operation_id = required_json_string(
+        &prepare_value,
+        "budget_operation_id",
+        "Router A/B ECDSA derivation prepare",
+    )?;
     let mut prepare_core_value = prepare_value;
     let prepare_core_object = prepare_core_value
         .as_object_mut()
-        .ok_or("ECDSA-HSS prepare response must serialize to an object")?;
+        .ok_or("Router A/B ECDSA derivation prepare response must serialize to an object")?;
     prepare_core_object.remove("budget_reservation_id");
     prepare_core_object.remove("budget_operation_id");
     prepare_core_object.remove("budget_status");
-    let prepare_response: RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1 =
+    let prepare_response: RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1 =
         serde_json::from_value(prepare_core_value)?;
     prepare_response.validate_for_request(&prepare_request)?;
 
     let entropy32: [u8; 32] = URL_SAFE_NO_PAD
         .decode(&prepare_response.rerandomization_entropy32_b64u)?
         .try_into()
-        .map_err(|bytes: Vec<u8>| format!("ECDSA-HSS entropy length {}", bytes.len()))?;
-    let participant_ids = ECDSA_HSS_PARTICIPANT_IDS.map(u32::from);
+        .map_err(|bytes: Vec<u8>| {
+            format!("Router A/B ECDSA derivation entropy length {}", bytes.len())
+        })?;
+    let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
     let client_signature_share32 = threshold_ecdsa_compute_signature_share(
         &participant_ids,
         1,
@@ -317,7 +331,7 @@ fn run_ecdsa_hss_live_http_smoke(
         &fixture.signing_digest32,
         &entropy32,
     )?;
-    let finalize_request = RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1::new(
+    let finalize_request = RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         fixture.scope,
         prepare_request.request_id,
         prepare_request.expires_at_ms,
@@ -328,7 +342,7 @@ fn run_ecdsa_hss_live_http_smoke(
     let mut finalize_request_body = serde_json::to_value(&finalize_request)?;
     let finalize_request_object = finalize_request_body
         .as_object_mut()
-        .ok_or("ECDSA-HSS finalize request must serialize to an object")?;
+        .ok_or("Router A/B ECDSA derivation finalize request must serialize to an object")?;
     finalize_request_object.insert(
         "budget_reservation_id".to_owned(),
         Value::String(budget_reservation_id),
@@ -339,45 +353,49 @@ fn run_ecdsa_hss_live_http_smoke(
     );
     let (finalize_status, finalize_body) = post_json_to_path_with_authorization(
         &urls.router,
-        LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH,
+        LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
         authorization.as_str(),
         &finalize_request_body,
     )?;
     if finalize_status != 200 {
         return Err(format!(
-            "Router ECDSA-HSS finalize expected HTTP 200, received {finalize_status}: {finalize_body}"
+            "Router Router A/B ECDSA derivation finalize expected HTTP 200, received {finalize_status}: {finalize_body}"
         )
         .into());
     }
-    let signing_response: RouterAbEcdsaHssEvmDigestSigningResponseV1 =
+    let signing_response: RouterAbEcdsaDerivationEvmDigestSigningResponseV1 =
         serde_json::from_str(&finalize_body)?;
     signing_response.validate()?;
     if signing_response.request_digest != finalize_request.request_digest()?
         || signing_response.signature65_b64u.as_bytes().len() != 87
     {
-        return Err("Router ECDSA-HSS finalize response did not bind request".into());
+        return Err(
+            "Router Router A/B ECDSA derivation finalize response did not bind request".into(),
+        );
     }
 
     let (replay_status, replay_body) = post_json_to_path_with_authorization(
         &urls.router,
-        LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH,
+        LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
         authorization.as_str(),
         &finalize_request_body,
     )?;
     if replay_status != 400 || !replay_body.contains("prepared presignature is not available") {
         return Err(format!(
-            "Router ECDSA-HSS one-use replay expected HTTP 400 prepared-presignature rejection, received {replay_status}: {replay_body}"
+            "Router Router A/B ECDSA derivation one-use replay expected HTTP 400 prepared-presignature rejection, received {replay_status}: {replay_body}"
         )
         .into());
     }
 
-    Ok(EcdsaHssSmokeResult {
+    Ok(RouterAbEcdsaDerivationSmokeResult {
         pool_fill_status: "http_200_stored".to_owned(),
         prepare_status: "http_200_bound".to_owned(),
         finalize_status: "http_200_signature".to_owned(),
         replay_rejection_status: "http_400_one_use_replay_rejected".to_owned(),
-        signature_scheme: ecdsa_hss_signature_scheme_label(signing_response.signature_scheme)
-            .to_owned(),
+        signature_scheme: router_ab_ecdsa_derivation_signature_scheme_label(
+            signing_response.signature_scheme,
+        )
+        .to_owned(),
     })
 }
 
@@ -395,16 +413,18 @@ fn signing_worker_identity_from_root(
     )?)
 }
 
-fn ecdsa_hss_signature_scheme_label(scheme: RouterAbEcdsaHssSignatureSchemeV1) -> &'static str {
+fn router_ab_ecdsa_derivation_signature_scheme_label(
+    scheme: RouterAbEcdsaDerivationSignatureSchemeV1,
+) -> &'static str {
     match scheme {
-        RouterAbEcdsaHssSignatureSchemeV1::EcdsaSecp256k1RecoverableV1 => {
+        RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1 => {
             "ecdsa_secp256k1_recoverable_v1"
         }
     }
 }
 
-struct LocalEcdsaHssFixture {
-    scope: RouterAbEcdsaHssNormalSigningScopeV1,
+struct LocalRouterAbEcdsaDerivationFixture {
+    scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
     server_presignature_id: String,
     threshold_public_key33: [u8; 33],
     server_big_r33: [u8; 33],
@@ -416,9 +436,9 @@ struct LocalEcdsaHssFixture {
     expires_at_ms: u64,
 }
 
-fn local_ecdsa_hss_fixture(
+fn local_router_ab_ecdsa_derivation_fixture(
     signing_worker: ServerIdentityV1,
-) -> Result<LocalEcdsaHssFixture, Box<dyn std::error::Error>> {
+) -> Result<LocalRouterAbEcdsaDerivationFixture, Box<dyn std::error::Error>> {
     let client_additive_share32 = scalar_be32(1);
     let server_additive_share32 = scalar_be32(1);
     let client_threshold_share =
@@ -437,7 +457,8 @@ fn local_ecdsa_hss_fixture(
     let threshold_public_key33: [u8; 33] = threshold_public_key33_vec
         .try_into()
         .map_err(|bytes: Vec<u8>| format!("threshold public key length {}", bytes.len()))?;
-    let client_public_key33 = secp256k1_private_key_32_to_public_key_33(&client_additive_share32)?;
+    let derivation_client_share_public_key33 =
+        secp256k1_private_key_32_to_public_key_33(&client_additive_share32)?;
     let server_public_key33 = secp256k1_private_key_32_to_public_key_33(&server_additive_share32)?;
     let ethereum_address20 =
         secp256k1_public_key_33_to_ethereum_address_20(&threshold_public_key33)?;
@@ -453,32 +474,33 @@ fn local_ecdsa_hss_fixture(
         &threshold_public_key33,
     );
     let application_binding_digest = Sha256::digest(
-        b"router-ab-local-smoke/ecdsa-hss/application-binding/wallet-ecdsa-hss-local/v1",
+        b"router-ab-local-smoke/router-ab-ecdsa-derivation/application-binding/wallet-router-ab-ecdsa-derivation-local/v1",
     );
-    let context = RouterAbEcdsaHssStableKeyContextV1::new(b64u(&application_binding_digest))?;
-    let public_identity = RouterAbEcdsaHssPublicIdentityV1::new(
+    let context =
+        RouterAbEcdsaDerivationStableKeyContextV1::new(b64u(&application_binding_digest))?;
+    let public_identity = RouterAbEcdsaDerivationPublicIdentityV1::new(
         b64u(context.context_binding_digest()?.as_bytes()),
-        b64u(&client_public_key33),
+        b64u(&derivation_client_share_public_key33),
         b64u(&server_public_key33),
         b64u(&threshold_public_key33),
         b64u(&ethereum_address20),
         0,
         0,
     )?;
-    let scope = RouterAbEcdsaHssNormalSigningScopeV1::new(
-        LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID,
-        LOCAL_SMOKE_ECDSA_HSS_WALLET_ID,
-        LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_KEY_ID,
-        LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_ID,
-        LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_VERSION,
+    let scope = RouterAbEcdsaDerivationNormalSigningScopeV1::new(
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
         context,
         public_identity,
         signing_worker,
         "activation-epoch-local",
     )?;
     let server_presignature_id =
-        local_ecdsa_hss_smoke_server_presignature_id(&scope, &server_big_r33)?;
-    Ok(LocalEcdsaHssFixture {
+        local_router_ab_ecdsa_derivation_smoke_server_presignature_id(&scope, &server_big_r33)?;
+    Ok(LocalRouterAbEcdsaDerivationFixture {
         scope,
         server_presignature_id,
         threshold_public_key33,
@@ -492,12 +514,12 @@ fn local_ecdsa_hss_fixture(
     })
 }
 
-fn local_ecdsa_hss_smoke_server_presignature_id(
-    scope: &RouterAbEcdsaHssNormalSigningScopeV1,
+fn local_router_ab_ecdsa_derivation_smoke_server_presignature_id(
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
     server_big_r33: &[u8; 33],
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut hasher = Sha256::new();
-    hasher.update(b"router-ab-local-smoke/ecdsa-hss/server-presignature-id/v1");
+    hasher.update(b"router-ab-local-smoke/router-ab-ecdsa-derivation/server-presignature-id/v1");
     hasher.update(scope.scope_digest()?.as_bytes());
     hasher.update(server_big_r33);
     Ok(format!(
@@ -511,7 +533,7 @@ fn drive_ecdsa_presignature_pair(
     relayer_share32: &[u8; 32],
     public_key33: &[u8; 33],
 ) -> ([u8; 33], [u8; 32], [u8; 32], [u8; 32], [u8; 32]) {
-    let participant_ids = ECDSA_HSS_PARTICIPANT_IDS.map(u32::from);
+    let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
     let mut client =
         ThresholdEcdsaPresignSession::new(&participant_ids, 1, 2, client_share32, public_key33)
             .expect("client presign session");
@@ -623,7 +645,7 @@ fn local_smoke_run_id() -> Result<String, Box<dyn std::error::Error>> {
 
 fn seed_local_ecdsa_wallet_session(
     router_url: &str,
-    fixture: &LocalEcdsaHssFixture,
+    fixture: &LocalRouterAbEcdsaDerivationFixture,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seed = json!({
         "walletId": fixture.scope.wallet_id,
@@ -634,8 +656,8 @@ fn seed_local_ecdsa_wallet_session(
         "walletKeyVersion": "v1",
         "derivationVersion": 1,
         "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
-        "thresholdSessionId": LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID,
-        "signingGrantId": LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID,
+        "thresholdSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
+        "signingGrantId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID,
         "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
         "participantIds": [1, 2],
         "remainingUses": LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES
@@ -643,7 +665,7 @@ fn seed_local_ecdsa_wallet_session(
     let internal_auth = local_router_ab_internal_service_auth_secret_v1();
     let (status, body) = post_json_to_path_with_headers(
         router_url,
-        LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH,
+        LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH,
         &seed,
         &[(
             LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
@@ -652,7 +674,7 @@ fn seed_local_ecdsa_wallet_session(
     )?;
     if status != 200 {
         return Err(format!(
-            "local ECDSA-HSS Router seed expected HTTP 200, received {status}: {body}"
+            "local Router A/B ECDSA derivation Router seed expected HTTP 200, received {status}: {body}"
         )
         .into());
     }
@@ -661,34 +683,40 @@ fn seed_local_ecdsa_wallet_session(
 
 const LOCAL_SMOKE_JWT_SECRET: &[u8] =
     b"seams-local-d1-relay-session-secret-change-before-shared-dev";
-const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH: &str = "/router-ab/dev/ecdsa-hss/normal-signing/seed";
+const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH: &str =
+    "/router-ab/dev/ecdsa-derivation/normal-signing/seed";
 const LOCAL_SMOKE_JWT_ISSUER: &str = "seams-local-d1-relay";
 const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
 const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;
 const LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS: u64 = 4_102_444_800_000;
 const LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES: u32 = 32;
-const LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID: &str = "local-ecdsa-hss-signing-grant";
-const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID: &str = "local-ecdsa-hss-session";
-const LOCAL_SMOKE_ECDSA_HSS_WALLET_ID: &str = "wallet-ecdsa-hss-local";
-const LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID: &str =
-    "wallet-key:evm-family:wallet-ecdsa-hss-local:signing-root-local:root-v1";
-const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";
-const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_ID: &str = "signing-root-local";
-const LOCAL_SMOKE_ECDSA_HSS_SIGNING_ROOT_VERSION: &str = "root-v1";
-const ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND: &str = "router_ab_ecdsa_hss_wallet_session_v1";
-const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND: &str = "router_ab_ecdsa_hss_normal_signing_v1";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID: &str =
+    "local-router-ab-ecdsa-derivation-signing-grant";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID: &str =
+    "local-router-ab-ecdsa-derivation-session";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID: &str =
+    "wallet-router-ab-ecdsa-derivation-local";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID: &str =
+    "wallet-key:evm-family:wallet-router-ab-ecdsa-derivation-local:signing-root-local:root-v1";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID: &str = "signing-root-local";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION: &str = "root-v1";
+const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND: &str =
+    "router_ab_ecdsa_derivation_wallet_session_v1";
+const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND: &str =
+    "router_ab_ecdsa_derivation_normal_signing_v1";
 
-fn local_smoke_ecdsa_hss_wallet_session_authorization_v1(
-    fixture: &LocalEcdsaHssFixture,
+fn local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(
+    fixture: &LocalRouterAbEcdsaDerivationFixture,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let claims = json!({
         "sub": fixture.scope.wallet_id,
-        "kind": ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+        "kind": ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
         "walletId": fixture.scope.wallet_id,
-        "thresholdSessionId": LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID,
-        "signingGrantId": LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID,
+        "thresholdSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
+        "signingGrantId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID,
         "keyScope": "evm-family",
-        "keyHandle": "local-ecdsa-hss-key-handle",
+        "keyHandle": "local-router-ab-ecdsa-derivation-key-handle",
         "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
         "evmFamilySigningKeySlotId": fixture.scope.wallet_key_id,
         "participantIds": [1, 2],
@@ -699,8 +727,8 @@ fn local_smoke_ecdsa_hss_wallet_session_authorization_v1(
             "envId": "dev",
             "signingRootVersion": "default"
         },
-        "routerAbEcdsaHssNormalSigning": {
-            "kind": ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND,
+        "routerAbRouterAbEcdsaDerivationNormalSigning": {
+            "kind": ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND,
             "scope": fixture.scope
         },
         "iat": LOCAL_SMOKE_JWT_IAT,

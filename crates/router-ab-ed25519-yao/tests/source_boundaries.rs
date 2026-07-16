@@ -37,3 +37,26 @@ fn only_recipient_modules_export_package_combination() {
     assert!(!relay_source.contains("combine_signing_worker_activation_packages"));
     assert!(!relay_source.contains("combine_export_packages"));
 }
+
+#[test]
+fn local_product_surface_exposes_only_the_fixed_128_kib_profile() {
+    let source = fs::read_to_string(crate_root().join("../ed25519-yao/src/lib.rs"))
+        .expect("ed25519-yao public surface");
+    let local_surface = source
+        .split("pub mod local_protocol {")
+        .nth(1)
+        .and_then(|tail| tail.split("\n}\n").next())
+        .expect("fixed local protocol module");
+    for forbidden in ["64KiB", "256KiB", "benchmark::*"] {
+        assert!(
+            !local_surface.contains(forbidden),
+            "local product surface must not expose {forbidden}"
+        );
+    }
+    for required in ["Activation128KiBDeriverA", "Export128KiBDeriverB"] {
+        assert!(
+            local_surface.contains(required),
+            "local product surface must expose {required}"
+        );
+    }
+}

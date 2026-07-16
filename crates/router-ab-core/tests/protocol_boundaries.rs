@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::Path;
 
+#[path = "support/ecdsa_commitment.rs"]
+mod ecdsa_commitment;
+
 use ed25519_dalek::SigningKey;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
@@ -21,7 +24,8 @@ use router_ab_core::{
     recipient_proof_bundle_ciphertext_aad_digest_v1, recipient_proof_bundle_payload_digest_v1,
     recipient_proof_bundle_payload_from_ab_proof_batch_v1,
     recipient_proof_bundle_wire_message_from_ab_proof_batch_v1, role_encrypted_envelope_digest_v1,
-    router_transcript_digest_v1, sign_ab_peer_message_ed25519_authentication_v1,
+    router_transcript_binding_v1, router_transcript_digest_v1,
+    sign_ab_peer_message_ed25519_authentication_v1,
     sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     validate_signer_input_plaintext_binding_v1, verify_ab_peer_message_ed25519_signature_v1,
     verify_recipient_proof_bundle_ciphertext_payload_v1, wire_message_digest_v1,
@@ -36,11 +40,11 @@ use router_ab_core::{
     RecipientOutputEncryptionRequestV1, RecipientProofBundleCiphertextV1,
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
     RecipientProofBundlePayloadV1, RequestKind, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
-    RoleEnvelopeAssignmentV1, RouterAbDerivationErrorCode, RouterAbLifecycleStateV1,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEnvelopeDigestSetV1,
-    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
-    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerSetBinding, SignerSetV1,
-    TranscriptBinding, WireMessageKindV1, WireMessageV1,
+    RoleEnvelopeAssignmentV1, RootShareCommitmentRegistryV1, RouterAbDerivationErrorCode,
+    RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1, RouterTranscriptMetadataV1,
+    ServerIdentityV1, SignerIdentityV1, SignerInputPlaintextV1, SignerInputQuorumPolicyV1,
+    SignerSetBinding, SignerSetV1, TranscriptBinding, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch, SecretMaterial32};
 use threshold_prf::{
@@ -49,6 +53,33 @@ use threshold_prf::{
 
 fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
+}
+
+fn commitment_registry_for_proof_batches(
+    router_payload: &RouterToSignerPayloadV1,
+    signer_a_batch: &EcdsaThresholdPrfProofBatchPayloadV1,
+    signer_b_batch: &EcdsaThresholdPrfProofBatchPayloadV1,
+) -> RootShareCommitmentRegistryV1 {
+    let transcript = router_transcript_binding_v1(
+        router_payload.lifecycle(),
+        router_payload.signer_set(),
+        router_payload.transcript_metadata(),
+        router_payload.lifecycle().root_share_epoch.clone(),
+    )
+    .expect("registry transcript");
+    ecdsa_commitment::authenticated_registry(
+        &transcript,
+        &signer_a_batch
+            .proof_bundles
+            .first()
+            .expect("Signer A proof bundle")
+            .commitment_wire,
+        &signer_b_batch
+            .proof_bundles
+            .first()
+            .expect("Signer B proof bundle")
+            .commitment_wire,
+    )
 }
 
 struct TestRecipientProofBundleEncryptor;
@@ -1574,9 +1605,11 @@ fn recipient_proof_bundle_ciphertext_round_trips_and_binds_payload() {
     assert_eq!(envelope.recipient_identity, "client-1");
     assert_eq!(envelope.transcript_digest, payload.transcript_digest);
     assert_eq!(envelope.payload_digest, payload.digest());
-    assert!(!encode_recipient_proof_bundle_ciphertext_aad_v1(&envelope)
-        .expect("recipient proof-bundle AAD")
-        .is_empty());
+    let aad = encode_recipient_proof_bundle_ciphertext_aad_v1(&envelope)
+        .expect("recipient proof-bundle AAD");
+    assert!(aad
+        .windows(b"threshold-prf/ristretto255-sha512".len())
+        .any(|window| window == b"threshold-prf/ristretto255-sha512"));
     assert_ne!(
         recipient_proof_bundle_ciphertext_aad_digest_v1(&envelope)
             .expect("recipient proof-bundle AAD digest"),
@@ -1584,6 +1617,143 @@ fn recipient_proof_bundle_ciphertext_round_trips_and_binds_payload() {
     );
     verify_recipient_proof_bundle_ciphertext_payload_v1(&envelope, &payload)
         .expect("recipient proof-bundle envelope matches payload");
+}
+
+#[test]
+fn recipient_proof_bundle_aad_binds_recipient_output_transcript_lifecycle_root_epoch_and_suite() {
+    let (router_payload, proof_batch_a, _) = router_scoped_ab_proof_batches();
+    let payload = recipient_proof_bundle_payload_from_ab_proof_batch_v1(
+        &router_payload.lifecycle().lifecycle_id,
+        proof_batch_a,
+        OpenedShareKind::XClientBase,
+        Role::Client,
+        "client-1",
+    )
+    .expect("recipient proof-bundle payload");
+    let mut encryptor = TestRecipientProofBundleEncryptor;
+    let envelope = encrypt_recipient_proof_bundle_payload_v1(
+        &payload,
+        "local-client-recipient-key",
+        &mut encryptor,
+    )
+    .expect("recipient proof-bundle envelope");
+    let base_aad = encode_recipient_proof_bundle_ciphertext_aad_v1(&envelope)
+        .expect("base recipient proof-bundle AAD");
+
+    let recipient_substitution = recipient_envelope_with_binding(
+        &envelope,
+        Role::Client,
+        OpenedShareKind::XClientBase,
+        "substituted-client",
+        "local-client-recipient-key",
+        envelope.transcript_digest,
+        envelope.payload_digest,
+    );
+    let signing_worker_substitution = recipient_envelope_with_binding(
+        &envelope,
+        Role::Server,
+        OpenedShareKind::XServerBase,
+        "server-a",
+        "local-server-recipient-key",
+        envelope.transcript_digest,
+        envelope.payload_digest,
+    );
+    let transcript_substitution = recipient_envelope_with_binding(
+        &envelope,
+        Role::Client,
+        OpenedShareKind::XClientBase,
+        "client-1",
+        "local-client-recipient-key",
+        digest(0x9a),
+        envelope.payload_digest,
+    );
+
+    let mut lifecycle_substitution = payload.clone();
+    lifecycle_substitution.lifecycle_id = "substituted-lifecycle".to_owned();
+    lifecycle_substitution
+        .validate()
+        .expect("lifecycle substitution remains structurally valid");
+    let lifecycle_envelope = recipient_envelope_with_binding(
+        &envelope,
+        Role::Client,
+        OpenedShareKind::XClientBase,
+        "client-1",
+        "local-client-recipient-key",
+        envelope.transcript_digest,
+        lifecycle_substitution.digest(),
+    );
+
+    let mut root_epoch_substitution = payload.clone();
+    let substituted_epoch = RootShareEpoch::new("substituted-root-epoch").expect("root epoch");
+    root_epoch_substitution.proof_batch.root_share_epoch = substituted_epoch.clone();
+    root_epoch_substitution.proof_batch.proof_bundles[0]
+        .signer_partial
+        .binding
+        .root_share_epoch = substituted_epoch;
+    root_epoch_substitution
+        .validate()
+        .expect("root epoch substitution remains structurally valid");
+    let root_epoch_envelope = recipient_envelope_with_binding(
+        &envelope,
+        Role::Client,
+        OpenedShareKind::XClientBase,
+        "client-1",
+        "local-client-recipient-key",
+        envelope.transcript_digest,
+        root_epoch_substitution.digest(),
+    );
+
+    for changed in [
+        &recipient_substitution,
+        &signing_worker_substitution,
+        &transcript_substitution,
+        &lifecycle_envelope,
+        &root_epoch_envelope,
+    ] {
+        assert_ne!(
+            encode_recipient_proof_bundle_ciphertext_aad_v1(&changed)
+                .expect("changed recipient proof-bundle AAD"),
+            base_aad,
+        );
+    }
+    assert!(base_aad
+        .windows(b"threshold-prf/ristretto255-sha512".len())
+        .any(|window| window == b"threshold-prf/ristretto255-sha512"));
+    verify_recipient_proof_bundle_ciphertext_payload_v1(&envelope, &payload)
+        .expect("base payload binding");
+    assert!(
+        verify_recipient_proof_bundle_ciphertext_payload_v1(&lifecycle_envelope, &payload,)
+            .is_err()
+    );
+    assert!(
+        verify_recipient_proof_bundle_ciphertext_payload_v1(&root_epoch_envelope, &payload,)
+            .is_err()
+    );
+}
+
+fn recipient_envelope_with_binding(
+    envelope: &RecipientProofBundleCiphertextV1,
+    recipient_role: Role,
+    opened_share_kind: OpenedShareKind,
+    recipient_identity: &str,
+    recipient_encryption_key: &str,
+    transcript_digest: PublicDigest32,
+    payload_digest: PublicDigest32,
+) -> RecipientProofBundleCiphertextV1 {
+    RecipientProofBundleCiphertextV1::new(
+        envelope.algorithm,
+        envelope.signer.clone(),
+        recipient_role,
+        opened_share_kind,
+        recipient_identity,
+        recipient_encryption_key,
+        transcript_digest,
+        payload_digest,
+        *envelope.nonce(),
+        EncryptedPayloadV1::new(envelope.ciphertext_and_tag().as_bytes().to_vec())
+            .expect("ciphertext clone"),
+    )
+    .expect("recipient envelope binding")
 }
 
 #[test]
@@ -1651,9 +1821,11 @@ fn recipient_proof_bundle_ciphertext_rejects_payload_mismatch() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
+    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
 
     let client_output = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
+        &registry,
         proof_batch_a.clone(),
         proof_batch_b.clone(),
         OpenedShareKind::XClientBase,
@@ -1663,6 +1835,7 @@ fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
     .expect("client recipient output");
     let server_output = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
+        &registry,
         proof_batch_a,
         proof_batch_b,
         OpenedShareKind::XServerBase,
@@ -1692,6 +1865,7 @@ fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_accepts_decrypted_proof_bundle_payloads() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
+    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
     let deriver_a_payload = recipient_proof_bundle_payload_from_ab_proof_batch_v1(
         &payload.lifecycle().lifecycle_id,
         proof_batch_a,
@@ -1711,6 +1885,7 @@ fn mpc_prf_recipient_scoped_combine_accepts_decrypted_proof_bundle_payloads() {
 
     let client_output = combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
         &payload,
+        &registry,
         deriver_a_payload,
         deriver_b_payload,
         OpenedShareKind::XClientBase,
@@ -1730,6 +1905,7 @@ fn mpc_prf_recipient_scoped_combine_accepts_decrypted_proof_bundle_payloads() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
+    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
     let deriver_a_payload = recipient_proof_bundle_payload_from_ab_proof_batch_v1(
         &payload.lifecycle().lifecycle_id,
         proof_batch_a,
@@ -1749,6 +1925,7 @@ fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
 
     let err = combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
         &payload,
+        &registry,
         deriver_a_payload,
         deriver_b_payload,
         OpenedShareKind::XClientBase,
@@ -1763,9 +1940,11 @@ fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_rejects_missing_output_binding() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
+    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
 
     let err = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
+        &registry,
         proof_batch_a,
         proof_batch_b,
         OpenedShareKind::XClientBase,

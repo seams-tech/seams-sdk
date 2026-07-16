@@ -9,7 +9,7 @@ use crate::protocol::error::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpensiveWorkKindV1 {
-    /// Early registration preparation before expensive signer/HSS work.
+    /// Early registration preparation before expensive signer/cryptographic work.
     RegistrationPrepare,
     /// Key export setup ceremony.
     KeyExport,
@@ -178,7 +178,7 @@ pub enum GateRejectReasonV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExpensiveWorkGateDecisionV1 {
-    /// Request may allocate signer/HSS capacity.
+    /// Request may allocate signer/cryptographic capacity.
     Accepted {
         /// Router-assigned request id.
         request_id: String,
@@ -195,7 +195,7 @@ pub enum ExpensiveWorkGateDecisionV1 {
         /// Deferral reason.
         reason: GateDeferReasonV1,
     },
-    /// Request is rejected before signer/HSS work.
+    /// Request is rejected before signer/cryptographic work.
     Rejected {
         /// Rejection reason.
         reason: GateRejectReasonV1,
@@ -270,7 +270,7 @@ impl ExpensiveWorkGateDecisionV1 {
     }
 }
 
-/// Single-use registration prepare handle scoped before expensive HSS work.
+/// Single-use registration prepare handle scoped before expensive cryptographic work.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistrationPrepareHandleV1 {
     /// Router-assigned handle id.

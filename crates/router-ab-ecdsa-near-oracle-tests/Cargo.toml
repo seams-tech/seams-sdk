@@ -1,0 +1,17 @@
+[package]
+name = "router-ab-ecdsa-near-oracle-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Dev-only parity oracle for the purpose-built Router A/B ECDSA crates"
+license = "Apache-2.0"
+
+[dependencies]
+k256 = { version = "0.13.4", default-features = false, features = ["arithmetic"] }
+hex = "0.4"
+rand_chacha = "0.3"
+router-ab-ecdsa-presign = { path = "../router-ab-ecdsa-presign", features = ["test-utils"] }
+router-ab-ecdsa-online = { path = "../router-ab-ecdsa-online" }
+router-ab-ecdsa-wire = { path = "../router-ab-ecdsa-wire" }
+signer-core = { path = "../signer-core", features = ["threshold-ecdsa"] }
+threshold-signatures = { git = "https://github.com/near/threshold-signatures", rev = "db609be5021eb9d794f577601f422818fbdfe246" }

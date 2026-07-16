@@ -6,7 +6,7 @@ Rust signer-core integration. It must not be implemented as a TypeScript npm
 subpackage.
 
 Key-choice guidance for embedded robotics signers lives in
-[docs/robotics-hss-key-choice.md](docs/robotics-hss-key-choice.md).
+[docs/robotics-key-choice.md](docs/robotics-key-choice.md).
 
 ## Required Ports
 

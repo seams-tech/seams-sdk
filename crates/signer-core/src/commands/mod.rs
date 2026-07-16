@@ -20,10 +20,10 @@ pub use ecdsa_export::{
     EcdsaRoleLocalExportPublicFactsV1,
 };
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 pub use ecdsa_bootstrap::{
     finalize_ecdsa_client_bootstrap_command_v1, prepare_ecdsa_client_bootstrap_command_v1,
 };
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 pub use ecdsa_export::build_ecdsa_role_local_export_artifact_command_v1;

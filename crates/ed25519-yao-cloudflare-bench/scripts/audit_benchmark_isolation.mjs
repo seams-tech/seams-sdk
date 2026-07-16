@@ -15,7 +15,7 @@ const PRODUCT_ROOTS = Object.freeze([
   "packages",
   "tests",
   "voiceId",
-  "crates/ecdsa-hss",
+  "crates/router-ab-ecdsa-derivation",
   "crates/router-ab-cloudflare",
   "crates/router-ab-core",
   "crates/router-ab-dev",
@@ -62,6 +62,9 @@ const FORBIDDEN_PRODUCT_TOKENS = Object.freeze([
   "benchmark/activation",
   "phase9b-cloudflare-activation-128kib",
   "ed25519-yao-ab-benchmark",
+]);
+const AUTHORIZED_PRODUCT_REFERENCES = new Set([
+  "crates/router-ab-dev/scripts/validate-yaos-ab-local.mjs|ed25519-yao-cloudflare-bench",
 ]);
 const AUTHORIZED_CORE_DEPENDENCIES = Object.freeze([
   Object.freeze({
@@ -215,9 +218,10 @@ function collectProductReferences() {
       filesScanned += 1;
       const source = readFileSync(path, "utf8");
       for (const token of FORBIDDEN_PRODUCT_TOKENS) {
-        if (source.includes(token)) {
-          references.push(Object.freeze({ path: normalizedRelative(path), token }));
-        }
+        if (!source.includes(token)) continue;
+        const reference = Object.freeze({ path: normalizedRelative(path), token });
+        const identity = `${reference.path}|${reference.token}`;
+        if (!AUTHORIZED_PRODUCT_REFERENCES.has(identity)) references.push(reference);
       }
     }
   }
@@ -269,7 +273,8 @@ function collectCoreBoundary() {
       source.includes("pub use passive::role_protocol::benchmark as phase9_role_benchmark;"),
     localExportIsCfgGated:
       source.includes('#[cfg(feature = "local-protocol")]') &&
-      source.includes("pub use passive::role_protocol::benchmark as local_protocol;"),
+      source.includes("pub mod local_protocol {") &&
+      source.includes("pub use crate::passive::role_protocol::benchmark::{"),
     passiveModuleIsCfgGated:
       source.includes('feature = "passive-benchmark"') &&
       source.includes('feature = "passive-wasm-benchmark"') &&

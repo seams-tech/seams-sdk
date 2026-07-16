@@ -18,7 +18,7 @@ hpke-ng = "0.1.0"
 rand_chacha = "0.9"
 rand_core = "0.9"
 router-ab-core = { path = "../router-ab-core" }
-router-ab-ed25519-yao = { path = "../router-ab-ed25519-yao" }
+router-ab-ed25519-yao-protocol = { path = "../router-ab-ed25519-yao-protocol" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519"] }
@@ -27,6 +27,8 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 router-ab-dev = { path = "../router-ab-dev" }
+router-ab-ed25519-yao = { path = "../router-ab-ed25519-yao" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2.17", features = ["js"] }
 wasm-bindgen = "0.2"

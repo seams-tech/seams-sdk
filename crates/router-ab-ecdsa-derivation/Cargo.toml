@@ -1,0 +1,28 @@
+[package]
+name = "router-ab-ecdsa-derivation"
+version = "0.1.0"
+edition = "2021"
+description = "Router A/B ECDSA role-local derivation and threshold-signing boundary"
+license = "Apache-2.0"
+
+[lib]
+name = "router_ab_ecdsa_derivation"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[[bench]]
+name = "performance_baseline"
+harness = false
+
+[dependencies]
+hex = "0.4"
+k256 = { version = "0.13", default-features = false, features = ["arithmetic"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+sha3 = "0.10"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+criterion = "0.5"
+

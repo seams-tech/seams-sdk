@@ -133,6 +133,32 @@ function requireUniqueSourceLine(path, fragment) {
   return matches[0];
 }
 
+function normalizedDerivedTraits(deriveBody) {
+  const normalized = [];
+  for (const traitName of deriveBody.split(',')) {
+    normalized.push(traitName.trim());
+  }
+  return normalized;
+}
+
+function assertSecretBitWrappersCannotUseDebug() {
+  const source = readFileSync(CORE_SOURCE, 'utf8');
+  const secretBitWrappers = ['WireValue', 'ChoiceBit'];
+  for (const wrapper of secretBitWrappers) {
+    const declaration = new RegExp(
+      String.raw`#\[derive\(([^)]*)\)\][\s\S]{0,120}?struct\s+${wrapper}\b`,
+      'u',
+    ).exec(source);
+    if (declaration === null) {
+      fail(`constant-time source gate cannot find the ${wrapper} declaration`);
+    }
+    const derivedTraits = normalizedDerivedTraits(declaration[1]);
+    if (derivedTraits.includes('Debug')) {
+      fail(`${wrapper} contains secret bits and must not implement Debug`);
+    }
+  }
+}
+
 function assemblyFileId(assemblyLines, sourceSuffix) {
   const filePattern = /^\s*\.file\s+(\d+)\s+.*"([^"]+)"\s*$/u;
   const matches = [];
@@ -398,6 +424,7 @@ function main() {
   }
   const temporary = mkdtempSync(join(tmpdir(), 'ed25519-yao-ct-codegen-'));
   try {
+    assertSecretBitWrappersCannotUseDebug();
     buildAndInspectHost(join(temporary, 'host'));
     const deriverA = buildWorker(join(temporary, 'wasm-a'), 'deriver-a-cross-account');
     const deriverB = buildWorker(join(temporary, 'wasm-b'), 'deriver-b-cross-account');

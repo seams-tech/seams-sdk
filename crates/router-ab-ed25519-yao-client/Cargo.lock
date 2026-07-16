@@ -536,19 +536,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ecdsa-hss"
-version = "0.1.0"
-dependencies = [
- "hex",
- "k256",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sha3 0.10.9",
- "zeroize",
-]
-
-[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1436,9 +1423,9 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
  "rand_core 0.6.4",
 ]
@@ -1526,6 +1513,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-client-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1540,7 +1528,6 @@ dependencies = [
  "base64",
  "bs58",
  "curve25519-dalek",
- "ecdsa-hss",
  "ed25519-dalek",
  "frost-ed25519",
  "getrandom 0.2.17",
@@ -1549,6 +1536,8 @@ dependencies = [
  "rand_core 0.6.4",
  "rand_core 0.9.5",
  "router-ab-core",
+ "router-ab-ecdsa-client-protocol",
+ "router-ab-ecdsa-derivation",
  "router-ab-ed25519-yao",
  "rusqlite",
  "serde",
@@ -1556,6 +1545,30 @@ dependencies = [
  "sha2 0.10.9",
  "signer-core",
  "subtle",
+ "threshold-prf",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-client-protocol"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "sha2 0.10.9",
+ "subtle",
+]
+
+[[package]]
+name = "router-ab-ecdsa-derivation"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "k256",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
  "zeroize",
 ]
 
@@ -1565,7 +1578,7 @@ version = "0.1.0"
 dependencies = [
  "ed25519-yao",
  "router-ab-core",
- "serde",
+ "router-ab-ed25519-yao-protocol",
  "signer-core",
  "zeroize",
 ]
@@ -1576,17 +1589,31 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "frost-ed25519",
+ "getrandom 0.2.17",
  "hpke-ng",
  "rand_chacha",
  "rand_core 0.9.5",
  "router-ab-core",
  "router-ab-dev",
  "router-ab-ed25519-yao",
+ "router-ab-ed25519-yao-protocol",
  "serde",
  "serde_json",
  "signer-core",
  "subtle",
  "wasm-bindgen",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ed25519-yao-protocol"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "router-ab-core",
+ "serde",
+ "signer-core",
+ "subtle",
  "zeroize",
 ]
 
@@ -1801,7 +1828,6 @@ dependencies = [
  "borsh",
  "bs58",
  "curve25519-dalek",
- "ecdsa-hss",
  "ed25519-dalek",
  "frost-ed25519",
  "hkdf 0.12.4",
@@ -1809,6 +1835,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-derivation",
  "serde",
  "sha2 0.10.9",
  "sha3 0.10.9",
@@ -1926,6 +1953,7 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-client-protocol",
  "sha2 0.10.9",
  "subtle",
  "zeroize",

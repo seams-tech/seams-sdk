@@ -70,36 +70,52 @@ impl StrictDeriverRuntimeV1 {
     fn registration_private_path(&self) -> &'static str {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_REGISTRATION_PRIVATE_REQUEST_PATH,
+            Self::DeriverA(_) => {
+                CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH
+            }
             #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_REGISTRATION_PRIVATE_REQUEST_PATH,
+            Self::DeriverB(_) => {
+                CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH
+            }
         }
     }
 
     fn export_private_path(&self) -> &'static str {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH,
+            Self::DeriverA(_) => {
+                CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH
+            }
             #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH,
+            Self::DeriverB(_) => {
+                CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH
+            }
         }
     }
 
     fn recovery_private_path(&self) -> &'static str {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_RECOVERY_PRIVATE_REQUEST_PATH,
+            Self::DeriverA(_) => {
+                CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH
+            }
             #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_RECOVERY_PRIVATE_REQUEST_PATH,
+            Self::DeriverB(_) => {
+                CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH
+            }
         }
     }
 
     fn refresh_private_path(&self) -> &'static str {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_ECDSA_HSS_REFRESH_PRIVATE_REQUEST_PATH,
+            Self::DeriverA(_) => {
+                CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH
+            }
             #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_ECDSA_HSS_REFRESH_PRIVATE_REQUEST_PATH,
+            Self::DeriverB(_) => {
+                CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH
+            }
         }
     }
 
@@ -199,10 +215,10 @@ async fn handle_strict_deriver_fetch_v1(
     };
 
     if path == runtime.registration_private_path() {
-        let registration_request: CloudflareEcdsaHssDeriverRegistrationPrivateRequestV1 =
+        let registration_request: CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 =
             match parse_strict_deriver_json_v1(
                 &mut request,
-                format!("Router A/B strict {label} ECDSA-HSS registration"),
+                format!("Router A/B strict {label} Router A/B ECDSA derivation registration"),
             )
             .await?
             {
@@ -224,7 +240,7 @@ async fn handle_strict_deriver_fetch_v1(
         };
         let registration_bootstrap = registration_request.signer_bootstrap.clone();
         let response =
-            match decrypt_and_handle_cloudflare_ecdsa_hss_registration_signer_private_request_v1(
+            match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1(
                 &env,
                 worker_role,
                 &preloaded.host,
@@ -253,10 +269,10 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     if path == runtime.export_private_path() {
-        let export_request: CloudflareEcdsaHssDeriverExportPrivateRequestV1 =
+        let export_request: CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1 =
             match parse_strict_deriver_json_v1(
                 &mut request,
-                format!("Router A/B strict {label} ECDSA-HSS export"),
+                format!("Router A/B strict {label} Router A/B ECDSA derivation export"),
             )
             .await?
             {
@@ -276,7 +292,7 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        return match decrypt_and_handle_cloudflare_ecdsa_hss_export_signer_private_request_v1(
+        return match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1(
             &env,
             worker_role,
             &preloaded.host,
@@ -294,10 +310,10 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     if path == runtime.recovery_private_path() {
-        let recovery_request: CloudflareEcdsaHssDeriverRecoveryPrivateRequestV1 =
+        let recovery_request: CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1 =
             match parse_strict_deriver_json_v1(
                 &mut request,
-                format!("Router A/B strict {label} ECDSA-HSS recovery"),
+                format!("Router A/B strict {label} Router A/B ECDSA derivation recovery"),
             )
             .await?
             {
@@ -317,7 +333,7 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        return match decrypt_and_handle_cloudflare_ecdsa_hss_recovery_signer_private_request_v1(
+        return match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_signer_private_request_v1(
             &env,
             worker_role,
             &preloaded.host,
@@ -335,10 +351,10 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     if path == runtime.refresh_private_path() {
-        let refresh_request: CloudflareEcdsaHssDeriverActivationRefreshPrivateRequestV1 =
+        let refresh_request: CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 =
             match parse_strict_deriver_json_v1(
                 &mut request,
-                format!("Router A/B strict {label} ECDSA-HSS refresh"),
+                format!("Router A/B strict {label} Router A/B ECDSA derivation refresh"),
             )
             .await?
             {
@@ -359,7 +375,7 @@ async fn handle_strict_deriver_fetch_v1(
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
         let refresh_bootstrap = refresh_request.signer_bootstrap.clone();
-        let response = match decrypt_and_handle_cloudflare_ecdsa_hss_activation_refresh_signer_private_request_v1(
+        let response = match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1(
             &env,
             worker_role,
             &preloaded.host,

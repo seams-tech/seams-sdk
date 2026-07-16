@@ -23,14 +23,17 @@ fn policy_3_of_5() -> ThresholdPolicy {
 fn context(label: &[u8]) -> PrfContext {
     PrfContext::new(
         SuiteId::Ristretto255Sha512,
-        PrfPurpose::EcdsaHssYServer,
+        PrfPurpose::RouterAbEcdsaDerivationYServer,
         label.to_vec(),
     )
 }
 
 fn production_purpose_cases() -> [(PrfPurpose, &'static str); 3] {
     [
-        (PrfPurpose::EcdsaHssYServer, "ecdsa-hss/y_server"),
+        (
+            PrfPurpose::RouterAbEcdsaDerivationYServer,
+            "router-ab-ecdsa-derivation/y-server/v1",
+        ),
         (
             PrfPurpose::RouterAbXClientBaseV1,
             "router-ab/x_client_base/v1",

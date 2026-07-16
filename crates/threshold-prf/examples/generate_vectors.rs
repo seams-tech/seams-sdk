@@ -65,7 +65,7 @@ fn main() {
                 ThresholdPolicy::from_u16s(2, 3).expect("valid canonical policy"),
                 [0x91; 32],
                 [0x92; 32],
-                PrfPurpose::EcdsaHssYServer,
+                PrfPurpose::RouterAbEcdsaDerivationYServer,
                 b"threshold-prf/vector:2-of-3".to_vec(),
             ),
             vector_for(

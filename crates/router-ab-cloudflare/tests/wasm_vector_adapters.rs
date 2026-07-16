@@ -19,6 +19,10 @@ use router_ab_core::{
     WireMessageV1, MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
     MPC_PRF_PARTIAL_WIRE_V1_LEN,
 };
+use router_ab_ecdsa_client_protocol::{
+    decode_ecdsa_client_proof_bundle_envelope_v1, open_ecdsa_client_proof_bundle_v1,
+    pair_ecdsa_opened_client_proof_bundles_v1, EcdsaClientProtocolError, EcdsaDeriverRoleV1,
+};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 const WIRE_FIXTURE_JSON: &str =
@@ -86,6 +90,28 @@ fn wasm_cloudflare_hpke_recipient_proof_bundle_seals_opens_and_rejects_aad_drift
             .expect("proof-bundle HPKE opens in wasm");
     assert_eq!(opened, payload);
 
+    let client_envelope = decode_ecdsa_client_proof_bundle_envelope_v1(
+        &envelope.canonical_bytes().expect("canonical envelope"),
+    )
+    .expect("client-safe decoder accepts Cloudflare envelope");
+    let client_private_key: [u8; 32] = recipient_private_key
+        .as_slice()
+        .try_into()
+        .expect("fixed client private key");
+    let client_opened = open_ecdsa_client_proof_bundle_v1(&client_envelope, &client_private_key)
+        .expect("client-safe opener accepts Cloudflare envelope");
+    assert_eq!(client_opened.lifecycle_id, "lifecycle-1");
+    assert_eq!(client_opened.root_share_epoch, "epoch-1");
+    assert_eq!(client_opened.recipient_identity, "client");
+    assert_eq!(client_opened.role_bound_proof.role, EcdsaDeriverRoleV1::A);
+    assert_eq!(
+        client_opened.role_bound_proof.proof.partial_wire.as_slice(),
+        opened.proof_batch.proof_bundles[0]
+            .signer_partial
+            .partial_wire
+            .as_bytes(),
+    );
+
     let mut tampered = envelope.clone();
     tampered.payload_digest = PublicDigest32::new([0xee; 32]);
     let tampered_nonce = *tampered.nonce();
@@ -108,6 +134,105 @@ fn wasm_cloudflare_hpke_recipient_proof_bundle_seals_opens_and_rejects_aad_drift
 
     open_cloudflare_recipient_proof_bundle_hpke_payload_v1(&tampered, &recipient_private_key)
         .expect_err("AAD-bound payload digest drift must fail in wasm");
+}
+
+#[wasm_bindgen_test]
+fn wasm_client_safe_pair_rejects_core_proof_batch_peer_identity_drift() {
+    let (recipient_private_key, recipient_public_key) =
+        DhKemX25519HkdfSha256::derive_key_pair(&[0x54; 32]).expect("recipient keypair derives");
+    let recipient_private_key = DhKemX25519HkdfSha256::sk_to_bytes(&recipient_private_key);
+    let recipient_private_key: [u8; 32] = recipient_private_key
+        .as_slice()
+        .try_into()
+        .expect("fixed client private key");
+    let recipient_public_key = format!(
+        "x25519:{}",
+        lower_hex(&DhKemX25519HkdfSha256::pk_to_bytes(&recipient_public_key))
+    );
+    let signer_a_payload = sample_recipient_proof_bundle_payload_for_role(Role::SignerA);
+    let signer_b_payload = sample_recipient_proof_bundle_payload_for_role(Role::SignerB);
+    let opened_a = open_core_generated_client_payload(
+        &signer_a_payload,
+        &recipient_public_key,
+        &recipient_private_key,
+    );
+    let opened_b = open_core_generated_client_payload(
+        &signer_b_payload,
+        &recipient_public_key,
+        &recipient_private_key,
+    );
+    pair_ecdsa_opened_client_proof_bundles_v1(opened_a, opened_b.clone()).expect("exact A/B pair");
+
+    let mut drifted_batch = signer_a_payload.proof_batch;
+    drifted_batch.to = signer(Role::SignerB, "substituted-signer-b");
+    let drifted_payload = RecipientProofBundlePayloadV1::new(
+        signer_a_payload.lifecycle_id,
+        signer_a_payload.signer,
+        signer_a_payload.recipient_role,
+        signer_a_payload.opened_share_kind,
+        signer_a_payload.recipient_identity,
+        signer_a_payload.transcript_digest,
+        drifted_batch,
+    )
+    .expect("peer-id drift remains a valid isolated core payload");
+    let drifted_opened = open_core_generated_client_payload(
+        &drifted_payload,
+        &recipient_public_key,
+        &recipient_private_key,
+    );
+    assert_eq!(
+        pair_ecdsa_opened_client_proof_bundles_v1(drifted_opened, opened_b),
+        Err(EcdsaClientProtocolError::InvalidShape),
+    );
+
+    let mut drifted_epoch_batch =
+        sample_recipient_proof_bundle_payload_for_role(Role::SignerA).proof_batch;
+    drifted_epoch_batch.to =
+        SignerIdentityV1::new(Role::SignerB, "signer-b", "substituted-key-epoch")
+            .expect("drifted peer epoch");
+    let base = sample_recipient_proof_bundle_payload_for_role(Role::SignerA);
+    let drifted_epoch_payload = RecipientProofBundlePayloadV1::new(
+        base.lifecycle_id,
+        base.signer,
+        base.recipient_role,
+        base.opened_share_kind,
+        base.recipient_identity,
+        base.transcript_digest,
+        drifted_epoch_batch,
+    )
+    .expect("peer-epoch drift remains a valid isolated core payload");
+    let drifted_epoch_opened = open_core_generated_client_payload(
+        &drifted_epoch_payload,
+        &recipient_public_key,
+        &recipient_private_key,
+    );
+    let opened_b = open_core_generated_client_payload(
+        &signer_b_payload,
+        &recipient_public_key,
+        &recipient_private_key,
+    );
+    assert_eq!(
+        pair_ecdsa_opened_client_proof_bundles_v1(drifted_epoch_opened, opened_b),
+        Err(EcdsaClientProtocolError::InvalidShape),
+    );
+}
+
+fn open_core_generated_client_payload(
+    payload: &RecipientProofBundlePayloadV1,
+    recipient_public_key: &str,
+    recipient_private_key: &[u8; 32],
+) -> router_ab_ecdsa_client_protocol::EcdsaOpenedClientProofBundleV1 {
+    let request = RecipientProofBundleEncryptionRequestV1::new(payload, recipient_public_key)
+        .expect("recipient proof-bundle encryption request");
+    let envelope = CloudflareHpkeRecipientProofBundleEncryptorV1::new()
+        .encrypt_recipient_proof_bundle_v1(request)
+        .expect("Cloudflare envelope");
+    let client_envelope = decode_ecdsa_client_proof_bundle_envelope_v1(
+        &envelope.canonical_bytes().expect("canonical envelope"),
+    )
+    .expect("client-safe envelope");
+    open_ecdsa_client_proof_bundle_v1(&client_envelope, recipient_private_key)
+        .expect("client-safe opened payload")
 }
 
 fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorCaseV1) -> bool {
@@ -195,11 +320,28 @@ fn digest(seed: u8) -> PublicDigest32 {
 }
 
 fn sample_recipient_proof_bundle_payload() -> RecipientProofBundlePayloadV1 {
+    sample_recipient_proof_bundle_payload_for_role(Role::SignerA)
+}
+
+fn sample_recipient_proof_bundle_payload_for_role(
+    signer_role: Role,
+) -> RecipientProofBundlePayloadV1 {
     let transcript_digest = digest(0x77);
     let root_share_epoch = RootShareEpoch::new("epoch-1").expect("root epoch");
+    let (from, to) = match signer_role {
+        Role::SignerA => (
+            signer(Role::SignerA, "signer-a"),
+            signer(Role::SignerB, "signer-b"),
+        ),
+        Role::SignerB => (
+            signer(Role::SignerB, "signer-b"),
+            signer(Role::SignerA, "signer-a"),
+        ),
+        _ => panic!("sample proof payload requires a Deriver role"),
+    };
     let proof_batch = EcdsaThresholdPrfProofBatchPayloadV1::new(
-        signer(Role::SignerA, "signer-a"),
-        signer(Role::SignerB, "signer-b"),
+        from.clone(),
+        to,
         transcript_digest,
         root_share_epoch.clone(),
         vec![sample_mpc_prf_proof_bundle(
@@ -208,15 +350,15 @@ fn sample_recipient_proof_bundle_payload() -> RecipientProofBundlePayloadV1 {
             OpenedShareKind::XClientBase,
             Role::Client,
             "client",
-            Role::SignerA,
-            "signer-a",
+            signer_role,
+            &from.signer_id,
             0x77,
         )],
     )
     .expect("proof batch");
     RecipientProofBundlePayloadV1::new(
         "lifecycle-1",
-        signer(Role::SignerA, "signer-a"),
+        from,
         Role::Client,
         OpenedShareKind::XClientBase,
         "client",

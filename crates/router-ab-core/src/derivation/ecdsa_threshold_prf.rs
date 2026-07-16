@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::derivation::context::{DerivationContext, RootShareEpoch};
+use crate::derivation::ecdsa_commitment_registry::AuthenticatedRootShareCommitmentV1;
 use crate::derivation::error::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
 };
@@ -493,6 +494,8 @@ pub struct MpcPrfPartialVerificationInputV1 {
     pub transcript: TranscriptBinding,
     /// Proof bundle to validate before cryptographic verification.
     pub proof_bundle: MpcPrfPartialProofBundleV1,
+    /// Authority-authenticated commitment selected from the root-share registry.
+    pub authenticated_commitment: AuthenticatedRootShareCommitmentV1,
 }
 
 /// Public verification plan produced after Router/A/B metadata validation.
@@ -512,6 +515,8 @@ pub struct MpcPrfPartialVerificationPlanV1 {
     pub signer_role: Role,
     /// Signer identity.
     pub signer_identity: String,
+    /// Digest of the authenticated registry record used for DLEQ verification.
+    pub commitment_record_digest: PublicDigest32,
     /// Fixed partial wire length.
     pub partial_wire_len: usize,
     /// Fixed commitment wire length.
@@ -530,6 +535,22 @@ pub fn plan_mpc_prf_partial_verification_v1(
     let bundle = input.proof_bundle;
     let binding = &bundle.signer_partial.binding;
     binding.validate(&input.transcript)?;
+    let authenticated = &input.authenticated_commitment;
+    if authenticated.role() != binding.signer_role
+        || authenticated.operator_identity() != binding.signer_identity
+        || authenticated.root_share_epoch() != binding.root_share_epoch.as_str()
+    {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::CommitmentRegistryRejected,
+            "authenticated commitment record does not match proof signer binding",
+        ));
+    }
+    if authenticated.commitment_wire() != &bundle.commitment_wire {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::CommitmentMismatch,
+            "proof bundle commitment does not match authenticated registry record",
+        ));
+    }
     require_len(
         "mpc_prf_partial_wire",
         bundle.signer_partial.partial_wire.as_bytes().len(),
@@ -554,6 +575,7 @@ pub fn plan_mpc_prf_partial_verification_v1(
         recipient_identity: binding.recipient_identity.clone(),
         signer_role: binding.signer_role,
         signer_identity: binding.signer_identity.clone(),
+        commitment_record_digest: authenticated.record_digest(),
         partial_wire_len: MPC_PRF_PARTIAL_WIRE_V1_LEN,
         commitment_wire_len: MPC_PRF_COMMITMENT_WIRE_V1_LEN,
         proof_wire_len: MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,

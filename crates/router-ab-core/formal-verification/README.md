@@ -3,7 +3,7 @@
 This directory tracks formal verification for the fixed Router A/B ECDSA
 threshold-PRF construction.
 
-The intended structure follows the existing `threshold-prf` and `ecdsa-hss`
+The intended structure follows the existing `threshold-prf` and `router-ab-ecdsa-derivation`
 tracks:
 
 - `docs/implementation-plan.md`

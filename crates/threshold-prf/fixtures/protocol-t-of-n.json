@@ -3,7 +3,7 @@
   "vectors": [
     {
       "suite_id": "threshold-prf/ristretto255-sha512",
-      "purpose": "ecdsa-hss/y_server",
+      "purpose": "router-ab-ecdsa-derivation/y-server/v1",
       "context_hex": "7468726573686f6c642d7072662f766563746f723a322d6f662d33",
       "policy": {
         "threshold": 2,
@@ -32,45 +32,45 @@
       "partials": [
         {
           "id": 1,
-          "context_tag_hex": "28c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98",
-          "compressed_point_hex": "e62e207452fd4c8e618dba793640253ba4a2777a1393c6bdf872a02e48f8725f",
-          "wire_hex": "000128c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98e62e207452fd4c8e618dba793640253ba4a2777a1393c6bdf872a02e48f8725f"
+          "context_tag_hex": "05057a4a7a6d2cbecd683c22c93222f497970f656270ec131206386f7b2df156",
+          "compressed_point_hex": "0cf2b27ee5a4f333fcf4a6b24712a715feefea52f9eda2ad7e7de9841268551e",
+          "wire_hex": "000105057a4a7a6d2cbecd683c22c93222f497970f656270ec131206386f7b2df1560cf2b27ee5a4f333fcf4a6b24712a715feefea52f9eda2ad7e7de9841268551e"
         },
         {
           "id": 2,
-          "context_tag_hex": "28c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98",
-          "compressed_point_hex": "6202e7ca33ff8f7fe434c5389945d60faa80f0a2588a10ad32861bc27ac3a170",
-          "wire_hex": "000228c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b986202e7ca33ff8f7fe434c5389945d60faa80f0a2588a10ad32861bc27ac3a170"
+          "context_tag_hex": "05057a4a7a6d2cbecd683c22c93222f497970f656270ec131206386f7b2df156",
+          "compressed_point_hex": "ee13ec57f6e9ee3808b9490d59d438fa02600fd8cbeabf0c2f919b2b8af81c22",
+          "wire_hex": "000205057a4a7a6d2cbecd683c22c93222f497970f656270ec131206386f7b2df156ee13ec57f6e9ee3808b9490d59d438fa02600fd8cbeabf0c2f919b2b8af81c22"
         },
         {
           "id": 3,
-          "context_tag_hex": "28c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98",
-          "compressed_point_hex": "ae833c3b384021095740c300b19e9304348a95801a04127d3e656e806ddddf5f",
-          "wire_hex": "000328c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98ae833c3b384021095740c300b19e9304348a95801a04127d3e656e806ddddf5f"
+          "context_tag_hex": "05057a4a7a6d2cbecd683c22c93222f497970f656270ec131206386f7b2df156",
+          "compressed_point_hex": "ceb3b5d26165a024334abfac061e16d9f6acb34c44f8899654505879c3ee3e25",
+          "wire_hex": "000305057a4a7a6d2cbecd683c22c93222f497970f656270ec131206386f7b2df156ceb3b5d26165a024334abfac061e16d9f6acb34c44f8899654505879c3ee3e25"
         }
       ],
-      "direct_output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208",
+      "direct_output_hex": "2a19f8548e912de094cbd69b44ac26e85a9f2a5c9dacabcbcaa8b7a82858f07a",
       "threshold_outputs": [
         {
           "ids": [
             1,
             2
           ],
-          "output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208"
+          "output_hex": "2a19f8548e912de094cbd69b44ac26e85a9f2a5c9dacabcbcaa8b7a82858f07a"
         },
         {
           "ids": [
             1,
             3
           ],
-          "output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208"
+          "output_hex": "2a19f8548e912de094cbd69b44ac26e85a9f2a5c9dacabcbcaa8b7a82858f07a"
         },
         {
           "ids": [
             2,
             3
           ],
-          "output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208"
+          "output_hex": "2a19f8548e912de094cbd69b44ac26e85a9f2a5c9dacabcbcaa8b7a82858f07a"
         }
       ]
     },

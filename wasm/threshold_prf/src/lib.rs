@@ -37,7 +37,7 @@ fn validate_ascii_field<'a>(label: &str, value: &'a str) -> Result<&'a str, JsVa
 
 fn parse_prf_purpose(purpose: &str) -> Result<PrfPurpose, JsValue> {
     match purpose {
-        "ecdsa-hss/y_server" => Ok(PrfPurpose::EcdsaHssYServer),
+        "router-ab-ecdsa-derivation/y-server/v1" => Ok(PrfPurpose::RouterAbEcdsaDerivationYServer),
         "router-ab/x_client_base/v1" => Ok(PrfPurpose::RouterAbXClientBaseV1),
         "router-ab/x_server_base/v1" => Ok(PrfPurpose::RouterAbXServerBaseV1),
         _ => Err(js_error("unknown threshold-prf purpose")),
@@ -59,7 +59,7 @@ fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue
     Ok(())
 }
 
-fn encode_ecdsa_hss_context_with_participants(
+fn encode_ecdsa_derivation_context_with_participants(
     application_binding_digest: &[u8],
     participant_ids: &[u16],
 ) -> Result<Vec<u8>, JsValue> {
@@ -67,14 +67,14 @@ fn encode_ecdsa_hss_context_with_participants(
         return Err(js_error("application_binding_digest must be 32 bytes"));
     }
     let participant_count = u8::try_from(participant_ids.len())
-        .map_err(|_| js_error("participant count exceeds ecdsa-hss context capacity"))?;
+        .map_err(|_| js_error("participant count exceeds ecdsa-derivation context capacity"))?;
     if participant_count == 0 {
         return Err(js_error("participant_ids must be non-empty"));
     }
 
     let mut out = Vec::new();
-    out.extend_from_slice(b"ecdsa-hss:context:v4");
-    push_len16(&mut out, "scheme_id", "ecdsa-hss-v4")?;
+    out.extend_from_slice(b"ecdsa-derivation:context:v4");
+    push_len16(&mut out, "scheme_id", "ecdsa-derivation-v4")?;
     push_len16(&mut out, "curve", "secp256k1")?;
     out.extend_from_slice(application_binding_digest);
     out.push(participant_count);
@@ -198,7 +198,7 @@ fn encode_proof_bundle(bundle: PrfPartialProofBundle) -> Vec<u8> {
     out
 }
 
-fn derive_hss_output_from_shares(
+fn derive_router_ab_ecdsa_derivation_output_from_shares(
     shares: &ValidatedThresholdSet<SigningRootShare>,
     purpose: PrfPurpose,
     context_bytes: Vec<u8>,
@@ -244,7 +244,7 @@ pub fn init_threshold_prf() {
 }
 
 #[wasm_bindgen]
-pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
+pub fn threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer(
     threshold: u32,
     share_count: u32,
     share_wires: Vec<u8>,
@@ -252,9 +252,15 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
 ) -> Result<Vec<u8>, JsValue> {
     let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
     let participant_ids = sorted_share_ids(&shares);
-    let context_bytes =
-        encode_ecdsa_hss_context_with_participants(&application_binding_digest, &participant_ids)?;
-    derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYServer, context_bytes)
+    let context_bytes = encode_ecdsa_derivation_context_with_participants(
+        &application_binding_digest,
+        &participant_ids,
+    )?;
+    derive_router_ab_ecdsa_derivation_output_from_shares(
+        &shares,
+        PrfPurpose::RouterAbEcdsaDerivationYServer,
+        context_bytes,
+    )
 }
 
 #[wasm_bindgen]

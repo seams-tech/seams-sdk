@@ -56,10 +56,10 @@ function assertCaddySingleRouterUpstream() {
   const forbiddenMarkers = [
     '@router_ab_public_signing',
     '/router-ab/ed25519/sign',
-    '/router-ab/ecdsa-hss/sign',
+    '/router-ab/ecdsa-derivation/sign',
     'handle @router_ab',
     'handle_path /router-ab',
-    'handle_path /router-ab/ecdsa-hss',
+    'handle_path /router-ab/ecdsa-derivation',
   ];
   const offenders = forbiddenMarkers.filter((marker) => block.includes(marker));
   if (offenders.length > 0) {

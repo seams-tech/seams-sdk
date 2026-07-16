@@ -29,6 +29,10 @@ pub enum RouterAbDerivationErrorCode {
     ReplayMismatch,
     /// Threshold-PRF proof or output verification failed.
     OutputVerificationFailed,
+    /// A root-share commitment registry record failed authentication or policy.
+    CommitmentRegistryRejected,
+    /// A proof bundle commitment differed from the authenticated registry commitment.
+    CommitmentMismatch,
     /// A code path attempted to expose secret material.
     SecretMaterialExposure,
 }

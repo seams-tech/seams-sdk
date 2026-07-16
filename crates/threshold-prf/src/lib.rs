@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Threshold PRF prototype for deriving project-scoped server HSS inputs.
+//! Threshold PRF prototype for deriving project-scoped server Router A/B ECDSA derivation inputs.
 //!
 //! Production signing integrations should use share partials and combine them
 //! through the configurable threshold API. Direct root evaluation exists as a

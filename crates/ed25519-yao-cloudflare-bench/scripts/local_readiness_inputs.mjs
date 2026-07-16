@@ -13,8 +13,10 @@ const INPUT_ROOTS = Object.freeze([
   'crates/ed25519-yao',
   'crates/ed25519-yao-cloudflare-bench',
   'crates/router-ab-core',
+  'crates/router-ab-ecdsa-derivation',
   'crates/router-ab-ed25519-yao',
   'crates/router-ab-ed25519-yao-client',
+  'crates/router-ab-ed25519-yao-protocol',
   'crates/router-ab-dev',
   'crates/signer-core',
   'packages/shared-ts/src',
@@ -22,8 +24,16 @@ const INPUT_ROOTS = Object.freeze([
   'packages/sdk-web/tsconfig.json',
   'packages/sdk-web/src',
   'tests/playwright.config.ts',
+  'tests/playwright.intended.ci.config.ts',
+  'tests/playwright.intended.config.ts',
   'tests/playwright.yaos-local.config.ts',
+  'tests/e2e/intended-behaviours',
   'tests/scripts/check-ed25519-yao-near-signing-boundaries.mjs',
+  'tests/scripts/check-intended-behaviour-contract-boundaries.mjs',
+  'tests/scripts/ensure-intended-google-token.mjs',
+  'tests/scripts/intended-google-oidc-env.mjs',
+  'tests/scripts/seed-intended-local-console.mjs',
+  'tests/scripts/start-intended-services.mjs',
   'tests/scripts/check-yaos-local-types.mjs',
   'tests/unit',
   'tests/tsconfig.playwright.json',
@@ -33,8 +43,10 @@ const INPUT_ROOTS = Object.freeze([
   'tools/ed25519-yao-verifier',
 ]);
 const EXCLUDED_DIRECTORY_NAMES = new Set([
+  '.git',
   '.lake',
   '.tmp',
+  '_build',
   '__pycache__',
   'build',
   'bundled',
@@ -44,6 +56,9 @@ const EXCLUDED_DIRECTORY_NAMES = new Set([
 ]);
 const EXCLUDED_FILES = new Set([
   'crates/ed25519-yao-cloudflare-bench/docs/phase13a-local-preflight-evidence-v1.json',
+]);
+const EXCLUDED_PATH_PREFIXES = Object.freeze([
+  'crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary/tools/',
 ]);
 const MAX_INPUT_FILES = 4_096;
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
@@ -56,8 +71,16 @@ function repositoryPath(absolutePath) {
   return path;
 }
 
+function isExcludedPath(path) {
+  for (const prefix of EXCLUDED_PATH_PREFIXES) {
+    if (path.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
 function collectPath(absolutePath, entries) {
   const path = repositoryPath(absolutePath);
+  if (isExcludedPath(path)) return;
   const metadata = lstatSync(absolutePath);
   if (metadata.isSymbolicLink()) {
     entries.push(

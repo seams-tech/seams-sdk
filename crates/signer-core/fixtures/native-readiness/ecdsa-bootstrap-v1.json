@@ -3,7 +3,7 @@
   "warning": "Deterministic test-only secret material. Do not use outside tests.",
   "prepareCommand": {
     "kind": "prepare_ecdsa_client_bootstrap_v1",
-    "algorithm": "ecdsa_hss_secp256k1_role_local_v1",
+    "algorithm": "router_ab_ecdsa_derivation_secp256k1_role_local_v1",
     "context": {
       "applicationBindingDigestB64u": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU"
     },
@@ -29,17 +29,17 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "RUhTU1A0AABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ3-yDyCRXwX9iaV2s0tOeyvP9-aiGpX70v2Bu86B_wSAAAAAMLhGPjqCNu_mceehwpChlu-RZa88OvmzNfNc9UbUKkPAl6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY66BdqE4C8-qIl9-CWMDXcxE2cC4afw0Wx9C6-j6UY9s"
+      "stateBlobB64u": "UkFFRFAxAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZqKECXVFwQJaZfoRazc2hy-x4OyCNe2Vqi3sszUVv4Qgg"
     },
     "clientBootstrap": {
-      "contextBinding32B64u": "Df7IPIJFfBf2JpXazS057K8_35qIalfvS_YG7zoH_BI",
-      "hssClientSharePublicKey33B64u": "Al6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY",
+      "contextBinding32B64u": "ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc",
+      "derivationClientSharePublicKey33B64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
       "clientShareRetryCounter": 0,
       "participantId": 1
     },
     "publicFacts": {
-      "hssClientSharePublicKey33B64u": "Al6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY",
-      "clientVerifyingShareB64u": "Al6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY"
+      "derivationClientSharePublicKey33B64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
+      "clientVerifyingShareB64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq"
     }
   },
   "finalizeCommand": {
@@ -49,13 +49,13 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "RUhTU1A0AABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ3-yDyCRXwX9iaV2s0tOeyvP9-aiGpX70v2Bu86B_wSAAAAAMLhGPjqCNu_mceehwpChlu-RZa88OvmzNfNc9UbUKkPAl6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY66BdqE4C8-qIl9-CWMDXcxE2cC4afw0Wx9C6-j6UY9s"
+      "stateBlobB64u": "UkFFRFAxAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZqKECXVFwQJaZfoRazc2hy-x4OyCNe2Vqi3sszUVv4Qgg"
     },
     "relayerPublicIdentity": {
       "relayerKeyId": "relayer-key",
-      "relayerPublicKey33B64u": "A1ChhJ3oOTpaEsOaTUvcoNUgxBJagclpnjmOymZh1zzC",
-      "groupPublicKey33B64u": "A12INSxZnQwn5f7Y8IUW6cD55YjeHnMViIQdx1-6malj",
-      "ethereumAddress": "0x6077ae63b7c7e1af2ab77717b915fc81bfccf0e5"
+      "relayerPublicKey33B64u": "A6tbOC71wOA6nkWqZtdKpJ-LGiCSJANkUOpy2v8eYxYO",
+      "groupPublicKey33B64u": "A40b71OnjHXDpAfjpNrmDton5rtQ-s2b9iiVXT93TtAM",
+      "ethereumAddress": "0x1602940437e1ba13e06c5a452833dadf081ad1f2"
     }
   },
   "expectedFinalizeOutput": {
@@ -64,15 +64,15 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "RUhTU1I0AABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQALcmVsYXllci1rZXkN_sg8gkV8F_YmldrNLTnsrz_fmohqV-9L9gbvOgf8EgAAAADC4Rj46gjbv5nHnocKQoZbvkWWvPDr5szXzXPVG1CpDwJenXsLWD0fujRWh4Kvw-JEwSpuZtcpuzqI_fqBj6obGOugXahOAvPqiJffgljA13MRNnAuGn8NFsfQuvo-lGPbAAAAAANQoYSd6Dk6WhLDmk1L3KDVIMQSWoHJaZ45jspmYdc8wgNdiDUsWZ0MJ-X-2PCFFunA-eWI3h5zFYiEHcdfupmpY2B3rmO3x-GvKrd3F7kV_IG_zPDl"
+      "stateBlobB64u": "UkFFRFIxAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQALcmVsYXllci1rZXmBrb26htbYe-TPwWcOfesuHET8AgW5kMN20gOd6WyJtwAAAAB4wcX9FDBw8x7jRBpaOVjxWixYahyMD-icYZn0E-jGGALcLeY11XpY-00WYFZ5jQV9BENhmOm0K4UbXyn6jormaihAl1RcECWmX6EWs3NocvseDsgjXtlaot7LM1Fb-EIIAAAAAAOrWzgu9cDgOp5FqmbXSqSfixogkiQDZFDqctr_HmMWDgONG-9Tp4x1w6QH46Ta5g7aJ-a7UPrNm_YolV0_d07QDBYClAQ34boT4GxaRSgz2t8IGtHy"
     },
     "publicFacts": {
-      "contextBinding32B64u": "Df7IPIJFfBf2JpXazS057K8_35qIalfvS_YG7zoH_BI",
-      "hssClientSharePublicKey33B64u": "Al6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY",
-      "clientVerifyingShareB64u": "Al6dewtYPR-6NFaHgq_D4kTBKm5m1ym7Ooj9-oGPqhsY",
-      "relayerPublicKey33B64u": "A1ChhJ3oOTpaEsOaTUvcoNUgxBJagclpnjmOymZh1zzC",
-      "groupPublicKey33B64u": "A12INSxZnQwn5f7Y8IUW6cD55YjeHnMViIQdx1-6malj",
-      "ethereumAddress": "0x6077ae63b7c7e1af2ab77717b915fc81bfccf0e5"
+      "contextBinding32B64u": "ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc",
+      "derivationClientSharePublicKey33B64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
+      "clientVerifyingShareB64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
+      "relayerPublicKey33B64u": "A6tbOC71wOA6nkWqZtdKpJ-LGiCSJANkUOpy2v8eYxYO",
+      "groupPublicKey33B64u": "A40b71OnjHXDpAfjpNrmDton5rtQ-s2b9iiVXT93TtAM",
+      "ethereumAddress": "0x1602940437e1ba13e06c5a452833dadf081ad1f2"
     }
   }
 }

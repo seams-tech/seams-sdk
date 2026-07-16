@@ -27,6 +27,7 @@ const routerServerPublicUrl = 'https://localhost:9444';
 const routerServerPublicWellKnownUrl = `${routerServerPublicUrl}/.well-known/webauthn`;
 const routerServerPublicHost = 'localhost';
 const routerServerPublicPort = 9444;
+const commitmentPolicyBuildEnvFile = '.env.router-ab.ecdsa-commitment-policy.build.local';
 
 const staleWorkerRoles = [
   {
@@ -88,6 +89,7 @@ const workerRoles = [
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH',
+      'SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_JSON',
     ],
     forbiddenKeys: [
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY',
@@ -187,15 +189,17 @@ try {
 
 function ensureLocalEnv() {
   const missing = workerRoles.filter((role) => !existsSync(join(root, role.envFile)));
+  const commitmentPolicyBuildEnvMissing = !existsSync(join(root, commitmentPolicyBuildEnvFile));
   const invalid = missing.length > 0 ? [] : collectInvalidLocalEnvFiles();
-  if (options.noInit && (missing.length > 0 || invalid.length > 0)) {
+  if (options.noInit && (missing.length > 0 || invalid.length > 0 || commitmentPolicyBuildEnvMissing)) {
     const details = [
       ...missing.map((role) => `${role.envFile}: missing`),
       ...invalid.map((entry) => `${entry.role.envFile}: ${entry.reason}`),
+      ...(commitmentPolicyBuildEnvMissing ? [`${commitmentPolicyBuildEnvFile}: missing`] : []),
     ];
     throw new Error(`invalid Router A/B local env files: ${details.join(', ')}`);
   }
-  if (!options.fresh && missing.length === 0 && invalid.length === 0) {
+  if (!options.fresh && missing.length === 0 && invalid.length === 0 && !commitmentPolicyBuildEnvMissing) {
     return;
   }
   if (!options.fresh && invalid.length > 0) {
@@ -320,7 +324,15 @@ function buildWorkerBinary() {
     'crates/router-ab-dev/Cargo.toml',
     '--bin',
     'router_ab_local_worker',
-  ]);
+  ], loadCommitmentPolicyBuildEnvironment());
+}
+
+function loadCommitmentPolicyBuildEnvironment() {
+  const path = join(root, commitmentPolicyBuildEnvFile);
+  if (!existsSync(path)) {
+    throw new Error(`missing signed commitment policy build pins: ${path}`);
+  }
+  return { ...process.env, ...dotenv.parse(readFileSync(path)) };
 }
 
 function startWorkers() {
@@ -1119,11 +1131,11 @@ function readEnvFile(path) {
   return env;
 }
 
-function run(command, args) {
+function run(command, args, env = process.env) {
   const child = spawnSync(command, args, {
     cwd: repoRoot,
     stdio: 'inherit',
-    env: process.env,
+    env,
   });
   if (child.status !== 0) {
     process.exit(child.status ?? 1);
