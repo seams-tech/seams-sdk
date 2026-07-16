@@ -68,6 +68,18 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
       abortClientPresignSession: async () => {
         throw new Error('policy tests must not abort Router A/B ECDSA derivation presign sessions');
       },
+      admitClientPresignature: async () => {
+        throw new Error('policy tests must not admit Router A/B ECDSA derivation presignatures');
+      },
+      destroyClientPresignature: async () => {
+        throw new Error('policy tests must not destroy Router A/B ECDSA derivation presignatures');
+      },
+      reserveClientPresignature: async () => {
+        throw new Error('policy tests must not reserve Router A/B ECDSA presignatures');
+      },
+      commitClientPresignature: async () => {
+        throw new Error('policy tests must not commit Router A/B ECDSA presignatures');
+      },
       computeSignatureShareFromPresignatureHandle: async () => {
         throw new Error('policy tests must not compute Router A/B ECDSA derivation signature shares');
       },

@@ -97,16 +97,36 @@ function handlePresignMaterialResponse(event: MessageEvent<EcdsaPresignMaterialR
   });
 }
 
-function requestPresignMaterial(materialHandle: string): Promise<PresignMaterial> {
+function requestPresignMaterial(input: {
+  materialHandle: string;
+  requestBinding: string;
+  reservationId: string;
+  groupPublicKey33: Uint8Array;
+  expectedBigR33: Uint8Array;
+}): Promise<PresignMaterial> {
   if (!presignPort) throw new Error('ECDSA online client has no presign material channel');
   const requestId = randomRequestId();
   const deferred = new WorkerDeferred<PresignMaterial>();
   pendingMaterials.set(requestId, deferred);
-  presignPort.postMessage({
-    kind: 'ecdsa_presign_material_request_v1',
-    requestId,
-    materialHandle,
-  });
+  const groupPublicKey33 = input.groupPublicKey33.slice().buffer;
+  const expectedBigR33 = input.expectedBigR33.slice().buffer;
+  try {
+    presignPort.postMessage(
+      {
+        kind: 'ecdsa_presign_material_request_v1',
+        requestId,
+        materialHandle: input.materialHandle,
+        requestBinding: input.requestBinding,
+        reservationId: input.reservationId,
+        groupPublicKey33,
+        expectedBigR33,
+      },
+      [groupPublicKey33, expectedBigR33],
+    );
+  } catch (error: unknown) {
+    pendingMaterials.delete(requestId);
+    throw error;
+  }
   return deferred.promise;
 }
 
@@ -122,14 +142,19 @@ function attachPresignPort(value: unknown): boolean {
 async function computeSignatureShare(
   payload: EcdsaOnlineClientOperationMap[typeof EcdsaOnlineClientRequestType.ComputeSignatureShare]['payload'],
 ): Promise<ArrayBuffer> {
-  const material = await requestPresignMaterial(
-    requireString(payload.materialHandle, 'materialHandle'),
-  );
   const groupPublicKey33 = requireBytes(payload.groupPublicKey33, 33, 'groupPublicKey33');
   const expectedBigR33 = requireBytes(payload.expectedPresignBigR33, 33, 'expectedPresignBigR33');
   const digest32 = requireBytes(payload.digest32, 32, 'digest32');
   const entropy32 = requireBytes(payload.entropy32, 32, 'entropy32');
+  let material: PresignMaterial | null = null;
   try {
+    material = await requestPresignMaterial({
+      materialHandle: requireString(payload.materialHandle, 'materialHandle'),
+      requestBinding: requireString(payload.requestBinding, 'requestBinding'),
+      reservationId: requireString(payload.reservationId, 'reservationId'),
+      groupPublicKey33,
+      expectedBigR33,
+    });
     await initializeOnlineWasm();
     const share = compute_client_signature_share(
       groupPublicKey33,
@@ -142,9 +167,11 @@ async function computeSignatureShare(
     );
     return share.slice().buffer;
   } finally {
-    zeroize(material.bigR33);
-    zeroize(material.kShare32);
-    zeroize(material.sigmaShare32);
+    if (material) {
+      zeroize(material.bigR33);
+      zeroize(material.kShare32);
+      zeroize(material.sigmaShare32);
+    }
     zeroize(digest32);
     zeroize(entropy32);
   }

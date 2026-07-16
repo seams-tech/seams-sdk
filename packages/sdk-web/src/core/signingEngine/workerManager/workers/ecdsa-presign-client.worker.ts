@@ -16,11 +16,17 @@ import {
   isAttachEcdsaDerivationToPresignPort,
   isAttachEmailOtpToPresignPort,
   isAttachEcdsaPresignToOnlinePort,
+  isEcdsaPresignMaterialRequest,
   type EcdsaDerivationAdditiveShareResponse,
   type EcdsaPresignMaterialRequest,
   type EcdsaPresignMaterialResponse,
   type EmailOtpEcdsaSigningShareResponse,
 } from '../ecdsaClientWorkerChannels';
+import { IndexedDbClientPresignMaterialStore } from './ecdsaPresignMaterialStore';
+import {
+  parseEcdsaClientPresignPoolIdentity,
+  type EcdsaClientPresignPoolIdentity,
+} from '../ecdsaPresignPoolIdentity';
 
 type PresignOperationType = keyof EcdsaPresignClientOperationMap;
 type PresignRpcRequest = {
@@ -31,11 +37,10 @@ type PresignRpcRequest = {
   };
 }[PresignOperationType];
 
-type StoredPresignMaterial = {
-  readonly materialHandle: string;
-  readonly bigR33: Uint8Array;
-  readonly kShare32: Uint8Array;
-  readonly sigmaShare32: Uint8Array;
+type SessionMaterialBinding = {
+  readonly groupPublicKey33: Uint8Array;
+  readonly expiresAtMs: number;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
 };
 
 type PendingAdditiveShare = {
@@ -59,7 +64,8 @@ const presignWasmUrl = resolveWasmUrl(
   'ECDSA presign client',
 );
 const sessions = new Map<string, ClientPresignSession>();
-const materials = new Map<string, StoredPresignMaterial>();
+const sessionMaterialBindings = new Map<string, SessionMaterialBinding>();
+const materialStore = new IndexedDbClientPresignMaterialStore();
 const pendingAdditiveShares = new Map<string, PendingAdditiveShare>();
 const pendingEmailOtpSigningShares = new Map<string, PendingEmailOtpSigningShare>();
 let derivationPort: MessagePort | null = null;
@@ -95,6 +101,14 @@ function requireString(value: unknown, label: string): string {
   return normalized;
 }
 
+function requireFutureTimestamp(value: unknown, label: string): number {
+  const timestamp = Number(value);
+  if (!Number.isSafeInteger(timestamp) || timestamp <= Date.now()) {
+    throw new Error(`${label} must be a future timestamp`);
+  }
+  return timestamp;
+}
+
 async function initializePresignWasm(): Promise<void> {
   if (wasmInitPromise) return wasmInitPromise;
   wasmInitPromise = initializeWasm({
@@ -108,8 +122,9 @@ async function initializePresignWasm(): Promise<void> {
 
 function freeSession(sessionId: string): void {
   const session = sessions.get(sessionId);
-  if (!session) return;
   sessions.delete(sessionId);
+  sessionMaterialBindings.delete(sessionId);
+  if (!session) return;
   try {
     session.free();
   } catch {}
@@ -136,15 +151,17 @@ function parsePollResult(raw: unknown): {
   return { stage, event, outgoing };
 }
 
-function pollSession(
+async function pollSession(
   sessionId: string,
   session: ClientPresignSession,
-): ThresholdEcdsaPresignProgressResult {
+): Promise<ThresholdEcdsaPresignProgressResult> {
   const result = parsePollResult(session.poll());
   const outgoingMessages = result.outgoing.map((message) => message.slice().buffer);
   if (result.event !== 'presign_done') {
     return { stage: result.stage, event: result.event, outgoingMessages };
   }
+  const binding = sessionMaterialBindings.get(sessionId);
+  if (!binding) throw new Error('ECDSA Client presign session has no material binding');
   const presignature97 = session.take_presignature_97();
   freeSession(sessionId);
   if (presignature97.length !== 97) {
@@ -152,21 +169,35 @@ function pollSession(
     throw new Error('Client presignature must be 97 bytes');
   }
   const materialHandle = randomHandle(`ecdsa-presign-${sessionId}`);
-  const material: StoredPresignMaterial = {
-    materialHandle,
-    bigR33: presignature97.slice(0, 33),
-    kShare32: presignature97.slice(33, 65),
-    sigmaShare32: presignature97.slice(65, 97),
-  };
-  materials.set(materialHandle, material);
-  zeroize(presignature97);
-  return {
-    stage: 'done',
-    event: 'presign_done',
-    outgoingMessages,
-    presignatureHandle: materialHandle,
-    presignatureBigR33: material.bigR33.slice().buffer,
-  };
+  const bigR33 = presignature97.slice(0, 33);
+  const kShare32 = presignature97.slice(33, 65);
+  const sigmaShare32 = presignature97.slice(65, 97);
+  const presignatureBigR33 = bigR33.slice().buffer;
+  try {
+    await materialStore.putPendingAdmission({
+      materialHandle,
+      presignSessionId: sessionId,
+      poolIdentity: binding.poolIdentity,
+      groupPublicKey33: binding.groupPublicKey33,
+      bigR33,
+      kShare32,
+      sigmaShare32,
+      createdAtMs: Date.now(),
+      expiresAtMs: binding.expiresAtMs,
+    });
+    return {
+      stage: 'done',
+      event: 'presign_done',
+      outgoingMessages,
+      presignatureHandle: materialHandle,
+      presignatureBigR33,
+    };
+  } finally {
+    zeroize(presignature97);
+    zeroize(bigR33);
+    zeroize(kShare32);
+    zeroize(sigmaShare32);
+  }
 }
 
 function handleDerivationResponse(event: MessageEvent<EcdsaDerivationAdditiveShareResponse>): void {
@@ -269,10 +300,21 @@ async function initializeSession(
       throw new Error('Unsupported ECDSA presign authority');
   }
   const groupPublicKey33 = toBytes(payload.groupPublicKey33, 'groupPublicKey33');
+  if (groupPublicKey33.length !== 33) throw new Error('groupPublicKey33 must be 33 bytes');
+  const materialExpiresAtMs = requireFutureTimestamp(
+    payload.materialExpiresAtMs,
+    'materialExpiresAtMs',
+  );
+  const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
   try {
     const session = new ClientPresignSession(additiveShare32, groupPublicKey33, sessionId);
     sessions.set(sessionId, session);
-    const progress = pollSession(sessionId, session);
+    sessionMaterialBindings.set(sessionId, {
+      groupPublicKey33: groupPublicKey33.slice(),
+      expiresAtMs: materialExpiresAtMs,
+      poolIdentity,
+    });
+    const progress = await pollSession(sessionId, session);
     if (emailOtpAuthority) {
       return {
         authority: {
@@ -292,9 +334,9 @@ async function initializeSession(
   }
 }
 
-function stepSession(
+async function stepSession(
   payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.SessionStep]['payload'],
-): ThresholdEcdsaPresignProgressResult {
+): Promise<ThresholdEcdsaPresignProgressResult> {
   const sessionId = requireString(payload.sessionId, 'sessionId');
   const session = sessions.get(sessionId);
   if (!session) throw new Error('Unknown ECDSA Client presign session');
@@ -304,7 +346,7 @@ function stepSession(
   for (const incoming of payload.incomingMessages) {
     session.message(new Uint8Array(incoming));
   }
-  return pollSession(sessionId, session);
+  return await pollSession(sessionId, session);
 }
 
 function abortSession(
@@ -315,34 +357,124 @@ function abortSession(
   return { kind: 'threshold_ecdsa_presign_session_aborted', sessionId };
 }
 
-function handleOnlineMaterialRequest(event: MessageEvent<EcdsaPresignMaterialRequest>): void {
+async function admitPresignature(
+  payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.Admit]['payload'],
+): Promise<{
+  kind: 'ecdsa_client_presignature_admitted_v1';
+  materialHandle: string;
+  presignatureId: string;
+}> {
+  const materialHandle = requireString(payload.materialHandle, 'materialHandle');
+  const expectedPresignatureId = requireString(
+    payload.expectedPresignatureId,
+    'expectedPresignatureId',
+  );
+  const admitted = await materialStore.admit({
+    materialHandle,
+    expectedPresignatureId,
+    nowMs: Date.now(),
+  });
+  if (!admitted.ok) {
+    throw new Error(`ECDSA Client presign admission failed: ${admitted.code}`);
+  }
+  return {
+    kind: 'ecdsa_client_presignature_admitted_v1',
+    materialHandle,
+    presignatureId: admitted.presignatureId,
+  };
+}
+
+async function destroyPresignature(
+  payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.Destroy]['payload'],
+): Promise<{
+  kind: 'ecdsa_client_presignature_destroyed_v1';
+  materialHandle: string;
+}> {
+  const materialHandle = requireString(payload.materialHandle, 'materialHandle');
+  if (!(await materialStore.destroy(materialHandle, Date.now()))) {
+    throw new Error('ECDSA Client presignature destruction failed');
+  }
+  return { kind: 'ecdsa_client_presignature_destroyed_v1', materialHandle };
+}
+
+async function reservePresignature(
+  payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.Reserve]['payload'],
+): Promise<{
+  kind: 'ecdsa_client_presignature_lifecycle_advanced_v1';
+  materialHandle: string;
+}> {
+  const materialHandle = requireString(payload.materialHandle, 'materialHandle');
+  const result = await materialStore.reserve({
+    materialHandle,
+    requestBinding: requireString(payload.requestBinding, 'requestBinding'),
+    reservationId: requireString(payload.reservationId, 'reservationId'),
+    leaseExpiresAtMs: requireFutureTimestamp(payload.leaseExpiresAtMs, 'leaseExpiresAtMs'),
+    nowMs: Date.now(),
+  });
+  if (!result.ok) throw new Error(`ECDSA Client presign reservation failed: ${result.code}`);
+  return { kind: 'ecdsa_client_presignature_lifecycle_advanced_v1', materialHandle };
+}
+
+async function commitPresignature(
+  payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.Commit]['payload'],
+): Promise<{
+  kind: 'ecdsa_client_presignature_lifecycle_advanced_v1';
+  materialHandle: string;
+}> {
+  const materialHandle = requireString(payload.materialHandle, 'materialHandle');
+  const result = await materialStore.commit({
+    materialHandle,
+    requestBinding: requireString(payload.requestBinding, 'requestBinding'),
+    reservationId: requireString(payload.reservationId, 'reservationId'),
+    nowMs: Date.now(),
+  });
+  if (!result.ok) throw new Error(`ECDSA Client presign commit failed: ${result.code}`);
+  return { kind: 'ecdsa_client_presignature_lifecycle_advanced_v1', materialHandle };
+}
+
+async function handleOnlineMaterialRequest(
+  event: MessageEvent<EcdsaPresignMaterialRequest>,
+): Promise<void> {
   if (!onlinePort) return;
+  if (!isEcdsaPresignMaterialRequest(event.data)) return;
   const request = event.data;
-  if (request.kind !== 'ecdsa_presign_material_request_v1') return;
-  const material = materials.get(request.materialHandle);
-  if (!material) {
+  const taken = await materialStore.takeForOnline({
+    materialHandle: request.materialHandle,
+    requestBinding: request.requestBinding,
+    reservationId: request.reservationId,
+    groupPublicKey33: new Uint8Array(request.groupPublicKey33),
+    expectedBigR33: new Uint8Array(request.expectedBigR33),
+    nowMs: Date.now(),
+  });
+  if (!taken.ok) {
     const failure: EcdsaPresignMaterialResponse = {
       kind: 'ecdsa_presign_material_result_v1',
       requestId: request.requestId,
       ok: false,
-      error: 'Unknown or already consumed ECDSA Client presign material handle',
+      error: `ECDSA Client presign material unavailable: ${taken.code}`,
     };
     onlinePort.postMessage(failure);
     return;
   }
-  materials.delete(request.materialHandle);
+  const material = taken.material;
   const bigR33 = material.bigR33.buffer;
   const kShare32 = material.kShare32.buffer;
   const sigmaShare32 = material.sigmaShare32.buffer;
-  const success: EcdsaPresignMaterialResponse = {
-    kind: 'ecdsa_presign_material_result_v1',
-    requestId: request.requestId,
-    ok: true,
-    bigR33,
-    kShare32,
-    sigmaShare32,
-  };
-  onlinePort.postMessage(success, [bigR33, kShare32, sigmaShare32]);
+  try {
+    const success: EcdsaPresignMaterialResponse = {
+      kind: 'ecdsa_presign_material_result_v1',
+      requestId: request.requestId,
+      ok: true,
+      bigR33,
+      kShare32,
+      sigmaShare32,
+    };
+    onlinePort.postMessage(success, [bigR33, kShare32, sigmaShare32]);
+  } finally {
+    zeroize(material.bigR33);
+    zeroize(material.kShare32);
+    zeroize(material.sigmaShare32);
+  }
 }
 
 function attachControlChannel(value: unknown): boolean {
@@ -389,7 +521,7 @@ async function handleRpcRequest(request: PresignRpcRequest): Promise<void> {
           ok: true,
           result: {
             type: EcdsaPresignClientResponseType.SessionStepSuccess,
-            payload: stepSession(request.payload),
+            payload: await stepSession(request.payload),
           },
         });
         return;
@@ -400,6 +532,46 @@ async function handleRpcRequest(request: PresignRpcRequest): Promise<void> {
           result: {
             type: EcdsaPresignClientResponseType.SessionAbortSuccess,
             payload: abortSession(request.payload),
+          },
+        });
+        return;
+      case EcdsaPresignClientRequestType.Admit:
+        self.postMessage({
+          id: request.id,
+          ok: true,
+          result: {
+            type: EcdsaPresignClientResponseType.AdmitSuccess,
+            payload: await admitPresignature(request.payload),
+          },
+        });
+        return;
+      case EcdsaPresignClientRequestType.Destroy:
+        self.postMessage({
+          id: request.id,
+          ok: true,
+          result: {
+            type: EcdsaPresignClientResponseType.DestroySuccess,
+            payload: await destroyPresignature(request.payload),
+          },
+        });
+        return;
+      case EcdsaPresignClientRequestType.Reserve:
+        self.postMessage({
+          id: request.id,
+          ok: true,
+          result: {
+            type: EcdsaPresignClientResponseType.ReserveSuccess,
+            payload: await reservePresignature(request.payload),
+          },
+        });
+        return;
+      case EcdsaPresignClientRequestType.Commit:
+        self.postMessage({
+          id: request.id,
+          ok: true,
+          result: {
+            type: EcdsaPresignClientResponseType.CommitSuccess,
+            payload: await commitPresignature(request.payload),
           },
         });
         return;

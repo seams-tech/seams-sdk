@@ -265,8 +265,31 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
   },
   sessionId: 'presign-session',
   groupPublicKey33: incomingMessage,
+  materialExpiresAtMs: 1_000,
+  poolIdentity: {
+    poolKey: 'pool-key',
+    walletKeyId: 'wallet-key',
+    walletId: 'wallet-id',
+    signingScopeB64u: 'scope',
+    pairRole: 'client',
+    keyEpoch: 'key-epoch',
+    activationEpoch: 'activation-epoch',
+    protocolId: 'seams/router-ab-ecdsa-presign/fixed-2of2/v1',
+  },
 };
 void ecdsaPresignInitRequest;
+
+// @ts-expect-error presign persistence requires an explicit material expiry.
+const ecdsaPresignInitWithoutMaterialExpiry: EcdsaPresignClientSessionInitRequest = {
+  authority: {
+    kind: 'role_local_derivation_handle',
+    materialHandle: 'ecdsa-material-handle',
+    expectedBindingDigest: 'ecdsa-binding-digest',
+  },
+  sessionId: 'presign-session',
+  groupPublicKey33: incomingMessage,
+};
+void ecdsaPresignInitWithoutMaterialExpiry;
 
 const invalidMixedEcdsaPresignAuthority: EcdsaPresignClientSessionInitRequest = {
   // @ts-expect-error Email OTP authority cannot carry a derivation material handle.
@@ -277,6 +300,7 @@ const invalidMixedEcdsaPresignAuthority: EcdsaPresignClientSessionInitRequest = 
   },
   sessionId: 'presign-session',
   groupPublicKey33: incomingMessage,
+  materialExpiresAtMs: 1_000,
 };
 void invalidMixedEcdsaPresignAuthority;
 
@@ -290,6 +314,7 @@ const invalidRoleLocalPresignAuthorityWithEmailOtpSession: EcdsaPresignClientSes
   },
   sessionId: 'presign-session',
   groupPublicKey33: incomingMessage,
+  materialExpiresAtMs: 1_000,
 };
 void invalidRoleLocalPresignAuthorityWithEmailOtpSession;
 

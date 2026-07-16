@@ -67,7 +67,7 @@ const targets = [
     packageDirectory: 'wasm/router_ab_ecdsa_presign_client/pkg',
     moduleName: 'router_ab_ecdsa_presign_client',
     wasmBudget: null,
-    firstOperation: 'map_fixed_2p_additive_share',
+    firstOperation: 'fixed_client_session_init',
   },
   {
     id: 'ecdsaOnlineClient',
@@ -200,15 +200,23 @@ function firstOperation(target, importedModule) {
       });
       return { kind: target.firstOperation, latency };
     }
-    case 'map_fixed_2p_additive_share': {
+    case 'fixed_client_session_init': {
       importedModule.init_router_ab_ecdsa_presign_client();
       const additiveShare32 = new Uint8Array(32);
       additiveShare32[31] = 1;
+      const groupPublicKey33 = Uint8Array.from(
+        Buffer.from('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'hex'),
+      );
       const latency = measureSync(() => {
-        const mapped = importedModule.map_client_additive_share_2p(additiveShare32);
-        mapped.fill(0);
+        const session = new importedModule.ClientPresignSession(
+          additiveShare32,
+          groupPublicKey33,
+          'artifact-evidence-session-v1',
+        );
+        session.free();
       });
       additiveShare32.fill(0);
+      groupPublicKey33.fill(0);
       return { kind: target.firstOperation, latency };
     }
     case 'online_client_init_marker': {
