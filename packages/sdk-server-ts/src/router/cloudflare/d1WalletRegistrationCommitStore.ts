@@ -104,6 +104,7 @@ function prepareAuthorityStatements(input: {
             counter: input.authority.counter,
             createdAtMs: input.now,
             updatedAtMs: input.now,
+            deviceInfo: input.authority.device,
           },
         }),
       ];

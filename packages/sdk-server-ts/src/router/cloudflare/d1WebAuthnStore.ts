@@ -40,15 +40,17 @@ export function prepareD1WebAuthnAuthenticatorPutStatement(input: {
         credential_public_key_b64u,
         counter,
         created_at_ms,
-        updated_at_ms
+        updated_at_ms,
+        device_info_json
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
       DO UPDATE SET
         credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
         counter = MAX(webauthn_authenticators.counter, EXCLUDED.counter),
         created_at_ms = MIN(webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = MAX(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)`,
+        updated_at_ms = MAX(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms),
+        device_info_json = EXCLUDED.device_info_json`,
     )
     .bind(
       input.scope.namespace,
@@ -61,6 +63,7 @@ export function prepareD1WebAuthnAuthenticatorPutStatement(input: {
       input.record.counter,
       input.record.createdAtMs,
       input.record.updatedAtMs,
+      JSON.stringify(input.record.deviceInfo),
     );
 }
 
@@ -142,7 +145,7 @@ export class CloudflareD1WebAuthnStore {
     readonly credentialIdB64u: string;
   }): Promise<WebAuthnAuthenticatorRecord | null> {
     const row = await this.prepare(
-      `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+      `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms, device_info_json
          FROM webauthn_authenticators
         WHERE namespace = ?
           AND org_id = ?
@@ -227,7 +230,7 @@ export class CloudflareD1WebAuthnStore {
 
   async readAuthenticatorRows(userId: string): Promise<D1AuthenticatorRow[]> {
     const result = await this.prepare(
-      `SELECT credential_id_b64u, created_at_ms, updated_at_ms
+      `SELECT credential_id_b64u, created_at_ms, updated_at_ms, device_info_json
          FROM webauthn_authenticators
         WHERE namespace = ?
           AND org_id = ?

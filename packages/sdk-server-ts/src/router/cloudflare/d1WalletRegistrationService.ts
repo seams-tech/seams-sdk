@@ -968,6 +968,7 @@ export class CloudflareD1WalletRegistrationService {
 
   async startWalletRegistration(
     request: StartWalletRegistrationInput,
+    context?: { readonly userAgent?: string },
   ): Promise<WalletRegistrationStartResponse> {
     const timing = createD1RegistrationRouteTimingRecorder('wallets_register_start');
     const total = startD1RegistrationRouteTiming('registerStartTotalMs');
@@ -1025,6 +1026,7 @@ export class CloudflareD1WalletRegistrationService {
         expectedDigestB64u: preview.digestB64u,
         expectedOrigin: expectedOrigin || '',
         intent: preview.intent,
+        userAgent: context?.userAgent,
       });
       if (!verifiedAuthority.ok) return verifiedAuthority;
       const runtimePolicyScope = parseD1RuntimePolicyScope(preview.intent.runtimePolicyScope);

@@ -44,6 +44,10 @@ import {
   parseWalletId,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
+import {
+  parseWebAuthnAuthenticatorDeviceInfo,
+  unknownWebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
 import { base64UrlDecode } from '@shared/utils/encoders';
@@ -1491,6 +1495,11 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
       if (!credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
         return null;
       }
+      /* legacy stored authorities predate device capture: synthesize instead
+         of failing the parse */
+      const device =
+        parseWebAuthnAuthenticatorDeviceInfo(value.device) ??
+        unknownWebAuthnAuthenticatorDeviceInfo();
       return {
         kind: 'passkey',
         walletId: walletId.value,
@@ -1498,6 +1507,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         credentialIdB64u,
         credentialPublicKeyB64u,
         counter,
+        device,
         registrationIntentDigestB64u,
       };
     }

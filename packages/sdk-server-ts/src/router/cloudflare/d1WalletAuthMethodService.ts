@@ -20,6 +20,10 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  deriveWebAuthnAuthenticatorDeviceInfo,
+  type WebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
+import {
   buildEmailOtpWalletAuthAuthority,
   type EmailOtpProvider,
   type EmailOtpWalletAuthAuthority,
@@ -161,6 +165,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   async startWalletAddAuthMethod(
     request: StartWalletAddAuthMethodInput,
+    context?: { readonly userAgent?: string },
   ): Promise<StartWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
@@ -230,6 +235,7 @@ export class CloudflareD1WalletAuthMethodService {
         expectedDigestB64u: storedIntent.digestB64u,
         expectedOrigin: storedExpectedOrigin || '',
         intent: storedIntent.intent,
+        userAgent: context?.userAgent,
       });
       if (!authority.ok) return authority;
 
@@ -342,6 +348,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;
+    readonly userAgent?: string;
   }): Promise<WalletAuthMethodAuthorityResult> {
     const authority = input.authority;
     switch (authority.kind) {
@@ -351,6 +358,7 @@ export class CloudflareD1WalletAuthMethodService {
           expectedDigestB64u: input.expectedDigestB64u,
           expectedOrigin: input.expectedOrigin,
           intent: input.intent,
+          userAgent: input.userAgent,
         });
       case 'email_otp':
         return await this.verifyRegistrationEmailOtpAuthority({
@@ -472,6 +480,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: AddAuthMethodIntentV1;
+    readonly userAgent?: string;
   }): Promise<WalletAuthMethodAuthorityResult> {
     const authority = input.authority;
     switch (authority.kind) {
@@ -481,6 +490,7 @@ export class CloudflareD1WalletAuthMethodService {
           expectedDigestB64u: input.expectedDigestB64u,
           expectedOrigin: input.expectedOrigin,
           intent: input.intent,
+          userAgent: input.userAgent,
         });
       case 'email_otp':
         return await this.verifyAddAuthMethodEmailOtpAuthority({
@@ -535,6 +545,7 @@ export class CloudflareD1WalletAuthMethodService {
           counter: input.authority.counter,
           createdAtMs: input.now,
           updatedAtMs: input.now,
+          deviceInfo: input.authority.device,
         },
       });
     }
@@ -637,6 +648,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedChallenge: string;
     readonly expectedOrigin: string;
     readonly rpId: string;
+    readonly userAgent?: string;
   }): Promise<
     | {
         readonly ok: true;
@@ -644,6 +656,7 @@ export class CloudflareD1WalletAuthMethodService {
           readonly credentialIdB64u: string;
           readonly credentialPublicKeyB64u: string;
           readonly counter: number;
+          readonly device: WebAuthnAuthenticatorDeviceInfo;
         };
       }
     | WalletAuthMethodError
@@ -711,12 +724,26 @@ export class CloudflareD1WalletAuthMethodService {
       };
     }
     const counter = Number(credentialInfo.counter);
+    /* device facts: UA from the registering request, AAGUID + backup flag from
+       the verified attestation, transports from the credential response */
+    const transports = Array.isArray(credentialInfo.transports)
+      ? credentialInfo.transports.filter((t): t is string => typeof t === 'string')
+      : Array.isArray(response?.transports)
+        ? (response.transports as unknown[]).filter((t): t is string => typeof t === 'string')
+        : [];
+    const device = deriveWebAuthnAuthenticatorDeviceInfo({
+      userAgent: input.userAgent,
+      aaguid: toOptionalTrimmedString(registrationInfo?.aaguid) || '',
+      backedUp: registrationInfo?.credentialBackedUp === true,
+      transports,
+    });
     return {
       ok: true,
       credential: {
         credentialIdB64u,
         credentialPublicKeyB64u: base64UrlEncode(publicKey),
         counter: Number.isFinite(counter) && counter >= 0 ? Math.floor(counter) : 0,
+        device,
       },
     };
   }
@@ -726,6 +753,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;
+    readonly userAgent?: string;
   }): Promise<WalletAuthMethodAuthorityResult> {
     if (input.intent.authMethod.kind !== 'passkey') {
       return {
@@ -739,6 +767,7 @@ export class CloudflareD1WalletAuthMethodService {
       expectedChallenge: input.expectedDigestB64u,
       expectedOrigin: input.expectedOrigin,
       rpId: input.intent.authMethod.rpId,
+      userAgent: input.userAgent,
     });
     if (!verified.ok) return verified;
     const duplicateCredential = await this.getWalletAuthMethodStore().getPasskey({
@@ -761,6 +790,7 @@ export class CloudflareD1WalletAuthMethodService {
         credentialIdB64u: verified.credential.credentialIdB64u,
         credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
         counter: verified.credential.counter,
+        device: verified.credential.device,
         registrationIntentDigestB64u: input.expectedDigestB64u,
       },
     };
@@ -1058,6 +1088,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: AddAuthMethodIntentV1;
+    readonly userAgent?: string;
   }): Promise<WalletAuthMethodAuthorityResult> {
     if (input.intent.authMethod.kind !== 'passkey') {
       return {
@@ -1071,6 +1102,7 @@ export class CloudflareD1WalletAuthMethodService {
       expectedChallenge: input.expectedDigestB64u,
       expectedOrigin: input.expectedOrigin,
       rpId: input.intent.authMethod.rpId,
+      userAgent: input.userAgent,
     });
     if (!verified.ok) return verified;
     const duplicateCredential = await this.getWalletAuthMethodStore().getPasskey({
@@ -1093,6 +1125,7 @@ export class CloudflareD1WalletAuthMethodService {
         credentialIdB64u: verified.credential.credentialIdB64u,
         credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
         counter: verified.credential.counter,
+        device: verified.credential.device,
         registrationIntentDigestB64u: input.expectedDigestB64u,
       },
     };

@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  parseWebAuthnAuthenticatorDeviceInfo,
+  type WebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
 import { useSeams } from '../../context';
 import {
   nearAccountRefFromAccountId,
@@ -9,12 +13,14 @@ import './LinkedDevicesSection.css';
 type RouterApiAuthenticatorRow = {
   signerSlot?: number;
   publicKey?: string;
+  device?: unknown;
 };
 
 type SignerRow = {
   credentialId: string;
   signerSlot: number;
   nearPublicKey: string | null;
+  device: WebAuthnAuthenticatorDeviceInfo | null;
 };
 
 export interface LinkedDevicesSectionProps {
@@ -164,6 +170,7 @@ export const LinkedDevicesSection: React.FC<LinkedDevicesSectionProps> = ({
           credentialId: publicKey || `access-key-${signerSlot}`,
           signerSlot,
           nearPublicKey: publicKey,
+          device: relayMeta ? parseWebAuthnAuthenticatorDeviceInfo(relayMeta.device) : null,
         });
       }
       // Active signer first, then by slot
@@ -228,10 +235,28 @@ export const LinkedDevicesSection: React.FC<LinkedDevicesSectionProps> = ({
               {rows.map((row) => {
                 const isActive =
                   currentSignerSlot != null && row.signerSlot === currentSignerSlot;
+                /* skip the synthesized "Unknown device" placeholder: an
+                   unlabeled row reads better than a fake label */
+                const deviceLabel =
+                  row.device && row.device.label !== 'Unknown device' ? row.device.label : '';
+                const providerLabel = row.device?.providerLabel || '';
                 return (
                   <div key={row.credentialId} className="w3a-linked-devices-row">
                     <span className="w3a-linked-devices-slot">Device {row.signerSlot}</span>
                     {isActive && <span className="w3a-linked-devices-active">active</span>}
+                    {(deviceLabel || providerLabel) && (
+                      <span
+                        className="w3a-linked-devices-device"
+                        title={
+                          providerLabel && deviceLabel
+                            ? `${deviceLabel} · ${providerLabel}`
+                            : deviceLabel || providerLabel
+                        }
+                      >
+                        {deviceLabel || providerLabel}
+                        {deviceLabel && providerLabel ? ` · ${providerLabel}` : ''}
+                      </span>
+                    )}
                   </div>
                 );
               })}

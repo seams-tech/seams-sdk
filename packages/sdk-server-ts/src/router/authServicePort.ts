@@ -1,5 +1,6 @@
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type {
   EmailOtpChannel,
   EmailOtpChallengeOperation,
@@ -677,6 +678,9 @@ export type RouterApiMethodTypes = {
         readonly publicKey?: string;
         readonly createdAtMs?: number;
         readonly updatedAtMs?: number;
+        /** Device metadata captured at registration; synthesized "Unknown
+         * device" for rows written before device capture existed. */
+        readonly device: WebAuthnAuthenticatorDeviceInfo;
       }>;
     };
   };
@@ -1068,6 +1072,7 @@ export interface RouterApiWalletRegistrationService {
   }): Promise<CancelRegistrationIntentResponse>;
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
+    context?: { readonly userAgent?: string },
   ): Promise<WalletRegistrationStartResponse>;
   respondWalletRegistrationEcdsaDerivation(
     input: WalletRegistrationEcdsaDerivationRespondRequest,
@@ -1123,6 +1128,7 @@ export interface RouterApiWalletAuthMethodService {
   ): Promise<WalletRevokeAuthMethodResponse>;
   startWalletAddAuthMethod(
     input: WalletAddAuthMethodStartRequest,
+    context?: { readonly userAgent?: string },
   ): Promise<WalletAddAuthMethodStartResponse>;
   startWalletAddSigner(input: WalletAddSignerStartRequest): Promise<WalletAddSignerStartResponse>;
 }
