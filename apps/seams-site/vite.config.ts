@@ -11,6 +11,27 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+
+  /* Deploy snapshots have shipped without the gitignored .env, which makes
+     signingSessionPersistenceMode resolve to 'none' and Email OTP registration
+     fail deep in the wallet host ("Missing shamir prime for Email OTP
+     runtime"). Surface the misconfiguration loudly at server start instead. */
+  const requiredEnvKeys = [
+    'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
+    'VITE_SIGNING_SESSION_SEAL_KEY_VERSION',
+    'VITE_SIGNING_SESSION_SHAMIR_P_B64U',
+    'VITE_RELAYER_URL',
+  ];
+  const missingEnvKeys = requiredEnvKeys.filter((key) => !String(env[key] || '').trim());
+  if (missingEnvKeys.length > 0) {
+    console.warn(
+      `\n[seams-site] WARNING: missing env vars: ${missingEnvKeys.join(', ')}.\n` +
+        '[seams-site] Copy .env from the source checkout (see env.example) — ' +
+        'without them, signing-session sealing is disabled and Email OTP ' +
+        'registration/unlock will fail at runtime.\n',
+    );
+  }
+
   const appSrc = fileURLToPath(new URL('./src', import.meta.url));
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
   const appNodeModules = fileURLToPath(new URL('./node_modules', import.meta.url));
