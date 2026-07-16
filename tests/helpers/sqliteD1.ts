@@ -193,8 +193,9 @@ function isD1SqlMigrationFile(fileName: string): boolean {
 }
 
 function runSqlite(databasePath: string, sql: string): void {
-  const result = spawnSync('sqlite3', [databasePath, sql], {
+  const result = spawnSync('sqlite3', [databasePath], {
     encoding: 'utf8',
+    input: sql,
     maxBuffer: 16 * 1024 * 1024,
   });
   if (result.status === 0) return;
@@ -202,8 +203,9 @@ function runSqlite(databasePath: string, sql: string): void {
 }
 
 function runSqliteJson(databasePath: string, sql: string): readonly SqliteJsonRow[] {
-  const result = spawnSync('sqlite3', ['-json', databasePath, sql], {
+  const result = spawnSync('sqlite3', ['-json', databasePath], {
     encoding: 'utf8',
+    input: sql,
     maxBuffer: 16 * 1024 * 1024,
   });
   if (result.status !== 0) {
