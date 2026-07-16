@@ -7,8 +7,8 @@
   "validated_inputs": {
     "schema": "ed25519_yao_local_readiness_inputs_v1",
     "file_count": 2364,
-    "total_bytes": 37980507,
-    "sha256": "c1e020d1293f1045979c614b9005c71ea6397d70e5898e1a8189a2ab67e5adb4"
+    "total_bytes": 37981661,
+    "sha256": "0ab2ae0b8c6fc4e2eca417908ce985e17305abac47bc9f061e0e7bdf63d16f83"
   },
   "phase9c_validation": {
     "receipt_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
