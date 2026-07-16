@@ -37,14 +37,15 @@ packages/sdk-server-ts/.wrangler/
 playwright-report
 test-results
 .playwright-cli/
+.playwright-mcp/
 
 # Benchmark artifacts
-benchmarks/ecdsa-hss-wasm/out/
+benchmarks/router-ab-ecdsa-derivation-wasm/out/
 crates/router-ab-cloudflare/reports/startup-latencies/*.json
 
 # WASM worker outputs
-wasm/eth_signer/pkg
-wasm/eth_signer/target
+wasm/*/pkg
+wasm/*/target
 wasm/near_signer/pkg
 wasm/near_signer/target
 wasm/tempo_signer/pkg
@@ -55,7 +56,6 @@ wasm/email_otp_runtime/pkg
 wasm/threshold_prf/pkg
 wasm/email_otp_runtime/target
 wasm/threshold_prf/target
-wasm/ecdsa_client_signer/target/
 crates/*/target
 tools/*/target
 crates/threshold-prf/wasm-bench/pkg
@@ -74,6 +74,9 @@ server/src/**/*.js.map
 # Local tooling caches
 .tooling/
 .router-ab-local/
+.pnpm-store/
+.claude/
+**/__pycache__/
 
 # editor configs
 .vscode/*

@@ -84,7 +84,7 @@
     "test:threshold-core": "pnpm -C tests test:threshold-core",
     "test:signers:gates": "pnpm -C tests test:signers:gates",
     "show-report": "pnpm -C tests show-report",
-    "benchmark:ecdsa-hss:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/eth_signer && wasm-pack build --target web --out-dir pkg && cd ../ecdsa_client_signer && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/ecdsa-hss-wasm/src/runner.mjs'",
+    "benchmark:router-ab-ecdsa-derivation:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/router_ab_ecdsa_signing_worker && wasm-pack build --target web --out-dir pkg && cd ../router_ab_ecdsa_derivation_client && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/router-ab-ecdsa-derivation-wasm/src/runner.mjs'",
     "benchmark:router-ab-threshold-prf:wasm": "bash -lc 'cd wasm/threshold_prf && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/router-ab-threshold-prf-wasm/src/runner.mjs \"$@\"' --"
   },
   "devDependencies": {
