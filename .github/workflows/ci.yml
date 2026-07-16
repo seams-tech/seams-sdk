@@ -283,8 +283,8 @@ jobs:
       - name: Build SDK (production)
         run: pnpm build:sdk-prod
 
-      - name: Smoke check eth_signer runtime loading (Node + Workers)
-        run: pnpm -C packages/sdk-web smoke:eth-signer:runtimes
+      - name: Smoke check EVM crypto runtime loading (Node + Workers)
+        run: pnpm -C packages/sdk-web smoke:evm-crypto:runtimes
 
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
