@@ -49,6 +49,7 @@ import {
   type SigningRootId,
   type SigningRootVersion,
 } from '../../session/identity/emailOtpEcdsaDerivationIdentity';
+import type { EcdsaClientPresignPoolIdentity } from '../../workerManager/ecdsaPresignPoolIdentity';
 
 const ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS = 20_000;
 
@@ -284,6 +285,8 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
   expectedBindingDigest: string;
   sessionId: string;
   groupPublicKey33: Uint8Array;
+  materialExpiresAtMs: number;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   workerCtx: WorkerOperationContext;
 }): Promise<EcdsaDerivationClientThresholdEcdsaPresignProgress> {
   const groupPublicKey33 = input.groupPublicKey33.slice();
@@ -300,6 +303,8 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,
+        materialExpiresAtMs: input.materialExpiresAtMs,
+        poolIdentity: input.poolIdentity,
       },
       transfer: [groupPublicKey33.buffer],
     },
@@ -317,6 +322,8 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
   emailOtpSessionId: string;
   sessionId: string;
   groupPublicKey33: Uint8Array;
+  materialExpiresAtMs: number;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   workerCtx: WorkerOperationContext;
 }): Promise<{
   progress: EcdsaDerivationClientThresholdEcdsaPresignProgress;
@@ -336,6 +343,8 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,
+        materialExpiresAtMs: input.materialExpiresAtMs,
+        poolIdentity: input.poolIdentity,
       },
       transfer: [groupPublicKey33.buffer],
     },
@@ -405,8 +414,109 @@ export async function thresholdEcdsaRoleLocalPresignSessionAbortWasm(input: {
   }
 }
 
+export async function thresholdEcdsaRoleLocalAdmitPresignatureWasm(input: {
+  materialHandle: string;
+  expectedPresignatureId: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  const response = await requestEcdsaPresignOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaPresignClientRequestType.Admit,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: input.materialHandle,
+        expectedPresignatureId: input.expectedPresignatureId,
+      },
+    },
+  });
+  if (response.type !== EcdsaPresignClientResponseType.AdmitSuccess) {
+    throw new Error('ThresholdEcdsaRoleLocalAdmitPresignature failed');
+  }
+  if (
+    response.payload.kind !== 'ecdsa_client_presignature_admitted_v1' ||
+    response.payload.materialHandle !== input.materialHandle ||
+    response.payload.presignatureId !== input.expectedPresignatureId
+  ) {
+    throw new Error('ThresholdEcdsaRoleLocalAdmitPresignature returned invalid binding');
+  }
+}
+
+export async function thresholdEcdsaRoleLocalDestroyPresignatureWasm(input: {
+  materialHandle: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  const response = await requestEcdsaPresignOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaPresignClientRequestType.Destroy,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: { materialHandle: input.materialHandle },
+    },
+  });
+  if (response.type !== EcdsaPresignClientResponseType.DestroySuccess) {
+    throw new Error('ThresholdEcdsaRoleLocalDestroyPresignature failed');
+  }
+  if (
+    response.payload.kind !== 'ecdsa_client_presignature_destroyed_v1' ||
+    response.payload.materialHandle !== input.materialHandle
+  ) {
+    throw new Error('ThresholdEcdsaRoleLocalDestroyPresignature returned invalid handle');
+  }
+}
+
+export async function thresholdEcdsaRoleLocalReservePresignatureWasm(input: {
+  materialHandle: string;
+  requestBinding: string;
+  reservationId: string;
+  leaseExpiresAtMs: number;
+  workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  const response = await requestEcdsaPresignOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaPresignClientRequestType.Reserve,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: input.materialHandle,
+        requestBinding: input.requestBinding,
+        reservationId: input.reservationId,
+        leaseExpiresAtMs: input.leaseExpiresAtMs,
+      },
+    },
+  });
+  if (response.type !== EcdsaPresignClientResponseType.ReserveSuccess) {
+    throw new Error('ThresholdEcdsaRoleLocalReservePresignature failed');
+  }
+}
+
+export async function thresholdEcdsaRoleLocalCommitPresignatureWasm(input: {
+  materialHandle: string;
+  requestBinding: string;
+  reservationId: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  const response = await requestEcdsaPresignOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaPresignClientRequestType.Commit,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: input.materialHandle,
+        requestBinding: input.requestBinding,
+        reservationId: input.reservationId,
+      },
+    },
+  });
+  if (response.type !== EcdsaPresignClientResponseType.CommitSuccess) {
+    throw new Error('ThresholdEcdsaRoleLocalCommitPresignature failed');
+  }
+}
+
 export async function thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm(input: {
   materialHandle: string;
+  requestBinding: string;
+  reservationId: string;
   groupPublicKey33: Uint8Array;
   expectedPresignBigR33: Uint8Array;
   digest32: Uint8Array;
@@ -424,6 +534,8 @@ export async function thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatu
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
         materialHandle: input.materialHandle,
+        requestBinding: input.requestBinding,
+        reservationId: input.reservationId,
         groupPublicKey33: groupPublicKey33.buffer,
         expectedPresignBigR33: expectedPresignBigR33.buffer,
         digest32: digest32.buffer,

@@ -7,6 +7,10 @@ import type {
 } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import {
   storeEcdsaRoleLocalSigningMaterialWasm,
+  thresholdEcdsaRoleLocalAdmitPresignatureWasm,
+  thresholdEcdsaRoleLocalDestroyPresignatureWasm,
+  thresholdEcdsaRoleLocalReservePresignatureWasm,
+  thresholdEcdsaRoleLocalCommitPresignatureWasm,
   thresholdEcdsaEmailOtpPresignSessionInitWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
@@ -146,6 +150,10 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
       },
       stepClientPresignSession: thresholdEcdsaRoleLocalPresignSessionStepWasm,
       abortClientPresignSession: thresholdEcdsaRoleLocalPresignSessionAbortWasm,
+      admitClientPresignature: thresholdEcdsaRoleLocalAdmitPresignatureWasm,
+      destroyClientPresignature: thresholdEcdsaRoleLocalDestroyPresignatureWasm,
+      reserveClientPresignature: thresholdEcdsaRoleLocalReservePresignatureWasm,
+      commitClientPresignature: thresholdEcdsaRoleLocalCommitPresignatureWasm,
       computeSignatureShareFromPresignatureHandle:
         thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
     },

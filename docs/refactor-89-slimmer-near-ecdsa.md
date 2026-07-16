@@ -152,6 +152,38 @@ Current Phase A implementation checkpoint:
 Exit: neither role can reuse or revive a pair half, including after failure or
 uncertain delivery.
 
+Current Phase B implementation checkpoint:
+
+- The Client presign worker no longer retains completed material in a process
+  `Map`. It writes the 97-byte role-local result into a dedicated IndexedDB
+  database under a persisted non-extractable AES-GCM key before reporting
+  presign completion.
+- The encrypted record binds the fixed protocol identifier, local material
+  handle, presign session, group public key, and `R`. The online worker must
+  present the expected group public key and `R`; the storage transaction then
+  replaces ciphertext with an absorbing tombstone before decrypting or
+  transferring the material.
+- Browser tests prove ciphertext-only persistence, one winner under concurrent
+  consumption, permanent burn after binding rejection or expiry, and one
+  stable sealing key when two store instances race initialization.
+- Explicit post-handshake admission now binds the locally computed
+  `presig-SHA256(R)` pair identifier to the authenticated wallet key,
+  wallet/account, canonical signing scope, Client role, SigningWorker key
+  epoch, activation epoch, and fixed protocol. Material remains
+  `pending_admission` until the peer-confirmed pair identifier matches.
+  Substitution, expiry, failed generation, and invalidated refill generations
+  produce absorbing tombstones.
+- The Phase B adapter checkbox remains open because coordinator pool references
+  are still process-local. Online signing now persists the exact request and a
+  fresh reservation identifier through
+  `available -> reserved -> committed-use -> tombstone`; substituted bindings,
+  expired leases, cancellation, and failed pre-output paths burn the record.
+  The online worker receives material only from the matching committed state,
+  after ciphertext deletion and terminal persistence succeed.
+- Durable Client pool enumeration, destructive startup recovery for interrupted
+  reservations/commits, and the matching SigningWorker adapter remain the next
+  Phase B slices.
+
 ### Local Phase C: compact wire and true pool-hit lazy loading
 
 - [x] Freeze the purpose-built presign protocol identifier, numeric tag

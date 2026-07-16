@@ -2,6 +2,10 @@ import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import {
   storeEcdsaRoleLocalSigningMaterialWasm,
+  thresholdEcdsaRoleLocalAdmitPresignatureWasm,
+  thresholdEcdsaRoleLocalDestroyPresignatureWasm,
+  thresholdEcdsaRoleLocalReservePresignatureWasm,
+  thresholdEcdsaRoleLocalCommitPresignatureWasm,
   thresholdEcdsaEmailOtpPresignSessionInitWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
@@ -86,6 +90,10 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
     },
     stepClientPresignSession: thresholdEcdsaRoleLocalPresignSessionStepWasm,
     abortClientPresignSession: thresholdEcdsaRoleLocalPresignSessionAbortWasm,
+    admitClientPresignature: thresholdEcdsaRoleLocalAdmitPresignatureWasm,
+    destroyClientPresignature: thresholdEcdsaRoleLocalDestroyPresignatureWasm,
+    reserveClientPresignature: thresholdEcdsaRoleLocalReservePresignatureWasm,
+    commitClientPresignature: thresholdEcdsaRoleLocalCommitPresignatureWasm,
     computeSignatureShareFromPresignatureHandle:
       thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   };

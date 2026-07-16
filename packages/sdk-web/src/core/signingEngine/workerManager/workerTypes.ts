@@ -28,6 +28,7 @@ import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainW
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
+import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
@@ -1135,6 +1136,8 @@ export type StoreThresholdEcdsaRoleLocalSigningMaterialResponse = {
 type EcdsaPresignClientSessionParameters = {
   sessionId: string;
   groupPublicKey33: ArrayBuffer;
+  materialExpiresAtMs: number;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
 };
 
 export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionParameters &
@@ -1199,8 +1202,59 @@ export type EcdsaPresignClientSessionAbortResponse = {
   diagnostics?: WorkerResponseDiagnostics;
 };
 
+export type EcdsaPresignClientAdmitRequest = {
+  materialHandle: string;
+  expectedPresignatureId: string;
+};
+
+export type EcdsaPresignClientAdmitResponse = {
+  type: typeof EcdsaPresignClientResponseType.AdmitSuccess;
+  payload: {
+    kind: 'ecdsa_client_presignature_admitted_v1';
+    materialHandle: string;
+    presignatureId: string;
+  };
+  diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type EcdsaPresignClientDestroyRequest = {
+  materialHandle: string;
+};
+
+export type EcdsaPresignClientDestroyResponse = {
+  type: typeof EcdsaPresignClientResponseType.DestroySuccess;
+  payload: {
+    kind: 'ecdsa_client_presignature_destroyed_v1';
+    materialHandle: string;
+  };
+  diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type EcdsaPresignClientUseBinding = {
+  materialHandle: string;
+  requestBinding: string;
+  reservationId: string;
+};
+
+export type EcdsaPresignClientReserveRequest = EcdsaPresignClientUseBinding & {
+  leaseExpiresAtMs: number;
+};
+
+export type EcdsaPresignClientLifecycleResponse = {
+  type:
+    | typeof EcdsaPresignClientResponseType.ReserveSuccess
+    | typeof EcdsaPresignClientResponseType.CommitSuccess;
+  payload: {
+    kind: 'ecdsa_client_presignature_lifecycle_advanced_v1';
+    materialHandle: string;
+  };
+  diagnostics?: WorkerResponseDiagnostics;
+};
+
 export type EcdsaOnlineClientComputeSignatureShareRequest = {
   materialHandle: string;
+  requestBinding: string;
+  reservationId: string;
   groupPublicKey33: ArrayBuffer;
   expectedPresignBigR33: ArrayBuffer;
   digest32: ArrayBuffer;
@@ -1248,12 +1302,20 @@ export const EcdsaPresignClientRequestType = {
   SessionInit: 71_000,
   SessionStep: 71_001,
   SessionAbort: 71_002,
+  Admit: 71_003,
+  Destroy: 71_004,
+  Reserve: 71_005,
+  Commit: 71_006,
 } as const;
 
 export const EcdsaPresignClientResponseType = {
   SessionInitSuccess: 71_100,
   SessionStepSuccess: 71_101,
   SessionAbortSuccess: 71_102,
+  AdmitSuccess: 71_103,
+  DestroySuccess: 71_104,
+  ReserveSuccess: 71_105,
+  CommitSuccess: 71_106,
 } as const;
 
 export type EcdsaPresignClientOperationMap = {
@@ -1268,6 +1330,22 @@ export type EcdsaPresignClientOperationMap = {
   [EcdsaPresignClientRequestType.SessionAbort]: {
     payload: EcdsaPresignClientSessionAbortRequest;
     result: EcdsaPresignClientSessionAbortResponse;
+  };
+  [EcdsaPresignClientRequestType.Admit]: {
+    payload: EcdsaPresignClientAdmitRequest;
+    result: EcdsaPresignClientAdmitResponse;
+  };
+  [EcdsaPresignClientRequestType.Destroy]: {
+    payload: EcdsaPresignClientDestroyRequest;
+    result: EcdsaPresignClientDestroyResponse;
+  };
+  [EcdsaPresignClientRequestType.Reserve]: {
+    payload: EcdsaPresignClientReserveRequest;
+    result: EcdsaPresignClientLifecycleResponse;
+  };
+  [EcdsaPresignClientRequestType.Commit]: {
+    payload: EcdsaPresignClientUseBinding;
+    result: EcdsaPresignClientLifecycleResponse;
   };
 };
 

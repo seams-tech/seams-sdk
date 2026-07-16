@@ -25,6 +25,8 @@ export type EcdsaDerivationAdditiveShareRequest = {
   readonly kind: 'ecdsa_derivation_additive_share_request_v1';
   readonly requestId: string;
   readonly materialHandle: string;
+  readonly requestBinding: string;
+  readonly reservationId: string;
   readonly expectedBindingDigest: string;
 };
 
@@ -74,6 +76,10 @@ export type EcdsaPresignMaterialRequest = {
   readonly kind: 'ecdsa_presign_material_request_v1';
   readonly requestId: string;
   readonly materialHandle: string;
+  readonly requestBinding: string;
+  readonly reservationId: string;
+  readonly groupPublicKey33: ArrayBuffer;
+  readonly expectedBigR33: ArrayBuffer;
 };
 
 export type EcdsaPresignMaterialResponse =
@@ -133,5 +139,26 @@ export function isAttachEmailOtpToPresignPort(
   return (
     parsed?.kind === EcdsaClientWorkerControlKind.AttachEmailOtpToPresign &&
     parsed.port instanceof MessagePort
+  );
+}
+
+export function isEcdsaPresignMaterialRequest(
+  value: unknown,
+): value is EcdsaPresignMaterialRequest {
+  if (!isObject(value)) return false;
+  return (
+    value.kind === 'ecdsa_presign_material_request_v1' &&
+    typeof value.requestId === 'string' &&
+    value.requestId.trim().length > 0 &&
+    typeof value.materialHandle === 'string' &&
+    value.materialHandle.trim().length > 0 &&
+    typeof value.requestBinding === 'string' &&
+    value.requestBinding.trim().length > 0 &&
+    typeof value.reservationId === 'string' &&
+    value.reservationId.trim().length > 0 &&
+    value.groupPublicKey33 instanceof ArrayBuffer &&
+    value.groupPublicKey33.byteLength === 33 &&
+    value.expectedBigR33 instanceof ArrayBuffer &&
+    value.expectedBigR33.byteLength === 33
   );
 }

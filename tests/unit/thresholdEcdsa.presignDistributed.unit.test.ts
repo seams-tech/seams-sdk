@@ -122,6 +122,25 @@ function randomSecpSecretKey32(): Uint8Array {
   throw new Error('secp256k1 random secret key generator is unavailable');
 }
 
+function modSecpScalar(value: bigint): bigint {
+  const reduced = value % SECP256K1_ORDER;
+  return reduced >= 0n ? reduced : reduced + SECP256K1_ORDER;
+}
+
+function invertSecpScalar(value: bigint): bigint {
+  let remainder = modSecpScalar(value);
+  if (remainder === 0n) throw new Error('Cannot invert zero secp256k1 scalar');
+  let oldRemainder = SECP256K1_ORDER;
+  let coefficient = 1n;
+  let oldCoefficient = 0n;
+  while (remainder !== 0n) {
+    const quotient = oldRemainder / remainder;
+    [oldRemainder, remainder] = [remainder, oldRemainder - quotient * remainder];
+    [oldCoefficient, coefficient] = [coefficient, oldCoefficient - quotient * coefficient];
+  }
+  return modSecpScalar(oldCoefficient);
+}
+
 function mapSigningWorkerAdditiveShare2p(additiveShare32: Uint8Array): Uint8Array {
   const additiveShare = bytesToNumberBE(additiveShare32);
   const inverseNegativeTwo = (SECP256K1_ORDER - (SECP256K1_ORDER + 1n) / 2n) % SECP256K1_ORDER;
@@ -577,12 +596,31 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     expect(serverBigRB64u).toBe(base64UrlEncode(localBigR33));
 
     expect(poolFillRequests).toHaveLength(1);
-    expect(poolFillRequests[0]).toMatchObject({
+    const serverPresignature = poolFillRequests[0];
+    expect(serverPresignature).toMatchObject({
       server_presignature_id: serverPresignatureId,
       server_big_r33_b64u: serverBigRB64u,
       scope: poolFill.scope,
       expires_at_ms: poolFill.expiresAtMs,
     });
+
+    const clientK = bytesToNumberBE(localPresignature97!.slice(33, 65));
+    const clientSigma = bytesToNumberBE(localPresignature97!.slice(65, 97));
+    const serverK = bytesToNumberBE(
+      base64UrlDecode(serverPresignature.server_k_share32_b64u),
+    );
+    const serverSigma = bytesToNumberBE(
+      base64UrlDecode(serverPresignature.server_sigma_share32_b64u),
+    );
+    const reconstructedK = modSecpScalar(3n * clientK - 2n * serverK);
+    const reconstructedSigma = modSecpScalar(3n * clientSigma - 2n * serverSigma);
+    const walletSecret = modSecpScalar(
+      bytesToNumberBE(clientSigningShare32) + bytesToNumberBE(relayerSigningShare32),
+    );
+    expect(reconstructedSigma).toBe(modSecpScalar(reconstructedK * walletSecret));
+    expect(localBigR33).toEqual(
+      secp256k1.getPublicKey(numberToBytesBE(invertSecpScalar(reconstructedK), 32), true),
+    );
   });
 
   test('fills Router A/B ECDSA derivation SigningWorker pool on presign completion', async () => {
