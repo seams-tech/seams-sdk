@@ -23,7 +23,7 @@ const authorizedExport: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   routePlan,
   record: exportRecord,
   shamirPrimeB64u: 'prime',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
   roleLocalMaterial,
 };
 void authorizedExport;
@@ -39,7 +39,7 @@ const authorizedExportWithLooseRecord: EmailOtpEcdsaAuthorizedExportStepUpInput 
   // @ts-expect-error authorized ECDSA export requires a runtime-policy-scoped record.
   record,
   shamirPrimeB64u: 'prime',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
   roleLocalMaterial,
 };
 void authorizedExportWithLooseRecord;
@@ -56,7 +56,7 @@ const authorizedExportWithRpId: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   // @ts-expect-error authorized ECDSA export is wallet-key/session scoped, not RP-scoped.
   rpId: 'localhost',
   shamirPrimeB64u: 'prime',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
   roleLocalMaterial,
 };
 void authorizedExportWithRpId;
@@ -72,7 +72,7 @@ const authorizedExportWithoutRoleLocalMaterial: EmailOtpEcdsaAuthorizedExportSte
   routePlan,
   record: exportRecord,
   shamirPrimeB64u: 'prime',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
 };
 void authorizedExportWithoutRoleLocalMaterial;
 

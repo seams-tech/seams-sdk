@@ -1,5 +1,17 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import type {
+  RegistrationActivationId,
+  RegistrationActivationMessageIdentity,
+  WalletIframeRequestId,
+  WalletIframeSurfaceId,
+} from '@/core/types/registrationActivationIdentity';
+export type {
+  RegistrationActivationId,
+  RegistrationActivationMessageIdentity,
+  WalletIframeRequestId,
+  WalletIframeSurfaceId,
+} from '@/core/types/registrationActivationIdentity';
+import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletId as EcdsaWalletId,
@@ -19,7 +31,7 @@ import type {
   WarmEcdsaSigningSessionStatus,
   WarmSessionEcdsaCapabilityState,
 } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AccessKeyList,
   NearClient,
@@ -173,7 +185,7 @@ type PublicThresholdEcdsaSessionKeyRef = Omit<
   | 'ecdsaThresholdKeyId'
   | 'signingRootId'
   | 'signingRootVersion'
-  | 'ecdsaHssExportArtifact'
+  | 'ecdsaDerivationExportArtifact'
   | 'walletSessionJwt'
 >;
 
@@ -662,14 +674,14 @@ export interface AuthCapability {
   getWalletSession(walletId?: string): Promise<WalletSession>;
   getRecentUnlocks(): Promise<GetRecentUnlocksResult>;
   hasPasskeyCredential(walletId: string): Promise<boolean>;
-  prefillRouterAbEcdsaHssPresignaturePool(args: {
+  prefillRouterAbEcdsaDerivationPresignaturePool(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult>;
+  }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult>;
   requestEmailOtpChallenge(args: {
     walletId: string;
     relayUrl?: string;
@@ -749,24 +761,6 @@ export interface RegistrationCapability {
     args: EmailOtpEcdsaEnrollmentCapabilityArgs,
   ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
-
-export type WalletIframeSurfaceId = string & {
-  readonly __walletIframeSurfaceId: unique symbol;
-};
-
-export type RegistrationActivationId = string & {
-  readonly __registrationActivationId: unique symbol;
-};
-
-export type WalletIframeRequestId = string & {
-  readonly __walletIframeRequestId: unique symbol;
-};
-
-export type RegistrationActivationMessageIdentity = {
-  surfaceId: WalletIframeSurfaceId;
-  activationId: RegistrationActivationId;
-  requestId: WalletIframeRequestId;
-};
 
 export type RegistrationActivationSurfaceState =
   | { kind: 'idle' }

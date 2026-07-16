@@ -69,7 +69,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   const recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record });
   const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
-    cachedExportArtifact: keyRef.ecdsaHssExportArtifact || null,
+    cachedExportArtifact: keyRef.ecdsaDerivationExportArtifact || null,
     expected: {
       walletId: record.walletId,
       evmFamilySigningKeySlotId: recordKey.evmFamilySigningKeySlotId,

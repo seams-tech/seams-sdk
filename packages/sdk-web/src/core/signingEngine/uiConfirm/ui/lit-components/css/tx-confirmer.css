@@ -30,10 +30,13 @@ w3a-tx-confirm-content,
     transparent 35%;
   --w3a-modal__passkey-halo-loading__inner-background: transparent;
   --w3a-modal__passkey-halo-loading__inner-padding: 3px;
-  --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-surface);
+  --w3a-modal__passkey-halo-loading-icon-container__background-color: var(
+    --w3a-colors-passkeyHaloBackground,
+    var(--w3a-colors-surface)
+  );
   --w3a-modal__passkey-halo-loading-touch-icon__color: var(--w3a-colors-textSecondary);
   --w3a-modal__passkey-halo-loading-touch-icon__margin: 0.75rem;
-  --w3a-modal__passkey-halo-loading-touch-icon__stroke-width: 3;
+  --w3a-modal__passkey-halo-loading-touch-icon__stroke-width: 3.5;
   /* Provide explicit radius token so consumers avoid "undefined" */
   --w3a-modal__passkey-halo-loading-icon-container__border-radius: 1.125rem;
 }

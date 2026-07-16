@@ -1,7 +1,6 @@
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeMode, WalletAuthCurve } from '@/core/types/seams';
 import {
-  toWalletId,
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -19,24 +18,22 @@ import {
   type FreshEmailOtpEcdsaExportMaterial,
   type FreshPasskeyEcdsaExportMaterial,
   type ReadyEcdsaExportMaterial,
-  type ReadyPasskeyThresholdEcdsaExportMaterial,
   resolveEcdsaExportMaterialForLane,
 } from './ecdsaExportMaterial';
-import { exportEcdsaHssKeyWithWalletSession } from './ecdsaHssExport';
+import {
+  exportEcdsaDerivationKeyWithExplicitExportSession,
+  exportEcdsaDerivationKeyWithWalletSession,
+} from './ecdsaDerivationExport';
 import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
-import { computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 import {
   buildEcdsaExportActivation,
-  type ThresholdEcdsaActivationRequest,
+  type ThresholdEcdsaPasskeyExportActivationRequest,
+  type ThresholdEcdsaExplicitKeyExportBootstrapResult,
 } from '../../session/passkey/ecdsaSessionProvision';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import { getThresholdEcdsaSessionRecordByKey } from '../../session/persistence/records';
-import {
-  buildEvmFamilyEcdsaSignerBinding,
-  exactEcdsaSigningLaneIdentity,
-} from '../../session/identity/exactSigningLaneIdentity';
 import {
   type EmailOtpWalletSessionExportAuthorizationDeps,
   createEmailOtpKeyExportRequiresPasskeyError,
@@ -89,9 +86,9 @@ export type EcdsaExportFlowDeps = {
     WarmSessionPostSignPolicyAdapterDeps,
     'getWarmSession' | 'resolveExactEcdsaRecord'
   >;
-  provisionThresholdEcdsaSession: (
-    args: ThresholdEcdsaActivationRequest,
-  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  provisionPasskeyEcdsaExplicitExportSession: (
+    args: ThresholdEcdsaPasskeyExportActivationRequest,
+  ) => Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult>;
   getSignerWorkerContext: () => WorkerOperationContext;
 };
 
@@ -289,35 +286,6 @@ function walletKeyForFreshPasskeyEcdsaExport(args: {
   };
 }
 
-function refreshedPasskeyEcdsaExportLane(args: {
-  baseLane: ExactEcdsaExportLane;
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): ExactEcdsaExportLane {
-  const laneIdentity = exactEcdsaSigningLaneIdentity({
-    signer: buildEvmFamilyEcdsaSignerBinding({
-      walletId: args.baseLane.key.walletId,
-      chainTarget: args.baseLane.session.chainTarget,
-      keyHandle: args.baseLane.publicFacts.keyHandle,
-      key: args.baseLane.key,
-    }),
-    auth: requirePasskeyEcdsaExportAuth(args.baseLane),
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
-  });
-  return {
-    ...args.baseLane,
-    laneIdentity,
-    session: {
-      ...args.baseLane.session,
-      signingGrantId: laneIdentity.signingGrantId,
-      thresholdSessionId: laneIdentity.thresholdSessionId,
-      state: 'ready',
-      material: { kind: 'loaded_worker_material' },
-    },
-  };
-}
-
 async function prepareFreshPasskeyEcdsaExportMaterial(
   deps: EcdsaExportFlowDeps,
   args: {
@@ -329,8 +297,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     onEvent?: KeyExportEventCallback;
   },
 ): Promise<{
-  exportLane: ExactEcdsaExportLane;
-  material: ReadyPasskeyThresholdEcdsaExportMaterial;
+  exportProvision: ThresholdEcdsaExplicitKeyExportBootstrapResult;
   credential: Awaited<ReturnType<typeof requestThresholdEcdsaExportAuthorization>>['credential'];
 }> {
   const auth = requirePasskeyEcdsaExportAuth(args.exportLane);
@@ -346,7 +313,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     remainingUses: 1,
   });
   const requestId = createExportUiRequestId('tecdsa-export-bootstrap');
-  const challengeB64u = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+  const challengeB64u = await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u({
     walletId: planned.policy.walletId,
     evmFamilySigningKeySlotId: planned.policy.evmFamilySigningKeySlotId,
     rpId: auth.rpId,
@@ -379,7 +346,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   if (!passkeyPrfFirstB64u) {
     throw new Error('[SigningEngine][ecdsa-export] passkey export requires PRF.first');
   }
-  const provisioned = await deps.provisionThresholdEcdsaSession(
+  const provisionedResult = await deps.provisionPasskeyEcdsaExplicitExportSession(
     buildEcdsaExportActivation({
       walletKey: walletKeyForFreshPasskeyEcdsaExport({
         exportLane: args.exportLane,
@@ -408,43 +375,8 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
       webauthnAuthentication: exportCredential.credential,
     }),
   );
-  const thresholdSessionId = String(provisioned.session.thresholdSessionId || '').trim();
-  const signingGrantId = String(provisioned.session.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId) {
-    throw new Error('[SigningEngine][ecdsa-export] passkey export provision returned no session');
-  }
-  const refreshedRecord = getThresholdEcdsaSessionRecordByKey(deps.sessionStore, {
-    walletId: toWalletId(args.walletId),
-    keyHandle: args.material.publicFacts.keyHandle,
-    authMethod: 'passkey',
-    curve: 'ecdsa',
-    chainTarget: args.exportLane.session.chainTarget,
-    signingGrantId,
-    thresholdSessionId,
-  });
-  if (!refreshedRecord) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] passkey export provision did not publish record',
-    );
-  }
-  const refreshedLane = refreshedPasskeyEcdsaExportLane({
-    baseLane: args.exportLane,
-    thresholdSessionId,
-    signingGrantId,
-  });
-  const refreshedMaterial = await resolveEcdsaExportMaterialForLane(
-    deps.sessionStore,
-    refreshedLane,
-  );
-  if (
-    refreshedMaterial.kind !== 'ready_threshold_ecdsa_export_material' ||
-    refreshedMaterial.authMethod !== 'passkey'
-  ) {
-    throw new Error('[SigningEngine][ecdsa-export] passkey export provision is not ready');
-  }
   return {
-    exportLane: refreshedLane,
-    material: refreshedMaterial,
+    exportProvision: provisionedResult,
     credential: exportCredential.credential,
   };
 }
@@ -560,18 +492,17 @@ export async function exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(
   });
   return await prepareAndShowEcdsaExportArtifact(deps, {
     walletId: args.walletId,
-    exportLane: prepared.exportLane,
+    exportLane: args.exportLane,
     exportPublicKey,
     options: args.options,
     flowId: args.flowId,
     onEvent: args.onEvent,
     prepareArtifact: async () =>
-      await exportEcdsaHssKeyWithWalletSession(
+      await exportEcdsaDerivationKeyWithExplicitExportSession(
         { getSignerWorkerContext: deps.getSignerWorkerContext },
         {
           walletSessionUserId: args.walletId,
-          signerSession: prepared.material.signerSession,
-          committedLane: prepared.material.committedLane,
+          exportProvision: prepared.exportProvision,
           credential: prepared.credential,
         },
       ),
@@ -694,7 +625,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     flowId: args.flowId,
     onEvent: args.onEvent,
     prepareArtifact: async () =>
-      await exportEcdsaHssKeyWithWalletSession(
+      await exportEcdsaDerivationKeyWithWalletSession(
         { getSignerWorkerContext: deps.getSignerWorkerContext },
         {
           walletSessionUserId: args.walletId,

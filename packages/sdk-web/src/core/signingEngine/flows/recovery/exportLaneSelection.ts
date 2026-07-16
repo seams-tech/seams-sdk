@@ -99,17 +99,6 @@ function selectExactExportAvailableLane<TLane extends ConcreteEcdsaExportAvailab
   candidates: TLane[];
   ecdsaContext: EcdsaExportSelectionKeyContext;
 }): TLane {
-  const failAmbiguousRecords = (): never => {
-    emitSigningSessionFlowFailure('evm-family', {
-      stage: 'key_export.exact_lane_ambiguous_material',
-      context: args.context,
-      candidateCount: args.candidates.length,
-      candidates: args.candidates.map(summarizeExportAvailableLane),
-    });
-    throw new Error(
-      `[SigningEngine][${args.context}] exact lane selection failed: ambiguous_material`,
-    );
-  };
   if (!args.candidates.length) {
     emitSigningSessionFlowFailure('evm-family', {
       stage: 'key_export.exact_lane_no_candidate',
@@ -121,11 +110,11 @@ function selectExactExportAvailableLane<TLane extends ConcreteEcdsaExportAvailab
   }
   for (const candidate of args.candidates) {
     if (!exportAvailableLaneSelectionKey(candidate, args.ecdsaContext)) {
-      return failAmbiguousRecords();
+      return failAmbiguousExportAvailableLanes(args);
     }
   }
   if (args.candidates.length !== 1) {
-    return failAmbiguousRecords();
+    return failAmbiguousExportAvailableLanes(args);
   }
 
   const [selectedLane] = args.candidates;
@@ -137,6 +126,21 @@ function selectExactExportAvailableLane<TLane extends ConcreteEcdsaExportAvailab
     candidateCount: args.candidates.length,
   });
   return selectedLane;
+}
+
+function failAmbiguousExportAvailableLanes<TLane extends ConcreteEcdsaExportAvailableLane>(args: {
+  context: string;
+  candidates: TLane[];
+}): never {
+  emitSigningSessionFlowFailure('evm-family', {
+    stage: 'key_export.exact_lane_ambiguous_material',
+    context: args.context,
+    candidateCount: args.candidates.length,
+    candidates: args.candidates.map(summarizeExportAvailableLane),
+  });
+  throw new Error(
+    `[SigningEngine][${args.context}] exact lane selection failed: ambiguous_material`,
+  );
 }
 
 function exactEcdsaIdentityForExportLane(args: {
@@ -408,9 +412,10 @@ async function resolveExactEd25519KeyExportLane(
       '[SigningEngine][ed25519-export-resolve] exact Yao lane selection failed: ambiguous_material',
     );
   }
+  const [selectedLane] = candidates;
   return {
     kind: 'ed25519',
-    laneIdentity: exactEd25519IdentityForExportLane(candidates[0]),
+    laneIdentity: exactEd25519IdentityForExportLane(selectedLane),
   };
 }
 
@@ -423,7 +428,9 @@ export async function resolveEcdsaSessionForExport(
   },
 ): Promise<ExactEcdsaExportLane> {
   const restoreLane = await resolveEcdsaExportLane(deps, {
-    ...args,
+    walletId: args.walletId,
+    signingTarget: args.signingTarget,
+    laneIdentity: args.laneIdentity,
   });
   switch (restoreLane.session.material.kind) {
     case 'loaded_worker_material':

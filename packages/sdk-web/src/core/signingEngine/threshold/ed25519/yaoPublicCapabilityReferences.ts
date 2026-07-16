@@ -1,6 +1,5 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB/unifiedIndexedDBManager';
 import type { Ed25519YaoActiveClientIdentityV1 } from './yaoActiveClientRegistry';
 
 export const ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1 =
@@ -21,10 +20,11 @@ export type Ed25519YaoPublicCapabilityReferenceStorePort = {
   list(): Promise<readonly Ed25519YaoActiveClientIdentityV1[]>;
 };
 
-type AppStatePort = Pick<
-  UnifiedIndexedDBManager,
-  'getAppState' | 'setAppState' | 'isDisabled'
->;
+type AppStatePort = {
+  isDisabled(): boolean;
+  getAppState<T = unknown>(key: string): Promise<T | undefined>;
+  setAppState<T = unknown>(key: string, value: T): Promise<void>;
+};
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
+import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
@@ -44,7 +44,7 @@ import type {
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
 } from '../routerAbSigningWalletSession';
 
@@ -318,7 +318,7 @@ function expectedPresentCapabilityState(args: {
   if (!prfClaim) return 'prf_missing';
   if (prfClaim.state === 'unavailable') return 'prf_unavailable';
   if (prfClaim.state !== 'warm') return 'prf_missing';
-  const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(capability.record);
+  const persistedState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(capability.record);
   if (persistedState.kind === 'runtime_validated') return 'ready';
   if (
     persistedState.kind === 'non_signing' ||
@@ -597,7 +597,7 @@ export type ProvisionWarmEd25519CapabilitySuccessResult = {
   remainingUses: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt: string;
-  ecdsaHssPasskeyPrfFirstB64u?: string;
+  ecdsaDerivationPasskeyPrfFirstB64u?: string;
 };
 
 export type ProvisionWarmEd25519CapabilityFailureResult = {

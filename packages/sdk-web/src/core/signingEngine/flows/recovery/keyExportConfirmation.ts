@@ -373,7 +373,7 @@ export async function showThresholdEcdsaExportViewer(
   args: ThresholdEcdsaExportViewerArgs,
 ): Promise<void> {
   const chain = args.chainTarget.kind;
-  const label = chain === 'tempo' ? 'Tempo private key' : 'EVM private key';
+  const label = chain === 'tempo' ? 'Tempo' : 'EVM';
   const isLoading = args.state === 'loading';
   const keys: Secp256k1ExportPrivateKeyDisplayEntry[] = isLoading
     ? [

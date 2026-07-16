@@ -1,8 +1,8 @@
 import {
-  requireRouterAbEcdsaHssNormalSigningStateV1,
-  routerAbEcdsaHssActiveStateSessionId,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
+  routerAbEcdsaDerivationActiveStateSessionId,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaThresholdKeyId,
@@ -10,8 +10,8 @@ import {
   type EcdsaThresholdKeyId,
 } from '../../session/keyMaterialBrands';
 
-export type RouterAbEcdsaHssSigningMaterialRef = {
-  kind: 'router_ab_ecdsa_hss_signing_material_ref_v1';
+export type RouterAbEcdsaDerivationSigningMaterialRef = {
+  kind: 'router_ab_ecdsa_derivation_signing_material_ref_v1';
   routerAbStateSessionId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
@@ -22,23 +22,23 @@ export type RouterAbEcdsaHssSigningMaterialRef = {
   thresholdVerifier33B64u: string;
   keyHandle?: never;
   clientVerifyingShareB64u?: never;
-  client_public_key33_b64u?: never;
+  derivation_client_share_public_key33_b64u?: never;
   clientSigningShare32?: never;
 };
 
-export function buildRouterAbEcdsaHssSigningMaterialRef(args: {
-  routerAbState: RouterAbEcdsaHssNormalSigningStateV1;
-}): RouterAbEcdsaHssSigningMaterialRef {
-  const routerAbState = requireRouterAbEcdsaHssNormalSigningStateV1(args.routerAbState);
+export function buildRouterAbEcdsaDerivationSigningMaterialRef(args: {
+  routerAbState: RouterAbEcdsaDerivationNormalSigningStateV1;
+}): RouterAbEcdsaDerivationSigningMaterialRef {
+  const routerAbState = requireRouterAbEcdsaDerivationNormalSigningStateV1(args.routerAbState);
   return {
-    kind: 'router_ab_ecdsa_hss_signing_material_ref_v1',
-    routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(routerAbState),
+    kind: 'router_ab_ecdsa_derivation_signing_material_ref_v1',
+    routerAbStateSessionId: routerAbEcdsaDerivationActiveStateSessionId(routerAbState),
     ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(routerAbState.scope.ecdsa_threshold_key_id),
     signingRootId: routerAbState.scope.signing_root_id,
     signingRootVersion: routerAbState.scope.signing_root_version,
     signingWorkerId: routerAbState.scope.signing_worker.server_id,
     clientVerifier33B64u: parseEcdsaClientVerifyingShareB64u(
-      routerAbState.scope.public_identity.client_public_key33_b64u,
+      routerAbState.scope.public_identity.derivation_client_share_public_key33_b64u,
     ),
     serverVerifier33B64u: routerAbState.scope.public_identity.server_public_key33_b64u,
     thresholdVerifier33B64u: routerAbState.scope.public_identity.threshold_public_key33_b64u,

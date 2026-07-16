@@ -382,7 +382,7 @@ const invalidPublicBootstrapSigningRootVersion =
 void invalidPublicBootstrapSigningRootVersion;
 const invalidPublicBootstrapExportArtifact =
   // @ts-expect-error Public bootstrap keyRef hides internal export artifact identity.
-  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaHssExportArtifact;
+  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaDerivationExportArtifact;
 void invalidPublicBootstrapExportArtifact;
 const invalidPublicBootstrapWalletSessionJwt =
   // @ts-expect-error Public bootstrap keyRef hides internal Wallet Session bearer auth.

@@ -3,7 +3,6 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { SignerWorkerOperationResult } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
-import { zeroizeBytes } from './zeroize';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
@@ -83,33 +82,6 @@ export async function requestClaimEmailOtpWarmSessionMaterial(args: {
       },
     },
   });
-}
-
-export async function claimEmailOtpEcdsaSigningShare32(args: {
-  workerCtx: WorkerOperationContext;
-  sessionId: string;
-}): Promise<Uint8Array> {
-  const result = await args.workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'claimEmailOtpEcdsaSigningShare',
-      timeoutMs: 5_000,
-      payload: { sessionId: args.sessionId },
-    },
-  });
-  if (!result.ok) {
-    throw new Error(
-      result.message ||
-        result.code ||
-        'Email OTP ECDSA signing material is unavailable; verify Email OTP again',
-    );
-  }
-  const clientSigningShare32 = new Uint8Array(result.clientSigningShare32);
-  if (clientSigningShare32.length !== 32) {
-    zeroizeBytes(clientSigningShare32);
-    throw new Error('Email OTP ECDSA signing material must contain 32 bytes');
-  }
-  return clientSigningShare32;
 }
 
 export async function requestConsumeEmailOtpWarmSessionUses(args: {

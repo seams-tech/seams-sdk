@@ -1,5 +1,8 @@
 import type { EvmFamilyWalletSignerStorePort } from '../flows/signEvmFamily/accountAuth';
-import type { EmailOtpEcdsaCommittedLane } from '../flows/signEvmFamily/ecdsaSelection';
+import type {
+  EmailOtpEcdsaChallengeAuthority,
+  EmailOtpEcdsaStepUpAuthority,
+} from '../flows/signEvmFamily/emailOtpSigningSession';
 import type { EvmFamilyPasskeyAuthenticatorStorePort } from './passkeyAuthenticatorStore';
 import type { RecoveryNearKeyMaterialStorePort } from '../flows/recovery/recoveryStorePorts';
 import type { RegistrationAccountStorePort } from '../flows/registration/registrationStorePorts';
@@ -105,12 +108,10 @@ export type NearSigningApiDeps = {
     thresholdSessionId: string;
   }) => Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>;
   refreshPasskeyEd25519CapabilityForSigning?: (args: {
-    nearAccountId: AccountId;
     record: ThresholdEd25519SessionRecord;
+    laneIdentity: ExactEd25519SigningLaneIdentity;
     policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
     operationUsesNeeded: number;
-    sessionId: string;
-    signingGrantId: string;
   }) => Promise<
     { sessionId: string; record: ThresholdEd25519SessionRecord } & NearEd25519YaoSigningCapability
   >;
@@ -208,7 +209,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
     requestEmailOtpTransactionSigningChallenge?: (args: {
       walletSession: WalletSessionRef;
       chain: EvmFamilyChain;
-      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+      authority: EmailOtpEcdsaChallengeAuthority;
     }) => Promise<{ challengeId: string; emailHint?: string }>;
     loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
       walletSession: WalletSessionRef;
@@ -216,7 +217,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       chainTarget: ThresholdEcdsaChainTarget;
       challengeId: string;
       otpCode: string;
-      committedLane: EmailOtpEcdsaCommittedLane;
+      authority: EmailOtpEcdsaStepUpAuthority;
       remainingUses: number;
     }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
     restorePersistedSessionForSigning: (

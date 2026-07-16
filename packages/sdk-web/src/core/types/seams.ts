@@ -135,7 +135,7 @@ export interface SigningSessionSealConfig {
  *       signingWorkerId?: string; // required when mode === 'enabled'
  *     };
  *   };
- *   routerAbEcdsaHssPresignaturePool?: {
+ *   routerAbEcdsaDerivationPresignaturePool?: {
  *     enabled?: boolean;
  *     targetDepth?: number;
  *     lowWatermark?: number;
@@ -251,7 +251,7 @@ export interface SeamsConfigsInput {
    *
    * Controls best-effort background refill behavior only; signing correctness does not depend on refill success.
    */
-  routerAbEcdsaHssPresignaturePool?: RouterAbEcdsaHssPresignaturePoolPolicyInput;
+  routerAbEcdsaDerivationPresignaturePool?: RouterAbEcdsaDerivationPresignaturePoolPolicyInput;
   /**
    * Default threshold-ECDSA provisioning policy used at registration time for
    * `tempo` and `evm` chains.
@@ -326,8 +326,8 @@ export interface SeamsConfigsInput {
  *         | { mode: 'disabled' }
  *         | { mode: 'enabled'; signingWorkerId: string };
  *     };
- *     routerAbEcdsaHss: {
- *       presignaturePool: RouterAbEcdsaHssPresignaturePoolPolicy;
+ *     routerAbEcdsaDerivation: {
+ *       presignaturePool: RouterAbEcdsaDerivationPresignaturePoolPolicy;
  *     };
  *     thresholdEcdsa: {
  *       provisioningDefaults: EcdsaSignerProvisioningDefaults;
@@ -649,7 +649,7 @@ export interface SignAndSendDelegateActionResult {
   relayResult: DelegateRouterApiResult;
 }
 
-export interface RouterAbEcdsaHssPresignaturePoolPolicyInput {
+export interface RouterAbEcdsaDerivationPresignaturePoolPolicyInput {
   enabled?: boolean;
   targetDepth?: number;
   lowWatermark?: number;
@@ -657,7 +657,7 @@ export interface RouterAbEcdsaHssPresignaturePoolPolicyInput {
   refillAttemptTimeoutMs?: number;
 }
 
-export interface RouterAbEcdsaHssPresignaturePoolPolicy {
+export interface RouterAbEcdsaDerivationPresignaturePoolPolicy {
   enabled: boolean;
   targetDepth: number;
   lowWatermark: number;
@@ -855,8 +855,8 @@ export interface SeamsEmailOtpConfig {
   authPolicy: EmailOtpAuthPolicy;
 }
 
-export interface SeamsRouterAbEcdsaHssConfig {
-  presignaturePool: RouterAbEcdsaHssPresignaturePoolPolicy;
+export interface SeamsRouterAbEcdsaDerivationConfig {
+  presignaturePool: RouterAbEcdsaDerivationPresignaturePoolPolicy;
 }
 
 export interface SeamsThresholdEcdsaConfig {
@@ -869,7 +869,7 @@ export interface SeamsSigningConfig {
   sessionPersistenceMode: SigningSessionPersistenceMode;
   sessionSeal: SigningSessionSealConfig;
   routerAb: SeamsRouterAbConfig;
-  routerAbEcdsaHss: SeamsRouterAbEcdsaHssConfig;
+  routerAbEcdsaDerivation: SeamsRouterAbEcdsaDerivationConfig;
   thresholdEcdsa: SeamsThresholdEcdsaConfig;
 }
 

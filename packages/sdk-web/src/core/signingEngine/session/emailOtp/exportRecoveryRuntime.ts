@@ -44,6 +44,14 @@ export type RequestEmailOtpChallengeArgs =
       chain: 'near';
       authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
       routeAuth?: never;
+    }
+  | {
+      kind: 'wallet_public_reauth_challenge';
+      walletSession: WalletSessionRef;
+      chain: EmailOtpEcdsaRouteChain;
+      appSessionJwt: string;
+      authLane?: never;
+      routeAuth?: never;
     };
 
 export type ExportEcdsaKeyWithAuthorizationArgs = {

@@ -2,7 +2,7 @@ import type { ChainAdapter, SigningIntent, SignatureBytes } from '../../interfac
 import {
   computeEip1559TxHashWasm,
   encodeEip1559SignedTxFromSignature65Wasm,
-} from './ethSignerWasm';
+} from './evmCryptoWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { bytesToHex } from './bytes';

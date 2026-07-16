@@ -7,7 +7,7 @@ import type {
   WalletId,
 } from '../interfaces/ecdsaChainTarget';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import type { EcdsaThresholdKeyId } from '../session/identity/emailOtpHssIdentity';
+import type { EcdsaThresholdKeyId } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type {

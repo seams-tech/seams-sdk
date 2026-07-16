@@ -7,7 +7,7 @@ import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 /**
  * Threshold-ecdsa (secp256k1) keygen helper (standard WebAuthn).
  *
- * - Uses the staged `ecdsa-hss` bootstrap path
+ * - Uses the staged `ecdsa-derivation` bootstrap path
  * - Returns the keygen projection of the bootstrap response
  *
  * Notes:

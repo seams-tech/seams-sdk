@@ -5,13 +5,16 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   bootstrapEcdsaSessionValue,
+  bootstrapExplicitKeyExportEcdsaSessionValue,
   ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
+  type PasskeyEcdsaExportBootstrapRequest,
   type WalletSessionActivationDeps,
 } from './ecdsaBootstrap';
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import { ensureEcdsaPrfSealPersisted, type WarmSessionSealPersistPorts } from './runtime';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaExplicitKeyExportActivationResult } from '../../threshold/ecdsa/activation';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -100,6 +103,7 @@ type ThresholdEcdsaActivationRequestCommon = ThresholdEcdsaActivationRequestShar
 
 export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationRequestCommon & {
   kind: 'passkey_ecdsa_activation';
+  purpose: 'transaction_signing';
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'jwt';
   requestId: string;
@@ -109,8 +113,22 @@ export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationReq
   emailOtpAuthContext?: never;
 };
 
+export type ThresholdEcdsaPasskeyExportActivationRequest =
+  ThresholdEcdsaActivationRequestCommon & {
+    kind: 'passkey_ecdsa_export_activation';
+    purpose: 'explicit_key_export';
+    sessionIdentity: EcdsaSessionIdentity;
+    sessionKind: 'jwt';
+    requestId: string;
+    passkeyPrfFirstB64u: string;
+    webauthnAuthentication: WebAuthnAuthenticationCredential;
+    walletSessionRouteAuth?: never;
+    emailOtpAuthContext?: never;
+  };
+
 export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRequestCommon & {
   kind: 'email_otp_ecdsa_activation';
+  purpose: 'transaction_signing';
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'jwt';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
@@ -123,6 +141,7 @@ export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRe
 export type ThresholdEcdsaWalletSessionReconnectRequest =
   ThresholdEcdsaActivationRequestCommon & {
     kind: 'wallet_session_reconnect';
+    purpose: 'transaction_signing';
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: 'jwt';
     walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
@@ -136,6 +155,9 @@ export type ThresholdEcdsaActivationRequest =
   | ThresholdEcdsaPasskeyActivationRequest
   | ThresholdEcdsaEmailOtpActivationRequest
   | ThresholdEcdsaWalletSessionReconnectRequest;
+
+export type ThresholdEcdsaExplicitKeyExportBootstrapResult =
+  ThresholdEcdsaExplicitKeyExportActivationResult;
 
 type BuildThresholdEcdsaActivationRequestCommon = ThresholdEcdsaActivationRequestCommon;
 
@@ -182,7 +204,11 @@ type BuildWalletSessionReconnectEcdsaActivationArgs =
     emailOtpAuthContext?: never;
   };
 
-function applyOptionalActivationFields<T extends ThresholdEcdsaActivationRequest>(
+type AnyThresholdEcdsaActivationRequest =
+  | ThresholdEcdsaActivationRequest
+  | ThresholdEcdsaPasskeyExportActivationRequest;
+
+function applyOptionalActivationFields<T extends AnyThresholdEcdsaActivationRequest>(
   request: T,
   args: BuildThresholdEcdsaActivationRequestCommon,
 ): T {
@@ -203,6 +229,7 @@ function buildPasskeyEcdsaActivationRequest(
 ): ThresholdEcdsaPasskeyActivationRequest {
   const request: ThresholdEcdsaPasskeyActivationRequest = {
     kind: 'passkey_ecdsa_activation',
+    purpose: 'transaction_signing',
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -237,6 +264,7 @@ function buildEmailOtpEcdsaActivationRequest(
 ): ThresholdEcdsaEmailOtpActivationRequest {
   const request: ThresholdEcdsaEmailOtpActivationRequest = {
     kind: 'email_otp_ecdsa_activation',
+    purpose: 'transaction_signing',
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -291,6 +319,7 @@ export function buildWalletSessionReconnectEcdsaActivation(
 ): ThresholdEcdsaWalletSessionReconnectRequest {
   const request: ThresholdEcdsaWalletSessionReconnectRequest = {
     kind: 'wallet_session_reconnect',
+    purpose: 'transaction_signing',
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -314,8 +343,23 @@ export function shouldEnsurePasskeyEcdsaSealAfterProvision(
 
 export function buildEcdsaExportActivation(
   args: BuildPasskeyEcdsaActivationArgs,
-): ThresholdEcdsaPasskeyActivationRequest {
-  return buildPasskeyEcdsaActivationRequest(args);
+): ThresholdEcdsaPasskeyExportActivationRequest {
+  const request: ThresholdEcdsaPasskeyExportActivationRequest = {
+    kind: 'passkey_ecdsa_export_activation',
+    purpose: 'explicit_key_export',
+    walletKey: args.walletKey,
+    lanePolicy: args.lanePolicy,
+    source: args.source,
+    relayerUrl: args.relayerUrl,
+    sessionIdentity: args.sessionIdentity,
+    sessionKind: args.sessionKind,
+    sessionBudgetUses: args.sessionBudgetUses,
+    requestId: args.requestId,
+    runtimePolicy: args.runtimePolicy,
+    passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+    webauthnAuthentication: args.webauthnAuthentication,
+  };
+  return applyOptionalActivationFields(request, args);
 }
 
 function toOptionalRuntimePolicyScope(
@@ -331,9 +375,11 @@ function toOptionalRuntimePolicyScope(
   throw new Error('[SigningEngine][ecdsa] unsupported ECDSA activation policy');
 }
 
-function applyCommonActivationRequestFields<T extends EcdsaBootstrapRequest>(
+type AnyEcdsaBootstrapRequest = EcdsaBootstrapRequest | PasskeyEcdsaExportBootstrapRequest;
+
+function applyCommonActivationRequestFields<T extends AnyEcdsaBootstrapRequest>(
   args: T,
-  request: ThresholdEcdsaActivationRequest,
+  request: AnyThresholdEcdsaActivationRequest,
 ): T {
   if (request.runtimeScopeBootstrap) {
     args.runtimeScopeBootstrap = request.runtimeScopeBootstrap;
@@ -437,6 +483,26 @@ function toBootstrapEcdsaSessionRequest(
   }
   command satisfies never;
   throw new Error('[SigningEngine][ecdsa] unsupported activation request');
+}
+
+function toExplicitKeyExportEcdsaBootstrapRequest(
+  request: ThresholdEcdsaPasskeyExportActivationRequest,
+): PasskeyEcdsaExportBootstrapRequest {
+  return applyCommonActivationRequestFields(
+    {
+      kind: 'passkey_ecdsa_export_bootstrap',
+      purpose: 'explicit_key_export',
+      keyHandle: request.walletKey.keyHandle,
+      key: evmFamilyEcdsaWalletKeyToIdentity(request.walletKey),
+      lanePolicy: request.lanePolicy,
+      source: request.source,
+      relayerUrl: request.relayerUrl,
+      requestId: request.requestId,
+      passkeyPrfFirstB64u: request.passkeyPrfFirstB64u,
+      webauthnAuthentication: request.webauthnAuthentication,
+    },
+    request,
+  );
 }
 
 type ExactIdentityEcdsaBootstrapRequest = Extract<
@@ -591,4 +657,14 @@ export async function provisionThresholdEcdsaSession(
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const bootstrapRequest = toBootstrapEcdsaSessionRequest(request);
   return await provisionThresholdEcdsaSessionFromBootstrapArgs(deps, bootstrapRequest);
+}
+
+export async function provisionPasskeyEcdsaExplicitExportSession(
+  deps: ProvisionThresholdEcdsaSessionDeps,
+  request: ThresholdEcdsaPasskeyExportActivationRequest,
+): Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult> {
+  return await bootstrapExplicitKeyExportEcdsaSessionValue(
+    deps.activationDeps,
+    toExplicitKeyExportEcdsaBootstrapRequest(request),
+  );
 }

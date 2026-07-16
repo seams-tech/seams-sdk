@@ -27,6 +27,7 @@ import {
   type WalletEmailOtpTransactionSignOperation,
 } from '@shared/utils/emailOtpDomain';
 import {
+  buildEmailOtpRoutePlan,
   type EmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
@@ -210,13 +211,7 @@ export async function requestTransactionSigningChallenge(
   ports: EmailOtpWorkerPorts,
   args: RequestEmailOtpChallengeArgs,
 ): Promise<{ challengeId: string; emailHint?: string }> {
-  const routePlan = ports.buildSigningSessionRoutePlan({
-    authLane: requireProvidedEmailOtpSigningSessionAuthLane({
-      authLane: args.authLane,
-      chain: args.chain,
-    }),
-    operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-  });
+  const routePlan = buildTransactionSigningChallengeRoutePlan(ports, args);
   const challenge =
     args.kind === 'near_account_challenge'
       ? await requestEmailOtpChallengeWithRoutePlan(ports, {
@@ -236,10 +231,36 @@ export async function requestTransactionSigningChallenge(
   };
 }
 
+function buildTransactionSigningChallengeRoutePlan(
+  ports: EmailOtpWorkerPorts,
+  args: RequestEmailOtpChallengeArgs,
+): EmailOtpRoutePlan {
+  switch (args.kind) {
+    case 'wallet_public_reauth_challenge':
+      return buildEmailOtpRoutePlan({
+        routeFamily: 'login',
+        authLane: { kind: 'app_session', jwt: args.appSessionJwt },
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+      });
+    case 'wallet_session_challenge':
+    case 'near_account_challenge':
+      return ports.buildSigningSessionRoutePlan({
+        authLane: requireProvidedEmailOtpSigningSessionAuthLane({
+          authLane: args.authLane,
+          chain: args.chain,
+        }),
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+      });
+  }
+}
+
 export async function requestExportChallenge(
   ports: EmailOtpWorkerPorts,
   args: RequestEmailOtpChallengeArgs,
 ): Promise<{ challengeId: string; emailHint?: string }> {
+  if (args.kind === 'wallet_public_reauth_challenge') {
+    throw new Error('Email OTP export challenge requires export-specific fresh authorization');
+  }
   const routePlan = ports.buildSigningSessionRoutePlan({
     authLane: requireProvidedEmailOtpSigningSessionAuthLane({
       authLane: args.authLane,
@@ -373,7 +394,7 @@ export async function exportEcdsaKeyWithAuthorization(
   return await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
+      type: 'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization',
       timeoutMs: 60_000,
       payload: {
         relayUrl: exportInput.relayUrl,
@@ -434,7 +455,7 @@ export async function exportEcdsaKeyWithDurableAuthorization(
       includeEcdsaExportArtifact: true;
       ed25519YaoRecovery: { kind: 'not_requested' };
     }) => Promise<{
-      bootstrap: { thresholdEcdsaKeyRef: { ecdsaHssExportArtifact?: EmailOtpEcdsaExportArtifact } };
+      bootstrap: { thresholdEcdsaKeyRef: { ecdsaDerivationExportArtifact?: EmailOtpEcdsaExportArtifact } };
     }>;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
@@ -465,7 +486,7 @@ export async function exportEcdsaKeyWithDurableAuthorization(
     includeEcdsaExportArtifact: true,
     ed25519YaoRecovery: { kind: 'not_requested' },
   });
-  const artifact = result.bootstrap.thresholdEcdsaKeyRef.ecdsaHssExportArtifact;
+  const artifact = result.bootstrap.thresholdEcdsaKeyRef.ecdsaDerivationExportArtifact;
   if (!artifact) {
     throw new Error('Email OTP durable-authority ECDSA export did not return an export artifact');
   }

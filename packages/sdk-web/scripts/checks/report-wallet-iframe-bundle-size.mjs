@@ -38,7 +38,8 @@ Options:
 
 Budget keys:
   walletHostGzip, walletHostBootPathGzip, walletHostStaticImportsGzip
-  workerAndWasmGzip, ecdsaWasmGzip, nearWasmGzip, tempoWasmGzip, hssWasmGzip
+  workerAndWasmGzip, ecdsaWasmGzip, nearWasmGzip, tempoWasmGzip
+  derivationWasmGzip, presignWasmGzip, onlineWasmGzip, ed25519YaoClientWasmGzip
 `.trim(),
   );
   process.exit(0);
@@ -54,6 +55,12 @@ function gzipSize(buf) {
   return zlib.gzipSync(buf, { level: 9 }).length;
 }
 
+function brotliSize(buf) {
+  return zlib.brotliCompressSync(buf, {
+    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 },
+  }).length;
+}
+
 function relFromSdk(absPath) {
   return path.relative(sdkRoot, absPath).split(path.sep).join('/');
 }
@@ -63,6 +70,7 @@ function readSize(absPath) {
   return {
     raw: buf.length,
     gzip: gzipSize(buf),
+    brotli: brotliSize(buf),
   };
 }
 
@@ -142,6 +150,7 @@ function makeRow(label, absPath, group) {
     group,
     raw: size.raw,
     gzip: size.gzip,
+    brotli: size.brotli,
   };
 }
 
@@ -150,9 +159,10 @@ function sumRows(rows) {
     (acc, row) => {
       acc.raw += row.raw;
       acc.gzip += row.gzip;
+      acc.brotli += row.brotli;
       return acc;
     },
-    { raw: 0, gzip: 0 },
+    { raw: 0, gzip: 0, brotli: 0 },
   );
 }
 
@@ -163,7 +173,9 @@ function printRows(title, rows) {
     return;
   }
   for (const row of rows) {
-    console.log(`  - ${row.label} (${row.path}): ${formatBytes(row.raw)} raw / ${formatBytes(row.gzip)} gzip`);
+    console.log(
+      `  - ${row.label} (${row.path}): ${formatBytes(row.raw)} raw / ${formatBytes(row.gzip)} gzip / ${formatBytes(row.brotli)} brotli`,
+    );
   }
 }
 
@@ -182,12 +194,33 @@ const workerTargets = [
   ['nearSignerWorker', 'NEAR signer worker', 'dist/workers/near-signer.worker.js'],
   ['nearWasm', 'NEAR signer WASM', 'dist/workers/wasm_signer_worker_bg.wasm'],
   ['nearWorkerWasm', 'NEAR worker WASM alias', 'dist/workers/near_signer.wasm'],
-  ['ethSignerWorker', 'ECDSA signer worker', 'dist/workers/eth-signer.worker.js'],
-  ['ecdsaWasm', 'ECDSA signer WASM', 'dist/workers/eth_signer.wasm'],
+  ['evmCryptoWorker', 'ECDSA signer worker', 'dist/workers/evm-crypto.worker.js'],
+  ['ecdsaWasm', 'ECDSA signer WASM', 'dist/workers/evm_crypto.wasm'],
   ['tempoSignerWorker', 'Tempo signer worker', 'dist/workers/tempo-signer.worker.js'],
   ['tempoWasm', 'Tempo signer WASM', 'dist/workers/tempo_signer.wasm'],
-  ['ecdsaHssClientWorker', 'ECDSA HSS client worker', 'dist/workers/ecdsa-hss-client.worker.js'],
-  ['hssWasm', 'ECDSA client WASM', 'dist/workers/ecdsa_client_signer_bg.wasm'],
+  [
+    'ecdsaDerivationClientWorker',
+    'ECDSA derivation client worker',
+    'dist/workers/ecdsa-derivation-client.worker.js',
+  ],
+  ['derivationWasm', 'ECDSA client WASM', 'dist/workers/router_ab_ecdsa_derivation_client_bg.wasm'],
+  [
+    'ecdsaPresignClientWorker',
+    'ECDSA presign client worker',
+    'dist/workers/ecdsa-presign-client.worker.js',
+  ],
+  ['presignWasm', 'ECDSA presign client WASM', 'dist/workers/router_ab_ecdsa_presign_client_bg.wasm'],
+  [
+    'ecdsaOnlineClientWorker',
+    'ECDSA online client worker',
+    'dist/workers/ecdsa-online-client.worker.js',
+  ],
+  ['onlineWasm', 'ECDSA online client WASM', 'dist/workers/router_ab_ecdsa_online_client_bg.wasm'],
+  [
+    'ed25519YaoClientWasm',
+    'Ed25519 Yao client WASM',
+    'dist/workers/router_ab_ed25519_yao_client_bg.wasm',
+  ],
   ['shamir3PassWorker', 'Shamir3Pass worker', 'dist/workers/shamir3pass.worker.js'],
   ['shamir3PassWasm', 'Shamir3Pass WASM', 'dist/workers/shamir3pass_runtime_bg.wasm'],
   ['emailOtpRuntimeWasm', 'Email OTP runtime WASM', 'dist/workers/email_otp_runtime_bg.wasm'],
@@ -232,7 +265,10 @@ for (const row of workerRows) {
   if (row.id === 'ecdsaWasm') metrics.ecdsaWasmGzip = row.gzip;
   if (row.id === 'nearWasm') metrics.nearWasmGzip = row.gzip;
   if (row.id === 'tempoWasm') metrics.tempoWasmGzip = row.gzip;
-  if (row.id === 'hssWasm') metrics.hssWasmGzip = row.gzip;
+  if (row.id === 'derivationWasm') metrics.derivationWasmGzip = row.gzip;
+  if (row.id === 'presignWasm') metrics.presignWasmGzip = row.gzip;
+  if (row.id === 'onlineWasm') metrics.onlineWasmGzip = row.gzip;
+  if (row.id === 'ed25519YaoClientWasm') metrics.ed25519YaoClientWasmGzip = row.gzip;
 }
 
 if (jsonOutput) {
@@ -261,10 +297,12 @@ if (jsonOutput) {
   printRows('Wallet host boot entry', hostRows);
   printRows('Wallet host static imports', staticImportRows);
   console.log(
-    `\nWallet host boot-path total: ${formatBytes(bootPathTotal.raw)} raw / ${formatBytes(bootPathTotal.gzip)} gzip`,
+    `\nWallet host boot-path total: ${formatBytes(bootPathTotal.raw)} raw / ${formatBytes(bootPathTotal.gzip)} gzip / ${formatBytes(bootPathTotal.brotli)} brotli`,
   );
   printRows('Wallet workers and WASM', workerRows);
-  console.log(`\nWorker/WASM total: ${formatBytes(workerTotal.raw)} raw / ${formatBytes(workerTotal.gzip)} gzip`);
+  console.log(
+    `\nWorker/WASM total: ${formatBytes(workerTotal.raw)} raw / ${formatBytes(workerTotal.gzip)} gzip / ${formatBytes(workerTotal.brotli)} brotli`,
+  );
   if (missing.length) {
     console.warn(
       `\n[report-wallet-iframe-bundle-size] Missing build outputs:\n${missing

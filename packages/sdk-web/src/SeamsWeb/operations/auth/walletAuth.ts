@@ -1,6 +1,6 @@
 import { toError } from '@shared/utils/errors';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
@@ -225,7 +225,7 @@ export async function getRecentUnlocksDomain(
   return await getRecentUnlocksCore(deps.getContext());
 }
 
-export async function prefillRouterAbEcdsaHssPresignaturePoolDomain(
+export async function prefillRouterAbEcdsaDerivationPresignaturePoolDomain(
   deps: WalletAuthDomainDeps,
   args: {
     walletSession: WalletSessionRef;
@@ -235,10 +235,10 @@ export async function prefillRouterAbEcdsaHssPresignaturePoolDomain(
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
   },
-): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
+): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
   if (deps.walletIframe.shouldUseWalletIframe()) {
     const router = await deps.walletIframe.requireRouter(args.walletSession.walletId);
-    return await router.prefillRouterAbEcdsaHssPresignaturePool({
+    return await router.prefillRouterAbEcdsaDerivationPresignaturePool({
       walletSession: args.walletSession,
       options: {
         chainTarget: args.chainTarget,
@@ -271,7 +271,7 @@ export async function prefillRouterAbEcdsaHssPresignaturePoolDomain(
     );
   }
   const record = ecdsaRecords[0]!;
-  return await deps.signingEngine.scheduleRouterAbEcdsaHssLoginPresignaturePrefill({
+  return await deps.signingEngine.scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill({
     walletId: toWalletId(args.walletSession.walletId),
     chainTarget: record.chainTarget,
     thresholdEcdsaSessionRecord: record,

@@ -6,11 +6,11 @@ import {
   type AppOrWalletSessionAuth,
 } from '@shared/utils/sessionTokens';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
-  parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
+  parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import {
   toWalletId,
@@ -18,13 +18,13 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaThresholdKeyId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
-import { toEcdsaHssThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
+import { toEcdsaDerivationThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type {
   EcdsaClientRootPublicKey33B64u,
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -33,21 +33,21 @@ import {
 
 const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
 
-export type EcdsaHssRoleLocalPublicIdentity = {
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+export type EcdsaDerivationRoleLocalPublicIdentity = {
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
 };
 
-export type ThresholdEcdsaHssRoleLocalClientRootProof = {
-  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2';
+export type ThresholdEcdsaDerivationRoleLocalClientRootProof = {
+  version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2';
   clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 };
 
-export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization =
+export type ThresholdEcdsaDerivationRoleLocalPasskeyBootstrapAuthorization =
   | {
       kind: 'passkey_bootstrap';
       rpId: string;
@@ -65,8 +65,8 @@ export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization =
       runtimePolicyScope?: never;
     };
 
-export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
-  formatVersion: 'ecdsa-hss-role-local';
+export type ThresholdEcdsaDerivationRoleLocalBootstrapRequest = {
+  formatVersion: 'ecdsa-derivation-role-local';
   walletId: WalletId;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -74,7 +74,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -83,16 +83,16 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
-  auth?: ThresholdEcdsaHssRouteAuth;
+  auth?: ThresholdEcdsaDerivationRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 } & (
   | {
-      clientRootProof: ThresholdEcdsaHssRoleLocalClientRootProof;
+      clientRootProof: ThresholdEcdsaDerivationRoleLocalClientRootProof;
       passkeyBootstrapAuthorization?: never;
     }
   | {
       clientRootProof?: never;
-      passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
+      passkeyBootstrapAuthorization: ThresholdEcdsaDerivationRoleLocalPasskeyBootstrapAuthorization;
     }
   | {
       clientRootProof?: never;
@@ -100,8 +100,8 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
     }
 );
 
-type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
-  formatVersion: 'ecdsa-hss-role-local';
+type ThresholdEcdsaDerivationRoleLocalBootstrapBodyBase = {
+  formatVersion: 'ecdsa-derivation-role-local';
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
@@ -109,7 +109,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -121,7 +121,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
-type ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization =
+type ThresholdEcdsaDerivationRoleLocalBootstrapBodyPasskeyAuthorization =
   | {
       kind: 'passkey_bootstrap';
       rpId: string;
@@ -137,8 +137,8 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization =
       runtimePolicyScope?: never;
     };
 
-type ThresholdEcdsaHssRoleLocalBootstrapBody = {
-  formatVersion: 'ecdsa-hss-role-local';
+type ThresholdEcdsaDerivationRoleLocalBootstrapBody = {
+  formatVersion: 'ecdsa-derivation-role-local';
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
@@ -146,7 +146,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBody = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -158,12 +158,12 @@ type ThresholdEcdsaHssRoleLocalBootstrapBody = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 } & (
   | {
-      clientRootProof: ThresholdEcdsaHssRoleLocalClientRootProof;
+      clientRootProof: ThresholdEcdsaDerivationRoleLocalClientRootProof;
       passkeyBootstrapAuthorization?: never;
     }
   | {
       clientRootProof?: never;
-      passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization;
+      passkeyBootstrapAuthorization: ThresholdEcdsaDerivationRoleLocalBootstrapBodyPasskeyAuthorization;
     }
   | {
       clientRootProof?: never;
@@ -171,15 +171,15 @@ type ThresholdEcdsaHssRoleLocalBootstrapBody = {
     }
 );
 
-export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
-  formatVersion: 'ecdsa-hss-role-local';
+export type ThresholdEcdsaDerivationRoleLocalBootstrapValue = {
+  formatVersion: 'ecdsa-derivation-role-local';
   walletId: WalletId;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   applicationBindingDigestB64u: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
   clientShareRetryCounter: number;
   relayerShareRetryCounter: number;
   publicTranscriptDigest32B64u: string;
@@ -196,17 +196,17 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   expiresAt: string;
   remainingUses: number;
   jwt?: string;
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
-export type ThresholdEcdsaHssRoleLocalExportShareRequest = {
-  formatVersion: 'ecdsa-hss-role-local-export';
+export type ThresholdEcdsaDerivationRoleLocalExportShareRequest = {
+  formatVersion: 'ecdsa-derivation-role-local-export';
   walletId: WalletId;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
   exportRequestNonce32B64u: string;
   confirmationDigest32B64u: string;
   authorizationDigest32B64u: string;
@@ -214,17 +214,17 @@ export type ThresholdEcdsaHssRoleLocalExportShareRequest = {
   expiresAtUnixMs: number;
   clientDeviceId: string;
   clientSessionId: string;
-  auth: ThresholdEcdsaHssRouteAuth;
+  auth: ThresholdEcdsaDerivationRouteAuth;
 };
 
-type ThresholdEcdsaHssRoleLocalExportShareBody = {
-  formatVersion: 'ecdsa-hss-role-local-export';
+type ThresholdEcdsaDerivationRoleLocalExportShareBody = {
+  formatVersion: 'ecdsa-derivation-role-local-export';
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
   exportRequestNonce32B64u: string;
   confirmationDigest32B64u: string;
   authorizationDigest32B64u: string;
@@ -234,30 +234,30 @@ type ThresholdEcdsaHssRoleLocalExportShareBody = {
   clientSessionId: string;
 };
 
-export type ThresholdEcdsaHssRoleLocalExportShareValue = {
-  formatVersion: 'ecdsa-hss-role-local-export';
+export type ThresholdEcdsaDerivationRoleLocalExportShareValue = {
+  formatVersion: 'ecdsa-derivation-role-local-export';
   walletId: WalletId;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
   exportAuthorizationDigest32B64u: string;
   serverExportShare32B64u: string;
 };
 
-export type ThresholdEcdsaHssRoleLocalRouteResult<T> =
+export type ThresholdEcdsaDerivationRoleLocalRouteResult<T> =
   | { ok: true; value: T }
   | { ok: false; code?: string; message?: string; error?: string };
 
-type RawThresholdEcdsaHssRoleLocalRouteResponse<T> = {
+type RawThresholdEcdsaDerivationRoleLocalRouteResponse<T> = {
   ok?: boolean;
   code?: string;
   message?: string;
   value?: T;
 };
 
-export type ThresholdEcdsaHssRouteAuth =
+export type ThresholdEcdsaDerivationRouteAuth =
   | AppOrWalletSessionAuth
   | { kind: 'bootstrap_grant'; token: string }
   | { kind: 'publishable_key'; token: string };
@@ -337,20 +337,20 @@ function rejectUnexpectedFields(
   if (field) throw new Error(`${label} contains unexpected field ${field}`);
 }
 
-function parseEcdsaHssRoleLocalPublicIdentity(
+function parseEcdsaDerivationRoleLocalPublicIdentity(
   value: unknown,
-): EcdsaHssRoleLocalPublicIdentity {
+): EcdsaDerivationRoleLocalPublicIdentity {
   const record = requireRecord(value, 'publicIdentity');
-  const hssClientSharePublicKey33B64u = requireNonEmptyString(
-    record.hssClientSharePublicKey33B64u,
-    'publicIdentity.hssClientSharePublicKey33B64u',
-  ) as EcdsaHssClientSharePublicKey33B64u;
+  const derivationClientSharePublicKey33B64u = requireNonEmptyString(
+    record.derivationClientSharePublicKey33B64u,
+    'publicIdentity.derivationClientSharePublicKey33B64u',
+  ) as DerivationClientSharePublicKey33B64u;
   const relayerPublicKey33B64u = requireNonEmptyString(
     record.relayerPublicKey33B64u,
     'publicIdentity.relayerPublicKey33B64u',
-  ) as EcdsaRelayerHssPublicKey33B64u;
+  ) as EcdsaDerivationRelayerPublicKey33B64u;
   return {
-    hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u,
     groupPublicKey33B64u: requireNonEmptyString(
       record.groupPublicKey33B64u,
@@ -363,14 +363,14 @@ function parseEcdsaHssRoleLocalPublicIdentity(
   };
 }
 
-function parseThresholdEcdsaHssRoleLocalBootstrapValue(
+function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
   value: unknown,
-): ThresholdEcdsaHssRoleLocalBootstrapValue {
+): ThresholdEcdsaDerivationRoleLocalBootstrapValue {
   const record = requireRecord(value, 'value');
   rejectUnexpectedFields(record, NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS, 'value');
   const walletId = toWalletId(record.walletId);
   const evmFamilySigningKeySlotId = requireNonEmptyString(record.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId');
-  const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(record.ecdsaThresholdKeyId);
+  const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId);
   const relayerKeyId = requireNonEmptyString(record.relayerKeyId, 'relayerKeyId');
   const applicationBindingDigestB64u = requireNonEmptyString(
     record.applicationBindingDigestB64u,
@@ -380,7 +380,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
     record.contextBinding32B64u,
     'contextBinding32B64u',
   );
-  const publicIdentity = parseEcdsaHssRoleLocalPublicIdentity(record.publicIdentity);
+  const publicIdentity = parseEcdsaDerivationRoleLocalPublicIdentity(record.publicIdentity);
   const clientShareRetryCounter = requireNonNegativeInteger(
     record.clientShareRetryCounter,
     'clientShareRetryCounter',
@@ -406,8 +406,8 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
   );
   const expiresAtMs = requireNumber(record.expiresAtMs, 'expiresAtMs');
   const jwt = String(record.jwt || '').trim();
-  const routerAbEcdsaHssNormalSigning =
-    parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1({
+  const routerAbEcdsaDerivationNormalSigning =
+    parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1({
       walletSessionJwt: jwt,
       expected: {
         walletId,
@@ -423,7 +423,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
         participantIds,
         applicationBindingDigestB64u,
         contextBinding32B64u,
-        clientPublicKey33B64u: publicIdentity.hssClientSharePublicKey33B64u,
+        clientPublicKey33B64u: publicIdentity.derivationClientSharePublicKey33B64u,
         serverPublicKey33B64u: publicIdentity.relayerPublicKey33B64u,
         thresholdPublicKey33B64u: publicIdentity.groupPublicKey33B64u,
         ethereumAddress: publicIdentity.ethereumAddress,
@@ -432,7 +432,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
       },
     });
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -465,25 +465,25 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
     remainingUses: requireNumber(record.remainingUses, 'remainingUses'),
     ...(jwt ? { jwt } : {}),
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
   };
 }
 
-function parseThresholdEcdsaHssRoleLocalExportShareValue(
+function parseThresholdEcdsaDerivationRoleLocalExportShareValue(
   value: unknown,
-): ThresholdEcdsaHssRoleLocalExportShareValue {
+): ThresholdEcdsaDerivationRoleLocalExportShareValue {
   const record = requireRecord(value, 'value');
   return {
-    formatVersion: 'ecdsa-hss-role-local-export',
+    formatVersion: 'ecdsa-derivation-role-local-export',
     walletId: toWalletId(record.walletId),
     evmFamilySigningKeySlotId: requireNonEmptyString(record.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(record.ecdsaThresholdKeyId),
+    ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId),
     relayerKeyId: requireNonEmptyString(record.relayerKeyId, 'relayerKeyId'),
     contextBinding32B64u: requireNonEmptyString(
       record.contextBinding32B64u,
       'contextBinding32B64u',
     ),
-    publicIdentity: parseEcdsaHssRoleLocalPublicIdentity(record.publicIdentity),
+    publicIdentity: parseEcdsaDerivationRoleLocalPublicIdentity(record.publicIdentity),
     exportAuthorizationDigest32B64u: requireNonEmptyString(
       record.exportAuthorizationDigest32B64u,
       'exportAuthorizationDigest32B64u',
@@ -495,7 +495,7 @@ function parseThresholdEcdsaHssRoleLocalExportShareValue(
   };
 }
 
-function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
+function resolveBearerToken(auth?: ThresholdEcdsaDerivationRouteAuth): string {
   if (!auth) return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
   if (auth.kind === 'wallet_session') return requireWalletSessionJwt(auth.jwt);
@@ -503,7 +503,7 @@ function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
 }
 
 function buildRelayRequestInit(args: {
-  auth?: ThresholdEcdsaHssRouteAuth;
+  auth?: ThresholdEcdsaDerivationRouteAuth;
   publishableKeyAuth?: string;
   body: unknown;
 }): RequestInit {
@@ -558,17 +558,17 @@ function parseJsonText<T>(text: string): T {
   }
 }
 
-export async function thresholdEcdsaHssRoleLocalBootstrap(
+export async function thresholdEcdsaDerivationRoleLocalBootstrap(
   relayServerUrl: string,
-  args: ThresholdEcdsaHssRoleLocalBootstrapRequest,
+  args: ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
 ): Promise<
-  ThresholdEcdsaHssRoleLocalRouteResult<ThresholdEcdsaHssRoleLocalBootstrapValue>
+  ThresholdEcdsaDerivationRoleLocalRouteResult<ThresholdEcdsaDerivationRoleLocalBootstrapValue>
 > {
   try {
     const base = normalizeRelayerBaseUrl(relayServerUrl);
     if (!base) throw new Error('Missing relayServerUrl');
-    const bodyBase: ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
-      formatVersion: 'ecdsa-hss-role-local',
+    const bodyBase: ThresholdEcdsaDerivationRoleLocalBootstrapBodyBase = {
+      formatVersion: 'ecdsa-derivation-role-local',
       walletId: requireNonEmptyString(args.walletId, 'walletId'),
       evmFamilySigningKeySlotId: requireNonEmptyString(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
       ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
@@ -576,10 +576,10 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       signingRootVersion: requireNonEmptyString(args.signingRootVersion, 'signingRootVersion'),
       keyScope: 'evm-family',
       relayerKeyId: requireNonEmptyString(args.relayerKeyId, 'relayerKeyId'),
-      hssClientSharePublicKey33B64u: requireNonEmptyString(
-        args.hssClientSharePublicKey33B64u,
-        'hssClientSharePublicKey33B64u',
-      ) as EcdsaHssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: requireNonEmptyString(
+        args.derivationClientSharePublicKey33B64u,
+        'derivationClientSharePublicKey33B64u',
+      ) as DerivationClientSharePublicKey33B64u,
       clientShareRetryCounter: requireNumber(
         args.clientShareRetryCounter,
         'clientShareRetryCounter',
@@ -600,7 +600,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     };
     const bodyPasskeyAuthorization = ():
-      | ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization
+      | ThresholdEcdsaDerivationRoleLocalBootstrapBodyPasskeyAuthorization
       | null => {
       const authorization = args.passkeyBootstrapAuthorization;
       if (!authorization) return null;
@@ -624,11 +624,11 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       };
     };
     const passkeyAuthorizationBody = bodyPasskeyAuthorization();
-    const body: ThresholdEcdsaHssRoleLocalBootstrapBody = args.clientRootProof
+    const body: ThresholdEcdsaDerivationRoleLocalBootstrapBody = args.clientRootProof
       ? {
           ...bodyBase,
           clientRootProof: {
-            version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+            version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',
             clientRootPublicKey33B64u: requireNonEmptyString(
               args.clientRootProof.clientRootPublicKey33B64u,
               'clientRootProof.clientRootPublicKey33B64u',
@@ -650,7 +650,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
           }
         : bodyBase;
     const response = await fetch(
-      `${base}${ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH}`,
+      `${base}${ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH}`,
       buildRelayRequestInit({
         auth: args.auth,
         publishableKeyAuth:
@@ -662,7 +662,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       }),
     );
     const json =
-      await parseRelayJson<RawThresholdEcdsaHssRoleLocalRouteResponse<unknown>>(response);
+      await parseRelayJson<RawThresholdEcdsaDerivationRoleLocalRouteResponse<unknown>>(response);
     if (!response.ok || json.ok !== true) {
       return {
         ok: false,
@@ -670,26 +670,26 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
         message: json.message || `HTTP ${response.status}`,
       };
     }
-    return { ok: true, value: parseThresholdEcdsaHssRoleLocalBootstrapValue(json.value) };
+    return { ok: true, value: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(json.value) };
   } catch (error: unknown) {
     return {
       ok: false,
-      error: errorMessage(error) || 'Failed to bootstrap threshold-ecdsa role-local hss',
+      error: errorMessage(error) || 'Failed to bootstrap threshold-ecdsa role-local derivation',
     };
   }
 }
 
-export async function thresholdEcdsaHssRoleLocalExportShare(
+export async function thresholdEcdsaDerivationRoleLocalExportShare(
   relayServerUrl: string,
-  args: ThresholdEcdsaHssRoleLocalExportShareRequest,
+  args: ThresholdEcdsaDerivationRoleLocalExportShareRequest,
 ): Promise<
-  ThresholdEcdsaHssRoleLocalRouteResult<ThresholdEcdsaHssRoleLocalExportShareValue>
+  ThresholdEcdsaDerivationRoleLocalRouteResult<ThresholdEcdsaDerivationRoleLocalExportShareValue>
 > {
   try {
     const base = normalizeRelayerBaseUrl(relayServerUrl);
     if (!base) throw new Error('Missing relayServerUrl');
-    const body: ThresholdEcdsaHssRoleLocalExportShareBody = {
-      formatVersion: 'ecdsa-hss-role-local-export',
+    const body: ThresholdEcdsaDerivationRoleLocalExportShareBody = {
+      formatVersion: 'ecdsa-derivation-role-local-export',
       walletId: requireNonEmptyString(args.walletId, 'walletId'),
       evmFamilySigningKeySlotId: requireNonEmptyString(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
       ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
@@ -699,14 +699,14 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
         'contextBinding32B64u',
       ),
       publicIdentity: {
-        hssClientSharePublicKey33B64u: requireNonEmptyString(
-          args.publicIdentity.hssClientSharePublicKey33B64u,
-          'publicIdentity.hssClientSharePublicKey33B64u',
-        ) as EcdsaHssClientSharePublicKey33B64u,
+        derivationClientSharePublicKey33B64u: requireNonEmptyString(
+          args.publicIdentity.derivationClientSharePublicKey33B64u,
+          'publicIdentity.derivationClientSharePublicKey33B64u',
+        ) as DerivationClientSharePublicKey33B64u,
         relayerPublicKey33B64u: requireNonEmptyString(
           args.publicIdentity.relayerPublicKey33B64u,
           'publicIdentity.relayerPublicKey33B64u',
-        ) as EcdsaRelayerHssPublicKey33B64u,
+        ) as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: requireNonEmptyString(
           args.publicIdentity.groupPublicKey33B64u,
           'publicIdentity.groupPublicKey33B64u',
@@ -734,14 +734,14 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
       clientSessionId: requireNonEmptyString(args.clientSessionId, 'clientSessionId'),
     };
     const response = await fetch(
-      `${base}${ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH}`,
+      `${base}${ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH}`,
       buildRelayRequestInit({
         auth: args.auth,
         body,
       }),
     );
     const json =
-      await parseRelayJson<RawThresholdEcdsaHssRoleLocalRouteResponse<unknown>>(response);
+      await parseRelayJson<RawThresholdEcdsaDerivationRoleLocalRouteResponse<unknown>>(response);
     if (!response.ok || json.ok !== true) {
       return {
         ok: false,
@@ -749,11 +749,11 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
         message: json.message || `HTTP ${response.status}`,
       };
     }
-    return { ok: true, value: parseThresholdEcdsaHssRoleLocalExportShareValue(json.value) };
+    return { ok: true, value: parseThresholdEcdsaDerivationRoleLocalExportShareValue(json.value) };
   } catch (error: unknown) {
     return {
       ok: false,
-      error: errorMessage(error) || 'Failed to export threshold-ecdsa role-local hss share',
+      error: errorMessage(error) || 'Failed to export threshold-ecdsa role-local derivation share',
     };
   }
 }

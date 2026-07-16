@@ -211,7 +211,7 @@ export function createWarmCapabilitiesPublicDeps(args: {
       args.signingSessionCoordinator.getAvailableStatus(statusArgs),
     resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (walletId, chainTarget) =>
       args.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget(walletId, chainTarget),
-    routerAbEcdsaHssPresignaturePoolPolicy: args.seamsWebConfigs.signing.routerAbEcdsaHss.presignaturePool,
+    routerAbEcdsaDerivationPresignaturePoolPolicy: args.seamsWebConfigs.signing.routerAbEcdsaDerivation.presignaturePool,
     getSignerWorkerContext: () => args.walletSessionActivationDeps.getSignerWorkerContext(),
     resolveClientSigningMaterialSource: createEcdsaLoginPrefillClientSigningMaterialSource,
   };

@@ -10,7 +10,7 @@ import type {
   WarmEcdsaSigningSessionStatus,
   WarmSessionEcdsaCapabilityState,
 } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
   ListThresholdEcdsaSessionRecordsForWalletTargetInput,
@@ -195,12 +195,12 @@ export interface EcdsaLoginSessionSurface {
   listThresholdEcdsaSessionRecordsForWalletTarget(
     args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ): SessionPublicThresholdEcdsaSessionRecord[];
-  scheduleRouterAbEcdsaHssLoginPresignaturePrefill(args: {
+  scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(args: {
     walletId: EcdsaWalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult>;
+  }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult>;
 }
 
 export interface Ed25519SessionConnectionSurface {

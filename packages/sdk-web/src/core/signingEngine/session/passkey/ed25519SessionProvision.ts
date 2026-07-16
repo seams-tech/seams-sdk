@@ -16,14 +16,25 @@ import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLan
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 type Ed25519MintAuthorization = NonNullable<ConnectEd25519SessionInput['auth']>;
 
-type ResolvedEd25519ProvisionProtocol = {
-  walletId: string;
-  nearAccountId: AccountId | string;
-  nearEd25519SigningKeyId: string;
-  signerSlot: number;
-  sessionId: string;
-  signingGrantId?: string;
-};
+type ResolvedEd25519ProvisionProtocol =
+  | {
+      kind: 'fresh';
+      walletId: string;
+      nearAccountId: AccountId | string;
+      nearEd25519SigningKeyId: string;
+      signerSlot: number;
+      sessionId: string;
+      signingGrantId?: never;
+    }
+  | {
+      kind: 'exact';
+      walletId: string;
+      nearAccountId: AccountId | string;
+      nearEd25519SigningKeyId: string;
+      signerSlot: number;
+      sessionId: string;
+      signingGrantId: string;
+    };
 
 export type ProvisionThresholdEd25519SessionDeps = {
   credentialStore: ConnectEd25519SessionInput['credentialStore'];
@@ -86,6 +97,7 @@ function resolveEd25519ProvisionProtocol(
   switch (args.kind) {
     case 'fresh_ed25519_provisioning':
       return {
+        kind: 'fresh',
         walletId: args.walletId,
         nearAccountId: args.nearAccountId,
         nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
@@ -98,6 +110,7 @@ function resolveEd25519ProvisionProtocol(
         'exact Ed25519 capability provisioning',
       );
       return {
+        kind: 'exact',
         walletId: String(projection.walletId),
         nearAccountId: projection.nearAccountId,
         nearEd25519SigningKeyId: String(projection.nearEd25519SigningKeyId),
@@ -116,11 +129,17 @@ function exactEd25519ProvisionReturnedDifferentIdentity(args: {
   returnedSessionId: string;
   returnedSigningGrantId: string;
 }): boolean {
-  return (
-    args.requested.signingGrantId !== undefined &&
-    (args.returnedSessionId !== args.requested.sessionId ||
-      args.returnedSigningGrantId !== args.requested.signingGrantId)
-  );
+  switch (args.requested.kind) {
+    case 'fresh':
+      return false;
+    case 'exact':
+      return (
+        args.returnedSessionId !== args.requested.sessionId ||
+        args.returnedSigningGrantId !== args.requested.signingGrantId
+      );
+  }
+  args.requested satisfies never;
+  throw new Error('[threshold-ed25519] unsupported resolved provisioning identity');
 }
 
 export async function provisionThresholdEd25519Session(
@@ -155,7 +174,7 @@ export async function provisionThresholdEd25519Session(
     participantIds,
     sessionKind,
     sessionId: protocol.sessionId,
-    ...(args.kind === 'exact_ed25519_provisioning'
+    ...(protocol.kind === 'exact'
       ? { signingGrantId: protocol.signingGrantId }
       : {}),
     ttlMs: args.ttlMs,
@@ -175,7 +194,7 @@ export async function provisionThresholdEd25519Session(
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
-  const prfFirstB64u = String(connected.ecdsaHssPasskeyPrfFirstB64u || '').trim();
+  const prfFirstB64u = String(connected.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
   const runtimePolicyScope = connected.runtimePolicyScope || args.runtimePolicyScope;
   if (
     !resolvedSessionId ||
@@ -291,8 +310,8 @@ export async function provisionThresholdEd25519Session(
     remainingUses,
     ...(connected.runtimePolicyScope ? { runtimePolicyScope: connected.runtimePolicyScope } : {}),
     jwt,
-    ...(connected.ecdsaHssPasskeyPrfFirstB64u
-      ? { ecdsaHssPasskeyPrfFirstB64u: connected.ecdsaHssPasskeyPrfFirstB64u }
+    ...(connected.ecdsaDerivationPasskeyPrfFirstB64u
+      ? { ecdsaDerivationPasskeyPrfFirstB64u: connected.ecdsaDerivationPasskeyPrfFirstB64u }
       : {}),
   };
 }

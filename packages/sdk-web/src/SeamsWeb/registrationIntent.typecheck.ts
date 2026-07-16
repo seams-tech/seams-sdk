@@ -106,8 +106,8 @@ void missingEd25519AddSignerStartBranch;
 void ({
   ...validEd25519AddSignerStart,
   ed25519: {
-    // @ts-expect-error HSS-era ceremony handles are not an Ed25519 Yao admission.
-    ceremonyHandle: 'legacy-hss-handle',
+    // @ts-expect-error DERIVATION-era ceremony handles are not an Ed25519 Yao admission.
+    ceremonyHandle: 'legacy-derivation-handle',
     preparedSession: {},
     clientOtOfferMessageB64u: 'legacy-client-ot-offer',
   },
@@ -148,7 +148,7 @@ void missingEd25519AddSignerFinalizeBranch;
 void ({
   ...validEd25519AddSignerFinalize,
   ed25519: {
-    // @ts-expect-error HSS-era evaluation results cannot finalize a Yao add-signer.
+    // @ts-expect-error DERIVATION-era evaluation results cannot finalize a Yao add-signer.
     evaluationResult: { stagedEvaluatorArtifactB64u: 'legacy-artifact' },
   },
 } satisfies FinalizeWalletAddSignerArgs);
@@ -177,7 +177,7 @@ void ({
   rpId: 'wallet.example.test',
   credentialIdB64u: 'credential-1',
   ed25519: {
-    // @ts-expect-error HSS-era server payloads are not Ed25519 Yao public results.
+    // @ts-expect-error DERIVATION-era server payloads are not Ed25519 Yao public results.
     serverEvalFinalizeOutputB64u: 'legacy-server-output',
   },
 } satisfies WalletAddSignerFinalizeResponse);

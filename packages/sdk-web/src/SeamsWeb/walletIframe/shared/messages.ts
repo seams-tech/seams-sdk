@@ -28,11 +28,13 @@ import type {
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
   ResolveExactKeyExportLaneInput,
-  RegistrationActivationId,
-  RegistrationActivationMessageIdentity,
-  WalletIframeRequestId,
-  WalletIframeSurfaceId,
 } from '@/SeamsWeb/publicApi/types';
+import {
+  registrationActivationIdFromBoundary,
+  walletIframeRequestIdFromBoundary,
+  walletIframeSurfaceIdFromBoundary,
+  type RegistrationActivationMessageIdentity,
+} from '@/core/types/registrationActivationIdentity';
 import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
@@ -101,7 +103,7 @@ export type ParentToChildType =
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_GET_RECENT_UNLOCKS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
-  | 'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL'
+  | 'PM_PREFILL_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL'
   | 'PM_SET_CONFIRM_BEHAVIOR'
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
@@ -199,18 +201,6 @@ function positiveSafeIntegerPayloadNumber(
   if (typeof record[field] !== 'number') return null;
   const value = record[field];
   return Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-
-function walletIframeSurfaceIdFromBoundary(value: string): WalletIframeSurfaceId {
-  return value as WalletIframeSurfaceId;
-}
-
-function registrationActivationIdFromBoundary(value: string): RegistrationActivationId {
-  return value as RegistrationActivationId;
-}
-
-function walletIframeRequestIdFromBoundary(value: string): WalletIframeRequestId {
-  return value as WalletIframeRequestId;
 }
 
 export function parseRegistrationActivationMessageIdentity(
@@ -607,7 +597,7 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
 
 export type PMEmailOtpEcdsaEnrollmentCapabilityPayload = PMEmailOtpEcdsaCapabilityPayload;
 
-export interface PMPrefillRouterAbEcdsaHssPresignaturePoolPayload {
+export interface PMPrefillRouterAbEcdsaDerivationPresignaturePoolPayload {
   walletSession: WalletSessionRef;
   options: {
     chainTarget: ThresholdEcdsaChainTarget;
@@ -729,8 +719,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_GET_RECENT_UNLOCKS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
   | RpcEnvelope<
-      'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL',
-      PMPrefillRouterAbEcdsaHssPresignaturePoolPayload
+      'PM_PREFILL_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL',
+      PMPrefillRouterAbEcdsaDerivationPresignaturePoolPayload
     >
   | RpcEnvelope<'PM_SET_CONFIRM_BEHAVIOR', PMSetConfirmBehaviorPayload>
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>

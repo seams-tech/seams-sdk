@@ -47,6 +47,7 @@ import {
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import { exactSigningLaneIdentityKey } from '../../session/identity/exactSigningLaneIdentity';
+import { buildExactPasskeyEd25519RefreshLaneIdentity } from '../../session/passkey/ed25519BudgetRefresh';
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
@@ -1073,15 +1074,19 @@ function buildNearPasskeyEd25519Reconnect(args: {
         requiredSignatureUses,
       });
       const refreshed = await args.deps.refreshPasskeyEd25519CapabilityForSigning!({
-        nearAccountId: args.commandSubject.nearAccount.accountId,
         record: thresholdSessionRecord,
+        laneIdentity: buildExactPasskeyEd25519RefreshLaneIdentity({
+          nearAccountId: args.commandSubject.nearAccount.accountId,
+          record: thresholdSessionRecord,
+          signerSlot: thresholdSessionRecord.signerSlot,
+          sessionId: authorization.plannedPasskeyReconnect.sessionId,
+          signingGrantId: authorization.plannedPasskeyReconnect.signingGrantId,
+        }),
         policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
           credential: authorization.credential,
           rpId: thresholdSessionRecord.rpId,
         }),
         operationUsesNeeded: sessionBudgetUses,
-        sessionId: authorization.plannedPasskeyReconnect.sessionId,
-        signingGrantId: authorization.plannedPasskeyReconnect.signingGrantId,
       });
       return {
         sessionId: refreshed.sessionId,

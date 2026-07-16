@@ -60,6 +60,7 @@ void invalidConsumedSingleUseEmailOtpAuthUse;
 
 const upsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
   {
+    purpose: 'transaction_signing',
     walletId,
     chainTarget,
     bootstrap,
@@ -69,6 +70,7 @@ void upsertThresholdEcdsaSessionFromBootstrapArgs;
 
 const emailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
   {
+    purpose: 'transaction_signing',
     walletId,
     chainTarget,
     bootstrap,
@@ -80,6 +82,7 @@ void emailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs;
 // @ts-expect-error Email OTP ECDSA upsert requires the auth context.
 const invalidEmailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
   {
+    purpose: 'transaction_signing',
     walletId,
     chainTarget,
     bootstrap,
@@ -89,6 +92,7 @@ void invalidEmailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs;
 
 const invalidUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
   {
+    purpose: 'transaction_signing',
     // @ts-expect-error wallet-domain ECDSA bootstrap upsert requires WalletId.
     walletId: 'alice.testnet',
     chainTarget,
@@ -96,6 +100,16 @@ const invalidUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaS
     source: 'registration',
   };
 void invalidUpsertThresholdEcdsaSessionFromBootstrapArgs;
+
+const explicitExportCannotBecomeTransactionLane: UpsertThresholdEcdsaSessionFromBootstrapInput = {
+  // @ts-expect-error explicit export sessions cannot cross the transaction persistence boundary.
+  purpose: 'explicit_key_export',
+  walletId,
+  chainTarget,
+  bootstrap,
+  source: 'login',
+};
+void explicitExportCannotBecomeTransactionLane;
 
 const listThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdEcdsaSessionRecordsForWalletTargetInput =
   {

@@ -45,7 +45,7 @@ export async function createWalletIframeRouter(args: {
     signingSessionPersistenceMode,
     ...(signingSessionSeal ? { signingSessionSeal } : {}),
     routerAb: args.configs.signing.routerAb,
-    routerAbEcdsaHssPresignaturePool: args.configs.signing.routerAbEcdsaHss.presignaturePool,
+    routerAbEcdsaDerivationPresignaturePool: args.configs.signing.routerAbEcdsaDerivation.presignaturePool,
     provisioningDefaults: args.configs.signing.thresholdEcdsa.provisioningDefaults,
     rpIdOverride: args.configs.wallet.iframe?.rpIdOverride,
     authenticatorOptions: cloneAuthenticatorOptions(args.configs.webauthn.authenticatorOptions),

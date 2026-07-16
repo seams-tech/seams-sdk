@@ -1,24 +1,17 @@
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
-import { claimEmailOtpEcdsaSigningShare32 } from '../emailOtp/workerRequests';
 import {
   storeEcdsaRoleLocalSigningMaterialWasm,
+  thresholdEcdsaEmailOtpPresignSessionInitWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionStepWasm,
-} from '../../threshold/crypto/ecdsaClientSignerWasm';
-import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { RouterAbEcdsaHssClientSigningMaterialSource } from '../../routerAb/ecdsaHss/presignaturePool';
-import {
-  abortRouterAbEcdsaHssClientPresignSession,
-  computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle,
-  initRouterAbEcdsaHssClientPresignSessionFromAdditiveShare,
-  stepRouterAbEcdsaHssClientPresignSession,
-} from '../../routerAb/ecdsaHss/clientSigningMaterialBoundary';
-import { buildEcdsaRoleLocalSigningMaterialHandle } from '../identity/ecdsaHssSigningMaterialHandle';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
-import { routerAbEcdsaHssActiveStateSessionId } from '@shared/utils/routerAbEcdsaHss';
+} from '../../threshold/crypto/ecdsaDerivationClientWasm';
+import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../routerAb/ecdsaDerivation/presignaturePool';
+import { buildEcdsaRoleLocalSigningMaterialHandle } from '../identity/ecdsaDerivationSigningMaterialHandle';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
+import { routerAbEcdsaDerivationActiveStateSessionId } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
@@ -30,34 +23,28 @@ function isEmailOtpWorkerRecord(record: ThresholdEcdsaSessionRecord): boolean {
   return record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
 }
 
-async function resolveEcdsaLoginPrefillAdditiveShare32(args: {
-  record: ThresholdEcdsaSessionRecord;
-  workerCtx: WorkerOperationContext;
-}): Promise<Uint8Array> {
-  const additiveShareHandle = args.record.clientAdditiveShareHandle;
-  const emailOtpWorkerShareSessionId =
-    additiveShareHandle?.kind === 'email_otp_worker_session'
-      ? String(additiveShareHandle.sessionId || '').trim()
-      : '';
-  if (emailOtpWorkerShareSessionId) {
-    return await claimEmailOtpEcdsaSigningShare32({
-      workerCtx: args.workerCtx,
-      sessionId: emailOtpWorkerShareSessionId,
-    });
+function requireEmailOtpWorkerSessionId(record: ThresholdEcdsaSessionRecord): string {
+  const handle = record.clientAdditiveShareHandle;
+  if (handle?.kind !== 'email_otp_worker_session') {
+    throw new Error('ECDSA login prefill requires an Email OTP worker session authority');
   }
-  throw new Error('ECDSA login prefill raw-share opening is only supported for Email OTP worker sessions');
+  const sessionId = String(handle.sessionId || '').trim();
+  if (!sessionId) throw new Error('ECDSA login prefill Email OTP worker session id is required');
+  return sessionId;
 }
 
 function buildRoleLocalWorkerShareHandleFromRecord(record: ThresholdEcdsaSessionRecord) {
-  const routerAbState = record.routerAbEcdsaHssNormalSigning;
+  const routerAbState = record.routerAbEcdsaDerivationNormalSigning;
   if (!routerAbState) {
-    throw new Error('ECDSA login prefill requires Router A/B ECDSA-HSS normal-signing state');
+    throw new Error(
+      'ECDSA login prefill requires Router A/B ECDSA derivation normal-signing state',
+    );
   }
   return buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: record.thresholdSessionId,
     signingGrantId: record.signingGrantId,
     keyHandle: parseEcdsaKeyHandle(record.keyHandle),
-    routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(routerAbState),
+    routerAbStateSessionId: routerAbEcdsaDerivationActiveStateSessionId(routerAbState),
     chainTarget: record.chainTarget,
     clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(record.clientVerifyingShareB64u),
     ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
@@ -68,10 +55,10 @@ function buildRoleLocalWorkerShareHandleFromRecord(record: ThresholdEcdsaSession
 
 export function createEcdsaLoginPrefillClientSigningMaterialSource(
   record: ThresholdEcdsaSessionRecord,
-): RouterAbEcdsaHssClientSigningMaterialSource {
+): RouterAbEcdsaDerivationClientSigningMaterialSource {
   const materialOwner = isEmailOtpWorkerRecord(record) ? 'email_otp_worker' : 'role_local_worker';
   return {
-    kind: 'router_ab_ecdsa_hss_client_signing_material_source_v1',
+    kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
     initClientPresignSession: async (input) => {
       if (materialOwner === 'role_local_worker') {
         const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
@@ -82,7 +69,7 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
           stateBlob: readyRecord.stateBlob,
           workerCtx: input.workerCtx,
         });
-        if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+        if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
           throw new Error('ECDSA login prefill could not validate runtime role-local material');
         }
         return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
@@ -91,25 +78,15 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
           ...input,
         });
       }
-      return await initRouterAbEcdsaHssClientPresignSessionFromAdditiveShare({
-        clientSigningShare32: await resolveEcdsaLoginPrefillAdditiveShare32({
-          record,
-          workerCtx: input.workerCtx,
-        }),
+      const initialized = await thresholdEcdsaEmailOtpPresignSessionInitWasm({
+        emailOtpSessionId: requireEmailOtpWorkerSessionId(record),
         ...input,
       });
+      return initialized.progress;
     },
-    stepClientPresignSession: async (input) =>
-      materialOwner === 'role_local_worker'
-        ? await thresholdEcdsaRoleLocalPresignSessionStepWasm(input)
-        : await stepRouterAbEcdsaHssClientPresignSession(input),
-    abortClientPresignSession: async (input) =>
-      materialOwner === 'role_local_worker'
-        ? await thresholdEcdsaRoleLocalPresignSessionAbortWasm(input)
-        : await abortRouterAbEcdsaHssClientPresignSession(input),
-    computeSignatureShareFromPresignatureHandle: async (input) =>
-      materialOwner === 'role_local_worker'
-        ? await thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm(input)
-        : await computeRouterAbEcdsaHssClientSignatureShareFromPresignatureHandle(input),
+    stepClientPresignSession: thresholdEcdsaRoleLocalPresignSessionStepWasm,
+    abortClientPresignSession: thresholdEcdsaRoleLocalPresignSessionAbortWasm,
+    computeSignatureShareFromPresignatureHandle:
+      thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   };
 }

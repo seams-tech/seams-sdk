@@ -1,7 +1,7 @@
 import type {
   RegistrationActivationMessageIdentity,
   WalletIframeRequestId,
-} from '@/SeamsWeb/publicApi/types';
+} from '@/core/types/registrationActivationIdentity';
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 
 export type WebAuthnPromptReservationId = string & {

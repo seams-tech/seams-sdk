@@ -94,7 +94,7 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
   evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
+  keyHandle: toEvmFamilyEcdsaKeyHandle('ederivation-key-1'),
   chainTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
   signingRootId: key.signingRootId,
@@ -296,7 +296,7 @@ void buildPasskeyReconnectEcdsaActivation({
   passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   // @ts-expect-error exact activation requires walletKey; separate keyHandle projection is rejected.
-  keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
+  keyHandle: toEvmFamilyEcdsaKeyHandle('ederivation-key-1'),
 });
 
 const validPasskeyLifecycleCommand = {

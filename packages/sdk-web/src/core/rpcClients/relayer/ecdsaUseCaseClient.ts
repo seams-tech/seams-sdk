@@ -7,22 +7,22 @@ import {
 } from '@/core/platform';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { computeSdkEcdsaHssApplicationBindingDigestB64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEcdsaDerivationApplicationBindingDigestB64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
-  thresholdEcdsaHssRoleLocalBootstrap,
-  type ThresholdEcdsaHssRoleLocalBootstrapValue,
-  type ThresholdEcdsaHssRouteAuth,
+  thresholdEcdsaDerivationRoleLocalBootstrap,
+  type ThresholdEcdsaDerivationRoleLocalBootstrapValue,
+  type ThresholdEcdsaDerivationRouteAuth,
 } from './thresholdEcdsa';
 
 export type ThresholdEcdsaRelayerClientConfig = {
   relayerUrl: string;
 };
 
-function routeAuthToThresholdAuth(auth: EcdsaBootstrapRouteAuth): ThresholdEcdsaHssRouteAuth {
+function routeAuthToThresholdAuth(auth: EcdsaBootstrapRouteAuth): ThresholdEcdsaDerivationRouteAuth {
   switch (auth.kind) {
     case 'app_session':
       return { kind: 'app_session', jwt: auth.jwt };
@@ -49,19 +49,19 @@ function participantIdsFromRoute(value: readonly number[]): readonly [1, 2] {
 }
 
 function signingRootFromRouteInput(input: BootstrapEcdsaSessionRouteInput): {
-  signingRootId: ReturnType<typeof toEcdsaHssSigningRootId>;
-  signingRootVersion: ReturnType<typeof toEcdsaHssSigningRootVersion>;
+  signingRootId: ReturnType<typeof toEcdsaDerivationSigningRootId>;
+  signingRootVersion: ReturnType<typeof toEcdsaDerivationSigningRootVersion>;
 } {
   const scope = signingRootScopeFromRuntimePolicyScope(input.runtimePolicyScope);
   return {
-    signingRootId: toEcdsaHssSigningRootId(scope.signingRootId),
-    signingRootVersion: toEcdsaHssSigningRootVersion(scope.signingRootVersion),
+    signingRootId: toEcdsaDerivationSigningRootId(scope.signingRootId),
+    signingRootVersion: toEcdsaDerivationSigningRootVersion(scope.signingRootVersion),
   };
 }
 
 async function parseBootstrapOutput(
   input: BootstrapEcdsaSessionRouteInput,
-  value: ThresholdEcdsaHssRoleLocalBootstrapValue,
+  value: ThresholdEcdsaDerivationRoleLocalBootstrapValue,
 ): Promise<BootstrapEcdsaSessionRouteOutput> {
   const signingRoot = signingRootFromRouteInput(input);
   if (
@@ -75,7 +75,7 @@ async function parseBootstrapOutput(
     throw new Error('[relayer][ecdsa] route output identity mismatch');
   }
   const participantIds = participantIdsFromRoute(value.participantIds);
-  const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
+  const applicationBindingDigestB64u = await computeSdkEcdsaDerivationApplicationBindingDigestB64u({
     walletId: input.walletId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     signingRootId: signingRoot.signingRootId,
@@ -94,7 +94,7 @@ async function parseBootstrapOutput(
     relayerParticipantId: 2,
     participantIds,
     contextBinding32B64u: input.clientBootstrap.contextBinding32B64u,
-    hssClientSharePublicKey33B64u: value.publicIdentity.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: value.publicIdentity.derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u: value.publicIdentity.relayerPublicKey33B64u,
     groupPublicKey33B64u: value.publicIdentity.groupPublicKey33B64u,
     ethereumAddress: value.publicIdentity.ethereumAddress,
@@ -157,8 +157,8 @@ export function createThresholdEcdsaRelayerClient(
   return {
     async bootstrapEcdsaSession(input) {
       const signingRoot = signingRootFromRouteInput(input);
-      const response = await thresholdEcdsaHssRoleLocalBootstrap(config.relayerUrl, {
-        formatVersion: 'ecdsa-hss-role-local',
+      const response = await thresholdEcdsaDerivationRoleLocalBootstrap(config.relayerUrl, {
+        formatVersion: 'ecdsa-derivation-role-local',
         walletId: input.walletId,
         evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
@@ -166,7 +166,7 @@ export function createThresholdEcdsaRelayerClient(
         signingRootVersion: signingRoot.signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId: input.relayerKeyId,
-        hssClientSharePublicKey33B64u: input.clientBootstrap.hssClientSharePublicKey33B64u,
+        derivationClientSharePublicKey33B64u: input.clientBootstrap.derivationClientSharePublicKey33B64u,
         clientShareRetryCounter: input.clientBootstrap.clientShareRetryCounter,
         contextBinding32B64u: input.clientBootstrap.contextBinding32B64u,
         requestId: input.requestId,

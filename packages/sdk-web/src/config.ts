@@ -11,10 +11,20 @@ export const SIGNER_WORKER_MANAGER_CONFIG = {
     TYPE: 'module' as const,
     NAME: 'Web3AuthnSignerWorker',
   },
-  ECDSA_HSS_CLIENT_WORKER: {
-    URL: BUILD_PATHS.RUNTIME.ECDSA_HSS_CLIENT_WORKER,
+  ECDSA_DERIVATION_CLIENT_WORKER: {
+    URL: BUILD_PATHS.RUNTIME.ECDSA_DERIVATION_CLIENT_WORKER,
     TYPE: 'module' as const,
-    NAME: 'Web3AuthnEcdsaHssClientWorker',
+    NAME: 'Web3AuthnEcdsaDerivationClientWorker',
+  },
+  ECDSA_PRESIGN_CLIENT_WORKER: {
+    URL: BUILD_PATHS.RUNTIME.ECDSA_PRESIGN_CLIENT_WORKER,
+    TYPE: 'module' as const,
+    NAME: 'Web3AuthnEcdsaPresignClientWorker',
+  },
+  ECDSA_ONLINE_CLIENT_WORKER: {
+    URL: BUILD_PATHS.RUNTIME.ECDSA_ONLINE_CLIENT_WORKER,
+    TYPE: 'module' as const,
+    NAME: 'Web3AuthnEcdsaOnlineClientWorker',
   },
   RETRY: {
     MAX_ATTEMPTS: 3,

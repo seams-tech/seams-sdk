@@ -19,6 +19,7 @@ import {
 import {
   parseAppSessionJwt,
   parseProviderSubject,
+  parseWalletId,
   type AppSessionJwt,
   type ProviderSubject,
 } from '@shared/utils/domainIds';
@@ -75,6 +76,140 @@ export type EmailOtpSessionRefreshResult =
       appSessionJwt?: never;
     };
 
+const EMAIL_OTP_APP_SESSION_STORAGE_PREFIX = 'seams:email-otp-app-session:v1:';
+
+type StoredEmailOtpAppSessionBinding = {
+  version: 1;
+  walletId: string;
+  providerSubject: string;
+  appSessionJwt: string;
+};
+
+function emailOtpAppSessionStorage(): Storage | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function emailOtpAppSessionStorageWalletPrefix(walletId: WalletId): string {
+  return `${EMAIL_OTP_APP_SESSION_STORAGE_PREFIX}${encodeURIComponent(String(walletId))}:`;
+}
+
+function emailOtpAppSessionStorageKey(binding: {
+  walletId: WalletId;
+  providerSubject: ProviderSubject;
+}): string {
+  return `${emailOtpAppSessionStorageWalletPrefix(binding.walletId)}${encodeURIComponent(String(binding.providerSubject))}`;
+}
+
+function parseStoredEmailOtpAppSessionBinding(
+  raw: string,
+): EmailOtpAppSessionBinding | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (
+      record.version !== 1 ||
+      typeof record.walletId !== 'string' ||
+      typeof record.providerSubject !== 'string' ||
+      typeof record.appSessionJwt !== 'string'
+    ) {
+      return null;
+    }
+    const walletId = parseWalletId(record.walletId);
+    const providerSubject = parseProviderSubject(record.providerSubject);
+    if (!walletId.ok || !providerSubject.ok) return null;
+    const binding = emailOtpAppSessionBindingFromJwt({
+      walletId: walletId.value,
+      appSessionJwt: record.appSessionJwt,
+    });
+    return binding.providerSubject === providerSubject.value ? binding : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void {
+  const storage = emailOtpAppSessionStorage();
+  if (!storage) return;
+  const record: StoredEmailOtpAppSessionBinding = {
+    version: 1,
+    walletId: String(binding.walletId),
+    providerSubject: String(binding.providerSubject),
+    appSessionJwt: binding.appSessionJwt,
+  };
+  try {
+    storage.setItem(emailOtpAppSessionStorageKey(binding), JSON.stringify(record));
+  } catch {
+    return;
+  }
+}
+
+function readPersistedEmailOtpAppSessionBinding(args: {
+  walletId: WalletId;
+  providerSubject: ProviderSubject;
+}): EmailOtpAppSessionBinding | null {
+  const storage = emailOtpAppSessionStorage();
+  if (!storage) return null;
+  const key = emailOtpAppSessionStorageKey(args);
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const binding = parseStoredEmailOtpAppSessionBinding(raw);
+    if (
+      !binding ||
+      binding.walletId !== args.walletId ||
+      binding.providerSubject !== args.providerSubject
+    ) {
+      storage.removeItem(key);
+      return null;
+    }
+    return binding;
+  } catch {
+    return null;
+  }
+}
+
+function listPersistedEmailOtpAppSessionBindings(
+  walletId: WalletId,
+): EmailOtpAppSessionBinding[] {
+  const storage = emailOtpAppSessionStorage();
+  if (!storage) return [];
+  const prefix = emailOtpAppSessionStorageWalletPrefix(walletId);
+  const bindings: EmailOtpAppSessionBinding[] = [];
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key || !key.startsWith(prefix)) continue;
+      const raw = storage.getItem(key);
+      const binding = raw ? parseStoredEmailOtpAppSessionBinding(raw) : null;
+      if (!binding || binding.walletId !== walletId) {
+        storage.removeItem(key);
+        index -= 1;
+        continue;
+      }
+      bindings.push(binding);
+    }
+  } catch {
+    return [];
+  }
+  return bindings;
+}
+
+function deletePersistedEmailOtpAppSessionBinding(binding: {
+  walletId: WalletId;
+  providerSubject: ProviderSubject;
+}): void {
+  try {
+    emailOtpAppSessionStorage()?.removeItem(emailOtpAppSessionStorageKey(binding));
+  } catch {
+    return;
+  }
+}
+
 export class EmailOtpAppSessionJwtCache {
   private readonly byWallet = new Map<string, Map<string, EmailOtpAppSessionBinding>>();
 
@@ -90,6 +225,7 @@ export class EmailOtpAppSessionJwtCache {
     const entries = this.byWallet.get(walletId) ?? new Map<string, EmailOtpAppSessionBinding>();
     entries.set(providerSubject, binding);
     this.byWallet.set(walletId, entries);
+    persistEmailOtpAppSessionBinding(binding);
   }
 
   async resolve(args: {
@@ -176,19 +312,42 @@ export class EmailOtpAppSessionJwtCache {
     identity: EmailOtpRefreshIdentity,
   ): EmailOtpAppSessionBinding | null {
     const entries = this.byWallet.get(String(identity.walletId));
-    return entries?.get(identity.laneIdentity.auth.providerSubjectId) ?? null;
+    const providerSubject = parseProviderSubject(identity.laneIdentity.auth.providerSubjectId);
+    if (!providerSubject.ok) return null;
+    const cached = entries?.get(providerSubject.value) ?? null;
+    if (cached) return cached;
+    const persisted = readPersistedEmailOtpAppSessionBinding({
+      walletId: identity.walletId,
+      providerSubject: providerSubject.value,
+    });
+    if (persisted) this.remember(persisted);
+    return persisted;
   }
 
   private deleteBindingForIdentity(identity: EmailOtpRefreshIdentity): void {
     const walletId = String(identity.walletId);
     const entries = this.byWallet.get(walletId);
-    if (!entries) return;
-    entries.delete(identity.laneIdentity.auth.providerSubjectId);
-    if (entries.size === 0) this.byWallet.delete(walletId);
+    entries?.delete(identity.laneIdentity.auth.providerSubjectId);
+    const providerSubject = parseProviderSubject(identity.laneIdentity.auth.providerSubjectId);
+    if (providerSubject.ok) {
+      deletePersistedEmailOtpAppSessionBinding({
+        walletId: identity.walletId,
+        providerSubject: providerSubject.value,
+      });
+    }
+    if (entries?.size === 0) this.byWallet.delete(walletId);
   }
 
   private uniqueBindingForWallet(walletId: string): EmailOtpAppSessionBinding | null {
-    const entries = this.byWallet.get(walletId);
+    let entries = this.byWallet.get(walletId);
+    if (!entries || entries.size === 0) {
+      const parsedWalletId = parseWalletId(walletId);
+      if (!parsedWalletId.ok) return null;
+      for (const binding of listPersistedEmailOtpAppSessionBindings(parsedWalletId.value)) {
+        this.remember(binding);
+      }
+      entries = this.byWallet.get(walletId);
+    }
     if (!entries || entries.size === 0) return null;
     if (entries.size !== 1) {
       throw new Error('Email OTP app-session resolution requires one exact provider subject');
@@ -209,9 +368,13 @@ export function emailOtpAppSessionBindingFromJwt(args: {
   if (!parsedSubject.ok) {
     throw new Error(`Email OTP app-session subject is invalid: ${parsedSubject.error.message}`);
   }
+  const parsedWalletId = parseWalletId(payload?.walletId);
+  if (!parsedWalletId.ok || parsedWalletId.value !== args.walletId) {
+    throw new Error('Email OTP app-session wallet does not match the requested wallet binding');
+  }
   return {
     kind: 'email_otp_app_session_binding',
-    walletId: args.walletId,
+    walletId: parsedWalletId.value,
     providerSubject: parsedSubject.value,
     appSessionJwt: parsedJwt.value,
   };
@@ -247,6 +410,19 @@ export async function refreshEmailOtpAppSessionJwt(args: {
   };
 }
 
+async function readEmailOtpSessionRefreshJson(
+  response: Response,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const value = (await response.json()) as unknown;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function refreshEmailOtpAppSessionJwtRaw(args: {
   relayUrl: string;
   appSessionJwt?: string;
@@ -268,7 +444,7 @@ async function refreshEmailOtpAppSessionJwtRaw(args: {
     credentials: 'include',
     body: JSON.stringify({ session_kind: 'jwt' }),
   });
-  const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const json = await readEmailOtpSessionRefreshJson(response);
   if (!response.ok || !json || json.ok === false) {
     if (response.status === 401 || response.status === 403) {
       if (!args.identity) {

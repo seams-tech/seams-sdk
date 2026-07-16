@@ -123,6 +123,7 @@ const invalidReconnectKeyRefThresholdSessionAuth = {
 } satisfies ThresholdEcdsaSecp256k1KeyRef;
 void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
+  purpose: 'transaction_signing',
   walletId: toWalletId('alice.testnet'),
   evmFamilySigningKeySlotId,
   chainTarget,

@@ -92,7 +92,7 @@ import type {
   RecoveryCapability,
   TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
-import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalResult,
@@ -2412,7 +2412,6 @@ export class SeamsWeb {
                 kind: 'requested' as const,
                 providerSubject: preparedEd25519YaoRecovery.providerSubject,
                 signerSlot: preparedEd25519YaoRecovery.signerSlot,
-                remainingUses: preparedEd25519YaoRecovery.remainingUses,
               },
             }
           : {}),

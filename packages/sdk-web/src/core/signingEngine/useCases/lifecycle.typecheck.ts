@@ -48,7 +48,7 @@ import type {
 } from '../interfaces/near';
 import type { EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
-import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpHssIdentity';
+import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {

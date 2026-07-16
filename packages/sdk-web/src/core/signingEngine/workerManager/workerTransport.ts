@@ -19,10 +19,11 @@ import {
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
 import { withSessionId } from './session';
+import { EcdsaClientWorkerControlKind } from './ecdsaClientWorkerChannels';
 import type {
-  HssWorkerOperationRequest,
-  HssWorkerOperationResult,
-  HssWorkerOperationType,
+  EcdsaDerivationWorkerOperationRequest,
+  EcdsaDerivationWorkerOperationResult,
+  EcdsaDerivationWorkerOperationType,
   MultichainOperationType,
   MultichainWorkerOperationRequest,
   MultichainWorkerOperationResult,
@@ -35,7 +36,11 @@ import type {
   SignerWorkerOperationType,
   SignerWorkerTransportProtocol,
 } from './workerTypes';
-import { SignerWorkerOperationError, WorkerControlMessage } from './workerTypes';
+import {
+  EcdsaPresignClientRequestType,
+  SignerWorkerOperationError,
+  WorkerControlMessage,
+} from './workerTypes';
 
 type RpcOk<T = unknown> = { id: string; ok: true; result: T };
 type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: string };
@@ -74,9 +79,11 @@ type NearWorkerOperationArgs<T extends NearWorkerOperationType = NearWorkerOpera
   request: NearWorkerOperationRequest<T>;
 };
 
-type HssWorkerOperationArgs<T extends HssWorkerOperationType = HssWorkerOperationType> = {
-  kind: 'ecdsaHssClient';
-  request: HssWorkerOperationRequest<T>;
+type EcdsaDerivationWorkerOperationArgs<
+  T extends EcdsaDerivationWorkerOperationType = EcdsaDerivationWorkerOperationType,
+> = {
+  kind: 'ecdsaDerivationClient';
+  request: EcdsaDerivationWorkerOperationRequest<T>;
 };
 
 type MultichainWorkerOperationArgs<
@@ -89,19 +96,33 @@ type MultichainWorkerOperationArgs<
 
 type AnyWorkerOperationArgs =
   | NearWorkerOperationArgs
-  | HssWorkerOperationArgs
+  | EcdsaDerivationWorkerOperationArgs
   | {
       [K in MultichainWorkerKind]: MultichainWorkerOperationArgs<K, MultichainOperationType<K>>;
     }[MultichainWorkerKind]
   | {
       kind: 'emailOtp';
       request: SignerWorkerOperationRequest<'emailOtp', SignerWorkerOperationType<'emailOtp'>>;
+    }
+  | {
+      kind: 'ecdsaPresignClient';
+      request: SignerWorkerOperationRequest<
+        'ecdsaPresignClient',
+        SignerWorkerOperationType<'ecdsaPresignClient'>
+      >;
+    }
+  | {
+      kind: 'ecdsaOnlineClient';
+      request: SignerWorkerOperationRequest<
+        'ecdsaOnlineClient',
+        SignerWorkerOperationType<'ecdsaOnlineClient'>
+      >;
     };
 
 const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
   'nearSigner',
-  'ecdsaHssClient',
-  'ethSigner',
+  'ecdsaDerivationClient',
+  'evmCrypto',
   'tempoSigner',
   'emailOtp',
 ];
@@ -183,6 +204,9 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private readonly pendingByKind = new Map<SignerWorkerKind, Map<string, PendingEntry>>();
   private readonly messageHandlers = new Map<SignerWorkerKind, (event: MessageEvent) => void>();
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
+  private derivationPresignConnected = false;
+  private emailOtpPresignConnected = false;
+  private presignOnlineConnected = false;
 
   setWorkerBaseOrigin(origin: string | undefined): void {
     if (this.workerBaseOrigin === origin) return;
@@ -206,10 +230,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     kind: 'nearSigner';
     request: NearWorkerOperationRequest<T>;
   }): Promise<NearWorkerOperationResult<T>>;
-  requestOperation<T extends HssWorkerOperationType>(args: {
-    kind: 'ecdsaHssClient';
-    request: HssWorkerOperationRequest<T>;
-  }): Promise<HssWorkerOperationResult<T>>;
+  requestOperation<T extends EcdsaDerivationWorkerOperationType>(args: {
+    kind: 'ecdsaDerivationClient';
+    request: EcdsaDerivationWorkerOperationRequest<T>;
+  }): Promise<EcdsaDerivationWorkerOperationResult<T>>;
   requestOperation<K extends MultichainWorkerKind, T extends MultichainOperationType<K>>(args: {
     kind: K;
     request: MultichainWorkerOperationRequest<K, T>;
@@ -218,7 +242,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     args: AnyWorkerOperationArgs,
   ): Promise<
     | NearWorkerOperationResult<NearWorkerOperationType>
-    | HssWorkerOperationResult<HssWorkerOperationType>
+    | EcdsaDerivationWorkerOperationResult<EcdsaDerivationWorkerOperationType>
     | SignerWorkerOperationResult<'emailOtp', SignerWorkerOperationType<'emailOtp'>>
     | MultichainWorkerOperationResult<
         MultichainWorkerKind,
@@ -228,16 +252,23 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     if (args.kind === 'nearSigner') {
       return await this.requestNearOperation(args.request);
     }
-    if (args.kind === 'ecdsaHssClient') {
-      return await this.requestHssOperation(args.request);
+    if (args.kind === 'ecdsaDerivationClient') {
+      return await this.requestDerivationOperation(args.request);
     }
-    if (args.kind === 'ethSigner') {
-      return await this.requestRpcOperation('ethSigner', args.request);
+    if (args.kind === 'ecdsaPresignClient') {
+      this.connectPresignAuthorityChannel(args.request);
+      return await this.requestRpcOperation('ecdsaPresignClient', args.request);
+    }
+    if (args.kind === 'ecdsaOnlineClient') {
+      return await this.requestRpcOperation('ecdsaOnlineClient', args.request);
+    }
+    if (args.kind === 'evmCrypto') {
+      return await this.requestRpcOperation('evmCrypto', args.request);
     }
     if (args.kind === 'tempoSigner') {
       return await this.requestRpcOperation('tempoSigner', args.request);
     }
-    return await this.requestRpcOperation('emailOtp', args.request);
+    return await this.requestRpcOperation(args.kind, args.request);
   }
 
   private async requestNearOperation<T extends NearWorkerOperationType>({
@@ -309,13 +340,13 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     });
   }
 
-  private async requestHssOperation<T extends HssWorkerOperationType>({
+  private async requestDerivationOperation<T extends EcdsaDerivationWorkerOperationType>({
     sessionId,
     type,
     payload,
     timeoutMs = SIGNER_WORKER_MANAGER_CONFIG.TIMEOUTS.DEFAULT,
     transfer,
-  }: HssWorkerOperationRequest<T>): Promise<HssWorkerOperationResult<T>> {
+  }: EcdsaDerivationWorkerOperationRequest<T>): Promise<EcdsaDerivationWorkerOperationResult<T>> {
     const payloadSessionId = (payload as { sessionId?: unknown })?.sessionId;
     if (sessionId && payloadSessionId && payloadSessionId !== sessionId) {
       throw new Error(
@@ -329,25 +360,25 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       ? withSessionId(effectiveSessionId, payload as Record<string, unknown>)
       : payload;
 
-    const worker = this.getOrCreateWorker('ecdsaHssClient');
-    const requestId = makeId('ecdsaHssClient');
+    const worker = this.getOrCreateWorker('ecdsaDerivationClient');
+    const requestId = makeId('ecdsaDerivationClient');
 
-    return await new Promise<HssWorkerOperationResult<T>>((resolve, reject) => {
+    return await new Promise<EcdsaDerivationWorkerOperationResult<T>>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.rejectRequest(
-          'ecdsaHssClient',
+          'ecdsaDerivationClient',
           requestId,
           new SignerWorkerOperationError({
             message: `Worker operation timed out after ${timeoutMs}ms`,
             code: 'TIMEOUT',
-            workerKind: 'ecdsaHssClient',
+            workerKind: 'ecdsaDerivationClient',
           }),
         );
-        this.resetWorker('ecdsaHssClient');
+        this.resetWorker('ecdsaDerivationClient');
       }, timeoutMs);
 
-      this.getPendingMap('ecdsaHssClient').set(requestId, {
-        resolve: (value) => resolve(value as HssWorkerOperationResult<T>),
+      this.getPendingMap('ecdsaDerivationClient').set(requestId, {
+        resolve: (value) => resolve(value as EcdsaDerivationWorkerOperationResult<T>),
         reject,
         timeoutId,
       });
@@ -356,12 +387,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
         worker.postMessage({ id: requestId, type, payload: finalPayload }, transfer || []);
       } catch (error) {
         this.rejectRequest(
-          'ecdsaHssClient',
+          'ecdsaDerivationClient',
           requestId,
           new SignerWorkerOperationError({
-            message: `[ecdsaHssClient] failed to postMessage: ${errorMessage(error)}`,
+            message: `[ecdsaDerivationClient] failed to postMessage: ${errorMessage(error)}`,
             code: 'WORKER_POSTMESSAGE_ERROR',
-            workerKind: 'ecdsaHssClient',
+            workerKind: 'ecdsaDerivationClient',
           }),
         );
       }
@@ -369,7 +400,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   }
 
   private async requestRpcOperation<
-    K extends Extract<SignerWorkerKind, 'ethSigner' | 'tempoSigner' | 'emailOtp'>,
+    K extends Exclude<SignerWorkerKind, 'nearSigner' | 'ecdsaDerivationClient'>,
     T extends SignerWorkerOperationType<K>,
   >(
     kind: K,
@@ -441,7 +472,110 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.workers.set(kind, worker);
     this.messageHandlers.set(kind, messageHandler);
     this.errorHandlers.set(kind, errorHandler);
+    this.connectEcdsaClientWorkerChannels(kind);
     return worker;
+  }
+
+  private connectEcdsaClientWorkerChannels(kind: SignerWorkerKind): void {
+    if (kind === 'ecdsaOnlineClient' && !this.presignOnlineConnected) {
+      const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+      const onlineWorker = this.workers.get('ecdsaOnlineClient');
+      if (!onlineWorker) throw new Error('ECDSA online worker was not created');
+      const channel = new MessageChannel();
+      presignWorker.postMessage(
+        {
+          kind: EcdsaClientWorkerControlKind.AttachPresignToOnline,
+          port: channel.port1,
+        },
+        [channel.port1],
+      );
+      onlineWorker.postMessage(
+        {
+          kind: EcdsaClientWorkerControlKind.AttachPresignToOnline,
+          port: channel.port2,
+        },
+        [channel.port2],
+      );
+      this.presignOnlineConnected = true;
+    }
+  }
+
+  private connectPresignAuthorityChannel(
+    request: SignerWorkerOperationRequest<
+      'ecdsaPresignClient',
+      SignerWorkerOperationType<'ecdsaPresignClient'>
+    >,
+  ): void {
+    if (request.type !== EcdsaPresignClientRequestType.SessionInit) return;
+    const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+    const authorityKind = this.parsePresignAuthorityKind(request.payload);
+    switch (authorityKind) {
+      case 'role_local_derivation_handle':
+        this.connectDerivationPresignChannel(presignWorker);
+        return;
+      case 'email_otp_worker_session':
+        this.connectEmailOtpPresignChannel(presignWorker);
+        return;
+      default:
+        authorityKind satisfies never;
+    }
+  }
+
+  private parsePresignAuthorityKind(
+    payload: unknown,
+  ): 'role_local_derivation_handle' | 'email_otp_worker_session' {
+    if (!isObject(payload) || !isObject(payload.authority)) {
+      throw new Error('ECDSA presign init authority is required');
+    }
+    switch (payload.authority.kind) {
+      case 'role_local_derivation_handle':
+      case 'email_otp_worker_session':
+        return payload.authority.kind;
+      default:
+        throw new Error('ECDSA presign init authority kind is invalid');
+    }
+  }
+
+  private connectDerivationPresignChannel(presignWorker: Worker): void {
+    if (this.derivationPresignConnected) return;
+    const derivationWorker = this.getOrCreateWorker('ecdsaDerivationClient');
+    const channel = new MessageChannel();
+    derivationWorker.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachDerivationToPresign,
+        port: channel.port1,
+      },
+      [channel.port1],
+    );
+    presignWorker.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachDerivationToPresign,
+        port: channel.port2,
+      },
+      [channel.port2],
+    );
+    this.derivationPresignConnected = true;
+  }
+
+  private connectEmailOtpPresignChannel(presignWorker: Worker): void {
+    if (this.emailOtpPresignConnected) return;
+    const emailOtpWorker = this.getOrCreateWorker('emailOtp');
+    const channel = new MessageChannel();
+    emailOtpWorker.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachEmailOtpToPresign,
+        port: channel.port1,
+      },
+      [channel.port1],
+    );
+    presignWorker.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachEmailOtpToPresign,
+        port: channel.port2,
+      },
+      [channel.port2],
+    );
+    this.emailOtpPresignConnected = true;
   }
 
   private createWorker(kind: SignerWorkerKind): Worker {
@@ -456,14 +590,37 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
           name: SIGNER_WORKER_MANAGER_CONFIG.WORKER.NAME,
         });
       }
-      if (kind === 'ecdsaHssClient') {
-        const workerUrl = resolveWorkerUrl(SIGNER_WORKER_MANAGER_CONFIG.ECDSA_HSS_CLIENT_WORKER.URL, {
-          worker: 'ecdsaHssClient',
-          baseOrigin: this.workerBaseOrigin,
-        });
+      if (kind === 'ecdsaDerivationClient') {
+        const workerUrl = resolveWorkerUrl(
+          SIGNER_WORKER_MANAGER_CONFIG.ECDSA_DERIVATION_CLIENT_WORKER.URL,
+          {
+            worker: 'ecdsaDerivationClient',
+            baseOrigin: this.workerBaseOrigin,
+          },
+        );
         return new Worker(workerUrl, {
-          type: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_HSS_CLIENT_WORKER.TYPE,
-          name: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_HSS_CLIENT_WORKER.NAME,
+          type: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_DERIVATION_CLIENT_WORKER.TYPE,
+          name: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_DERIVATION_CLIENT_WORKER.NAME,
+        });
+      }
+      if (kind === 'ecdsaPresignClient') {
+        const workerUrl = resolveWorkerUrl(
+          SIGNER_WORKER_MANAGER_CONFIG.ECDSA_PRESIGN_CLIENT_WORKER.URL,
+          { worker: 'ecdsaPresignClient', baseOrigin: this.workerBaseOrigin },
+        );
+        return new Worker(workerUrl, {
+          type: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_PRESIGN_CLIENT_WORKER.TYPE,
+          name: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_PRESIGN_CLIENT_WORKER.NAME,
+        });
+      }
+      if (kind === 'ecdsaOnlineClient') {
+        const workerUrl = resolveWorkerUrl(
+          SIGNER_WORKER_MANAGER_CONFIG.ECDSA_ONLINE_CLIENT_WORKER.URL,
+          { worker: 'ecdsaOnlineClient', baseOrigin: this.workerBaseOrigin },
+        );
+        return new Worker(workerUrl, {
+          type: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_ONLINE_CLIENT_WORKER.TYPE,
+          name: SIGNER_WORKER_MANAGER_CONFIG.ECDSA_ONLINE_CLIENT_WORKER.NAME,
         });
       }
       if (kind === 'emailOtp') {
@@ -491,8 +648,8 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       this.handleNearWorkerMessage(data);
       return;
     }
-    if (kind === 'ecdsaHssClient') {
-      this.handleHssWorkerMessage(data);
+    if (kind === 'ecdsaDerivationClient') {
+      this.handleEcdsaDerivationWorkerMessage(data);
       return;
     }
 
@@ -607,21 +764,21 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.resetWorker('nearSigner');
   }
 
-  private handleHssWorkerMessage(data: unknown): void {
+  private handleEcdsaDerivationWorkerMessage(data: unknown): void {
     if (isRpcSuccessFrame(data)) {
-      this.resolveRequest('ecdsaHssClient', data.id, data.result);
+      this.resolveRequest('ecdsaDerivationClient', data.id, data.result);
       return;
     }
 
     if (isRpcErrorFrame(data)) {
       this.rejectRequest(
-        'ecdsaHssClient',
+        'ecdsaDerivationClient',
         data.id,
         new SignerWorkerOperationError({
-          message: data.error || '[ecdsaHssClient] worker error',
+          message: data.error || '[ecdsaDerivationClient] worker error',
           code: data.code,
           coreCode: data.coreCode,
-          workerKind: 'ecdsaHssClient',
+          workerKind: 'ecdsaDerivationClient',
         }),
       );
       return;
@@ -631,29 +788,29 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       isObject(data) && typeof (data as { id?: unknown }).id === 'string'
         ? (data as { id: string }).id
         : undefined;
-    if (requestId && this.getPendingMap('ecdsaHssClient').has(requestId)) {
+    if (requestId && this.getPendingMap('ecdsaDerivationClient').has(requestId)) {
       this.rejectRequest(
-        'ecdsaHssClient',
+        'ecdsaDerivationClient',
         requestId,
         new SignerWorkerOperationError({
           message: `Malformed worker response frame for request ${requestId}`,
           code: 'WORKER_PROTOCOL_ERROR',
-          workerKind: 'ecdsaHssClient',
+          workerKind: 'ecdsaDerivationClient',
         }),
       );
       return;
     }
 
-    if (this.getPendingMap('ecdsaHssClient').size === 0) return;
+    if (this.getPendingMap('ecdsaDerivationClient').size === 0) return;
     this.rejectAllPending(
-      'ecdsaHssClient',
+      'ecdsaDerivationClient',
       new SignerWorkerOperationError({
         message: `Unknown worker response frame: ${JSON.stringify(data)}`,
         code: 'WORKER_PROTOCOL_ERROR',
-        workerKind: 'ecdsaHssClient',
+        workerKind: 'ecdsaDerivationClient',
       }),
     );
-    this.resetWorker('ecdsaHssClient');
+    this.resetWorker('ecdsaDerivationClient');
   }
 
   private resolveNearResponse(
@@ -767,6 +924,21 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   }
 
   private resetWorker(kind: SignerWorkerKind): void {
+    if (kind === 'ecdsaDerivationClient') {
+      this.derivationPresignConnected = false;
+      this.presignOnlineConnected = false;
+      this.resetWorker('ecdsaPresignClient');
+    } else if (kind === 'ecdsaPresignClient') {
+      this.derivationPresignConnected = false;
+      this.emailOtpPresignConnected = false;
+      this.presignOnlineConnected = false;
+      this.resetWorker('ecdsaOnlineClient');
+    } else if (kind === 'ecdsaOnlineClient') {
+      this.presignOnlineConnected = false;
+    } else if (kind === 'emailOtp') {
+      this.emailOtpPresignConnected = false;
+      this.resetWorker('ecdsaPresignClient');
+    }
     const worker = this.workers.get(kind);
     if (!worker) return;
 

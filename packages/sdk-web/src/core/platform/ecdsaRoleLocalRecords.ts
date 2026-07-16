@@ -1,10 +1,10 @@
 import type {
   EcdsaThresholdKeyId,
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
   SigningRootId,
   SigningRootVersion,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WalletId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
@@ -13,7 +13,7 @@ export type {
   EcdsaThresholdKeyId,
   SigningRootId,
   SigningRootVersion,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 export type { WalletId } from '@shared/utils/domainIds';
 
 export type EvmEip155ChainTarget = {
@@ -70,8 +70,8 @@ export type EcdsaRoleLocalPublicFacts = {
   relayerParticipantId: 2;
   participantIds: readonly [1, 2];
   contextBinding32B64u: string;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: EcdsaGroupPublicKey33B64u;
   ethereumAddress: `0x${string}`;
 };

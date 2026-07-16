@@ -9,9 +9,10 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
-  buildEcdsaLaneBudgetStatusCheck,
-  buildThresholdBudgetStatusCheck,
+  buildAuthenticatedEcdsaLaneBudgetStatusCheck,
+  buildAuthenticatedThresholdBudgetStatusCheck,
   ed25519WalletBudgetOwner,
+  type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetStatusCheck,
 } from '../budget/budget';
 import {
@@ -23,12 +24,15 @@ import {
   thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionStoreDeps,
+  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import {
   listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
   type CurrentEd25519SealedSessionRecord,
+  type EcdsaDurableLaneRecord,
+  type EcdsaReauthAnchorRecord,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
@@ -43,7 +47,7 @@ import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLa
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
   type RouterAbEd25519PersistedSigningRecordState,
 } from '../routerAbSigningWalletSession';
@@ -363,6 +367,93 @@ function applyWalletBudgetStatusToAdvisory(args: {
   return args.localAdvisory;
 }
 
+type PersistedBudgetStatusAuthParseResult =
+  | {
+      kind: 'authenticated';
+      auth: SigningSessionBudgetStatusAuth;
+    }
+  | {
+      kind: 'unavailable';
+      auth?: never;
+    };
+
+function parsePersistedBudgetStatusAuth(record: {
+  relayerUrl: unknown;
+  thresholdSessionId: unknown;
+  walletSessionJwt: unknown;
+}): PersistedBudgetStatusAuthParseResult {
+  const relayerUrl = String(record.relayerUrl || '').trim();
+  const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+  const walletSessionJwt = String(record.walletSessionJwt || '').trim();
+  if (!relayerUrl || !thresholdSessionId || !walletSessionJwt) {
+    return { kind: 'unavailable' };
+  }
+  return {
+    kind: 'authenticated',
+    auth: { relayerUrl, thresholdSessionId, walletSessionJwt },
+  };
+}
+
+async function readBudgetStatusOrNull(args: {
+  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSigningBudgetStatus']>;
+  check: SigningSessionBudgetStatusCheck;
+}): Promise<SigningSessionStatus | null> {
+  try {
+    return await args.reader(args.check);
+  } catch {
+    return null;
+  }
+}
+
+async function readEcdsaWalletBudgetStatusForRecord(args: {
+  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSigningBudgetStatus']>;
+  record: ThresholdEcdsaSessionRecord;
+  signingGrantId: string;
+}): Promise<SigningSessionStatus | null> {
+  const parsedAuth = parsePersistedBudgetStatusAuth({
+    relayerUrl: args.record.relayerUrl,
+    thresholdSessionId: args.record.thresholdSessionId,
+    walletSessionJwt: args.record.walletSessionJwt,
+  });
+  if (parsedAuth.kind === 'unavailable') return null;
+  return await readBudgetStatusOrNull({
+    reader: args.reader,
+    check: buildAuthenticatedEcdsaLaneBudgetStatusCheck({
+      key: thresholdEcdsaSessionRecordReadModel(args.record).key,
+      keyHandle: args.record.keyHandle,
+      auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record }).auth,
+      chainTarget: args.record.chainTarget,
+      signingGrantId: args.signingGrantId,
+      thresholdSessionId: args.record.thresholdSessionId,
+      trustedStatusAuth: parsedAuth.auth,
+    }),
+  });
+}
+
+async function readEd25519WalletBudgetStatusForRecord(args: {
+  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSigningBudgetStatus']>;
+  record: ThresholdEd25519SessionRecord;
+  walletId: string;
+  signingGrantId: string;
+  thresholdSessionId: string;
+}): Promise<SigningSessionStatus | null> {
+  const parsedAuth = parsePersistedBudgetStatusAuth({
+    relayerUrl: args.record.relayerUrl,
+    thresholdSessionId: args.record.thresholdSessionId,
+    walletSessionJwt: args.record.walletSessionJwt,
+  });
+  if (parsedAuth.kind === 'unavailable') return null;
+  return await readBudgetStatusOrNull({
+    reader: args.reader,
+    check: buildAuthenticatedThresholdBudgetStatusCheck({
+      owner: ed25519WalletBudgetOwner(args.walletId),
+      signingGrantId: args.signingGrantId,
+      targetThresholdSessionIds: [args.thresholdSessionId],
+      trustedStatusAuth: parsedAuth.auth,
+    }),
+  });
+}
+
 async function readValidatedEd25519WarmClaim(args: {
   deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
   record: ThresholdEd25519SessionRecord;
@@ -500,11 +591,12 @@ function sealedEcdsaRecordMatchesAnyChainTarget(
 }
 
 function filterEmailOtpCompanionEcdsaRecords(
-  records: readonly SigningSessionSealedStoreRecord[],
+  records: readonly EcdsaDurableLaneRecord[],
   chainTargets: readonly ThresholdEcdsaChainTarget[],
 ): SigningSessionSealedStoreRecord[] {
   const matchingRecords: SigningSessionSealedStoreRecord[] = [];
   for (const record of records) {
+    if ('recordKind' in record) continue;
     if (!sealedRecordHasEd25519ThresholdSession(record)) continue;
     if (!sealedEcdsaRecordMatchesAnyChainTarget(record, chainTargets)) continue;
     matchingRecords.push(record);
@@ -542,7 +634,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
       listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
           authMethod: 'email_otp' | 'passkey',
-        ): Promise<SigningSessionSealedStoreRecord[]> => {
+        ): Promise<Array<SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord>> => {
           if (filter.curve === 'ecdsa') {
             return await listExactSealedSessionsForWallet({
               walletId: recordWalletId,
@@ -607,13 +699,13 @@ export async function readPersistedAvailableSigningLanesForTargets(
         )) {
           const runtimeLaneAuthMethod = signingLaneAuthMethod(runtimeLane.auth);
           if (args.authMethod && args.authMethod !== runtimeLaneAuthMethod) continue;
-          if (!runtimeLane.routerAbEcdsaHssNormalSigning) continue;
+          if (!runtimeLane.routerAbEcdsaDerivationNormalSigning) continue;
           const publicFactsFields = runtimeLane.verifiedPublicFacts
             ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
             : {};
           const baseRecord = {
             key: runtimeLane.key,
-            routerAbEcdsaHssNormalSigning: runtimeLane.routerAbEcdsaHssNormalSigning,
+            routerAbEcdsaDerivationNormalSigning: runtimeLane.routerAbEcdsaDerivationNormalSigning,
             keyHandle: runtimeLane.keyHandle,
             ...publicFactsFields,
             thresholdEcdsaPublicKeyB64u: runtimeLane.thresholdEcdsaPublicKeyB64u,
@@ -785,7 +877,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 localAdvisory = null;
               }
             } else {
-              const materialState = classifyRouterAbEcdsaHssPersistedSigningRecord(ecdsaRecord);
+              const materialState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(ecdsaRecord);
               if (materialState.kind === 'runtime_validated') {
                 const status = await deps.statusReader
                   .getWarmSessionStatus({ sessionId })
@@ -830,19 +922,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
             }
             const walletBudgetStatus =
               ecdsaRecord && deps.getWalletSigningBudgetStatus
-                ? await deps
-                    .getWalletSigningBudgetStatus(
-                      buildEcdsaLaneBudgetStatusCheck({
-                        key: thresholdEcdsaSessionRecordReadModel(ecdsaRecord).key,
-                        keyHandle: ecdsaRecord.keyHandle,
-                        auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: ecdsaRecord })
-                          .auth,
-                        chainTarget: ecdsaRecord.chainTarget,
-                        signingGrantId,
-                        thresholdSessionId: ecdsaRecord.thresholdSessionId,
-                      }),
-                    )
-                    .catch(() => null)
+                ? await readEcdsaWalletBudgetStatusForRecord({
+                    reader: deps.getWalletSigningBudgetStatus,
+                    record: ecdsaRecord,
+                    signingGrantId,
+                  })
                 : null;
             advisories.set(
               advisoryKey,
@@ -871,16 +955,14 @@ export async function readPersistedAvailableSigningLanesForTargets(
             });
             const signingGrantId = String(ed25519Record?.signingGrantId || '').trim();
             const walletBudgetStatus =
-              signingGrantId && deps.getWalletSigningBudgetStatus
-                ? await deps
-                    .getWalletSigningBudgetStatus(
-                      buildThresholdBudgetStatusCheck({
-                        owner: ed25519WalletBudgetOwner(walletId),
-                        signingGrantId,
-                        targetThresholdSessionIds: [sessionId],
-                      }),
-                    )
-                    .catch(() => null)
+              signingGrantId && ed25519Record && deps.getWalletSigningBudgetStatus
+                ? await readEd25519WalletBudgetStatusForRecord({
+                    reader: deps.getWalletSigningBudgetStatus,
+                    record: ed25519Record,
+                    walletId,
+                    signingGrantId,
+                    thresholdSessionId: sessionId,
+                  })
                 : null;
             advisories.set(
               sessionId,

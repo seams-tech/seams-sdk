@@ -10,7 +10,7 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
-import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
+import type { EmailOtpEcdsaStepUpAuthority } from '../../flows/signEvmFamily/emailOtpSigningSession';
 import type {
   EmailOtpEcdsaSigningBootstrapResult,
   EvmFamilySigningDeps,
@@ -185,7 +185,7 @@ export type CreateSigningEnginePortsArgs = {
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
-    committedLane: EmailOtpEcdsaCommittedLane;
+    authority: EmailOtpEcdsaStepUpAuthority;
     remainingUses: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   restorePersistedSessionForSigning: (

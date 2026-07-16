@@ -166,6 +166,11 @@ export type EvmFamilyUiConfirmFlowConfig<TRequest, TResult extends object> = {
     title: string;
     subtitle: string;
   }) => TxDisplayModel;
+  /* Sizes step-up auth from the raw request so showing the confirmation UI
+     never has to wait for the prepared intent (nonce reservation + worker
+     intent build). Threshold admission re-derives the exact count from the
+     prepared intent after the user confirms. */
+  requiredSignatureUsesForRequest: (request: TRequest) => number;
   webauthn: EvmFamilySigningWebAuthnMode<TRequest>;
 };
 
@@ -526,12 +531,16 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     input.onConfirmationDisplayed?.();
-    const preparedIntentForBudget = await intentPreparationTask;
+    /* Deliberately NOT awaiting intentPreparationTask here: the confirmation
+       UI mounts with the PENDING placeholders in a loading state, and the
+       registered intent preparation streams the real digest/display model in
+       (see handleIntentDigestSigningFlow). Blocking here would gate the modal
+       on the nonce-reservation RPC and the intent-build worker round-trip. */
     const stepUp = await requireEvmFamilyStepUpAuth({
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest,
       needsWebAuthn,
-      requiredSignatureUses: requiredEvmFamilySignatureUses(preparedIntentForBudget.intent),
+      requiredSignatureUses: config.requiredSignatureUsesForRequest(input.request),
       explicitAuthErrorLabel: config.explicitAuthErrorLabel,
     });
     preparedStepUpAuth = stepUp;

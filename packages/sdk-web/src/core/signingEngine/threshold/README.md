@@ -19,8 +19,8 @@ material, and protocol crypto helper material.
 
 Current policy entrypoint: `sessionPolicy.ts`. Curve-specific protocol flows
 live under `ed25519/*` and `ecdsa/*`. PRF salts, WebAuthn PRF helpers, and
-wrap-key salts live under `crypto/*`. The ECDSA HSS worker facade lives under
-`crypto/ecdsaClientSignerWasm.ts`. `ed25519/public.ts` owns the Ed25519 Yao and
+wrap-key salts live under `crypto/*`. The ECDSA derivation worker facade lives under
+`crypto/ecdsaDerivationClientWasm.ts`. `ed25519/public.ts` owns the Ed25519 Yao and
 online FROST facade used by the signing engine.
 
 ## Ed25519 Yao Boundary

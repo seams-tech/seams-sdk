@@ -9,7 +9,7 @@ import { toRpId, type RpId } from '../signingEngine/session/identity/evmFamilyEc
 import {
   toEmailOtpAuthSubjectId,
   type EmailOtpAuthSubjectId,
-} from '../signingEngine/session/identity/emailOtpHssIdentity';
+} from '../signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   requireEvmFamilySigningKeySlotId,
   type EvmFamilySigningKeySlotId,

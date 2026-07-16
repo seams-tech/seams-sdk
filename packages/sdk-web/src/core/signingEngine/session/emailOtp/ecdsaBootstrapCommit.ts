@@ -35,7 +35,7 @@ import {
 } from '../warmCapabilities/ecdsaCapabilityReadiness';
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
 import type { WarmSessionEcdsaCapabilityState } from '../warmCapabilities/types';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
@@ -163,9 +163,9 @@ function markWorkerProvisionedEcdsaSessionRuntimeValidated(args: {
   ) {
     return;
   }
-  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
+  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) return;
   throw new Error(
-    '[SigningEngine] ECDSA-HSS bootstrap returned worker material that could not be runtime-validated',
+    '[SigningEngine] Router A/B ECDSA derivation bootstrap returned worker material that could not be runtime-validated',
   );
 }
 
@@ -283,6 +283,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
     let record: ThresholdEcdsaSessionRecord;
     if (args.source === 'email_otp') {
       record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
+        purpose: 'transaction_signing',
         walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
@@ -291,6 +292,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       });
     } else {
       record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
+        purpose: 'transaction_signing',
         walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,

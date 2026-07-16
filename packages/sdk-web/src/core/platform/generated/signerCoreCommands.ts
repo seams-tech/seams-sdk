@@ -5,7 +5,7 @@ export type SignerCommandVersion = "v1";
 
 export type EcdsaBootstrapSecretSource = { "kind": "webauthn_prf_first", prfFirstB64u: string, rpId: string, credentialIdB64u: string, };
 
-export type EcdsaClientBootstrapAlgorithm = "ecdsa_hss_secp256k1_role_local_v1";
+export type EcdsaClientBootstrapAlgorithm = "router_ab_ecdsa_derivation_secp256k1_role_local_v1";
 
 export type EcdsaClientBootstrapContext = { applicationBindingDigestB64u: string, };
 
@@ -29,9 +29,9 @@ export type EcdsaRoleLocalPendingStateBlob = { kind: PendingStateBlobKind, curve
 
 export type EcdsaRoleLocalReadyStateBlob = { kind: ReadyStateBlobKind, curve: Secp256k1CurveName, encoding: Base64UrlEncoding, producer: SignerCoreProducer, stateBlobB64u: string, };
 
-export type EcdsaClientBootstrapFacts = { contextBinding32B64u: string, hssClientSharePublicKey33B64u: string, clientShareRetryCounter: number, participantId: number, };
+export type EcdsaClientBootstrapFacts = { contextBinding32B64u: string, derivationClientSharePublicKey33B64u: string, clientShareRetryCounter: number, participantId: number, };
 
-export type EcdsaPreparePublicFacts = { hssClientSharePublicKey33B64u: string, clientVerifyingShareB64u: string, };
+export type EcdsaPreparePublicFacts = { derivationClientSharePublicKey33B64u: string, clientVerifyingShareB64u: string, };
 
 export type PrepareEcdsaClientBootstrapOutput = { pendingStateBlob: EcdsaRoleLocalPendingStateBlob, clientBootstrap: EcdsaClientBootstrapFacts, publicFacts: EcdsaPreparePublicFacts, };
 
@@ -43,7 +43,7 @@ export type FinalizeEcdsaClientBootstrapCommandKind = "finalize_ecdsa_client_boo
 
 export type FinalizeEcdsaClientBootstrapCommand = { kind: FinalizeEcdsaClientBootstrapCommandKind, pendingStateBlob: EcdsaRoleLocalPendingStateBlob, relayerPublicIdentity: RelayerPublicIdentity, };
 
-export type EcdsaReadyPublicFacts = { contextBinding32B64u: string, hssClientSharePublicKey33B64u: string, clientVerifyingShareB64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
+export type EcdsaReadyPublicFacts = { contextBinding32B64u: string, derivationClientSharePublicKey33B64u: string, clientVerifyingShareB64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
 
 export type FinalizeEcdsaClientBootstrapOutput = { stateBlob: EcdsaRoleLocalReadyStateBlob, publicFacts: EcdsaReadyPublicFacts, };
 
@@ -51,7 +51,7 @@ export type FinalizeEcdsaClientBootstrapErrorCode = "invalid_pending_state" | "i
 
 export type BuildEcdsaRoleLocalExportArtifactCommandKind = "build_ecdsa_role_local_export_artifact_v1";
 
-export type EcdsaRoleLocalExportPublicFacts = { applicationBindingDigestB64u: string, clientParticipantId: number, relayerParticipantId: number, participantIds: Array<number>, contextBinding32B64u: string, hssClientSharePublicKey33B64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
+export type EcdsaRoleLocalExportPublicFacts = { applicationBindingDigestB64u: string, clientParticipantId: number, relayerParticipantId: number, participantIds: Array<number>, contextBinding32B64u: string, derivationClientSharePublicKey33B64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
 
 export type BuildEcdsaRoleLocalExportArtifactCommand = { kind: BuildEcdsaRoleLocalExportArtifactCommandKind, algorithm: EcdsaClientBootstrapAlgorithm, stateBlob: EcdsaRoleLocalReadyStateBlob, publicFacts: EcdsaRoleLocalExportPublicFacts, serverExportShare32B64u: string, };
 

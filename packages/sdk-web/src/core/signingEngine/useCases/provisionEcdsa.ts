@@ -34,14 +34,14 @@ import {
 import { toRpId, type RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaThresholdKeyId,
-} from '../session/identity/emailOtpHssIdentity';
+} from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-} from '../session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+} from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { computeSdkEcdsaHssApplicationBindingDigestB64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEcdsaDerivationApplicationBindingDigestB64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { assertNeverUseCase, useCaseFailure, type UseCaseFailure } from './lifecycle';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
@@ -195,15 +195,15 @@ function sameString(left: unknown, right: unknown): boolean {
 }
 
 type ProvisionEcdsaSigningRoot = {
-  signingRootId: ReturnType<typeof toEcdsaHssSigningRootId>;
-  signingRootVersion: ReturnType<typeof toEcdsaHssSigningRootVersion>;
+  signingRootId: ReturnType<typeof toEcdsaDerivationSigningRootId>;
+  signingRootVersion: ReturnType<typeof toEcdsaDerivationSigningRootVersion>;
 };
 
 function signingRootFromProvisionInput(input: ProvisionEcdsaInput): ProvisionEcdsaSigningRoot {
   const signingRoot = signingRootScopeFromRuntimePolicyScope(input.route.runtimePolicyScope);
   return {
-    signingRootId: toEcdsaHssSigningRootId(signingRoot.signingRootId),
-    signingRootVersion: toEcdsaHssSigningRootVersion(signingRoot.signingRootVersion),
+    signingRootId: toEcdsaDerivationSigningRootId(signingRoot.signingRootId),
+    signingRootVersion: toEcdsaDerivationSigningRootVersion(signingRoot.signingRootVersion),
   };
 }
 
@@ -391,7 +391,7 @@ export async function provisionEcdsa(
   const secretSource = await secretSourceFromInput(deps, input);
   if (isProvisionEcdsaFailure(secretSource)) return secretSource;
 
-  const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
+  const applicationBindingDigestB64u = await computeSdkEcdsaDerivationApplicationBindingDigestB64u({
     walletId: input.walletId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     signingRootId: signingRoot.signingRootId,
@@ -399,7 +399,7 @@ export async function provisionEcdsa(
   });
   const prepared = await deps.signerCrypto.prepareEcdsaClientBootstrap({
     kind: 'prepare_ecdsa_client_bootstrap_v1',
-    algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+    algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
     context: {
       applicationBindingDigestB64u,
     },
@@ -450,7 +450,7 @@ export async function provisionEcdsa(
     relayerParticipantId: 2,
     participantIds: input.participantIds,
     contextBinding32B64u: finalized.value.publicFacts.contextBinding32B64u,
-    hssClientSharePublicKey33B64u: finalized.value.publicFacts.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: finalized.value.publicFacts.derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u: finalized.value.publicFacts.relayerPublicKey33B64u,
     groupPublicKey33B64u: finalized.value.publicFacts.groupPublicKey33B64u,
     ethereumAddress: finalized.value.publicFacts.ethereumAddress,

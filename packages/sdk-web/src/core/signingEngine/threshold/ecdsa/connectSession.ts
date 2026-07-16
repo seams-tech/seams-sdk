@@ -6,7 +6,7 @@ import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 /**
  * Wallet-origin helper for threshold-ECDSA session bootstrap.
- * - runs staged `ecdsa-hss` bootstrap via `bootstrapEcdsaSession(...)`
+ * - runs staged `ecdsa-derivation` bootstrap via `bootstrapEcdsaSession(...)`
  * - validates that returned `relayerKeyId` matches the requested key id
  */
 export async function connectEcdsaSession(args: {

@@ -9,6 +9,7 @@ import { buildEvmDisplayModel } from '@/core/signingEngine/chains/evm/display/ev
 import { buildTempoDisplayModel } from '@/core/signingEngine/chains/tempo/display';
 import type { SignRequest } from '@/core/signingEngine/interfaces/signing';
 import { signEvmFamilyWithUiConfirm, type SignEvmFamilyWithUiConfirmArgs } from './signingFlow';
+import { requiredEvmFamilyRequestSignatureUses } from './signatureUses';
 import { resolveWebAuthnP256KeyRefForWallet } from './webauthnP256KeyRef';
 
 export async function signEvmFamilyWithUiConfirmForTempo(
@@ -26,6 +27,7 @@ export async function signEvmFamilyWithUiConfirmForTempo(
         buildIntent: async ({ workerCtx, request }) =>
           await new EvmAdapter(workerCtx).buildIntent(request),
         buildDisplayModel: buildEvmDisplayModel,
+        requiredSignatureUsesForRequest: requiredEvmFamilyRequestSignatureUses,
         webauthn: { kind: 'not_supported' },
       },
       input: args as SignEvmFamilyWithUiConfirmArgs<EvmSigningRequest>,
@@ -43,6 +45,7 @@ export async function signEvmFamilyWithUiConfirmForTempo(
       buildIntent: async ({ workerCtx, request }) =>
         await new TempoAdapter(workerCtx).buildIntent(request),
       buildDisplayModel: buildTempoDisplayModel,
+      requiredSignatureUsesForRequest: requiredEvmFamilyRequestSignatureUses,
       webauthn: {
         kind: 'supported',
         requestNeedsWebAuthn: (request) => request.senderSignatureAlgorithm === 'webauthnP256',

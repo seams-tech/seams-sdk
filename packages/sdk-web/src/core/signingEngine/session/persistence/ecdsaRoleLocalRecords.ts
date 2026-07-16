@@ -7,11 +7,11 @@ import {
 } from '../../interfaces/ecdsaChainTarget';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
-} from '../identity/emailOtpHssIdentity';
+} from '../identity/emailOtpEcdsaDerivationIdentity';
 import {
   parseRawThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionRecord,
@@ -29,9 +29,9 @@ import type {
   LoadEcdsaRoleLocalReadyRecordInput,
 } from '@/core/platform/types';
 import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 export type EcdsaRoleLocalExportMaterial = {
@@ -76,18 +76,18 @@ function parseCompressedSecp256k1PublicKey(value: unknown, field: string): strin
   return normalized;
 }
 
-function parseHssClientSharePublicKey(value: unknown): EcdsaHssClientSharePublicKey33B64u {
+function parseEcdsaDerivationClientSharePublicKey(value: unknown): DerivationClientSharePublicKey33B64u {
   return parseCompressedSecp256k1PublicKey(
     value,
-    'hssClientSharePublicKey33B64u',
-  ) as EcdsaHssClientSharePublicKey33B64u;
+    'derivationClientSharePublicKey33B64u',
+  ) as DerivationClientSharePublicKey33B64u;
 }
 
-function parseRelayerHssPublicKey(value: unknown): EcdsaRelayerHssPublicKey33B64u {
+function parseRelayerEcdsaDerivationPublicKey(value: unknown): EcdsaDerivationRelayerPublicKey33B64u {
   return parseCompressedSecp256k1PublicKey(
     value,
     'relayerPublicKey33B64u',
-  ) as EcdsaRelayerHssPublicKey33B64u;
+  ) as EcdsaDerivationRelayerPublicKey33B64u;
 }
 
 function parseGroupPublicKey(value: unknown): EcdsaGroupPublicKey33B64u {
@@ -257,13 +257,13 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   if (Number(input.relayerParticipantId) !== 2) {
     throw new Error('[platform][ecdsa-role-local] relayerParticipantId must be 2');
   }
-  const hssClientSharePublicKey33B64u = parseHssClientSharePublicKey(
-    input.hssClientSharePublicKey33B64u,
+  const derivationClientSharePublicKey33B64u = parseEcdsaDerivationClientSharePublicKey(
+    input.derivationClientSharePublicKey33B64u,
   );
-  const relayerPublicKey33B64u = parseRelayerHssPublicKey(input.relayerPublicKey33B64u);
-  if (String(hssClientSharePublicKey33B64u) === String(relayerPublicKey33B64u)) {
+  const relayerPublicKey33B64u = parseRelayerEcdsaDerivationPublicKey(input.relayerPublicKey33B64u);
+  if (String(derivationClientSharePublicKey33B64u) === String(relayerPublicKey33B64u)) {
     throw new Error(
-      '[platform][ecdsa-role-local] relayerPublicKey33B64u must differ from hssClientSharePublicKey33B64u',
+      '[platform][ecdsa-role-local] relayerPublicKey33B64u must differ from derivationClientSharePublicKey33B64u',
     );
   }
   return {
@@ -273,9 +273,9 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
       isRecord(input.chainTarget) ? input.chainTarget : {},
     ),
     keyHandle: requiredString(input.keyHandle, 'keyHandle'),
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(input.ecdsaThresholdKeyId),
-    signingRootId: toEcdsaHssSigningRootId(input.signingRootId),
-    signingRootVersion: toEcdsaHssSigningRootVersion(input.signingRootVersion),
+    ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(input.ecdsaThresholdKeyId),
+    signingRootId: toEcdsaDerivationSigningRootId(input.signingRootId),
+    signingRootVersion: toEcdsaDerivationSigningRootVersion(input.signingRootVersion),
     applicationBindingDigestB64u: parseBase64UrlBytes(
       input.applicationBindingDigestB64u,
       'applicationBindingDigestB64u',
@@ -289,7 +289,7 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
       'contextBinding32B64u',
       32,
     ),
-    hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u,
     groupPublicKey33B64u: parseGroupPublicKey(input.groupPublicKey33B64u),
     ethereumAddress: parseEthereumAddress(input.ethereumAddress),
@@ -568,7 +568,7 @@ function serializeEcdsaRoleLocalPublicFacts(
     relayerParticipantId: 2,
     participantIds: [1, 2],
     contextBinding32B64u: facts.contextBinding32B64u,
-    hssClientSharePublicKey33B64u: facts.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: facts.derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u: facts.relayerPublicKey33B64u,
     groupPublicKey33B64u: facts.groupPublicKey33B64u,
     ethereumAddress: facts.ethereumAddress,

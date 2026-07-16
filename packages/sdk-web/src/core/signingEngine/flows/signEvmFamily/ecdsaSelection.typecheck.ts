@@ -1,15 +1,17 @@
 import type {
   BudgetBlockedEvmFamilyEcdsaSigningSelection,
   EmailOtpEcdsaCommittedLane,
+  EmailOtpEcdsaPublicReauthLane,
   EcdsaCommittedLane,
-  EcdsaCommittedLaneWalletSessionAuthority,
   EcdsaSelectionDiagnostics,
   ReadyPasskeyEcdsaCommittedLane,
+  PasskeyEcdsaPublicReauthLane,
   RecordBackedEcdsaCommittedLane,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
   RestoreRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
+import type { EcdsaWalletSessionAuthority } from '../../session/identity/ecdsaWalletSessionAuthority';
 import { ecdsaCommittedLaneAuthMethod } from './ecdsaSelection';
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
@@ -50,6 +52,8 @@ declare const restoreCandidate: RestoreRequiredEvmFamilyEcdsaSigningSelection['c
 declare const restoreMaterial: RestoreRequiredEvmFamilyEcdsaSigningSelection['material'];
 declare const restoreChainTarget: RestoreRequiredEvmFamilyEcdsaSigningSelection['restoreChainTarget'];
 declare const readyPasskeyCommittedLane: ReadyPasskeyEcdsaCommittedLane;
+declare const passkeyPublicReauthLane: PasskeyEcdsaPublicReauthLane;
+declare const emailOtpPublicReauthLane: EmailOtpEcdsaPublicReauthLane;
 declare const walletSessionJwt: VerifiedWalletSessionJwt;
 declare const walletId: WalletId;
 declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
@@ -63,7 +67,7 @@ void (readyPasskeyCommittedLane.authority satisfies typeof passkeyAuthority);
 void (ecdsaCommittedLaneAuthMethod(readyPasskeyCommittedLane) satisfies 'passkey');
 
 const walletSessionAuthority = {
-  kind: 'wallet_session_authority',
+  kind: 'ecdsa_wallet_session_authority',
   walletSessionJwt,
   walletId,
   evmFamilySigningKeySlotId,
@@ -73,13 +77,13 @@ const walletSessionAuthority = {
   signingGrantId,
   thresholdExpiresAtMs,
   participantIds,
-} satisfies EcdsaCommittedLaneWalletSessionAuthority;
+} satisfies EcdsaWalletSessionAuthority;
 
 const invalidWalletSessionAuthorityWithRecordExpiry = {
   ...walletSessionAuthority,
   // @ts-expect-error committed ECDSA wallet-session authority requires JWT-derived branded expiry.
   thresholdExpiresAtMs: 1_900_000_000_000,
-} satisfies EcdsaCommittedLaneWalletSessionAuthority;
+} satisfies EcdsaWalletSessionAuthority;
 void invalidWalletSessionAuthorityWithRecordExpiry;
 
 const missingHotEmailOtpMaterial: ReauthRequiredEvmFamilyEcdsaSigningSelection['material'] = {
@@ -340,8 +344,7 @@ const expiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
   lane: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'],
   material: missingHotMaterialSelection.material,
   reason: 'expired',
-  reauthAnchor,
-  committedLane: readyPasskeyCommittedLane,
+  reauthLane: passkeyPublicReauthLane,
   diagnostics: readySelection.diagnostics,
 };
 void expiredSelection;
@@ -359,7 +362,7 @@ const invalidPasskeyReauthSelectionWithoutCommittedLane: ReauthRequiredEvmFamily
   };
 void invalidPasskeyReauthSelectionWithoutCommittedLane;
 
-// @ts-expect-error exhausted/expired reauth selections require a ReauthAnchorIdentity.
+// @ts-expect-error expired selections require a public reauth lane and reject live committed authority.
 const invalidExpiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
   kind: 'reauth_required',
   accountAuth: readySelection.accountAuth,
@@ -371,6 +374,38 @@ const invalidExpiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
   diagnostics: readySelection.diagnostics,
 };
 void invalidExpiredSelection;
+
+// @ts-expect-error missing-hot-material selections require live committed authority.
+const invalidMissingHotMaterialWithPublicAnchor: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'reauth_required',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'passkey',
+  lane: reauthLane,
+  material: missingHotMaterialSelection.material,
+  reason: 'missing_hot_material',
+  reauthLane: passkeyPublicReauthLane,
+  diagnostics: readySelection.diagnostics,
+};
+void invalidMissingHotMaterialWithPublicAnchor;
+
+const validEmailOtpExpiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'reauth_required',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'email_otp',
+  lane: reauthLane,
+  material: missingHotMaterialSelection.material,
+  reason: 'exhausted',
+  reauthLane: emailOtpPublicReauthLane,
+  diagnostics: readySelection.diagnostics,
+};
+void validEmailOtpExpiredSelection;
+
+const invalidPublicReauthLaneWithWalletSession: EmailOtpEcdsaPublicReauthLane = {
+  ...emailOtpPublicReauthLane,
+  // @ts-expect-error public reauth lanes reject old Wallet Session authority.
+  walletSessionAuthority: committedEmailOtpLane.walletSessionAuthority,
+};
+void invalidPublicReauthLaneWithWalletSession;
 
 const invalidReadySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   kind: 'ready',

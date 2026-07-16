@@ -1,12 +1,12 @@
 import {
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
-  parseServerPlannedEcdsaHssContext,
+  parseServerPlannedEcdsaDerivationContext,
   prepareEcdsaClientBootstrapCommandWasm,
-  type ServerPlannedEcdsaHssContext,
-  type ThresholdEcdsaHssRoleLocalClientContext,
-  type ThresholdEcdsaHssStableKeyContext,
-} from './ecdsaClientSignerWasm';
+  type ServerPlannedEcdsaDerivationContext,
+  type ThresholdEcdsaDerivationRoleLocalClientContext,
+  type ThresholdEcdsaDerivationStableKeyContext,
+} from './ecdsaDerivationClientWasm';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand,
@@ -14,14 +14,14 @@ import type {
   PrepareEcdsaClientBootstrapCommand,
 } from '@/core/platform/generated/signerCoreCommands';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
-} from '../../session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
+} from '../../session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-const serverPlannedContext = parseServerPlannedEcdsaHssContext({
+const serverPlannedContext = parseServerPlannedEcdsaDerivationContext({
   walletId: 'wallet-user',
   evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
     walletId: 'wallet-user',
@@ -34,96 +34,96 @@ const serverPlannedContext = parseServerPlannedEcdsaHssContext({
     chainId: 11155111,
     networkSlug: 'ethereum-sepolia',
   },
-  ecdsaThresholdKeyId: 'ehss-stable',
+  ecdsaThresholdKeyId: 'ederivation-stable',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
 });
-void (serverPlannedContext satisfies ServerPlannedEcdsaHssContext);
+void (serverPlannedContext satisfies ServerPlannedEcdsaDerivationContext);
 
-const locallyConstructedStableContext: ThresholdEcdsaHssStableKeyContext = {
+const locallyConstructedStableContext: ThresholdEcdsaDerivationStableKeyContext = {
   walletId: toWalletId('wallet-user'),
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-stable'),
-  signingRootId: toEcdsaHssSigningRootId('project:dev'),
-  signingRootVersion: toEcdsaHssSigningRootVersion('default'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-stable'),
+  signingRootId: toEcdsaDerivationSigningRootId('project:dev'),
+  signingRootVersion: toEcdsaDerivationSigningRootVersion('default'),
 };
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context requires branded wallet ids.
+  // @ts-expect-error stable ECDSA DERIVATION key context requires branded wallet ids.
   walletId: 'wallet-user',
-} satisfies ThresholdEcdsaHssStableKeyContext);
+} satisfies ThresholdEcdsaDerivationStableKeyContext);
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context requires branded ECDSA key ids.
-  ecdsaThresholdKeyId: 'ehss-stable',
-} satisfies ThresholdEcdsaHssStableKeyContext);
+  // @ts-expect-error stable ECDSA DERIVATION key context requires branded ECDSA key ids.
+  ecdsaThresholdKeyId: 'ederivation-stable',
+} satisfies ThresholdEcdsaDerivationStableKeyContext);
 
-const stableContextWithSigningGrantId: ThresholdEcdsaHssStableKeyContext = {
+const stableContextWithSigningGrantId: ThresholdEcdsaDerivationStableKeyContext = {
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects volatile wallet session ids.
+  // @ts-expect-error stable ECDSA DERIVATION key context rejects volatile wallet session ids.
   signingGrantId: 'wsess-1',
 };
 void stableContextWithSigningGrantId;
 
-const stableContextWithThresholdSessionId: ThresholdEcdsaHssStableKeyContext = {
+const stableContextWithThresholdSessionId: ThresholdEcdsaDerivationStableKeyContext = {
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects volatile threshold session ids.
+  // @ts-expect-error stable ECDSA DERIVATION key context rejects volatile threshold session ids.
   thresholdSessionId: 'tsess-1',
 };
 void stableContextWithThresholdSessionId;
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects SDK wallet key aliases.
+  // @ts-expect-error stable ECDSA DERIVATION key context rejects SDK wallet key aliases.
   evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
     walletId: 'wallet-user',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
   }),
-} satisfies ThresholdEcdsaHssStableKeyContext);
+} satisfies ThresholdEcdsaDerivationStableKeyContext);
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects chain targets.
+  // @ts-expect-error stable ECDSA DERIVATION key context rejects chain targets.
   chainTarget: {
     kind: 'evm',
     namespace: 'eip155',
     chainId: 11155111,
     networkSlug: 'ethereum-sepolia',
   },
-} satisfies ThresholdEcdsaHssStableKeyContext);
+} satisfies ThresholdEcdsaDerivationStableKeyContext);
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects caller-provided key purpose.
+  // @ts-expect-error stable ECDSA DERIVATION key context rejects caller-provided key purpose.
   keyPurpose: 'evm-signing',
-} satisfies ThresholdEcdsaHssStableKeyContext);
+} satisfies ThresholdEcdsaDerivationStableKeyContext);
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects protocol key version labels.
+  // @ts-expect-error stable ECDSA DERIVATION key context rejects protocol key version labels.
   keyVersion: 'v1',
-} satisfies ThresholdEcdsaHssStableKeyContext);
+} satisfies ThresholdEcdsaDerivationStableKeyContext);
 
-const roleLocalClientContext: ThresholdEcdsaHssRoleLocalClientContext = {
+const roleLocalClientContext: ThresholdEcdsaDerivationRoleLocalClientContext = {
   walletId: toWalletId('wallet-user'),
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-stable'),
-  signingRootId: toEcdsaHssSigningRootId('project:dev'),
-  signingRootVersion: toEcdsaHssSigningRootVersion('default'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-stable'),
+  signingRootId: toEcdsaDerivationSigningRootId('project:dev'),
+  signingRootVersion: toEcdsaDerivationSigningRootVersion('default'),
 };
 const passkeyRpId = toRpId('wallet.example.test');
 
 void ({
   ...roleLocalClientContext,
-  // @ts-expect-error role-local client context excludes chain-specific HSS derivation fields.
+  // @ts-expect-error role-local client context excludes chain-specific DERIVATION derivation fields.
   chainTarget: {
     kind: 'evm',
     namespace: 'eip155',
     chainId: 11155111,
     networkSlug: 'ethereum-sepolia',
   },
-} satisfies ThresholdEcdsaHssRoleLocalClientContext);
+} satisfies ThresholdEcdsaDerivationRoleLocalClientContext);
 
 declare const workerCtx: WorkerOperationContext;
 
@@ -131,7 +131,7 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
   const prepared = await prepareEcdsaClientBootstrapCommandWasm({
     command: {
       kind: 'prepare_ecdsa_client_bootstrap_v1',
-      algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+      algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
       context: {
         applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
@@ -150,7 +150,7 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
     workerCtx,
   });
   void (prepared.pendingStateBlob.kind satisfies 'ecdsa_role_local_pending_state_blob_v1');
-  void (prepared.clientBootstrap.hssClientSharePublicKey33B64u satisfies string);
+  void (prepared.clientBootstrap.derivationClientSharePublicKey33B64u satisfies string);
 }
 
 async function assertRoleLocalFinalizeShape(): Promise<void> {
@@ -181,7 +181,7 @@ async function assertRoleLocalExportShape(): Promise<void> {
   const artifact = await buildEcdsaRoleLocalExportArtifactCommandWasm({
     command: {
       kind: 'build_ecdsa_role_local_export_artifact_v1',
-      algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+      algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
       stateBlob: {
         kind: 'ecdsa_role_local_state_blob_v1',
         curve: 'secp256k1',
@@ -195,7 +195,7 @@ async function assertRoleLocalExportShape(): Promise<void> {
         relayerParticipantId: 2,
         participantIds: [1, 2],
         contextBinding32B64u: 'context-binding',
-        hssClientSharePublicKey33B64u: 'client-public',
+        derivationClientSharePublicKey33B64u: 'client-public',
         relayerPublicKey33B64u: 'relayer-public',
         groupPublicKey33B64u: 'group-public',
         ethereumAddress: '0x1111111111111111111111111111111111111111',

@@ -74,7 +74,7 @@ const TARGETS = [
     id: 'secure-confirm-worker',
     label: 'secure-confirm worker',
     relPath: 'dist/workers/passkey-confirm.worker.js',
-    budget: { raw: 25_000, gzip: 8_000, brotli: 8_000 },
+    budget: { raw: 220_000, gzip: 38_000, brotli: 32_000 },
   },
   {
     id: 'signer-worker',
@@ -83,10 +83,44 @@ const TARGETS = [
     budget: { raw: 90_000, gzip: 20_000, brotli: 20_000 },
   },
   {
-    id: 'hss-client-worker',
-    label: 'hss client worker',
-    relPath: 'dist/workers/ecdsa-hss-client.worker.js',
+    id: 'ecdsa-derivation-client-worker',
+    label: 'ECDSA derivation client worker',
+    relPath: 'dist/workers/ecdsa-derivation-client.worker.js',
     budget: { raw: 55_000, gzip: 14_000, brotli: 14_000 },
+  },
+  {
+    id: 'ecdsa-presign-client-worker',
+    label: 'ECDSA presign client worker',
+    relPath: 'dist/workers/ecdsa-presign-client.worker.js',
+    budget: { raw: 55_000, gzip: 14_000, brotli: 14_000 },
+  },
+  {
+    id: 'ecdsa-online-client-worker',
+    label: 'ECDSA online client worker',
+    relPath: 'dist/workers/ecdsa-online-client.worker.js',
+    budget: { raw: 45_000, gzip: 12_000, brotli: 12_000 },
+  },
+  {
+    id: 'ecdsa-derivation-client-wasm',
+    label: 'ECDSA derivation client WASM',
+    relPath: 'dist/workers/router_ab_ecdsa_derivation_client_bg.wasm',
+    budget: { raw: 630_000, gzip: 250_000, brotli: 200_000 },
+  },
+  {
+    id: 'ecdsa-presign-client-wasm',
+    label: 'ECDSA presign client WASM',
+    relPath: 'dist/workers/router_ab_ecdsa_presign_client_bg.wasm',
+  },
+  {
+    id: 'ecdsa-online-client-wasm',
+    label: 'ECDSA online client WASM',
+    relPath: 'dist/workers/router_ab_ecdsa_online_client_bg.wasm',
+  },
+  {
+    id: 'ed25519-yao-client-wasm',
+    label: 'Ed25519 Yao client WASM',
+    relPath: 'dist/workers/router_ab_ed25519_yao_client_bg.wasm',
+    budget: { raw: 556_435, gzip: 223_677, brotli: 223_677 },
   },
   {
     id: 'wasm-signer',

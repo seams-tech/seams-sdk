@@ -1,7 +1,7 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   EcdsaRoleLocalBindingDigest,
   EcdsaRoleLocalMaterialHandle,
@@ -19,7 +19,7 @@ export type SignatureAlgorithm = 'ed25519' | 'secp256k1' | 'webauthnP256';
 export type SignatureBytes = Uint8Array;
 
 export type ThresholdEcdsaCanonicalExportArtifact = {
-  artifactKind: 'ecdsa-hss-secp256k1-export';
+  artifactKind: 'ecdsa-derivation-secp256k1-export';
   chainTarget: ThresholdEcdsaChainTarget;
   signingRootId: string;
   signingRootVersion?: string;
@@ -41,9 +41,9 @@ export type ThresholdEcdsaRoleLocalWorkerShareHandle = {
   bindingDigest: EcdsaRoleLocalBindingDigest;
 };
 
-export type ThresholdEcdsaHssRoleLocalClientState = {
+export type ThresholdEcdsaDerivationRoleLocalClientState = {
   kind: 'role_local_ready';
-  artifactKind: 'ecdsa-hss-role-local-client-state';
+  artifactKind: 'ecdsa-derivation-role-local-client-state';
   stateBlob: EcdsaRoleLocalReadyStateBlob;
   publicFacts: EcdsaRoleLocalPublicFacts;
 };
@@ -70,7 +70,7 @@ export type ThresholdEcdsaEmailOtpWorkerBackendBinding = ThresholdEcdsaBackendBi
   clientAdditiveShareHandle: ThresholdEcdsaClientAdditiveShareHandle;
   ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
   stateBlob?: never;
-  ecdsaHssRoleLocalClientState?: never;
+  ecdsaDerivationRoleLocalClientState?: never;
 };
 
 export type ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding =
@@ -79,7 +79,7 @@ export type ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding =
     stateBlob: EcdsaRoleLocalReadyStateBlob;
     ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
     clientAdditiveShareHandle?: never;
-    ecdsaHssRoleLocalClientState?: never;
+    ecdsaDerivationRoleLocalClientState?: never;
   };
 
 export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
@@ -89,7 +89,7 @@ export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
     ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
     stateBlob?: never;
     clientAdditiveShareHandle?: never;
-    ecdsaHssRoleLocalClientState?: never;
+    ecdsaDerivationRoleLocalClientState?: never;
   };
 
 export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBindingCommon & {
@@ -97,7 +97,7 @@ export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBind
   stateBlob?: never;
   clientAdditiveShareHandle?: never;
   ecdsaRoleLocalReadyRecord?: never;
-  ecdsaHssRoleLocalClientState?: never;
+  ecdsaDerivationRoleLocalClientState?: never;
 };
 
 export type ThresholdEcdsaBackendBinding =
@@ -113,7 +113,7 @@ export type KeyRef =
       chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
       /**
-       * Canonical product-facing identity for the integrated ecdsa-hss key.
+       * Canonical product-facing identity for the integrated ecdsa-derivation key.
        */
       keyHandle?: string;
       evmFamilySigningKeySlotId: string;
@@ -121,12 +121,12 @@ export type KeyRef =
       signingRootId?: never;
       signingRootVersion?: never;
       backendBinding?: ThresholdEcdsaBackendBinding;
-      ecdsaHssExportArtifact?: ThresholdEcdsaCanonicalExportArtifact;
+      ecdsaDerivationExportArtifact?: ThresholdEcdsaCanonicalExportArtifact;
       participantIds?: number[];
       thresholdEcdsaPublicKeyB64u?: string;
       ethereumAddress?: string;
       relayerVerifyingShareB64u?: string;
-      routerAbEcdsaHssNormalSigning?: RouterAbEcdsaHssNormalSigningStateV1;
+      routerAbEcdsaDerivationNormalSigning?: RouterAbEcdsaDerivationNormalSigningStateV1;
       thresholdSessionKind?: 'jwt' | 'cookie';
       walletSessionJwt?: string;
       thresholdSessionId: string;

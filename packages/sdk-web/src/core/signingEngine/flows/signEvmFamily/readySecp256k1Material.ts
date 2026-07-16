@@ -14,8 +14,8 @@ import {
   emailOtpAuthContextRetention,
 } from '../../session/identity/laneIdentity';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
-  requireRouterAbEcdsaHssSigningWalletSessionFromRecord,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
+  requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord,
 } from '../../session/routerAbSigningWalletSession';
 import {
   buildReadySecp256k1SigningMaterial,
@@ -69,14 +69,14 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
     );
   }
 
-  const workerMaterial = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+  const workerMaterial = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
   if (workerMaterial.kind !== 'runtime_validated') {
     throw new Error(
       `[multichain] threshold-ecdsa role-local worker material is not runtime-validated: ${workerMaterial.reason}`,
     );
   }
 
-  const signingWalletSession = requireRouterAbEcdsaHssSigningWalletSessionFromRecord(args.record);
+  const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(args.record);
   const walletSessionJwt = signingWalletSession.auth.walletSessionJwt;
 
   const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({

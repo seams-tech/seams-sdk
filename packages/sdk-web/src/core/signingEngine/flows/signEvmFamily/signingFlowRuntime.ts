@@ -64,8 +64,8 @@ import {
   resolveRouterAbEcdsaWalletSessionAuthFromRecord,
 } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
-  type RouterAbEcdsaHssPersistedSigningRecordState,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
+  type RouterAbEcdsaDerivationPersistedSigningRecordState,
 } from '../../session/routerAbSigningWalletSession';
 import {
   normalizeStepUpOperationId,
@@ -73,9 +73,9 @@ import {
   resolveSigningBudgetPolicyRemainingUses,
 } from '../../session/budget/policy';
 import {
-  computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
-  computeEcdsaHssRoleLocalRelayerKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u,
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 type PasskeyEcdsaReconnectMaterial = {
   kind: 'session_record';
@@ -164,7 +164,7 @@ function generateEvmFamilyEcdsaBootstrapRequestId(): string {
 }
 
 function unavailableEcdsaSigningMaterialPlanForRecordState(
-  state: RouterAbEcdsaHssPersistedSigningRecordState,
+  state: RouterAbEcdsaDerivationPersistedSigningRecordState,
 ): EcdsaSigningMaterialPlan {
   switch (state.kind) {
     case 'runtime_validated':
@@ -194,7 +194,7 @@ async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
   requestLabel: unknown;
   evmFamilySigningKeySlotId: unknown;
 }): Promise<EcdsaSigningMaterialPlan> {
-  const recordState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+  const recordState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
   if (recordState.kind !== 'runtime_validated') {
     return unavailableEcdsaSigningMaterialPlanForRecordState(recordState);
   }
@@ -327,7 +327,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!materialRelayerKeyId) {
           throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
         }
-        const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+        const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
           walletId,
           evmFamilySigningKeySlotId,
         });
@@ -363,7 +363,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           remainingUses,
         });
         const passkeyBootstrapDigest32B64u =
-          await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+          await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u({
             walletId: policy.walletId,
             evmFamilySigningKeySlotId: policy.evmFamilySigningKeySlotId,
             rpId,

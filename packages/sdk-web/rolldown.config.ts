@@ -25,11 +25,12 @@ const ED25519_YAO_CLIENT_WASM_JS_ABS = path.resolve(
 );
 const ED25519_YAO_CLIENT_WASM_JS_OUT =
   'wasm/router_ab_ed25519_yao_client/pkg/router_ab_ed25519_yao_client.js';
-const ECDSA_CLIENT_SIGNER_WASM_JS_ABS = path.resolve(
+const ECDSA_DERIVATION_CLIENT_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
-  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js',
+  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
 );
-const ECDSA_CLIENT_SIGNER_WASM_JS_OUT = 'wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
+const ECDSA_DERIVATION_CLIENT_WASM_JS_OUT =
+  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
 const NEAR_SIGNER_WORKER_ENUM_EXPORTS = [
   'ConfirmationBehavior',
   'ConfirmationUIMode',
@@ -47,7 +48,7 @@ const preservedModuleOut = (opts: { facadeModuleId: string; rootAbs: string; pre
   const facadeAbs = path.resolve(opts.facadeModuleId);
   if (facadeAbs === NEAR_SIGNER_WASM_JS_ABS) return NEAR_SIGNER_WASM_JS_OUT;
   if (facadeAbs === ED25519_YAO_CLIENT_WASM_JS_ABS) return ED25519_YAO_CLIENT_WASM_JS_OUT;
-  if (facadeAbs === ECDSA_CLIENT_SIGNER_WASM_JS_ABS) return ECDSA_CLIENT_SIGNER_WASM_JS_OUT;
+  if (facadeAbs === ECDSA_DERIVATION_CLIENT_WASM_JS_ABS) return ECDSA_DERIVATION_CLIENT_WASM_JS_OUT;
 
   const rel = toPosixPath(path.relative(opts.rootAbs, facadeAbs));
   const relNoExt = stripExt(stripLeadingDotDots(rel));
@@ -470,7 +471,7 @@ const configs = [
       // Keep sealed signing-session persistence stable for worker wiring/tests.
       'src/core/signingEngine/session/persistence/sealedSessionStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
-      'src/core/signingEngine/chains/evm/ethSignerWasm.ts',
+      'src/core/signingEngine/chains/evm/evmCryptoWasm.ts',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
@@ -636,31 +637,41 @@ const configs = [
     ],
   },
   {
-    input: '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js',
+    input: '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
-      entryFileNames: 'wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js',
+      entryFileNames:
+        'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
     },
     plugins: [
       {
-        name: 'emit-hss-client-signer-wasm',
+        name: 'emit-router-ab-ecdsa-derivation-client-wasm',
         generateBundle(_options, bundle) {
           for (const output of Object.values(bundle)) {
-            if (output.type !== 'chunk' || output.fileName !== ECDSA_CLIENT_SIGNER_WASM_JS_OUT) {
+            if (
+              output.type !== 'chunk' ||
+              output.fileName !== ECDSA_DERIVATION_CLIENT_WASM_JS_OUT
+            ) {
               continue;
             }
           }
           try {
             const source = fs.readFileSync(
-              path.join(SDK_ROOT_ABS, '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm'),
+              path.join(
+                SDK_ROOT_ABS,
+                '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+              ),
             );
             (this as any).emitFile({
               type: 'asset',
-              fileName: 'wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
+              fileName:
+                'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
               source,
             });
-            console.log('✅ Emitted dist/esm/wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm');
+            console.log(
+              '✅ Emitted dist/esm/wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+            );
           } catch (error) {
             console.error('❌ Failed to copy ECDSA client signer WASM asset:', error);
             throw error;

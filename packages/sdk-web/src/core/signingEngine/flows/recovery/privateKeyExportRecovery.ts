@@ -4,7 +4,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
 type ExportScheme = 'secp256k1';
-type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-export';
+type EcdsaDerivationExportArtifactKind = 'ecdsa-derivation-secp256k1-export';
 
 type ExportRecoveryErrorCode = 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
 type ExportRecoveryError = Error & { code: ExportRecoveryErrorCode };
@@ -67,12 +67,12 @@ function requireSecp256k1ExportSchemes(
   return validated;
 }
 
-export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
+export async function exportEcdsaDerivationThresholdKeyArtifactWithUIWorkerDriven(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
     walletId: WalletId | string;
     artifact: {
-      artifactKind: EcdsaHssExportArtifactKind;
+      artifactKind: EcdsaDerivationExportArtifactKind;
       chainTarget: ThresholdEcdsaChainTarget;
       publicKeyHex: string;
       privateKeyHex: string;
@@ -102,11 +102,11 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   const publicKeyHex = String(args.artifact.publicKeyHex || '').trim();
   const privateKeyHex = String(args.artifact.privateKeyHex || '').trim();
   const ethereumAddress = String(args.artifact.ethereumAddress || '').trim();
-  if (artifactKind !== 'ecdsa-hss-secp256k1-export') {
-    throw new Error('Missing or invalid ecdsa-hss export artifactKind');
+  if (artifactKind !== 'ecdsa-derivation-secp256k1-export') {
+    throw new Error('Missing or invalid ecdsa-derivation export artifactKind');
   }
   if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {
-    throw new Error('Incomplete ecdsa-hss secp256k1 export artifact');
+    throw new Error('Incomplete ecdsa-derivation secp256k1 export artifact');
   }
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
@@ -140,12 +140,12 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   return result;
 }
 
-export async function exportEcdsaHssThresholdKeyArtifactWithUI(
+export async function exportEcdsaDerivationThresholdKeyArtifactWithUI(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
     walletId: WalletId | string;
     artifact: {
-      artifactKind: EcdsaHssExportArtifactKind;
+      artifactKind: EcdsaDerivationExportArtifactKind;
       chainTarget: ThresholdEcdsaChainTarget;
       publicKeyHex: string;
       privateKeyHex: string;
@@ -157,7 +157,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUI(
     };
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
-  const result = await exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(deps, args);
+  const result = await exportEcdsaDerivationThresholdKeyArtifactWithUIWorkerDriven(deps, args);
   return {
     accountId: result.accountId,
     exportedSchemes: requireSecp256k1ExportSchemes(result.exportedSchemes),

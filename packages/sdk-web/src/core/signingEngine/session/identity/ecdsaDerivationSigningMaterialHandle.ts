@@ -127,7 +127,7 @@ export function ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession(
     signingGrantId: String(signerSession.session.signingGrantId),
     keyHandle: parseEcdsaKeyHandle(signerSession.publicFacts.keyHandle),
     routerAbStateSessionId: String(
-      signerSession.routerAbEcdsaHssNormalSigning.walletSessionSessionId,
+      signerSession.routerAbEcdsaDerivationNormalSigning.walletSessionSessionId,
     ),
     chainTarget: signerSession.chainTarget,
     clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(

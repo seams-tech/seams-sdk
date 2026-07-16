@@ -17,12 +17,12 @@ import {
   type WorkerResponseForRequest,
   type DelegatePayload,
   type WasmSignedDelegate,
-  type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest,
-  type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult,
-  type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest,
-  type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult,
-  type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest,
-  type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult,
+  type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
+  type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
+  type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
+  type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
+  type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactRequest,
+  type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactResult,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -64,6 +64,7 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+import type { ThresholdSecp256k1Ecdsa2pTopologyV1 } from '@shared/threshold/secp256k1';
 
 export type EmailOtpEd25519YaoFactorRequest =
   | { kind: 'requested'; providerSubject: string }
@@ -78,6 +79,13 @@ export type EmailOtpEd25519YaoFactorResult =
       kind: 'not_requested';
       pendingFactorHandle?: never;
     };
+
+export type EmailOtpMixedWalletSigningBudgetV1 = {
+  readonly kind: 'email_otp_mixed_wallet_signing_budget_v1';
+  readonly signingGrantId: string;
+  readonly ttlMs: number;
+  readonly remainingUses: number;
+};
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
   readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_v1';
@@ -194,7 +202,7 @@ export type RpcSignerWorkerProgressEvent = {
   data?: Record<string, unknown>;
 };
 
-export interface EthSignerWorkerOperationMap {
+export interface EvmCryptoWorkerOperationMap {
   computeEip1559TxHash: {
     payload: { tx: unknown };
     result: ArrayBuffer;
@@ -223,10 +231,6 @@ export interface EthSignerWorkerOperationMap {
       ethereumAddress20: ArrayBuffer;
     };
   };
-  mapAdditiveShareToThresholdSignaturesShare2p: {
-    payload: { additiveShare32: ArrayBuffer; participantId: number };
-    result: ArrayBuffer;
-  };
   validateSecp256k1PublicKey33: {
     payload: { publicKey33: ArrayBuffer };
     result: ArrayBuffer;
@@ -248,42 +252,6 @@ export interface EthSignerWorkerOperationMap {
   };
   decodeCoseP256PublicKey: {
     payload: { cosePublicKey: ArrayBuffer };
-    result: ArrayBuffer;
-  };
-  thresholdEcdsaPresignSessionInit: {
-    payload: {
-      sessionId: string;
-      participantIds: number[];
-      clientParticipantId: number;
-      threshold: number;
-      clientThresholdSigningShare32: ArrayBuffer;
-      groupPublicKey33: ArrayBuffer;
-    };
-    result: ThresholdEcdsaPresignProgressResult;
-  };
-  thresholdEcdsaPresignSessionStep: {
-    payload: {
-      sessionId: string;
-      relayerParticipantId: number;
-      stage: 'triples' | 'presign';
-      incomingMessages: ArrayBuffer[];
-    };
-    result: ThresholdEcdsaPresignProgressResult;
-  };
-  thresholdEcdsaPresignSessionAbort: {
-    payload: { sessionId: string };
-    result: ThresholdEcdsaPresignAbortResult;
-  };
-  thresholdEcdsaComputeSignatureShareFromPresignatureHandle: {
-    payload: {
-      materialHandle: string;
-      participantIds: number[];
-      clientParticipantId: number;
-      groupPublicKey33: ArrayBuffer;
-      expectedPresignBigR33: ArrayBuffer;
-      digest32: ArrayBuffer;
-      entropy32: ArrayBuffer;
-    };
     result: ArrayBuffer;
   };
 }
@@ -747,8 +715,8 @@ export interface EmailOtpWorkerOperationMap {
     payload: EmailOtpEcdsaBootstrapStrictPayload;
     result: {
       bootstraps: ThresholdEcdsaSessionBootstrapResult[];
-      ecdsaHssExportArtifact?: {
-        artifactKind: 'ecdsa-hss-secp256k1-export';
+      ecdsaDerivationExportArtifact?: {
+        artifactKind: 'ecdsa-derivation-secp256k1-export';
         chainTarget: ThresholdEcdsaChainTarget;
         signingRootId: string;
         signingRootVersion?: string;
@@ -864,14 +832,6 @@ export interface EmailOtpWorkerOperationMap {
         }
       | { ok: false; code: string; message: string };
   };
-  claimEmailOtpEcdsaSigningShare: {
-    payload: {
-      sessionId: string;
-    };
-    result:
-      | { ok: true; clientSigningShare32: ArrayBuffer; remainingUses: number; expiresAtMs: number }
-      | { ok: false; code: string; message: string };
-  };
   clearEmailOtpWarmSessionMaterial: {
     payload: {
       sessionId: string;
@@ -881,7 +841,7 @@ export interface EmailOtpWorkerOperationMap {
       cleared: true;
     };
   };
-  exportThresholdEcdsaHssKeyWithEmailOtpAuthorization: {
+  exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization: {
     payload: {
       relayUrl: string;
       walletId: string;
@@ -946,7 +906,7 @@ export type EmailOtpWorkerOperationRequestEnvelope = {
 }[keyof EmailOtpWorkerOperationMap];
 
 export interface MultichainSignerWorkerOperationMapByKind {
-  ethSigner: EthSignerWorkerOperationMap;
+  evmCrypto: EvmCryptoWorkerOperationMap;
   tempoSigner: TempoSignerWorkerOperationMap;
 }
 
@@ -979,10 +939,10 @@ export type MultichainWorkerOperationResult<
   T extends MultichainOperationType<K>,
 > = MultichainWorkerOperationEntry<K, T>['result'];
 
-export type EthSignerTransactionOperationType =
+export type EvmCryptoTransactionOperationType =
   | 'computeEip1559TxHash'
   | 'encodeEip1559SignedTxFromSignature65';
-export type EthSignerLocalSecp256k1OperationType =
+export type EvmCryptoLocalSecp256k1OperationType =
   | 'signSecp256k1Recoverable'
   | 'verifySecp256k1RecoverableSignatureAgainstPublicKey33'
   | 'secp256k1PrivateKey32ToPublicKey33'
@@ -991,25 +951,15 @@ export type EthSignerLocalSecp256k1OperationType =
   | 'addSecp256k1PublicKeys33'
   | 'buildWebauthnP256Signature'
   | 'decodeCoseP256PublicKey';
-export type EthSignerThresholdEcdsaPresignOperationType =
-  | 'mapAdditiveShareToThresholdSignaturesShare2p'
-  | 'thresholdEcdsaPresignSessionInit'
-  | 'thresholdEcdsaPresignSessionStep'
-  | 'thresholdEcdsaPresignSessionAbort'
-  | 'thresholdEcdsaComputeSignatureShareFromPresignatureHandle';
-export type EthSignerDomainOperationType =
-  | EthSignerTransactionOperationType
-  | EthSignerLocalSecp256k1OperationType
-  | EthSignerThresholdEcdsaPresignOperationType;
+export type EvmCryptoDomainOperationType =
+  | EvmCryptoTransactionOperationType
+  | EvmCryptoLocalSecp256k1OperationType;
 
-export type EthSignerTransactionOperationRequest<T extends EthSignerTransactionOperationType> =
-  MultichainWorkerOperationRequest<'ethSigner', T>;
-export type EthSignerLocalSecp256k1OperationRequest<
-  T extends EthSignerLocalSecp256k1OperationType,
-> = MultichainWorkerOperationRequest<'ethSigner', T>;
-export type EthSignerThresholdEcdsaPresignOperationRequest<
-  T extends EthSignerThresholdEcdsaPresignOperationType,
-> = MultichainWorkerOperationRequest<'ethSigner', T>;
+export type EvmCryptoTransactionOperationRequest<T extends EvmCryptoTransactionOperationType> =
+  MultichainWorkerOperationRequest<'evmCrypto', T>;
+export type EvmCryptoLocalSecp256k1OperationRequest<
+  T extends EvmCryptoLocalSecp256k1OperationType,
+> = MultichainWorkerOperationRequest<'evmCrypto', T>;
 
 export type TempoSignerTransactionOperationType = 'computeTempoSenderHash' | 'encodeTempoSignedTx';
 export type TempoSignerTransactionOperationRequest<T extends TempoSignerTransactionOperationType> =
@@ -1046,10 +996,9 @@ export type EmailOtpWarmSessionOperationType =
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
   | 'rehydrateEmailOtpEd25519YaoFactor'
-  | 'claimEmailOtpEcdsaSigningShare'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType =
-  | 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'
+  | 'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization'
   | 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
@@ -1147,35 +1096,25 @@ export type NearEd25519DigestOperationRequest<T extends NearEd25519DigestOperati
 export type NearEd25519FinalizeOperationRequest<T extends NearEd25519FinalizeOperationType> =
   NearWorkerOperationRequest<T>;
 
-export const HssClientCustomRequestType = {
-  PrepareThresholdEcdsaHssRoleLocalClientBootstrap: 70_000,
-  FinalizeThresholdEcdsaHssRoleLocalClientBootstrap: 70_001,
-  BuildThresholdEcdsaHssRoleLocalExportArtifact: 70_002,
+export const EcdsaDerivationClientCustomRequestType = {
+  PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap: 70_000,
+  FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap: 70_001,
+  BuildThresholdEcdsaDerivationRoleLocalExportArtifact: 70_002,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
-  OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle: 70_005,
-  ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle: 70_008,
-  ThresholdEcdsaRoleLocalPresignSessionStep: 70_009,
-  ThresholdEcdsaRoleLocalPresignSessionAbort: 70_010,
-  ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle: 70_011,
 } as const;
 
-export type HssClientCustomRequestType =
-  (typeof HssClientCustomRequestType)[keyof typeof HssClientCustomRequestType];
+export type EcdsaDerivationClientCustomRequestType =
+  (typeof EcdsaDerivationClientCustomRequestType)[keyof typeof EcdsaDerivationClientCustomRequestType];
 
-export const HssClientCustomResponseType = {
-  PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess: 70_100,
-  FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess: 70_101,
-  BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess: 70_102,
+export const EcdsaDerivationClientCustomResponseType = {
+  PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess: 70_100,
+  FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess: 70_101,
+  BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess: 70_102,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
-  OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleSuccess: 70_105,
-  ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleSuccess: 70_108,
-  ThresholdEcdsaRoleLocalPresignSessionStepSuccess: 70_109,
-  ThresholdEcdsaRoleLocalPresignSessionAbortSuccess: 70_110,
-  ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleSuccess: 70_111,
 } as const;
 
-export type HssClientCustomResponseType =
-  (typeof HssClientCustomResponseType)[keyof typeof HssClientCustomResponseType];
+export type EcdsaDerivationClientCustomResponseType =
+  (typeof EcdsaDerivationClientCustomResponseType)[keyof typeof EcdsaDerivationClientCustomResponseType];
 
 export type StoreThresholdEcdsaRoleLocalSigningMaterialRequest = {
   materialHandle: string;
@@ -1189,177 +1128,204 @@ export type StoreThresholdEcdsaRoleLocalSigningMaterialResult = {
 };
 
 export type StoreThresholdEcdsaRoleLocalSigningMaterialResponse = {
-  type: typeof HssClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess;
+  type: typeof EcdsaDerivationClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess;
   payload: StoreThresholdEcdsaRoleLocalSigningMaterialResult;
   diagnostics?: WorkerResponseDiagnostics;
 };
 
-export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleRequest = {
-  materialHandle: string;
-  expectedBindingDigest: string;
-};
-
-export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResult = {
-  signingShare32B64u: string;
-};
-
-export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResponse = {
-  type: typeof HssClientCustomResponseType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleSuccess;
-  payload: OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResult;
-  diagnostics?: WorkerResponseDiagnostics;
-};
-
-export type ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleRequest = {
-  materialHandle: string;
-  expectedBindingDigest: string;
+type EcdsaPresignClientSessionParameters = {
   sessionId: string;
-  participantIds: number[];
-  clientParticipantId: number;
-  threshold: number;
+  topology: ThresholdSecp256k1Ecdsa2pTopologyV1;
   groupPublicKey33: ArrayBuffer;
 };
 
-export type ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleResponse = {
-  type: typeof HssClientCustomResponseType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleSuccess;
-  payload: ThresholdEcdsaPresignProgressResult;
+export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionParameters &
+  (
+    | {
+        authority: {
+          kind: 'role_local_derivation_handle';
+          materialHandle: string;
+          expectedBindingDigest: string;
+          emailOtpSessionId?: never;
+        };
+      }
+    | {
+        authority: {
+          kind: 'email_otp_worker_session';
+          emailOtpSessionId: string;
+          materialHandle?: never;
+          expectedBindingDigest?: never;
+        };
+      }
+  );
+
+export type EcdsaPresignClientSessionInitResult =
+  | {
+      authority: { kind: 'role_local_derivation_handle' };
+      progress: ThresholdEcdsaPresignProgressResult;
+    }
+  | {
+      authority: {
+        kind: 'email_otp_worker_session';
+        remainingUses: number;
+        expiresAtMs: number;
+      };
+      progress: ThresholdEcdsaPresignProgressResult;
+    };
+
+export type EcdsaPresignClientSessionInitResponse = {
+  type: typeof EcdsaPresignClientResponseType.SessionInitSuccess;
+  payload: EcdsaPresignClientSessionInitResult;
   diagnostics?: WorkerResponseDiagnostics;
 };
 
-export type ThresholdEcdsaRoleLocalPresignSessionStepRequest = {
+export type EcdsaPresignClientSessionStepRequest = {
   sessionId: string;
-  relayerParticipantId: number;
   stage: 'triples' | 'presign';
   incomingMessages: ArrayBuffer[];
 };
 
-export type ThresholdEcdsaRoleLocalPresignSessionStepResponse = {
-  type: typeof HssClientCustomResponseType.ThresholdEcdsaRoleLocalPresignSessionStepSuccess;
+export type EcdsaPresignClientSessionStepResponse = {
+  type: typeof EcdsaPresignClientResponseType.SessionStepSuccess;
   payload: ThresholdEcdsaPresignProgressResult;
   diagnostics?: WorkerResponseDiagnostics;
 };
 
-export type ThresholdEcdsaRoleLocalPresignSessionAbortRequest = {
+export type EcdsaPresignClientSessionAbortRequest = {
   sessionId: string;
 };
 
-export type ThresholdEcdsaRoleLocalPresignSessionAbortResponse = {
-  type: typeof HssClientCustomResponseType.ThresholdEcdsaRoleLocalPresignSessionAbortSuccess;
+export type EcdsaPresignClientSessionAbortResponse = {
+  type: typeof EcdsaPresignClientResponseType.SessionAbortSuccess;
   payload: ThresholdEcdsaPresignAbortResult;
   diagnostics?: WorkerResponseDiagnostics;
 };
 
-export type ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleRequest = {
+export type EcdsaOnlineClientComputeSignatureShareRequest = {
   materialHandle: string;
-  participantIds: number[];
-  clientParticipantId: number;
   groupPublicKey33: ArrayBuffer;
   expectedPresignBigR33: ArrayBuffer;
   digest32: ArrayBuffer;
   entropy32: ArrayBuffer;
 };
 
-export type ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleResponse = {
-  type: typeof HssClientCustomResponseType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleSuccess;
+export type EcdsaOnlineClientComputeSignatureShareResponse = {
+  type: typeof EcdsaOnlineClientResponseType.ComputeSignatureShareSuccess;
   payload: ArrayBuffer;
   diagnostics?: WorkerResponseDiagnostics;
 };
 
-type HssClientCustomOperationMap = {
-  [HssClientCustomRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: {
-    payload: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+type EcdsaDerivationClientCustomOperationMap = {
+  [EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap]: {
+    payload: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
     result: {
-      type: typeof HssClientCustomResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess;
-      payload: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
+      type: typeof EcdsaDerivationClientCustomResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess;
+      payload: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult;
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
-  [HssClientCustomRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: {
-    payload: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+  [EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap]: {
+    payload: WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
     result: {
-      type: typeof HssClientCustomResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess;
-      payload: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
+      type: typeof EcdsaDerivationClientCustomResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess;
+      payload: WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult;
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
-  [HssClientCustomRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: {
-    payload: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest;
+  [EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact]: {
+    payload: WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactRequest;
     result: {
-      type: typeof HssClientCustomResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess;
-      payload: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
+      type: typeof EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess;
+      payload: WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactResult;
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
-  [HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
+  [EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
     result: StoreThresholdEcdsaRoleLocalSigningMaterialResponse;
   };
-  [HssClientCustomRequestType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle]: {
-    payload: OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleRequest;
-    result: OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResponse;
+};
+
+export const EcdsaPresignClientRequestType = {
+  SessionInit: 71_000,
+  SessionStep: 71_001,
+  SessionAbort: 71_002,
+} as const;
+
+export const EcdsaPresignClientResponseType = {
+  SessionInitSuccess: 71_100,
+  SessionStepSuccess: 71_101,
+  SessionAbortSuccess: 71_102,
+} as const;
+
+export type EcdsaPresignClientOperationMap = {
+  [EcdsaPresignClientRequestType.SessionInit]: {
+    payload: EcdsaPresignClientSessionInitRequest;
+    result: EcdsaPresignClientSessionInitResponse;
   };
-  [HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle]: {
-    payload: ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleRequest;
-    result: ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleResponse;
+  [EcdsaPresignClientRequestType.SessionStep]: {
+    payload: EcdsaPresignClientSessionStepRequest;
+    result: EcdsaPresignClientSessionStepResponse;
   };
-  [HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep]: {
-    payload: ThresholdEcdsaRoleLocalPresignSessionStepRequest;
-    result: ThresholdEcdsaRoleLocalPresignSessionStepResponse;
-  };
-  [HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionAbort]: {
-    payload: ThresholdEcdsaRoleLocalPresignSessionAbortRequest;
-    result: ThresholdEcdsaRoleLocalPresignSessionAbortResponse;
-  };
-  [HssClientCustomRequestType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle]: {
-    payload: ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleRequest;
-    result: ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleResponse;
+  [EcdsaPresignClientRequestType.SessionAbort]: {
+    payload: EcdsaPresignClientSessionAbortRequest;
+    result: EcdsaPresignClientSessionAbortResponse;
   };
 };
 
-export type HssWorkerOperationType = keyof HssClientCustomOperationMap;
+export const EcdsaOnlineClientRequestType = {
+  ComputeSignatureShare: 72_000,
+} as const;
 
-type HssWorkerOperationEntry<T extends HssWorkerOperationType> = HssClientCustomOperationMap[T];
+export const EcdsaOnlineClientResponseType = {
+  ComputeSignatureShareSuccess: 72_100,
+} as const;
 
-export type HssWorkerOperationRequest<T extends HssWorkerOperationType> = {
+export type EcdsaOnlineClientOperationMap = {
+  [EcdsaOnlineClientRequestType.ComputeSignatureShare]: {
+    payload: EcdsaOnlineClientComputeSignatureShareRequest;
+    result: EcdsaOnlineClientComputeSignatureShareResponse;
+  };
+};
+
+export type EcdsaDerivationWorkerOperationType = keyof EcdsaDerivationClientCustomOperationMap;
+
+type EcdsaDerivationWorkerOperationEntry<T extends EcdsaDerivationWorkerOperationType> =
+  EcdsaDerivationClientCustomOperationMap[T];
+
+export type EcdsaDerivationWorkerOperationRequest<T extends EcdsaDerivationWorkerOperationType> = {
   sessionId?: string;
   type: T;
-  payload: WithOptionalSessionId<HssWorkerOperationEntry<T>['payload']>;
+  payload: WithOptionalSessionId<EcdsaDerivationWorkerOperationEntry<T>['payload']>;
   timeoutMs?: number;
   transfer?: Transferable[];
 };
 
-export type HssWorkerOperationResult<T extends HssWorkerOperationType> =
-  HssWorkerOperationEntry<T>['result'];
+export type EcdsaDerivationWorkerOperationResult<T extends EcdsaDerivationWorkerOperationType> =
+  EcdsaDerivationWorkerOperationEntry<T>['result'];
 
-export type HssSignerWorkerOperationMap = {
-  [T in HssWorkerOperationType]: {
-    payload: HssWorkerOperationEntry<T>['payload'];
-    result: HssWorkerOperationEntry<T>['result'];
+export type DerivationSignerWorkerOperationMap = {
+  [T in EcdsaDerivationWorkerOperationType]: {
+    payload: EcdsaDerivationWorkerOperationEntry<T>['payload'];
+    result: EcdsaDerivationWorkerOperationEntry<T>['result'];
   };
 };
 
-export type HssEcdsaRoleLocalMaterialOperationType =
-  | typeof HssClientCustomRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
-  | typeof HssClientCustomRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
-  | typeof HssClientCustomRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact
-  | typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
-  | typeof HssClientCustomRequestType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle;
-export type HssEcdsaRoleLocalPresignOperationType =
-  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle
-  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep
-  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionAbort
-  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle;
+export type EcdsaDerivationRoleLocalMaterialOperationType =
+  | typeof EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+  | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
+  | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact
+  | typeof EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial;
 
-export type HssEcdsaRoleLocalMaterialOperationRequest<
-  T extends HssEcdsaRoleLocalMaterialOperationType,
-> = HssWorkerOperationRequest<T>;
-export type HssEcdsaRoleLocalPresignOperationRequest<
-  T extends HssEcdsaRoleLocalPresignOperationType,
-> = HssWorkerOperationRequest<T>;
-
+export type EcdsaDerivationRoleLocalMaterialOperationRequest<
+  T extends EcdsaDerivationRoleLocalMaterialOperationType,
+> = EcdsaDerivationWorkerOperationRequest<T>;
 export interface SignerWorkerOperationMapByKind {
   nearSigner: NearSignerWorkerOperationMap;
-  ecdsaHssClient: HssSignerWorkerOperationMap;
-  ethSigner: EthSignerWorkerOperationMap;
+  ecdsaDerivationClient: DerivationSignerWorkerOperationMap;
+  ecdsaPresignClient: EcdsaPresignClientOperationMap;
+  ecdsaOnlineClient: EcdsaOnlineClientOperationMap;
+  evmCrypto: EvmCryptoWorkerOperationMap;
   tempoSigner: TempoSignerWorkerOperationMap;
   emailOtp: EmailOtpWorkerOperationMap;
 }
@@ -1371,7 +1337,7 @@ export type SignerWorkerOperationType<K extends SignerWorkerKind> =
 
 export type SignerWorkerProgressEvent<K extends SignerWorkerKind> = K extends 'nearSigner'
   ? NearWorkerProgressEvent
-  : K extends 'ethSigner' | 'tempoSigner'
+  : K extends 'evmCrypto' | 'tempoSigner'
     ? RpcSignerWorkerProgressEvent
     : K extends 'emailOtp'
       ? EmailOtpWorkerProgressEvent
@@ -1389,9 +1355,9 @@ export type SignerWorkerOperationRequest<
   T extends SignerWorkerOperationType<K>,
 > = K extends 'nearSigner'
   ? NearWorkerOperationRequest<Extract<T, NearWorkerOperationType>>
-  : K extends 'ecdsaHssClient'
-    ? HssWorkerOperationRequest<Extract<T, HssWorkerOperationType>>
-    : K extends 'emailOtp' | 'ethSigner' | 'tempoSigner'
+  : K extends 'ecdsaDerivationClient'
+    ? EcdsaDerivationWorkerOperationRequest<Extract<T, EcdsaDerivationWorkerOperationType>>
+    : K extends 'emailOtp' | 'evmCrypto' | 'tempoSigner'
       ? {
           type: T;
           payload: SignerWorkerOperationEntry<K, T>['payload'];

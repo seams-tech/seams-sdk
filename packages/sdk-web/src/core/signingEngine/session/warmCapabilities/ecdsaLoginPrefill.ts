@@ -1,16 +1,16 @@
-import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { parseThresholdSecp256k1Ecdsa2pParticipantIdsV1 } from '@shared/threshold/secp256k1';
 import type {
   SigningSessionStatus,
-  RouterAbEcdsaHssPresignaturePoolPolicy,
-  RouterAbEcdsaHssPresignaturePoolPolicyInput,
+  RouterAbEcdsaDerivationPresignaturePoolPolicy,
+  RouterAbEcdsaDerivationPresignaturePoolPolicyInput,
 } from '@/core/types/seams';
 import {
-  getRouterAbEcdsaHssClientPresignaturePoolDepth,
-  resolveRouterAbEcdsaHssPresignaturePoolPolicy,
-  scheduleRouterAbEcdsaHssClientPresignaturePoolRefill,
-  type RouterAbEcdsaHssClientSigningMaterialSource,
-  type RouterAbEcdsaHssClientPresignatureRefillScheduleResult,
-} from '../../routerAb/ecdsaHss/presignaturePool';
+  getRouterAbEcdsaDerivationClientPresignaturePoolDepth,
+  resolveRouterAbEcdsaDerivationPresignaturePoolPolicy,
+  scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill,
+  type RouterAbEcdsaDerivationClientSigningMaterialSource,
+  type RouterAbEcdsaDerivationClientPresignatureRefillScheduleResult,
+} from '../../routerAb/ecdsaDerivation/presignaturePool';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
 import type {
   ThresholdEcdsaChainTarget,
@@ -31,7 +31,7 @@ import {
   parseEcdsaThresholdKeyId,
 } from '../keyMaterialBrands';
 
-export type RouterAbEcdsaHssLoginPresignaturePrefillSkippedReason =
+export type RouterAbEcdsaDerivationLoginPresignaturePrefillSkippedReason =
   | 'pool_disabled'
   | 'pool_already_warm'
   | 'missing_threshold_session_id'
@@ -41,17 +41,17 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillSkippedReason =
   | 'warm_session_expiry_unavailable'
   | 'threshold_session_mismatch'
   | 'low_remaining_uses'
-  | 'missing_router_ab_ecdsa_hss_state'
+  | 'missing_router_ab_ecdsa_derivation_state'
   | 'refill_not_scheduled';
 
-export type RouterAbEcdsaHssLoginPresignaturePrefillResult =
+export type RouterAbEcdsaDerivationLoginPresignaturePrefillResult =
   | {
       status: 'scheduled';
       reason: 'scheduled';
       thresholdSessionId: string;
       remainingUsesBeforeDispense: number;
       remainingUsesAfterDispense: number;
-      schedule: RouterAbEcdsaHssClientPresignatureRefillScheduleResult;
+      schedule: RouterAbEcdsaDerivationClientPresignatureRefillScheduleResult;
     }
   | {
       status: 'skipped';
@@ -65,7 +65,7 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillResult =
         | 'missing_wallet_session_jwt'
         | 'warm_session_not_active'
         | 'warm_session_expiry_unavailable'
-        | 'missing_router_ab_ecdsa_hss_state';
+        | 'missing_router_ab_ecdsa_derivation_state';
       thresholdSessionId: string;
     }
   | {
@@ -85,7 +85,7 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillResult =
       reason: 'refill_not_scheduled';
       thresholdSessionId: string;
       remainingUses: number;
-      schedule: RouterAbEcdsaHssClientPresignatureRefillScheduleResult;
+      schedule: RouterAbEcdsaDerivationClientPresignatureRefillScheduleResult;
     }
   | {
       status: 'skipped';
@@ -99,7 +99,7 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillResult =
       error: string;
     };
 
-export type RouterAbEcdsaHssLoginPresignaturePrefillDeps = {
+export type RouterAbEcdsaDerivationLoginPresignaturePrefillDeps = {
   getWarmThresholdEcdsaSessionStatus: (
     walletId: WalletId,
     thresholdSessionId: string,
@@ -108,10 +108,10 @@ export type RouterAbEcdsaHssLoginPresignaturePrefillDeps = {
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   resolveClientSigningMaterialSource: (
     record: ThresholdEcdsaSessionRecord,
-  ) => RouterAbEcdsaHssClientSigningMaterialSource;
-  routerAbEcdsaHssPresignaturePoolPolicy?:
-    | RouterAbEcdsaHssPresignaturePoolPolicyInput
-    | RouterAbEcdsaHssPresignaturePoolPolicy;
+  ) => RouterAbEcdsaDerivationClientSigningMaterialSource;
+  routerAbEcdsaDerivationPresignaturePoolPolicy?:
+    | RouterAbEcdsaDerivationPresignaturePoolPolicyInput
+    | RouterAbEcdsaDerivationPresignaturePoolPolicy;
 };
 
 function isWarmSessionActive(
@@ -127,15 +127,15 @@ function activeSessionExpiresAtMs(status: SigningSessionStatus): number | null {
   return Number.isSafeInteger(expiresAtMs) && expiresAtMs > Date.now() ? expiresAtMs : null;
 }
 
-export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
-  deps: RouterAbEcdsaHssLoginPresignaturePrefillDeps,
+export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
+  deps: RouterAbEcdsaDerivationLoginPresignaturePrefillDeps,
   args: {
     walletId: WalletId;
     thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     chainTarget: ThresholdEcdsaChainTarget;
     minRemainingUsesBeforePrefill?: number;
   },
-): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
+): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
   let thresholdSessionId: string | undefined;
   try {
     const walletId = args.walletId;
@@ -145,8 +145,8 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
       .trim()
       .replace(/\/+$/g, '');
     const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
-    const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
-    if (!relayerUrl || !clientVerifyingShareB64u || !participantIds) {
+    const participantIds = parseThresholdSecp256k1Ecdsa2pParticipantIdsV1(record.participantIds);
+    if (!relayerUrl || !clientVerifyingShareB64u || !participantIds.ok) {
       return {
         status: 'skipped',
         reason: 'invalid_session_record',
@@ -176,7 +176,7 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
     }
     const walletSessionJwt = walletSessionAuth.walletSessionJwt;
 
-    const policy = resolveRouterAbEcdsaHssPresignaturePoolPolicy(deps.routerAbEcdsaHssPresignaturePoolPolicy);
+    const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy(deps.routerAbEcdsaDerivationPresignaturePoolPolicy);
     if (!policy.enabled) {
       return {
         status: 'skipped',
@@ -185,18 +185,17 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
       };
     }
 
-    if (!record.routerAbEcdsaHssNormalSigning || Math.floor(Number(record.expiresAtMs)) <= Date.now()) {
+    if (!record.routerAbEcdsaDerivationNormalSigning || Math.floor(Number(record.expiresAtMs)) <= Date.now()) {
       return {
         status: 'skipped',
-        reason: 'missing_router_ab_ecdsa_hss_state',
+        reason: 'missing_router_ab_ecdsa_derivation_state',
         thresholdSessionId,
       };
     }
 
-    const existingDepth = getRouterAbEcdsaHssClientPresignaturePoolDepth({
+    const existingDepth = getRouterAbEcdsaDerivationClientPresignaturePoolDepth({
       relayerUrl,
-      scope: record.routerAbEcdsaHssNormalSigning.scope,
-      participantIds,
+      scope: record.routerAbEcdsaDerivationNormalSigning.scope,
     });
     if (existingDepth >= LOGIN_PREFILL_TARGET_DEPTH) {
       return {
@@ -263,25 +262,24 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
       };
     }
 
-    const routerAbEcdsaHssPoolFill = {
-      kind: 'router_ab_ecdsa_hss_signing_worker_pool' as const,
-      scope: record.routerAbEcdsaHssNormalSigning.scope,
+    const routerAbEcdsaDerivationPoolFill = {
+      kind: 'router_ab_ecdsa_derivation_signing_worker_pool' as const,
+      scope: record.routerAbEcdsaDerivationNormalSigning.scope,
       expiresAtMs: routerAbPoolFillExpiresAtMs,
     };
 
     const remainingUsesAfterDispense = remainingUsesBefore;
     const clientSigningMaterial = deps.resolveClientSigningMaterialSource(record);
 
-    const schedule = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    const schedule = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl,
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
       clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64u),
-      participantIds,
       clientSigningMaterial,
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: record.relayerVerifyingShareB64u,
       credential: { kind: 'jwt', walletSessionJwt },
-      routerAbEcdsaHssPoolFill,
+      routerAbEcdsaDerivationPoolFill,
       workerCtx: deps.getSignerWorkerContext(),
       poolPolicy: policy,
       targetDepth: LOGIN_PREFILL_TARGET_DEPTH,

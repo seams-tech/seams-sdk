@@ -7,6 +7,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   emailOtpAuthContextEmailHashHex,
+  emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
   emailOtpAuthContextRetention,
   type ThresholdEcdsaEmailOtpAuthContext,
@@ -327,7 +328,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   ).trim();
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
-  const routerAbEcdsaHssNormalSigning = keyRef.routerAbEcdsaHssNormalSigning;
+  const routerAbEcdsaDerivationNormalSigning = keyRef.routerAbEcdsaDerivationNormalSigning;
   const participantIds = Array.isArray(keyRef.participantIds)
     ? keyRef.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -342,7 +343,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     !ethereumAddress ||
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
-    !routerAbEcdsaHssNormalSigning ||
+    !routerAbEcdsaDerivationNormalSigning ||
     !participantIds.length ||
     !walletSessionJwt ||
     !signingRootId ||
@@ -429,6 +430,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
       evmFamilySigningKeySlotId,
       signingRootId,
       signingRootVersion,
+      provider: emailOtpAuthContextProvider(args.emailOtpAuthContext),
       providerSubjectId,
       emailHashHex,
       walletSessionJwt,
@@ -441,7 +443,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
       clientVerifyingShareB64u,
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
       participantIds,
-      routerAbEcdsaHssNormalSigning,
+      routerAbEcdsaDerivationNormalSigning,
     },
     updatedAtMs: persistedAtMs,
   });

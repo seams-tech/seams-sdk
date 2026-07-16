@@ -125,7 +125,7 @@ import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
-import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -251,7 +251,7 @@ export interface WalletIframeRouterOptions {
   signingSessionPersistenceMode?: SeamsConfigsInput['signingSessionPersistenceMode'];
   signingSessionSeal?: SeamsConfigsInput['signingSessionSeal'];
   routerAb?: SeamsConfigsInput['routerAb'];
-  routerAbEcdsaHssPresignaturePool?: SeamsConfigsInput['routerAbEcdsaHssPresignaturePool'];
+  routerAbEcdsaDerivationPresignaturePool?: SeamsConfigsInput['routerAbEcdsaDerivationPresignaturePool'];
   provisioningDefaults?: SeamsConfigsInput['provisioningDefaults'];
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
@@ -1299,7 +1299,7 @@ export class WalletIframeRouter {
           signingSessionPersistenceMode,
           ...(signingSessionSeal ? { signingSessionSeal } : {}),
           routerAb: this.opts.routerAb,
-          routerAbEcdsaHssPresignaturePool: this.opts.routerAbEcdsaHssPresignaturePool,
+          routerAbEcdsaDerivationPresignaturePool: this.opts.routerAbEcdsaDerivationPresignaturePool,
           provisioningDefaults: this.opts.provisioningDefaults,
           iframeWallet: this.opts.rpIdOverride
             ? { rpIdOverride: this.opts.rpIdOverride }
@@ -2612,7 +2612,7 @@ export class WalletIframeRouter {
     await this.post<void>({ type: 'PM_PREFETCH_BLOCKHEIGHT' });
   }
 
-  async prefillRouterAbEcdsaHssPresignaturePool(payload: {
+  async prefillRouterAbEcdsaDerivationPresignaturePool(payload: {
     walletSession: WalletSessionRef;
     options: {
       chainTarget: ThresholdEcdsaChainTarget;
@@ -2621,10 +2621,10 @@ export class WalletIframeRouter {
       poolReadyPollIntervalMs?: number;
       minRemainingUsesBeforePrefill?: number;
     };
-  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
-    const res = await this.post<RouterAbEcdsaHssLoginPresignaturePrefillResult>(
+  }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
+    const res = await this.post<RouterAbEcdsaDerivationLoginPresignaturePrefillResult>(
       {
-        type: 'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL',
+        type: 'PM_PREFILL_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL',
         payload: {
           walletSession: payload.walletSession,
           ...(payload.options ? { options: payload.options } : {}),

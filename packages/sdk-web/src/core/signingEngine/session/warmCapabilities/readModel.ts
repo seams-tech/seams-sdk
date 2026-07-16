@@ -26,7 +26,7 @@ import {
   emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '../routerAbSigningWalletSession';
@@ -300,7 +300,7 @@ export function deriveEcdsaCapabilityState(args: {
   if (!args.prfClaim) return 'prf_missing';
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
   if (args.prfClaim.state !== 'warm') return 'prf_missing';
-  const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+  const persistedState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
   if (persistedState.kind === 'runtime_validated') return 'ready';
   if (
     persistedState.kind === 'non_signing' ||
