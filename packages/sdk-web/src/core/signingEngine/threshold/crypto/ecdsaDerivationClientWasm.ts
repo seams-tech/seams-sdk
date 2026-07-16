@@ -26,7 +26,6 @@ import {
   type ThresholdEcdsaPresignAbortResult,
   type ThresholdEcdsaPresignProgressResult,
 } from '../../workerManager/workerTypes';
-import type { ThresholdSecp256k1Ecdsa2pTopologyV1 } from '@shared/threshold/secp256k1';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
@@ -284,7 +283,6 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
   materialHandle: string;
   expectedBindingDigest: string;
   sessionId: string;
-  topology: ThresholdSecp256k1Ecdsa2pTopologyV1;
   groupPublicKey33: Uint8Array;
   workerCtx: WorkerOperationContext;
 }): Promise<EcdsaDerivationClientThresholdEcdsaPresignProgress> {
@@ -301,7 +299,6 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
           expectedBindingDigest: input.expectedBindingDigest,
         },
         sessionId: input.sessionId,
-        topology: input.topology,
         groupPublicKey33: groupPublicKey33.buffer,
       },
       transfer: [groupPublicKey33.buffer],
@@ -319,7 +316,6 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
 export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
   emailOtpSessionId: string;
   sessionId: string;
-  topology: ThresholdSecp256k1Ecdsa2pTopologyV1;
   groupPublicKey33: Uint8Array;
   workerCtx: WorkerOperationContext;
 }): Promise<{
@@ -339,7 +335,6 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
           emailOtpSessionId: input.emailOtpSessionId,
         },
         sessionId: input.sessionId,
-        topology: input.topology,
         groupPublicKey33: groupPublicKey33.buffer,
       },
       transfer: [groupPublicKey33.buffer],

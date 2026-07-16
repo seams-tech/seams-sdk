@@ -138,6 +138,39 @@ impl TripleContributionParts {
             private_product_evaluation,
         }
     }
+
+    #[allow(clippy::type_complexity)]
+    pub fn into_parts(
+        self,
+    ) -> (
+        CompressedPointBytes,
+        CompressedPointBytes,
+        ScalarBytes,
+        CompressedPointBytes,
+        ScalarBytes,
+        CompressedPointBytes,
+        CompressedPointBytes,
+        ScalarBytes,
+        CompressedPointBytes,
+        CompressedPointBytes,
+        ScalarBytes,
+        ScalarBytes,
+    ) {
+        (
+            self.big_c_contribution,
+            self.e_proof_commitment,
+            self.e_proof_response,
+            self.f_proof_commitment,
+            self.f_proof_response,
+            self.product_proof_commitment0,
+            self.product_proof_commitment1,
+            self.product_proof_response,
+            self.multiplication_commitment,
+            self.multiplication_proof_commitment,
+            self.multiplication_proof_response,
+            self.private_product_evaluation,
+        )
+    }
 }
 
 macro_rules! define_finalization_message {

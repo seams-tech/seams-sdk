@@ -1,6 +1,5 @@
 import initRouterAbEcdsaSigningWorkerWasm, {
   init_router_ab_ecdsa_signing_worker,
-  map_additive_share_to_threshold_signatures_share_2p,
   router_ab_ecdsa_derivation_relayer_bootstrap,
 } from '../../../../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
 import type { InitInput } from '../../../../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
@@ -124,19 +123,6 @@ function checkedBytes(label: string, value: Uint8Array, expectedLength: number):
     throw new Error(`${label} must be ${expectedLength} bytes (got ${value.length})`);
   }
   return value;
-}
-
-export async function mapServerAdditiveShareToThresholdShare(input: {
-  additiveShare32: Uint8Array;
-  participantId: number;
-}): Promise<Uint8Array> {
-  await ensureRouterAbEcdsaSigningWorkerWasm();
-  requireReady();
-  return checkedBytes(
-    'mapped threshold share',
-    map_additive_share_to_threshold_signatures_share_2p(input.additiveShare32, input.participantId),
-    32,
-  );
 }
 
 export async function roleLocalThresholdEcdsaDerivationRelayerBootstrap(input: {

@@ -1,17 +1,9 @@
 import initPresignClient, {
   ClientPresignSession,
   init_router_ab_ecdsa_presign_client,
-  map_client_additive_share_2p,
 } from '../../../../../../../wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { safeErrorMessage } from '@shared/utils/errors';
-import {
-  parseThresholdSecp256k1Ecdsa2pTopologyV1,
-  THRESHOLD_SECP256K1_ECDSA_2P_CLIENT_ID_V1,
-  THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANT_IDS_V1,
-  THRESHOLD_SECP256K1_ECDSA_2P_RELAYER_ID_V1,
-  THRESHOLD_SECP256K1_ECDSA_2P_THRESHOLD_V1,
-} from '@shared/threshold/secp256k1';
 import { WorkerDeferred } from '../workerDeferred';
 import {
   EcdsaPresignClientRequestType,
@@ -277,18 +269,8 @@ async function initializeSession(
       throw new Error('Unsupported ECDSA presign authority');
   }
   const groupPublicKey33 = toBytes(payload.groupPublicKey33, 'groupPublicKey33');
-  const topology = parseThresholdSecp256k1Ecdsa2pTopologyV1(payload.topology);
-  if (!topology.ok) throw new Error(topology.message);
-  let thresholdShare32: Uint8Array | null = null;
   try {
-    thresholdShare32 = map_client_additive_share_2p(additiveShare32);
-    const session = new ClientPresignSession(
-      new Uint32Array(THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANT_IDS_V1),
-      THRESHOLD_SECP256K1_ECDSA_2P_CLIENT_ID_V1,
-      THRESHOLD_SECP256K1_ECDSA_2P_THRESHOLD_V1,
-      thresholdShare32,
-      groupPublicKey33,
-    );
+    const session = new ClientPresignSession(additiveShare32, groupPublicKey33, sessionId);
     sessions.set(sessionId, session);
     const progress = pollSession(sessionId, session);
     if (emailOtpAuthority) {
@@ -307,7 +289,6 @@ async function initializeSession(
     };
   } finally {
     zeroize(additiveShare32);
-    if (thresholdShare32) zeroize(thresholdShare32);
   }
 }
 
@@ -321,7 +302,7 @@ function stepSession(
     session.start_presign();
   }
   for (const incoming of payload.incomingMessages) {
-    session.message(THRESHOLD_SECP256K1_ECDSA_2P_RELAYER_ID_V1, new Uint8Array(incoming));
+    session.message(new Uint8Array(incoming));
   }
   return pollSession(sessionId, session);
 }

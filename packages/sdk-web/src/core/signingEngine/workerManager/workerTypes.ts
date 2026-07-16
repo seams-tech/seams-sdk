@@ -64,7 +64,6 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
-import type { ThresholdSecp256k1Ecdsa2pTopologyV1 } from '@shared/threshold/secp256k1';
 
 export type EmailOtpEd25519YaoFactorRequest =
   | { kind: 'requested'; providerSubject: string }
@@ -1135,7 +1134,6 @@ export type StoreThresholdEcdsaRoleLocalSigningMaterialResponse = {
 
 type EcdsaPresignClientSessionParameters = {
   sessionId: string;
-  topology: ThresholdSecp256k1Ecdsa2pTopologyV1;
   groupPublicKey33: ArrayBuffer;
 };
 

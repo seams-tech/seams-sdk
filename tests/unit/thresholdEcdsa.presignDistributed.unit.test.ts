@@ -21,15 +21,10 @@ import {
   InMemoryRouterAbEcdsaDerivationPresignaturePool,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 
-import {
-  ThresholdEcdsaPresignSession,
-  initSync as initRouterAbEcdsaSigningWorkerWasmSync,
-  map_additive_share_to_threshold_signatures_share_2p,
-} from '../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
+import { initSync as initRouterAbEcdsaSigningWorkerWasmSync } from '../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
 import {
   ClientPresignSession,
   initSync as initRouterAbEcdsaPresignClientWasmSync,
-  map_client_additive_share_2p,
 } from '../../wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client.js';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
@@ -127,14 +122,10 @@ function randomSecpSecretKey32(): Uint8Array {
   throw new Error('secp256k1 random secret key generator is unavailable');
 }
 
-function mapAdditiveShareToThresholdSignaturesShare2p(args: {
-  additiveShare32: Uint8Array;
-  participantId: number;
-}): Uint8Array {
-  return map_additive_share_to_threshold_signatures_share_2p(
-    args.additiveShare32,
-    args.participantId,
-  );
+function mapSigningWorkerAdditiveShare2p(additiveShare32: Uint8Array): Uint8Array {
+  const additiveShare = bytesToNumberBE(additiveShare32);
+  const inverseNegativeTwo = (SECP256K1_ORDER - (SECP256K1_ORDER + 1n) / 2n) % SECP256K1_ORDER;
+  return numberToBytesBE((additiveShare * inverseNegativeTwo) % SECP256K1_ORDER, 32);
 }
 
 function bytesToHex(input: Uint8Array): string {
@@ -177,10 +168,7 @@ function buildRoleLocalKeyRecord(input: {
     clientVerifyingShare33,
     relayerVerifyingShare33,
   );
-  const relayerMappedPrivateShare32 = mapAdditiveShareToThresholdSignaturesShare2p({
-    additiveShare32: relayerSigningShare32,
-    participantId: 2,
-  });
+  const relayerMappedPrivateShare32 = mapSigningWorkerAdditiveShare2p(relayerSigningShare32);
   const nowMs = Date.now();
   return {
     version: 'threshold_ecdsa_derivation_role_local_v2' as const,
@@ -521,13 +509,10 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     const presignSessionId = String(init.presignSessionId || '');
     expect(presignSessionId).toBeTruthy();
 
-    const localClientThresholdShare32 = map_client_additive_share_2p(clientSigningShare32);
     const localSession = new ClientPresignSession(
-      new Uint32Array(participantIds),
-      clientParticipantId,
-      2,
-      localClientThresholdShare32,
+      clientSigningShare32,
       groupPublicKey33,
+      presignSessionId,
     );
 
     let stageForServer: 'triples' | 'presign' = 'triples';
@@ -547,18 +532,11 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
           localSession.start_presign();
         }
         for (const msg of pendingServerOutgoing) {
-          localSession.message(relayerParticipantId, msg);
+          localSession.message(msg);
         }
         pendingServerOutgoing = [];
         const polled = pollSession(localSession);
         pendingClientOutgoing.push(...polled.outgoingMessages);
-        if (
-          polled.stage === 'triples_done' ||
-          polled.stage === 'presign' ||
-          polled.stage === 'done'
-        ) {
-          stageForServer = 'presign';
-        }
         if (polled.event === 'presign_done') {
           localPresignature97 = localSession.take_presignature_97();
         }
@@ -759,16 +737,10 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       },
     });
 
-    const localClientThresholdShare32 = mapAdditiveShareToThresholdSignaturesShare2p({
-      additiveShare32: clientSigningShare32,
-      participantId: clientParticipantId,
-    });
-    const localSession = new ThresholdEcdsaPresignSession(
-      new Uint32Array(participantIds),
-      clientParticipantId,
-      2,
-      localClientThresholdShare32,
+    const localSession = new ClientPresignSession(
+      clientSigningShare32,
       groupPublicKey33,
+      presignSessionId,
     );
 
     let stageForServer: 'triples' | 'presign' = 'triples';
@@ -788,18 +760,11 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
           localSession.start_presign();
         }
         for (const msg of pendingServerOutgoing) {
-          localSession.message(relayerParticipantId, msg);
+          localSession.message(msg);
         }
         pendingServerOutgoing = [];
         const polled = pollSession(localSession);
         pendingClientOutgoing.push(...polled.outgoingMessages);
-        if (
-          polled.stage === 'triples_done' ||
-          polled.stage === 'presign' ||
-          polled.stage === 'done'
-        ) {
-          stageForServer = 'presign';
-        }
         if (polled.event === 'presign_done') {
           localPresignature97 = localSession.take_presignature_97();
         }
@@ -1573,16 +1538,10 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     const presignSessionId = String(init.presignSessionId || '');
     expect(presignSessionId).toBeTruthy();
 
-    const localClientThresholdShare32 = mapAdditiveShareToThresholdSignaturesShare2p({
-      additiveShare32: clientSigningShare32,
-      participantId: clientParticipantId,
-    });
-    const localSession = new ThresholdEcdsaPresignSession(
-      new Uint32Array(participantIds),
-      clientParticipantId,
-      2,
-      localClientThresholdShare32,
+    const localSession = new ClientPresignSession(
+      clientSigningShare32,
       groupPublicKey33,
+      presignSessionId,
     );
 
     let stageForServer: 'triples' | 'presign' = 'triples';
@@ -1599,18 +1558,11 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
           localSession.start_presign();
         }
         for (const msg of pendingServerOutgoing) {
-          localSession.message(relayerParticipantId, msg);
+          localSession.message(msg);
         }
         pendingServerOutgoing = [];
         const polled = pollSession(localSession);
         pendingClientOutgoing.push(...polled.outgoingMessages);
-        if (
-          polled.stage === 'triples_done' ||
-          polled.stage === 'presign' ||
-          polled.stage === 'done'
-        ) {
-          stageForServer = 'presign';
-        }
       }
 
       const step = await handler.routerAbEcdsaDerivationPresignaturePoolFillStep({

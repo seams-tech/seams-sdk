@@ -37,7 +37,7 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn production_manifests(root: &Path) -> [(PathBuf, bool); 5] {
+fn production_manifests(root: &Path) -> [(PathBuf, bool); 7] {
     [
         (root.join("crates/router-ab-ecdsa-wire/Cargo.toml"), false),
         (root.join("crates/router-ab-ecdsa-pool/Cargo.toml"), false),
@@ -50,16 +50,26 @@ fn production_manifests(root: &Path) -> [(PathBuf, bool); 5] {
             root.join("wasm/router_ab_ecdsa_online_client/Cargo.toml"),
             true,
         ),
+        (
+            root.join("wasm/router_ab_ecdsa_presign_client/Cargo.toml"),
+            true,
+        ),
+        (
+            root.join("wasm/router_ab_ecdsa_signing_worker/Cargo.toml"),
+            true,
+        ),
     ]
 }
 
-fn production_source_roots(root: &Path) -> [PathBuf; 5] {
+fn production_source_roots(root: &Path) -> [PathBuf; 7] {
     [
         root.join("crates/router-ab-ecdsa-wire/src"),
         root.join("crates/router-ab-ecdsa-pool/src"),
         root.join("crates/router-ab-ecdsa-presign/src"),
         root.join("crates/router-ab-ecdsa-online/src"),
         root.join("wasm/router_ab_ecdsa_online_client/src"),
+        root.join("wasm/router_ab_ecdsa_presign_client/src"),
+        root.join("wasm/router_ab_ecdsa_signing_worker/src"),
     ]
 }
 
