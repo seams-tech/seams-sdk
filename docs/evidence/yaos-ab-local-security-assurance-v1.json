@@ -1,0 +1,55 @@
+{
+  "schema": "yaos_ab_local_security_assurance_v1",
+  "generated_at": "2026-07-16T03:25:00Z",
+  "scope": "bounded_local_refactor_assurance",
+  "results": {
+    "stream_parser_mutation_smoke": {
+      "status": "pass",
+      "random_cases": 512,
+      "random_payload_mutations": 128
+    },
+    "wire_label_statistical_timing": {
+      "status": "pass",
+      "samples_per_class": 4096,
+      "operations_per_sample": 512,
+      "welch_t_statistic": 0.956,
+      "absolute_t_limit": 10.0
+    },
+    "pinned_analyzer_qualification": {
+      "status": "pass",
+      "architecture": "arm64",
+      "optimization_levels": ["O0", "O3"],
+      "expected_safe_and_vulnerable_fixture_classification": true
+    },
+    "native_and_worker_wasm_codegen": {
+      "status": "pass",
+      "secret_kernels": ["iknp_selection", "wire_label_selection"],
+      "conditional_secret_branches_found": 0
+    },
+    "generated_javascript_manual_triage": {
+      "status": "pass_with_documented_non_secret_findings",
+      "findings": [
+        "wasm_bindgen_public_pointer_scaling",
+        "public_base58_conversion",
+        "url_and_regular_expression_syntax"
+      ],
+      "secret_arithmetic_owner": "rust_wasm_leaves"
+    },
+    "ecdsa_recipient_and_role_local_native_tests": {
+      "status": "pass",
+      "test_count": 19
+    },
+    "cross_wasm_client_signing_worker_presign_handshake": {
+      "status": "pass",
+      "test_count": 1
+    },
+    "typescript_typecheck_and_source_guards": {
+      "status": "pass"
+    }
+  },
+  "excluded": [
+    "unbounded_coverage_guided_fuzz_campaign",
+    "deployed_browser_timing",
+    "independent_external_review"
+  ]
+}

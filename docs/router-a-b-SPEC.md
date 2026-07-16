@@ -116,8 +116,8 @@ Derivers must reject:
 ### 2.3 SigningWorker
 
 SigningWorker owns activated server-side signing material, one-use nonce state,
-Ed25519 presign-pool state, ECDSA-HSS presignature state, Ed25519 finalize
-execution, and ECDSA-HSS prepare/finalize execution.
+Ed25519 presign-pool state, Router A/B ECDSA derivation presignature state, Ed25519 finalize
+execution, and Router A/B ECDSA derivation prepare/finalize execution.
 
 SigningWorker private routes require internal service auth and admitted Router
 requests. SigningWorker does not parse browser Wallet Session credentials.
@@ -135,10 +135,10 @@ requests.
 
 `crates/signer-core` and browser WASM workers own client-side cryptographic
 protocol logic, crypto-secret material, key/share derivation, binding checks,
-nonce/client-base state, ECDSA-HSS client signing shares, presign/client-share
+nonce/client-base state, Router A/B ECDSA derivation client signing shares, presign/client-share
 material, PRF-derived secret state, and signing-share generation.
 
-TypeScript must not own raw Ed25519 client-base material, raw ECDSA-HSS
+TypeScript must not own raw Ed25519 client-base material, raw Router A/B ECDSA derivation
 client signing shares, presignature secrets, nonce secrets, PRF.first bytes, or
 signing shares.
 
@@ -1302,19 +1302,18 @@ restores the material again.
 
 ECDSA uses Router A/B for registration/bootstrap, activation, recovery,
 refresh, export, presignature pool refill, and normal EVM/Tempo digest signing.
-The existing `ECDSA-HSS` source and protocol namespace denotes this current
-threshold-PRF/additive-share flow; Phase 8 renames its public surface to the
-backend-neutral ECDSA route family. It has no Yao dependency.
+The `Router A/B ECDSA derivation` source and protocol namespace owns this
+threshold-PRF/additive-share flow. It has no Yao dependency.
 
 Protocol version:
 
 ```text
-router_ab_ecdsa_hss_secp256k1_v1
+router_ab_ecdsa_derivation_v1
 ```
 
 ### 8.1 Stable Context And Active-State Id
 
-ECDSA-HSS active-state binding covers:
+Router A/B ECDSA derivation active-state binding covers:
 
 - stable key context
 - signing root id and version
@@ -1335,7 +1334,7 @@ Canonical active-state session id:
 {ecdsa_threshold_key_id}:{signing_root_id}:{signing_root_version}:{activation_epoch}
 ```
 
-This value is the Wallet Session `session_id` for ECDSA-HSS normal signing and a
+This value is the Wallet Session `session_id` for Router A/B ECDSA derivation normal signing and a
 SigningWorker active-state lookup component. It prevents one wallet, key id, and
 worker from colliding across signing root versions or activation epochs.
 
@@ -1354,7 +1353,7 @@ SigningWorker activation verifies opened server material by deriving the public
 server key and requiring the resulting public identity to equal the activated
 identity. Refresh preserves public identity while advancing activation epoch.
 
-Activation receipts include stable ECDSA-HSS context, public identity,
+Activation receipts include stable Router A/B ECDSA derivation context, public identity,
 SigningWorker identity, activation epoch, activation digest, activated timestamp,
 and SigningWorker output storage receipt.
 
@@ -1368,7 +1367,7 @@ sequenceDiagram
   participant B as Deriver B
   participant SW as SigningWorker
 
-  C->>R: public ECDSA-HSS context, X_client, encrypted A/B envelopes
+  C->>R: public Router A/B ECDSA derivation context, X_client, encrypted A/B envelopes
   R->>A: A envelope, public request metadata
   R->>B: B envelope, public request metadata
   A->>B: authenticated derivation message
@@ -1416,18 +1415,18 @@ material.
 
 ### 8.5 Normal ECDSA Signing
 
-ECDSA-HSS signing uses:
+Router A/B ECDSA derivation signing uses:
 
 ```text
-POST /router-ab/ecdsa-hss/sign/prepare
-POST /router-ab/ecdsa-hss/sign
+POST /router-ab/ecdsa-derivation/sign/prepare
+POST /router-ab/ecdsa-derivation/sign
 ```
 
 Presignature pool refill uses:
 
 ```text
-POST /router-ab/ecdsa-hss/presignature-pool/fill/init
-POST /router-ab/ecdsa-hss/presignature-pool/fill/step
+POST /router-ab/ecdsa-derivation/presignature-pool/fill/init
+POST /router-ab/ecdsa-derivation/presignature-pool/fill/step
 ```
 
 Normal signing uses activated SigningWorker state. Deriver A/B stay out of
@@ -1453,17 +1452,17 @@ request-digest drift fail closed.
 | ECDSA presign/triple/nonce material         | SigningWorker/signing backend only    |
 | Public `X_client`, `X_server`, `X`, address | Public transcript after validation    |
 
-ECDSA-HSS follows the same persisted-hint versus runtime-validation boundary as
+Router A/B ECDSA derivation follows the same persisted-hint versus runtime-validation boundary as
 Ed25519. Persisted role-local material, role-local blobs, presign handles, and
 activation facts are not sign-ready by themselves. Tempo/EVM signing may use
 them only after the current worker and SigningWorker active-state binding prove
 the material belongs to the current Wallet Session, signing grant, chain target,
 activation epoch, SigningWorker id, and ECDSA public identity.
 
-### 8.7 Detailed ECDSA-HSS Protocol Spec
+### 8.7 Detailed Router A/B ECDSA derivation Protocol Spec
 
-`router_ab_ecdsa_hss_secp256k1_v1` is a Router-A/B protocol that derives or
-refreshes ECDSA-HSS server-side material outside the normal-signing hot path.
+`router_ab_ecdsa_derivation_v1` is a Router-A/B protocol that derives or
+refreshes Router A/B ECDSA derivation server-side material outside the normal-signing hot path.
 The public Router boundary accepts typed registration/bootstrap, explicit
 export, recovery, activation-refresh, prepare, and finalize requests. The
 private Deriver boundary accepts only Router-forwarded, role-encrypted A/B
@@ -1496,20 +1495,20 @@ Any state can terminate as failed, expired, or abandoned before activation or
 client output. Activated state replacement requires a newer activation
 timestamp for the same account, active-state session id, and SigningWorker.
 
-ECDSA-HSS transcript domains are protocol-specific:
+Router A/B ECDSA derivation transcript domains are protocol-specific:
 
 | Domain                     | Current label                                                     |
 | -------------------------- | ----------------------------------------------------------------- |
-| Stable key context         | `ecdsa-hss:context:v2`                                            |
-| Context binding            | `ecdsa-hss:role-local:v2:context-binding`                         |
-| Public identity            | `router-ab-protocol/ecdsa-hss/public-identity/v1`                 |
-| Registration request       | `router-ab-protocol/ecdsa-hss/registration-request/v1`            |
-| Export request             | `router-ab-protocol/ecdsa-hss/export-request/v1`                  |
-| Recovery request           | `router-ab-protocol/ecdsa-hss/recovery-request/v1`                |
-| Activation refresh request | `router-ab-protocol/ecdsa-hss/refresh-request/v1`                 |
-| Normal-signing scope       | `router-ab-protocol/ecdsa-hss/normal-signing-scope/v1`            |
-| Prepare request            | `router-ab-protocol/ecdsa-hss/normal-signing-request/v1`          |
-| Finalize request           | `router-ab-protocol/ecdsa-hss/normal-signing-finalize-request/v1` |
+| Stable key context         | `router-ab-ecdsa-derivation/context/v1`                         |
+| Context binding            | `router-ab-ecdsa-derivation/role-local/context-binding/v1`      |
+| Public identity            | `router-ab-ecdsa-derivation/public-identity/v1`                 |
+| Registration request       | `router-ab-ecdsa-derivation/registration-request/v1`            |
+| Export request             | `router-ab-ecdsa-derivation/export-request/v1`                  |
+| Recovery request           | `router-ab-ecdsa-derivation/recovery-request/v1`                |
+| Activation refresh request | `router-ab-ecdsa-derivation/refresh-request/v1`                 |
+| Normal-signing scope       | `router-ab-ecdsa-derivation/normal-signing-scope/v1`            |
+| Prepare request            | `router-ab-ecdsa-derivation/normal-signing-request/v1`          |
+| Finalize request           | `router-ab-ecdsa-derivation/normal-signing-finalize-request/v1` |
 
 Every registration, export, recovery, and refresh transcript binds wallet id,
 RP id, key scope, ECDSA threshold key id, signing root id, signing root version,
@@ -1529,7 +1528,7 @@ The active-state session id is:
 {ecdsa_threshold_key_id}:{signing_root_id}:{signing_root_version}:{activation_epoch}
 ```
 
-That value is the Wallet Session `session_id` for ECDSA-HSS normal signing and
+That value is the Wallet Session `session_id` for Router A/B ECDSA derivation normal signing and
 the SigningWorker active-state lookup key component. This prevents one wallet,
 key id, and worker from colliding across signing root versions or activation
 epochs.
@@ -1560,7 +1559,7 @@ public server key and requiring the resulting public identity to equal the
 activated identity. Refresh must preserve public identity while advancing the
 activation epoch.
 
-Activation receipts contain the stable ECDSA-HSS context, public identity,
+Activation receipts contain the stable Router A/B ECDSA derivation context, public identity,
 SigningWorker identity, activation epoch, activation digest, activated timestamp,
 and generic SigningWorker output storage receipt. Failure cases include
 malformed or unknown fields, wrong envelope role, wrong Deriver identity, wrong
@@ -1569,7 +1568,7 @@ request, replayed nonce, authorization digest mismatch, context/public-identity
 mismatch, active-state mismatch, public key/address mismatch, and presignature
 record drift or replay.
 
-### 8.8 Detailed ECDSA-HSS Flow Rejection Boundaries
+### 8.8 Detailed Router A/B ECDSA derivation Flow Rejection Boundaries
 
 #### Registration / Bootstrap
 
@@ -2641,7 +2640,7 @@ crates/router-ab-core/
         mod.rs
     protocol/
       mod.rs
-      ecdsa_hss.rs
+      ecdsa_derivation.rs
       ecdsa_threshold_prf_request.rs
       ed25519_yao.rs
       envelope.rs
@@ -2773,7 +2772,7 @@ large static tables, or expensive global initialization can fail Cloudflare's
 startup validation.
 
 Current evidence is tracked once in Phase 9B. The latest staging dry-run report
-records role-specific upload sizes after ECDSA-HSS strict-route integration:
+records role-specific upload sizes after Router A/B ECDSA derivation strict-route integration:
 Router 2887.88 KiB / gzip 879.45 KiB, Deriver A 2336.55 KiB / gzip
 737.40 KiB, Deriver B 2336.49 KiB / gzip 738.38 KiB, and SigningWorker
 2784.06 KiB / gzip 896.44 KiB. Dry-run does not emit `startup_time_ms`, so real

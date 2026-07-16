@@ -140,7 +140,7 @@ The local HTTP harness uses the canonical protocol-specific route families:
 | `/router-ab/ed25519/sign/{prepare}` and `/router-ab/ed25519/sign`               | Router        | public normal-signing lifecycle        |
 | `/router-ab/deriver-a/ed25519-yao/*`                                            | Deriver A     | private Ed25519 Yao role-A work        |
 | `/router-ab/deriver-b/ed25519-yao/*`                                            | Deriver B     | private Ed25519 Yao role-B work        |
-| `/router-ab/ecdsa-hss/*`                                                        | Router        | public strict ECDSA lifecycle          |
+| `/router-ab/ecdsa-derivation/*`                                                        | Router        | public strict ECDSA lifecycle          |
 | `/router-ab/signing-worker/ed25519-yao/*`                                       | SigningWorker | private Ed25519 activation and refresh |
 | `/router-ab/signing-worker/sign/{prepare}` and `/router-ab/signing-worker/sign` | SigningWorker | private normal-signing lifecycle       |
 
@@ -320,7 +320,7 @@ Expected behavior:
   normal-signing prepare and Wallet Session issuance routes through that public
   HTTPS origin.
 - `router:evidence` runs the local release-evidence protocol harness for
-  ECDSA-HSS normal-signing binding and Ed25519 presign-pool refill, pool-hit,
+  Router A/B ECDSA derivation normal-signing binding and Ed25519 presign-pool refill, pool-hit,
   and pool-miss timing.
 - `router:down` stops only pids created by `router:up`.
 - `router` starts the SDK Router server plus Deriver A, Deriver B, and
@@ -515,7 +515,7 @@ Release gates before Cloudflare deployment:
 `router:check` emits local per-phase elapsed times in milliseconds.
 `router:measure` writes the same data to
 `crates/router-ab-dev/reports/local-smoke-timings/`. `router:evidence` writes
-local protocol timing evidence for the ECDSA-HSS and Ed25519 Yao
+local protocol timing evidence for the Router A/B ECDSA derivation and Ed25519 Yao
 release gates. Keep the deployed benchmark checkbox open until Cloudflare
 startup and hot-path measurements are recorded next to those local numbers.
 

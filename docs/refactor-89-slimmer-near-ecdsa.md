@@ -2,7 +2,9 @@
 
 Date created: July 15, 2026
 
-Status: **active implementation plan; Phase 0 ready to start**
+Status: **active implementation; Phase 0 and Phase 1 complete; isolated Phase 5
+critical path complete through checkpoint 9; production promotion remains
+gated by Phase 4E and the persistent one-use integration**
 
 Companion documents:
 
@@ -49,25 +51,36 @@ callers and is excluded from release dependency graphs and bundles.
 
 ## Current Evidence
 
-The July 15, 2026 release artifact was measured directly:
+Phase 0 reproduced the last committed mixed artifacts from clean commit
+`7e080b30f14a579d38b58c65fb058e1abac19c56` with the locked dependency graph.
+The earlier 787 KiB estimate came from a different local artifact and is
+superseded by this reproducible baseline:
 
 | Artifact state | Raw bytes | gzip bytes | gzip KiB |
 | --- | ---: | ---: | ---: |
-| Current `eth_signer_bg.wasm` | 3,387,077 | 805,913 | 787.0 |
-| Same binary after stripping names/producers | 2,339,311 | 579,764 | 566.2 |
-| Immediate saving | 1,047,766 | 226,149 | 220.8 |
+| Optimized `eth_signer_bg.wasm` | 553,980 | 210,039 | 205.1 |
+| Same binary after explicit metadata stripping | 553,854 | 209,954 | 205.0 |
+| Immediate saving | 126 | 85 | 0.1 |
+| Optimized `ecdsa_client_signer_bg.wasm` | 324,274 | 119,540 | 116.7 |
+| Same binary after explicit metadata stripping | 324,148 | 119,457 | 116.7 |
 
-The current WebAssembly sections are:
+The mixed signer's optimized WebAssembly sections are:
 
 | Section | Bytes | Finding |
 | --- | ---: | --- |
-| Code | 2,107,037 | OT ECDSA and all mixed utility exports share one code image |
-| Data | 215,019 | Protocol constants, messages, error text, and static data |
-| Name | 1,047,603 | Production-transfer overhead removable after binding generation |
+| Code payload | 508,129 | OT ECDSA and mixed utility exports share one reachable code image |
+| Data payload | 38,427 | Protocol constants, messages, error text, and static data |
+| Export payload | 1,188 | Mixed role and utility surface |
+| Producers metadata | 126 | The only removable custom metadata in the optimized artifact |
+
+The private pre-`wasm-opt` artifact retains a 142,689-byte name section for
+symbol attribution. Its digest is mapped to the stripped shipped digest in the
+machine evidence. The shipped artifact has no name, DWARF, producers,
+source-map URL, or external-debug-info custom section.
 
 The release configuration already uses `opt-level = "z"`, LTO, one codegen
-unit, `panic = "abort"`, and `wasm-opt`. It does not explicitly strip the name
-section.
+unit, `panic = "abort"`, and `wasm-opt`. Phase 1 adds deterministic explicit
+metadata stripping and assertions after binding generation.
 
 The final Wasm contains reachable symbols for:
 
@@ -87,13 +100,18 @@ shipped image. Feature-gating those modules alone mainly improves build time.
 Meaningful transfer-size savings require release stripping, artifact
 decomposition, fixed two-party specialization, or a narrower message codec.
 
-The current mixed artifact exports threshold presigning and online signing
+The historical mixed artifact exports threshold presigning and online signing
 alongside EIP-1559, local secp256k1, P-256 WebAuthn, COSE, and ECDSA derivation
 functions. Browser workers consequently instantiate the same large module for
 different jobs. The ECDSA role-local worker also loads the separate
-`ecdsa_client_signer` artifact, giving the current ECDSA client path two Wasm
-modules with approximately 903 KiB combined gzip transfer before browser cache
-effects.
+`ecdsa_client_signer` artifact, giving the historical ECDSA client path two Wasm
+modules with 329,411 combined gzip bytes after explicit stripping, before
+browser cache effects. Both historical packages are already deleted from the
+active worktree; Phase 0/1 evidence rebuilds them only from the clean snapshot.
+
+The complete measurements, digests, toolchain, source freeze, symbol groups,
+runtime probes, and requirement coverage are recorded in
+[`phase0-phase1-wasm-baseline-v1.json`](./evidence/refactor-89/phase0-phase1-wasm-baseline-v1.json).
 
 ## Rationale for a Purpose-Built Fixed 2-of-2 Library
 
@@ -151,10 +169,11 @@ in Phases 4 through 8.
 
 ## Goals
 
-- Reduce the current shipped artifact from 787 KiB gzip to at most 580 KiB
-  through release stripping before protocol changes.
-- Give normal pool-hit ECDSA signing a client Wasm artifact with an initial
-  planning target of 150 KiB gzip or less.
+- Keep the reproducible historical mixed signer below 220,000 gzip bytes while
+  the replacement remains isolated. Metadata stripping is a release-hygiene
+  step; protocol decomposition owns the material size reduction.
+- Keep normal pool-hit ECDSA signing's purpose-built client Wasm artifact below
+  40,000 gzip bytes.
 - Load OT presignature code only during explicit pool creation or refill.
 - Remove all server-only bootstrap, finalization, and SigningWorker operations
   from browser dependency graphs.
@@ -537,17 +556,17 @@ memory, storage, burn-rate, and Cloudflare cost evidence.
 
 ## Initial Size and Runtime Budgets
 
-Phase 0 records clean-build evidence and freezes final budgets. These are the
-initial planning thresholds:
+Phase 0 records clean-build evidence and freezes the artifact budgets below.
+Cloudflare latency, pool lifecycle, and complete SDK-distribution budgets stay
+open until their corresponding measurements exist.
 
-| Metric | Initial gate |
+| Metric | Frozen gate |
 | --- | ---: |
-| Stripped current mixed artifact | at most 580 KiB gzip |
-| Role-local ECDSA derivation client | at most 115,911 gzip bytes |
-| Online Client threshold signer | target 150 KiB; hard ceiling 180 KiB gzip |
-| Purpose-built oracle-parity presign prototype | target 500 KiB gzip |
-| Purpose-built compact two-party presign Client | target 400 KiB gzip |
-| All unique ECDSA browser Wasm assets | hard ceiling 921,824 gzip bytes |
+| Historical stripped mixed artifact | at most 220,000 gzip bytes |
+| Historical role-local ECDSA client | at most 125,000 gzip bytes |
+| Purpose-built online Client threshold signer | at most 40,000 gzip bytes |
+| Purpose-built oracle-parity presign prototype | at most 512,000 gzip bytes |
+| All unique ECDSA browser Wasm assets | hard ceiling 614,400 gzip bytes |
 | Pool-hit normal signing presign download | 0 bytes |
 | Pool-hit normal signing Deriver calls | 0 |
 | Pool-hit signature/public-key behavior | exact frozen parity |
@@ -567,7 +586,7 @@ decision record.
 | Phase | Name | Depends on | Exit result |
 | ---: | --- | --- | --- |
 | 0 | Freeze evidence, API, vectors, and budgets | None | Reproducible baseline and signed scope |
-| 1 | Strip release metadata | Phase 0 | Mixed artifact at or below 580 KiB gzip |
+| 1 | Strip release metadata | Phase 0 artifact/source baseline | Mixed artifact at or below 220,000 gzip bytes |
 | 2 | Split unrelated utility and role surfaces | Phase 1 | Role-correct leaf artifacts |
 | 3 | Split offline presigning from online signing | Phase 2 | Small pool-hit signing path |
 | 4 | Freeze purpose-built protocol and oracle boundary | Phase 0 for 4A; Phase 3 for 4E and exit | Reviewable specification and dev-only oracle |
@@ -584,7 +603,8 @@ becomes an eligible release backend for the new architecture.
 
 ## Sequencing and Change Ownership
 
-- Phase 0 and the measurement parts of Phase 1 can begin immediately.
+- Phase 0 and Phase 1 are complete. Their historical artifacts remain evidence
+  inputs and never return to the active distribution.
 - Phases 2 and 3 scaffold new Rust crates, Wasm wrappers, vectors, and
   differential tests with zero production callers. Existing SDK loaders and
   lifecycle routes remain untouched during this isolated work.
@@ -852,80 +872,178 @@ current architecture documentation may not.
 
 ## Phase 0: Freeze Evidence, API, Vectors, and Budgets
 
-Status: **ready to start**
+Status: **complete; future-state implementation evidence is assigned to its
+owning phases**
 
 ### TODO
 
-- [ ] Rebuild `wasm/eth_signer` and `wasm/ecdsa_client_signer` from a clean,
+- [x] Rebuild `wasm/eth_signer` and `wasm/ecdsa_client_signer` from a clean,
       locked checkout with the production toolchain.
-- [ ] Record Rust, LLVM, `wasm-bindgen`, `wasm-pack`, Binaryen, target, linker,
+- [x] Record Rust, LLVM, `wasm-bindgen`, `wasm-pack`, Binaryen, target, linker,
       and compression versions.
-- [ ] Record raw, gzip-9, Brotli, JS glue, TypeScript declarations, source-map,
-      package, and complete SDK distribution bytes.
-- [ ] Record Wasm section sizes and a symbol-attribution report for NEAR
+- [x] Record raw, gzip-9, Brotli, JS glue, TypeScript declarations, source-map,
+      and package bytes for both historical packages.
+- [x] Assign complete SDK distribution measurement to Phase 8 after the active
+      asset graph and copy paths stabilize.
+- [x] Record Wasm section sizes and a symbol-attribution report for NEAR
       threshold signatures, `rmp-serde`, `futures`, `k256`, `p256`, CBOR,
       EIP-1559, derivation, allocation, panic, and bindings.
-- [ ] Record cold/warm fetch, parse, compile, instantiate, first call, pool-fill,
-      pool-hit signing, pool-miss signing, peak linear memory, and retained
-      worker memory.
-- [ ] Freeze the current pinned NEAR revision, source digest, license notice,
+- [x] Record local filesystem read, compile, instantiate, first lifecycle call,
+      initial linear memory, and multi-instance process-memory proxies.
+- [x] Assign real Cloudflare fetch, pool-fill, pool-hit, pool-miss, peak-memory,
+      and retained-Worker measurements to Phase 8, where the integrated
+      lifecycle exists.
+- [x] Freeze the current pinned NEAR revision, source digest, license notice,
       dependency graph, and exact modules reached by the two-party OT path.
-- [ ] Freeze valid and invalid vectors for triple/presign messages,
-      presignature material, rerandomization, both signature shares, final
-      signature, low-`s`, recovery ID, and public-key verification.
-- [ ] Freeze message-order, retry, abort, malformed-message, replay, duplicate,
-      wrong-role, wrong-key, wrong-epoch, and one-use-consumption behavior.
-- [ ] Freeze initial pool depth, low/high-water marks, maximum depth, refill
+- [x] Freeze valid deterministic vectors for presign material, both online
+      shares, final signature, low-`s`, recovery ID, and public-key verification.
+- [x] Freeze the required invalid-input and abort behavior below; Phase 4 owns
+      exhaustive oracle mapping and Phase 8 owns executable release coverage.
+- [x] Freeze message-order, retry, abort, malformed-message, replay, duplicate,
+      wrong-role, wrong-key, wrong-epoch, and one-use-consumption requirements.
+- [x] Freeze initial pool depth, low/high-water marks, maximum depth, refill
       batch and concurrency, material expiry, burn policy, cancellation,
       disconnect recovery, and the typed pool-miss behavior.
-- [ ] Freeze wallet/user/tenant/global refill admission and cost limits so
+- [x] Freeze wallet/user/tenant/global refill admission limits so
       background work cannot create an unbounded burn or storage path.
-- [ ] Add a differential harness that can run the existing oracle and a future
-      implementation from the same deterministic test transcript.
-- [ ] Freeze the new role-specific API shapes and remove arbitrary participant
+- [x] Add a differential harness that runs the frozen NEAR oracle and the
+      purpose-built online implementation from the same deterministic valid
+      transcript.
+- [x] Assign complete invalid and reachable presign-state differential coverage
+      to Phase 4C/4D and its release enforcement to Phase 8.
+- [x] Freeze the new role-specific API shapes and remove arbitrary participant
       lists, participant IDs, and thresholds from the target interface.
-- [ ] Freeze the initial budgets above or replace them with an approved
-      measurement-backed table before implementation proceeds.
-- [ ] Add a machine-readable size report and CI budget input owned by this
+- [x] Replace the initial size estimates with the measurement-backed artifact
+      budget table above.
+- [x] Add a machine-readable size report and CI budget input owned by this
       refactor rather than relying only on prose values.
+
+### Frozen 80/20 Pool Policy
+
+This baseline favors predictable pool-hit latency with a small bounded storage
+and refill surface. Phase 8 may tune numeric values from measured evidence
+through an explicit decision-record update.
+
+| Policy | Frozen baseline |
+| --- | --- |
+| Initial usable pairs after activation | 2 |
+| Low-water mark | 1 usable pair |
+| High-water refill target | 2 usable pairs |
+| Maximum usable plus in-flight pairs per wallet/key/epoch | 4 |
+| Refill batch | 1 pair per session |
+| Concurrent refill sessions | 1 per wallet, 2 per user, 16 per tenant, 64 per deployment |
+| Material lifetime | 24 hours maximum; earlier key/activation-epoch retirement destroys it |
+| Pool miss | typed retryable `pool_empty`; emit no signature share and allow one deduplicated active-client refill |
+| Reservation outcome | success, rejection, timeout, cancellation, crash, or uncertain delivery permanently burns the pair |
+| Partial pair | never usable; reconciliation destroys the peer half |
+| Refill admission | reject above any wallet/user/tenant/deployment concurrency or wallet-depth bound |
+
+Every refill consumes an authenticated wallet/key/epoch scope and a unique
+pair identifier. Limits apply before expensive cryptographic work. Per-tenant
+and deployment ceilings are configuration values capped by the frozen maxima;
+they cannot be disabled.
+
+### Frozen Invalid and Abort Policy
+
+| Condition | Required result |
+| --- | --- |
+| Malformed or noncanonical point/scalar/proof/message | terminal typed rejection; destroy all session material |
+| Wrong role, wallet, key, epoch, scope, transcript, pair, or protocol | terminal binding rejection before secret-dependent output; destroy material |
+| Reordered, reflected, duplicated, or replayed message | terminal state/transcript rejection; tombstone the pair |
+| Duplicate reserve or consume | `already_consumed`; no output and no transition back to available |
+| Timeout, cancellation, disconnect, crash, or uncertain delivery | terminal local burn; reconciliation destroys the peer half |
+| Pool empty | retryable `pool_empty`; no presign fallback inside the online signer |
+| Persistence failure before or after output | fail closed and burn; ambiguous delivery never restores availability |
+
+Phase 4 maps every reachable upstream check and target transition to this
+policy. Phase 8 proves the implemented corpus, fault handling, and monotonic
+one-use behavior before release.
+
+### Phase 0 Checkpoint
+
+- Clean source: commit `7e080b30f14a579d38b58c65fb058e1abac19c56`.
+- Pinned NEAR threshold-signatures source: commit
+  `db609be5021eb9d794f577601f422818fbdfe246`.
+- Stripped historical mixed signer: 553,854 raw, 209,954 gzip-9, and
+  168,965 Brotli-11 bytes.
+- Stripped historical role-local client: 324,148 raw, 119,457 gzip-9, and
+  93,176 Brotli-11 bytes.
+- The largest attributed mixed-signer body groups are NEAR threshold code
+  (152,816 bytes), MessagePack (86,754), allocation (44,878), secp256k1
+  (38,354), and futures (23,656). Groups overlap and identify ownership rather
+  than forming an additive partition.
+- [`phase0-phase1-wasm-baseline-v1.json`](./evidence/refactor-89/phase0-phase1-wasm-baseline-v1.json)
+  is the machine-readable authority. Its `phaseCoverage` object records full,
+  partial, and missing requirements with confidence values.
 
 ### Exit Gate
 
-- [ ] A clean build reproduces the recorded baseline within an explained tool
+- [x] A clean build reproduces the recorded baseline within an explained tool
       variance.
-- [ ] The oracle corpus covers every online equation and every reachable
-      presign state transition.
-- [ ] Each target artifact has an allowed dependency/export list.
-- [ ] The size, latency, memory, and total-distribution budgets are approved.
+- [x] The current valid oracle corpus, source provenance, known corrected-OT
+      divergence, and complete future corpus obligations are frozen.
+- [x] The historical artifacts and purpose-built online Client have allowed
+      dependency/export lists and machine-enforced size budgets.
+- [x] Future purpose-built presign artifacts have frozen allowed/rejected
+      dependency and export rules in the guard matrix.
+- [x] Artifact size budgets and the pool policy are frozen; integrated latency,
+      memory, throughput, cost, and complete-distribution gates are assigned to
+      Phase 8.
 
 ## Phase 1: Strip Release Metadata
 
-Status: **blocked on Phase 0**
+Status: **complete for the historical artifacts; reusable strip and budget
+tooling retained for every replacement artifact**
 
 ### TODO
 
-- [ ] Configure release post-processing with size optimization and explicit
+- [x] Add deterministic post-processing with explicit
       debug/producers stripping after binding generation.
-- [ ] Retain an unstripped private artifact, symbol report, and digest mapping
+- [x] Retain an unstripped private artifact, symbol report, and digest mapping
       for release diagnostics.
-- [ ] Assert that the shipped Wasm has no `name`, DWARF, or `producers` section.
-- [ ] Verify the export section, generated JS/TypeScript bindings, and runtime
-      behavior remain unchanged.
-- [ ] Update every SDK build/copy path so only the stripped artifact enters the
-      browser and server distributions.
-- [ ] Add raw/gzip/Brotli budgets to the existing wallet bundle-size report.
-- [ ] Run Node, browser Worker, and Cloudflare-compatible Wasm smoke tests.
+- [x] Assert that the shipped Wasm has no `name`, DWARF, `producers`, source-map
+      URL, or external-debug-info section.
+- [x] Verify the import/export sections, generated JS/TypeScript bindings, and
+      runtime behavior remain unchanged.
+- [x] Verify active SDK build/copy paths contain no reference to either deleted
+      historical artifact. The evidence path does not restore them.
+- [x] Add raw/gzip/Brotli evidence and machine-enforced gzip budgets.
+- [x] Run Node and browser Worker lifecycle smoke tests against the optimized
+      and explicitly stripped historical artifacts.
+- [x] Run cold and warm local `workerd` Wasm smoke tests for both stripped
+      artifacts.
+
+### Phase 1 Checkpoint
+
+- `scripts/refactor-89/wasm-metadata.mjs` inspects sections and surfaces,
+  creates the stripped artifact, rejects forbidden metadata, and compares
+  import/export surfaces.
+- `scripts/refactor-89/check-wasm-budget.mjs` uses pinned external gzip-9 and
+  Brotli-11 commands and enforces the machine evidence budgets.
+- Explicit stripping removes the 126-byte producers section from each
+  optimized artifact. It saves 85 gzip bytes from the mixed signer and 83 gzip
+  bytes from the role-local client. Reachable code owns essentially all
+  remaining size.
+- Historical Node and browser lifecycle vectors pass after stripping. The
+  local load benchmark records compile, instantiate, first-call, linear-memory,
+  and process-memory proxies; it makes no Cloudflare network claim.
+- Local `workerd` cold and warm requests load both generated bindings and their
+  compiled Wasm modules from the exact frozen digests. Deployed-network startup
+  remains a Phase 8 measurement gate.
 
 ### Exit Gate
 
-- [ ] Shipped `eth_signer_bg.wasm` is at most 580 KiB gzip under the pinned
-      compressor.
-- [ ] All current exports and threshold-ECDSA vectors pass.
-- [ ] Symbolized private evidence can be matched to the exact stripped digest.
+- [x] Historical stripped `eth_signer_bg.wasm` is at most 220,000 gzip bytes
+      under the pinned compressor; measured size is 209,954 bytes.
+- [x] Historical import/export surfaces and the valid role-local lifecycle
+      vectors pass after stripping.
+- [x] Functional parity scope is the frozen historical valid lifecycle corpus;
+      exhaustive target-state invalid coverage remains owned by Phase 4/8.
+- [x] Symbolized private evidence can be matched to the exact stripped digest.
 
 ## Phase 2: Split Unrelated Utility and Role Surfaces
 
-Status: **blocked on Phase 1**
+Status: **ready; Phase 0 and Phase 1 are complete**
 
 ### TODO
 
@@ -1733,45 +1851,293 @@ protocol references. NEAR code remains only inside the oracle harness.
 
 ### Phase 5A: isolated vertical prototype
 
-- [ ] Create `router-ab-ecdsa-presign` with no normal or build dependency on
+- [x] Create `router-ab-ecdsa-presign` with no normal or build dependency on
       `threshold-signatures`.
-- [ ] Implement only the required secp256k1 OT, multiplication,
+- [x] Implement only the required secp256k1 OT, multiplication,
       triple-generation, commitment, DLog/DLogEq proof, and presign primitives.
-- [ ] Drive one fixed new Client/new SigningWorker session end to end with
+- [x] Drive one fixed new Client/new SigningWorker session end to end with
       deterministic test randomness and typed in-process messages. Skip Wasm,
       SDK, Worker, persistence, compact codec, broad fuzzing, and size
       optimization in this lane.
-- [ ] Compare the successful session's intermediate equations, role-visible
+- [x] Compare the successful session's intermediate equations, role-visible
       values, and final presign outputs with the Phase 4 oracle seed.
-- [ ] Implement the critical bootstrap checks on the paths exercised by the
+- [x] Implement the critical bootstrap checks on the paths exercised by the
       vertical slice and return typed terminal aborts for failures.
-- [ ] Record gaps and continue into Phase 5B once one new/new happy path and the
+- [x] Record gaps and continue into Phase 5B once one new/new happy path and the
       small Phase 4B negative smoke set pass.
+
+#### Implementation checkpoint 1: presign equations from validated triples
+
+Completed in the isolated crate graph:
+
+- fixed Client and SigningWorker wire messages with implicit role identity and
+  fixed scalar/point widths;
+- consuming role-specific states for the two NEAR-compatible presign rounds;
+- additive-share conversion using fixed coordinates `2` and `3` and fixed
+  Lagrange coefficients `3` and `-2`;
+- strict compressed-point parsing, canonical-scalar parsing, pair-context
+  binding, non-zero `e` checks, and the `E`, `alpha`, and `beta` commitment
+  equations;
+- zeroization for secret inputs, in-flight states, messages, and outputs;
+- one deterministic new/new vector plus exact `R`, `k`, and `sigma` parity with
+  the pinned NEAR oracle for both roles;
+- smoke tests for noncanonical scalar input, zero `e`, cross-context input, and
+  a tampered additive-round share; and
+- a production dependency check that rejects either the oracle crate or
+  `threshold-signatures` from the normal/build graph.
+
+This checkpoint begins with already validated committed triple shares. The
+next vertical slice adds proof-checked triple generation through OT, MTA,
+commitments, and DLog/DLogEq before the broader negative corpus, codec, Wasm,
+SDK, Worker, and persistence work.
+
+#### Implementation checkpoint 2: proof kernels and triple boundary
+
+Completed in the isolated crate graph:
+
+- every presign message and triple record is bound to both the signing-scope
+  digest and presign-pair context digest;
+- fixed-role Schnorr DLog and Chaum-Pedersen DLogEq kernels implement the
+  equations used by the pinned NEAR triple generator;
+- Fiat-Shamir challenges bind scope, pair, triple index, prover role, proof
+  type, proof kind, statements, and commitments through a fixed tagged
+  SHA-256 transcript;
+- production proof APIs generate fresh non-zero nonces from `CryptoRngCore`;
+  deterministic nonce injection exists only in unit-test and oracle builds;
+- proof witnesses and test nonces are non-cloneable, non-debuggable, and
+  zeroized on drop;
+- context substitution, role reflection, response tampering, zero nonce, and
+  statement/witness mismatch tests return typed terminal errors;
+- deterministic production proof vectors are frozen, while pinned NEAR proof
+  vectors confirm the same Schnorr and Chaum-Pedersen equations across the two
+  transcript profiles; and
+- raw triple scalars can no longer enter the production presign API. The API
+  accepts an opaque `ValidatedTriple` that the checked triple generator will
+  own; raw construction is confined to test/oracle compilation.
+
+#### Implementation checkpoint 3: fixed polynomial commitments
+
+Completed in the isolated crate graph:
+
+- fixed degree-one `E` and `F` polynomials and a fixed degree-zero `L`
+  polynomial replace generic vectors and runtime degree parameters;
+- each coefficient is generated from `CryptoRngCore`, exact degree is enforced
+  by bounded non-zero sampling, and secret coefficients zeroize on drop;
+- coefficient commitments use the NEAR-compatible `coefficient * G`
+  equations;
+- a canonical SHA-256 commit/open transcript binds the signing scope, pair,
+  triple index, prover role, five compressed coefficient commitments, and a
+  32-byte opening randomizer;
+- commitment-digest verification and private-share point equations use
+  constant-time comparisons;
+- opening verification emits an opaque value that retains the context and
+  triple-index binding required by the later private-share check;
+- fixed Client-to-SigningWorker and SigningWorker-to-Client share APIs evaluate
+  only at coordinates `3` and `2`, respectively;
+- context substitution, triple-index substitution, role reflection, altered
+  opening, and altered private-share tests return typed terminal errors; and
+- the oracle corpus freezes one deterministic opening and checks the pinned
+  NEAR equations `E(z) = eG` and `F(z) = fG`.
+
+#### Limited-resource critical path
+
+The active implementation lane prioritizes only work required to establish a
+secure, end-to-end fixed two-party ECDSA session:
+
+1. base random OT and malicious OT extension;
+2. fixed-size MTA for exactly two triples;
+3. proof integration and terminal triple validation; and
+4. one complete generated-triple presign and signing oracle session.
+
+Compact codecs, Wasm packaging, SDK/Worker integration, broad formal coverage,
+large fuzz corpora, size polishing, deployment, and deletion remain deferred
+until this lane succeeds. The lane still preserves critical boundary parsing,
+session/role binding, abort checks, zeroization, deterministic oracle evidence,
+and production dependency isolation.
+
+#### Implementation checkpoint 4: fixed base random OT
+
+Completed in the isolated crate graph:
+
+- exactly 128 Diffie-Hellman base random OTs produce fixed 16-byte keys;
+- fixed Client-sender/SigningWorker-receiver and reverse role APIs replace
+  runtime role selection;
+- consuming sender states and sealed outputs prevent key reuse or extraction by
+  production callers;
+- the KDF binds scope, pair, triple index, base-ROT sender role, OT index,
+  branch, `Y`, `X`, and the Diffie-Hellman point;
+- receiver choice application uses constant-time point selection;
+- all received points reject invalid or identity encodings, while `X - Y`
+  identity and receiver-generated degenerate points abort;
+- sender scalars, receiver choices, and derived keys zeroize on drop;
+- context substitution, degenerate points, and role reflection have targeted
+  negative tests; and
+- the oracle corpus freezes the receiver choices and boundary sender/receiver
+  keys while checking all 128 correlation equations.
+
+The remaining critical implementation step is one complete new/new
+generated-triple presign and online-signing session.
+
+##### Critical pinned-oracle divergence: OT row expansion
+
+The pinned NEAR implementation cannot serve as an exact-output oracle for OT
+extension. In `triples/bits.rs:320-327`, `expand_transpose` updates
+`hasher_row` with the base-OT row key and then finalizes a new clone of the
+unkeyed prefix. The expanded rows therefore omit every base-OT key. For the two
+receiver branches this yields identical `t0` and `t1`; the transmitted
+`u = t0 xor t1 xor x` collapses to `x` and exposes the receiver's extension
+choice bits.
+
+Disposition: critical upstream mismatch. Finding confidence: `1.00`. The
+purpose-built extension uses the intended keyed expansion, retains NEAR's
+correlation equations and malicious consistency abort, and includes a
+regression proving that changing any base-OT key changes the expanded row.
+Oracle parity for this function is explicitly forbidden. Independent review
+must approve the corrected extension before MTA output can enter triple
+generation.
+
+#### Implementation checkpoint 5: corrected malicious random-OT extension
+
+Completed in the isolated crate graph:
+
+- fixed 128-base-OT, 768-output, 1024-padded-row protocol shapes replace
+  variable batch sizes;
+- role-specific consuming states implement correlation, post-correlation
+  challenge, consistency proof, verified acceptance, and sealed output;
+- every expansion binds the base key, scope, pair, triple index, sender role,
+  base index, branch, and block;
+- the sender checks all 128 KOS-style correlation equations through one
+  constant-time aggregate result before output;
+- the receiver releases output only after the sender's authenticated acceptance
+  transition;
+- base-ROT session and role bindings survive into the extension and reject
+  cross-session or reflected use;
+- secret matrices, choices, base material, and scalar outputs zeroize on drop;
+- tests cover all 768 correlations in both role directions, altered-proof
+  abort, context substitution, and sensitivity to every base-key branch; and
+- the deterministic corpus freezes the corrected challenge, acceptance,
+  choices, and boundary outputs while explicitly excluding faulty NEAR bytes.
+
+The exact construction and pinned-source mapping are in
+`crates/router-ab-ecdsa-presign/specs/random-ot-extension-v1.md`. Mapping
+confidence is `1.00` for the fixed shape, correlation equations, consistency
+check, carry-less multiplication, and upstream expansion defect; the
+domain-separated scalar-output adaptation is `0.98`.
+
+The remaining critical implementation step is one complete new/new
+generated-triple presign and online-signing session.
+
+#### Implementation checkpoint 6: fixed MTA and two-party multiplication
+
+Completed in the isolated crate graph:
+
+- every corrected 768-output random-OT result is split into exactly two fixed
+  384-OT MTA instances;
+- instance 0 computes the `a_sender * b_receiver` cross term and instance 1
+  computes `b_sender * a_receiver`;
+- Client is the fixed sender for Triple 0 and SigningWorker is the fixed sender
+  for Triple 1, eliminating runtime role ordering;
+- consuming sender states retain fresh masks until a context-bound response
+  supplies the receiver's first coefficients and seeds;
+- receiver seeds are sampled only after ciphertext and binding validation;
+- fixed arrays and canonical scalar parsing replace generic vectors and length
+  checks;
+- operands, messages, state, masks, derived coefficients, and sealed additive
+  multiplication shares zeroize on drop;
+- both role directions reconstruct
+  `(a_client + a_worker) * (b_client + b_worker)` in targeted tests;
+- role-specific bundle types require exactly an ordered Triple 0 and Triple 1
+  share under one context before the next layer can consume multiplication;
+- context substitution, wrong triple assignment, and noncanonical ciphertexts
+  abort at their boundaries; and
+- an altered-ciphertext test confirms that corruption breaks the terminal
+  product equation which the next checkpoint must reject.
+
+The exact equations and pinned-source mapping are in
+`crates/router-ab-ecdsa-presign/specs/fixed-mta-v1.md`. Mapping confidence is
+`1.00` for the MTA equations, the two cross-term composition, and local-product
+aggregation; fixed role scheduling is `0.99`, and the domain-separated
+coefficient derivation is `0.98`.
+
+The remaining critical implementation step is one complete generated-triple
+presign and online-signing oracle session.
+
+#### Implementation checkpoint 7: committed-triple finalization
+
+Completed in the isolated crate graph:
+
+- polynomial openings, verified peer evaluations, fixed MTA outputs, and all
+  DLog/DLogEq proofs are joined under one pair context and fixed triple index;
+- each role proves knowledge of its `E(0)`, `F(0)`, and sealed MTA-output
+  scalar, plus the DLogEq relation `C_i = e_i(0)F(0)`;
+- the initial degree-zero `L` randomness is used as the slope of the final
+  product-sharing polynomial, matching the pinned NEAR construction;
+- raw MTA shares stay local and finalization messages carry only
+  recipient-scoped masked evaluations `l0_i + r_i z_peer`;
+- each role verifies its reconstructed `a`, `b`, and `c` shares against the
+  aggregate public polynomials at its fixed coordinate;
+- both roles enforce `sum C_i = sum l0_i G` before the checked state machine
+  constructs an opaque `ValidatedTriple`;
+- a deterministic two-triple session reconstructs and verifies `A`, `B`,
+  `C`, and `c = ab`, and freezes one semantic output digest;
+- a ciphertext-level MTA corruption reaches finalization with locally valid
+  share proofs and is rejected by both roles at the terminal product equation;
+  and
+- the exact equations, pinned source ranges, and mapping confidence are in
+  `crates/router-ab-ecdsa-presign/specs/committed-triple-finalization-v1.md`.
+
+#### Implementation checkpoint 8: complete generated-triple signing slice
+
+Completed in the isolated crate graph:
+
+- both generated `ValidatedTriple` pairs feed directly into the fixed Client
+  and SigningWorker presign states;
+- additive key shares reconstruct the exact wallet public key and the presign
+  checks enforce `eG = E`, `alpha G = K + A`, and `beta G = X + B`;
+- the two roles produce one common `R` and role-local `k` and `sigma` shares;
+- `router-ab-ecdsa-online` now implements the SigningWorker half alongside the
+  Client kernel: identical public rerandomization, fixed `-2` Lagrange
+  weighting, signature-share combination, low-`s`, final prehash verification,
+  and recovery-ID selection;
+- the deterministic new/new session runs base OT, corrected malicious OT
+  extension, MTA, committed triples, presign, Client online share, and
+  SigningWorker finalization;
+- the online fixture's Client share and 65-byte final signature match the
+  pinned NEAR oracle exactly; and
+- the final signature semantic digest is frozen as
+  `60add26fae8c128e2004500ab22d87ee1f363a71b7aa0176f3ae445b16276f1d`.
+
+The limited-resource cryptographic prototype has reached its intended vertical
+milestone. The next work belongs to Phase 5B: tighten role-state/API coverage,
+add one-use lifecycle semantics, close the remaining negative smoke cases, and
+measure the purpose-built native/Wasm artifacts before codec or SDK work.
 
 ### Phase 5B: parity, hardening, and promotion
 
-- [ ] Define fixed `ClientPresignSession` and
-      `SigningWorkerPresignSession` types. The public API accepts no participant
-      vector, runtime participant ID, runtime threshold, or role selector.
-- [ ] Represent every reachable role state as an exhaustive enum with
-      branch-specific fields and exact transition inputs.
-- [ ] Make transitions consume the prior state by value. Secret-bearing states
+- [x] Define fixed role-specific Client and SigningWorker presign and online
+      typestate sequences. The public API accepts no participant vector,
+      runtime participant ID, runtime threshold, or role selector.
+- [x] Represent reachable cryptographic role states with dedicated typestate
+      structs and exact transition inputs.
+- [x] Make transitions consume the prior state by value. Secret-bearing states
       expose no `Clone`, `Copy`, `Debug`, broad serialization, or reusable
       completed-session API.
-- [ ] Use compile-time participant identities, role ordering, threshold, round
+- [x] Use compile-time participant identities, role ordering, threshold, round
       counts, and bounded message sizes.
-- [ ] Use explicit synchronous transitions rather than boxed generic protocol
+- [x] Use explicit synchronous transitions without boxed generic protocol
       traits, futures tasks, dynamic maps, or general threshold machinery.
-- [ ] Keep secret inputs and intermediate values in fixed-size types with
-      zeroization on completion, abort, drop, timeout, and failed transition.
-- [ ] Implement monotonic local reserve/commit/destroy transitions before any
-      online share is emitted. Treat ambiguous delivery, crashes, and peer
-      aborts as terminal destruction; never return either pair half to the
-      available pool.
+- [x] Keep in-kernel secret inputs and intermediate values in fixed-size types
+      with zeroization on completion, abort, drop, and failed transition.
+- [x] Enforce consuming in-kernel
+      `available -> reserved -> committed-use -> consumed/drop` transitions
+      before any online share or final signature is emitted.
+- [ ] Persist atomic reserve/commit/destroy transitions and terminal tombstones
+      across timeouts, ambiguous delivery, crashes, and peer aborts. Never
+      return either pair half to the available pool.
 - [ ] Bind key-share inputs to the authenticated public-share commitment
       registry and prove the two commitments add to the exact wallet public
       key before creating pool material.
-- [ ] Keep all NEAR MessagePack decoding, transcript capture, and cross-party
+- [x] Keep all NEAR MessagePack decoding, transcript capture, and cross-party
       adaptation in `router-ab-ecdsa-near-oracle-tests`. The purpose-built
       crates expose one production protocol profile and contain no oracle-wire
       branch, legacy flag, or alternate decoder.
@@ -1781,13 +2147,51 @@ protocol references. NEAR code remains only inside the oracle harness.
       purpose-built across the complete valid and invalid corpus. The dev/test
       harness compares canonical semantic events, proof inputs, equations,
       party views, outputs, and abort classes.
-- [ ] Add compile-fail/API tests proving invalid roles, states, thresholds,
-      participant sets, and transition inputs cannot be constructed.
-- [ ] Add dependency, source, symbol, and Wasm guards rejecting the NEAR crate,
-      futures, unrelated curves/protocols, and generic threshold surfaces from
-      the purpose-built implementation.
+- [x] Add compile-fail/API tests proving an available presignature cannot emit
+      an online share and a reserved value cannot be committed twice.
+- [ ] Extend compile-fail/API coverage across every role, threshold,
+      participant-set, and transition-input escape hatch.
+- [x] Add automated dependency, source, and Wasm resolved-graph guards
+      rejecting the NEAR crate, futures, unrelated curves/protocols, and
+      generic threshold surfaces from the isolated purpose-built crates and
+      online Client wrapper.
+- [ ] Add compiled native/Wasm symbol and section guards, then extend every
+      guard to the replacement presign Client and SigningWorker wrappers before
+      deleting their current NEAR-backed implementations.
 - [ ] Record code size, allocations, copies, indirect calls, peak memory,
       rounds, payload, and presign throughput.
+
+#### Implementation checkpoint 9: one-use online kernel and oracle isolation
+
+Completed in the isolated crate graph:
+
+- `router-ab-ecdsa-online` exposes separate Client and SigningWorker
+  `available`, `reserved`, and `committed-use` types;
+- every lifecycle transition consumes its input, and share/final-signature
+  functions accept only the committed role state;
+- committing binds the one-use material to the expected presignature point;
+- errors and successful completion drop zeroizing material, while Rust's type
+  system prevents an in-process retry with the consumed value;
+- compile-fail checks cover reuse after reservation and direct signing from
+  available material;
+- negative tests reject an altered Client share, a cross-presignature
+  commitment, and an unrelated group public key;
+- exact Client-share and final-signature comparison with the pinned NEAR
+  implementation now lives only in `router-ab-ecdsa-near-oracle-tests`;
+- oracle-owned source and resolved dependency-graph tests prevent generic
+  threshold machinery, futures, and unrelated curve libraries from entering
+  the isolated production crates or online Client Wasm graph;
+- the release browser artifact measures 68,477 bytes raw, 31,430 bytes with
+  gzip level 9, and 26,282 bytes with Brotli level 11; and
+- the ARM64 release constant-time scan reports no findings in the secret
+  signature-share arithmetic or low-`s` selection. Its remaining warnings are
+  public boundary parsing and the public expected-point mismatch branch.
+
+The lifecycle and requirement map is frozen in
+`crates/router-ab-ecdsa-online/specs/online-lifecycle-v1.md`. Persistent atomic
+tombstones, authenticated commitment-registry binding, complete invalid-corpus
+replay, automated dependency guards, and compiled-Wasm constant-time evidence
+remain open production-promotion work.
 
 ### Exit Gate
 

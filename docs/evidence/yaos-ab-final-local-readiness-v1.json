@@ -1,0 +1,74 @@
+{
+  "schema": "yaos_ab_final_local_readiness_v1",
+  "recorded_at": "2026-07-16",
+  "result": "pass",
+  "scope": "local_implementation",
+  "production_eligible": false,
+  "deployment_status": "deferred",
+  "validated_inputs": {
+    "schema": "ed25519_yao_local_readiness_inputs_v1",
+    "file_count": 2356,
+    "total_bytes": 37908659,
+    "sha256": "33b84b42888a6cefd7ea7085a19f5d054d54d9714354c1d8adc8d4d79209fdce"
+  },
+  "gates": [
+    {
+      "command": "pnpm validate:yaos-ab-local",
+      "working_directory": ".",
+      "result": "pass",
+      "evidence_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
+      "evidence_sha256": "416541b6d2bb94d26f37f495b630cdc67d4d63918a13e7b6a6bfa892605b5285"
+    },
+    {
+      "command": "npm run validate:local-readiness",
+      "working_directory": "crates/ed25519-yao-cloudflare-bench",
+      "result": "pass",
+      "evidence_path": "crates/ed25519-yao-cloudflare-bench/docs/phase13a-local-preflight-evidence-v1.json",
+      "evidence_sha256": "bb92077632137734cdaf8fac9301e5469db68704676c50bc9d257542a0f5a417"
+    }
+  ],
+  "phase13a": {
+    "decision": "unavailable",
+    "production_eligible": false,
+    "next_state": "deployment_required"
+  },
+  "local_evidence": {
+    "phase14b_artifacts": {
+      "path": "docs/evidence/yaos-ab-phase14b-local-artifacts-v1.json",
+      "sha256": "717781635bb3311556fb1ece04965014d4c00769604fe5b6e57abeb0fce126c8",
+      "result": "pass"
+    },
+    "bounded_security_assurance": {
+      "path": "docs/evidence/yaos-ab-local-security-assurance-v1.json",
+      "sha256": "66b7b269a9669cf93b1cb87fba13bb0e5fd8c4e0d03e5aacb51eea5f37285f16",
+      "result": "pass"
+    },
+    "formal_parity": {
+      "production_rust_tests": 82,
+      "generator_rust_tests": 418,
+      "artifact_filesystem_policy_tests": 3
+    },
+    "benchmark_isolation": {
+      "production_reachable": false,
+      "authorized_core_dependents": 5,
+      "benchmark_dependents": 0,
+      "product_files_scanned": 4509,
+      "product_references": 0,
+      "production_routes": 0
+    },
+    "ordinary_signing": {
+      "profiles": [
+        "ed25519-yao-one-account",
+        "ed25519-yao-two-administrator"
+      ],
+      "deriver_requests": 0,
+      "deriver_bytes": 0
+    },
+    "worker_builds_and_dry_runs": {
+      "result": "pass",
+      "same_account": true,
+      "cross_account": true
+    }
+  },
+  "deferred_plan": "docs/yaos-ab-deployment.md"
+}

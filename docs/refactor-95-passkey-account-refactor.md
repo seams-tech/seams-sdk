@@ -1,708 +1,487 @@
-# Passkey Account Refactor To Wrapped Holder Shares
+# Passkey Custody Refactor For Wrapped Client Roots And Holder Shares
 
 Date created: June 15, 2026
 
-Status: design plan. This plan changes passkey-backed accounts so passkey PRF
-material acts as a KEK source for a rotatable holder share. It supports the
-signing-lane foundation in
-[refactor-82-delegate-wallets.md](./refactor-82-delegate-wallets.md), the
-share-rotation model in [refactor-83-share-rotation.md](./refactor-83-share-rotation.md),
-and the full delegated-agent and linked-device behavior in
-[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
+Last reconciled: July 15, 2026
+
+Status: active design plan. Type scaffolding exists. End-to-end wrapped custody
+is pending. Ed25519 lifecycle behavior must preserve the architecture and
+production gates in [yaos-ab.md](./yaos-ab.md).
+
+## Dependencies And Authority
+
+This plan owns passkey-controlled client custody. It supplies custody records
+and worker APIs consumed by:
+
+- [refactor-96-delegate-wallets.md](./refactor-96-delegate-wallets.md) for
+  `WalletKey`, `SigningLane`, and enrollment identity;
+- [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) for
+  curve-specific lane provisioning and refresh;
+- [refactor-98-delegated-agent-linked-device-behavior.md](./refactor-98-delegated-agent-linked-device-behavior.md)
+  for linked-device and delegated-agent product flows.
+
+The cryptographic authorities are:
+
+- [yaos-ab.md](./yaos-ab.md) for Ed25519 registration, recovery, refresh,
+  recipient provisioning, activation, signing, and export;
+- `crates/router-ab-ecdsa-derivation` for secp256k1 role-local derivation,
+  additive shares, threshold signing, and export;
+- the Wallet Session model for authorization, exact key bindings, budget, and
+  expiry.
+
+This plan does not introduce an alternate signing protocol.
 
 ## Goal
 
-Move passkey accounts away from deterministic client MPC share derivation.
+Make passkeys authentication and unwrap factors for random, rotatable client
+custody material.
 
-Target model:
-
-```text
-MPC ceremony creates random holder share.
-Passkey PRF derives an unwrap KEK.
-KEK seals holder share.
-Recovery codes seal backup envelopes for the same holder share.
-Signing opens the holder share only inside the wallet worker boundary.
-```
-
-The passkey becomes an authentication and unwrapping factor. The passkey-derived
-secret no longer defines the MPC signing share.
-
-## Why This Is Required
-
-Deterministic passkey-derived shares made early account sync easier. They create
-three problems for delegated agent wallets:
-
-1. Share rotation cannot be modeled cleanly because the holder share is tied to
-   the authenticator output.
-2. Agent lane creation needs address-preserving resharing, which is cleaner when
-   holder shares are durable lane secrets.
-3. Recovery and backup should wrap the same lane secret instead of rederiving
-   unrelated signing material.
-
-The Email OTP account model already has the useful shape: random client-side
-secret material is sealed, recovery codes wrap server-stored recovery escrows,
-and plaintext recovery codes remain user-held.
-
-This plan also supersedes the stale recovery/export adaptor slice in
-[refactor-34b-stepup-adaptor.md](./refactor-34b-stepup-adaptor.md). Export and
-recovery authorization should be reworked around wrapped holder-share envelopes
-instead of adding the old `requireExportStepUpAuth` wrapper first.
-
-## Current State
-
-Relevant code patterns:
-
-- `passkeyPrfFirstB64u` flows through ECDSA activation and bootstrap paths.
-- Passkey warm sessions cache PRF material with TTL and remaining uses.
-- Email OTP enrollment generates a client secret and derives
-  `clientRootShare32`.
-- Email OTP recovery uses `EMAIL_OTP_RECOVERY_KEY_COUNT = 10` and stores
-  recovery-wrapped enrollment escrow records server-side.
-- Email OTP recovery-code rotation already exists as an explicit capability.
-
-Current passkey behavior should be treated as a migration source. New core logic
-should operate on sealed holder-share envelopes.
-
-## Design Decision
-
-Create a passkey lane holder share during registration or address-preserving
-resharing. Seal that holder share under passkey-derived KEKs and recovery-code
-KEKs.
+Target shape:
 
 ```text
-holder_share_lane
-  -> sealed by passkey KEK
-  -> sealed by recovery code KEK 1
-  -> sealed by recovery code KEK 2
-  -> ...
-  -> sealed by recovery code KEK 10
+WebAuthn user verification + PRF output
+  -> passkey KEK inside the secure worker
+  -> opens one exact client-root or holder-share envelope
+  -> creates an opaque live capability
+  -> capability participates in the existing Ed25519 or ECDSA lifecycle
 ```
 
-Server storage contains recovery-wrapped envelopes and metadata. The server must
-never store plaintext recovery codes, passkey PRF outputs, holder shares, holder
-share KEKs, or wallet private keys.
+The passkey PRF output is limited to KEK derivation and authentication binding.
+It does not define a wallet key, Yao Client root, ECDSA client root share, or
+lane holder share after this refactor.
 
-## Secret Hierarchy
+## Required Invariants
 
-Normal passkey unlock:
+1. Wallet public identities remain stable during credential replacement,
+   envelope rewrap, recovery, and lane refresh.
+2. A passkey credential can be revoked independently from a linked-device lane.
+3. JavaScript, the app origin, Router, and persistence adapters never receive a
+   plaintext client root, holder share, PRF output, or KEK.
+4. The browser signing worker owns opened material through opaque handles and
+   zeroizes it at lock, page lifecycle termination, success, and failure.
+5. Recovery of a mixed wallet covers the exact Ed25519 and EVM-family key set in
+   one wallet-scoped operation.
+6. Recovery-code consumption commits only after every required key capability
+   is activated and identity continuity is verified.
+7. Core functions accept precise active-custody states. Raw persistence shapes
+   and credential responses are parsed once at their boundaries.
+8. Development data created by superseded custody designs is deleted. No
+   legacy deterministic-share branch, feature flag, or compatibility lifecycle
+   enters core logic.
+
+## Current Seams SDK State
+
+The local SDK already has the following lifecycle foundations:
+
+- passkey Ed25519 registration, same-root recovery, refresh, signing, and export
+  run through Streaming Yao A/B;
+- the live Ed25519 Client is owned by Rust/WASM while IndexedDB retains only a
+  public capability projection;
+- passkey PRF input currently derives the stable Ed25519 Yao Client root inside
+  Rust/WASM;
+- Router A/B ECDSA derivation currently derives the client root share from
+  passkey PRF input and activates exact threshold sessions for one EVM-family
+  key slot;
+- Email OTP registration, cold unlock, recovery, and budget refresh already use
+  factor-root handles and the same Wallet Session admission boundary;
+- one Wallet Session grant can bind an Ed25519 key and the exact ECDSA sessions
+  for Tempo and Arc/EVM under one shared budget;
+- envelope record types, recovery-code types, and type fixtures exist, though
+  they are not wired into registration, unlock, or recovery;
+- linked-device operations remain fail closed.
+
+The refactor changes both passkey root sources:
 
 ```text
-WebAuthn PRF output
-SecureConfirm session material
-  -> passkey lane KEK
-  -> opens sealed holder share
-  -> holder share participates in MPC signing
+current Ed25519: PRF.first -> deterministic Yao Client root
+target Ed25519:  random Yao Client root -> passkey-sealed root envelope
+
+current ECDSA:   PRF.first -> deterministic client root share
+target ECDSA:    random client root share -> passkey-sealed root envelope
 ```
 
-Recovery-code unlock:
+New registrations use random roots from their first ceremony. Since the project
+is in development, test wallets and obsolete persisted records are discarded
+when the new registration path lands. Any retained wallet requires an explicit
+identity-preserving protocol from Refactor 97; an envelope rewrite can never
+silently change its public key or address.
 
-```text
-user enters one recovery code
-  -> recovery KEK
-  -> opens recovery-wrapped holder-share envelope
-  -> creates fresh passkey envelope for an owner lane
-  -> consumed recovery code is retired
-```
+## Custody Secret Taxonomy
 
-Device link:
-
-```text
-existing owner lane authenticates
-  -> approves linked-device permission profile
-  -> creates a new linked-device signing lane
-  -> delivers a distinct holder share to the new device
-  -> new device seals its holder share under its own passkey KEK
-```
-
-Warm sessions:
-
-```text
-fresh passkey unlock
-  -> opens holder share inside worker
-  -> creates bounded holder-share session handle
-  -> handle is bound to walletKeyId, laneId, laneShareEpoch, ttl, and signingGrantId
-```
-
-Warm sessions should cache an opened holder-share handle or a worker-confined
-unwrap capability. They should never cache raw PRF outputs in app-visible state.
-
-## New Records
-
-### Passkey Holder-Share Envelope
+The envelope plaintext must identify the protocol capability it restores.
+`holder share` is too broad for the new SDK.
 
 ```ts
-type PasskeyHolderShareEnvelopeRecord = {
-  kind: 'passkey_holder_share_envelope_v1';
+type PasskeyCustodySecretBinding =
+  | {
+      kind: 'ed25519_yao_client_root_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      keyCreationSignerSlot: KeyCreationSignerSlot;
+      stableContextDigestB64u: string;
+      participantBindingDigestB64u: string;
+      evmFamilySigningKeySlotId?: never;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: 'ed25519_lane_holder_share_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      registeredPublicKeyB64u: string;
+      participantBindingDigestB64u: string;
+      keyCreationSignerSlot?: never;
+      stableContextDigestB64u?: never;
+      evmFamilySigningKeySlotId?: never;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: 'ecdsa_client_root_share_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      applicationBindingDigestB64u: string;
+      clientRootPublicKey33B64u: string;
+      nearEd25519SigningKeyId?: never;
+      keyCreationSignerSlot?: never;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: 'ecdsa_lane_holder_share_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      thresholdSessionId: ThresholdEcdsaSessionId;
+      thresholdPublicKey33B64u: string;
+      nearEd25519SigningKeyId?: never;
+      keyCreationSignerSlot?: never;
+      clientRootPublicKey33B64u?: never;
+    };
+```
+
+Owner registration and same-root recovery use the root branches. A linked or
+delegated lane may receive a lane-specific holder-share branch produced by the
+protocol in Refactor 97. Builders must be branch-specific. Core code never
+constructs this union with a broad spread or an `as` cast.
+
+## Passkey Envelope Records
+
+Replace the generic `PasskeyHolderShareEnvelopeRecord` with a union whose
+plaintext kind is explicit.
+
+```ts
+type PasskeyCustodyEnvelopeLifecycle =
+  | {
+      state: 'active';
+      activatedAtMs: number;
+      retiredAtMs?: never;
+      revokedAtMs?: never;
+    }
+  | {
+      state: 'retired';
+      activatedAtMs: number;
+      retiredAtMs: number;
+      revokedAtMs?: never;
+    }
+  | {
+      state: 'revoked';
+      activatedAtMs: number;
+      revokedAtMs: number;
+      retiredAtMs?: never;
+    };
+
+type PasskeyCustodyEnvelopeRecord = {
+  kind: 'passkey_custody_envelope_v1';
+  envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
+  binding: PasskeyCustodySecretBinding;
   rpId: string;
   credentialIdB64u: string;
-  passkeyEnvelopeVersion: string;
-  passkeyKekVersion: string;
+  passkeyEnvelopeVersion: 'passkey_custody_envelope_v1';
+  passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1';
   nonceB64u: string;
-  sealedHolderShareB64u: string;
+  sealedCustodySecretB64u: string;
   aadHashB64u: string;
-  status: 'active' | 'retired' | 'revoked';
+  lifecycle: PasskeyCustodyEnvelopeLifecycle;
   createdAtMs: number;
   updatedAtMs: number;
 };
 ```
 
-### Recovery-Wrapped Holder-Share Envelope
+The record stores ciphertext and public binding data. It cannot store a raw
+secret, PRF output, KEK, recovery code, or live capability handle.
+
+## Recovery Envelope Set
+
+A recovery code protects a wallet-scoped set of custody entries. It is not
+modeled as an independent recovery code per curve.
 
 ```ts
-type RecoveryWrappedHolderShareEnvelopeRecord = {
-  kind: 'recovery_wrapped_holder_share_envelope_v1';
-  walletId: WalletId;
+type WalletRecoveryEnvelopeEntry = {
   walletKeyId: WalletKeyId;
   laneId: SigningLaneId;
   laneShareEpoch: LaneShareEpoch;
-  recoveryKeyId: DerivedRecoveryKeyId;
-  recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
-  recoveryEnvelopeVersion: string;
+  custodySecretKind: PasskeyCustodySecretBinding['kind'];
   nonceB64u: string;
-  wrappedHolderShareB64u: string;
+  wrappedCustodySecretB64u: string;
   aadHashB64u: string;
+};
+
+type WalletRecoveryEnvelopeSetRecord = {
+  kind: 'wallet_recovery_envelope_set_v1';
+  walletId: WalletId;
+  recoveryKeyId: DerivedWalletRecoveryKeyId;
+  keyManifestDigestB64u: string;
+  entries: readonly WalletRecoveryEnvelopeEntry[];
+  lifecycle: RecoveryCodeLifecycleState;
   issuedAtMs: number;
   updatedAtMs: number;
 };
 ```
 
-The recovery-code count should follow the Email OTP model:
+The manifest contains the exact active owner key/lane set. Parsing rejects an
+empty set, duplicate wallet keys, duplicate lanes, omitted required keys, and
+entries outside the authenticated wallet.
 
-```ts
-const PASSKEY_RECOVERY_KEY_COUNT = EMAIL_OTP_RECOVERY_KEY_COUNT; // 10
-```
+Use ten single-use codes, matching the existing Email OTP recovery UX. A code
+is reserved during recovery and becomes consumed only after the complete new
+credential activation commits. Failed pre-commit recovery releases the
+reservation. Failed post-commit Yao recovery follows the forward-only recovery
+rules in `yaos-ab.md`.
 
-This can reuse shared recovery-code formatting after naming is generalized from
-Email OTP to wallet recovery.
+## KEK And AAD Binding
 
-### Passkey Device Envelope Index
-
-One owner lane may have multiple passkey envelopes for the same holder share and
-lane epoch. This supports synced passkeys, multiple authenticators, and
-same-device authenticator replacement without changing the MPC share.
-
-```ts
-type PasskeyDeviceEnvelopeIndexRecord = {
-  kind: 'passkey_device_envelope_index_v1';
-  walletId: WalletId;
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
-  credentialIdB64u: string;
-  rpId: string;
-  deviceLabel: string;
-  envelopeId: PasskeyEnvelopeId;
-  status: 'active' | 'retired' | 'revoked';
-  createdAtMs: number;
-  updatedAtMs: number;
-};
-```
-
-Removing one passkey credential should revoke that credential's envelope. It
-should trigger lane share refresh only when the removed credential or the opened
-holder share may have been exposed.
-
-## Passkey Envelopes Versus Linked Devices
-
-Passkey envelopes and QR-linked devices are different operations.
-
-Passkey envelope addition:
+KEK derivation is versioned and bound to the credential and relying party.
 
 ```text
-same wallet key
-same lane id
-same lane share epoch
-same holder share
-new passkey credential wraps the same holder share
+passkey_kek = HKDF-SHA256(
+  ikm = WebAuthn PRF.first,
+  salt = versioned application salt,
+  info = hash(rpId, credentialId, walletId, envelopeId, purpose, version)
+)
 ```
 
-Use this for:
+Envelope AAD includes:
 
-- synced passkeys on the same platform account
-- adding a hardware security key to the same owner lane
-- replacing a local authenticator after the owner lane is already open
+- wallet ID;
+- wallet key ID and curve-specific key-slot identity;
+- lane ID and lane share epoch;
+- custody-secret kind;
+- registered public key or EVM address binding;
+- participant or threshold-session binding;
+- Yao stable-context and key-creation signer slot where applicable;
+- Router A/B signing-root identity and version;
+- credential ID and RP ID;
+- envelope, KEK, and protocol versions.
 
-QR linked-device creation:
-
-```text
-same wallet key
-new linked-device lane id
-new lane share epoch
-new holder share
-new server share
-new passkey credential wraps the linked-device holder share
-```
-
-Use this for:
-
-- scanning a QR code on Device 2 from an existing owner device
-- revoking one physical device without touching other lanes
-- creating a scoped device with a limited mandate
-- creating an owner-equivalent device that still has independent revocation
-
-The QR link-device flow belongs to the delegated signer behavior plan in
-[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
-This passkey refactor supplies the envelope model each device lane uses after
-its holder share is delivered.
-
-## KEK Derivation Spec
-
-Passkey KEK derivation needs an explicit, versioned context.
-
-```ts
-type PasskeyKekDerivationContext = {
-  kind: 'passkey_kek_derivation_context_v1';
-  walletId: WalletId;
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
-  rpId: string;
-  credentialIdB64u: string;
-  passkeyKekVersion: string;
-  purpose: 'holder_share_envelope';
-};
-```
-
-Recovery-code KEK derivation should use the same wallet recovery context family
-as Email OTP after the helper naming is generalized:
-
-```ts
-type RecoveryKekDerivationContext = {
-  kind: 'wallet_recovery_kek_derivation_context_v1';
-  walletId: WalletId;
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
-  recoveryKeyId: DerivedRecoveryKeyId;
-  recoveryEnvelopeVersion: string;
-  purpose: 'holder_share_recovery_envelope';
-};
-```
-
-Both contexts must be hashed into envelope AAD. PRF outputs, KEKs, and recovery
-codes must stay inside wallet-owned UI or worker boundaries.
-
-## AAD Binding
-
-All passkey and recovery envelopes must bind:
-
-- wallet id
-- wallet key id
-- lane id
-- lane share epoch
-- holder share public commitment
-- envelope kind
-- envelope version
-- rpId and credential id for passkey envelopes
-- recovery key id for recovery envelopes
-- signing root id and version when the lane depends on Router A/B material
-
-Opening an envelope under mismatched AAD must fail before plaintext is accepted.
+The worker recomputes AAD from parsed domain records. Callers cannot supply an
+arbitrary AAD blob.
 
 ## Registration Flow
 
-New passkey account registration:
+1. Parse the exact wallet registration intent and signer-set selection.
+2. Create the `WalletKey` inventory and owner lane identities.
+3. Create the passkey and obtain required PRF output inside the secure-confirm
+   worker.
+4. Generate independent random client custody roots inside Rust/WASM:
+   - one Yao Client root for each new Ed25519 wallet key;
+   - one Router A/B ECDSA client root share for the EVM-family wallet key.
+5. Execute the existing key-family registration protocols with those imported
+   random roots.
+6. Verify the returned Ed25519 public key, ECDSA public key, EVM address,
+   participant bindings, threshold sessions, and wallet-level grant.
+7. Seal every client root under the passkey KEK.
+8. Create the recovery envelope sets from the same roots.
+9. Commit wallet keys, lanes, envelopes, recovery sets, public capability
+   projections, and the Wallet Session grant in one registration commit.
+10. Zeroize root and PRF inputs on every exit.
 
-1. Create or select `WalletKeyRecord`.
-2. Run MPC keygen or lane creation ceremony.
-3. Produce owner passkey lane holder share and matching server share.
-4. Run WebAuthn with PRF.
-5. Derive passkey KEK.
-6. Seal holder share into `PasskeyHolderShareEnvelopeRecord`.
-7. Generate 10 recovery codes.
-8. Derive recovery KEKs and wrap the holder share 10 times.
-9. Store active recovery-wrapped holder-share envelopes server-side.
-10. Persist lane record, passkey envelope, recovery envelopes, and server share.
-11. Return recovery codes only to the owning wallet UI boundary.
+The Yao Client-root source becomes a precise union with a generated-random-root
+branch. The PRF-derived-root branch is deleted when this flow lands.
 
-## Login And Signing Flow
+## Unlock And Ordinary Signing
 
-1. Resolve owner passkey lane.
-2. Run WebAuthn PRF or claim an active warm passkey KEK session.
-3. Open the sealed holder-share envelope inside the wallet worker.
-4. Build exact signing lane identity.
-5. Run normal signing admission and budget checks.
-6. Participate in MPC signing.
-7. Zeroize holder-share plaintext after use or retain only inside a bounded warm
-   session.
+1. Resolve the exact active passkey envelope set for the requested wallet and
+   credential.
+2. Run WebAuthn and derive the passkey KEK inside the worker.
+3. Open only the custody entries required by the requested lane and key.
+4. Convert opened material into opaque Rust/WASM handles:
+   - an Ed25519 Yao Client capability or lane holder capability;
+   - an ECDSA role-local client-root or holder-share capability.
+5. Resolve the exact Wallet Session, lane, key, participant, threshold-session,
+   budget, and expiry binding.
+6. Sign through the existing Router and SigningWorker path.
 
-The app and host page must never receive PRF outputs, KEKs, holder-share bytes,
-or recovery codes.
+Ordinary Ed25519 signing performs zero Yao evaluations and zero Deriver calls.
+Ordinary ECDSA signing performs no role-local root derivation after the live
+capability is ready. Warm sessions retain opaque handles with bounded TTL and
+uses. They never cache PRF output or plaintext roots in JavaScript.
 
-## Recovery Flow
+## Passkey Recovery Flow
 
-1. User enters one recovery code in the wallet-owned UI boundary.
-2. Client derives recovery key id and recovery KEK.
-3. Server returns the matching active recovery-wrapped holder-share envelope.
-4. Wallet worker opens the holder share.
-5. Server marks the recovery code as consumed.
-6. User registers a new passkey envelope for an owner lane.
-7. System rotates recovery codes after successful recovery.
+1. Authenticate the wallet recovery request with Email OTP or one unused
+   recovery code.
+2. Reserve the recovery code and resolve its exact key manifest.
+3. Open every recovery-wrapped custody entry inside the recovery worker.
+4. Create the replacement passkey and its KEK.
+5. Run Ed25519 Yao same-root recovery for each Ed25519 root entry.
+6. Rebind and reactivate each ECDSA client-root entry while preserving the
+   threshold public key, address, key slot, participants, and active session
+   identity required by the ECDSA lifecycle.
+7. Seal every custody entry under the replacement passkey KEK.
+8. Verify identity continuity for the complete manifest.
+9. Atomically activate the replacement envelope set, tombstone the prior
+   credential binding, and consume the recovery code.
+10. Zeroize all opened recovery material.
 
-Recovery should fail closed when the expected number of active recovery-wrapped
-records is unavailable.
+Recovery never creates a new wallet key, key-creation signer slot, registered
+Ed25519 public key, EVM address, or EVM-family key slot.
 
-## Recovery-Code Lifecycle
+## Passkey Addition And Linked Devices
 
-Recovery-code sets are lane-epoch scoped.
-
-Required states:
-
-```ts
-type RecoveryCodeLifecycleState =
-  | {
-      state: 'active';
-      issuedAtMs: number;
-      consumedAtMs?: never;
-      revokedAtMs?: never;
-    }
-  | {
-      state: 'consumed';
-      issuedAtMs: number;
-      consumedAtMs: number;
-      revokedAtMs?: never;
-    }
-  | {
-      state: 'revoked';
-      issuedAtMs: number;
-      revokedAtMs: number;
-      consumedAtMs?: never;
-    };
-```
-
-Rotation rules:
-
-- new registration issues exactly 10 active recovery-wrapped envelopes
-- successful recovery consumes one code and rotates the full set
-- user-requested rotation requires an opened owner holder share
-- lane share refresh creates a new recovery-code set for the new lane epoch
-- old recovery envelopes are revoked after the new set is acknowledged
-- recovery-code plaintext is displayed only once to the owner UI boundary
-
-The server may store recovery key ids, statuses, envelope ciphertext, and audit
-metadata. It must reject requests that include recovery-code plaintext, recovery
-KEKs, passkey PRF outputs, or opened holder-share bytes.
-
-## Device And Passkey Management
-
-Features to account for:
-
-- list passkey envelopes for an owner lane
-- add a passkey envelope from an already opened owner lane
-- revoke one passkey envelope
-- rotate all passkey envelopes after suspected device compromise
-- recover onto a new passkey using one recovery code
-- regenerate recovery codes after owner confirmation
-- clear warm holder-share sessions on passkey envelope revocation
-
-QR device linking should create a new linked-device lane through the delegation
-flow. It should create a new passkey envelope only after the new device receives
-its distinct holder share.
-
-Linked-device lanes should not create new recovery-code authority by default.
-Recovery codes remain attached to owner recovery flows unless the owner
-explicitly adds a recovery policy for that linked device.
-
-## Migration From Deterministic Passkey Shares
-
-Existing passkey accounts require an address-preserving migration ceremony.
+Adding another passkey envelope to an existing owner lane keeps:
 
 ```text
-old deterministic holder contribution + old server contribution = wallet key
-new random holder share + new server share = same wallet key
+same wallet key
+same lane ID
+same lane share epoch
+same custody secret
+new credential and envelope IDs
 ```
 
-Migration requires fresh user authentication because the old holder contribution
-must participate. The server cannot convert an old deterministic passkey share
-into a new random holder share by itself while preserving the address.
+Use this for synced credentials, hardware authenticators, and credential
+replacement on the same owner lane.
 
-Migration steps:
-
-1. User signs in with passkey and creates a fresh migration operation.
-2. Wallet worker derives or opens the old holder contribution inside the worker.
-3. Server resolves the matching old server share.
-4. Run address-preserving lane resharing.
-5. Create a random new holder share and new server share.
-6. Seal the new holder share under passkey KEK.
-7. Generate or rotate recovery-code envelopes.
-8. Verify public key/address parity.
-9. Mark the new lane epoch active.
-10. Retire deterministic derivation records at the persistence boundary.
-
-Compatibility code belongs only in the migration reader/parser. Core signing
-logic should accept only the new sealed-holder-share lane state.
-
-Migration should also define a product gate:
-
-- eligible deterministic accounts migrate after the next successful passkey
-  unlock
-- signing may continue only through the migration parser until the new envelope
-  is created
-- new passkey registrations use sealed holder-share envelopes only
-- delegated agent lane creation requires the account to be on wrapped holder
-  shares
-- linked-device lane creation requires the account to be on wrapped holder
-  shares
-- deterministic passkey share derivation is deleted after the supported
-  migration window
-
-## Type Model
-
-Use branch-specific lifecycle types.
-
-```ts
-type PasskeyLaneMaterialState =
-  | {
-      state: 'sealed_holder_share_available';
-      envelope: PasskeyHolderShareEnvelope;
-      holderShare?: never;
-      migration?: never;
-    }
-  | {
-      state: 'holder_share_open';
-      holderShare: OpenHolderShare;
-      envelope: PasskeyHolderShareEnvelope;
-      migration?: never;
-    }
-  | {
-      state: 'legacy_deterministic_migration_required';
-      migration: LegacyDeterministicPasskeyMigrationRecord;
-      envelope?: never;
-      holderShare?: never;
-    };
-```
-
-Static checks:
-
-- `holder_share_open` without `holderShare` fails.
-- sealed state with `holderShare` fails.
-- legacy migration state cannot be passed to signing functions.
-- recovery envelope with plaintext recovery code fails.
-
-## Prep Phase: Envelope And Recovery Foundations
-
-This phase is additive and should land before passkey behavior changes.
-
-### Folder Layout To Prepare
+QR-linked device creation keeps the wallet keys and creates:
 
 ```text
-packages/shared-ts/src/wallet-recovery/
-  recoveryCodes.ts
-  recoveryEnvelopes.ts
-  recoveryKekContext.ts
-  walletRecovery.typecheck.ts
-
-packages/sdk-web/src/core/signingEngine/session/passkey/envelopes/
-  passkeyKekContext.ts
-  holderShareEnvelope.ts
-  recoveryWrappedHolderShare.ts
-  passkeyEnvelopeIndex.ts
-  holderShareEnvelope.typecheck.ts
-
-packages/sdk-web/src/core/signingEngine/session/holderShares/
-  holderShareHandle.ts
-  holderShareEnvelopeAad.ts
-  forbiddenHolderSharePayloads.typecheck.ts
+one new linked-device enrollment
+one new linked-device lane per required wallet key
+new holder material per lane
+new matching SigningWorker or relayer material per lane
+new passkey envelopes on Device 2
 ```
 
-The existing Email OTP recovery helpers can remain in place during prep. New
-wallet-recovery modules should expose neutral names that Email OTP and passkey
-flows can adopt later.
+Refactor 97 owns the key-family provisioning ceremony. Refactor 98 owns the QR
+and product behavior.
 
-### Structs To Introduce First
+## Credential And Device Management
 
-Add type-only records and builders:
-
-- `PasskeyHolderShareEnvelopeRecord`
-- `RecoveryWrappedHolderShareEnvelopeRecord`
-- `PasskeyDeviceEnvelopeIndexRecord`
-- `PasskeyKekDerivationContext`
-- `RecoveryKekDerivationContext`
-- `RecoveryCodeLifecycleState`
-- `OpenHolderShareHandle`
-- `SealedHolderShareEnvelopeAad`
-
-Keep these structs out of current signing flows until the migration boundary is
-ready.
-
-### Non-Breaking Work Available Today
-
-- create generic wallet-recovery aliases around the current Email OTP recovery
-  code format
-- add passkey KEK derivation context types without deriving new KEKs yet
-- add envelope AAD builders with tests using dummy holder-share commitments
-- add type fixtures rejecting PRF outputs, KEKs, recovery-code plaintext, and
-  opened holder-share bytes in app-visible payloads
-- add `PasskeyDeviceEnvelopeIndexRecord` types for same-lane passkey envelope
-  management
-- add QR linked-device tests proving linked-device envelopes require a distinct
-  `laneId` and `laneShareEpoch`
-- add source guards around new envelope modules before wiring them into passkey
-  registration or login
-
-Prep should leave these behaviors unchanged:
-
-- deterministic passkey share derivation
-- current passkey unlock and signing
-- current Email OTP recovery-code issuance and rotation
-- current QR link-device behavior
-- current warm-session storage
-
-### Prep Progress
-
-- [x] Added wallet-neutral recovery aliases under
-      `packages/shared-ts/src/wallet-recovery/`.
-- [x] Added recovery envelope and KEK-context types that can be reused by
-      passkey holder-share envelopes later.
-- [x] Added passkey holder-share envelope, passkey KEK context, recovery-wrapped
-      holder-share, and passkey envelope index prep modules.
-- [x] Added opaque holder-share handle and envelope AAD helper modules.
-- [x] Added type fixtures rejecting recovery-code plaintext, PRF output, and
-      holder-share bytes in app-visible prep types.
+- Removing one passkey revokes its envelope set and invalidates its live
+  handles.
+- Removing a synced passkey leaves the lane active when another active envelope
+  protects the same custody secret.
+- Suspected plaintext exposure triggers lane refresh through Refactor 97.
+- Revoking a linked device revokes its enrollment and all child lanes. Owner
+  lane envelopes remain active.
+- Credential replacement and device revocation are separate user operations.
 
 ## Implementation Phases
 
-### Phase 0: Inventory
+### Phase 0: Freeze Custody Boundaries
 
-- [ ] List all passkey PRF paths used as signing material.
-- [ ] Identify persistence records containing deterministic passkey share state.
-- [ ] Identify warm-session paths that cache PRF outputs.
-- [ ] Identify Email OTP recovery-code helpers that can be generalized.
-- [ ] Complete the additive envelope and recovery prep phase.
+- [ ] Replace the generic holder-share envelope model with the explicit custody
+      secret union.
+- [ ] Add branch-specific builders and boundary parsers.
+- [ ] Add static fixtures rejecting cross-curve fields and raw-secret records.
+- [ ] Delete deterministic PRF-root lifecycle types and obsolete fixtures.
 
-### Phase 1: Domain Types
+### Phase 1: Envelope Crypto
 
-- [ ] Add branded IDs for wallet key, lane id, lane share epoch, and envelope id.
-- [ ] Add `PasskeyHolderShareEnvelopeRecord`.
-- [ ] Add `RecoveryWrappedHolderShareEnvelopeRecord`.
-- [ ] Add `PasskeyDeviceEnvelopeIndexRecord`.
-- [ ] Add recovery-code lifecycle state.
-- [ ] Add strict parsers for raw persistence rows.
-- [ ] Add type fixtures rejecting mixed legacy/new material states.
+- [ ] Implement passkey KEK derivation inside Rust/WASM.
+- [ ] Implement authenticated seal/open for every custody-secret branch.
+- [ ] Implement wallet recovery envelope sets and recovery-code reservation.
+- [ ] Add AAD substitution and ciphertext tamper tests.
 
-### Phase 2: Envelope Crypto
+### Phase 2: Random-Root Registration
 
-- [ ] Define passkey KEK derivation with explicit domain separation.
-- [ ] Define recovery KEK derivation with generalized wallet-recovery contexts.
-- [ ] Bind all envelope AAD fields.
-- [ ] Add open/seal helpers in worker-only code.
-- [ ] Add source guards blocking holder-share bytes from app-visible payloads.
-- [ ] Add source guards blocking PRF outputs and KEKs from app-visible payloads.
+- [ ] Add generated-random Client-root input to Yao registration.
+- [ ] Add generated-random client-root-share input to ECDSA derivation.
+- [ ] Commit mixed-wallet envelope sets with the registration result.
+- [ ] Delete PRF-derived signing-root paths after replacement.
 
-### Phase 3: New Registration Path
+### Phase 3: Unlock And Signing
 
-- [ ] Generate random holder share during passkey registration.
-- [ ] Seal holder share under passkey KEK.
-- [ ] Generate 10 recovery codes.
-- [ ] Store recovery-wrapped holder-share envelopes server-side.
-- [ ] Persist owner passkey lane record.
-- [ ] Verify the resulting wallet address.
+- [ ] Open custody entries into opaque worker handles.
+- [ ] Bind handles to wallet key, lane, epoch, participant set, grant, and TTL.
+- [ ] Preserve zero-Deriver ordinary Ed25519 signing.
+- [ ] Preserve exact ECDSA threshold-session and public-identity binding.
 
-### Phase 4: Login And Signing
+### Phase 4: Wallet-Scoped Recovery
 
-- [ ] Open sealed holder share after WebAuthn PRF.
-- [ ] Pass only opened holder-share handles into signing code.
-- [ ] Remove direct PRF-as-client-share inputs from core signing functions.
-- [ ] Keep warm sessions as bounded holder-share unwrap sessions.
-- [ ] Bind warm sessions to `walletKeyId`, `laneId`, `laneShareEpoch`, and
-      the active `signingGrantId` when the warm capability spends a signing
-      grant.
-- [ ] Clear warm sessions when the envelope or lane epoch is revoked.
-- [ ] Record budget spends against `signingGrantId`, `laneId`, and
-      `laneShareEpoch`.
+- [ ] Restore the recovery-code UX with ten single-use codes.
+- [ ] Reuse the Email OTP authorization and Wallet Session admission boundary.
+- [ ] Recover every key in the exact manifest before credential promotion.
+- [ ] Consume a recovery code only with the activation commit.
 
-### Phase 5: Recovery
+### Phase 5: Credential Management
 
-- [ ] Add passkey recovery-code status API.
-- [ ] Add recovery unwrap path for passkey holder-share envelopes.
-- [ ] Mark consumed recovery codes.
-- [ ] Rotate recovery-code envelopes after recovery.
-- [ ] Add UI flow modeled after Email OTP recovery codes.
-- [ ] Add user-initiated recovery-code regeneration.
-- [ ] Revisit export/recovery step-up routing after holder-share envelopes exist;
-      do not revive the superseded refactor-34b `requireExportStepUpAuth` shape
-      without a current holder-share and lane-aware design.
+- [ ] Add passkey envelope creation, listing, and revocation.
+- [ ] Add device labels and credential activity history.
+- [ ] Add lane refresh escalation after suspected holder-secret exposure.
 
-### Phase 5a: Device Management
+### Phase 6: Linked-Lane Integration
 
-- [ ] List active passkey envelopes for an owner lane.
-- [ ] Add a passkey envelope from an authenticated owner lane.
-- [ ] Revoke a single passkey envelope.
-- [ ] Rotate all passkey envelopes after compromise.
-- [ ] Verify single-envelope revocation does not change wallet address.
-- [ ] Route QR link-device creation to delegated linked-device lane creation in
-      [refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
-- [ ] Ensure linked-device passkey envelopes wrap distinct holder shares.
-
-### Phase 6: Migration
-
-- [ ] Add migration parser for deterministic passkey records.
-- [ ] Require fresh passkey auth before migration.
-- [ ] Run address-preserving lane resharing.
-- [ ] Seal new random holder share.
-- [ ] Generate recovery-code envelopes.
-- [ ] Verify address parity.
-- [ ] Remove deterministic passkey share paths after migration support is no
-      longer needed.
+- [ ] Accept Ed25519 and ECDSA lane holder material produced by Refactor 97.
+- [ ] Seal linked-device holder material under Device 2's passkey KEK.
+- [ ] Return exact per-key delivery receipts and an aggregate manifest receipt.
 
 ## Validation
 
 Static checks:
 
-- core signing functions reject legacy deterministic passkey material
-- passkey envelope records require `walletKeyId`, `laneId`, and
-  `laneShareEpoch`
-- recovery envelope records cannot contain plaintext recovery codes
-- passkey KEK contexts require credential id and lane epoch
-- recovery KEK contexts require recovery key id and lane epoch
-- opened holder-share state cannot be serialized to app-visible messages
+- an Ed25519 root envelope with ECDSA fields fails;
+- an ECDSA holder-share envelope without a threshold session fails;
+- a linked-device holder-share envelope with a key-creation root field fails;
+- an active envelope without credential, lane, key, or AAD identity fails;
+- plaintext root, holder share, PRF, KEK, and recovery-code fields cannot appear
+  in persisted or app-visible records;
+- raw boundary shapes cannot reach core unlock or signing functions.
 
-Unit tests:
+Focused behavior tests:
 
-- wrong AAD fails to open passkey envelope
-- wrong recovery code fails to open recovery envelope
-- consumed recovery code cannot be reused
-- recovery-code rotation leaves exactly 10 active envelopes
-- removing one passkey envelope leaves other passkey envelopes active
-- revoked passkey envelope clears matching warm sessions
-- QR linked-device enrollment creates a distinct lane id and lane share epoch
-- QR linked-device enrollment does not reuse the owner holder share
-- migration preserves wallet public key/address
-- signing fails after envelope revocation
+- mixed Ed25519/ECDSA registration seals every required root;
+- unlock produces valid signatures for NEAR, Tempo, and Arc/EVM;
+- passkey addition preserves the lane and wallet public identities;
+- Email OTP and recovery-code recovery preserve every wallet key;
+- partial mixed-wallet recovery never promotes the replacement credential;
+- code replay, wrong wallet, wrong key manifest, wrong RP, wrong credential,
+  wrong lane epoch, and wrong public key all fail;
+- linked-device holder material can be delivered, sealed, reopened, signed, and
+  revoked without affecting owner envelopes;
+- lock, pagehide, timeout, success, and failure destroy live handles.
 
-Integration tests:
+Broad gate:
 
-- register passkey account with sealed holder share
-- login via passkey and sign
-- recover on new device with one recovery code
-- rotate recovery codes
-- add a second passkey envelope and sign from it
-- revoke one passkey envelope and sign from another
-- scan QR to create a linked-device lane and sign from the linked device
-- migrate legacy deterministic account and sign with new holder-share envelope
+- run the Yao local-product gate because this changes Ed25519 registration and
+  recovery inputs;
+- run the mixed passkey registration and recovery suites;
+- run ECDSA registration, recovery, signing, and export identity-continuity
+  tests;
+- repeat production-profile gates when the Yao production adapter exists.
 
 ## Non-Goals
 
-- storing recovery-code plaintext in any server-side record
-- passing PRF outputs through app-visible payloads
-- retaining deterministic passkey-derived signing shares in core logic
-- using recovery codes for routine transaction signing
-- letting a recovery code create delegated agent lanes without owner policy
-- changing wallet addresses during normal migration
+- changing a wallet public key or address during credential management;
+- storing plaintext custody material in the app, iframe host, Router, or
+  database;
+- letting a linked device reuse an owner lane's holder material;
+- using ordinary signing routes for export;
+- retaining migration readers, feature flags, or dual custody implementations;
+- bypassing Yao production-security gates.
 
-## Open Questions
+## Decisions Required Before Implementation
 
-- Should passkey recovery codes reuse the Email OTP code format and naming?
-- Should recovery-code APIs become auth-method neutral before passkey migration?
-- Which worker owns passkey holder-share envelope opening?
-- Should warm sessions cache opened holder shares or cache KEKs that reopen
-  holder shares per operation?
-- How long should legacy deterministic migration support remain at persistence
-  boundaries?
-- Which user action is required before generating passkey recovery codes?
-- Should synced passkeys share one display label model with physical security
-  keys and platform authenticators?
+- Select the passkey envelope AEAD and nonce format already supported by the
+  Rust/WASM boundary.
+- Freeze the exact random-root generation API for Yao and ECDSA derivation.
+- Freeze whether a recovery code wraps each manifest entry directly or wraps a
+  manifest KEK that encrypts the entries. Both designs must preserve per-entry
+  AAD and all-or-nothing promotion.
+- Define the durable transaction boundary for wallet registration and recovery
+  across Router records, SigningWorker activation, and browser persistence.

@@ -1,206 +1,540 @@
-# Delegated Agent And Linked-Device Behavior
+# Linked-Device And Delegated-Agent Behavior
 
 Date created: June 15, 2026
 
-Status: design plan. This plan owns the full delegated-agent and linked-device
-behavior that was split out of
-[refactor-82-delegate-wallets.md](./refactor-82-delegate-wallets.md).
+Last reconciled: July 15, 2026
+
+Status: active product plan. QR v4 parsing and UI shells exist. Device linking,
+lane provisioning, signing admission, and revocation remain fail closed.
 
 ## Dependencies
 
-- [refactor-81-passkey-account-refactor.md](./refactor-81-passkey-account-refactor.md)
-  supplies wrapped holder-share envelopes.
-- [refactor-82-delegate-wallets.md](./refactor-82-delegate-wallets.md) supplies
-  `WalletKey`, `SigningLane`, owner-lane normalization, lane policy types, and
-  raw-boundary parsers.
-- [refactor-83-share-rotation.md](./refactor-83-share-rotation.md) supplies lane
-  share epochs, address-preserving refresh, stale-epoch rejection, and
-  cryptographic revocation primitives.
+- [yaos-ab.md](./yaos-ab.md) supplies the Ed25519 Client, Deriver A/B,
+  SigningWorker, lifecycle, and production-security architecture.
+- [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
+  supplies wrapped roots, holder-share envelopes, and wallet-scoped recovery.
+- [refactor-96-delegate-wallets.md](./refactor-96-delegate-wallets.md) supplies
+  curve-specific wallet keys, lanes, enrollments, policies, and admission
+  identity.
+- [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) supplies Yao
+  Ed25519 lane provisioning, ECDSA additive lane resharing, aggregate
+  activation, refresh, and revocation.
 
 ## Goal
 
-Add delegated agent wallets and linked-device signer lanes with cryptographic
-revocation and audit separation.
+Give a new physical device or delegated agent an independently revocable,
+lane-scoped signing capability for an exact wallet-key set.
 
-The target user stories are:
-
-```text
-User approves a bounded mandate.
-System creates a delegated agent signing lane.
-Agent receives a lane-scoped MPC holder share.
-Agent can request signatures only through policy-admitted flows.
-Revocation disables that lane without changing the wallet address.
-Owner lanes and unrelated agent lanes continue to work.
-```
+Target linked-device story:
 
 ```text
-New device shows a QR code with a link-session public key.
-Existing owner device scans the QR code.
-User approves full or scoped device permissions.
-System creates a linked-device signing lane.
-New device receives a lane-scoped MPC holder share.
-Revocation disables that device without affecting other lanes.
+Device 2 displays an unclaimed QR session.
+Device 1 authenticates and approves the device and permissions.
+One child lane is provisioned for each required wallet key.
+Device 2 seals every holder capability under its own passkey.
+The aggregate enrollment activates after all receipts verify.
+Device 2 signs through its own lanes.
+Revocation disables the aggregate without affecting owner lanes.
 ```
 
-## Scope
+Target delegated-agent story:
 
-This plan owns behavior, route registration, product flows, and operational
-surfaces. It consumes the lane-domain foundation from refactor-82 instead of
-adding optional lane fields to older signing records.
+```text
+Owner approves an exact mandate and key set.
+Protocol provisions lane holder material to a named custody key.
+Agent returns custody and attestation receipts.
+Signing requires active enrollment, active lane, exact intent admission,
+budget, expiry, replay admission, and matching server participation.
+```
 
-Owned here:
+## Product Delivery Order
 
-- delegated signer lane creation
-- linked-device lane creation
-- delegated signing admission
-- linked-device signing admission
-- immediate delegated and linked-device revocation
-- user and operations surfaces for delegation lifecycle
+The order is intentional:
 
-Owned by refactor-83:
+1. Complete Email OTP/recovery-code UX and wrapped passkey custody in Refactor
+   95.
+2. Complete wallet-key, lane, enrollment, and curve-protocol foundations in
+   Refactors 96 and 97.
+3. Ship one owner-equivalent, signing-only QR-linked device lane.
+4. Add linked-device signing admission and immediate enrollment revocation.
+5. Add bounded delegated agents and scoped linked-device permissions.
+6. Add advanced administration scopes, cryptographic cleanup evidence, and
+   automated remaining-lane refresh after compromise.
 
-- lane share epochs
-- lane share refresh
-- server-share disablement primitives
-- stale-epoch rejection
-- rollback fencing
+The first linked-device release does not wait for the complete mandate product.
 
-## Phase 0: Behavior Readiness Gate
+## Roles And Trust Boundaries
 
-- [ ] Confirm refactor-81 wrapped holder-share registration and login paths are
-      available for owner passkey lanes.
-- [ ] Confirm refactor-82 owner lanes are normalized and current signing behavior
-      works through explicit lane identity.
-- [ ] Confirm refactor-83 lane epoch and revocation primitives are available.
-- [ ] Confirm route shells from refactor-82 remain unregistered before this plan.
+### Device 1
 
-## Phase 1: Delegated Signer Lane Creation
+- owns an active owner lane;
+- authenticates the linking operation with fresh user verification;
+- displays Device 2 identity, key coverage, permissions, expiry, and revocation
+  path;
+- authorizes the exact enrollment transcript;
+- participates in any holder-side provisioning required by Refactor 97.
 
-- [ ] Add user-confirmed delegation UI.
-- [ ] Add mandate digest display and approval.
-- [ ] Implement address-preserving delegated-lane creation ceremony.
-- [ ] Encrypt holder-share package to named agent custody boundary.
-- [ ] Store matching server-share record.
-- [ ] Emit creation and delivery receipts.
-- [ ] Require custody binding and agent receipt before activation.
+### Device 2
 
-## Phase 2: Linked-Device Lane Creation
+- generates an ephemeral link-encryption keypair;
+- generates a persistent device identity keypair;
+- creates an unclaimed, short-lived link session;
+- creates its passkey after the session is bound to a wallet and before holder
+  material is sealed;
+- opens holder packages only inside the wallet worker;
+- stores only sealed custody envelopes and public capability projections;
+- returns per-key and aggregate delivery receipts.
 
-- [ ] Rework QR link-device authorization to create a linked-device lane.
-- [ ] Support owner-equivalent and scoped linked-device permission policies.
-- [ ] Separate linked-device signing scope from account-administration scope.
-- [ ] Relay encrypted linked-device holder-share packages to the new device.
-- [ ] Require linked-device holder-share delivery receipt before activation.
+Device 2 creates a transport and custody bootstrap session. Wallet creation
+remains part of the established registration flow.
 
-## Phase 3: Agent Signing Admission
+### Relay And Router
 
-- [ ] Add delegated signing request parser.
-- [ ] Verify delegate principal and lane status.
-- [ ] Verify mandate policy, exact intent digest, budget, and expiry.
-- [ ] Validate final unsigned transaction against admitted intent.
-- [ ] Reject broad approvals and arbitrary calls outside explicit mandate scope.
-- [ ] Enforce idempotency before budget reservation.
-- [ ] Block signing before any share participation on policy failure.
-- [ ] Record denied and admitted agent requests.
+- store public link-session state, policy digests, ciphertext, and receipts;
+- authenticate Device 1 before binding a wallet to the link session;
+- authorize one exact wallet-key manifest;
+- coordinate curve-specific child protocols;
+- keep every pending enrollment unavailable to signing;
+- never receive plaintext roots, holder shares, PRF output, KEKs, recovery
+  codes, Yao private outputs, or export-capable ECDSA shares.
 
-## Phase 4: Linked-Device Signing Admission
+### Deriver A And Deriver B
 
-- [ ] Resolve linked-device lane identity before signing.
-- [ ] Require local user presence for owner-equivalent linked-device lanes.
-- [ ] Route scoped linked-device lanes through the delegated mandate pipeline.
-- [ ] Bind warm sessions to linked-device `laneId` and `laneShareEpoch`.
-- [ ] Reject revoked, suspended, expired, or stale linked-device lanes.
+- participate only in Ed25519 lifecycle operations defined by Yao;
+- produce recipient-isolated packages for the target Client and SigningWorker;
+- remain outside ordinary signing.
 
-## Phase 5: Revocation
+### SigningWorker Or ECDSA Relayer Participant
 
-- [ ] Add immediate lane revocation.
-- [ ] Disable matching server share through refactor-83 primitives.
-- [ ] Reject stale revocation epochs.
-- [ ] Stop queued operations.
-- [ ] Clear warm sessions for revoked linked-device lanes.
-- [ ] Add tests proving owner lanes remain active after delegated-lane
-      revocation.
-- [ ] Require fresh user authorization before issuing a replacement delegated
-      lane.
+- activates only exact target-lane material;
+- checks lane, share epoch, revocation epoch, enrollment, Wallet Session, and
+  protocol transcript;
+- cannot sign without the target holder participant and Router admission.
 
-## Phase 6: Product And Operations Surface
+## Linked-Device Session State
 
-- [ ] Add dashboard list for active, suspended, expired, and revoked agent
-      wallets.
-- [ ] Add dashboard list for linked devices and permission profiles.
-- [ ] Add pause, resume, budget top-up, expiry extension, and policy-version
-      update flows.
-- [ ] Add webhook or notification events for creation, signing, denial,
-      suspension, expiry, and revocation.
-- [ ] Add out-of-policy owner approval flow for specific purchase requests.
-- [ ] Add activity export for delegated signing audit evidence.
+Use an exhaustive state machine.
+
+```ts
+type LinkedDeviceSessionState =
+  | {
+      state: 'displaying_qr';
+      linkSessionId: LinkDeviceSessionId;
+      expiresAtMs: number;
+      walletId?: never;
+      enrollmentId?: never;
+    }
+  | {
+      state: 'claimed_by_owner';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      claimExpiresAtMs: number;
+    }
+  | {
+      state: 'awaiting_target_passkey';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      credentialDeadlineMs: number;
+    }
+  | {
+      state: 'provisioning';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      keyManifestDigestB64u: string;
+    }
+  | {
+      state: 'awaiting_aggregate_receipt';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      keyManifestDigestB64u: string;
+    }
+  | {
+      state: 'active';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      activatedAtMs: number;
+    }
+  | {
+      state: 'expired_unclaimed';
+      linkSessionId: LinkDeviceSessionId;
+      expiredAtMs: number;
+      walletId?: never;
+      enrollmentId?: never;
+    }
+  | {
+      state: 'expired_claimed';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      expiredAtMs: number;
+    }
+  | {
+      state: 'cancelled_unclaimed';
+      linkSessionId: LinkDeviceSessionId;
+      cancelledAtMs: number;
+      walletId?: never;
+      enrollmentId?: never;
+    }
+  | {
+      state: 'cancelled_claimed_precommit';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      cancelledAtMs: number;
+    }
+  | {
+      state: 'committed_completion_required';
+      linkSessionId: LinkDeviceSessionId;
+      walletId: WalletId;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      transcriptHashB64u: string;
+    };
+```
+
+Core operations accept the narrow state they require. UI diagnostics and
+progress events project from this state and never control it.
+
+## QR Payload
+
+The existing v4 payload is the starting boundary:
+
+```ts
+type QrLinkedDeviceSessionPayloadV4 = {
+  version: 'v4';
+  purpose: 'linked_device_lane_creation';
+  linkSessionId: LinkDeviceSessionId;
+  linkPublicKeyB64u: string;
+  devicePublicKeyB64u: string;
+  requestedPermission: QrLinkedDevicePermissionRequest;
+  issuedAtMs: number;
+  expiresAtMs: number;
+};
+```
+
+The QR omits wallet ID, account ID, public wallet keys, holder material, server
+material, PRF output, recovery material, and passkey credential secrets. Device
+1 binds the session to a wallet after authenticated claim.
+
+The parser validates version, purpose, branded session ID, key encodings,
+permission branch, issue time, and expiry once. Core linking code receives only
+the parsed v4 type.
+
+## Device 2: Prepare The Link
+
+1. Generate `linkSessionId` from cryptographic randomness.
+2. Generate an ephemeral HPKE/link-encryption keypair inside the wallet worker.
+3. Generate a persistent device identity keypair.
+4. Preflight WebAuthn PRF availability without creating wallet-bound custody.
+5. Register the public link session with the relay.
+6. Render the QR payload.
+7. Subscribe for authenticated session updates.
+
+SSE plus POST requests is the preferred first transport:
+
+- SSE carries claimed, credential-required, provisioning, delivery, active,
+  expired, and terminal events to Device 2;
+- POST requests claim, provide target credential identity, acknowledge holder
+  delivery, cancel, and retry exact committed delivery;
+- authenticated polling can implement the same protocol;
+- WebSocket transport remains an adapter choice.
+
+## Device 1: Claim And Approve
+
+1. Scan and parse the QR payload.
+2. Resolve the active owner wallet and exact wallet-key inventory.
+3. Authenticate with fresh user verification through an active owner lane.
+4. Claim the unclaimed link session atomically.
+5. Display:
+   - Device 2 identity fingerprint;
+   - requested permission profile;
+   - exact Ed25519 and EVM-family key coverage;
+   - local-user-presence requirement;
+   - expiry and revocation path.
+6. Approve one enrollment transcript binding:
+   - link session, device identity, and link public key;
+   - wallet and ordered wallet-key manifest;
+   - source owner lanes and epochs;
+   - target lane IDs and epochs;
+   - permission policy digest;
+   - operation ID, idempotency key, protocol versions, and expiry.
+7. Send the authorization and holder-side protocol contributions through the
+   authenticated Router boundary.
+
+A blockchain transaction is unnecessary. The authorization uses the current
+Wallet Session, fresh passkey assertion, and worker-owned holder participation.
+
+## Device 2: Create Passkey And Receive Material
+
+After the owner claim reveals the authenticated wallet identity:
+
+1. Create a wallet-bound passkey and derive its KEK inside the secure worker.
+2. Register the passkey credential identity and device binding with the claimed
+   session.
+3. Receive one encrypted holder package per target wallet key:
+   - Ed25519 Yao Client/holder recipient package;
+   - ECDSA additive target holder-share package.
+4. Verify enrollment, wallet key, public identity, target lane, epoch, policy,
+   participant, and transcript bindings.
+5. Seal each holder capability under the passkey KEK.
+6. Persist public capability projections and sealed envelopes.
+7. Return a delivery receipt for each key and one aggregate manifest receipt.
+
+The worker rejects a missing key, duplicate key, wrong public identity,
+recipient swap, transcript mismatch, stale session, or unsupported protocol.
+
+## Aggregate Activation
+
+The Router activates the linked device only when:
+
+- the target manifest equals the approved manifest;
+- every child protocol is committed;
+- every target server/SigningWorker capability is ready;
+- every Device 2 holder receipt verifies;
+- the aggregate receipt covers the exact ordered key set;
+- the session, enrollment, and owner authorization are current;
+- no revocation or cancellation fence is active.
+
+Activation marks the parent enrollment and all child lanes active through the
+durable visibility rule in Refactor 97. Device 2 then receives a Wallet Session
+grant bound to its exact enrollment and lanes.
+
+## Owner-Equivalent Linked-Device Signing
+
+The first release supports:
+
+```text
+permission kind: owner_equivalent
+administration scope: signing_only
+local user presence: required
+```
+
+For every signing request:
+
+1. Authenticate Device 2's passkey and device identity.
+2. Resolve its active parent enrollment.
+3. Resolve the active child lane for the requested wallet key.
+4. Verify lane share epoch, revocation epoch, participant binding, and exact
+   Ed25519 or ECDSA session identity.
+5. Verify the wallet-level Wallet Session budget and expiry.
+6. Require local user confirmation for the exact intent.
+7. Sign through the normal Client/SigningWorker or ECDSA threshold path.
+8. Consume budget and record the lane and enrollment audit identity exactly
+   once.
+
+Ed25519 signing performs zero Deriver calls. ECDSA signing uses one-use
+presignature state and the same EVM-family public identity as the owner lane.
+
+## Immediate Device Revocation
+
+Revoking a linked device is one aggregate operation:
+
+1. Mark the parent enrollment revoked and increment its revocation epoch.
+2. Reject new admission before share work.
+3. Stop queued and pending signing requests.
+4. Revoke every child lane and increment each lane revocation epoch.
+5. Disable each matching SigningWorker or ECDSA relayer capability.
+6. Clear Device 2 Wallet Sessions, warm handles, and pending delivery state.
+7. Emit per-key and aggregate revocation receipts.
+
+Owner lanes and unrelated devices remain active. Later cryptographic cleanup
+can attest server-share destruction and refresh remaining lanes when the
+compromise model requires it. Immediate server-participant disablement is a
+release requirement for the first linked-device lane.
+
+## Delegated-Agent Creation
+
+Agent enrollment reuses the aggregate protocol with these changes:
+
+- the owner selects an exact key subset;
+- a typed mandate replaces owner-equivalent permission;
+- holder packages target a named custody key and runtime;
+- activation requires custody and attestation receipts;
+- no local-user-presence claim is inferred unless the agent custody policy
+  explicitly provides one;
+- every signing request passes typed intent, budget, expiry, replay, allowance,
+  and final-transaction admission.
+
+The initial agent surface should support a narrow intent family and one explicit
+budget model. Expand intent variants only with matching parsers, policy rules,
+and negative tests.
+
+## Scoped Linked Devices
+
+Scoped linked devices use the delegated mandate pipeline with a physical-device
+principal and mandatory local user presence. They carry
+`administrationScope: 'no_account_admin'`.
+
+Scoped signing ships after owner-equivalent linking, signing, and revocation are
+stable. Account administration remains a separate policy family.
+
+## Recovery And Linking
+
+Recovery and linking are distinct product operations:
+
+- passkey or recovery-code recovery replaces access to an existing owner lane;
+- linked-device creation adds new independently revocable lanes;
+- social Email OTP recovery authorizes opening recovery-wrapped owner material;
+- a linked device does not become a recovery authority unless a later explicit
+  policy grants that capability;
+- revoking a linked device does not remove Email OTP or recovery-code access.
+
+## Public SDK Surface
+
+The current public methods can retain their high-level roles while their result
+types become precise:
+
+```text
+startDevice2LinkingFlow()
+scanAndLinkDevice()
+cancelDeviceLinking()
+listLinkedDevices()
+revokeLinkedDevice()
+```
+
+Requirements:
+
+- success results include enrollment ID, device ID, exact active lane
+  references, and manifest digest;
+- recoverable failures use a result union;
+- cancellation distinguishes pre-commit cancellation from committed completion
+  required;
+- progress events project the domain state and carry no secret material;
+- iframe and direct SDK routes share the same parsed request and service.
+
+Agent methods use separate request/result types and never accept the linked
+device option bag.
+
+## Product And Operations Surface
+
+Linked-device management shows:
+
+- device label and platform;
+- permission and administration scope;
+- covered wallet keys;
+- active, provisioning, suspended, expired, or revoked state;
+- last activity and creation time;
+- revocation action and consequences.
+
+Agent management additionally shows mandate version, budget, remaining budget,
+expiry, custody runtime, attestation status, denied requests, and policy update
+history.
+
+Audit events include enrollment, owner approval, protocol commitment, holder
+delivery, activation, signing admission, denial, budget consumption,
+suspension, expiry, refresh, and revocation.
+
+## Implementation Phases
+
+### Phase 0: Readiness Gate
+
+- [ ] Refactor 95 wrapped custody registration, unlock, and recovery pass.
+- [ ] Refactor 96 curve-specific wallet keys, lanes, and enrollment records pass.
+- [ ] Refactor 97 Ed25519 and ECDSA target-lane protocols pass locally.
+- [ ] Aggregate activation, receipt, crash recovery, and revocation stores exist.
+- [ ] Yao production remains gated exactly as documented.
+
+### Phase 1: Owner-Equivalent Device Enrollment
+
+- [ ] Replace the fail-closed QR display and scan stubs with the v4 session state
+      machine.
+- [ ] Implement unclaimed relay sessions, owner claim, and expiry.
+- [ ] Implement Device 2 passkey creation after claim.
+- [ ] Provision exact Ed25519 and ECDSA child lanes.
+- [ ] Require per-key and aggregate holder receipts.
+
+### Phase 2: Linked-Device Signing And Revocation
+
+- [ ] Mint enrollment-bound Wallet Sessions.
+- [ ] Require local user presence for each owner-equivalent signature.
+- [ ] Route each key family through its normal signing path.
+- [ ] Implement immediate aggregate enrollment revocation.
+- [ ] Prove owner lanes remain available.
+
+### Phase 3: Delegated Agents
+
+- [ ] Add named agent custody registration and attestation.
+- [ ] Add exact key-subset enrollment.
+- [ ] Implement one narrow typed mandate and budget model.
+- [ ] Add admission, denial, audit, expiry, suspension, and revocation.
+
+### Phase 4: Scoped Linked Devices
+
+- [ ] Reuse typed mandate admission with a device principal.
+- [ ] Preserve mandatory local user presence.
+- [ ] Keep account administration unavailable.
+- [ ] Add out-of-scope and transaction-substitution tests.
+
+### Phase 5: Advanced Administration And Cleanup
+
+- [ ] Add separately authorized device-management scope if product requirements
+      justify it.
+- [ ] Add custody-destruction evidence and post-compromise remaining-lane
+      refresh.
+- [ ] Add policy updates, budget top-ups, expiry extension, and notifications.
+- [ ] Add operator recovery for committed delivery that cannot complete on the
+      original link session.
 
 ## Validation
 
 Static checks:
 
-- delegated lane without `delegatePrincipal` fails
-- delegated lane without `mandatePolicy` fails
-- owner lane with `delegatePrincipal` fails
-- linked-device lane without `devicePrincipal` fails
-- owner-equivalent linked-device policy with `mandatePolicy` fails
-- scoped linked-device policy without `mandatePolicy` fails
-- scoped linked-device policy with account-administration scope fails
-- revoked lane with active-only fields fails
-- active lane with revoked-only fields fails
+- displaying-QR state cannot contain a wallet ID;
+- active state requires wallet and enrollment identity;
+- owner-equivalent linked device cannot carry a mandate;
+- scoped linked device cannot carry account-administration scope;
+- linked-device receipt cannot satisfy an agent custody receipt;
+- Ed25519 and ECDSA child results cannot be swapped;
+- cancellation after protocol commitment cannot enter pre-commit cancelled
+  state;
+- success result requires a nonempty exact lane manifest.
 
-Unit tests:
+Focused flow tests:
 
-- linked-device lane creation stores a distinct holder share and server share
-- owner-equivalent linked-device lane requires local user presence
-- scoped linked-device lane uses delegated mandate checks
-- linked-device admin actions require the configured administration scope
-- revoked linked-device lane cannot sign
-- creation rejects unknown agent custody boundary
-- creation rejects missing mandate digest
-- signing rejects revoked lane
-- signing rejects mismatched agent principal
-- signing rejects destination outside counterparty scope
-- signing rejects amount above per-operation limit
-- signing rejects final transaction that exceeds the admitted intent
-- reused idempotency key with different digest fails
-- suspended lane cannot sign
-- expired lane cannot sign
-- revocation prevents stale agent share from using active server share
-- owner passkey lane still signs after delegated lane revocation
+- expired, replayed, malformed, and already-claimed QR sessions fail;
+- owner approval binds the exact device, wallet, key manifest, lanes, and policy;
+- Device 2 creates no wallet before owner claim;
+- missing or substituted holder packages fail before persistence;
+- mixed wallet remains inactive until both Ed25519 and ECDSA receipts verify;
+- owner-equivalent Device 2 signs NEAR, Tempo, and Arc/EVM with local presence;
+- ordinary Ed25519 signing invokes no Deriver;
+- aggregate device revocation disables every child lane and preserves owner
+  signing;
+- scoped out-of-policy intent and final transaction substitution fail before
+  share work;
+- agent custody receipt, mandate, budget, replay, expiry, and revocation are
+  enforced.
 
-Integration tests:
+Browser and lifecycle tests:
 
-- scan QR, approve owner-equivalent linked device, sign from new device, revoke,
-  confirm signing fails
-- scan QR, approve scoped linked device, confirm out-of-scope signing fails
-- create agent lane, sign admitted payment, revoke lane, confirm signing fails
-- create two agent lanes, revoke one, confirm the other remains active
-- pause agent lane, confirm signing fails, resume, confirm signing works
-- submit duplicate delegated request, confirm idempotent result
-- recover owner access after delegated-agent compromise
+- direct SDK and iframe paths share the same behavior;
+- SSE disconnect resumes from authenticated session state;
+- cancellation before commitment cleans up;
+- failure after Yao output commitment enters completion-required recovery;
+- refresh, reload, lock, and pagehide never expose holder material;
+- UI progress derives from domain state and cannot activate an enrollment.
 
 ## Non-Goals
 
-- giving agents wallet private keys
-- treating agent lanes as owner lanes
-- letting delegated lanes change recovery factors
-- letting delegated lanes export wallet keys
-- relying on ambient warm user sessions for agent autonomy
-- supporting unbounded agent mandates
-- full malicious-secure MPC proof work in the first implementation
+- creating a temporary blockchain wallet on Device 2;
+- placing wallet identity or secret material in QR codes;
+- using a blockchain AddKey transaction as the linking authority;
+- generating a complete wallet private key on the server;
+- sharing an owner lane's holder material with a linked device;
+- enabling scoped or administrative permissions in the first linked-device
+  release;
+- letting linked devices or agents use ordinary signing routes for export;
+- claiming Yao production readiness before its security and deployment gates.
 
-## Open Questions
+## Decisions Required Before Implementation
 
-- Which agent custody targets are acceptable for the first release?
-- Is a managed service custody target acceptable before TEE or HSM support?
-- Which payment protocols should have first-class mandate digest builders?
-- Does each merchant identity need an on-chain address allowlist, a verified
-  domain binding, or both?
-- Should delegated lanes support single-use mandates as a separate lane kind?
-- Should revoked agent lanes be physically deleted after evidence export or kept
-  as retired records?
-- Which owner lane is required for high-risk delegation creation?
-- Which allowance forms are acceptable for first release: exact transfer only,
-  bounded ERC-20 approval, Permit2, NEAR function-call access keys, or a smaller
-  subset?
+- Freeze link-session TTL, claim TTL, and committed-delivery retention.
+- Freeze the device identity key algorithm and HPKE suite used by the selected
+  Yao profile and ECDSA delivery protocol.
+- Freeze the aggregate receipt encoding and canonical wallet-key ordering.
+- Define account UX for a browser without WebAuthn PRF support on Device 2.
+- Define the first narrow delegated intent and budget model.

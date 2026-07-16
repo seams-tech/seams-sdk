@@ -29,7 +29,7 @@ Core rules:
 5. Key export uses operation-specific authorization and exact export lanes.
 6. ECDSA identity uses wallet id plus `ThresholdEcdsaChainTarget`, never a NEAR
    account id as its principal.
-7. HSS prepare/finalize uses `walletSessionUserId` for session/audit scope and
+7. ECDSA derivation prepare/finalize uses `walletSessionUserId` for session/audit scope and
    wallet id for ECDSA key identity.
 
 ## Implementation Status
@@ -220,14 +220,14 @@ flowchart TD
   EmailWorker["emailOtp worker<br/>owns Email OTP flow"]
   ShamirWorker["shamir3pass worker<br/>nested worker"]
   OtpWasm["email_otp_runtime WASM"]
-  EthWasm["eth_signer WASM"]
-  HssWasm["hss_client_signer WASM"]
+  EvmCryptoWasm["evm_crypto WASM"]
+  DerivationWasm["Router A/B ECDSA derivation client WASM"]
 
   Main <-->|"postMessage RPC"| EmailWorker
   EmailWorker <-->|"nested postMessage"| ShamirWorker
   EmailWorker --> OtpWasm
-  EmailWorker --> EthWasm
-  EmailWorker --> HssWasm
+  EmailWorker --> EvmCryptoWasm
+  EmailWorker --> DerivationWasm
 ```
 
 The worker owns:
@@ -237,7 +237,7 @@ The worker owns:
 3. recovered secret `S`.
 4. Email OTP HKDF derivation.
 5. unlock proof generation.
-6. ECDSA HSS prepare/respond/finalize for Email OTP bootstrap.
+6. Router A/B ECDSA derivation prepare/respond/finalize for Email OTP bootstrap.
 7. zeroization of worker-owned secret buffers.
 
 The main thread must not:

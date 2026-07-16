@@ -1,0 +1,307 @@
+{
+  "schema": "seams.refactor89.phase0-phase1-wasm-evidence.v1",
+  "capturedAt": "2026-07-16T05:51:45Z",
+  "sourceSnapshot": {
+    "repositoryCommit": "7e080b30f14a579d38b58c65fb058e1abac19c56",
+    "snapshotMethod": "git archive HEAD into isolated temporary directory",
+    "dirtyWorktreeUsed": false,
+    "historicalArtifactPathsPresentOnlyInSnapshot": ["wasm/eth_signer", "wasm/ecdsa_client_signer"]
+  },
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "llvm": "22.1.2",
+    "wasmPack": "0.13.1",
+    "wasmBindgen": {
+      "ethSigner": "0.2.108",
+      "ecdsaClientSigner": "0.2.100"
+    },
+    "binaryen": "version_117",
+    "binaryenEvidence": "wasm-pack 0.13.1 pinned download identifier",
+    "target": "wasm32-unknown-unknown",
+    "cCompiler": "/opt/homebrew/opt/llvm/bin/clang",
+    "node": "v24.18.0",
+    "gzip": "Apple gzip 457.140.3",
+    "brotli": "1.2.0"
+  },
+  "oracleSource": {
+    "repository": "https://github.com/near/threshold-signatures",
+    "commit": "db609be5021eb9d794f577601f422818fbdfe246",
+    "tree": "05f60d54971e2f1e417dab7191f0f5d02f82468c",
+    "licenseSha256": "1b441e77d4448d2180147b809a0949743f9d8715dbc9b4ebeba11564402172e1",
+    "ethSignerLockSha256": "2bf259a0b839eaba8171a9b9a6d6c2dec7ce372ea0150ce12028033a085918f1",
+    "ecdsaClientSignerLockSha256": "a1771d404bcd0f10073200c0f83eb6645df330d2ecf7a59993c1e7ab22f20040"
+  },
+  "compressorPolicy": {
+    "gzip": "gzip -9 -c",
+    "brotli": "brotli -q 11",
+    "nodeZlibMeasurementsAreDiagnosticOnly": true
+  },
+  "artifacts": {
+    "ethSigner": {
+      "optimizedBeforeExplicitStrip": {
+        "sha256": "41c2b90feae488eb2eaae25285bd395b712ce97593d11ac447c83289e80002c0",
+        "rawBytes": 553980,
+        "gzip9Bytes": 210039,
+        "brotli11Bytes": 169027,
+        "codePayloadBytes": 508129,
+        "dataPayloadBytes": 38427,
+        "exportPayloadBytes": 1188,
+        "customSections": ["producers", "target_features"]
+      },
+      "privateSymbolizedAfterBindingsBeforeWasmOpt": {
+        "sha256": "d0963c558e1c6ec0cdcc2e4a17203b143cdf55d17dfa5afd07d0a955b7d5ed38",
+        "rawBytes": 727548,
+        "gzip9Bytes": 243799,
+        "brotli11Bytes": 195901,
+        "nameSectionBytes": 142689,
+        "codePayloadBytes": 537806,
+        "symbolAttribution": {
+          "method": "overlapping substring groups over the Wasm function name section and encoded function-body sizes",
+          "nearThreshold": { "functions": 211, "bodyBytes": 152816 },
+          "messagePack": { "functions": 162, "bodyBytes": 86754 },
+          "futures": { "functions": 65, "bodyBytes": 23656 },
+          "secp256k1": { "functions": 118, "bodyBytes": 38354 },
+          "p256": { "functions": 17, "bodyBytes": 4958 },
+          "cborCose": { "functions": 30, "bodyBytes": 17530 },
+          "eip1559": { "functions": 10, "bodyBytes": 4576 },
+          "allocation": { "functions": 262, "bodyBytes": 44878 },
+          "bindings": { "functions": 67, "bodyBytes": 6629 }
+        },
+        "largestFunctions": [
+          { "bodyBytes": 37940, "owner": "threshold-signatures triple generation" },
+          { "bodyBytes": 32603, "owner": "threshold-signatures triple generation" },
+          { "bodyBytes": 22995, "owner": "threshold-signatures multiplication" },
+          { "bodyBytes": 13810, "owner": "role-local relayer bootstrap" },
+          { "bodyBytes": 13337, "owner": "rmp-serde decode" },
+          { "bodyBytes": 12297, "owner": "rmp-serde decode" },
+          { "bodyBytes": 12229, "owner": "threshold-signatures multiplication" },
+          { "bodyBytes": 9952, "owner": "futures poll" },
+          { "bodyBytes": 9106, "owner": "threshold-signatures presign" }
+        ]
+      },
+      "shippedAfterExplicitStrip": {
+        "sha256": "aa6b70c92371bc4571d40a9abf2cc19aa7c919663b567f30ecbd5da5875db686",
+        "rawBytes": 553854,
+        "gzip9Bytes": 209954,
+        "brotli11Bytes": 168965,
+        "removedSections": ["producers"],
+        "forbiddenMetadataSectionsRemaining": [],
+        "exportAndImportSurfaceUnchanged": true
+      },
+      "packageFiles": {
+        "javascript": {
+          "bytes": 36725,
+          "sha256": "b14aa4bf4752d16a2b98b9fd172b34f877c5701a81192ca4b7564d6c62627bdf"
+        },
+        "typescript": {
+          "bytes": 7316,
+          "sha256": "267b9f6d061e39fab89f059268c7785db0691e5ac80d0bd04ebd1eb29bb7c254"
+        },
+        "wasmTypescript": {
+          "bytes": 3724,
+          "sha256": "e5c9b1c3a9303ea47a11fd3e6c695741ac59ded70edaecc7f762d9582c1a85d8"
+        },
+        "packageJson": {
+          "bytes": 362,
+          "sha256": "57a08b80ebce883505768c6cc5caa120adb2b7a74654ce8849c509a5c227eae7"
+        },
+        "sourceMap": { "present": false, "bytes": 0 }
+      },
+      "nodeLoadBenchmark": {
+        "firstFilesystemReadMs": 0.433,
+        "repeatedFilesystemReadMedianMs": 0.052,
+        "compileMedianMs": 0.644,
+        "instantiateMedianMs": 0.146,
+        "firstInitCallMs": 0.032,
+        "initialLinearMemoryBytes": 1114112,
+        "elevenInstanceProcessRssDeltaBytes": 12189696
+      }
+    },
+    "ecdsaClientSigner": {
+      "optimizedBeforeExplicitStrip": {
+        "sha256": "9be02163de217cd4a7296f00bca7df3ad871a1d976c66d957d487eac4f992b63",
+        "rawBytes": 324274,
+        "gzip9Bytes": 119540,
+        "brotli11Bytes": 93598,
+        "codePayloadBytes": 287712,
+        "dataPayloadBytes": 34686,
+        "exportPayloadBytes": 480,
+        "customSections": ["producers", "target_features"]
+      },
+      "privateSymbolizedAfterBindingsBeforeWasmOpt": {
+        "sha256": "73d2e8f3f07067042aa67071407543c0c86ae25706a76414493f860f918a3a62",
+        "rawBytes": 382888,
+        "gzip9Bytes": 126629,
+        "brotli11Bytes": 99611,
+        "nameSectionBytes": 29966,
+        "codePayloadBytes": 315167,
+        "symbolAttribution": {
+          "secp256k1": { "functions": 20, "bodyBytes": 43408 },
+          "derivation": { "functions": 16, "bodyBytes": 36130 },
+          "allocation": { "functions": 27, "bodyBytes": 9879 },
+          "bindings": { "functions": 15, "bodyBytes": 1310 },
+          "nearThreshold": { "functions": 0, "bodyBytes": 0 },
+          "messagePack": { "functions": 0, "bodyBytes": 0 },
+          "futures": { "functions": 0, "bodyBytes": 0 },
+          "p256": { "functions": 0, "bodyBytes": 0 }
+        }
+      },
+      "shippedAfterExplicitStrip": {
+        "sha256": "25e1599d3617ee381a11f1f70685952c7344d7f631e73bf01beb0ec47fd4ee9b",
+        "rawBytes": 324148,
+        "gzip9Bytes": 119457,
+        "brotli11Bytes": 93176,
+        "removedSections": ["producers"],
+        "forbiddenMetadataSectionsRemaining": [],
+        "exportAndImportSurfaceUnchanged": true
+      },
+      "packageFiles": {
+        "javascript": {
+          "bytes": 12388,
+          "sha256": "2207fb3fd1a6b7f51ca002809d8c0b5f26c4bf8398b79798ae06b857d3b8c137"
+        },
+        "typescript": {
+          "bytes": 2702,
+          "sha256": "a1013a4433039f3e27287853e352c85231c9dbf048754cb17cdbf8262e7dc793"
+        },
+        "wasmTypescript": {
+          "bytes": 1246,
+          "sha256": "baf7af946e72e6320306814fe4b4e531b209d07bf239babd9aa6a34dd11a83ce"
+        },
+        "packageJson": {
+          "bytes": 404,
+          "sha256": "a776e6255a9bf23e250ea96728fec7aec1dbc8e9905672f2c36847c1a4a57fe3"
+        },
+        "sourceMap": { "present": false, "bytes": 0 }
+      },
+      "nodeLoadBenchmark": {
+        "firstFilesystemReadMs": 0.395,
+        "repeatedFilesystemReadMedianMs": 0.04,
+        "compileMedianMs": 0.393,
+        "instantiateMedianMs": 0.091,
+        "firstOperationMeasuredByLifecycleHarness": true,
+        "initialLinearMemoryBytes": 1114112,
+        "elevenInstanceProcessRssDeltaBytes": 7913472
+      }
+    }
+  },
+  "functionalEvidence": {
+    "normalizedHistoricalHarness": {
+      "reason": "HEAD benchmark omitted the newly required application binding digest",
+      "normalization": "supply the signer-core test vector value 0x55 repeated 32 bytes at Client, SigningWorker, and export boundaries",
+      "normalizedHarnessSha256": "676ce798d65c91934d5eaac9798676a6df6b7417dd00448b5efb030d1e93f790"
+    },
+    "optimizedArtifactRun": {
+      "rawSummarySha256": "c6f833a01c473b235bc745273d101e5a598be28d5d7137962c018078720d0ac1",
+      "nodeLifecycleVectorsPassed": true,
+      "browserWorkerLifecycleVectorPassed": true,
+      "browserClientPrepareMedianMs": 0.1
+    },
+    "explicitlyStrippedArtifactRun": {
+      "rawSummarySha256": "94c759a47788c8a5ed3d75b5b545121c5f366ee6d686b763843f76ecb7d12e50",
+      "nodeLifecycleVectorsPassed": true,
+      "browserWorkerLifecycleVectorPassed": true,
+      "browserClientPrepareMedianMs": 0.1
+    },
+    "localWorkerdSmoke": {
+      "runtime": "Miniflare backed by workerd",
+      "miniflareVersion": "4.20250927.0",
+      "compatibilityDate": "2026-07-16",
+      "historicalMixedEthSigner": {
+        "coldRequestPassed": true,
+        "warmRequestPassed": true,
+        "initialLinearMemoryBytes": 1114112,
+        "moduleExportCount": 34
+      },
+      "historicalRoleLocalClient": {
+        "coldRequestPassed": true,
+        "warmRequestPassed": true,
+        "initialLinearMemoryBytes": 1114112,
+        "moduleExportCount": 15
+      }
+    },
+    "focusedOracleValidation": {
+      "onlineCommand": "cargo test --locked --manifest-path crates/router-ab-ecdsa-online/Cargo.toml",
+      "onlineUnitTestsPassed": 1,
+      "onlineCompileFailDoctestsPassed": 2,
+      "oracleCommand": "cargo test --locked --manifest-path crates/router-ab-ecdsa-near-oracle-tests/Cargo.toml",
+      "oracleIntegrationTestsPassed": 10,
+      "failures": 0
+    }
+  },
+  "budgets": {
+    "historicalMixedEthSignerGzip9HardCeilingBytes": 220000,
+    "historicalRoleLocalClientGzip9HardCeilingBytes": 125000,
+    "purposeBuiltOnlineClientGzip9HardCeilingBytes": 40000,
+    "purposeBuiltPresignPrototypeGzip9HardCeilingBytes": 512000,
+    "allUniqueEcdsaBrowserWasmGzip9HardCeilingBytes": 614400,
+    "poolHitPresignDownloadBytes": 0,
+    "poolHitDeriverCalls": 0,
+    "signatureParity": "exact"
+  },
+  "phase0PolicyFreeze": {
+    "pool": {
+      "initialUsablePairs": 2,
+      "lowWaterUsablePairs": 1,
+      "highWaterUsablePairs": 2,
+      "maximumUsableAndInFlightPairsPerWalletKeyEpoch": 4,
+      "refillBatchPairs": 1,
+      "maximumConcurrentRefillsPerWallet": 1,
+      "maximumConcurrentRefillsPerUser": 2,
+      "maximumConcurrentRefillsPerTenant": 16,
+      "maximumConcurrentRefillsPerDeployment": 64,
+      "maximumMaterialLifetimeSeconds": 86400,
+      "poolMiss": "retryable_pool_empty_without_online_signer_fallback",
+      "ambiguousOutcome": "permanent_burn"
+    },
+    "futureEvidenceOwners": {
+      "completeOracleAndReachableAbortCorpus": "Phase 4C/4D",
+      "integratedCloudflarePoolMemoryCostAndDistributionMeasurements": "Phase 8",
+      "releaseEnforcement": "Phase 8"
+    }
+  },
+  "phaseCoverage": {
+    "cleanLockedBuilds": { "status": "full_match", "confidence": 1.0 },
+    "toolchainAndCompressionVersions": { "status": "full_match", "confidence": 0.99 },
+    "artifactAndPackageBytes": {
+      "status": "partial_match",
+      "confidence": 1.0,
+      "gap": "complete SDK distribution bytes remain unmeasured"
+    },
+    "sectionAndSymbolAttribution": {
+      "status": "full_match",
+      "confidence": 0.96,
+      "limitation": "symbol groups overlap and are attribution evidence rather than a partition"
+    },
+    "nodeLoadAndLinearMemory": { "status": "full_match", "confidence": 0.98 },
+    "networkAndCloudflareLoad": {
+      "status": "partial_match",
+      "confidence": 1.0,
+      "gap": "local workerd compatibility passes; deployed Cloudflare network fetch and startup remain unmeasured"
+    },
+    "poolFillHitMissAndRetainedWorkerMemory": { "status": "missing_in_code", "confidence": 1.0 },
+    "oracleSourceFreeze": { "status": "full_match", "confidence": 1.0 },
+    "onlineAndPresignOracleVectors": {
+      "status": "partial_match",
+      "confidence": 1.0,
+      "gap": "complete invalid corpus and every reachable abort remain open"
+    },
+    "poolPolicyAndAdmissionBudgets": {
+      "status": "partial_match",
+      "confidence": 1.0,
+      "gap": "Phase 0 policy is frozen in the plan and evidence; implementation and measured tuning belong to Phase 7/8"
+    },
+    "fixedRoleApiShape": { "status": "full_match", "confidence": 0.99 },
+    "machineReadableSizeBudget": { "status": "full_match", "confidence": 1.0 },
+    "explicitMetadataStrip": { "status": "full_match", "confidence": 1.0 },
+    "privateToShippedDigestMap": { "status": "full_match", "confidence": 1.0 },
+    "strippedRuntimeParity": { "status": "full_match", "confidence": 1.0 },
+    "activeDistributionOldArtifactReferences": {
+      "status": "full_match",
+      "count": 0,
+      "confidence": 1.0
+    },
+    "nodeBrowserCloudflareSmokeMatrix": { "status": "full_match", "confidence": 1.0 }
+  }
+}
