@@ -1,7 +1,10 @@
-import { forwardRef, useMemo } from 'react';
+import { Fragment, forwardRef, useMemo } from 'react';
 import { MenuItem } from './MenuItem';
 import { LockMenuItem } from './LockMenuItem';
 import { TransactionSettingsSection } from './TransactionSettingsSection';
+import { AccountsSection } from './AccountsSection';
+import { LinkedDevicesSection } from './LinkedDevicesSection';
+import { PROFILE_MENU_ITEM_IDS } from './types';
 import type { ProfileDropdownProps } from './types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import './ProfileDropdown.css';
@@ -32,6 +35,11 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       onToggleSkipClick,
       onSetDelay,
       transactionSettingsOpen = false,
+      accountsRows,
+      accountsOpen = false,
+      linkedDevicesOpen = false,
+      walletId,
+      nearAccountId,
       theme = 'dark',
       highlightedMenuItemId,
     },
@@ -70,17 +78,36 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
             };
             const isHighlighted = index === highlightedIndex;
 
+            const isAccountsItem = item.id === PROFILE_MENU_ITEM_IDS.ACCOUNTS;
+            const isLinkedDevicesItem = item.id === PROFILE_MENU_ITEM_IDS.LINKED_DEVICES;
             return (
-              <MenuItem
-                key={item.id ?? index}
-                ref={refCallback}
-                item={item}
-                onClose={onClose}
-                className=""
-                isHighlighted={isHighlighted}
-                // Set CSS variable to calculate stagger delay in CSS stylesheet
-                style={{ ['--stagger-item-n' as any]: index }}
-              />
+              <Fragment key={item.id ?? index}>
+                <MenuItem
+                  ref={refCallback}
+                  item={item}
+                  onClose={onClose}
+                  className=""
+                  isHighlighted={isHighlighted}
+                  // Set CSS variable to calculate stagger delay in CSS stylesheet
+                  style={{ ['--stagger-item-n' as any]: index }}
+                />
+                {/* Expanders ride directly under their toggle items */}
+                {isAccountsItem && accountsRows && accountsRows.length > 0 && (
+                  <AccountsSection
+                    rows={accountsRows}
+                    isOpen={accountsOpen}
+                    style={{ ['--stagger-item-n' as any]: index }}
+                  />
+                )}
+                {isLinkedDevicesItem && (
+                  <LinkedDevicesSection
+                    walletId={walletId ?? null}
+                    nearAccountId={nearAccountId ?? null}
+                    isOpen={linkedDevicesOpen}
+                    style={{ ['--stagger-item-n' as any]: index }}
+                  />
+                )}
+              </Fragment>
             );
           })}
 

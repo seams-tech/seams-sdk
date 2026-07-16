@@ -12,7 +12,6 @@ export const UserAccountButton: React.FC<UserAccountButtonProps> = ({
   username,
   hideUsername,
   fullAccountId,
-  nearExplorerBaseUrl,
   isOpen,
   onClick,
   onMouseEnter,
@@ -57,7 +56,6 @@ export const UserAccountButton: React.FC<UserAccountButtonProps> = ({
               username={username}
               fullAccountId={fullAccountId}
               isOpen={isOpen}
-              nearExplorerBaseUrl={nearExplorerBaseUrl}
               theme={theme}
             />
           )}
@@ -71,34 +69,26 @@ export const UserAccountId = ({
   username,
   fullAccountId,
   isOpen,
-  nearExplorerBaseUrl,
   theme = 'dark',
 }: {
   username: string;
   fullAccountId?: string;
   isOpen: boolean;
-  nearExplorerBaseUrl?: string;
   theme?: 'dark' | 'light';
 }) => {
   const displayAccountId = (fullAccountId || username || '').trim();
-  const explorerHref =
-    displayAccountId && nearExplorerBaseUrl
-      ? `${nearExplorerBaseUrl}/address/${displayAccountId}`
-      : undefined;
 
+  /* plain identity label (the wallet id) — explorer links live in the
+     Accounts section of the dropdown */
   return (
     <div className="w3a-user-account--user-details">
       <p className="w3a-user-account--username">Settings</p>
-      <a
-        href={explorerHref || '#'}
-        target="_blank"
-        rel="noopener noreferrer"
+      <span
         title={displayAccountId || undefined}
         className={`w3a-user-account--account-id ${isOpen ? 'visible' : 'hidden'}`}
-        onClick={(e) => e.stopPropagation()}
       >
         {displayAccountId ? shortenAccountId(displayAccountId) : ''}
-      </a>
+      </span>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useEagerPrewarm } from './useEagerPrewarm';
@@ -112,21 +112,39 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
     setInputUsername,
   });
 
+  /* This effect is a sync channel for the provider's own theme input, not an
+     override channel. Parent effects run after child effects, so a redundant
+     push here would clobber `seams.setAppearance` calls children make during
+     mount (e.g. a demo theme switcher) — the manager was already constructed
+     with `config.appearance`, so skip until the provider's input diverges from
+     what the manager already has. */
+  const lastAppearancePushKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (theme?.appearance) {
-      seams.setAppearance(theme.appearance);
+    const nextAppearance = theme?.appearance
+      ? theme.appearance
+      : theme?.theme
+        ? {
+            theme: {
+              id: 'react-provider',
+              mode: theme.theme,
+              colors: {},
+            },
+          }
+        : null;
+    if (!nextAppearance) return;
+    const key = JSON.stringify(nextAppearance);
+    if (lastAppearancePushKeyRef.current === key) return;
+    if (
+      lastAppearancePushKeyRef.current === null &&
+      theme?.appearance &&
+      key === JSON.stringify(config.appearance ?? null)
+    ) {
+      lastAppearancePushKeyRef.current = key;
       return;
     }
-    if (theme?.theme) {
-      seams.setAppearance({
-        theme: {
-          id: 'react-provider',
-          mode: theme.theme,
-          colors: {},
-        },
-      });
-    }
-  }, [seams, theme?.appearance, theme?.theme]);
+    lastAppearancePushKeyRef.current = key;
+    seams.setAppearance(nextAppearance);
+  }, [seams, config.appearance, theme?.appearance, theme?.theme]);
 
   const value = useSeamsContextValue({
     seams,
