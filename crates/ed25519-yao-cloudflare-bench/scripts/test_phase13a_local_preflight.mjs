@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   LocalPreflightError,
@@ -6,8 +9,18 @@ import {
   loadLocalEvidence,
   loadWorkspaceArtifact,
 } from './evaluate_phase13a_local_preflight.mjs';
+import { collectLocalReadinessInputs } from './local_readiness_inputs.mjs';
 
 const PHASE9C_RECEIPT_PATH = 'crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json';
+const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const GENERATED_WASM_PACKAGE_DIRECTORY = resolve(
+  REPOSITORY_ROOT,
+  'crates/ed25519-yao/wasm-bench/pkg',
+);
+const GENERATED_WASM_PACKAGE_FIXTURE = resolve(
+  GENERATED_WASM_PACKAGE_DIRECTORY,
+  '.local-readiness-exclusion-test',
+);
 
 function cloneEvidence() {
   return JSON.parse(JSON.stringify(loadLocalEvidence()));
@@ -133,7 +146,19 @@ function assertReceiptMutationRejected(mutator) {
   assert.throws(evaluateEvidenceWithReceipt.bind(null, evidence, receipt), LocalPreflightError);
 }
 
+function assertGeneratedWasmPackageExcluded() {
+  const before = collectLocalReadinessInputs();
+  mkdirSync(GENERATED_WASM_PACKAGE_DIRECTORY, { recursive: true });
+  try {
+    writeFileSync(GENERATED_WASM_PACKAGE_FIXTURE, 'generated build output\n', { mode: 0o600 });
+    assert.deepEqual(collectLocalReadinessInputs(), before);
+  } finally {
+    rmSync(GENERATED_WASM_PACKAGE_FIXTURE, { force: true });
+  }
+}
+
 function run() {
+  assertGeneratedWasmPackageExcluded();
   const result = evaluateEvidence(cloneEvidence());
   assert.equal(result.status, 'deployment-required');
   assert.equal(result.phase13a_decision, 'unavailable');
