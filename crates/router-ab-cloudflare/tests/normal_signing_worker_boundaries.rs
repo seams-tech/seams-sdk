@@ -202,7 +202,9 @@ fn strict_signing_worker_handler_is_protocol_aware() {
         "strict SigningWorker normal-signing handler must aggregate standard FROST shares"
     );
     for required in [
-        "threshold_ecdsa_finalize_signature",
+        "finalize_signing_worker_signature",
+        "SigningWorkerPresignMaterial::from_bytes",
+        "SigningWorkerOnlineInput::new",
         "server_k_share32_b64u",
         "server_sigma_share32_b64u",
         "rerandomization_entropy32_b64u",
@@ -213,6 +215,10 @@ fn strict_signing_worker_handler_is_protocol_aware() {
             "strict SigningWorker Router A/B ECDSA derivation finalize handler must use `{required}`"
         );
     }
+    assert!(
+        !ecdsa_finalize_handler_body.contains("threshold_ecdsa_finalize_signature"),
+        "strict SigningWorker Router A/B ECDSA derivation finalize handler must exclude the generic signer-core finalizer"
+    );
 }
 
 #[test]

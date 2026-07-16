@@ -219,3 +219,17 @@ fn experimental_public_codec_leaves_have_exact_disjoint_surfaces() {
         ],
     );
 }
+
+#[test]
+fn cloudflare_signing_worker_finalization_excludes_near_ecdsa_backend() {
+    let root = repository_root();
+    assert_leaf_graph_excludes(
+        &root,
+        "crates/router-ab-cloudflare/Cargo.toml",
+        &["threshold-signatures", "cait-sith", "rmp-serde"],
+    );
+    let source_path = root.join("crates/router-ab-cloudflare/src/signing_worker/mod.rs");
+    let source = fs::read_to_string(&source_path).expect("read Cloudflare SigningWorker source");
+    assert!(source.contains("finalize_signing_worker_signature"));
+    assert!(!source.contains("threshold_ecdsa_finalize_signature"));
+}

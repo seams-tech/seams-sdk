@@ -212,7 +212,6 @@ use zeroize::Zeroize;
 
 use router_ab_ecdsa_derivation::{
     derive_relayer_share_for_client_public, RouterAbEcdsaDerivationStableKeyContext,
-    ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 

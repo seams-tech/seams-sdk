@@ -96,9 +96,9 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bitvec"
-version = "1.0.1"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bc2832c24239b0141d5674bb9174f9d68a8b5b3f2753311927c172ca46f7e9c"
+checksum = "ddcec3d12c579d40898fe0a9a358a803c23e9c52ca3c425707f81c9436211837"
 dependencies = [
  "funty",
  "radium",
@@ -1598,9 +1598,9 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
  "rand_core 0.6.4",
 ]
@@ -1704,6 +1704,7 @@ dependencies = [
  "router-ab-core",
  "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
+ "router-ab-ecdsa-online",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1758,6 +1759,17 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sha3 0.10.9",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-online"
+version = "0.1.0"
+dependencies = [
+ "hkdf 0.12.4",
+ "k256",
+ "sha3 0.10.9",
+ "subtle",
  "zeroize",
 ]
 
