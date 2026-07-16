@@ -121,7 +121,7 @@ function operation(role, configuration) {
 function preflightOperation(role, configuration) {
   const selected = role === 'a' ? configuration.a : configuration.b;
   return Object.freeze({
-    action: 'wrangler whoami --json',
+    action: 'wrangler auth activate + whoami --account --json',
     role: role === 'a' ? 'deriver-a' : 'deriver-b',
     profile: selected.profile,
     expected_account: 'boundary-only',
@@ -263,23 +263,49 @@ function profileCapableWrangler(binary, configuration, environment) {
 }
 
 function preflightProfile(binary, role, profile, accountId, configuration, environment) {
-  const result = spawnSync(
-    binary,
-    ['whoami', '--profile', profile, '--account', accountId, '--json'],
-    {
+  const profileDirectory = mkdtempSync(join(tmpdir(), 'ed25519-yao-wrangler-profile-'));
+  let preflightError = null;
+  let accountIds = null;
+  try {
+    const activation = spawnSync(binary, ['auth', 'activate', profile, profileDirectory], {
       cwd: PACKAGE_ROOT,
       encoding: 'utf8',
       env: childEnvironment(environment),
-    },
-  );
-  if (result.status !== 0) {
-    const stderr = redactedOutput(result.stderr, configuration, environment);
-    if (stderr.length > 0) {
-      process.stderr.write(stderr);
+    });
+    if (activation.status !== 0) {
+      throw new BoundaryError(`${role} profile could not be activated for preflight`);
     }
-    throw new BoundaryError(`${role} profile cannot access its expected account`);
+    const result = spawnSync(binary, ['whoami', '--account', accountId, '--json'], {
+      cwd: profileDirectory,
+      encoding: 'utf8',
+      env: childEnvironment(environment),
+    });
+    if (result.status !== 0) {
+      const stderr = redactedOutput(result.stderr, configuration, environment);
+      if (stderr.length > 0) {
+        process.stderr.write(stderr);
+      }
+      throw new BoundaryError(`${role} profile cannot access its expected account`);
+    }
+    accountIds = parseWhoamiAccountIds(result.stdout);
+  } catch (error) {
+    preflightError = error;
   }
-  const accountIds = parseWhoamiAccountIds(result.stdout);
+  const deactivation = spawnSync(binary, ['auth', 'deactivate', profileDirectory], {
+    cwd: PACKAGE_ROOT,
+    encoding: 'utf8',
+    env: childEnvironment(environment),
+  });
+  rmSync(profileDirectory, { recursive: true, force: true });
+  if (preflightError !== null) {
+    throw preflightError;
+  }
+  if (deactivation.status !== 0) {
+    throw new BoundaryError(`${role} profile preflight binding could not be removed`);
+  }
+  if (accountIds === null) {
+    throw new BoundaryError(`${role} profile preflight returned no account set`);
+  }
   if (!accountIds.has(accountId)) {
     throw new BoundaryError(`${role} profile did not report its expected account`);
   }
