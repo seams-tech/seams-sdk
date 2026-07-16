@@ -613,11 +613,22 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "rand_core",
+ "router-ab-ecdsa-client-protocol",
  "serde",
  "serde_json",
  "sha2",
  "threshold-prf",
  "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-client-protocol"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]
@@ -629,8 +640,20 @@ dependencies = [
  "ed25519-yao",
  "frost-ed25519",
  "router-ab-core",
+ "router-ab-ed25519-yao-protocol",
+ "signer-core",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ed25519-yao-protocol"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "router-ab-core",
  "serde",
  "signer-core",
+ "subtle",
  "zeroize",
 ]
 
@@ -814,6 +837,7 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand_core",
+ "router-ab-ecdsa-client-protocol",
  "sha2",
  "subtle",
  "zeroize",

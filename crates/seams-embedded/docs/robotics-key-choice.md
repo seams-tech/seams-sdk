@@ -5,14 +5,14 @@ signers.
 
 ## Recommendation
 
-Use ECDSA-HSS when the product can use a secp256k1/EVM-family key. Use the
+Use Router A/B ECDSA derivation when the product can use a secp256k1/EVM-family key. Use the
 Router A/B Streaming Yao lifecycle when standard Ed25519 seed compatibility,
 NEAR-native account compatibility, or another Ed25519-only integration is
 required.
 
-## ECDSA-HSS
+## Router A/B ECDSA Derivation
 
-ECDSA-HSS uses role-local additive key material:
+Router A/B ECDSA derivation uses role-local additive key material:
 
 ```text
 x_client = H_scalar("client-share", context, y_client)

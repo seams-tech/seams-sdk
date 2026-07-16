@@ -4,7 +4,6 @@
 //! This module stays transport-neutral. Runtime adapters should parse boundary
 //! inputs and call these typed APIs.
 
-mod ecdsa_hss;
 mod ecdsa_threshold_prf_request;
 mod ed25519_yao;
 mod engine;
@@ -17,35 +16,11 @@ mod local;
 mod normal_signing;
 mod output;
 mod payload;
+mod router_ab_ecdsa_derivation;
 mod signer_input;
 mod vectors;
 mod wire;
 
-pub use self::ecdsa_hss::{
-    parse_router_ab_ecdsa_hss_activation_refresh_request_v1_json,
-    parse_router_ab_ecdsa_hss_deriver_envelope_plaintext_v1_json,
-    parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json,
-    parse_router_ab_ecdsa_hss_evm_digest_signing_prepare_response_v1_json,
-    parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json,
-    parse_router_ab_ecdsa_hss_explicit_export_request_v1_json,
-    parse_router_ab_ecdsa_hss_normal_signing_scope_v1_json,
-    parse_router_ab_ecdsa_hss_recovery_request_v1_json,
-    parse_router_ab_ecdsa_hss_registration_bootstrap_request_v1_json,
-    router_ab_ecdsa_hss_active_state_session_id_v1, RouterAbEcdsaHssActivationReceiptV1,
-    RouterAbEcdsaHssActivationRefreshRequestV1, RouterAbEcdsaHssDeriverEnvelopeCommonV1,
-    RouterAbEcdsaHssDeriverEnvelopePlaintextV1, RouterAbEcdsaHssDeriverExportEnvelopePlaintextV1,
-    RouterAbEcdsaHssDeriverRecoveryEnvelopePlaintextV1,
-    RouterAbEcdsaHssDeriverRefreshEnvelopePlaintextV1,
-    RouterAbEcdsaHssDeriverRegistrationEnvelopePlaintextV1,
-    RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
-    RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1, RouterAbEcdsaHssEvmDigestSigningRequestV1,
-    RouterAbEcdsaHssEvmDigestSigningResponseV1, RouterAbEcdsaHssExplicitExportRequestV1,
-    RouterAbEcdsaHssNormalSigningScopeV1, RouterAbEcdsaHssOutputKindV1,
-    RouterAbEcdsaHssPublicIdentityV1, RouterAbEcdsaHssRecoveryRequestV1,
-    RouterAbEcdsaHssRegistrationBootstrapRequestV1, RouterAbEcdsaHssRequestKindV1,
-    RouterAbEcdsaHssSignatureSchemeV1, RouterAbEcdsaHssStableKeyContextV1,
-    ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1, ROUTER_AB_ECDSA_HSS_SECP256K1_PROTOCOL_VERSION_V1,
-};
 pub use self::ecdsa_threshold_prf_request::{
     EcdsaThresholdPrfRequestContextV1, EcdsaThresholdPrfRequestV1,
     EcdsaThresholdPrfRequestVersionV1,
@@ -69,8 +44,8 @@ pub use self::ed25519_yao::{
     ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 };
 pub use self::engine::{
-    AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine,
-    EcdsaHssExplicitExportAuditDecisionV1, PeerTransport, SignerKeyStore, SigningRootShareStore,
+    AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
+    RouterAbEcdsaDerivationExplicitExportAuditDecisionV1, SignerKeyStore, SigningRootShareStore,
 };
 pub use self::envelope::{
     decode_and_validate_signer_envelope_hpke_payload_v1, decode_signer_envelope_hpke_payload_v1,
@@ -167,6 +142,37 @@ pub use self::payload::{
     AbPeerMessageVerifyingKeyV1, EcdsaThresholdPrfProofBatchPayloadV1,
     RecipientProofBundlePayloadV1, RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1,
     RouterTranscriptMetadataV1, SigningWorkerActivationContextV1,
+};
+pub use self::router_ab_ecdsa_derivation::{
+    parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
+    parse_router_ab_ecdsa_derivation_deriver_envelope_plaintext_v1_json,
+    parse_router_ab_ecdsa_derivation_evm_digest_signing_finalize_request_v1_json,
+    parse_router_ab_ecdsa_derivation_evm_digest_signing_prepare_response_v1_json,
+    parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
+    parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json,
+    parse_router_ab_ecdsa_derivation_normal_signing_scope_v1_json,
+    parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
+    parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
+    router_ab_ecdsa_derivation_active_state_session_id_v1,
+    RouterAbEcdsaDerivationActivationReceiptV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    RouterAbEcdsaDerivationDeriverEnvelopeCommonV1,
+    RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
+    RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1,
+    RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1,
+    RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1,
+    RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1,
+    RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
+    RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
+    RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
+    RouterAbEcdsaDerivationOutputKindV1, RouterAbEcdsaDerivationPublicIdentityV1,
+    RouterAbEcdsaDerivationRecoveryRequestV1,
+    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    RouterAbEcdsaDerivationRegistrationHeaderV1, RouterAbEcdsaDerivationRegistrationPurposeV1,
+    RouterAbEcdsaDerivationRequestKindV1, RouterAbEcdsaDerivationSignatureSchemeV1,
+    RouterAbEcdsaDerivationStableKeyContextV1, ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
+    ROUTER_AB_ECDSA_DERIVATION_PROTOCOL_VERSION_V1,
 };
 pub use self::signer_input::build_mpc_prf_threshold_signer_batch_input_v1;
 pub use self::vectors::{

@@ -1,7 +1,434 @@
 use crate::*;
 use hpke_ng::{Aes256Gcm, DhKemX25519HkdfSha256, HkdfSha256, Hpke, Kem};
 use rand_core::{CryptoRng, RngCore};
+use router_ab_core::RootShareCommitmentRegistryV1;
+#[cfg(feature = "workers-rs")]
+use router_ab_ecdsa_client_protocol::{
+    authenticate_ecdsa_commitment_registry_v1, EcdsaCommitmentAuthorityV1,
+    EcdsaCommitmentPolicyManifestV1, EcdsaCommitmentPolicyPinsV1, EcdsaCommitmentRegistryBindingV1,
+    EcdsaCommitmentStatementV1, EcdsaSignedCommitmentPolicyV1, EcdsaSignedCommitmentRecordV1,
+};
+use router_ab_ecdsa_client_protocol::{
+    open_ecdsa_signer_envelope_v1, seal_ecdsa_signer_envelope_v1, EcdsaDeriverRoleV1,
+    EcdsaRoleEnvelopeAadV1, EcdsaSelectedServerIdentityV1, EcdsaSignerEnvelopeHpkePayloadV1,
+    EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1,
+};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+#[cfg(feature = "workers-rs")]
+pub const SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV: &str =
+    "SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_JSON";
+
+#[cfg(feature = "workers-rs")]
+const COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV: &str =
+    "ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX";
+
+#[cfg(feature = "workers-rs")]
+const COMMITMENT_POLICY_DIGEST_BUILD_ENV: &str = "ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX";
+
+#[cfg(feature = "workers-rs")]
+const COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV: &str =
+    "ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH";
+
+#[cfg(feature = "workers-rs")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareCommitmentRegistryConfigV1 {
+    policy: CloudflareSignedCommitmentPolicyConfigV1,
+    records: CloudflareCommitmentRecordsConfigV1,
+}
+
+#[cfg(feature = "workers-rs")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareSignedCommitmentPolicyConfigV1 {
+    manifest: CloudflareCommitmentPolicyManifestConfigV1,
+    manifest_digest_hex: String,
+    release_authority_signature_hex: String,
+}
+
+#[cfg(feature = "workers-rs")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareCommitmentPolicyManifestConfigV1 {
+    release_epoch: u64,
+    minimum_root_version: u64,
+    minimum_authority_key_epoch: u64,
+    revoked_authority_key_epochs: Vec<u64>,
+    revoked_record_digests_hex: Vec<String>,
+    signer_a_authority: CloudflareCommitmentAuthorityConfigV1,
+    signer_b_authority: CloudflareCommitmentAuthorityConfigV1,
+}
+
+#[cfg(feature = "workers-rs")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareCommitmentAuthorityConfigV1 {
+    operator_identity: String,
+    authority_key_epoch: u64,
+    valid_from_ms: u64,
+    valid_until_ms: u64,
+    verifying_key_hex: String,
+}
+
+#[cfg(feature = "workers-rs")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareCommitmentRecordsConfigV1 {
+    signer_a: CloudflareCommitmentRecordConfigV1,
+    signer_b: CloudflareCommitmentRecordConfigV1,
+}
+
+#[cfg(feature = "workers-rs")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareCommitmentRecordConfigV1 {
+    root_id: String,
+    root_version: u64,
+    root_share_epoch: String,
+    commitment_hex: String,
+    operator_identity: String,
+    authority_key_epoch: u64,
+    record_valid_from_ms: u64,
+    record_valid_until_ms: u64,
+    signed_digest_hex: String,
+    signature_hex: String,
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) type CloudflareCommitmentPolicyBuildPinsV1 = EcdsaCommitmentPolicyPinsV1;
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn load_cloudflare_signing_worker_commitment_registry_v1(
+    env: &worker::Env,
+    activation_context: &SigningWorkerActivationContextV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<RootShareCommitmentRegistryV1> {
+    let json = env
+        .var(SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV)
+        .map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!(
+                    "SigningWorker commitment registry Env {} is required: {err}",
+                    SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV
+                ),
+            )
+        })?
+        .to_string();
+    let build_pins = cloudflare_commitment_policy_build_pins_v1()?;
+    parse_cloudflare_signing_worker_commitment_registry_json_with_pins_v1(
+        &json,
+        activation_context,
+        now_ms,
+        build_pins,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn parse_cloudflare_signing_worker_commitment_registry_json_with_pins_v1(
+    json: &str,
+    activation_context: &SigningWorkerActivationContextV1,
+    now_ms: u64,
+    build_pins: CloudflareCommitmentPolicyBuildPinsV1,
+) -> RouterAbProtocolResult<RootShareCommitmentRegistryV1> {
+    activation_context.validate()?;
+    let config: CloudflareCommitmentRegistryConfigV1 =
+        serde_json::from_str(json).map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("SigningWorker commitment registry JSON is invalid: {err}"),
+            )
+        })?;
+    let policy = parse_cloudflare_commitment_policy_v1(config.policy)?;
+    let signer_a_record =
+        parse_cloudflare_commitment_record_v1(EcdsaDeriverRoleV1::A, config.records.signer_a)?;
+    let signer_b_record =
+        parse_cloudflare_commitment_record_v1(EcdsaDeriverRoleV1::B, config.records.signer_b)?;
+    let binding = EcdsaCommitmentRegistryBindingV1 {
+        now_ms,
+        root_share_epoch: activation_context
+            .lifecycle()
+            .root_share_epoch
+            .as_str()
+            .to_owned(),
+        signer_a_identity: activation_context.signer_set().signer_a.signer_id.clone(),
+        signer_b_identity: activation_context.signer_set().signer_b.signer_id.clone(),
+    };
+    let authenticated = authenticate_ecdsa_commitment_registry_v1(
+        &build_pins,
+        &policy,
+        &binding,
+        &signer_a_record,
+        &signer_b_record,
+    )
+    .map_err(map_client_commitment_error_v1)?;
+    RootShareCommitmentRegistryV1::from_client_authenticated(
+        &authenticated,
+        &binding,
+        &signer_a_record,
+        &signer_b_record,
+    )
+    .map_err(map_derivation_to_protocol_error_v1)
+}
+
+#[cfg(feature = "workers-rs")]
+fn parse_cloudflare_commitment_policy_v1(
+    policy: CloudflareSignedCommitmentPolicyConfigV1,
+) -> RouterAbProtocolResult<EcdsaSignedCommitmentPolicyV1> {
+    let manifest = policy.manifest;
+    Ok(EcdsaSignedCommitmentPolicyV1 {
+        manifest_digest: decode_commitment_registry_hex_v1::<32>(
+            &policy.manifest_digest_hex,
+            "policy manifest_digest",
+        )?,
+        release_authority_signature: decode_commitment_registry_hex_v1::<64>(
+            &policy.release_authority_signature_hex,
+            "policy release_authority_signature",
+        )?,
+        manifest: EcdsaCommitmentPolicyManifestV1 {
+            release_epoch: manifest.release_epoch,
+            minimum_root_version: manifest.minimum_root_version,
+            minimum_authority_key_epoch: manifest.minimum_authority_key_epoch,
+            revoked_authority_key_epochs: manifest.revoked_authority_key_epochs,
+            revoked_record_digests: manifest
+                .revoked_record_digests_hex
+                .iter()
+                .map(|encoded| {
+                    decode_commitment_registry_hex_v1::<32>(encoded, "policy revoked_record_digest")
+                })
+                .collect::<RouterAbProtocolResult<Vec<_>>>()?,
+            signer_a_authority: parse_cloudflare_commitment_authority_v1(
+                EcdsaDeriverRoleV1::A,
+                manifest.signer_a_authority,
+            )?,
+            signer_b_authority: parse_cloudflare_commitment_authority_v1(
+                EcdsaDeriverRoleV1::B,
+                manifest.signer_b_authority,
+            )?,
+        },
+    })
+}
+
+#[cfg(feature = "workers-rs")]
+fn parse_cloudflare_commitment_authority_v1(
+    role: EcdsaDeriverRoleV1,
+    config: CloudflareCommitmentAuthorityConfigV1,
+) -> RouterAbProtocolResult<EcdsaCommitmentAuthorityV1> {
+    Ok(EcdsaCommitmentAuthorityV1 {
+        role,
+        operator_identity: config.operator_identity,
+        authority_key_epoch: config.authority_key_epoch,
+        valid_from_ms: config.valid_from_ms,
+        valid_until_ms: config.valid_until_ms,
+        verifying_key: decode_commitment_registry_hex_v1::<32>(
+            &config.verifying_key_hex,
+            "policy commitment authority verifying_key",
+        )?,
+    })
+}
+
+#[cfg(feature = "workers-rs")]
+fn parse_cloudflare_commitment_record_v1(
+    role: EcdsaDeriverRoleV1,
+    config: CloudflareCommitmentRecordConfigV1,
+) -> RouterAbProtocolResult<EcdsaSignedCommitmentRecordV1> {
+    let share_id = match role {
+        EcdsaDeriverRoleV1::A => 1,
+        EcdsaDeriverRoleV1::B => 2,
+    };
+    Ok(EcdsaSignedCommitmentRecordV1 {
+        statement: EcdsaCommitmentStatementV1 {
+            role,
+            share_id,
+            root_id: config.root_id,
+            root_version: config.root_version,
+            root_share_epoch: config.root_share_epoch,
+            commitment_wire: decode_commitment_registry_hex_v1::<34>(
+                &config.commitment_hex,
+                "commitment",
+            )?,
+            operator_identity: config.operator_identity,
+            authority_key_epoch: config.authority_key_epoch,
+            valid_from_ms: config.record_valid_from_ms,
+            valid_until_ms: config.record_valid_until_ms,
+        },
+        signed_digest: decode_commitment_registry_hex_v1::<32>(
+            &config.signed_digest_hex,
+            "signed_digest",
+        )?,
+        signature: decode_commitment_registry_hex_v1::<64>(&config.signature_hex, "signature")?,
+    })
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_commitment_policy_build_pins_v1(
+) -> RouterAbProtocolResult<CloudflareCommitmentPolicyBuildPinsV1> {
+    parse_cloudflare_commitment_policy_build_pins_v1(
+        option_env!("ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX"),
+        option_env!("ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX"),
+        option_env!("ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH"),
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn parse_cloudflare_commitment_policy_build_pins_v1(
+    release_authority_public_key_hex: Option<&str>,
+    exact_policy_digest_hex: Option<&str>,
+    minimum_release_epoch: Option<&str>,
+) -> RouterAbProtocolResult<CloudflareCommitmentPolicyBuildPinsV1> {
+    let release_authority_public_key_hex = release_authority_public_key_hex.ok_or_else(|| {
+        commitment_registry_config_error(
+            "release_authority_public_key build pin",
+            &format!(
+                "is missing; set {COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV} at build time"
+            ),
+        )
+    })?;
+    let exact_policy_digest_hex = exact_policy_digest_hex.ok_or_else(|| {
+        commitment_registry_config_error(
+            "policy_digest build pin",
+            &format!("is missing; set {COMMITMENT_POLICY_DIGEST_BUILD_ENV} at build time"),
+        )
+    })?;
+    let minimum_release_epoch = minimum_release_epoch.ok_or_else(|| {
+        commitment_registry_config_error(
+            "minimum_release_epoch build pin",
+            &format!(
+                "is missing; set {COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV} at build time"
+            ),
+        )
+    })?;
+    if !is_canonical_positive_decimal_u64_v1(minimum_release_epoch) {
+        return Err(commitment_registry_config_error(
+            "minimum_release_epoch build pin",
+            "must be a canonical positive decimal u64",
+        ));
+    }
+    let minimum_release_epoch = minimum_release_epoch.parse::<u64>().map_err(|_| {
+        commitment_registry_config_error(
+            "minimum_release_epoch build pin",
+            "must be a canonical positive decimal u64",
+        )
+    })?;
+    Ok(CloudflareCommitmentPolicyBuildPinsV1 {
+        release_authority_public_key: decode_commitment_registry_hex_v1::<32>(
+            release_authority_public_key_hex,
+            "release_authority_public_key build pin",
+        )?,
+        exact_policy_digest: decode_commitment_registry_hex_v1::<32>(
+            exact_policy_digest_hex,
+            "policy_digest build pin",
+        )?,
+        minimum_release_epoch,
+    })
+}
+
+#[cfg(feature = "workers-rs")]
+fn is_canonical_positive_decimal_u64_v1(value: &str) -> bool {
+    !value.is_empty()
+        && value != "0"
+        && !value.starts_with('0')
+        && value.as_bytes().iter().all(u8::is_ascii_digit)
+}
+
+#[cfg(feature = "workers-rs")]
+fn decode_commitment_registry_hex_v1<const N: usize>(
+    encoded: &str,
+    field: &str,
+) -> RouterAbProtocolResult<[u8; N]> {
+    if encoded.len() != N * 2 {
+        return Err(commitment_registry_config_error(
+            field,
+            "has invalid length",
+        ));
+    }
+    let mut bytes = [0u8; N];
+    for (index, pair) in encoded.as_bytes().chunks_exact(2).enumerate() {
+        let high = decode_commitment_registry_hex_nibble_v1(pair[0], field)?;
+        let low = decode_commitment_registry_hex_nibble_v1(pair[1], field)?;
+        bytes[index] = (high << 4) | low;
+    }
+    Ok(bytes)
+}
+
+#[cfg(feature = "workers-rs")]
+fn decode_commitment_registry_hex_nibble_v1(byte: u8, field: &str) -> RouterAbProtocolResult<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err(commitment_registry_config_error(
+            field,
+            "must use lowercase hexadecimal",
+        )),
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+fn commitment_registry_config_error(field: &str, message: &str) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!("SigningWorker commitment registry {field} {message}"),
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn map_client_commitment_error_v1(
+    error: router_ab_ecdsa_client_protocol::EcdsaClientProtocolError,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!("SigningWorker commitment registry rejected: {error:?}"),
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn map_derivation_to_protocol_error_v1(error: RouterAbDerivationError) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!(
+            "SigningWorker commitment registry rejected: {}",
+            error.message()
+        ),
+    )
+}
+
+#[cfg(all(test, feature = "workers-rs"))]
+mod commitment_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn build_pins_fail_closed_when_any_compile_time_value_is_missing() {
+        assert!(parse_cloudflare_commitment_policy_build_pins_v1(
+            None,
+            Some(&"11".repeat(32)),
+            Some("1"),
+        )
+        .is_err());
+        assert!(parse_cloudflare_commitment_policy_build_pins_v1(
+            Some(&"11".repeat(32)),
+            None,
+            Some("1"),
+        )
+        .is_err());
+        assert!(parse_cloudflare_commitment_policy_build_pins_v1(
+            Some(&"11".repeat(32)),
+            Some(&"22".repeat(32)),
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn registry_json_rejects_runtime_supplied_trust_fields() {
+        let json = r#"{
+            "policy": {},
+            "records": {},
+            "release_authority_public_key_hex": "runtime-self-trust"
+        }"#;
+        assert!(serde_json::from_str::<CloudflareCommitmentRegistryConfigV1>(json).is_err());
+    }
+}
 
 /// Cloudflare production recipient-output encryptor using HPKE base mode.
 #[derive(Debug, Clone, Copy, Default)]
@@ -264,6 +691,7 @@ pub fn open_cloudflare_recipient_proof_bundle_hpke_payload_v1(
 /// Opens encrypted server proof bundles into a serializable server-output material record.
 pub fn cloudflare_server_output_material_record_from_activation_request_v1(
     request: &CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+    commitment_registry: &RootShareCommitmentRegistryV1,
     private_key_bytes: &[u8],
 ) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
     request.validate()?;
@@ -291,6 +719,7 @@ pub fn cloudflare_server_output_material_record_from_activation_request_v1(
     )?;
     let output = combine_mpc_prf_signing_worker_output_from_activation_context_v1(
         &request.activation_context,
+        commitment_registry,
         deriver_a_payload,
         deriver_b_payload,
     )?;
@@ -325,31 +754,20 @@ pub fn seal_cloudflare_signer_envelope_hpke_payload_v1(
             "Cloudflare signer-envelope HPKE plaintext must be non-empty",
         ));
     }
-    let recipient_public_key =
-        parse_cloudflare_hpke_x25519_public_key_v1(&recipient_key.public_key)?;
-    let aad_bytes = aad.canonical_bytes();
     let mut rng = CloudflareHpkeGetrandomRngV1;
-    let (encapped_key, ciphertext_and_tag) = CloudflareHpkeSuiteV1::seal_base(
-        &mut rng,
-        &recipient_public_key,
-        CLOUDFLARE_HPKE_SIGNER_ENVELOPE_INFO_V1,
-        &aad_bytes,
-        plaintext,
-    )
-    .map_err(map_cloudflare_signer_envelope_hpke_error)?;
-    let encapped_key = encapped_key.as_ref().try_into().map_err(|_| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "Cloudflare signer-envelope HPKE encapsulated key must be 32 bytes",
-        )
-    })?;
+    let mut seal_seed = [0_u8; 32];
+    rng.fill_bytes(&mut seal_seed);
+    let protocol_key = ecdsa_client_protocol_public_key(recipient_key)?;
+    let protocol_aad = ecdsa_client_protocol_aad(aad)?;
+    let payload = seal_ecdsa_signer_envelope_v1(&protocol_key, &protocol_aad, plaintext, seal_seed)
+        .map_err(map_ecdsa_client_protocol_error)?;
     SignerEnvelopeHpkePayloadV1::new(
         recipient_key.role,
-        recipient_key.key_epoch.clone(),
-        recipient_key.public_key.clone(),
-        aad.digest(),
-        encapped_key,
-        ciphertext_and_tag,
+        payload.key_epoch,
+        payload.recipient_public_key,
+        PublicDigest32::new(payload.aad_digest),
+        payload.encapped_key,
+        payload.ciphertext_and_tag,
     )
 }
 
@@ -373,20 +791,86 @@ pub fn open_cloudflare_signer_envelope_hpke_payload_v1(
             "Cloudflare signer envelope AAD does not match parsed HPKE payload",
         ));
     }
-    let private_key = parse_cloudflare_signer_envelope_hpke_private_key_bytes_v1(
+    parse_cloudflare_signer_envelope_hpke_private_key_bytes_v1(
         private_key_bytes,
         &envelope_decrypt_key.public_key,
     )?;
-    let encapped_key = CloudflareHpkeKemV1::enc_from_bytes(payload.encapped_key())
-        .map_err(map_cloudflare_signer_envelope_hpke_error)?;
-    CloudflareHpkeSuiteV1::open_base(
-        &encapped_key,
-        &private_key,
-        CLOUDFLARE_HPKE_SIGNER_ENVELOPE_INFO_V1,
-        &aad.canonical_bytes(),
-        payload.ciphertext_and_tag(),
+    let private_key_bytes: [u8; 32] = private_key_bytes.try_into().map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Cloudflare signer-envelope HPKE private key must be 32 bytes",
+        )
+    })?;
+    let protocol_payload = EcdsaSignerEnvelopeHpkePayloadV1 {
+        recipient_role: ecdsa_client_protocol_role(payload.recipient_role)?,
+        key_epoch: payload.key_epoch.clone(),
+        recipient_public_key: payload.recipient_public_key.clone(),
+        aad_digest: *payload.aad_digest.as_bytes(),
+        encapped_key: *payload.encapped_key(),
+        ciphertext_and_tag: payload.ciphertext_and_tag().to_vec(),
+    };
+    open_ecdsa_signer_envelope_v1(
+        &protocol_payload,
+        &ecdsa_client_protocol_aad(aad)?,
+        &private_key_bytes,
     )
-    .map_err(map_cloudflare_signer_envelope_hpke_error)
+    .map_err(map_ecdsa_client_protocol_error)
+}
+
+fn ecdsa_client_protocol_role(role: Role) -> RouterAbProtocolResult<EcdsaDeriverRoleV1> {
+    match role {
+        Role::SignerA => Ok(EcdsaDeriverRoleV1::A),
+        Role::SignerB => Ok(EcdsaDeriverRoleV1::B),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "ECDSA signer-envelope protocol requires a Deriver role",
+        )),
+    }
+}
+
+fn ecdsa_client_protocol_aad(
+    aad: &RoleEnvelopeAadV1,
+) -> RouterAbProtocolResult<EcdsaRoleEnvelopeAadV1> {
+    aad.validate()?;
+    Ok(EcdsaRoleEnvelopeAadV1 {
+        lifecycle_id: aad.lifecycle_id.clone(),
+        work_kind: aad.work_kind.as_str().to_owned(),
+        primitive_request_kind: aad.primitive_request_kind.as_str().to_owned(),
+        signer_set_id: aad.signer_set_id.clone(),
+        recipient: EcdsaSignerIdentityV1 {
+            role: ecdsa_client_protocol_role(aad.recipient.role)?,
+            signer_id: aad.recipient.signer_id.clone(),
+            key_epoch: aad.recipient.key_epoch.clone(),
+        },
+        selected_server: EcdsaSelectedServerIdentityV1 {
+            server_id: aad.selected_server.server_id.clone(),
+            key_epoch: aad.selected_server.key_epoch.clone(),
+            recipient_encryption_key: aad.selected_server.recipient_encryption_key.clone(),
+        },
+        transcript_digest: *aad.transcript_digest.as_bytes(),
+        router_request_digest: *aad.router_request_digest.as_bytes(),
+        expires_at_ms: aad.expires_at_ms,
+    })
+}
+
+fn ecdsa_client_protocol_public_key(
+    key: &CloudflareSignerEnvelopeHpkePublicKeyV1,
+) -> RouterAbProtocolResult<EcdsaSignerEnvelopePublicKeyV1> {
+    key.validate()?;
+    Ok(EcdsaSignerEnvelopePublicKeyV1 {
+        role: ecdsa_client_protocol_role(key.role)?,
+        key_epoch: key.key_epoch.clone(),
+        public_key: key.public_key.clone(),
+    })
+}
+
+fn map_ecdsa_client_protocol_error(
+    _error: router_ab_ecdsa_client_protocol::EcdsaClientProtocolError,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MalformedWirePayload,
+        "ECDSA client-safe signer-envelope protocol rejected the request",
+    )
 }
 
 pub(crate) type CloudflareHpkeSuiteV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
@@ -396,8 +880,6 @@ pub(crate) const CLOUDFLARE_HPKE_RECIPIENT_OUTPUT_INFO_V1: &[u8] =
     b"router-ab-cloudflare/recipient-output/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 pub(crate) const CLOUDFLARE_HPKE_RECIPIENT_PROOF_BUNDLE_INFO_V1: &[u8] =
     b"router-ab-cloudflare/recipient-proof-bundle/hpke-x25519-hkdf-sha256-aes256gcm/v1";
-const CLOUDFLARE_HPKE_SIGNER_ENVELOPE_INFO_V1: &[u8] =
-    b"router-ab-cloudflare/signer-envelope/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 pub(crate) const CLOUDFLARE_HPKE_RECIPIENT_OUTPUT_ENVELOPE_NONCE_V1: [u8; 12] = [0u8; 12];
 
 struct CloudflareHpkeGetrandomRngV1;
@@ -682,12 +1164,5 @@ fn map_cloudflare_hpke_error(err: hpke_ng::HpkeError) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::MalformedWirePayload,
         format!("Cloudflare HPKE recipient-output encryption failed: {err}"),
-    )
-}
-
-fn map_cloudflare_signer_envelope_hpke_error(err: hpke_ng::HpkeError) -> RouterAbProtocolError {
-    RouterAbProtocolError::new(
-        RouterAbProtocolErrorCode::MalformedWirePayload,
-        format!("Cloudflare signer-envelope HPKE operation failed: {err}"),
     )
 }

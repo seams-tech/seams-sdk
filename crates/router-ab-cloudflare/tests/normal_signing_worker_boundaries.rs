@@ -23,7 +23,7 @@ fn normal_signing_routes_do_not_invoke_ab_derivation_handlers() {
         let body = extract_function_body(&lib_rs, function_name);
         for forbidden in [
             "build_mpc_prf_threshold_signer_batch_input_v1",
-            "decrypt_and_handle_cloudflare_ecdsa_hss_export_signer_private_request_v1",
+            "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1",
             "decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1",
             "handle_cloudflare_validated_mpc_prf_client_recipient_proof_bundle_signer_request_v1",
             "handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request_v1",
@@ -157,7 +157,7 @@ fn strict_signing_worker_handler_is_protocol_aware() {
     );
     let ecdsa_finalize_handler_body = extract_braced_block_after_marker(
         &lib_rs,
-        "impl CloudflareSigningWorkerEcdsaHssEvmDigestFinalizeHandlerV1\n    for CloudflareRoleSeparatedEcdsaHssEvmDigestFinalizeHandlerV1",
+        "impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1\n    for CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1",
     );
 
     assert!(
@@ -169,8 +169,8 @@ fn strict_signing_worker_handler_is_protocol_aware() {
         "strict SigningWorker entrypoint must use the production normal-signing handler"
     );
     assert!(
-        route_body.contains("CloudflareRoleSeparatedEcdsaHssEvmDigestFinalizeHandlerV1"),
-        "strict SigningWorker entrypoint must use the production ECDSA-HSS finalize handler"
+        route_body.contains("CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1"),
+        "strict SigningWorker entrypoint must use the production Router A/B ECDSA derivation finalize handler"
     );
     assert!(
         prepare_handler_body.contains("prepare_cloudflare_ed25519_round1_v1"),
@@ -210,7 +210,7 @@ fn strict_signing_worker_handler_is_protocol_aware() {
     ] {
         assert!(
             ecdsa_finalize_handler_body.contains(required),
-            "strict SigningWorker ECDSA-HSS finalize handler must use `{required}`"
+            "strict SigningWorker Router A/B ECDSA derivation finalize handler must use `{required}`"
         );
     }
 }
@@ -378,18 +378,18 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
     for required in [
         "CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH",
         "handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH",
-        "handle_cloudflare_ecdsa_hss_signing_worker_activation_fetch_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH",
+        "handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH",
         "handle_cloudflare_signing_worker_normal_signing_round1_prepare_private_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH",
         "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH",
-        "handle_cloudflare_signing_worker_ecdsa_hss_presignature_pool_put_private_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH",
-        "handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_private_fetch_from_pool_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH",
-        "handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_private_fetch_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH",
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH",
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_private_fetch_from_pool_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH",
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_fetch_v1",
     ] {
         assert!(
             body.contains(required),

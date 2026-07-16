@@ -1,0 +1,9 @@
+[package]
+name = "router-ab-ecdsa-wire"
+version = "0.1.0"
+edition = "2021"
+description = "Fixed-role wire values for Router A/B ECDSA presigning"
+license = "Apache-2.0"
+
+[dependencies]
+zeroize = { version = "1.8", features = ["zeroize_derive"] }

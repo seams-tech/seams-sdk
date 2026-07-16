@@ -5,6 +5,10 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::Identity;
 use rand_core::{CryptoRng, RngCore};
+use router_ab_ecdsa_client_protocol::{
+    verify_ecdsa_prf_public_dleq_proof_v1, EcdsaClientProtocolError, EcdsaPrfPublicContextV1,
+    EcdsaPrfPublicProofBundleV1, EcdsaPrfPurposeV1,
+};
 use sha2::{Digest, Sha512};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -438,32 +442,39 @@ pub fn verify_partial_dleq_proof(
     context: &PrfContext,
     proof: &PrfDleqProof,
 ) -> ThresholdPrfResult<()> {
-    if commitment.id != partial.id {
-        return Err(ThresholdPrfError::InvalidDleqProof);
+    let public_context = ecdsa_public_context_from_threshold_context(context);
+    let public_bundle = EcdsaPrfPublicProofBundleV1 {
+        partial_wire: PrfPartialWire::from_partial(partial).to_bytes(),
+        commitment_wire: commitment.to_bytes(),
+        proof_wire: proof.to_bytes(),
+    };
+    match verify_ecdsa_prf_public_dleq_proof_v1(&public_context, &public_bundle) {
+        Ok(()) => Ok(()),
+        Err(EcdsaClientProtocolError::ContextMismatch) => Err(ThresholdPrfError::ContextMismatch),
+        Err(
+            EcdsaClientProtocolError::InvalidShape
+            | EcdsaClientProtocolError::HpkeFailed
+            | EcdsaClientProtocolError::InvalidDleqProof
+            | EcdsaClientProtocolError::InvalidCommitmentPolicy
+            | EcdsaClientProtocolError::InvalidCommitmentRecord,
+        ) => Err(ThresholdPrfError::InvalidDleqProof),
     }
+}
 
-    let expected_context_tag = partial_context_tag(context)?;
-    reject_context_mismatch(partial, &expected_context_tag)?;
+fn ecdsa_public_context_from_threshold_context(context: &PrfContext) -> EcdsaPrfPublicContextV1 {
+    EcdsaPrfPublicContextV1 {
+        purpose: ecdsa_public_purpose_from_threshold_purpose(&context.purpose),
+        context_bytes: context.context_bytes.clone(),
+    }
+}
 
-    let input_point = hash_to_group(context)?;
-    let nonce_g =
-        (proof.response * RISTRETTO_BASEPOINT_POINT) - (proof.challenge * commitment.point);
-    let nonce_p = (proof.response * input_point) - (proof.challenge * partial.point);
-    let expected = dleq_challenge(
-        context,
-        &expected_context_tag,
-        partial.id,
-        &input_point,
-        &commitment.point,
-        &partial.point,
-        &nonce_g,
-        &nonce_p,
-    )?;
-
-    if bool::from(proof.challenge.to_bytes().ct_eq(&expected.to_bytes())) {
-        Ok(())
-    } else {
-        Err(ThresholdPrfError::InvalidDleqProof)
+fn ecdsa_public_purpose_from_threshold_purpose(
+    purpose: &crate::context::PrfPurpose,
+) -> EcdsaPrfPurposeV1 {
+    match purpose {
+        crate::context::PrfPurpose::RouterAbEcdsaDerivationYServer => EcdsaPrfPurposeV1::YServer,
+        crate::context::PrfPurpose::RouterAbXClientBaseV1 => EcdsaPrfPurposeV1::XClientBase,
+        crate::context::PrfPurpose::RouterAbXServerBaseV1 => EcdsaPrfPurposeV1::XServerBase,
     }
 }
 
@@ -715,7 +726,7 @@ mod tests {
     fn fixture_context() -> PrfContext {
         PrfContext::new(
             SuiteId::Ristretto255Sha512,
-            PrfPurpose::EcdsaHssYServer,
+            PrfPurpose::RouterAbEcdsaDerivationYServer,
             b"ctx",
         )
     }
@@ -732,7 +743,7 @@ mod tests {
             encode_transcript(INPUT_DOMAIN, &context, &[]).unwrap(),
             b"\x00\x13threshold-prf/input\
               \x00\x21threshold-prf/ristretto255-sha512\
-              \x00\x12ecdsa-hss/y_server\
+              \x00\x26router-ab-ecdsa-derivation/y-server/v1\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x00"
                 .to_vec()
@@ -741,7 +752,7 @@ mod tests {
             encode_transcript(PARTIAL_CONTEXT_DOMAIN, &context, &[]).unwrap(),
             b"\x00\x1dthreshold-prf/partial-context\
               \x00\x21threshold-prf/ristretto255-sha512\
-              \x00\x12ecdsa-hss/y_server\
+              \x00\x26router-ab-ecdsa-derivation/y-server/v1\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x00"
                 .to_vec()
@@ -750,7 +761,7 @@ mod tests {
             encode_transcript(OUTPUT_DOMAIN, &context, b"payload").unwrap(),
             b"\x00\x14threshold-prf/output\
               \x00\x21threshold-prf/ristretto255-sha512\
-              \x00\x12ecdsa-hss/y_server\
+              \x00\x26router-ab-ecdsa-derivation/y-server/v1\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x07payload"
                 .to_vec()
@@ -783,7 +794,7 @@ mod tests {
         let mut expected = Vec::new();
         expected.extend_from_slice(b"\x00\x12threshold-prf/dleq");
         expected.extend_from_slice(b"\x00\x21threshold-prf/ristretto255-sha512");
-        expected.extend_from_slice(b"\x00\x12ecdsa-hss/y_server");
+        expected.extend_from_slice(b"\x00\x26router-ab-ecdsa-derivation/y-server/v1");
         expected.extend_from_slice(&context_tag);
         expected.extend_from_slice(&2u16.to_be_bytes());
         append_point(&mut expected, &RISTRETTO_BASEPOINT_POINT);

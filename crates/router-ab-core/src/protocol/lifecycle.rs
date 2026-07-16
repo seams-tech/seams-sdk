@@ -166,7 +166,7 @@ pub enum RouterAbLifecycleStateV1 {
         /// Deferral reason.
         reason: GateDeferReasonV1,
     },
-    /// Gate rejected work before signer/HSS capacity was allocated.
+    /// Gate rejected work before signer/cryptographic capacity was allocated.
     GateRejected {
         /// Lifecycle scope.
         scope: LifecycleScopeV1,

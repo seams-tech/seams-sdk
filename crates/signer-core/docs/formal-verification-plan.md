@@ -20,7 +20,7 @@ justify an Aeneas + Lean stack by themselves.
 
 `signer-core` is the shared cryptographic helper layer beneath:
 
-- [crates/ecdsa-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss)
+- [crates/router-ab-ecdsa-derivation](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation)
 - [crates/ed25519-yao](/Users/pta/Dev/rust/seams-sdk/crates/ed25519-yao)
 - [crates/router-ab-ed25519-yao](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-ed25519-yao)
 - wasm consumers
@@ -64,7 +64,7 @@ The first `signer-core` FV pass should focus on
 
 This is the highest-impact slice because it sits directly under:
 
-- `ecdsa-hss` key derivation
+- `router-ab-ecdsa-derivation` key derivation
 - threshold share mapping
 - public-key / Ethereum-address equivalence
 
@@ -99,7 +99,7 @@ helpers in `signer-core`.
 
 ## Recommended Layout
 
-To stay consistent with the `ecdsa-hss` setup, the recommended future
+To stay consistent with the `router-ab-ecdsa-derivation` setup, the recommended future
 structure for `signer-core` is:
 
 - `formal-verification/README.md`
@@ -115,7 +115,7 @@ The key point is sequencing, not symmetry for its own sake:
 - `lean-boundary/` and `lean-privacy/` should exist only if a specific
   `signer-core` Rust boundary becomes important enough to justify extraction
 
-So the folder structure should mirror `ecdsa-hss`, while the initial active
+So the folder structure should mirror `router-ab-ecdsa-derivation`, while the initial active
 scope remains Verus-first and possibly Verus-only.
 
 Current implementation status:
@@ -214,7 +214,7 @@ It should focus on the highest-value remaining shared-helper seams:
 
 ### Phase 5: Decide Whether Aeneas + Lean Expansion Is Justified
 
-This phase should explicitly mirror the `ecdsa-hss` decision point, but it may
+This phase should explicitly mirror the `router-ab-ecdsa-derivation` decision point, but it may
 end with "do nothing."
 
 - [x] decide whether any `signer-core` Rust-facing boundary is stable and important enough to justify extraction
@@ -248,4 +248,4 @@ If only one `signer-core` FV phase is funded now, do:
 2. vector parity and anti-drift for that slice
 
 That is the highest-impact improvement because it shrinks a shared trust seam
-used by `ecdsa-hss`, wasm exports, and other downstream code.
+used by `router-ab-ecdsa-derivation`, wasm exports, and other downstream code.

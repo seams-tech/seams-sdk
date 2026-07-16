@@ -777,10 +777,10 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         Ok(())
     }
 
-    /// Validates that the Wallet Session authorizes an ECDSA-HSS digest-signing prepare request.
-    pub fn validate_for_ecdsa_hss_evm_digest_signing_request_v1(
+    /// Validates that the Wallet Session authorizes a Router A/B ECDSA derivation digest-signing prepare request.
+    pub fn validate_for_router_ab_ecdsa_derivation_evm_digest_signing_request_v1(
         &self,
-        request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
@@ -788,36 +788,38 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Wallet Session expires before ECDSA-HSS signing request",
+                "Wallet Session expires before Router A/B ECDSA derivation signing request",
             ));
         }
         if self.account_id != request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session account_id does not match ECDSA-HSS signing scope",
+                "Wallet Session account_id does not match Router A/B ECDSA derivation signing scope",
             ));
         }
         if self.threshold_session_id
-            != cloudflare_ecdsa_hss_active_state_session_id_from_scope_v1(&request.scope)?
+            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+                &request.scope,
+            )?
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match ECDSA-HSS signing scope",
+                "Wallet Session session_id does not match Router A/B ECDSA derivation signing scope",
             ));
         }
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session signing_worker_id does not match ECDSA-HSS signing scope",
+                "Wallet Session signing_worker_id does not match Router A/B ECDSA derivation signing scope",
             ));
         }
         Ok(())
     }
 
-    /// Validates that the Wallet Session authorizes an ECDSA-HSS finalize request.
-    pub fn validate_for_ecdsa_hss_evm_digest_finalize_request_v1(
+    /// Validates that the Wallet Session authorizes a Router A/B ECDSA derivation finalize request.
+    pub fn validate_for_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1(
         &self,
-        request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
@@ -825,27 +827,29 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Wallet Session expires before ECDSA-HSS finalize request",
+                "Wallet Session expires before Router A/B ECDSA derivation finalize request",
             ));
         }
         if self.account_id != request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session account_id does not match ECDSA-HSS finalize scope",
+                "Wallet Session account_id does not match Router A/B ECDSA derivation finalize scope",
             ));
         }
         if self.threshold_session_id
-            != cloudflare_ecdsa_hss_active_state_session_id_from_scope_v1(&request.scope)?
+            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+                &request.scope,
+            )?
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match ECDSA-HSS finalize scope",
+                "Wallet Session session_id does not match Router A/B ECDSA derivation finalize scope",
             ));
         }
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session signing_worker_id does not match ECDSA-HSS finalize scope",
+                "Wallet Session signing_worker_id does not match Router A/B ECDSA derivation finalize scope",
             ));
         }
         Ok(())
@@ -2614,9 +2618,9 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
     }
 }
 
-/// Pre-gate Router admission candidate for ECDSA-HSS EVM digest prepare.
+/// Pre-gate Router admission candidate for Router A/B ECDSA derivation EVM digest prepare.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
+pub struct CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
     /// Canonical organization id.
     pub org_id: String,
     /// Canonical project id.
@@ -2631,13 +2635,13 @@ pub struct CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
     pub threshold_session_id: String,
     /// Active SigningWorker id authorized for this request.
     pub signing_worker_id: String,
-    /// Router request id from the typed ECDSA-HSS request.
+    /// Router request id from the typed Router A/B ECDSA derivation request.
     pub request_id: String,
     /// Client-selected presignature id that must match the SigningWorker server share.
     pub client_presignature_id: String,
-    /// Digest of the active ECDSA-HSS normal-signing scope.
+    /// Digest of the active Router A/B ECDSA derivation normal-signing scope.
     pub scope_digest: PublicDigest32,
-    /// Canonical Router-admitted ECDSA-HSS signing request digest.
+    /// Canonical Router-admitted Router A/B ECDSA derivation signing request digest.
     pub request_digest: PublicDigest32,
     /// Exact 32-byte EVM digest admitted for SigningWorker finalize.
     pub signing_digest: PublicDigest32,
@@ -2647,8 +2651,8 @@ pub struct CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
     pub expires_at_ms: u64,
 }
 
-impl CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
-    /// Creates validated internal ECDSA-HSS prepare admission candidate data.
+impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
+    /// Creates validated internal Router A/B ECDSA derivation prepare admission candidate data.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         org_id: impl Into<String>,
@@ -2686,14 +2690,16 @@ impl CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
         Ok(admission)
     }
 
-    /// Builds an ECDSA-HSS prepare admission candidate from a verified Wallet Session.
+    /// Builds a Router A/B ECDSA derivation prepare admission candidate from a verified Wallet Session.
     pub fn from_prepare_request(
         wallet_session: &CloudflareRouterVerifiedWalletSessionV1,
-        request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
-        wallet_session
-            .validate_for_ecdsa_hss_evm_digest_signing_request_v1(request, now_unix_ms)?;
+        wallet_session.validate_for_router_ab_ecdsa_derivation_evm_digest_signing_request_v1(
+            request,
+            now_unix_ms,
+        )?;
         let admission = Self::new(
             wallet_session.org_id.clone(),
             wallet_session.project_id.clone(),
@@ -2714,90 +2720,110 @@ impl CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
         Ok(admission)
     }
 
-    /// Validates internal ECDSA-HSS admission fields independent of a request body.
+    /// Validates internal Router A/B ECDSA derivation admission fields independent of a request body.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("ECDSA-HSS prepare org_id", &self.org_id)?;
-        require_non_empty("ECDSA-HSS prepare project_id", &self.project_id)?;
-        require_non_empty("ECDSA-HSS prepare environment", &self.environment)?;
-        require_non_empty("ECDSA-HSS prepare account_id", &self.account_id)?;
-        require_non_empty("ECDSA-HSS prepare subject_id", &self.subject_id)?;
+        require_non_empty("Router A/B ECDSA derivation prepare org_id", &self.org_id)?;
         require_non_empty(
-            "ECDSA-HSS prepare threshold_session_id",
+            "Router A/B ECDSA derivation prepare project_id",
+            &self.project_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation prepare environment",
+            &self.environment,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation prepare account_id",
+            &self.account_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation prepare subject_id",
+            &self.subject_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation prepare threshold_session_id",
             &self.threshold_session_id,
         )?;
         require_non_empty(
-            "ECDSA-HSS prepare signing_worker_id",
+            "Router A/B ECDSA derivation prepare signing_worker_id",
             &self.signing_worker_id,
         )?;
-        require_non_empty("ECDSA-HSS prepare request_id", &self.request_id)?;
         require_non_empty(
-            "ECDSA-HSS prepare client_presignature_id",
+            "Router A/B ECDSA derivation prepare request_id",
+            &self.request_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation prepare client_presignature_id",
             &self.client_presignature_id,
         )?;
-        require_positive_ms("ECDSA-HSS prepare expires_at_ms", self.expires_at_ms)
+        require_positive_ms(
+            "Router A/B ECDSA derivation prepare expires_at_ms",
+            self.expires_at_ms,
+        )
     }
 
-    /// Validates an ECDSA-HSS prepare admission candidate against a typed request.
+    /// Validates a Router A/B ECDSA derivation prepare admission candidate against a typed request.
     pub fn validate_for_prepare_request(
         &self,
-        request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;
         if self.account_id != request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission account_id does not match request scope",
+                "Router A/B ECDSA derivation prepare admission account_id does not match request scope",
             ));
         }
         if self.threshold_session_id
-            != cloudflare_ecdsa_hss_active_state_session_id_from_scope_v1(&request.scope)?
+            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+                &request.scope,
+            )?
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission session_id does not match request scope",
+                "Router A/B ECDSA derivation prepare admission session_id does not match request scope",
             ));
         }
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission signing_worker_id does not match request scope",
+                "Router A/B ECDSA derivation prepare admission signing_worker_id does not match request scope",
             ));
         }
         if self.request_id != request.request_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission request_id does not match request",
+                "Router A/B ECDSA derivation prepare admission request_id does not match request",
             ));
         }
         if self.client_presignature_id != request.client_presignature_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission presignature id does not match request",
+                "Router A/B ECDSA derivation prepare admission presignature id does not match request",
             ));
         }
         if self.expires_at_ms != request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission expires_at_ms does not match request",
+                "Router A/B ECDSA derivation prepare admission expires_at_ms does not match request",
             ));
         }
         if self.scope_digest != request.scope.scope_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission scope digest does not match request",
+                "Router A/B ECDSA derivation prepare admission scope digest does not match request",
             ));
         }
         if self.request_digest != request.request_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission request digest does not match request",
+                "Router A/B ECDSA derivation prepare admission request digest does not match request",
             ));
         }
         if self.signing_digest != request.signing_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS prepare admission signing digest does not match request",
+                "Router A/B ECDSA derivation prepare admission signing digest does not match request",
             ));
         }
         Ok(())
@@ -2825,12 +2851,15 @@ impl CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
     /// Converts the candidate to the shared normal-signing admission-store shape.
     pub fn to_normal_signing_admission_store_request(
         &self,
-        request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
         self.validate_for_prepare_request(request)?;
         request.validate_at(now_unix_ms)?;
-        require_positive_ms("ECDSA-HSS prepare admission-store now_unix_ms", now_unix_ms)?;
+        require_positive_ms(
+            "Router A/B ECDSA derivation prepare admission-store now_unix_ms",
+            now_unix_ms,
+        )?;
         let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
             metadata: self.to_normal_signing_trusted_metadata()?,
             request_id: self.request_id.clone(),
@@ -2844,9 +2873,9 @@ impl CloudflareRouterEcdsaHssEvmDigestPrepareAdmissionCandidateV1 {
     }
 }
 
-/// Pre-gate Router admission candidate for ECDSA-HSS EVM digest finalize.
+/// Pre-gate Router admission candidate for Router A/B ECDSA derivation EVM digest finalize.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
+pub struct CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
     /// Canonical organization id.
     pub org_id: String,
     /// Canonical project id.
@@ -2861,9 +2890,9 @@ pub struct CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
     pub threshold_session_id: String,
     /// Active SigningWorker id authorized for this request.
     pub signing_worker_id: String,
-    /// Router request id from the typed ECDSA-HSS finalize request.
+    /// Router request id from the typed Router A/B ECDSA derivation finalize request.
     pub request_id: String,
-    /// Digest of the active ECDSA-HSS normal-signing scope.
+    /// Digest of the active Router A/B ECDSA derivation normal-signing scope.
     pub scope_digest: PublicDigest32,
     /// Canonical prepare request digest that the presignature must match.
     pub prepare_request_digest: PublicDigest32,
@@ -2879,8 +2908,8 @@ pub struct CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
     pub expires_at_ms: u64,
 }
 
-impl CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
-    /// Creates validated internal ECDSA-HSS finalize admission candidate data.
+impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
+    /// Creates validated internal Router A/B ECDSA derivation finalize admission candidate data.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         org_id: impl Into<String>,
@@ -2920,14 +2949,16 @@ impl CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
         Ok(admission)
     }
 
-    /// Builds an ECDSA-HSS finalize admission candidate from a verified Wallet Session.
+    /// Builds a Router A/B ECDSA derivation finalize admission candidate from a verified Wallet Session.
     pub fn from_finalize_request(
         wallet_session: &CloudflareRouterVerifiedWalletSessionV1,
-        request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
-        wallet_session
-            .validate_for_ecdsa_hss_evm_digest_finalize_request_v1(request, now_unix_ms)?;
+        wallet_session.validate_for_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1(
+            request,
+            now_unix_ms,
+        )?;
         let admission = Self::new(
             wallet_session.org_id.clone(),
             wallet_session.project_id.clone(),
@@ -2949,96 +2980,116 @@ impl CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
         Ok(admission)
     }
 
-    /// Validates internal ECDSA-HSS finalize admission fields independent of a request body.
+    /// Validates internal Router A/B ECDSA derivation finalize admission fields independent of a request body.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("ECDSA-HSS finalize org_id", &self.org_id)?;
-        require_non_empty("ECDSA-HSS finalize project_id", &self.project_id)?;
-        require_non_empty("ECDSA-HSS finalize environment", &self.environment)?;
-        require_non_empty("ECDSA-HSS finalize account_id", &self.account_id)?;
-        require_non_empty("ECDSA-HSS finalize subject_id", &self.subject_id)?;
+        require_non_empty("Router A/B ECDSA derivation finalize org_id", &self.org_id)?;
         require_non_empty(
-            "ECDSA-HSS finalize threshold_session_id",
+            "Router A/B ECDSA derivation finalize project_id",
+            &self.project_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation finalize environment",
+            &self.environment,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation finalize account_id",
+            &self.account_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation finalize subject_id",
+            &self.subject_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation finalize threshold_session_id",
             &self.threshold_session_id,
         )?;
         require_non_empty(
-            "ECDSA-HSS finalize signing_worker_id",
+            "Router A/B ECDSA derivation finalize signing_worker_id",
             &self.signing_worker_id,
         )?;
-        require_non_empty("ECDSA-HSS finalize request_id", &self.request_id)?;
         require_non_empty(
-            "ECDSA-HSS finalize server_presignature_id",
+            "Router A/B ECDSA derivation finalize request_id",
+            &self.request_id,
+        )?;
+        require_non_empty(
+            "Router A/B ECDSA derivation finalize server_presignature_id",
             &self.server_presignature_id,
         )?;
-        require_positive_ms("ECDSA-HSS finalize expires_at_ms", self.expires_at_ms)
+        require_positive_ms(
+            "Router A/B ECDSA derivation finalize expires_at_ms",
+            self.expires_at_ms,
+        )
     }
 
-    /// Validates an ECDSA-HSS finalize admission candidate against a typed request.
+    /// Validates a Router A/B ECDSA derivation finalize admission candidate against a typed request.
     pub fn validate_for_finalize_request(
         &self,
-        request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;
         if self.account_id != request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission account_id does not match request scope",
+                "Router A/B ECDSA derivation finalize admission account_id does not match request scope",
             ));
         }
         if self.threshold_session_id
-            != cloudflare_ecdsa_hss_active_state_session_id_from_scope_v1(&request.scope)?
+            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+                &request.scope,
+            )?
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission session_id does not match request scope",
+                "Router A/B ECDSA derivation finalize admission session_id does not match request scope",
             ));
         }
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission signing_worker_id does not match request scope",
+                "Router A/B ECDSA derivation finalize admission signing_worker_id does not match request scope",
             ));
         }
         if self.request_id != request.request_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission request_id does not match request",
+                "Router A/B ECDSA derivation finalize admission request_id does not match request",
             ));
         }
         if self.expires_at_ms != request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission expires_at_ms does not match request",
+                "Router A/B ECDSA derivation finalize admission expires_at_ms does not match request",
             ));
         }
         if self.scope_digest != request.scope.scope_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission scope digest does not match request",
+                "Router A/B ECDSA derivation finalize admission scope digest does not match request",
             ));
         }
         if self.prepare_request_digest != request.prepare_request_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission prepare digest does not match request",
+                "Router A/B ECDSA derivation finalize admission prepare digest does not match request",
             ));
         }
         if self.finalize_request_digest != request.request_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission request digest does not match request",
+                "Router A/B ECDSA derivation finalize admission request digest does not match request",
             ));
         }
         if self.signing_digest != request.signing_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission signing digest does not match request",
+                "Router A/B ECDSA derivation finalize admission signing digest does not match request",
             ));
         }
         if self.server_presignature_id != request.server_presignature_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize admission presignature id does not match request",
+                "Router A/B ECDSA derivation finalize admission presignature id does not match request",
             ));
         }
         Ok(())
@@ -3066,13 +3117,13 @@ impl CloudflareRouterEcdsaHssEvmDigestFinalizeAdmissionCandidateV1 {
     /// Converts the candidate to the shared normal-signing admission-store shape.
     pub fn to_normal_signing_admission_store_request(
         &self,
-        request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
         self.validate_for_finalize_request(request)?;
         request.validate_at(now_unix_ms)?;
         require_positive_ms(
-            "ECDSA-HSS finalize admission-store now_unix_ms",
+            "Router A/B ECDSA derivation finalize admission-store now_unix_ms",
             now_unix_ms,
         )?;
         let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {

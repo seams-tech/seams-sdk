@@ -24,7 +24,8 @@ workers-rs = [
 [dependencies]
 base64 = "0.22"
 bs58 = "0.5"
-ecdsa-hss = { path = "../ecdsa-hss" }
+router-ab-ecdsa-derivation = { path = "../router-ab-ecdsa-derivation" }
+router-ab-ecdsa-client-protocol = { path = "../router-ab-ecdsa-client-protocol" }
 ed25519-dalek = { version = "2.1", default-features = false }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
 futures = "0.3"

@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 use crate::ApplicationBindingDigest;
 
-/// Domain separating the Yao application binding from prior HSS bindings.
+/// Domain separating the Yao application binding from retired derivation bindings.
 pub const ED25519_YAO_APPLICATION_BINDING_DOMAIN_V1: &[u8] =
     b"seams/router-ab/ed25519-yao/application-binding/v1";
 

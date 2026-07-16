@@ -1,35 +1,35 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 use crate::{
     codec::hex_to_bytes,
-    error::{CoreResult, SignerCoreError},
-    threshold_ecdsa_hss::{
+    ecdsa_role_local_client::{
         build_ecdsa_role_local_export_artifact,
         BuildEcdsaRoleLocalExportArtifactCommand as CoreBuildEcdsaRoleLocalExportArtifactCommand,
         EcdsaRoleLocalExportPublicFacts as CoreEcdsaRoleLocalExportPublicFacts,
         EcdsaRoleLocalReadyStateBlob as CoreEcdsaRoleLocalReadyStateBlob,
     },
+    error::{CoreResult, SignerCoreError},
 };
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 use base64ct::{Base64UrlUnpadded, Encoding};
-#[cfg(feature = "threshold-ecdsa-hss")]
-use ecdsa_hss::EcdsaHssStableKeyContext;
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
+use router_ab_ecdsa_derivation::RouterAbEcdsaDerivationStableKeyContext;
+#[cfg(feature = "ecdsa-role-local-client")]
 use zeroize::Zeroize;
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 use super::ecdsa_bootstrap::{
     Base64UrlEncodingV1, EcdsaClientBootstrapParticipantsV1, ReadyStateBlobKindV1,
     Secp256k1CurveNameV1, SignerCoreProducerV1,
 };
 use super::ecdsa_bootstrap::{EcdsaClientBootstrapAlgorithmV1, EcdsaRoleLocalReadyStateBlobV1};
 
-#[cfg(feature = "threshold-ecdsa-hss")]
-const ECDSA_HSS_CLIENT_PARTICIPANT_ID: u32 = 1;
-#[cfg(feature = "threshold-ecdsa-hss")]
-const ECDSA_HSS_RELAYER_PARTICIPANT_ID: u32 = 2;
+#[cfg(feature = "ecdsa-role-local-client")]
+const ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID: u32 = 1;
+#[cfg(feature = "ecdsa-role-local-client")]
+const ROUTER_AB_ECDSA_DERIVATION_RELAYER_PARTICIPANT_ID: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(rename = "BuildEcdsaRoleLocalExportArtifactCommandKind")]
@@ -48,7 +48,7 @@ pub struct EcdsaRoleLocalExportPublicFactsV1 {
     pub relayer_participant_id: u32,
     pub participant_ids: Vec<u32>,
     pub context_binding32_b64u: String,
-    pub hss_client_share_public_key33_b64u: String,
+    pub derivation_client_share_public_key33_b64u: String,
     pub relayer_public_key33_b64u: String,
     pub group_public_key33_b64u: String,
     pub ethereum_address: String,
@@ -92,7 +92,7 @@ pub enum BuildEcdsaRoleLocalExportArtifactErrorCodeV1 {
     CryptoFailure,
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 pub fn build_ecdsa_role_local_export_artifact_command_v1(
     command: BuildEcdsaRoleLocalExportArtifactCommandV1,
 ) -> CoreResult<BuildEcdsaRoleLocalExportArtifactOutputV1> {
@@ -125,7 +125,7 @@ pub fn build_ecdsa_role_local_export_artifact_command_v1(
     })
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn validate_export_command_header(
     command: &BuildEcdsaRoleLocalExportArtifactCommandV1,
 ) -> CoreResult<()> {
@@ -133,7 +133,7 @@ fn validate_export_command_header(
         BuildEcdsaRoleLocalExportArtifactCommandKindV1::BuildEcdsaRoleLocalExportArtifactV1 => {}
     }
     match command.algorithm {
-        EcdsaClientBootstrapAlgorithmV1::EcdsaHssSecp256k1RoleLocalV1 => {}
+        EcdsaClientBootstrapAlgorithmV1::RouterAbEcdsaDerivationSecp256k1RoleLocalV1 => {}
     }
     validate_participants(EcdsaClientBootstrapParticipantsV1 {
         client_participant_id: command.public_facts.client_participant_id,
@@ -142,22 +142,22 @@ fn validate_export_command_header(
     })
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn validate_participants(participants: EcdsaClientBootstrapParticipantsV1) -> CoreResult<()> {
-    if participants.client_participant_id != ECDSA_HSS_CLIENT_PARTICIPANT_ID {
+    if participants.client_participant_id != ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID {
         return Err(SignerCoreError::invalid_input(
             "publicFacts.clientParticipantId must be 1",
         ));
     }
-    if participants.relayer_participant_id != ECDSA_HSS_RELAYER_PARTICIPANT_ID {
+    if participants.relayer_participant_id != ROUTER_AB_ECDSA_DERIVATION_RELAYER_PARTICIPANT_ID {
         return Err(SignerCoreError::invalid_input(
             "publicFacts.relayerParticipantId must be 2",
         ));
     }
     if participants.participant_ids
         != [
-            ECDSA_HSS_CLIENT_PARTICIPANT_ID,
-            ECDSA_HSS_RELAYER_PARTICIPANT_ID,
+            ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID,
+            ROUTER_AB_ECDSA_DERIVATION_RELAYER_PARTICIPANT_ID,
         ]
     {
         return Err(SignerCoreError::invalid_input(
@@ -167,7 +167,7 @@ fn validate_participants(participants: EcdsaClientBootstrapParticipantsV1) -> Co
     Ok(())
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn validate_ready_state_blob_envelope(blob: &EcdsaRoleLocalReadyStateBlobV1) -> CoreResult<()> {
     match blob.kind {
         ReadyStateBlobKindV1::EcdsaRoleLocalReadyStateBlobV1 => {}
@@ -184,11 +184,11 @@ fn validate_ready_state_blob_envelope(blob: &EcdsaRoleLocalReadyStateBlobV1) -> 
     Ok(())
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn core_public_facts_from_command(
     facts: &EcdsaRoleLocalExportPublicFactsV1,
 ) -> CoreResult<CoreEcdsaRoleLocalExportPublicFacts> {
-    let context = EcdsaHssStableKeyContext::new(decode_base64_url_fixed::<32>(
+    let context = RouterAbEcdsaDerivationStableKeyContext::new(decode_base64_url_fixed::<32>(
         &facts.application_binding_digest_b64u,
         "publicFacts.applicationBindingDigestB64u",
     )?);
@@ -202,9 +202,9 @@ fn core_public_facts_from_command(
             &facts.context_binding32_b64u,
             "publicFacts.contextBinding32B64u",
         )?,
-        hss_client_share_public_key33: decode_base64_url_fixed(
-            &facts.hss_client_share_public_key33_b64u,
-            "publicFacts.hssClientSharePublicKey33B64u",
+        derivation_client_share_public_key33: decode_base64_url_fixed(
+            &facts.derivation_client_share_public_key33_b64u,
+            "publicFacts.derivationClientSharePublicKey33B64u",
         )?,
         relayer_public_key33: decode_base64_url_fixed(
             &facts.relayer_public_key33_b64u,
@@ -221,7 +221,7 @@ fn core_public_facts_from_command(
     })
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn decode_base64_url(input: &str, field_name: &str) -> CoreResult<Vec<u8>> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -233,7 +233,7 @@ fn decode_base64_url(input: &str, field_name: &str) -> CoreResult<Vec<u8>> {
         .map_err(|error| SignerCoreError::decode_error(format!("{field_name}: {error}")))
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn decode_base64_url_fixed<const N: usize>(input: &str, field_name: &str) -> CoreResult<[u8; N]> {
     let mut bytes = decode_base64_url(input, field_name)?;
     if bytes.len() != N {
@@ -249,7 +249,7 @@ fn decode_base64_url_fixed<const N: usize>(input: &str, field_name: &str) -> Cor
     Ok(out)
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn decode_ethereum_address20(input: &str, field_name: &str) -> CoreResult<[u8; 20]> {
     let trimmed = input.trim();
     if !trimmed.starts_with("0x") {
@@ -268,7 +268,7 @@ fn decode_ethereum_address20(input: &str, field_name: &str) -> CoreResult<[u8; 2
     Ok(out)
 }
 
-#[cfg(feature = "threshold-ecdsa-hss")]
+#[cfg(feature = "ecdsa-role-local-client")]
 fn hex_prefixed(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(2 + bytes.len() * 2);
     out.push_str("0x");

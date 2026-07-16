@@ -42,7 +42,7 @@ Why it matters:
 
 - this helper sits under relayer-share derivation and canonical secp256k1
   private-key derivation
-- higher-level `ecdsa-hss` proofs still treat this seam as trusted
+- higher-level `router-ab-ecdsa-derivation` proofs still treat this seam as trusted
 
 Status:
 
@@ -126,7 +126,7 @@ Property:
 
 Why it matters:
 
-- this is the shared backend-mapping seam beneath `ecdsa-hss`
+- this is the shared backend-mapping seam beneath `router-ab-ecdsa-derivation`
 
 Status:
 

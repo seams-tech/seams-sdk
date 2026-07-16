@@ -536,19 +536,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ecdsa-hss"
-version = "0.1.0"
-dependencies = [
- "hex",
- "k256",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sha3 0.10.9",
- "zeroize",
-]
-
-[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1378,6 +1365,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ppv-lite86"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
+dependencies = [
+ "zerocopy",
+]
+
+[[package]]
 name = "primeorder"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1432,6 +1428,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.9.5",
 ]
 
 [[package]]
@@ -1502,7 +1508,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "bs58",
- "ecdsa-hss",
  "ed25519-dalek",
  "frost-ed25519",
  "futures",
@@ -1511,6 +1516,8 @@ dependencies = [
  "rand_core 0.6.4",
  "rand_core 0.9.5",
  "router-ab-core",
+ "router-ab-ecdsa-client-protocol",
+ "router-ab-ecdsa-derivation",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1529,6 +1536,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-client-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1543,7 +1551,6 @@ dependencies = [
  "base64",
  "bs58",
  "curve25519-dalek",
- "ecdsa-hss",
  "ed25519-dalek",
  "frost-ed25519",
  "getrandom 0.2.17",
@@ -1553,6 +1560,8 @@ dependencies = [
  "rand_core 0.9.5",
  "router-ab-cloudflare",
  "router-ab-core",
+ "router-ab-ecdsa-client-protocol",
+ "router-ab-ecdsa-derivation",
  "router-ab-ed25519-yao",
  "rusqlite",
  "serde",
@@ -1560,6 +1569,35 @@ dependencies = [
  "sha2 0.10.9",
  "signer-core",
  "subtle",
+ "threshold-prf",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-client-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64ct",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "hpke-ng",
+ "rand_chacha",
+ "rand_core 0.9.5",
+ "sha2 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-derivation"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "k256",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
  "zeroize",
 ]
 
@@ -1569,8 +1607,20 @@ version = "0.1.0"
 dependencies = [
  "ed25519-yao",
  "router-ab-core",
+ "router-ab-ed25519-yao-protocol",
+ "signer-core",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ed25519-yao-protocol"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "router-ab-core",
  "serde",
  "signer-core",
+ "subtle",
  "zeroize",
 ]
 
@@ -1785,7 +1835,6 @@ dependencies = [
  "borsh",
  "bs58",
  "curve25519-dalek",
- "ecdsa-hss",
  "ed25519-dalek",
  "frost-ed25519",
  "hkdf 0.12.4",
@@ -1793,6 +1842,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-derivation",
  "serde",
  "sha2 0.10.9",
  "sha3 0.10.9",
@@ -1910,6 +1960,7 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-client-protocol",
  "sha2 0.10.9",
  "subtle",
  "zeroize",

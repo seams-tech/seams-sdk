@@ -1,14 +1,15 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use router_ab_core::{
-    parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json,
-    parse_router_ab_ecdsa_hss_evm_digest_signing_prepare_response_v1_json,
-    parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json,
-    RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
-    RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1, RouterAbEcdsaHssEvmDigestSigningRequestV1,
-    RouterAbEcdsaHssEvmDigestSigningResponseV1, RouterAbEcdsaHssNormalSigningScopeV1,
-    RouterAbEcdsaHssPublicIdentityV1, RouterAbEcdsaHssStableKeyContextV1, RouterAbProtocolResult,
-    ServerIdentityV1,
+    parse_router_ab_ecdsa_derivation_evm_digest_signing_finalize_request_v1_json,
+    parse_router_ab_ecdsa_derivation_evm_digest_signing_prepare_response_v1_json,
+    parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
+    RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
+    RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationStableKeyContextV1,
+    RouterAbProtocolResult, ServerIdentityV1,
 };
 use serde::Serialize;
 use std::{
@@ -25,21 +26,21 @@ struct EvidenceSummary {
     evidence_version: &'static str,
     generated_at_unix_ms: u128,
     iterations: u64,
-    ecdsa_hss_normal_signing: EcdsaHssEvidence,
+    router_ab_ecdsa_derivation_normal_signing: RouterAbEcdsaDerivationEvidence,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct EcdsaHssEvidence {
+struct RouterAbEcdsaDerivationEvidence {
     evidence_kind: &'static str,
     live_http_route_dispatch_evidence: &'static str,
-    route_shape: EcdsaHssRouteShape,
+    route_shape: RouterAbEcdsaDerivationRouteShape,
     prepare_finalize_protocol_timing: TimingEvidence,
     signed_digest_b64u: String,
     signature_scheme: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct EcdsaHssRouteShape {
+struct RouterAbEcdsaDerivationRouteShape {
     prepare_route: &'static str,
     finalize_route: &'static str,
     private_pool_fill_route: &'static str,
@@ -96,7 +97,7 @@ fn usage() -> String {
 }
 
 fn build_evidence() -> RouterAbProtocolResult<EvidenceSummary> {
-    let ecdsa = ecdsa_hss_evidence()?;
+    let ecdsa = router_ab_ecdsa_derivation_evidence()?;
     Ok(EvidenceSummary {
         evidence_version: EVIDENCE_VERSION,
         generated_at_unix_ms: SystemTime::now()
@@ -104,20 +105,22 @@ fn build_evidence() -> RouterAbProtocolResult<EvidenceSummary> {
             .map(|duration| duration.as_millis())
             .unwrap_or_default(),
         iterations: ITERATIONS,
-        ecdsa_hss_normal_signing: ecdsa,
+        router_ab_ecdsa_derivation_normal_signing: ecdsa,
     })
 }
 
-fn ecdsa_hss_evidence() -> RouterAbProtocolResult<EcdsaHssEvidence> {
+fn router_ab_ecdsa_derivation_evidence() -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvidence>
+{
     let prepare = ecdsa_signing_request()?;
-    let prepare_response = RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1::new_for_request(
-        &prepare,
-        "server-presignature-1",
-        secp256k1_public_key33_b64u(0x03, 0x99),
-        b64u(&[0x55; 32]),
-        1_800_000_000_000,
-    )?;
-    let finalize = RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1::new(
+    let prepare_response =
+        RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1::new_for_request(
+            &prepare,
+            "server-presignature-1",
+            secp256k1_public_key33_b64u(0x03, 0x99),
+            b64u(&[0x55; 32]),
+            1_800_000_000_000,
+        )?;
+    let finalize = RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         ecdsa_scope()?,
         "ecdsa-sign-request-1",
         1_900_000_000_000,
@@ -125,12 +128,14 @@ fn ecdsa_hss_evidence() -> RouterAbProtocolResult<EcdsaHssEvidence> {
         "server-presignature-1",
         b64u(&[0x77; 32]),
     )?;
-    let response =
-        RouterAbEcdsaHssEvmDigestSigningResponseV1::new_for_request(&prepare, b64u(&[0x88; 65]))?;
+    let response = RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
+        &prepare,
+        b64u(&[0x88; 65]),
+    )?;
     let timing = time_iterations(ITERATIONS, || {
         let prepare_json = serde_json::to_vec(&prepare).expect("ECDSA prepare JSON");
         let parsed_prepare =
-            parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json(&prepare_json)
+            parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json(&prepare_json)
                 .expect("ECDSA prepare parses");
         parsed_prepare
             .validate_at(1_700_000_000_000)
@@ -139,7 +144,7 @@ fn ecdsa_hss_evidence() -> RouterAbProtocolResult<EcdsaHssEvidence> {
         let prepare_response_json =
             serde_json::to_vec(&prepare_response).expect("ECDSA prepare response JSON");
         let parsed_prepare_response =
-            parse_router_ab_ecdsa_hss_evm_digest_signing_prepare_response_v1_json(
+            parse_router_ab_ecdsa_derivation_evm_digest_signing_prepare_response_v1_json(
                 &prepare_response_json,
             )
             .expect("ECDSA prepare response parses");
@@ -149,8 +154,10 @@ fn ecdsa_hss_evidence() -> RouterAbProtocolResult<EcdsaHssEvidence> {
 
         let finalize_json = serde_json::to_vec(&finalize).expect("ECDSA finalize JSON");
         let parsed_finalize =
-            parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json(&finalize_json)
-                .expect("ECDSA finalize parses");
+            parse_router_ab_ecdsa_derivation_evm_digest_signing_finalize_request_v1_json(
+                &finalize_json,
+            )
+            .expect("ECDSA finalize parses");
         parsed_finalize
             .validate_at(1_700_000_000_000)
             .expect("ECDSA finalize time-validates");
@@ -165,16 +172,16 @@ fn ecdsa_hss_evidence() -> RouterAbProtocolResult<EcdsaHssEvidence> {
             .expect("ECDSA response binds request");
     });
 
-    Ok(EcdsaHssEvidence {
+    Ok(RouterAbEcdsaDerivationEvidence {
         evidence_kind: "protocol_shape_parser_binding_timing",
         live_http_route_dispatch_evidence:
             "run pnpm router:check after local services are ready; this report does not open local HTTP listeners",
-        route_shape: EcdsaHssRouteShape {
-            prepare_route: "/router-ab/ecdsa-hss/sign/prepare",
-            finalize_route: "/router-ab/ecdsa-hss/sign",
-            private_pool_fill_route: "/router-ab/signing-worker/ecdsa-hss/presignature-pool/put",
-            private_prepare_route: "/router-ab/signing-worker/ecdsa-hss/sign/prepare",
-            private_finalize_route: "/router-ab/signing-worker/ecdsa-hss/sign",
+        route_shape: RouterAbEcdsaDerivationRouteShape {
+            prepare_route: "/router-ab/ecdsa-derivation/sign/prepare",
+            finalize_route: "/router-ab/ecdsa-derivation/sign",
+            private_pool_fill_route: "/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put",
+            private_prepare_route: "/router-ab/signing-worker/ecdsa-derivation/sign/prepare",
+            private_finalize_route: "/router-ab/signing-worker/ecdsa-derivation/sign",
         },
         prepare_finalize_protocol_timing: timing,
         signed_digest_b64u: prepare.signing_digest_b64u,
@@ -195,8 +202,9 @@ fn time_iterations(iterations: u64, mut f: impl FnMut()) -> TimingEvidence {
     }
 }
 
-fn ecdsa_signing_request() -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSigningRequestV1> {
-    RouterAbEcdsaHssEvmDigestSigningRequestV1::new(
+fn ecdsa_signing_request(
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningRequestV1> {
+    RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         ecdsa_scope()?,
         "ecdsa-sign-request-1",
         "server-presignature-1",
@@ -205,8 +213,8 @@ fn ecdsa_signing_request() -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSi
     )
 }
 
-fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaHssNormalSigningScopeV1> {
-    RouterAbEcdsaHssNormalSigningScopeV1::new(
+fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningScopeV1> {
+    RouterAbEcdsaDerivationNormalSigningScopeV1::new(
         "wallet-key-1",
         "wallet-1",
         "ecdsa-threshold-key-1",
@@ -219,13 +227,13 @@ fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaHssNormalSigningScopeV1>
     )
 }
 
-fn ecdsa_context() -> RouterAbProtocolResult<RouterAbEcdsaHssStableKeyContextV1> {
-    RouterAbEcdsaHssStableKeyContextV1::new(b64u(&[0x42; 32]))
+fn ecdsa_context() -> RouterAbProtocolResult<RouterAbEcdsaDerivationStableKeyContextV1> {
+    RouterAbEcdsaDerivationStableKeyContextV1::new(b64u(&[0x42; 32]))
 }
 
-fn ecdsa_public_identity() -> RouterAbProtocolResult<RouterAbEcdsaHssPublicIdentityV1> {
+fn ecdsa_public_identity() -> RouterAbProtocolResult<RouterAbEcdsaDerivationPublicIdentityV1> {
     let context = ecdsa_context()?;
-    RouterAbEcdsaHssPublicIdentityV1::new(
+    RouterAbEcdsaDerivationPublicIdentityV1::new(
         b64u(context.context_binding_digest()?.as_bytes()),
         secp256k1_public_key33_b64u(0x02, 0x11),
         secp256k1_public_key33_b64u(0x03, 0x22),

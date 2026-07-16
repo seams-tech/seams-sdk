@@ -1,9 +1,11 @@
-#![cfg(all(feature = "threshold-ecdsa-hss", feature = "typescript-bindings"))]
+#![cfg(all(feature = "ecdsa-role-local-client", feature = "typescript-bindings"))]
 
 use std::{env, fs, path::PathBuf};
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use ecdsa_hss::{derive_relayer_share_for_client_public, EcdsaHssStableKeyContext};
+use router_ab_ecdsa_derivation::{
+    derive_relayer_share_for_client_public, RouterAbEcdsaDerivationStableKeyContext,
+};
 use serde::{Deserialize, Serialize};
 use signer_core::commands::{
     finalize_ecdsa_client_bootstrap_command_v1, prepare_ecdsa_client_bootstrap_command_v1,
@@ -62,8 +64,8 @@ fn context() -> EcdsaClientBootstrapContextV1 {
     }
 }
 
-fn stable_key_context() -> EcdsaHssStableKeyContext {
-    EcdsaHssStableKeyContext::new([0x55u8; 32])
+fn stable_key_context() -> RouterAbEcdsaDerivationStableKeyContext {
+    RouterAbEcdsaDerivationStableKeyContext::new([0x55u8; 32])
 }
 
 fn participants() -> EcdsaClientBootstrapParticipantsV1 {
@@ -77,7 +79,7 @@ fn participants() -> EcdsaClientBootstrapParticipantsV1 {
 fn prepare_command() -> PrepareEcdsaClientBootstrapCommandV1 {
     PrepareEcdsaClientBootstrapCommandV1 {
         kind: PrepareEcdsaClientBootstrapCommandKindV1::PrepareEcdsaClientBootstrapV1,
-        algorithm: EcdsaClientBootstrapAlgorithmV1::EcdsaHssSecp256k1RoleLocalV1,
+        algorithm: EcdsaClientBootstrapAlgorithmV1::RouterAbEcdsaDerivationSecp256k1RoleLocalV1,
         context: context(),
         participants: participants(),
         secret_source: EcdsaBootstrapSecretSourceV1::WebauthnPrfFirst {
@@ -95,16 +97,16 @@ fn build_vector() -> NativeEcdsaBootstrapVectorV1 {
     let relayer_root_share32_b64u = encode_base64_url(&[0x44u8; 32]);
     let relayer_root_share32 =
         decode_base64_url_fixed::<32>(&relayer_root_share32_b64u, "relayerRootShare32B64u");
-    let client_public_key33 = decode_base64_url_fixed::<33>(
+    let derivation_client_share_public_key33 = decode_base64_url_fixed::<33>(
         &expected_prepare_output
             .client_bootstrap
-            .hss_client_share_public_key33_b64u,
-        "clientBootstrap.hssClientSharePublicKey33B64u",
+            .derivation_client_share_public_key33_b64u,
+        "clientBootstrap.derivationClientSharePublicKey33B64u",
     );
     let (_relayer_share, identity) = derive_relayer_share_for_client_public(
         &stable_key_context(),
         relayer_root_share32,
-        &client_public_key33,
+        &derivation_client_share_public_key33,
         expected_prepare_output
             .client_bootstrap
             .client_share_retry_counter,
@@ -178,14 +180,16 @@ fn native_ecdsa_bootstrap_vector_replays_signer_core_commands() {
 
     let relayer_root_share32 =
         decode_base64_url_fixed::<32>(&fixture.relayer_root_share32_b64u, "relayerRootShare32B64u");
-    let client_public_key33 = decode_base64_url_fixed::<33>(
-        &prepared.client_bootstrap.hss_client_share_public_key33_b64u,
-        "clientBootstrap.hssClientSharePublicKey33B64u",
+    let derivation_client_share_public_key33 = decode_base64_url_fixed::<33>(
+        &prepared
+            .client_bootstrap
+            .derivation_client_share_public_key33_b64u,
+        "clientBootstrap.derivationClientSharePublicKey33B64u",
     );
     let (_relayer_share, identity) = derive_relayer_share_for_client_public(
         &stable_key_context(),
         relayer_root_share32,
-        &client_public_key33,
+        &derivation_client_share_public_key33,
         prepared.client_bootstrap.client_share_retry_counter,
     )
     .expect("derive relayer identity");

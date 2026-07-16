@@ -1,6 +1,6 @@
 import initThresholdPrfWasm, {
   init_threshold_prf,
-  threshold_prf_derive_ecdsa_hss_y_server,
+  threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer,
 } from "../vendor/threshold_prf/threshold_prf.js";
 import thresholdPrfWasmModule from "../vendor/threshold_prf/threshold_prf_bg.wasm";
 
@@ -19,15 +19,9 @@ const SHARE_WIRE_2 = hexToBytes(
   "0002b3ee4da8422ffeebb66bd0b55afb5d072f55aa324698a89c0a8b234042fd6c0f",
 );
 
-const ECDSA_CONTEXT = Object.freeze({
-  walletId: "alice.near",
-  rpId: "wallet.example.test",
-  ecdsaThresholdKeyId: "ecdsa-alpha",
-  signingRootId: "project-alpha:dev",
-  signingRootVersion: "root-v1",
-  keyPurpose: "wallet",
-  keyVersion: "v1",
-});
+const APPLICATION_BINDING_DIGEST = hexToBytes(
+  "7f6ec48989273bf014547956927059547a8d659391735b7a6c1958bc6f0cf8f4",
+);
 
 let firstRequestInIsolate = true;
 let wasmReadyPromise;
@@ -69,7 +63,7 @@ export default {
       const results = [
         measureSync("dispatch_loop_noop", iterations, warmup, benchmarkNoop),
         measureSync(
-          "threshold_prf_derive_ecdsa_hss_y_server",
+          "threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer",
           iterations,
           warmup,
           benchmarkEcdsaYServer,
@@ -143,17 +137,11 @@ function benchmarkNoop(index) {
 }
 
 function benchmarkEcdsaYServer() {
-  const output = threshold_prf_derive_ecdsa_hss_y_server(
+  const output = threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer(
     THRESHOLD_PRF_THRESHOLD,
     THRESHOLD_PRF_SHARE_COUNT,
     shareWires(),
-    ECDSA_CONTEXT.walletId,
-    ECDSA_CONTEXT.rpId,
-    ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    ECDSA_CONTEXT.signingRootId,
-    ECDSA_CONTEXT.signingRootVersion,
-    ECDSA_CONTEXT.keyPurpose,
-    ECDSA_CONTEXT.keyVersion,
+    APPLICATION_BINDING_DIGEST,
   );
   return output[0];
 }

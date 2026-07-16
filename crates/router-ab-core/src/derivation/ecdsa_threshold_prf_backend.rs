@@ -10,6 +10,7 @@ use threshold_prf::{
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId, ThresholdPrfError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use crate::derivation::ecdsa_commitment_registry::RootShareCommitmentRegistryV1;
 use crate::derivation::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1,
     plan_mpc_prf_purpose_binding_for_output_v1, plan_mpc_prf_purpose_binding_v1,
@@ -144,6 +145,8 @@ pub struct MpcPrfThresholdCombineInputV1 {
     pub recipient_role: Role,
     /// Recipient identity.
     pub recipient_identity: String,
+    /// Authority-authenticated commitments for Signer A and Signer B.
+    pub commitment_registry: RootShareCommitmentRegistryV1,
     /// First signer proof bundle.
     pub left: MpcPrfPartialProofBundleV1,
     /// Second signer proof bundle.
@@ -155,6 +158,8 @@ pub struct MpcPrfThresholdCombineInputV1 {
 pub struct MpcPrfThresholdBatchCombineInputV1 {
     /// Transcript binding for every output.
     pub transcript: TranscriptBinding,
+    /// Authority-authenticated commitments for Signer A and Signer B.
+    pub commitment_registry: RootShareCommitmentRegistryV1,
     /// First signer batch output.
     pub left: MpcPrfThresholdSignerBatchOutputV1,
     /// Second signer batch output.
@@ -294,7 +299,10 @@ pub fn verify_mpc_prf_partial_with_threshold_backend_v1(
     )?;
     let purpose_plan = plan_mpc_prf_purpose_binding_for_output_v1(&input.transcript, &request)?;
     let context = threshold_context_from_plan_v1(&purpose_plan)?;
-    let backend_bundle = backend_bundle_from_router_bundle_v1(&input.proof_bundle)?;
+    let backend_bundle = backend_bundle_from_router_bundle_v1(
+        &input.proof_bundle,
+        input.authenticated_commitment.commitment_wire(),
+    )?;
     require_backend_share_role(plan.signer_role, backend_bundle.partial.id().get().get())?;
     verify_partial_dleq_proof(
         &backend_bundle.commitment,
@@ -306,7 +314,7 @@ pub fn verify_mpc_prf_partial_with_threshold_backend_v1(
 
     MpcPrfVerifiedPartialV1::from_verified_parts(
         input.proof_bundle.signer_partial,
-        input.proof_bundle.commitment_wire,
+        input.authenticated_commitment.commitment_wire().clone(),
     )
 }
 
@@ -318,11 +326,19 @@ pub fn combine_mpc_prf_proof_bundles_with_threshold_backend_v1(
         verify_mpc_prf_partial_with_threshold_backend_v1(MpcPrfPartialVerificationInputV1 {
             transcript: input.transcript.clone(),
             proof_bundle: input.left.clone(),
+            authenticated_commitment: input
+                .commitment_registry
+                .commitment_for(input.left.signer_partial.binding.signer_role)?
+                .clone(),
         })?;
     let right_verified =
         verify_mpc_prf_partial_with_threshold_backend_v1(MpcPrfPartialVerificationInputV1 {
             transcript: input.transcript.clone(),
             proof_bundle: input.right.clone(),
+            authenticated_commitment: input
+                .commitment_registry
+                .commitment_for(input.right.signer_partial.binding.signer_role)?
+                .clone(),
         })?;
     let plan = plan_mpc_prf_combine_v1(MpcPrfCombinerInputV1 {
         transcript: input.transcript.clone(),
@@ -339,8 +355,20 @@ pub fn combine_mpc_prf_proof_bundles_with_threshold_backend_v1(
     )?;
     let purpose_plan = plan_mpc_prf_purpose_binding_for_output_v1(&input.transcript, &request)?;
     let context = threshold_context_from_plan_v1(&purpose_plan)?;
-    let left_backend = backend_bundle_from_router_bundle_v1(&input.left)?;
-    let right_backend = backend_bundle_from_router_bundle_v1(&input.right)?;
+    let left_backend = backend_bundle_from_router_bundle_v1(
+        &input.left,
+        input
+            .commitment_registry
+            .commitment_for(input.left.signer_partial.binding.signer_role)?
+            .commitment_wire(),
+    )?;
+    let right_backend = backend_bundle_from_router_bundle_v1(
+        &input.right,
+        input
+            .commitment_registry
+            .commitment_for(input.right.signer_partial.binding.signer_role)?
+            .commitment_wire(),
+    )?;
     let policy = fixed_threshold_policy_v1()?;
     let backend_bundles =
         ValidatedThresholdSet::from_proof_bundles(policy, vec![left_backend, right_backend])
@@ -402,6 +430,7 @@ pub fn combine_mpc_prf_batch_outputs_with_threshold_backend_v1(
         outputs.push(combine_mpc_prf_proof_bundles_with_threshold_backend_v1(
             MpcPrfThresholdCombineInputV1 {
                 transcript: input.transcript.clone(),
+                commitment_registry: input.commitment_registry.clone(),
                 opened_share_kind: left_binding.opened_share_kind,
                 recipient_role: left_binding.recipient_role,
                 recipient_identity: left_binding.recipient_identity.clone(),
@@ -424,11 +453,12 @@ pub fn combine_mpc_prf_batch_outputs_with_threshold_backend_v1(
 
 fn backend_bundle_from_router_bundle_v1(
     bundle: &MpcPrfPartialProofBundleV1,
+    authenticated_commitment: &MpcPrfShareCommitmentWireV1,
 ) -> RouterAbDerivationResult<BackendProofBundle> {
     let partial = BackendPartialWire::decode_slice(bundle.signer_partial.partial_wire.as_bytes())
         .and_then(|wire| wire.to_partial())
         .map_err(map_threshold_error)?;
-    let commitment = SigningRootShareCommitment::from_slice(bundle.commitment_wire.as_bytes())
+    let commitment = SigningRootShareCommitment::from_slice(authenticated_commitment.as_bytes())
         .map_err(map_threshold_error)?;
     let proof =
         PrfDleqProof::from_slice(bundle.proof_wire.as_bytes()).map_err(map_threshold_error)?;

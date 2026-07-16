@@ -45,21 +45,21 @@ pub trait CloudflareSigningWorkerNormalSigningFinalizeHandlerV2 {
     ) -> RouterAbProtocolResult<NormalSigningResponseV1>;
 }
 
-/// SigningWorker ECDSA-HSS finalize logic behind the Cloudflare transport wrapper.
-pub trait CloudflareSigningWorkerEcdsaHssEvmDigestFinalizeHandlerV1 {
-    /// Handles one materialized ECDSA-HSS finalize request.
-    fn handle_ecdsa_hss_evm_digest_finalize_request_v1(
+/// SigningWorker Router A/B ECDSA derivation finalize logic behind the Cloudflare transport wrapper.
+pub trait CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1 {
+    /// Handles one materialized Router A/B ECDSA derivation finalize request.
+    fn handle_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1(
         &self,
-        request: CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1,
-    ) -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSigningResponseV1>;
+        request: CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1>;
 }
 
-/// Private SigningWorker request to fill the ECDSA-HSS presignature pool.
+/// Private SigningWorker request to fill the Router A/B ECDSA derivation presignature pool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
+pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
     /// Normal-signing identity and active SigningWorker scope.
-    pub scope: RouterAbEcdsaHssNormalSigningScopeV1,
+    pub scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
     /// Client-selected presignature id shared by the client and SigningWorker.
     pub server_presignature_id: String,
     /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
@@ -72,10 +72,10 @@ pub struct CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
     pub expires_at_ms: u64,
 }
 
-impl CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
-    /// Creates a validated ECDSA-HSS presignature pool-fill request.
+impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
+    /// Creates a validated Router A/B ECDSA derivation presignature pool-fill request.
     pub fn new(
-        scope: RouterAbEcdsaHssNormalSigningScopeV1,
+        scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
         server_presignature_id: impl Into<String>,
         server_big_r33_b64u: impl Into<String>,
         server_k_share32_b64u: impl Into<String>,
@@ -102,7 +102,7 @@ impl CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
         decode_base64url_fixed_32_v1("server_k_share32_b64u", &self.server_k_share32_b64u)?;
         decode_base64url_fixed_32_v1("server_sigma_share32_b64u", &self.server_sigma_share32_b64u)?;
         require_positive_ms(
-            "ECDSA-HSS presignature pool fill expires_at_ms",
+            "Router A/B ECDSA derivation presignature pool fill expires_at_ms",
             self.expires_at_ms,
         )
     }
@@ -110,11 +110,14 @@ impl CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
     /// Validates this pool-fill request can be accepted at the supplied timestamp.
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.validate()?;
-        require_positive_ms("ECDSA-HSS presignature pool fill now_unix_ms", now_unix_ms)?;
+        require_positive_ms(
+            "Router A/B ECDSA derivation presignature pool fill now_unix_ms",
+            now_unix_ms,
+        )?;
         if self.expires_at_ms <= now_unix_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "ECDSA-HSS presignature pool fill request expired",
+                "Router A/B ECDSA derivation presignature pool fill request expired",
             ));
         }
         Ok(())
@@ -128,7 +131,7 @@ impl CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1> {
         self.validate_at(now_unix_ms)?;
         let lookup =
-            CloudflareActiveSigningWorkerStateLookupV1::from_ecdsa_hss_normal_signing_scope(
+            CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(
                 &self.scope,
             )?;
         lookup.validate_active_state(&active_signing_worker)?;
@@ -394,19 +397,19 @@ impl CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2 {
     }
 }
 
-/// Router-admitted ECDSA-HSS normal-signing request sent to SigningWorker.
+/// Router-admitted Router A/B ECDSA derivation normal-signing request sent to SigningWorker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1 {
-    /// Typed public ECDSA-HSS normal-signing request accepted by the Router.
-    pub request: RouterAbEcdsaHssEvmDigestSigningRequestV1,
+pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
+    /// Typed public Router A/B ECDSA derivation normal-signing request accepted by the Router.
+    pub request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
 }
 
-impl CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1 {
-    /// Creates a validated admitted ECDSA-HSS normal-signing service request.
+impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
+    /// Creates a validated admitted Router A/B ECDSA derivation normal-signing service request.
     pub fn new(
-        request: RouterAbEcdsaHssEvmDigestSigningRequestV1,
+        request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
@@ -417,28 +420,30 @@ impl CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1 {
         Ok(request)
     }
 
-    /// Validates Router-admitted ECDSA-HSS normal-signing material.
+    /// Validates Router-admitted Router A/B ECDSA derivation normal-signing material.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
         self.trusted_admission.validate()?;
         if self.trusted_admission.metadata.account_id != self.request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS trusted admission account_id does not match request scope",
+                "Router A/B ECDSA derivation trusted admission account_id does not match request scope",
             ));
         }
         if self.trusted_admission.metadata.auth.session_id()
-            != cloudflare_ecdsa_hss_active_state_session_id_from_scope_v1(&self.request.scope)?
+            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+                &self.request.scope,
+            )?
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS trusted admission session_id does not match request scope",
+                "Router A/B ECDSA derivation trusted admission session_id does not match request scope",
             ));
         }
         if self.trusted_admission.metadata.intent_digest != self.request.request_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS trusted admission digest does not match request",
+                "Router A/B ECDSA derivation trusted admission digest does not match request",
             ));
         }
         if self.trusted_admission.allows_signing_worker_forwarding()? {
@@ -446,24 +451,24 @@ impl CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1 {
         }
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
-            "SigningWorker ECDSA-HSS prepare requires accepted Router admission",
+            "SigningWorker Router A/B ECDSA derivation prepare requires accepted Router admission",
         ))
     }
 }
 
-/// Router-admitted ECDSA-HSS finalize request sent to SigningWorker.
+/// Router-admitted Router A/B ECDSA derivation finalize request sent to SigningWorker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1 {
-    /// Typed public ECDSA-HSS finalize request accepted by the Router.
-    pub request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
+    /// Typed public Router A/B ECDSA derivation finalize request accepted by the Router.
+    pub request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
 }
 
-impl CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1 {
-    /// Creates a validated admitted ECDSA-HSS finalize service request.
+impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
+    /// Creates a validated admitted Router A/B ECDSA derivation finalize service request.
     pub fn new(
-        request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+        request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
@@ -474,28 +479,30 @@ impl CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1 {
         Ok(request)
     }
 
-    /// Validates Router admission accepted this exact ECDSA-HSS finalize body.
+    /// Validates Router admission accepted this exact Router A/B ECDSA derivation finalize body.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
         self.trusted_admission.validate()?;
         if self.trusted_admission.metadata.account_id != self.request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize trusted admission account_id does not match request scope",
+                "Router A/B ECDSA derivation finalize trusted admission account_id does not match request scope",
             ));
         }
         if self.trusted_admission.metadata.auth.session_id()
-            != cloudflare_ecdsa_hss_active_state_session_id_from_scope_v1(&self.request.scope)?
+            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+                &self.request.scope,
+            )?
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize trusted admission session_id does not match request scope",
+                "Router A/B ECDSA derivation finalize trusted admission session_id does not match request scope",
             ));
         }
         if self.trusted_admission.metadata.intent_digest != self.request.request_digest()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA-HSS finalize trusted admission digest does not match request",
+                "Router A/B ECDSA derivation finalize trusted admission digest does not match request",
             ));
         }
         if self.trusted_admission.allows_signing_worker_forwarding()? {
@@ -503,28 +510,28 @@ impl CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1 {
         }
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
-            "SigningWorker ECDSA-HSS finalize requires accepted Router admission",
+            "SigningWorker Router A/B ECDSA derivation finalize requires accepted Router admission",
         ))
     }
 }
 
-/// ECDSA-HSS normal-signing request after active SigningWorker material lookup.
+/// Router A/B ECDSA derivation normal-signing request after active SigningWorker material lookup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1 {
-    /// Router-admitted ECDSA-HSS request.
-    pub request: CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1,
-    /// Active SigningWorker state selected for this ECDSA-HSS identity.
+pub struct CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
+    /// Router-admitted Router A/B ECDSA derivation request.
+    pub request: CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+    /// Active SigningWorker state selected for this Router A/B ECDSA derivation identity.
     pub active_signing_worker: ActiveSigningWorkerStateV1,
-    /// Active ECDSA-HSS material opened during activation.
+    /// Active Router A/B ECDSA derivation material opened during activation.
     pub material: CloudflareServerOutputMaterialRecordV1,
     /// Materialization timestamp in Unix milliseconds.
     pub materialized_at_ms: u64,
 }
 
-impl CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1 {
-    /// Creates a validated materialized ECDSA-HSS normal-signing request.
+impl CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
+    /// Creates a validated materialized Router A/B ECDSA derivation normal-signing request.
     pub fn new(
-        request: CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1,
+        request: CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         active_signing_worker: ActiveSigningWorkerStateV1,
         material: CloudflareServerOutputMaterialRecordV1,
         materialized_at_ms: u64,
@@ -539,15 +546,15 @@ impl CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1 {
         Ok(request)
     }
 
-    /// Validates forwarded ECDSA-HSS request and active material agree.
+    /// Validates forwarded Router A/B ECDSA derivation request and active material agree.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
         self.request.request.validate_at(self.materialized_at_ms)?;
         require_positive_ms(
-            "ECDSA-HSS normal-signing materialized_at_ms",
+            "Router A/B ECDSA derivation normal-signing materialized_at_ms",
             self.materialized_at_ms,
         )?;
-        validate_cloudflare_ecdsa_hss_normal_signing_active_material_v1(
+        validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
             &self.request.request.scope,
             &self.active_signing_worker,
             &self.material,
@@ -555,14 +562,14 @@ impl CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1 {
     }
 }
 
-/// ECDSA-HSS finalize request after active material and one-use presignature lookup.
+/// Router A/B ECDSA derivation finalize request after active material and one-use presignature lookup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1 {
-    /// Router-admitted ECDSA-HSS finalize request.
-    pub request: CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1,
-    /// Active SigningWorker state selected for this ECDSA-HSS identity.
+pub struct CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
+    /// Router-admitted Router A/B ECDSA derivation finalize request.
+    pub request: CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
+    /// Active SigningWorker state selected for this Router A/B ECDSA derivation identity.
     pub active_signing_worker: ActiveSigningWorkerStateV1,
-    /// Active ECDSA-HSS material opened during activation.
+    /// Active Router A/B ECDSA derivation material opened during activation.
     pub material: CloudflareServerOutputMaterialRecordV1,
     /// Exact persisted one-use server presignature state for this finalize request.
     pub server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
@@ -570,10 +577,10 @@ pub struct CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1
     pub signed_at_ms: u64,
 }
 
-impl CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1 {
-    /// Creates a validated materialized ECDSA-HSS finalize request.
+impl CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
+    /// Creates a validated materialized Router A/B ECDSA derivation finalize request.
     pub fn new(
-        request: CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1,
+        request: CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
         active_signing_worker: ActiveSigningWorkerStateV1,
         material: CloudflareServerOutputMaterialRecordV1,
         server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
@@ -594,8 +601,11 @@ impl CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
         self.request.request.validate_at(self.signed_at_ms)?;
-        require_positive_ms("ECDSA-HSS finalize signed_at_ms", self.signed_at_ms)?;
-        validate_cloudflare_ecdsa_hss_normal_signing_active_material_v1(
+        require_positive_ms(
+            "Router A/B ECDSA derivation finalize signed_at_ms",
+            self.signed_at_ms,
+        )?;
+        validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
             &self.request.request.scope,
             &self.active_signing_worker,
             &self.material,
@@ -613,52 +623,56 @@ impl CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1 {
     /// Returns the prepare request identity that the final signature response must bind.
     pub fn prepare_request(
         &self,
-    ) -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSigningRequestV1> {
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningRequestV1> {
         self.validate()?;
         self.request.request.prepare_request()
     }
 }
 
-/// Materializes and handles one Router-admitted ECDSA-HSS finalize request.
-pub fn handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_private_request_v1<Handler>(
+/// Materializes and handles one Router-admitted Router A/B ECDSA derivation finalize request.
+pub fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_request_v1<
+    Handler,
+>(
     handler: &Handler,
     now_unix_ms: u64,
-    request: CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1,
+    request: CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
     active_signing_worker: ActiveSigningWorkerStateV1,
     material: CloudflareServerOutputMaterialRecordV1,
     server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
-) -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSigningResponseV1>
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1>
 where
-    Handler: CloudflareSigningWorkerEcdsaHssEvmDigestFinalizeHandlerV1,
+    Handler: CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
 {
-    let materialized = CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1::new(
-        request,
-        active_signing_worker,
-        material,
-        server_presignature,
-        now_unix_ms,
-    )?;
+    let materialized =
+        CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new(
+            request,
+            active_signing_worker,
+            material,
+            server_presignature,
+            now_unix_ms,
+        )?;
     let prepare_request = materialized.prepare_request()?;
-    let response = handler.handle_ecdsa_hss_evm_digest_finalize_request_v1(materialized)?;
+    let response =
+        handler.handle_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1(materialized)?;
     response.validate_for_request(&prepare_request)?;
     Ok(response)
 }
 
-/// SigningWorker-produced ECDSA-HSS presignature record plus public prepare response.
+/// SigningWorker-produced Router A/B ECDSA derivation presignature record plus public prepare response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1 {
+pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
     /// Public response returned to the client through Router.
-    pub response: RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1,
+    pub response: RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     /// Private presignature record persisted by the SigningWorker Durable Object.
     pub record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
 }
 
-impl CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1 {
-    /// Creates a validated ECDSA-HSS prepared bundle.
+impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
+    /// Creates a validated Router A/B ECDSA derivation prepared bundle.
     pub fn new(
-        response: RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1,
+        response: RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
         record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
-        request: &CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1,
+        request: &CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     ) -> RouterAbProtocolResult<Self> {
         let prepared = Self { response, record };
         prepared.validate_for_request(request)?;
@@ -668,7 +682,7 @@ impl CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1 {
     /// Validates the public response and private record bind to a materialized request.
     pub fn validate_for_request(
         &self,
-        request: &CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1,
+        request: &CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     ) -> RouterAbProtocolResult<()> {
         request.validate()?;
         self.response
@@ -692,7 +706,7 @@ impl CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1 {
         }
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker ECDSA-HSS prepared record does not match response",
+            "SigningWorker Router A/B ECDSA derivation prepared record does not match response",
         ))
     }
 
@@ -713,17 +727,17 @@ impl CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1 {
         }
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker ECDSA-HSS presignature receipt does not match prepare response",
+            "SigningWorker Router A/B ECDSA derivation presignature receipt does not match prepare response",
         ))
     }
 }
 
-/// Builds a production ECDSA-HSS prepare bundle from a reserved unbound presignature.
-pub fn prepare_cloudflare_role_separated_ecdsa_hss_evm_digest_from_pool_record_v1(
-    request: CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestSigningRequestV1,
+/// Builds a production Router A/B ECDSA derivation prepare bundle from a reserved unbound presignature.
+pub fn prepare_cloudflare_role_separated_router_ab_ecdsa_derivation_evm_digest_from_pool_record_v1(
+    request: CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     pool_record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
     rerandomization_entropy32_b64u: impl Into<String>,
-) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1> {
     request.validate()?;
     let pool_lookup = CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1::new(
         request.active_signing_worker.clone(),
@@ -732,7 +746,7 @@ pub fn prepare_cloudflare_role_separated_ecdsa_hss_evm_digest_from_pool_record_v
     )?;
     pool_record.validate_for_lookup(&pool_lookup)?;
     let rerandomization_entropy32_b64u = rerandomization_entropy32_b64u.into();
-    let response = RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1::new_for_request(
+    let response = RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1::new_for_request(
         &request.request.request,
         pool_record.server_presignature_id.clone(),
         pool_record.server_big_r33_b64u.clone(),
@@ -746,7 +760,9 @@ pub fn prepare_cloudflare_role_separated_ecdsa_hss_evm_digest_from_pool_record_v
         request.materialized_at_ms,
         request.request.request.expires_at_ms,
     )?;
-    CloudflareSigningWorkerEcdsaHssEvmDigestPreparedV1::new(response, record, &request)
+    CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1::new(
+        response, record, &request,
+    )
 }
 
 /// SigningWorker-produced round-1 record plus public prepare response.
@@ -964,44 +980,44 @@ impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2
     }
 }
 
-/// Production SigningWorker finalize handler for ECDSA-HSS EVM digest signing.
+/// Production SigningWorker finalize handler for Router A/B ECDSA derivation EVM digest signing.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CloudflareRoleSeparatedEcdsaHssEvmDigestFinalizeHandlerV1;
+pub struct CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1;
 
-impl CloudflareSigningWorkerEcdsaHssEvmDigestFinalizeHandlerV1
-    for CloudflareRoleSeparatedEcdsaHssEvmDigestFinalizeHandlerV1
+impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
+    for CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
 {
-    fn handle_ecdsa_hss_evm_digest_finalize_request_v1(
+    fn handle_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1(
         &self,
-        request: CloudflareSigningWorkerMaterializedEcdsaHssEvmDigestFinalizeRequestV1,
-    ) -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSigningResponseV1> {
+        request: CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1> {
         request.validate()?;
         let prepare_request = request.prepare_request()?;
         let public_key33 = decode_base64url_fixed_33_v1(
-            "ECDSA-HSS threshold_public_key33_b64u",
+            "Router A/B ECDSA derivation threshold_public_key33_b64u",
             &prepare_request
                 .scope
                 .public_identity
                 .threshold_public_key33_b64u,
         )?;
         let server_big_r33 = decode_base64url_fixed_33_v1(
-            "ECDSA-HSS server_big_r33_b64u",
+            "Router A/B ECDSA derivation server_big_r33_b64u",
             &request.server_presignature.server_big_r33_b64u,
         )?;
         let server_k_share32 = decode_base64url_fixed_32_v1(
-            "ECDSA-HSS server_k_share32_b64u",
+            "Router A/B ECDSA derivation server_k_share32_b64u",
             &request.server_presignature.server_k_share32_b64u,
         )?;
         let server_sigma_share32 = decode_base64url_fixed_32_v1(
-            "ECDSA-HSS server_sigma_share32_b64u",
+            "Router A/B ECDSA derivation server_sigma_share32_b64u",
             &request.server_presignature.server_sigma_share32_b64u,
         )?;
         let rerandomization_entropy32 = decode_base64url_fixed_32_v1(
-            "ECDSA-HSS rerandomization_entropy32_b64u",
+            "Router A/B ECDSA derivation rerandomization_entropy32_b64u",
             &request.server_presignature.rerandomization_entropy32_b64u,
         )?;
         let client_signature_share32 = request.request.request.client_signature_share32()?;
-        let participant_ids = ECDSA_HSS_PARTICIPANT_IDS.map(u32::from);
+        let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
         let signature65 = threshold_ecdsa_finalize_signature(
             &participant_ids,
             2,
@@ -1017,7 +1033,7 @@ impl CloudflareSigningWorkerEcdsaHssEvmDigestFinalizeHandlerV1
             &client_signature_share32,
         )
         .map_err(map_cloudflare_signer_core_ecdsa_error_v1)?;
-        RouterAbEcdsaHssEvmDigestSigningResponseV1::new_for_request(
+        RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
             &prepare_request,
             encode_base64url_bytes_v1(&signature65),
         )
@@ -1117,6 +1133,9 @@ fn map_cloudflare_signer_core_ecdsa_error_v1(err: SignerCoreError) -> RouterAbPr
     };
     RouterAbProtocolError::new(
         code,
-        format!("ECDSA-HSS normal signing finalize failed: {}", err.message),
+        format!(
+            "Router A/B ECDSA derivation normal signing finalize failed: {}",
+            err.message
+        ),
     )
 }

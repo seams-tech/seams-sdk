@@ -1,3 +1,6 @@
+#[path = "support/ecdsa_commitment.rs"]
+mod ecdsa_commitment;
+
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use router_ab_core::{
@@ -10,8 +13,9 @@ use router_ab_core::{
     MpcPrfPartialVerificationInputV1, MpcPrfSignerPartialInputV1, MpcPrfSigningRootShareWireV1,
     MpcPrfThresholdBatchCombineInputV1, MpcPrfThresholdCombineInputV1,
     MpcPrfThresholdSignerBatchInputV1, MpcPrfThresholdSignerBatchOutputV1,
-    MpcPrfThresholdSignerInputV1, OpenedShareKind, RequestKind, Role, RootShareEpoch,
-    RouterAbDerivationErrorCode, SignerSetBinding, TranscriptBinding,
+    MpcPrfThresholdSignerInputV1, OpenedShareKind, RequestKind, Role,
+    RootShareCommitmentRegistryV1, RootShareEpoch, RouterAbDerivationErrorCode, SignerSetBinding,
+    TranscriptBinding,
 };
 use threshold_prf::reference::evaluate_direct_reference;
 use threshold_prf::{
@@ -152,6 +156,18 @@ fn client_bundles() -> (
     (signer_a.transcript, bundle_a, bundle_b)
 }
 
+fn commitment_registry(
+    transcript: &TranscriptBinding,
+    signer_a_bundle: &MpcPrfPartialProofBundleV1,
+    signer_b_bundle: &MpcPrfPartialProofBundleV1,
+) -> RootShareCommitmentRegistryV1 {
+    ecdsa_commitment::authenticated_registry(
+        transcript,
+        &signer_a_bundle.commitment_wire,
+        &signer_b_bundle.commitment_wire,
+    )
+}
+
 fn batch_bundle_for_kind(
     output: &MpcPrfThresholdSignerBatchOutputV1,
     opened_share_kind: OpenedShareKind,
@@ -223,11 +239,16 @@ fn threshold_backend_evaluates_verifies_and_combines_client_output() {
         &mut seeded_rng(11),
     )
     .expect("signer B bundle");
+    let registry = commitment_registry(&signer_a.transcript, &bundle_a, &bundle_b);
 
     let verified_a =
         verify_mpc_prf_partial_with_threshold_backend_v1(MpcPrfPartialVerificationInputV1 {
             transcript: signer_a.transcript.clone(),
             proof_bundle: bundle_a.clone(),
+            authenticated_commitment: registry
+                .commitment_for(Role::SignerA)
+                .expect("Signer A commitment")
+                .clone(),
         })
         .expect("verified A");
     assert_eq!(verified_a.signer_partial.binding.signer_role, Role::SignerA);
@@ -235,6 +256,7 @@ fn threshold_backend_evaluates_verifies_and_combines_client_output() {
     let combined =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript.clone(),
+            commitment_registry: registry,
             opened_share_kind: OpenedShareKind::XClientBase,
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-c".to_owned(),
@@ -311,10 +333,12 @@ fn threshold_backend_separates_client_and_server_outputs() {
         &mut seeded_rng(15),
     )
     .expect("server B");
+    let registry = commitment_registry(&signer_a.transcript, &client_a, &client_b);
 
     let client =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript.clone(),
+            commitment_registry: registry.clone(),
             opened_share_kind: OpenedShareKind::XClientBase,
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-c".to_owned(),
@@ -325,6 +349,7 @@ fn threshold_backend_separates_client_and_server_outputs() {
     let server =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
+            commitment_registry: registry,
             opened_share_kind: OpenedShareKind::XServerBase,
             recipient_role: Role::Server,
             recipient_identity: "role:server:local:sha256-r".to_owned(),
@@ -384,10 +409,16 @@ fn threshold_backend_batch_evaluates_all_requested_outputs() {
             .opened_share_kind,
         OpenedShareKind::XServerBase
     );
+    let registry = commitment_registry(
+        &signer_a.transcript,
+        &batch_a.proof_bundles[0],
+        &batch_b.proof_bundles[0],
+    );
 
     let client =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript.clone(),
+            commitment_registry: registry.clone(),
             opened_share_kind: OpenedShareKind::XClientBase,
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-c".to_owned(),
@@ -398,6 +429,7 @@ fn threshold_backend_batch_evaluates_all_requested_outputs() {
     let server =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
+            commitment_registry: registry,
             opened_share_kind: OpenedShareKind::XServerBase,
             recipient_role: Role::Server,
             recipient_identity: "role:server:local:sha256-r".to_owned(),
@@ -439,10 +471,16 @@ fn threshold_backend_batch_combines_all_matching_outputs() {
         &mut seeded_rng(20),
     )
     .expect("signer B batch");
+    let registry = commitment_registry(
+        &signer_a.transcript,
+        &batch_a.proof_bundles[0],
+        &batch_b.proof_bundles[0],
+    );
 
     let combined = combine_mpc_prf_batch_outputs_with_threshold_backend_v1(
         MpcPrfThresholdBatchCombineInputV1 {
             transcript: signer_a.transcript,
+            commitment_registry: registry,
             left: batch_a,
             right: batch_b,
         },
@@ -495,10 +533,16 @@ fn threshold_backend_batch_combine_rejects_missing_peer_output() {
         &mut seeded_rng(22),
     )
     .expect("signer B batch");
+    let registry = commitment_registry(
+        &signer_a.transcript,
+        &batch_a.proof_bundles[0],
+        &batch_b.proof_bundles[0],
+    );
 
     let err = combine_mpc_prf_batch_outputs_with_threshold_backend_v1(
         MpcPrfThresholdBatchCombineInputV1 {
             transcript: signer_a.transcript,
+            commitment_registry: registry,
             left: batch_a,
             right: batch_b,
         },
@@ -637,7 +681,7 @@ fn threshold_backend_rejects_transcript_mismatch() {
         "role:signer-a:local:sha256-a",
         vec![request.clone()],
     );
-    let [share_a, _share_b] = share_wires();
+    let [share_a, share_b] = share_wires();
     let bundle = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
         MpcPrfThresholdSignerInputV1 {
             signer_input: signer_a.clone(),
@@ -647,7 +691,21 @@ fn threshold_backend_rejects_transcript_mismatch() {
         &mut seeded_rng(22),
     )
     .expect("bundle");
+    let peer_bundle = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
+        MpcPrfThresholdSignerInputV1 {
+            signer_input: signer_input(
+                Role::SignerB,
+                "role:signer-b:local:sha256-b",
+                vec![output_request(OpenedShareKind::XClientBase)],
+            ),
+            output_request: output_request(OpenedShareKind::XClientBase),
+            signing_root_share_wire: share_b,
+        },
+        &mut seeded_rng(23),
+    )
+    .expect("peer bundle");
     let original_transcript = signer_a.transcript;
+    let registry = commitment_registry(&original_transcript, &bundle, &peer_bundle);
     let mismatched_transcript = router_ab_core::TranscriptBinding::new(
         original_transcript.context().clone(),
         "role:router:local:sha256-other",
@@ -662,6 +720,10 @@ fn threshold_backend_rejects_transcript_mismatch() {
     let err = verify_mpc_prf_partial_with_threshold_backend_v1(MpcPrfPartialVerificationInputV1 {
         transcript: mismatched_transcript,
         proof_bundle: bundle,
+        authenticated_commitment: registry
+            .commitment_for(Role::SignerA)
+            .expect("Signer A commitment")
+            .clone(),
     })
     .expect_err("transcript mismatch should fail");
 
@@ -690,6 +752,22 @@ fn threshold_backend_rejects_bad_dleq_proof() {
         &mut seeded_rng(17),
     )
     .expect("bundle");
+    let peer_bundle = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
+        MpcPrfThresholdSignerInputV1 {
+            signer_input: signer_input(
+                Role::SignerB,
+                "role:signer-b:local:sha256-b",
+                vec![output_request(OpenedShareKind::XClientBase)],
+            ),
+            output_request: output_request(OpenedShareKind::XClientBase),
+            signing_root_share_wire: share_wire(
+                SigningRootShareWire::from_share(&shares[1]).to_bytes(),
+            ),
+        },
+        &mut seeded_rng(18),
+    )
+    .expect("peer bundle");
+    let registry = commitment_registry(&signer_a.transcript, &bundle, &peer_bundle);
     bundle = MpcPrfPartialProofBundleV1::new(
         bundle.signer_partial,
         bundle.commitment_wire,
@@ -700,6 +778,10 @@ fn threshold_backend_rejects_bad_dleq_proof() {
     let err = verify_mpc_prf_partial_with_threshold_backend_v1(MpcPrfPartialVerificationInputV1 {
         transcript: signer_a.transcript,
         proof_bundle: bundle,
+        authenticated_commitment: registry
+            .commitment_for(Role::SignerA)
+            .expect("Signer A commitment")
+            .clone(),
     })
     .expect_err("bad proof should fail");
 
@@ -710,6 +792,33 @@ fn threshold_backend_rejects_bad_dleq_proof() {
 }
 
 #[test]
+fn threshold_backend_rejects_deriver_substituted_commitment_before_dleq() {
+    let (transcript, bundle_a, bundle_b) = client_bundles();
+    let registry = commitment_registry(&transcript, &bundle_a, &bundle_b);
+    let mut substituted_commitment = vec![0u8; router_ab_core::MPC_PRF_COMMITMENT_WIRE_V1_LEN];
+    substituted_commitment[..2].copy_from_slice(&1u16.to_be_bytes());
+    let substituted_bundle = MpcPrfPartialProofBundleV1::new(
+        bundle_a.signer_partial,
+        router_ab_core::MpcPrfShareCommitmentWireV1::new(substituted_commitment)
+            .expect("substituted commitment"),
+        bundle_a.proof_wire,
+    )
+    .expect("substituted bundle");
+
+    let err = verify_mpc_prf_partial_with_threshold_backend_v1(MpcPrfPartialVerificationInputV1 {
+        transcript,
+        proof_bundle: substituted_bundle,
+        authenticated_commitment: registry
+            .commitment_for(Role::SignerA)
+            .expect("Signer A commitment")
+            .clone(),
+    })
+    .expect_err("Deriver-supplied commitment substitution must fail");
+
+    assert_eq!(err.code(), RouterAbDerivationErrorCode::CommitmentMismatch);
+}
+
+#[test]
 fn threshold_backend_rejects_duplicate_signer_role_combine() {
     let request = output_request(OpenedShareKind::XClientBase);
     let signer_a = signer_input(
@@ -717,7 +826,7 @@ fn threshold_backend_rejects_duplicate_signer_role_combine() {
         "role:signer-a:local:sha256-a",
         vec![request.clone()],
     );
-    let [share_a, _share_b] = share_wires();
+    let [share_a, share_b] = share_wires();
     let left = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
         MpcPrfThresholdSignerInputV1 {
             signer_input: signer_a.clone(),
@@ -736,10 +845,25 @@ fn threshold_backend_rejects_duplicate_signer_role_combine() {
         &mut seeded_rng(24),
     )
     .expect("right bundle");
+    let peer = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
+        MpcPrfThresholdSignerInputV1 {
+            signer_input: signer_input(
+                Role::SignerB,
+                "role:signer-b:local:sha256-b",
+                vec![output_request(OpenedShareKind::XClientBase)],
+            ),
+            output_request: output_request(OpenedShareKind::XClientBase),
+            signing_root_share_wire: share_b,
+        },
+        &mut seeded_rng(25),
+    )
+    .expect("peer bundle");
+    let registry = commitment_registry(&signer_a.transcript, &left, &peer);
 
     let err =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
+            commitment_registry: registry,
             opened_share_kind: OpenedShareKind::XClientBase,
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-c".to_owned(),
@@ -757,10 +881,12 @@ fn threshold_backend_rejects_duplicate_signer_role_combine() {
 #[test]
 fn threshold_backend_rejects_wrong_recipient_combine() {
     let (transcript, left, right) = client_bundles();
+    let registry = commitment_registry(&transcript, &left, &right);
 
     let err =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript,
+            commitment_registry: registry,
             opened_share_kind: OpenedShareKind::XClientBase,
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-wrong".to_owned(),
@@ -808,10 +934,12 @@ fn threshold_backend_rejects_wrong_purpose_combine() {
         &mut seeded_rng(19),
     )
     .expect("server B");
+    let registry = commitment_registry(&signer_a.transcript, &client_a, &server_b);
 
     let err =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
+            commitment_registry: registry,
             opened_share_kind: OpenedShareKind::XClientBase,
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-c".to_owned(),

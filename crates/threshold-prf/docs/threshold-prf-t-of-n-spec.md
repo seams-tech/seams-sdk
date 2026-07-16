@@ -7,8 +7,8 @@ Last updated: June 13, 2026
 This document specifies the active configurable `t-of-N` threshold-prf API for
 [crates/threshold-prf](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf).
 
-The crate derives project-scoped server HSS and Router/A/B input bytes from
-threshold signing-root shares. HSS crates consume the resulting 32-byte values
+The crate derives project-scoped server Router A/B ECDSA derivation and Router/A/B input bytes from
+threshold signing-root shares. Router A/B ECDSA derivation crates consume the resulting 32-byte values
 after threshold-prf derivation. Storage, KMS, HSM, TEE, database behavior,
 policy evaluation, and route authorization are owned by integration layers.
 
@@ -95,7 +95,7 @@ is reserved for local authenticated partials, such as one-runtime derivation.
 
 Current fixed production purposes:
 
-- `ecdsa-hss/y_server`
+- `router-ab-ecdsa-derivation/y-server/v1`
 - `router-ab/x_client_base/v1`
 - `router-ab/x_server_base/v1`
 
@@ -118,8 +118,8 @@ u32be(len(payload)) || payload
 ```
 
 `context_bytes` must already be a canonical, collision-resistant encoding of
-the HSS request or Router/A/B transcript. Production integrations should use
-frozen HSS or Router/A/B context encoders rather than ad hoc strings.
+the Router A/B ECDSA derivation request or Router/A/B transcript. Production integrations should use
+frozen Router A/B ECDSA derivation or Router/A/B context encoders rather than ad hoc strings.
 
 ## Wire Formats
 
@@ -324,7 +324,7 @@ policy and wire types before calling core Rust logic.
 
 Current exported boundary groups:
 
-- ECDSA HSS `y_server`
+- Router A/B ECDSA derivation `y_server`
 - verified partial combine
 
 ## Fixtures And Verification

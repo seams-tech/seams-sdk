@@ -1,6 +1,6 @@
 # Threshold PRF
 
-Prototype crate for deriving project-scoped server HSS inputs from random
+Prototype crate for deriving project-scoped server Router A/B ECDSA derivation inputs from random
 signing-root shares.
 
 The crate is intentionally narrow:
@@ -39,8 +39,8 @@ let root = generate_signing_root(&mut rng);
 let shares = split_signing_root(&root, policy, &mut rng)?;
 let context = PrfContext::new(
     SuiteId::Ristretto255Sha512,
-    PrfPurpose::EcdsaHssYServer,
-    b"canonical-hss-context".to_vec(),
+    PrfPurpose::RouterAbEcdsaDerivationYServer,
+    b"canonical-derivation-context".to_vec(),
 );
 
 let partials = vec![
@@ -61,7 +61,7 @@ Current status:
 
 - prototype Rust implementation exists
 - formal verification has a Verus abstract threshold-policy model
-- the ECDSA-HSS integration context and generic canonical Ed25519 scalar output
+- the Router A/B ECDSA derivation integration context and generic canonical Ed25519 scalar output
   encoding are frozen
 - committed JSON vectors exist for configurable coverage
 - DLEQ partial-authenticity proof generation and verification exists

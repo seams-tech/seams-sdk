@@ -4,7 +4,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use router_ab_core::{
     ActiveSigningWorkerStateV1, EcdsaThresholdPrfRequestV1, ExpensiveWorkKindV1, LifecycleScopeV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1, PublicDigest32, Role,
-    RootShareEpoch, RouterAbEcdsaHssNormalSigningScopeV1,
+    RootShareEpoch, RouterAbEcdsaDerivationNormalSigningScopeV1,
 };
 use router_ab_core::{
     RouterAbLifecycleStateV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
@@ -375,9 +375,9 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     SigningWorkerRound1Take,
     /// Remove expired SigningWorker round-1 nonce records.
     SigningWorkerRound1CleanupExpired,
-    /// Store one SigningWorker ECDSA presignature record for ECDSA-HSS signing.
+    /// Store one SigningWorker ECDSA presignature record for Router A/B ECDSA derivation signing.
     SigningWorkerEcdsaPresignaturePut,
-    /// Take one SigningWorker ECDSA presignature record for ECDSA-HSS signing.
+    /// Take one SigningWorker ECDSA presignature record for Router A/B ECDSA derivation signing.
     SigningWorkerEcdsaPresignatureTake,
     /// Remove expired SigningWorker ECDSA presignature records.
     SigningWorkerEcdsaPresignatureCleanupExpired,
@@ -683,9 +683,9 @@ impl CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
 pub enum CloudflareRouterWalletBudgetCurveV1 {
     /// NEAR/Ed25519 normal signing.
     Ed25519,
-    /// ECDSA-HSS EVM-family normal signing.
+    /// Router A/B ECDSA derivation EVM-family normal signing.
     #[serde(rename = "ecdsa")]
-    EcdsaHss,
+    RouterAbEcdsaDerivation,
 }
 
 /// Signer binding authorized by one Wallet Session budget grant.
@@ -2684,9 +2684,9 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         )
     }
 
-    /// Creates a lookup from an ECDSA-HSS normal-signing scope.
-    pub fn from_ecdsa_hss_normal_signing_scope(
-        scope: &RouterAbEcdsaHssNormalSigningScopeV1,
+    /// Creates a lookup from a Router A/B ECDSA derivation normal-signing scope.
+    pub fn from_router_ab_ecdsa_derivation_normal_signing_scope(
+        scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
     ) -> RouterAbProtocolResult<Self> {
         scope.validate()?;
         Self::new(
@@ -3055,14 +3055,14 @@ impl CloudflareSigningWorkerRound1PutReceiptV1 {
     }
 }
 
-/// Stored SigningWorker ECDSA presignature material for one ECDSA-HSS signing request.
+/// Stored SigningWorker ECDSA presignature material for one Router A/B ECDSA derivation signing request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerEcdsaPresignatureRecordV1 {
     /// Active SigningWorker descriptor that owns this presignature.
     pub active_signing_worker_state: ActiveSigningWorkerStateV1,
     /// SigningWorker-local presignature id returned by the signer backend.
     pub server_presignature_id: String,
-    /// Canonical Router-admitted ECDSA-HSS signing request digest.
+    /// Canonical Router-admitted Router A/B ECDSA derivation signing request digest.
     pub request_digest: PublicDigest32,
     /// Router-admitted 32-byte EVM digest this presignature may sign.
     pub admitted_signing_digest: PublicDigest32,
@@ -3181,7 +3181,7 @@ pub struct CloudflareSigningWorkerEcdsaPresignatureLookupV1 {
     pub active_signing_worker_state: ActiveSigningWorkerStateV1,
     /// SigningWorker-local presignature id returned by the signer backend.
     pub server_presignature_id: String,
-    /// Expected canonical Router-admitted ECDSA-HSS signing request digest.
+    /// Expected canonical Router-admitted Router A/B ECDSA derivation signing request digest.
     pub request_digest: PublicDigest32,
     /// Expected Router-admitted 32-byte EVM digest.
     pub admitted_signing_digest: PublicDigest32,
@@ -3227,7 +3227,7 @@ pub struct CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1 {
     pub active_signing_worker_state: ActiveSigningWorkerStateV1,
     /// SigningWorker-local presignature id returned by the signer backend.
     pub server_presignature_id: String,
-    /// Canonical Router-admitted ECDSA-HSS signing request digest.
+    /// Canonical Router-admitted Router A/B ECDSA derivation signing request digest.
     pub request_digest: PublicDigest32,
     /// Router-admitted 32-byte EVM digest this presignature may sign.
     pub admitted_signing_digest: PublicDigest32,

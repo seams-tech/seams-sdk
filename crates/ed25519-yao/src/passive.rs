@@ -7,6 +7,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod ot;
 mod packages;
+#[cfg(test)]
+mod parser_fuzz_tests;
 mod phase4;
 #[cfg(feature = "passive-benchmark")]
 pub mod phase5_benchmark;
@@ -39,7 +41,7 @@ const AND_GATE_BYTES: usize = 2 * LABEL_BYTES;
 const FIXED_AES_KEY: [u8; LABEL_BYTES] = [0_u8; LABEL_BYTES];
 const GF128_REDUCTION: u8 = 0x87;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub(crate) struct WireValue(u8);
 
@@ -56,7 +58,7 @@ impl WireValue {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct ChoiceBit(u8);
 
 impl From<WireValue> for ChoiceBit {
@@ -514,10 +516,77 @@ impl Evaluator {
 #[cfg(test)]
 mod tests {
     use core::mem::size_of;
+    use std::hint::black_box;
+    use std::time::Instant;
 
     use super::*;
 
     const WIRE_VALUES: [WireValue; 2] = [WireValue::ZERO, WireValue::ONE];
+    const TIMING_SAMPLE_COUNT: usize = 4_096;
+    const TIMING_BATCH_SIZE: usize = 512;
+
+    #[derive(Clone, Copy)]
+    struct TimingMoments {
+        mean: f64,
+        variance: f64,
+    }
+
+    fn timing_moments(samples: &[f64]) -> TimingMoments {
+        let count = samples.len() as f64;
+        let mean = samples.iter().sum::<f64>() / count;
+        let squared_deviation = samples
+            .iter()
+            .map(|sample| {
+                let deviation = sample - mean;
+                deviation * deviation
+            })
+            .sum::<f64>();
+        TimingMoments {
+            mean,
+            variance: squared_deviation / (count - 1.0),
+        }
+    }
+
+    fn welch_t_statistic(left: &[f64], right: &[f64]) -> f64 {
+        let left_moments = timing_moments(left);
+        let right_moments = timing_moments(right);
+        let denominator = (left_moments.variance / left.len() as f64
+            + right_moments.variance / right.len() as f64)
+            .sqrt();
+        if denominator == 0.0 {
+            0.0
+        } else {
+            (left_moments.mean - right_moments.mean) / denominator
+        }
+    }
+
+    fn measure_conditional_xor_batch(choice: ChoiceBit) -> f64 {
+        let other = WireLabel::from_test_bytes([0xa5; LABEL_BYTES]);
+        let started_at = Instant::now();
+        let mut accumulator = 0_u8;
+        for iteration in 0..TIMING_BATCH_SIZE {
+            let mut target = WireLabel::from_test_bytes([(iteration & 0xff) as u8; LABEL_BYTES]);
+            target.conditional_xor(black_box(&other), black_box(choice));
+            accumulator ^= target.test_bytes()[iteration % LABEL_BYTES];
+        }
+        black_box(accumulator);
+        started_at.elapsed().as_nanos() as f64
+    }
+
+    fn collect_conditional_xor_timing_samples() -> (Vec<f64>, Vec<f64>) {
+        let mut zero_samples = Vec::with_capacity(TIMING_SAMPLE_COUNT);
+        let mut one_samples = Vec::with_capacity(TIMING_SAMPLE_COUNT);
+        for sample_index in 0..TIMING_SAMPLE_COUNT {
+            if sample_index & 1 == 0 {
+                zero_samples.push(measure_conditional_xor_batch(ChoiceBit(0)));
+                one_samples.push(measure_conditional_xor_batch(ChoiceBit(1)));
+            } else {
+                one_samples.push(measure_conditional_xor_batch(ChoiceBit(1)));
+                zero_samples.push(measure_conditional_xor_batch(ChoiceBit(0)));
+            }
+        }
+        (zero_samples, one_samples)
+    }
 
     fn wire_value(bit: u8) -> WireValue {
         if bit == 0 {
@@ -567,6 +636,22 @@ mod tests {
 
         let random = GarblerWire::random_batch(1).expect("OS randomness");
         assert_eq!(random[0].zero.test_bytes().len(), LABEL_BYTES);
+    }
+
+    #[test]
+    #[ignore = "bounded local statistical timing assurance"]
+    fn conditional_xor_choice_has_no_large_timing_class_separation() {
+        for _ in 0..1_024 {
+            black_box(measure_conditional_xor_batch(ChoiceBit(0)));
+            black_box(measure_conditional_xor_batch(ChoiceBit(1)));
+        }
+        let (zero_samples, one_samples) = collect_conditional_xor_timing_samples();
+        let t_statistic = welch_t_statistic(&zero_samples, &one_samples);
+        println!("conditional_xor Welch t-statistic: {t_statistic:.3}");
+        assert!(
+            t_statistic.is_finite() && t_statistic.abs() < 10.0,
+            "conditional_xor timing classes separated with Welch t={t_statistic:.3}"
+        );
     }
 
     #[test]

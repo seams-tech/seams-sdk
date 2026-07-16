@@ -128,11 +128,12 @@ fn router_ab_dev_local_dev_http_source() -> String {
         .expect("router-ab-dev local dev HTTP source should be readable")
 }
 
-fn router_ab_dev_local_ecdsa_hss_pool_store_source() -> String {
+fn router_ab_dev_local_router_ab_ecdsa_derivation_pool_store_source() -> String {
     fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/local_ecdsa_hss_pool_store.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/local_router_ab_ecdsa_derivation_pool_store.rs"),
     )
-    .expect("router-ab-dev local ECDSA-HSS pool store source should be readable")
+    .expect("router-ab-dev local Router A/B ECDSA derivation pool store source should be readable")
 }
 
 fn router_ab_dev_local_worker_topology_source() -> String {
@@ -201,9 +202,9 @@ fn local_worker_bins_delegate_to_shared_route_dispatcher() {
         );
         for forbidden in [
             "LOCAL_ROUTER_NORMAL_SIGNING",
-            "LOCAL_ROUTER_ECDSA_HSS",
+            "LOCAL_ROUTER_AB_ECDSA_DERIVATION",
             "LOCAL_SIGNING_WORKER_NORMAL_SIGNING",
-            "LOCAL_SIGNING_WORKER_ECDSA_HSS",
+            "LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION",
             "match request.path",
             "if request.path",
         ] {
@@ -257,17 +258,17 @@ fn local_worker_topology_helpers_live_outside_monolith() {
 }
 
 #[test]
-fn local_ecdsa_hss_pool_lifecycle_store_lives_outside_monolith() {
+fn local_router_ab_ecdsa_derivation_pool_lifecycle_store_lives_outside_monolith() {
     let lib_source = router_ab_dev_source();
-    let helper_source = router_ab_dev_local_ecdsa_hss_pool_store_source();
+    let helper_source = router_ab_dev_local_router_ab_ecdsa_derivation_pool_store_source();
     for expected in [
-        "enum LocalSigningWorkerEcdsaHssPresignaturePoolLifecycleV1",
-        "pub(crate) fn local_signing_worker_ecdsa_hss_presignature_pool_store_put_v1",
-        "pub(crate) fn local_signing_worker_ecdsa_hss_presignature_pool_store_take_v1",
+        "enum LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolLifecycleV1",
+        "pub(crate) fn local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_put_v1",
+        "pub(crate) fn local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_take_v1",
     ] {
         assert!(
             helper_source.contains(expected),
-            "local ECDSA-HSS pool-store module should own {expected}"
+            "local Router A/B ECDSA derivation pool-store module should own {expected}"
         );
         assert!(
             !lib_source.contains(expected),

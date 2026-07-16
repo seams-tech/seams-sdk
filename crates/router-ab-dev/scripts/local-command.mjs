@@ -1,8 +1,11 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const manifestPath = 'crates/router-ab-dev/Cargo.toml';
+const commitmentPolicyBuildEnvPath = `${repoRoot}/.env.router-ab.ecdsa-commitment-policy.build.local`;
 const [command, ...rawArgs] = process.argv.slice(2);
 const args = rawArgs[0] === '--' ? rawArgs.slice(1) : rawArgs;
 
@@ -55,7 +58,17 @@ function cargoBuild(...bins) {
     '--manifest-path',
     manifestPath,
     ...bins.flatMap((bin) => ['--bin', bin]),
-  ]);
+  ], commitmentPolicyBuildEnvironment());
+}
+
+function commitmentPolicyBuildEnvironment() {
+  if (!existsSync(commitmentPolicyBuildEnvPath)) {
+    throw new Error(`missing signed commitment policy build pins: ${commitmentPolicyBuildEnvPath}`);
+  }
+  return {
+    ...process.env,
+    ...dotenv.parse(readFileSync(commitmentPolicyBuildEnvPath)),
+  };
 }
 
 function runYaoSmoke(testName, exact) {
@@ -81,11 +94,11 @@ function cargoRunWithManifest(manifest, bin, binArgs) {
   run('cargo', ['run', '--manifest-path', manifest, '--bin', bin, '--', ...binArgs]);
 }
 
-function run(commandName, commandArgs) {
+function run(commandName, commandArgs, env = process.env) {
   const child = spawnSync(commandName, commandArgs, {
     cwd: repoRoot,
     stdio: 'inherit',
-    env: process.env,
+    env,
   });
   if (child.status !== 0) {
     process.exit(child.status ?? 1);

@@ -20,14 +20,14 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             )
             .await
         }
-        CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH => {
-            handle_cloudflare_ecdsa_hss_signing_worker_activation_fetch_v1(
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH => {
+            handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1(
                 request, &env, &runtime,
             )
             .await
         }
-        CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_REFRESH_PATH => {
-            handle_cloudflare_ecdsa_hss_signing_worker_activation_refresh_fetch_v1(
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH => {
+            handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_fetch_v1(
                 request, &env, &runtime,
             )
             .await
@@ -62,12 +62,12 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             )
             .await
         }
-        CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH => {
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH => {
             let now_unix_ms = match cloudflare_now_unix_ms_v1() {
                 Ok(now_unix_ms) => now_unix_ms,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-            handle_cloudflare_signing_worker_ecdsa_hss_presignature_pool_put_private_fetch_v1(
+            handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1(
                 request,
                 &env,
                 &runtime,
@@ -75,12 +75,12 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             )
             .await
         }
-        CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH => {
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH => {
             let now_unix_ms = match cloudflare_now_unix_ms_v1() {
                 Ok(now_unix_ms) => now_unix_ms,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-            handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_private_fetch_from_pool_v1(
+            handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_private_fetch_from_pool_v1(
                 request,
                 &env,
                 &runtime,
@@ -88,13 +88,13 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             )
             .await
         }
-        CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH => {
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH => {
             let now_unix_ms = match cloudflare_now_unix_ms_v1() {
                 Ok(now_unix_ms) => now_unix_ms,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-            let handler = CloudflareRoleSeparatedEcdsaHssEvmDigestFinalizeHandlerV1;
-            handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_private_fetch_v1(
+            let handler = CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1;
+            handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_fetch_v1(
                 request,
                 &env,
                 &runtime,
@@ -107,13 +107,13 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             format!(
                 "SigningWorker strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_REFRESH_PATH,
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
                 CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH,
                 CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH
             ),
             404,
         ),

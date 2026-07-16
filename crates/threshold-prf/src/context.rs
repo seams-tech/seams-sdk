@@ -3,8 +3,8 @@ use crate::suite::SuiteId;
 /// Domain-separated purpose for a threshold PRF output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrfPurpose {
-    /// Server input for `ecdsa-hss`.
-    EcdsaHssYServer,
+    /// Server input for `router-ab-ecdsa-derivation`.
+    RouterAbEcdsaDerivationYServer,
     /// Router/A/B client-base output.
     RouterAbXClientBaseV1,
     /// Router/A/B server-base output.
@@ -24,7 +24,7 @@ impl PrfPurpose {
     /// Returns the canonical purpose bytes.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::EcdsaHssYServer => b"ecdsa-hss/y_server",
+            Self::RouterAbEcdsaDerivationYServer => b"router-ab-ecdsa-derivation/y-server/v1",
             Self::RouterAbXClientBaseV1 => b"router-ab/x_client_base/v1",
             Self::RouterAbXServerBaseV1 => b"router-ab/x_server_base/v1",
         }
@@ -33,14 +33,13 @@ impl PrfPurpose {
     /// Returns the output encoding for this purpose.
     pub fn output_encoding(&self) -> PrfOutputEncoding {
         match self {
-            Self::EcdsaHssYServer => PrfOutputEncoding::Raw32,
+            Self::RouterAbEcdsaDerivationYServer => PrfOutputEncoding::Raw32,
             Self::RouterAbXClientBaseV1 | Self::RouterAbXServerBaseV1 => {
                 PrfOutputEncoding::CanonicalEd25519Scalar32
             }
         }
     }
 }
-
 /// Canonical threshold PRF context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrfContext {

@@ -198,8 +198,9 @@ fn router_boundary_does_not_import_signer_plaintext_decoder() {
 }
 
 #[test]
-fn ecdsa_hss_public_boundary_does_not_carry_private_key_material() {
-    let ecdsa_hss_rs = read_manifest_file("src/protocol/ecdsa_hss.rs");
+fn router_ab_ecdsa_derivation_public_boundary_does_not_carry_private_key_material() {
+    let router_ab_ecdsa_derivation_rs =
+        read_manifest_file("src/protocol/router_ab_ecdsa_derivation.rs");
     for required in [
         "pub client_presignature_id: String",
         "normal_signing.client_presignature_id",
@@ -207,8 +208,8 @@ fn ecdsa_hss_public_boundary_does_not_carry_private_key_material() {
         "self.server_presignature_id == request.client_presignature_id",
     ] {
         assert!(
-            ecdsa_hss_rs.contains(required),
-            "ECDSA-HSS prepare boundary must include `{required}`"
+            router_ab_ecdsa_derivation_rs.contains(required),
+            "Router A/B ECDSA derivation prepare boundary must include `{required}`"
         );
     }
     for forbidden in [
@@ -224,36 +225,37 @@ fn ecdsa_hss_public_boundary_does_not_carry_private_key_material() {
         "MpcPrfThresholdSignerBatchInputV1",
     ] {
         assert!(
-            !ecdsa_hss_rs.contains(forbidden),
-            "ECDSA-HSS Router A/B public boundary contains forbidden private material token `{forbidden}`"
+            !router_ab_ecdsa_derivation_rs.contains(forbidden),
+            "Router A/B ECDSA derivation Router A/B public boundary contains forbidden private material token `{forbidden}`"
         );
     }
 }
 
 #[test]
-fn ecdsa_hss_deriver_envelope_plaintext_carries_only_public_metadata() {
-    let ecdsa_hss_rs = read_manifest_file("src/protocol/ecdsa_hss.rs");
+fn router_ab_ecdsa_derivation_deriver_envelope_plaintext_carries_only_public_metadata() {
+    let router_ab_ecdsa_derivation_rs =
+        read_manifest_file("src/protocol/router_ab_ecdsa_derivation.rs");
     for required in [
-        "pub enum RouterAbEcdsaHssDeriverEnvelopePlaintextV1",
+        "pub enum RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1",
         "pub request_digest: PublicDigest32",
         "pub aad_digest: PublicDigest32",
-        "pub output_kind: RouterAbEcdsaHssOutputKindV1",
+        "pub output_kind: RouterAbEcdsaDerivationOutputKindV1",
         "validate_for_envelope",
     ] {
         assert!(
-            ecdsa_hss_rs.contains(required),
-            "ECDSA-HSS Deriver envelope plaintext must include `{required}`"
+            router_ab_ecdsa_derivation_rs.contains(required),
+            "Router A/B ECDSA derivation Deriver envelope plaintext must include `{required}`"
         );
     }
 
     for struct_name in [
-        "RouterAbEcdsaHssDeriverEnvelopeCommonV1",
-        "RouterAbEcdsaHssDeriverRegistrationEnvelopePlaintextV1",
-        "RouterAbEcdsaHssDeriverExportEnvelopePlaintextV1",
-        "RouterAbEcdsaHssDeriverRecoveryEnvelopePlaintextV1",
-        "RouterAbEcdsaHssDeriverRefreshEnvelopePlaintextV1",
+        "RouterAbEcdsaDerivationDeriverEnvelopeCommonV1",
+        "RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1",
+        "RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1",
+        "RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1",
+        "RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1",
     ] {
-        let block = extract_struct_block(&ecdsa_hss_rs, struct_name);
+        let block = extract_struct_block(&router_ab_ecdsa_derivation_rs, struct_name);
         for forbidden in [
             "privateKeyHex",
             "private_key_hex",

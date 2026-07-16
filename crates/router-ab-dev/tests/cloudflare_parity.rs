@@ -1,8 +1,9 @@
 use router_ab_cloudflare::{
-    cloudflare_service_json_request_body_bytes_v1,
-    CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH, CLOUDFLARE_DERIVER_A_PEER_REQUEST_PATH,
+    cloudflare_service_json_request_body_bytes_v1, CLOUDFLARE_DERIVER_A_PEER_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH, CLOUDFLARE_DERIVER_B_PEER_REQUEST_PATH,
-    CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH, CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
+    CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
+    CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
 };
 use router_ab_dev::{
     run_example_local_router_ab_dev_http_ceremony_v1, LOCAL_DERIVER_A_PEER_PATH,
@@ -130,7 +131,8 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_a.assert_wrangler(
         "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY\"",
     );
-    deriver_a.assert_wrangler("DERIVER_A_PEER_SIGNING_KEY_BINDING = \"DERIVER_A_PEER_SIGNING_KEY\"");
+    deriver_a
+        .assert_wrangler("DERIVER_A_PEER_SIGNING_KEY_BINDING = \"DERIVER_A_PEER_SIGNING_KEY\"");
     deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:9092");
     deriver_a.assert_local("DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_a.assert_local("DERIVER_A_ROOT_SHARE_WIRE_SECRET=");
@@ -161,7 +163,8 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_b.assert_wrangler(
         "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY\"",
     );
-    deriver_b.assert_wrangler("DERIVER_B_PEER_SIGNING_KEY_BINDING = \"DERIVER_B_PEER_SIGNING_KEY\"");
+    deriver_b
+        .assert_wrangler("DERIVER_B_PEER_SIGNING_KEY_BINDING = \"DERIVER_B_PEER_SIGNING_KEY\"");
     deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:9091");
     deriver_b.assert_local("DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_b.assert_local("DERIVER_B_ROOT_SHARE_WIRE_SECRET=");

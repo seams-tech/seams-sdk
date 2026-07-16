@@ -29,45 +29,36 @@ if ("threshold_prf_combine_partials" in wasm) {
   throw new Error("unverified partial combine must not be exported by production WASM");
 }
 
-const hssVector = protocolCorpus.vectors.find(
-  (vector) => vector.purpose === "ecdsa-hss/y_server" && vector.policy.threshold === 2,
+const derivationVector = protocolCorpus.vectors.find(
+  (vector) => vector.purpose === "router-ab-ecdsa-derivation/y-server/v1" && vector.policy.threshold === 2,
 );
-if (!hssVector) {
-  throw new Error("missing ecdsa-hss threshold-prf smoke vector");
+if (!derivationVector) {
+  throw new Error("missing Router A/B ECDSA derivation threshold-prf smoke vector");
 }
-const hssShareWiresById = new Map(hssVector.shares.map((share) => [share.id, share]));
-const hssIds = hssVector.threshold_outputs[0].ids;
-const hssShareWires = shareWiresForIds(hssShareWiresById, hssIds);
-const reversedHssShareWires = shareWiresForIds(hssShareWiresById, hssIds.toReversed());
-
-const ecdsaOutput = wasm.threshold_prf_derive_ecdsa_hss_y_server(
-  hssVector.policy.threshold,
-  hssVector.policy.share_count,
-  hssShareWires,
-  "alice.near",
-  "wallet.example.test",
-  "ecdsa-alpha",
-  "project-alpha",
-  "root-v1",
-  "wallet",
-  "v1",
+const derivationShareWiresById = new Map(derivationVector.shares.map((share) => [share.id, share]));
+const derivationIds = derivationVector.threshold_outputs[0].ids;
+const derivationShareWires = shareWiresForIds(derivationShareWiresById, derivationIds);
+const reversedDerivationShareWires = shareWiresForIds(derivationShareWiresById, derivationIds.toReversed());
+const applicationBindingDigest = hexToBytes(
+  "7f6ec48989273bf014547956927059547a8d659391735b7a6c1958bc6f0cf8f4",
 );
-assertByteLength(ecdsaOutput, 32, "ecdsa-hss y_server");
+
+const ecdsaOutput = wasm.threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer(
+  derivationVector.policy.threshold,
+  derivationVector.policy.share_count,
+  derivationShareWires,
+  applicationBindingDigest,
+);
+assertByteLength(ecdsaOutput, 32, "Router A/B ECDSA derivation y_server");
 assertSameBytes(
   ecdsaOutput,
-  wasm.threshold_prf_derive_ecdsa_hss_y_server(
-    hssVector.policy.threshold,
-    hssVector.policy.share_count,
-    reversedHssShareWires,
-    "alice.near",
-    "wallet.example.test",
-    "ecdsa-alpha",
-    "project-alpha",
-    "root-v1",
-    "wallet",
-    "v1",
+  wasm.threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer(
+    derivationVector.policy.threshold,
+    derivationVector.policy.share_count,
+    reversedDerivationShareWires,
+    applicationBindingDigest,
   ),
-  "ecdsa-hss y_server is stable under share order",
+  "Router A/B ECDSA derivation y_server is stable under share order",
 );
 checkedOutputs += 2;
 
@@ -83,7 +74,7 @@ for (const vector of wireCorpus.vectors) {
         vector.policy.threshold,
         vector.policy.share_count,
         proofBundle.slice(0, proofBundle.length - 1),
-        "ecdsa-hss/y_server",
+        "router-ab-ecdsa-derivation/y-server/v1",
         new Uint8Array([1, 2, 3]),
       ),
     "malformed proof bundle rejects at production WASM boundary",

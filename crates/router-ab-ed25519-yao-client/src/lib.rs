@@ -15,14 +15,11 @@ use router_ab_core::{
     RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
     RouterAbEd25519YaoExportExecuteRequestV1, RouterAbEd25519YaoExportResultV1,
 };
-use router_ab_ed25519_yao::{
-    ed25519_yao_input_aad_v1, ed25519_yao_recipient_package_aad_v1,
-    recipient::client::{combine_client_activation_packages, combine_export_packages},
-    relay::{
-        ActivationDeriverAClientPackage, ActivationDeriverBClientPackage,
-        ExportDeriverAClientPackage, ExportDeriverBClientPackage,
-    },
-    stable_key_derivation_context_v1, LocalEd25519YaoActivationDeriverARequestV1,
+use router_ab_ed25519_yao_protocol::{
+    combine_client_activation_packages, combine_export_packages, ed25519_yao_input_aad_v1,
+    ed25519_yao_recipient_package_aad_v1, stable_key_derivation_context_v1,
+    ActivationDeriverAClientPackage, ActivationDeriverBClientPackage, ExportDeriverAClientPackage,
+    ExportDeriverBClientPackage, LocalEd25519YaoActivationDeriverARequestV1,
     LocalEd25519YaoActivationDeriverBRequestV1, LocalEd25519YaoActivationRecipientsV1,
     LocalEd25519YaoClientContributionV1, LocalEd25519YaoExportDeriverARequestV1,
     LocalEd25519YaoExportDeriverBRequestV1, LocalEd25519YaoExportRecipientV1,

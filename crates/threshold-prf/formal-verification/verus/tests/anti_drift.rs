@@ -162,7 +162,7 @@ fn vector_context(vector: &ProtocolVector) -> PrfContext {
 
 fn purpose_from_str(purpose: &str) -> PrfPurpose {
     match purpose {
-        "ecdsa-hss/y_server" => PrfPurpose::EcdsaHssYServer,
+        "router-ab-ecdsa-derivation/y-server/v1" => PrfPurpose::RouterAbEcdsaDerivationYServer,
         "router-ab/x_client_base/v1" => PrfPurpose::RouterAbXClientBaseV1,
         "router-ab/x_server_base/v1" => PrfPurpose::RouterAbXServerBaseV1,
         purpose => panic!("unexpected vector purpose: {purpose}"),

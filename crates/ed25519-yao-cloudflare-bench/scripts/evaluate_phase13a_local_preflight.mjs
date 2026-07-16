@@ -31,12 +31,17 @@ const PHASE9C_LIFECYCLE_VECTORS = Object.freeze([
 const PHASE9C_COMPLETED_CHECKS = Object.freeze([
   'canonical Yao derivation',
   'transport-neutral Yao composition',
-  'Client-owned registration boundary',
-  'Client-owned registration WASM boundary',
+  'Client-owned activation and export boundary',
+  'Client-owned activation and export WASM boundary',
   'SDK Router boundary guard',
+  'public Ed25519 export boundary guard',
+  'managed product contract boundary guard',
   'SDK Yao local TypeScript gate',
   'SDK Router, WASM Client, wallet lifecycle, and process gates',
+  'public local-product registration, NEAR readiness, signing, and export gates',
   'local role boundaries and process lifecycle',
+  'untrusted Yao stream parser mutation smoke',
+  'recipient-package parser mutation smoke',
   'constant-time code-generation guard',
 ]);
 const REQUIRED_ARTIFACT_PATHS = Object.freeze([
@@ -724,7 +729,7 @@ function validateLocalCommandEvidence(evidence) {
   requireExact(validation.normal_role_artifacts, 4, 'validation.normal_role_artifacts');
   requireExact(validation.fault_artifacts, 9, 'validation.fault_artifacts');
   requireExact(validation.wrangler_dry_run_artifacts, 4, 'validation.wrangler_dry_run_artifacts');
-  requireExact(validation.core_passive_rust_tests, 99, 'validation.core_passive_rust_tests');
+  requireExact(validation.core_passive_rust_tests, 100, 'validation.core_passive_rust_tests');
   requireExact(validation.independent_python_tests, 186, 'validation.independent_python_tests');
   requireExact(
     validation.deterministic_differential_cases,
@@ -741,7 +746,7 @@ function validateLocalCommandEvidence(evidence) {
   requireExact(validation.wasm_stream_modes, 2, 'validation.wasm_stream_modes');
   requireExact(
     validation.formal_parity_production_rust_tests,
-    80,
+    82,
     'validation.formal_parity_production_rust_tests',
   );
   requireExact(

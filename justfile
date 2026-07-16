@@ -4,7 +4,7 @@ default:
 # Run the full formal-verification path for all crate-local FV tracks.
 fv:
   just ed25519-yao-fv
-  just ecdsa-hss-fv
+  just router-ab-ecdsa-derivation-fv
   just signer-core-fv
   just threshold-prf-fv
   just router-ab-core-fv
@@ -49,6 +49,11 @@ ed25519-yao-fv-verus:
 ed25519-yao-fv-constant-time-qualification:
   cargo yao-fv constant-time-qualification
 
+# Deterministic mutation smoke for untrusted Yao stream and recipient-package parsers.
+ed25519-yao-parser-fuzz-smoke:
+  cargo test -q --manifest-path crates/ed25519-yao/Cargo.toml deterministic_untrusted_stream_parser_fuzz_smoke
+  cargo test -q --manifest-path crates/router-ab-ed25519-yao-protocol/Cargo.toml deterministic_recipient_package_parser_fuzz_smoke
+
 ed25519-yao-fv-benchmark-manifest-reproducibility:
   cargo yao-fv benchmark-manifest-reproducibility
 
@@ -88,30 +93,30 @@ ed25519-yao-fv-phase2b-independent-host-record-check:
 ed25519-yao-fv-phase2b-review-approval-check:
   cargo yao-fv phase2b-review-approval-check
 
-# Run the active crate parity tests for `ecdsa-hss`.
-ecdsa-hss-fv-parity:
-  cargo test -q --manifest-path crates/ecdsa-hss/Cargo.toml --test role_local_mvp
+# Run the active crate parity tests for Router A/B ECDSA derivation.
+router-ab-ecdsa-derivation-fv-parity:
+  cargo test -q --manifest-path crates/router-ab-ecdsa-derivation/Cargo.toml --test role_local_mvp
 
-# Run the current Verus verifier for `ecdsa-hss`.
-ecdsa-hss-fv-verus:
-  cargo verus verify --manifest-path crates/ecdsa-hss/formal-verification/verus/Cargo.toml -- --rlimit 100
+# Run the current Verus verifier for Router A/B ECDSA derivation.
+router-ab-ecdsa-derivation-fv-verus:
+  cargo verus verify --manifest-path crates/router-ab-ecdsa-derivation/formal-verification/verus/Cargo.toml -- --rlimit 100
 
-# Run the current full formal-verification path for `ecdsa-hss`.
-ecdsa-hss-fv:
-  just ecdsa-hss-fv-parity
-  just ecdsa-hss-fv-verus
-  just ecdsa-hss-fv-boundary
-  just ecdsa-hss-fv-privacy
+# Run the current full formal-verification path for Router A/B ECDSA derivation.
+router-ab-ecdsa-derivation-fv:
+  just router-ab-ecdsa-derivation-fv-parity
+  just router-ab-ecdsa-derivation-fv-verus
+  just router-ab-ecdsa-derivation-fv-boundary
+  just router-ab-ecdsa-derivation-fv-privacy
 
-# Run the Aeneas/Lean boundary extraction and workspace check for `ecdsa-hss`.
-ecdsa-hss-fv-boundary:
-  cd crates/ecdsa-hss/formal-verification/lean-boundary && ./scripts/extract-visible-boundary.sh
-  git diff --exit-code -- crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-input/ecdsa_hss.llbc || (echo "ECDSA-HSS visible-boundary extraction drifted; commit the regenerated LLBC artifact or fix extraction." >&2; exit 1)
-  cd crates/ecdsa-hss/formal-verification/lean-boundary && $HOME/.elan/bin/lake build
+# Run the Aeneas/Lean boundary extraction and workspace check for Router A/B ECDSA derivation.
+router-ab-ecdsa-derivation-fv-boundary:
+  cd crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary && ./scripts/extract-visible-boundary.sh
+  git diff --exit-code -- crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary/generated/visible-boundary-input/router_ab_ecdsa_derivation.llbc || (echo "Router A/B ECDSA derivation visible-boundary extraction drifted; commit the regenerated LLBC artifact or fix extraction." >&2; exit 1)
+  cd crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary && $HOME/.elan/bin/lake build RouterAbEcdsaDerivation RouterAbEcdsaDerivationBoundary
 
-# Run the Lean privacy workspace for `ecdsa-hss`.
-ecdsa-hss-fv-privacy:
-  cd crates/ecdsa-hss/formal-verification/lean-privacy && $HOME/.elan/bin/lake build
+# Run the Lean privacy workspace for Router A/B ECDSA derivation.
+router-ab-ecdsa-derivation-fv-privacy:
+  cd crates/router-ab-ecdsa-derivation/formal-verification/lean-privacy && $HOME/.elan/bin/lake build RouterAbEcdsaDerivationPrivacy
 
 # Run the committed anti-drift tests for `signer-core`.
 signer-core-fv-parity:

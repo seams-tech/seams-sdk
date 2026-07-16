@@ -20,8 +20,8 @@ pub enum AuditEventV1 {
         /// Gate decision.
         decision: ExpensiveWorkGateDecisionV1,
     },
-    /// Router ECDSA-HSS explicit export decision.
-    EcdsaHssExplicitExportDecision {
+    /// Router Router A/B ECDSA derivation explicit export decision.
+    RouterAbEcdsaDerivationExplicitExportDecision {
         /// Router A/B operation kind.
         operation: String,
         /// Stable export request id.
@@ -41,16 +41,16 @@ pub enum AuditEventV1 {
         /// Export authorization digest encoded as unpadded base64url.
         export_authorization_digest_b64u: String,
         /// Router decision.
-        decision: EcdsaHssExplicitExportAuditDecisionV1,
+        decision: RouterAbEcdsaDerivationExplicitExportAuditDecisionV1,
         /// Stable reason code for the decision.
         reason_code: String,
     },
 }
 
-/// Sanitized ECDSA-HSS explicit export audit decision.
+/// Sanitized Router A/B ECDSA derivation explicit export audit decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EcdsaHssExplicitExportAuditDecisionV1 {
+pub enum RouterAbEcdsaDerivationExplicitExportAuditDecisionV1 {
     /// Export material was forwarded to the authorized client recipient.
     Forwarded,
     /// Router admission stopped the export before Deriver dispatch.
