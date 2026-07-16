@@ -77,7 +77,7 @@ pnpm run d1:staging:runbook -- \
   --router-api-origin <router-api-staging-origin>
 ```
 
-The generated log contains the exact Wrangler 4.105.0 command sequence for
+The generated log contains the exact Wrangler 4.111.0 command sequence for
 remote migrations, Time Travel bookmark capture, fixture import, Worker deploy,
 staging smoke, and R2 export/restore drills. Record command output summaries,
 bookmarks, object keys, and pass/fail evidence there; never paste secret values.
