@@ -17,12 +17,6 @@ type SignerRow = {
   nearPublicKey: string | null;
 };
 
-function shortenKey(key: string): string {
-  const value = key.trim();
-  if (value.length <= 28) return value;
-  return `${value.slice(0, 18)}...${value.slice(-8)}`;
-}
-
 export interface LinkedDevicesSectionProps {
   walletId: string | null;
   nearAccountId: string | null;
@@ -46,7 +40,6 @@ export const LinkedDevicesSection: React.FC<LinkedDevicesSectionProps> = ({
   const [currentSignerSlot, setCurrentSignerSlot] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const loadedForRef = useRef<string | null>(null);
 
   const loadSigners = useCallback(async () => {
@@ -197,16 +190,6 @@ export const LinkedDevicesSection: React.FC<LinkedDevicesSectionProps> = ({
     void loadSigners();
   }, [isOpen, walletId, nearAccountId, loadSigners]);
 
-  const copyKey = async (key: string) => {
-    try {
-      await navigator.clipboard.writeText(key);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey((prev) => (prev === key ? null : prev)), 2000);
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
-    }
-  };
-
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
@@ -245,23 +228,11 @@ export const LinkedDevicesSection: React.FC<LinkedDevicesSectionProps> = ({
               {rows.map((row) => {
                 const isActive =
                   currentSignerSlot != null && row.signerSlot === currentSignerSlot;
-                const key = row.nearPublicKey;
                 return (
-                  <button
-                    key={row.credentialId}
-                    type="button"
-                    className="w3a-linked-devices-row"
-                    disabled={!key}
-                    tabIndex={isOpen ? 0 : -1}
-                    title={key ? `${key}\nClick to copy` : undefined}
-                    onClick={() => key && void copyKey(key)}
-                  >
-                    <span className="w3a-linked-devices-slot">Signer {row.signerSlot}</span>
+                  <div key={row.credentialId} className="w3a-linked-devices-row">
+                    <span className="w3a-linked-devices-slot">Device {row.signerSlot}</span>
                     {isActive && <span className="w3a-linked-devices-active">active</span>}
-                    <span className="w3a-linked-devices-key">
-                      {key ? (copiedKey === key ? 'Copied!' : shortenKey(key)) : '—'}
-                    </span>
-                  </button>
+                  </div>
                 );
               })}
             </div>
