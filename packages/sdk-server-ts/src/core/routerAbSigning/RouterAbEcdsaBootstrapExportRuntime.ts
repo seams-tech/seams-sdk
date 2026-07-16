@@ -1,11 +1,11 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
-  computeSdkEcdsaHssApplicationBindingDigest32,
-  parseSdkEcdsaHssSigningRootId,
-  parseSdkEcdsaHssSigningRootVersion,
-  parseSdkEcdsaHssThresholdKeyId,
-  type EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  computeSdkEcdsaDerivationApplicationBindingDigest32,
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+  parseSdkEcdsaDerivationThresholdKeyId,
+  type EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   parseEvmFamilySigningKeySlotId,
@@ -15,9 +15,9 @@ import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  formatEcdsaHssKeyVersionForWire,
-  parseEcdsaHssKeyVersion,
-  type EcdsaHssKeyVersion,
+  formatEcdsaDerivationKeyVersionForWire,
+  parseEcdsaDerivationKeyVersion,
+  type EcdsaDerivationKeyVersion,
 } from '../keyMaterialBrands';
 import type { ThresholdEcdsaIntegratedKeyStore } from '../ThresholdService/stores/KeyStore';
 import type {
@@ -25,26 +25,26 @@ import type {
   EcdsaWalletSessionStore,
 } from '../ThresholdService/stores/WalletSessionStore';
 import type {
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssExportShareRequest,
-  EcdsaHssExportShareResponse,
-  EcdsaHssRoleLocalKeyRecord,
-  EcdsaHssRouteResult,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationExportShareRequest,
+  EcdsaDerivationExportShareResponse,
+  EcdsaDerivationRoleLocalKeyRecord,
+  EcdsaDerivationRouteResult,
+  EcdsaDerivationServerBootstrapResponse,
   ThresholdEcdsaSigningRootMetadata,
 } from '../types';
 import type { ParseResult } from '../ThresholdService/routerAbNormalSigningPolicy';
 import {
   addSecp256k1PublicKeys33,
-  roleLocalThresholdEcdsaHssRelayerBootstrap,
   secp256k1PrivateKey32ToPublicKey33,
   secp256k1PublicKey33ToEthereumAddress,
   validateSecp256k1PublicKey33,
-} from '../ThresholdService/ethSignerWasm';
+} from '../ThresholdService/evmCryptoWasm';
+import { roleLocalThresholdEcdsaDerivationRelayerBootstrap } from '../ThresholdService/routerAbEcdsaSigningWorkerWasm';
 import { verifyEcdsaClientRootProof } from '../ThresholdService/ecdsaClientRootProof';
-import type { RouterAbEcdsaHssWalletSessionClaims } from '../ThresholdService/validation';
+import type { RouterAbEcdsaDerivationWalletSessionClaims } from '../ThresholdService/validation';
 import {
-  deriveEcdsaHssYRelayerFromSigningRootShareResolver,
+  deriveEcdsaDerivationYRelayerFromSigningRootShareResolver,
   type SigningRootShareResolver,
 } from '../ThresholdService/signingRootShareResolver';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
@@ -56,15 +56,15 @@ export type RouterAbEcdsaKeyHandleSelector = {
   readonly ecdsaThresholdKeyId?: never;
 };
 
-export type RouterAbEcdsaClientBootstrapRequest = EcdsaHssClientBootstrapRequest & {
+export type RouterAbEcdsaClientBootstrapRequest = EcdsaDerivationClientBootstrapRequest & {
   readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 };
 
-export type RouterAbEcdsaExportShareRequest = EcdsaHssExportShareRequest & {
+export type RouterAbEcdsaExportShareRequest = EcdsaDerivationExportShareRequest & {
   readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 };
 
-export type RouterAbEcdsaSessionClaims = RouterAbEcdsaHssWalletSessionClaims & {
+export type RouterAbEcdsaSessionClaims = RouterAbEcdsaDerivationWalletSessionClaims & {
   readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 };
 
@@ -97,12 +97,21 @@ export type RouterAbEcdsaSigningRootWalletVerificationInput = {
 export type RouterAbEcdsaBootstrapExportRuntimeState =
   | {
       readonly kind: 'configured';
-      readonly runtime: RouterAbEcdsaBootstrapExportRuntime;
+      readonly runtime: RouterAbEcdsaBootstrapExportPort;
     }
   | {
       readonly kind: 'unconfigured';
       readonly runtime?: never;
     };
+
+export type RouterAbEcdsaBootstrapExportPort = Pick<
+  RouterAbEcdsaBootstrapExportRuntime,
+  | 'getEcdsaKeyIdentityMetadata'
+  | 'verifyEcdsaSigningRootWalletAddress'
+  | 'ecdsaDerivationRoleLocalBootstrap'
+  | 'verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey'
+  | 'ecdsaDerivationRoleLocalExportShare'
+>;
 
 type RouterAbEcdsaBootstrapSessionResult =
   | {
@@ -120,15 +129,15 @@ type RouterAbEcdsaBootstrapSessionResult =
       readonly message?: string;
     };
 
-const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = parseEcdsaHssKeyVersion('v1');
+const THRESHOLD_ECDSA_DERIVATION_KEY_VERSION_V1 = parseEcdsaDerivationKeyVersion('v1');
 const THRESHOLD_ECDSA_DERIVATION_VERSION_V1 = 1;
-const THRESHOLD_ECDSA_HSS_EXPORT_CLOCK_SKEW_MS = 5 * 60_000;
-const THRESHOLD_ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v2';
-const THRESHOLD_ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v2';
+const THRESHOLD_ECDSA_DERIVATION_EXPORT_CLOCK_SKEW_MS = 5 * 60_000;
+const THRESHOLD_ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
+  'ecdsa-derivation:role-local:product-export-confirmation:v2';
+const THRESHOLD_ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION =
+  'ecdsa-derivation:role-local:product-export-authorization:v2';
 
-function requireSdkEcdsaHssWalletId(value: unknown): WalletId {
+function requireSdkEcdsaDerivationWalletId(value: unknown): WalletId {
   const parsed = parseWalletId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
@@ -142,7 +151,7 @@ function errorMessage(error: unknown): string {
   );
 }
 
-function isEcdsaHssPublicKeyValidationError(message: string): boolean {
+function isEcdsaDerivationPublicKeyValidationError(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
     normalized.includes('public key') &&
@@ -168,20 +177,20 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return diff === 0;
 }
 
-function canonicalEcdsaHssSigningRootVersion(signingRootVersion: unknown): string {
+function canonicalEcdsaDerivationSigningRootVersion(signingRootVersion: unknown): string {
   return toOptionalTrimmedString(signingRootVersion) || 'default';
 }
 
-function parseEcdsaHssKeyVersionOrDefault(value: unknown): EcdsaHssKeyVersion {
+function parseEcdsaDerivationKeyVersionOrDefault(value: unknown): EcdsaDerivationKeyVersion {
   const raw = toOptionalTrimmedString(value);
-  return raw ? parseEcdsaHssKeyVersion(raw) : THRESHOLD_ECDSA_HSS_KEY_VERSION_V1;
+  return raw ? parseEcdsaDerivationKeyVersion(raw) : THRESHOLD_ECDSA_DERIVATION_KEY_VERSION_V1;
 }
 
-function ecdsaHssKeyVersionWire(value: EcdsaHssKeyVersion): string {
-  return formatEcdsaHssKeyVersionForWire(value);
+function ecdsaDerivationKeyVersionWire(value: EcdsaDerivationKeyVersion): string {
+  return formatEcdsaDerivationKeyVersionForWire(value);
 }
 
-async function deriveThresholdEcdsaHssKeyHandle(input: {
+async function deriveThresholdEcdsaDerivationKeyHandle(input: {
   readonly ecdsaThresholdKeyId: unknown;
   readonly signingRootId: unknown;
   readonly signingRootVersion?: unknown;
@@ -198,12 +207,12 @@ async function deriveThresholdEcdsaHssKeyHandle(input: {
 function createEcdsaSigningRootMetadata(
   signingRootId: string,
   signingRootVersion?: string,
-  ecdsaHssKeyVersion: EcdsaHssKeyVersion = THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+  ecdsaDerivationKeyVersion: EcdsaDerivationKeyVersion = THRESHOLD_ECDSA_DERIVATION_KEY_VERSION_V1,
 ): ThresholdEcdsaSigningRootMetadata {
   return {
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
-    walletKeyVersion: ecdsaHssKeyVersionWire(ecdsaHssKeyVersion),
+    walletKeyVersion: ecdsaDerivationKeyVersionWire(ecdsaDerivationKeyVersion),
     derivationVersion: THRESHOLD_ECDSA_DERIVATION_VERSION_V1,
   };
 }
@@ -222,11 +231,11 @@ function haveSameEcdsaSigningRootMetadata(
   );
 }
 
-function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
+function isRouterAbEcdsaSigningWorkerRuntimeError(messageRaw: string): boolean {
   const message = String(messageRaw || '').toLowerCase();
   return (
-    message.includes('eth_signer wasm') ||
-    message.includes('initialize eth_signer wasm') ||
+    message.includes('router a/b signing worker wasm') ||
+    message.includes('router_ab_ecdsa_signing_worker') ||
     message.includes('not initialized')
   );
 }
@@ -248,10 +257,10 @@ function freezeParticipantIds(
 }
 
 async function bootstrapRelayerAndZeroizeShare(
-  input: Parameters<typeof roleLocalThresholdEcdsaHssRelayerBootstrap>[0],
-): Promise<Awaited<ReturnType<typeof roleLocalThresholdEcdsaHssRelayerBootstrap>>> {
+  input: Parameters<typeof roleLocalThresholdEcdsaDerivationRelayerBootstrap>[0],
+): Promise<Awaited<ReturnType<typeof roleLocalThresholdEcdsaDerivationRelayerBootstrap>>> {
   try {
-    return await roleLocalThresholdEcdsaHssRelayerBootstrap(input);
+    return await roleLocalThresholdEcdsaDerivationRelayerBootstrap(input);
   } finally {
     input.yRelayer32Le.fill(0);
   }
@@ -278,19 +287,19 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     this.participantIds = freezeParticipantIds(input.participantIds);
   }
 
-  private async deriveThresholdEcdsaHssYRelayerForContext(input: {
-    readonly hssContext: {
+  private async deriveThresholdEcdsaDerivationYRelayerForContext(input: {
+    readonly derivationContext: {
       readonly applicationBindingDigest: Uint8Array;
     };
     readonly signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
   }): Promise<ParseResult<Uint8Array>> {
-    const derived = await deriveEcdsaHssYRelayerFromSigningRootShareResolver({
+    const derived = await deriveEcdsaDerivationYRelayerFromSigningRootShareResolver({
       signingRootId: input.signingRootMetadata.signingRootId,
       ...(input.signingRootMetadata.signingRootVersion
         ? { signingRootVersion: input.signingRootMetadata.signingRootVersion }
         : {}),
       resolver: this.signingRootShareResolver,
-      context: input.hssContext,
+      context: input.derivationContext,
     });
     if (!derived.ok) {
       return {
@@ -394,8 +403,10 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     const evmFamilySigningKeySlotId = parsedEvmFamilySigningKeySlotId.ok
       ? parsedEvmFamilySigningKeySlotId.value
       : null;
-    const ecdsaHssKeyVersion = parseEcdsaHssKeyVersionOrDefault(input.walletKeyVersion);
-    const walletKeyVersion = ecdsaHssKeyVersionWire(ecdsaHssKeyVersion);
+    const ecdsaDerivationKeyVersion = parseEcdsaDerivationKeyVersionOrDefault(
+      input.walletKeyVersion,
+    );
+    const walletKeyVersion = ecdsaDerivationKeyVersionWire(ecdsaDerivationKeyVersion);
     if (
       !signingRootId ||
       !signingRootVersion ||
@@ -431,19 +442,22 @@ export class RouterAbEcdsaBootstrapExportRuntime {
       const signingRootMetadata = createEcdsaSigningRootMetadata(
         signingRootId,
         signingRootVersion,
-        ecdsaHssKeyVersion,
+        ecdsaDerivationKeyVersion,
       );
-      const canonicalSigningRootVersion = canonicalEcdsaHssSigningRootVersion(signingRootVersion);
-      const hssContext = {
-        applicationBindingDigest: await computeSdkEcdsaHssApplicationBindingDigest32({
-          walletId: requireSdkEcdsaHssWalletId(walletId),
-          ecdsaThresholdKeyId: parseSdkEcdsaHssThresholdKeyId(ecdsaThresholdKeyId),
-          signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
-          signingRootVersion: parseSdkEcdsaHssSigningRootVersion(canonicalSigningRootVersion),
+      const canonicalSigningRootVersion =
+        canonicalEcdsaDerivationSigningRootVersion(signingRootVersion);
+      const derivationContext = {
+        applicationBindingDigest: await computeSdkEcdsaDerivationApplicationBindingDigest32({
+          walletId: requireSdkEcdsaDerivationWalletId(walletId),
+          ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(ecdsaThresholdKeyId),
+          signingRootId: parseSdkEcdsaDerivationSigningRootId(signingRootId),
+          signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
+            canonicalSigningRootVersion,
+          ),
         }),
       };
-      const derived = await this.deriveThresholdEcdsaHssYRelayerForContext({
-        hssContext,
+      const derived = await this.deriveThresholdEcdsaDerivationYRelayerForContext({
+        derivationContext,
         signingRootMetadata,
       });
       if (!derived.ok) return derived;
@@ -499,11 +513,11 @@ export class RouterAbEcdsaBootstrapExportRuntime {
       await validateSecp256k1PublicKey33(publicKey33);
     } catch (e: unknown) {
       const runtimeMessage = errorMessage(e);
-      if (isEthSignerWasmRuntimeError(runtimeMessage)) {
+      if (isRouterAbEcdsaSigningWorkerRuntimeError(runtimeMessage)) {
         return {
           ok: false,
           code: 'internal',
-          message: runtimeMessage || 'eth_signer WASM runtime error',
+          message: runtimeMessage || 'Router A/B ECDSA signing worker WASM runtime error',
         };
       }
       return {
@@ -655,28 +669,30 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     };
   }
 
-  async ecdsaHssRoleLocalBootstrap(
+  async ecdsaDerivationRoleLocalBootstrap(
     request: RouterAbEcdsaClientBootstrapRequest,
-  ): Promise<EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>> {
+  ): Promise<EcdsaDerivationRouteResult<EcdsaDerivationServerBootstrapResponse>> {
     try {
       const signingRootMetadata = createEcdsaSigningRootMetadata(
         request.signingRootId,
         request.signingRootVersion,
       );
-      const ecdsaHssKeyVersion = THRESHOLD_ECDSA_HSS_KEY_VERSION_V1;
-      const canonicalSigningRootVersion = canonicalEcdsaHssSigningRootVersion(
+      const ecdsaDerivationKeyVersion = THRESHOLD_ECDSA_DERIVATION_KEY_VERSION_V1;
+      const canonicalSigningRootVersion = canonicalEcdsaDerivationSigningRootVersion(
         signingRootMetadata.signingRootVersion,
       );
-      const hssContext = {
-        applicationBindingDigest: await computeSdkEcdsaHssApplicationBindingDigest32({
-          walletId: requireSdkEcdsaHssWalletId(request.walletId),
-          ecdsaThresholdKeyId: parseSdkEcdsaHssThresholdKeyId(request.ecdsaThresholdKeyId),
-          signingRootId: parseSdkEcdsaHssSigningRootId(signingRootMetadata.signingRootId),
-          signingRootVersion: parseSdkEcdsaHssSigningRootVersion(canonicalSigningRootVersion),
+      const derivationContext = {
+        applicationBindingDigest: await computeSdkEcdsaDerivationApplicationBindingDigest32({
+          walletId: requireSdkEcdsaDerivationWalletId(request.walletId),
+          ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(request.ecdsaThresholdKeyId),
+          signingRootId: parseSdkEcdsaDerivationSigningRootId(signingRootMetadata.signingRootId),
+          signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
+            canonicalSigningRootVersion,
+          ),
         }),
       };
-      const derivedRelayerShare = await this.deriveThresholdEcdsaHssYRelayerForContext({
-        hssContext,
+      const derivedRelayerShare = await this.deriveThresholdEcdsaDerivationYRelayerForContext({
+        derivationContext,
         signingRootMetadata,
       });
       if (!derivedRelayerShare.ok) {
@@ -686,12 +702,14 @@ export class RouterAbEcdsaBootstrapExportRuntime {
           message: derivedRelayerShare.message,
         };
       }
-      const hssClientSharePublicKey33 = base64UrlDecode(request.hssClientSharePublicKey33B64u);
+      const ecdsaDerivationClientSharePublicKey33 = base64UrlDecode(
+        request.derivationClientSharePublicKey33B64u,
+      );
       const relayerBootstrap = await bootstrapRelayerAndZeroizeShare({
-        applicationBindingDigest: hssContext.applicationBindingDigest,
+        applicationBindingDigest: derivationContext.applicationBindingDigest,
         relayerKeyId: request.relayerKeyId,
         yRelayer32Le: derivedRelayerShare.value,
-        clientPublicKey33: hssClientSharePublicKey33,
+        clientPublicKey33: ecdsaDerivationClientSharePublicKey33,
         clientShareRetryCounter: request.clientShareRetryCounter,
       });
       const expectedContextBinding32 = base64UrlDecode(request.contextBinding32B64u);
@@ -699,24 +717,24 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'context_mismatch',
-          message: 'contextBinding32B64u does not match role-local HSS context',
+          message: 'contextBinding32B64u does not match role-local DERIVATION context',
         };
       }
-      const keyHandle = await deriveThresholdEcdsaHssKeyHandle({
+      const keyHandle = await deriveThresholdEcdsaDerivationKeyHandle({
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         signingRootId: signingRootMetadata.signingRootId,
         signingRootVersion: signingRootMetadata.signingRootVersion,
       });
       const existing = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keyHandle);
       if (existing) {
-        const signingRootVersion = canonicalEcdsaHssSigningRootVersion(
+        const signingRootVersion = canonicalEcdsaDerivationSigningRootVersion(
           signingRootMetadata.signingRootVersion,
         );
         if (existing.relayerKeyId !== request.relayerKeyId) {
           return {
             ok: false,
             code: 'relayer_key_mismatch',
-            message: 'relayerKeyId mismatch requires ECDSA HSS re-bootstrap',
+            message: 'relayerKeyId mismatch requires ECDSA DERIVATION re-bootstrap',
           };
         }
         if (
@@ -728,18 +746,18 @@ export class RouterAbEcdsaBootstrapExportRuntime {
           existing.signingRootVersion !== signingRootVersion ||
           existing.keyScope !== request.keyScope ||
           existing.contextBinding32B64u !== request.contextBinding32B64u ||
-          existing.clientPublicKey33B64u !== request.hssClientSharePublicKey33B64u
+          existing.clientPublicKey33B64u !== request.derivationClientSharePublicKey33B64u
         ) {
           return {
             ok: false,
             code: 'identity_mismatch',
-            message: 'ECDSA HSS key identity mismatch',
+            message: 'ECDSA DERIVATION key identity mismatch',
           };
         }
       }
       const session = await this.ecdsaMintSessionWithoutWebAuthn({
         relayerKeyId: request.relayerKeyId,
-        clientVerifyingShareB64u: request.hssClientSharePublicKey33B64u,
+        clientVerifyingShareB64u: request.derivationClientSharePublicKey33B64u,
         walletId: request.walletId,
         evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
         sessionId: request.sessionId,
@@ -767,13 +785,13 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         relayerBootstrap.publicTranscriptDigest32,
       );
       const record = {
-        version: 'threshold_ecdsa_hss_role_local_v2',
+        version: 'threshold_ecdsa_derivation_role_local_v2',
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         keyHandle,
         walletId: request.walletId,
         evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
         signingRootId: signingRootMetadata.signingRootId,
-        signingRootVersion: canonicalEcdsaHssSigningRootVersion(
+        signingRootVersion: canonicalEcdsaDerivationSigningRootVersion(
           signingRootMetadata.signingRootVersion,
         ),
         keyScope: 'evm-family',
@@ -781,7 +799,7 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         contextBinding32B64u: request.contextBinding32B64u,
         relayerShare32B64u: base64UrlEncode(relayerBootstrap.relayerShare32),
         relayerPublicKey33B64u,
-        clientPublicKey33B64u: request.hssClientSharePublicKey33B64u,
+        clientPublicKey33B64u: request.derivationClientSharePublicKey33B64u,
         groupPublicKey33B64u,
         ethereumAddress,
         relayerCaitSithInput: {
@@ -792,21 +810,21 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         publicTranscriptDigest32B64u,
         createdAtMs: existing?.createdAtMs ?? nowMs,
         updatedAtMs: nowMs,
-      } satisfies EcdsaHssRoleLocalKeyRecord;
+      } satisfies EcdsaDerivationRoleLocalKeyRecord;
       await this.ecdsaKeyStore.putRoleLocalByKeyHandle(record);
       return {
         ok: true,
         value: {
-          formatVersion: 'ecdsa-hss-role-local',
+          formatVersion: 'ecdsa-derivation-role-local',
           walletId: request.walletId,
           evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
           ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
           relayerKeyId: request.relayerKeyId,
-          applicationBindingDigestB64u: base64UrlEncode(hssContext.applicationBindingDigest),
+          applicationBindingDigestB64u: base64UrlEncode(derivationContext.applicationBindingDigest),
           contextBinding32B64u: request.contextBinding32B64u,
           publicIdentity: {
-            hssClientSharePublicKey33B64u: request.hssClientSharePublicKey33B64u,
-            relayerPublicKey33B64u: relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
+            derivationClientSharePublicKey33B64u: request.derivationClientSharePublicKey33B64u,
+            relayerPublicKey33B64u: relayerPublicKey33B64u as EcdsaDerivationRelayerPublicKey33B64u,
             groupPublicKey33B64u,
             ethereumAddress,
           },
@@ -815,7 +833,7 @@ export class RouterAbEcdsaBootstrapExportRuntime {
           publicTranscriptDigest32B64u,
           keyHandle,
           signingRootId: signingRootMetadata.signingRootId,
-          signingRootVersion: canonicalEcdsaHssSigningRootVersion(
+          signingRootVersion: canonicalEcdsaDerivationSigningRootVersion(
             signingRootMetadata.signingRootVersion,
           ),
           thresholdEcdsaPublicKeyB64u: groupPublicKey33B64u,
@@ -831,7 +849,7 @@ export class RouterAbEcdsaBootstrapExportRuntime {
       };
     } catch (error) {
       const message = errorMessage(error);
-      if (isEcdsaHssPublicKeyValidationError(message)) {
+      if (isEcdsaDerivationPublicKeyValidationError(message)) {
         return {
           ok: false,
           code: 'public_key_invalid',
@@ -846,13 +864,13 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     }
   }
 
-  async verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
+  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
     request: RouterAbEcdsaClientBootstrapRequest & {
       clientRootProof: NonNullable<RouterAbEcdsaClientBootstrapRequest['clientRootProof']>;
     },
-  ): Promise<EcdsaHssRouteResult<{ keyHandle: string }>> {
+  ): Promise<EcdsaDerivationRouteResult<{ keyHandle: string }>> {
     try {
-      const keyHandle = await deriveThresholdEcdsaHssKeyHandle({
+      const keyHandle = await deriveThresholdEcdsaDerivationKeyHandle({
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         signingRootId: request.signingRootId,
         signingRootVersion: request.signingRootVersion,
@@ -872,11 +890,11 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         record.keyHandle !== keyHandle ||
         record.signingRootId !== request.signingRootId ||
         record.signingRootVersion !==
-          canonicalEcdsaHssSigningRootVersion(request.signingRootVersion) ||
+          canonicalEcdsaDerivationSigningRootVersion(request.signingRootVersion) ||
         record.relayerKeyId !== request.relayerKeyId ||
         record.keyScope !== request.keyScope ||
         record.contextBinding32B64u !== request.contextBinding32B64u ||
-        record.clientPublicKey33B64u !== request.hssClientSharePublicKey33B64u
+        record.clientPublicKey33B64u !== request.derivationClientSharePublicKey33B64u
       ) {
         return {
           ok: false,
@@ -892,13 +910,13 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     }
   }
 
-  private async computeEcdsaHssExportConfirmationDigest32(input: {
+  private async computeEcdsaDerivationExportConfirmationDigest32(input: {
     request: RouterAbEcdsaExportShareRequest;
   }): Promise<Uint8Array> {
     const { request } = input;
     return await sha256BytesUtf8(
       alphabetizeStringify({
-        version: THRESHOLD_ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
+        version: THRESHOLD_ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION,
         walletId: request.walletId,
         evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
@@ -914,16 +932,16 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     );
   }
 
-  private async computeEcdsaHssExportAuthorizationDigest32(input: {
+  private async computeEcdsaDerivationExportAuthorizationDigest32(input: {
     request: RouterAbEcdsaExportShareRequest;
     keyHandle: string;
-    record: EcdsaHssRoleLocalKeyRecord;
+    record: EcdsaDerivationRoleLocalKeyRecord;
     claims: RouterAbEcdsaSessionClaims;
   }): Promise<Uint8Array> {
     const { request, record, claims } = input;
     return await sha256BytesUtf8(
       alphabetizeStringify({
-        version: THRESHOLD_ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION,
+        version: THRESHOLD_ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION,
         operation: 'explicit_key_export',
         keyHandle: input.keyHandle,
         walletId: request.walletId,
@@ -948,13 +966,13 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     );
   }
 
-  private ecdsaHssExportReplayScope(input: {
+  private ecdsaDerivationExportReplayScope(input: {
     request: RouterAbEcdsaExportShareRequest;
     keyHandle: string;
     claims: RouterAbEcdsaSessionClaims;
   }): string {
     return [
-      'ecdsa-hss-export',
+      'ecdsa-derivation-export',
       input.request.walletId,
       input.request.evmFamilySigningKeySlotId,
       input.request.ecdsaThresholdKeyId,
@@ -964,15 +982,15 @@ export class RouterAbEcdsaBootstrapExportRuntime {
     ].join(':');
   }
 
-  private ecdsaHssExportReplayKey(request: RouterAbEcdsaExportShareRequest): string {
+  private ecdsaDerivationExportReplayKey(request: RouterAbEcdsaExportShareRequest): string {
     return request.exportRequestNonce32B64u;
   }
 
-  async ecdsaHssRoleLocalExportShare(input: {
+  async ecdsaDerivationRoleLocalExportShare(input: {
     request: RouterAbEcdsaExportShareRequest;
     keyHandle: string;
     claims: RouterAbEcdsaSessionClaims;
-  }): Promise<EcdsaHssRouteResult<EcdsaHssExportShareResponse>> {
+  }): Promise<EcdsaDerivationRouteResult<EcdsaDerivationExportShareResponse>> {
     try {
       const { request } = input;
       const nowMs = Date.now();
@@ -981,13 +999,13 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'unauthorized',
-          message: 'Missing ECDSA HSS key handle',
+          message: 'Missing ECDSA DERIVATION key handle',
         };
       }
       const { claims } = input;
       const replayGuard = await this.ecdsaWalletSessionStore.reserveReplayGuard(
-        this.ecdsaHssExportReplayScope({ request, keyHandle, claims }),
-        this.ecdsaHssExportReplayKey(request),
+        this.ecdsaDerivationExportReplayScope({ request, keyHandle, claims }),
+        this.ecdsaDerivationExportReplayKey(request),
         request.expiresAtUnixMs,
       );
       if (!replayGuard.ok) {
@@ -1006,14 +1024,14 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'export_authorization_expired',
-          message: 'ECDSA HSS export authorization is expired',
+          message: 'ECDSA DERIVATION export authorization is expired',
         };
       }
-      if (request.issuedAtUnixMs > nowMs + THRESHOLD_ECDSA_HSS_EXPORT_CLOCK_SKEW_MS) {
+      if (request.issuedAtUnixMs > nowMs + THRESHOLD_ECDSA_DERIVATION_EXPORT_CLOCK_SKEW_MS) {
         return {
           ok: false,
           code: 'export_authorization_invalid',
-          message: 'ECDSA HSS export authorization issue time is invalid',
+          message: 'ECDSA DERIVATION export authorization issue time is invalid',
         };
       }
       const record = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keyHandle);
@@ -1021,7 +1039,7 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'not_found',
-          message: 'ECDSA HSS role-local key not found',
+          message: 'ECDSA DERIVATION role-local key not found',
         };
       }
       if (
@@ -1037,18 +1055,19 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'identity_mismatch',
-          message: 'ECDSA HSS export request does not match persisted key identity',
+          message: 'ECDSA DERIVATION export request does not match persisted key identity',
         };
       }
       if (record.contextBinding32B64u !== request.contextBinding32B64u) {
         return {
           ok: false,
           code: 'context_mismatch',
-          message: 'ECDSA HSS export request context does not match persisted key',
+          message: 'ECDSA DERIVATION export request context does not match persisted key',
         };
       }
       if (
-        record.clientPublicKey33B64u !== request.publicIdentity.hssClientSharePublicKey33B64u ||
+        record.clientPublicKey33B64u !==
+          request.publicIdentity.derivationClientSharePublicKey33B64u ||
         record.relayerPublicKey33B64u !== request.publicIdentity.relayerPublicKey33B64u ||
         record.groupPublicKey33B64u !== request.publicIdentity.groupPublicKey33B64u ||
         record.ethereumAddress.toLowerCase() !==
@@ -1057,27 +1076,29 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'public_key_invalid',
-          message: 'ECDSA HSS export request public identity does not match persisted key',
+          message: 'ECDSA DERIVATION export request public identity does not match persisted key',
         };
       }
-      const expectedConfirmationDigest32 = await this.computeEcdsaHssExportConfirmationDigest32({
-        request,
-      });
+      const expectedConfirmationDigest32 =
+        await this.computeEcdsaDerivationExportConfirmationDigest32({
+          request,
+        });
       if (
         !bytesEqual(base64UrlDecode(request.confirmationDigest32B64u), expectedConfirmationDigest32)
       ) {
         return {
           ok: false,
           code: 'export_authorization_invalid',
-          message: 'ECDSA HSS export confirmation digest is invalid',
+          message: 'ECDSA DERIVATION export confirmation digest is invalid',
         };
       }
-      const expectedAuthorizationDigest32 = await this.computeEcdsaHssExportAuthorizationDigest32({
-        request,
-        keyHandle,
-        record,
-        claims,
-      });
+      const expectedAuthorizationDigest32 =
+        await this.computeEcdsaDerivationExportAuthorizationDigest32({
+          request,
+          keyHandle,
+          record,
+          claims,
+        });
       if (
         !bytesEqual(
           base64UrlDecode(request.authorizationDigest32B64u),
@@ -1087,13 +1108,13 @@ export class RouterAbEcdsaBootstrapExportRuntime {
         return {
           ok: false,
           code: 'export_authorization_invalid',
-          message: 'ECDSA HSS export authorization digest is invalid',
+          message: 'ECDSA DERIVATION export authorization digest is invalid',
         };
       }
       return {
         ok: true,
         value: {
-          formatVersion: 'ecdsa-hss-role-local-export',
+          formatVersion: 'ecdsa-derivation-role-local-export',
           walletId: request.walletId,
           evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
           ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,

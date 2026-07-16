@@ -1,5 +1,5 @@
 import type { NormalizedLogger } from '../../logger';
-import type { RouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   ThresholdEcdsaSigningRootMetadata,
   ThresholdStoreConfigInput,
@@ -8,8 +8,8 @@ import { RedisTcpClient, UpstashRedisRestClient, redisGetdelJson, redisSetJson }
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   isObject,
-  parseRouterAbEcdsaHssPoolFillSessionRecord,
-  parseRouterAbEcdsaHssServerPresignatureShareRecord,
+  parseRouterAbEcdsaDerivationPoolFillSessionRecord,
+  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   toThresholdEcdsaPresignPrefix,
   toThresholdEcdsaPrefixFromBase,
 } from '../validation';
@@ -17,7 +17,7 @@ import { createCloudflareDurableObjectThresholdEcdsaStores } from './CloudflareD
 import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 import { secureRandomIdFragment } from '../secureRandomId';
 
-export type RouterAbEcdsaHssServerPresignatureShareRecord = {
+export type RouterAbEcdsaDerivationServerPresignatureShareRecord = {
   relayerKeyId: string;
   presignatureId: string;
   bigRB64u: string;
@@ -28,90 +28,90 @@ export type RouterAbEcdsaHssServerPresignatureShareRecord = {
   createdAtMs: number;
 };
 
-export type RouterAbEcdsaHssPoolFillSessionStage = 'triples' | 'triples_done' | 'presign' | 'done';
+export type RouterAbEcdsaDerivationPoolFillSessionStage = 'triples' | 'triples_done' | 'presign' | 'done';
 
-export type RouterAbEcdsaHssPoolFillSessionDestination =
+export type RouterAbEcdsaDerivationPoolFillSessionDestination =
   | {
       kind: 'local_threshold_ecdsa_presignature_pool';
-      routerAbEcdsaHss?: never;
+      routerAbEcdsaDerivation?: never;
     }
   | {
-      kind: 'router_ab_ecdsa_hss_signing_worker_pool';
-      routerAbEcdsaHss: {
-        scope: RouterAbEcdsaHssNormalSigningScopeV1;
+      kind: 'router_ab_ecdsa_derivation_signing_worker_pool';
+      routerAbEcdsaDerivation: {
+        scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
         expiresAtMs: number;
       };
     };
 
-export type RouterAbEcdsaHssPoolFillSessionRecord = {
+export type RouterAbEcdsaDerivationPoolFillSessionRecord = {
   expiresAtMs: number;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   relayerKeyId: string;
   presignPoolKey: string;
-  poolFill: RouterAbEcdsaHssPoolFillSessionDestination;
+  poolFill: RouterAbEcdsaDerivationPoolFillSessionDestination;
   ownerInstanceId?: string;
   participantIds: number[];
   clientParticipantId: number;
   relayerParticipantId: number;
-  stage: RouterAbEcdsaHssPoolFillSessionStage;
+  stage: RouterAbEcdsaDerivationPoolFillSessionStage;
   version: number;
   createdAtMs: number;
   updatedAtMs: number;
 } & ThresholdEcdsaSigningRootMetadata;
 
-export type RouterAbEcdsaHssPoolFillSessionCasResult =
-  | { ok: true; record: RouterAbEcdsaHssPoolFillSessionRecord }
+export type RouterAbEcdsaDerivationPoolFillSessionCasResult =
+  | { ok: true; record: RouterAbEcdsaDerivationPoolFillSessionRecord }
   | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' };
 
-export interface RouterAbEcdsaHssPoolFillSessionStore {
+export interface RouterAbEcdsaDerivationPoolFillSessionStore {
   createSession(
     id: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
     ttlMs: number,
   ): Promise<{ ok: true } | { ok: false; code: 'exists' }>;
-  getSession(id: string): Promise<RouterAbEcdsaHssPoolFillSessionRecord | null>;
+  getSession(id: string): Promise<RouterAbEcdsaDerivationPoolFillSessionRecord | null>;
   advanceSessionCas(input: {
     id: string;
     expectedVersion: number;
-    nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
+    nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord;
     ttlMs: number;
-  }): Promise<RouterAbEcdsaHssPoolFillSessionCasResult>;
+  }): Promise<RouterAbEcdsaDerivationPoolFillSessionCasResult>;
   deleteSession(id: string): Promise<void>;
 }
 
-export interface RouterAbEcdsaHssPresignaturePool {
-  reserve(relayerKeyId: string): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null>;
+export interface RouterAbEcdsaDerivationPresignaturePool {
+  reserve(relayerKeyId: string): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null>;
   reserveById(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null>;
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null>;
   consume(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null>;
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null>;
   discard(relayerKeyId: string, presignatureId: string): Promise<void>;
-  put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void>;
+  put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void>;
 }
 
 type ThresholdEcdsaSigningStoreConfigRecord = Record<string, unknown>;
 
-export class InMemoryRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPoolFillSessionStore {
+export class InMemoryRouterAbEcdsaDerivationPoolFillSessionStore implements RouterAbEcdsaDerivationPoolFillSessionStore {
   private readonly map = new Map<
     string,
-    { value: RouterAbEcdsaHssPoolFillSessionRecord; expiresAtMs: number }
+    { value: RouterAbEcdsaDerivationPoolFillSessionRecord; expiresAtMs: number }
   >();
 
   async createSession(
     id: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
     ttlMs: number,
   ): Promise<{ ok: true } | { ok: false; code: 'exists' }> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing presignSessionId');
 
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(record);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
 
     const existing = this.map.get(key);
     const nowMs = Date.now();
@@ -124,7 +124,7 @@ export class InMemoryRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcd
     return { ok: true };
   }
 
-  async getSession(id: string): Promise<RouterAbEcdsaHssPoolFillSessionRecord | null> {
+  async getSession(id: string): Promise<RouterAbEcdsaDerivationPoolFillSessionRecord | null> {
     const key = toOptionalTrimmedString(id);
     if (!key) return null;
     const entry = this.map.get(key);
@@ -139,9 +139,9 @@ export class InMemoryRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcd
   async advanceSessionCas(input: {
     id: string;
     expectedVersion: number;
-    nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
+    nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord;
     ttlMs: number;
-  }): Promise<RouterAbEcdsaHssPoolFillSessionCasResult> {
+  }): Promise<RouterAbEcdsaDerivationPoolFillSessionCasResult> {
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const entry = this.map.get(key);
@@ -161,8 +161,8 @@ export class InMemoryRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcd
       return { ok: false, code: 'version_mismatch' };
     }
 
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(input.nextRecord);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.nextRecord);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     const expiresAtMs = nowMs + Math.max(0, Number(input.ttlMs) || 0);
     this.map.set(key, { value: parsed, expiresAtMs });
     return { ok: true, record: parsed };
@@ -175,14 +175,14 @@ export class InMemoryRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcd
   }
 }
 
-export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresignaturePool {
+export class InMemoryRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
   private readonly availableByKey = new Map<
     string,
-    RouterAbEcdsaHssServerPresignatureShareRecord[]
+    RouterAbEcdsaDerivationServerPresignatureShareRecord[]
   >();
   private readonly reservedByKey = new Map<
     string,
-    Map<string, { value: RouterAbEcdsaHssServerPresignatureShareRecord; expiresAtMs: number }>
+    Map<string, { value: RouterAbEcdsaDerivationServerPresignatureShareRecord; expiresAtMs: number }>
   >();
   private readonly reservationTtlMs: number;
 
@@ -200,7 +200,7 @@ export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHs
     if (reserved.size === 0) this.reservedByKey.delete(relayerKeyId);
   }
 
-  async put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void> {
+  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
     const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
     const presignatureId = toOptionalTrimmedString(record.presignatureId);
     if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
@@ -218,7 +218,7 @@ export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHs
 
   async reserve(
     relayerKeyId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     this.gc(key);
@@ -242,7 +242,7 @@ export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHs
   async reserveById(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
@@ -270,7 +270,7 @@ export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHs
   async consume(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
@@ -294,7 +294,7 @@ export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHs
   }
 }
 
-class UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPoolFillSessionStore {
+class UpstashRedisRestRouterAbEcdsaDerivationPoolFillSessionStore implements RouterAbEcdsaDerivationPoolFillSessionStore {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
 
@@ -309,13 +309,13 @@ class UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEc
 
   async createSession(
     id: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
     ttlMs: number,
   ): Promise<{ ok: true } | { ok: false; code: 'exists' }> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing presignSessionId');
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(record);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     try {
       const raw = await this.client.eval(
         ECDSA_PRESIGN_SESSION_CREATE_LUA,
@@ -340,10 +340,10 @@ class UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEc
     }
   }
 
-  async getSession(id: string): Promise<RouterAbEcdsaHssPoolFillSessionRecord | null> {
+  async getSession(id: string): Promise<RouterAbEcdsaDerivationPoolFillSessionRecord | null> {
     const key = toOptionalTrimmedString(id);
     if (!key) return null;
-    const record = parseRouterAbEcdsaHssPoolFillSessionRecordFromRaw(await this.client.getJson(this.key(key)));
+    const record = parseRouterAbEcdsaDerivationPoolFillSessionRecordFromRaw(await this.client.getJson(this.key(key)));
     if (!record) return null;
     if (Date.now() > record.expiresAtMs) {
       await this.client.del(this.key(key));
@@ -355,16 +355,16 @@ class UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEc
   async advanceSessionCas(input: {
     id: string;
     expectedVersion: number;
-    nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
+    nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord;
     ttlMs: number;
-  }): Promise<RouterAbEcdsaHssPoolFillSessionCasResult> {
+  }): Promise<RouterAbEcdsaDerivationPoolFillSessionCasResult> {
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const expectedVersion = Math.floor(Number(input.expectedVersion));
     if (!Number.isFinite(expectedVersion) || expectedVersion < 1)
       return { ok: false, code: 'version_mismatch' };
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(input.nextRecord);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.nextRecord);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     try {
       const raw = await this.client.eval(
         ECDSA_PRESIGN_SESSION_CAS_LUA,
@@ -399,7 +399,7 @@ class UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEc
   }
 }
 
-class RedisTcpRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPoolFillSessionStore {
+class RedisTcpRouterAbEcdsaDerivationPoolFillSessionStore implements RouterAbEcdsaDerivationPoolFillSessionStore {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
 
@@ -416,13 +416,13 @@ class RedisTcpRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPo
 
   async createSession(
     id: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
     ttlMs: number,
   ): Promise<{ ok: true } | { ok: false; code: 'exists' }> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing presignSessionId');
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(record);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     const evalResp = await this.client.send([
       'EVAL',
       ECDSA_PRESIGN_SESSION_CREATE_LUA,
@@ -451,13 +451,13 @@ class RedisTcpRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPo
     );
   }
 
-  async getSession(id: string): Promise<RouterAbEcdsaHssPoolFillSessionRecord | null> {
+  async getSession(id: string): Promise<RouterAbEcdsaDerivationPoolFillSessionRecord | null> {
     const key = toOptionalTrimmedString(id);
     if (!key) return null;
     const raw = await this.client.send(['GET', this.key(key)]);
     if (raw.type === 'error') throw new Error(`Redis GET error: ${raw.value}`);
     if (raw.type !== 'bulk' || raw.value === null) return null;
-    const record = parseRouterAbEcdsaHssPoolFillSessionRecordFromRaw(raw.value);
+    const record = parseRouterAbEcdsaDerivationPoolFillSessionRecordFromRaw(raw.value);
     if (!record) return null;
     if (Date.now() > record.expiresAtMs) {
       await this.deleteSession(key);
@@ -469,16 +469,16 @@ class RedisTcpRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPo
   async advanceSessionCas(input: {
     id: string;
     expectedVersion: number;
-    nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
+    nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord;
     ttlMs: number;
-  }): Promise<RouterAbEcdsaHssPoolFillSessionCasResult> {
+  }): Promise<RouterAbEcdsaDerivationPoolFillSessionCasResult> {
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const expectedVersion = Math.floor(Number(input.expectedVersion));
     if (!Number.isFinite(expectedVersion) || expectedVersion < 1)
       return { ok: false, code: 'version_mismatch' };
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(input.nextRecord);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.nextRecord);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     const evalResp = await this.client.send([
       'EVAL',
       ECDSA_PRESIGN_SESSION_CAS_LUA,
@@ -653,29 +653,29 @@ function toRedisMilliseconds(ms: number): number {
 
 function parsePresignatureRecordFromRaw(
   raw: unknown,
-): RouterAbEcdsaHssServerPresignatureShareRecord | null {
+): RouterAbEcdsaDerivationServerPresignatureShareRecord | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === 'string') {
-    return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
       parseJson(raw),
-    ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
   }
-  return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+  return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
     raw,
-  ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+  ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
 }
 
-function parseRouterAbEcdsaHssPoolFillSessionRecordFromRaw(raw: unknown): RouterAbEcdsaHssPoolFillSessionRecord | null {
+function parseRouterAbEcdsaDerivationPoolFillSessionRecordFromRaw(raw: unknown): RouterAbEcdsaDerivationPoolFillSessionRecord | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === 'string') {
-    return parseRouterAbEcdsaHssPoolFillSessionRecord(
+    return parseRouterAbEcdsaDerivationPoolFillSessionRecord(
       parseJson(raw),
-    ) as RouterAbEcdsaHssPoolFillSessionRecord | null;
+    ) as RouterAbEcdsaDerivationPoolFillSessionRecord | null;
   }
-  return parseRouterAbEcdsaHssPoolFillSessionRecord(raw) as RouterAbEcdsaHssPoolFillSessionRecord | null;
+  return parseRouterAbEcdsaDerivationPoolFillSessionRecord(raw) as RouterAbEcdsaDerivationPoolFillSessionRecord | null;
 }
 
-function parsePresignSessionCasLuaResult(raw: unknown): RouterAbEcdsaHssPoolFillSessionCasResult {
+function parsePresignSessionCasLuaResult(raw: unknown): RouterAbEcdsaDerivationPoolFillSessionCasResult {
   if (typeof raw === 'string' && raw.startsWith('__err__:')) {
     const codeRaw = raw.slice('__err__:'.length).trim();
     const code =
@@ -686,7 +686,7 @@ function parsePresignSessionCasLuaResult(raw: unknown): RouterAbEcdsaHssPoolFill
           : 'not_found';
     return { ok: false, code };
   }
-  const record = parseRouterAbEcdsaHssPoolFillSessionRecordFromRaw(raw);
+  const record = parseRouterAbEcdsaDerivationPoolFillSessionRecordFromRaw(raw);
   if (!record) return { ok: false, code: 'not_found' };
   return { ok: true, record };
 }
@@ -702,7 +702,7 @@ function isEvalUnsupportedError(message: string): boolean {
   );
 }
 
-class UpstashRedisRestRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresignaturePool {
+class UpstashRedisRestRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
   private readonly reservationTtlMs: number;
@@ -725,7 +725,7 @@ class UpstashRedisRestRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaH
     return `${this.keyPrefix}res:${relayerKeyId}:`;
   }
 
-  async put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void> {
+  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
     const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
     const presignatureId = toOptionalTrimmedString(record.presignatureId);
     if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
@@ -734,7 +734,7 @@ class UpstashRedisRestRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaH
 
   async reserve(
     relayerKeyId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
@@ -763,7 +763,7 @@ class UpstashRedisRestRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaH
   async reserveById(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
@@ -794,14 +794,14 @@ class UpstashRedisRestRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaH
   async consume(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const raw = await this.client.getdelJson(this.reservedKey(key, id));
-    return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
       raw,
-    ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -817,7 +817,7 @@ async function redisRpushRaw(client: RedisTcpClient, key: string, value: string)
   if (resp.type === 'error') throw new Error(`Redis RPUSH error: ${resp.value}`);
 }
 
-class RedisTcpRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresignaturePool {
+class RedisTcpRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
   private readonly reservationTtlMs: number;
@@ -842,7 +842,7 @@ class RedisTcpRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresig
     return `${this.keyPrefix}res:${relayerKeyId}:`;
   }
 
-  async put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void> {
+  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
     const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
     const presignatureId = toOptionalTrimmedString(record.presignatureId);
     if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
@@ -851,7 +851,7 @@ class RedisTcpRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresig
 
   async reserve(
     relayerKeyId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
@@ -883,7 +883,7 @@ class RedisTcpRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresig
   async reserveById(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
@@ -918,14 +918,14 @@ class RedisTcpRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresig
   async consume(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const raw = await redisGetdelJson(this.client, this.reservedKey(key, id));
-    return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
       raw,
-    ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -942,8 +942,8 @@ export function createThresholdEcdsaSigningStores(input: {
   logger: NormalizedLogger;
   isNode: boolean;
 }): {
-  presignaturePool: RouterAbEcdsaHssPresignaturePool;
-  poolFillSessionStore: RouterAbEcdsaHssPoolFillSessionStore;
+  presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
+  poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
 } {
   const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
     config: input.config,
@@ -973,8 +973,8 @@ export function createThresholdEcdsaSigningStores(input: {
       );
     }
     return {
-      presignaturePool: new InMemoryRouterAbEcdsaHssPresignaturePool(),
-      poolFillSessionStore: new InMemoryRouterAbEcdsaHssPoolFillSessionStore(),
+      presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
+      poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
     };
   }
 
@@ -990,12 +990,12 @@ export function createThresholdEcdsaSigningStores(input: {
         '[threshold-ecdsa] upstash-redis-rest selected but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not set',
       );
     return {
-      presignaturePool: new UpstashRedisRestRouterAbEcdsaHssPresignaturePool({
+      presignaturePool: new UpstashRedisRestRouterAbEcdsaDerivationPresignaturePool({
         url,
         token,
         keyPrefix: presignPrefix,
       }),
-      poolFillSessionStore: new UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore({
+      poolFillSessionStore: new UpstashRedisRestRouterAbEcdsaDerivationPoolFillSessionStore({
         url,
         token,
         keyPrefix: presignPrefix,
@@ -1018,16 +1018,16 @@ export function createThresholdEcdsaSigningStores(input: {
         '[threshold-ecdsa] redis-tcp is not supported in this runtime; falling back to in-memory',
       );
       return {
-        presignaturePool: new InMemoryRouterAbEcdsaHssPresignaturePool(),
-        poolFillSessionStore: new InMemoryRouterAbEcdsaHssPoolFillSessionStore(),
+        presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
+        poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
       };
     }
     return {
-      presignaturePool: new RedisTcpRouterAbEcdsaHssPresignaturePool({
+      presignaturePool: new RedisTcpRouterAbEcdsaDerivationPresignaturePool({
         redisUrl,
         keyPrefix: presignPrefix,
       }),
-      poolFillSessionStore: new RedisTcpRouterAbEcdsaHssPoolFillSessionStore({
+      poolFillSessionStore: new RedisTcpRouterAbEcdsaDerivationPoolFillSessionStore({
         redisUrl,
         keyPrefix: presignPrefix,
       }),
@@ -1045,12 +1045,12 @@ export function createThresholdEcdsaSigningStores(input: {
     }
     input.logger.info('[threshold-ecdsa] Using Upstash REST for presign pool');
     return {
-      presignaturePool: new UpstashRedisRestRouterAbEcdsaHssPresignaturePool({
+      presignaturePool: new UpstashRedisRestRouterAbEcdsaDerivationPresignaturePool({
         url: upstashUrl,
         token: upstashToken,
         keyPrefix: presignPrefix,
       }),
-      poolFillSessionStore: new UpstashRedisRestRouterAbEcdsaHssPoolFillSessionStore({
+      poolFillSessionStore: new UpstashRedisRestRouterAbEcdsaDerivationPoolFillSessionStore({
         url: upstashUrl,
         token: upstashToken,
         keyPrefix: presignPrefix,
@@ -1070,17 +1070,17 @@ export function createThresholdEcdsaSigningStores(input: {
         '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
       );
       return {
-        presignaturePool: new InMemoryRouterAbEcdsaHssPresignaturePool(),
-        poolFillSessionStore: new InMemoryRouterAbEcdsaHssPoolFillSessionStore(),
+        presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
+        poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
       };
     }
     input.logger.info('[threshold-ecdsa] Using redis-tcp for presign pool');
     return {
-      presignaturePool: new RedisTcpRouterAbEcdsaHssPresignaturePool({
+      presignaturePool: new RedisTcpRouterAbEcdsaDerivationPresignaturePool({
         redisUrl,
         keyPrefix: presignPrefix,
       }),
-      poolFillSessionStore: new RedisTcpRouterAbEcdsaHssPoolFillSessionStore({
+      poolFillSessionStore: new RedisTcpRouterAbEcdsaDerivationPoolFillSessionStore({
         redisUrl,
         keyPrefix: presignPrefix,
       }),
@@ -1097,7 +1097,7 @@ export function createThresholdEcdsaSigningStores(input: {
     '[threshold-ecdsa] Using in-memory presign pool (non-persistent)',
   );
   return {
-    presignaturePool: new InMemoryRouterAbEcdsaHssPresignaturePool(),
-    poolFillSessionStore: new InMemoryRouterAbEcdsaHssPoolFillSessionStore(),
+    presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
+    poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
   };
 }

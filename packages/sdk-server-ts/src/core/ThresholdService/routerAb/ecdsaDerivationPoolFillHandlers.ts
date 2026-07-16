@@ -3,18 +3,18 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseEvmFamilySigningKeySlotIdOrNull } from '@shared/signing-lanes';
 import {
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
-  parseRouterAbEcdsaHssNormalSigningScopeV1,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+  parseRouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  EcdsaHssRoleLocalKeyRecord,
+  EcdsaDerivationRoleLocalKeyRecord,
   ThresholdEcdsaSigningRootMetadata,
-  RouterAbEcdsaHssPoolFillInitRequest,
-  RouterAbEcdsaHssPoolFillInitResponse,
-  RouterAbEcdsaHssPoolFillStepRequest,
-  RouterAbEcdsaHssPoolFillStepResponse,
+  RouterAbEcdsaDerivationPoolFillInitRequest,
+  RouterAbEcdsaDerivationPoolFillInitResponse,
+  RouterAbEcdsaDerivationPoolFillStepRequest,
+  RouterAbEcdsaDerivationPoolFillStepResponse,
 } from '../../types';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
@@ -23,31 +23,31 @@ import {
 } from '@shared/threshold/signingRootScope';
 import type { ThresholdCoordinatorPeer, ThresholdNodeRole } from '../config';
 import type {
-  RouterAbEcdsaHssPoolFillSessionRecord,
-  RouterAbEcdsaHssPoolFillSessionDestination,
-  RouterAbEcdsaHssPoolFillSessionStore,
-  RouterAbEcdsaHssServerPresignatureShareRecord,
-  RouterAbEcdsaHssPresignaturePool,
+  RouterAbEcdsaDerivationPoolFillSessionRecord,
+  RouterAbEcdsaDerivationPoolFillSessionDestination,
+  RouterAbEcdsaDerivationPoolFillSessionStore,
+  RouterAbEcdsaDerivationServerPresignatureShareRecord,
+  RouterAbEcdsaDerivationPresignaturePool,
 } from '../stores/EcdsaSigningStore';
 import {
-  buildRouterAbEcdsaHssPresignaturePoolPutRequest,
-  putRouterAbEcdsaHssPresignaturePoolFill,
-  type RouterAbEcdsaHssPresignaturePoolFillAuth,
-} from './ecdsaHssPresignBridge';
+  buildRouterAbEcdsaDerivationPresignaturePoolPutRequest,
+  putRouterAbEcdsaDerivationPresignaturePoolFill,
+  type RouterAbEcdsaDerivationPresignaturePoolFillAuth,
+} from './ecdsaDerivationPresignBridge';
 import type { ThresholdEcdsaSessionClaims } from '../validation';
-import { ensureEthSignerWasm, validateSecp256k1PublicKey33 } from '../ethSignerWasm';
+import { ensureEvmCryptoWasm, validateSecp256k1PublicKey33 } from '../evmCryptoWasm';
 import {
-  InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner,
-  type RouterAbEcdsaHssPoolFillLiveSessionOwner,
-  type RouterAbEcdsaHssPresignatureMaterial,
-} from './ecdsaHssPoolFillLiveSession';
+  InMemoryRouterAbEcdsaDerivationPoolFillLiveSessionOwner,
+  type RouterAbEcdsaDerivationPoolFillLiveSessionOwner,
+  type RouterAbEcdsaDerivationPresignatureMaterial,
+} from './ecdsaDerivationPoolFillLiveSession';
 import {
-  formatEcdsaHssKeyVersionForWire,
+  formatEcdsaDerivationKeyVersionForWire,
   formatEcdsaKeyHandleForWire,
   formatEcdsaRelayerKeyIdForWire,
   formatEcdsaThresholdKeyIdForWire,
   parseEcdsaClientVerifyingShareB64u,
-  parseEcdsaHssKeyVersion,
+  parseEcdsaDerivationKeyVersion,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   parseEcdsaThresholdKeyId,
@@ -57,8 +57,9 @@ import {
   type EcdsaThresholdKeyId,
 } from '../../keyMaterialBrands';
 
-const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION = parseEcdsaHssKeyVersion('v1');
-const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_DERIVATION_VERSION = 1;
+const THRESHOLD_ECDSA_DERIVATION_ROLE_LOCAL_WALLET_KEY_VERSION =
+  parseEcdsaDerivationKeyVersion('v1');
+const THRESHOLD_ECDSA_DERIVATION_ROLE_LOCAL_DERIVATION_VERSION = 1;
 
 type ThresholdEcdsaMpcSessionRecord = {
   expiresAtMs: number;
@@ -87,7 +88,7 @@ type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
 
-type RouterAbEcdsaHssPoolFillInitClaims = Pick<
+type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
   ThresholdEcdsaSessionClaims,
   | 'walletId'
   | 'evmFamilySigningKeySlotId'
@@ -98,7 +99,7 @@ type RouterAbEcdsaHssPoolFillInitClaims = Pick<
   | 'thresholdExpiresAtMs'
 >;
 
-type RouterAbEcdsaHssPoolFillStepClaims = Pick<
+type RouterAbEcdsaDerivationPoolFillStepClaims = Pick<
   ThresholdEcdsaSessionClaims,
   | 'walletId'
   | 'evmFamilySigningKeySlotId'
@@ -107,27 +108,27 @@ type RouterAbEcdsaHssPoolFillStepClaims = Pick<
   | 'thresholdExpiresAtMs'
 >;
 
-const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARD_HOP_HEADER =
-  'x-router-ab-ecdsa-hss-pool-fill-forward-hop';
+const ROUTER_AB_ECDSA_DERIVATION_POOL_FILL_FORWARD_HOP_HEADER =
+  'x-router-ab-ecdsa-derivation-pool-fill-forward-hop';
 
 function parseEvmFamilySigningKeySlotString(value: unknown): string | null {
   const parsed = parseEvmFamilySigningKeySlotIdOrNull(value);
   return parsed ? String(parsed) : null;
 }
-const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARDED_BY_HEADER =
-  'x-router-ab-ecdsa-hss-pool-fill-forwarded-by';
+const ROUTER_AB_ECDSA_DERIVATION_POOL_FILL_FORWARDED_BY_HEADER =
+  'x-router-ab-ecdsa-derivation-pool-fill-forwarded-by';
 const ECDSA_PRESIGN_POOL_KEY_VERSION = 'v2';
 
 function signingRootMetadataFromRoleLocalKey(
-  record: EcdsaHssRoleLocalKeyRecord,
+  record: EcdsaDerivationRoleLocalKeyRecord,
 ): ThresholdEcdsaSigningRootMetadata {
   return {
     signingRootId: record.signingRootId,
     signingRootVersion: record.signingRootVersion,
-    walletKeyVersion: formatEcdsaHssKeyVersionForWire(
-      THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION,
+    walletKeyVersion: formatEcdsaDerivationKeyVersionForWire(
+      THRESHOLD_ECDSA_DERIVATION_ROLE_LOCAL_WALLET_KEY_VERSION,
     ),
-    derivationVersion: THRESHOLD_ECDSA_HSS_ROLE_LOCAL_DERIVATION_VERSION,
+    derivationVersion: THRESHOLD_ECDSA_DERIVATION_ROLE_LOCAL_DERIVATION_VERSION,
   };
 }
 
@@ -136,7 +137,8 @@ function presignPoolKeyPart(value: unknown, fieldName: string): string {
     typeof value === 'number' && Number.isFinite(value)
       ? String(value)
       : toOptionalTrimmedString(value);
-  if (!normalized) throw new Error(`${fieldName} is required for Router A/B ECDSA-HSS pool key`);
+  if (!normalized)
+    throw new Error(`${fieldName} is required for Router A/B ECDSA derivation pool key`);
   return encodeURIComponent(normalized);
 }
 
@@ -196,11 +198,11 @@ function errorMessage(error: unknown): string {
   );
 }
 
-function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
+function isRouterAbEcdsaSigningWorkerRuntimeError(messageRaw: string): boolean {
   const message = String(messageRaw || '').toLowerCase();
   return (
-    message.includes('eth_signer wasm') ||
-    message.includes('initialize eth_signer wasm') ||
+    message.includes('router a/b signing worker wasm') ||
+    message.includes('router_ab_ecdsa_signing_worker') ||
     message.includes('not initialized')
   );
 }
@@ -229,9 +231,9 @@ type ThresholdEcdsaSigningKeyMaterial = {
   presignPoolKey: string;
 };
 
-type RouterAbEcdsaHssSigningWorkerPoolFillDestination = Extract<
-  RouterAbEcdsaHssPoolFillSessionDestination,
-  { kind: 'router_ab_ecdsa_hss_signing_worker_pool' }
+type RouterAbEcdsaDerivationSigningWorkerPoolFillDestination = Extract<
+  RouterAbEcdsaDerivationPoolFillSessionDestination,
+  { kind: 'router_ab_ecdsa_derivation_signing_worker_pool' }
 >;
 
 function assertNever(value: never): never {
@@ -255,14 +257,14 @@ function requireExactPoolFillKeys(
   return { ok: true, value: null };
 }
 
-function parseRouterAbEcdsaHssPoolFillRequest(
+function parseRouterAbEcdsaDerivationPoolFillRequest(
   value: unknown,
-): ParseResult<RouterAbEcdsaHssSigningWorkerPoolFillDestination> {
+): ParseResult<RouterAbEcdsaDerivationSigningWorkerPoolFillDestination> {
   if (value === undefined) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'poolFill is required for Router A/B ECDSA-HSS presign refill',
+      message: 'poolFill is required for Router A/B ECDSA derivation presign refill',
     };
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -271,19 +273,19 @@ function parseRouterAbEcdsaHssPoolFillRequest(
 
   const record = value as Record<string, unknown>;
   const kind = toOptionalTrimmedString(record.kind);
-  if (kind !== 'router_ab_ecdsa_hss_signing_worker_pool') {
+  if (kind !== 'router_ab_ecdsa_derivation_signing_worker_pool') {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'poolFill.kind must be router_ab_ecdsa_hss_signing_worker_pool',
+      message: 'poolFill.kind must be router_ab_ecdsa_derivation_signing_worker_pool',
     };
   }
   const exactKeys = requireExactPoolFillKeys(record, ['kind', 'scope', 'expiresAtMs']);
   if (!exactKeys.ok) return exactKeys;
 
-  let scope: RouterAbEcdsaHssNormalSigningScopeV1;
+  let scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   try {
-    scope = parseRouterAbEcdsaHssNormalSigningScopeV1(record.scope);
+    scope = parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope);
   } catch (error: unknown) {
     return {
       ok: false,
@@ -313,7 +315,7 @@ function parseRouterAbEcdsaHssPoolFillRequest(
     ok: true,
     value: {
       kind,
-      routerAbEcdsaHss: {
+      routerAbEcdsaDerivation: {
         scope,
         expiresAtMs: expiresAtMsInt,
       },
@@ -321,12 +323,12 @@ function parseRouterAbEcdsaHssPoolFillRequest(
   };
 }
 
-function parseRouterAbEcdsaHssPoolFillInitRequest(
-  request: RouterAbEcdsaHssPoolFillInitRequest,
+function parseRouterAbEcdsaDerivationPoolFillInitRequest(
+  request: RouterAbEcdsaDerivationPoolFillInitRequest,
 ): ParseResult<{
   keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
   count: number;
-  poolFill: RouterAbEcdsaHssSigningWorkerPoolFillDestination;
+  poolFill: RouterAbEcdsaDerivationSigningWorkerPoolFillDestination;
 }> {
   const keyHandle = toOptionalTrimmedString((request as { keyHandle?: unknown }).keyHandle);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
@@ -334,14 +336,14 @@ function parseRouterAbEcdsaHssPoolFillInitRequest(
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'keyHandle is required for Router A/B ECDSA-HSS pool-fill init',
+      message: 'keyHandle is required for Router A/B ECDSA derivation pool-fill init',
     };
   }
   if (!keyHandle) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'keyHandle is required for Router A/B ECDSA-HSS pool-fill init',
+      message: 'keyHandle is required for Router A/B ECDSA derivation pool-fill init',
     };
   }
   const countRaw = (request as { count?: unknown }).count;
@@ -350,10 +352,10 @@ function parseRouterAbEcdsaHssPoolFillInitRequest(
     return {
       ok: false,
       code: 'unsupported',
-      message: 'Router A/B ECDSA-HSS pool-fill init supports only count=1',
+      message: 'Router A/B ECDSA derivation pool-fill init supports only count=1',
     };
   }
-  const poolFill = parseRouterAbEcdsaHssPoolFillRequest(
+  const poolFill = parseRouterAbEcdsaDerivationPoolFillRequest(
     (request as { poolFill?: unknown }).poolFill,
   );
   if (!poolFill.ok) return poolFill;
@@ -367,14 +369,14 @@ function parseRouterAbEcdsaHssPoolFillInitRequest(
   };
 }
 
-function validateRouterAbEcdsaHssPresignPoolFill(input: {
-  poolFill: RouterAbEcdsaHssSigningWorkerPoolFillDestination;
+function validateRouterAbEcdsaDerivationPresignPoolFill(input: {
+  poolFill: RouterAbEcdsaDerivationSigningWorkerPoolFillDestination;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   keyMaterial: ThresholdEcdsaSigningKeyMaterial;
   sessionExpiresAtMs: number;
-}): ParseResult<RouterAbEcdsaHssSigningWorkerPoolFillDestination> {
-  const routerAb = input.poolFill.routerAbEcdsaHss;
+}): ParseResult<RouterAbEcdsaDerivationSigningWorkerPoolFillDestination> {
+  const routerAb = input.poolFill.routerAbEcdsaDerivation;
   if (routerAb.expiresAtMs > input.sessionExpiresAtMs) {
     return {
       ok: false,
@@ -407,7 +409,7 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
       return {
         ok: false,
         code: 'unauthorized',
-        message: `${field} does not match Router A/B ECDSA-HSS pool-fill scope`,
+        message: `${field} does not match Router A/B ECDSA derivation pool-fill scope`,
       };
     }
   }
@@ -419,8 +421,8 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
       expected.contextBinding32B64u,
     ],
     [
-      'poolFill.scope.public_identity.client_public_key33_b64u',
-      publicIdentity.client_public_key33_b64u,
+      'poolFill.scope.public_identity.derivation_client_share_public_key33_b64u',
+      publicIdentity.derivation_client_share_public_key33_b64u,
       expected.clientVerifyingShareB64u,
     ],
     [
@@ -447,8 +449,8 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
   return { ok: true, value: input.poolFill };
 }
 
-function parseRouterAbEcdsaHssPoolFillStepRequest(
-  request: RouterAbEcdsaHssPoolFillStepRequest,
+function parseRouterAbEcdsaDerivationPoolFillStepRequest(
+  request: RouterAbEcdsaDerivationPoolFillStepRequest,
 ): ParseResult<{
   presignSessionId: string;
   stage: 'triples' | 'presign';
@@ -476,14 +478,14 @@ function sameParticipantIds(a: number[], b: number[]): boolean {
   return true;
 }
 
-type RouterAbEcdsaHssPoolFillStepTransport = {
+type RouterAbEcdsaDerivationPoolFillStepTransport = {
   authorizationHeader?: string;
   cookieHeader?: string;
   forwardedHop?: number;
   forwardedByInstanceId?: string;
 };
 
-type RouterAbEcdsaHssPoolFillTarget =
+type RouterAbEcdsaDerivationPoolFillTarget =
   | {
       kind: 'disabled';
       signingWorkerBaseUrl?: never;
@@ -493,7 +495,7 @@ type RouterAbEcdsaHssPoolFillTarget =
   | {
       kind: 'strict_private_http';
       signingWorkerBaseUrl: string;
-      auth: RouterAbEcdsaHssPresignaturePoolFillAuth;
+      auth: RouterAbEcdsaDerivationPresignaturePoolFillAuth;
       fetchImpl?: typeof fetch;
     };
 
@@ -505,7 +507,7 @@ function resolvePoolFillFetchImpl(): typeof fetch | null {
   return typeof globalThis.fetch === 'function' ? poolFillGlobalFetch : null;
 }
 
-export class RouterAbEcdsaHssPoolFillHandlers {
+export class RouterAbEcdsaDerivationPoolFillHandlers {
   private readonly logger: NormalizedLogger;
   private readonly nodeRole: ThresholdNodeRole;
   private readonly participantIds2p: number[];
@@ -515,18 +517,18 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     readMpcSession(id: string): Promise<ThresholdEcdsaReadMpcSessionResult | null>;
     claimMpcSession(id: string, version: string): Promise<ThresholdEcdsaClaimMpcSessionResult>;
   };
-  private readonly poolFillSessionStore: RouterAbEcdsaHssPoolFillSessionStore;
-  private readonly presignaturePool: RouterAbEcdsaHssPresignaturePool;
+  private readonly poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
+  private readonly presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
   private readonly resolveRoleLocalKeyRecord: (
-    args: ThresholdEcdsaRoleLocalKeyRecordSelector,
-  ) => Promise<EcdsaHssRoleLocalKeyRecord | null>;
+    keyHandle: string,
+  ) => Promise<EcdsaDerivationRoleLocalKeyRecord | null>;
   private readonly ensureReady: () => Promise<void>;
   private readonly createPoolFillSessionId: () => string;
   private readonly coordinatorInstanceId: string | null;
   private readonly coordinatorPeerUrlByInstanceId: Map<string, string>;
   private readonly maxPresignForwardHops: number;
-  private readonly routerAbEcdsaHssPoolFillTarget: RouterAbEcdsaHssPoolFillTarget;
-  private readonly liveSessionOwner: RouterAbEcdsaHssPoolFillLiveSessionOwner;
+  private readonly routerAbEcdsaDerivationPoolFillTarget: RouterAbEcdsaDerivationPoolFillTarget;
+  private readonly liveSessionOwner: RouterAbEcdsaDerivationPoolFillLiveSessionOwner;
 
   constructor(input: {
     logger: NormalizedLogger;
@@ -540,18 +542,18 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       readMpcSession(id: string): Promise<ThresholdEcdsaReadMpcSessionResult | null>;
       claimMpcSession(id: string, version: string): Promise<ThresholdEcdsaClaimMpcSessionResult>;
     };
-    poolFillSessionStore: RouterAbEcdsaHssPoolFillSessionStore;
-    presignaturePool: RouterAbEcdsaHssPresignaturePool;
+    poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
+    presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
     resolveRoleLocalKeyRecord: (
-      args: ThresholdEcdsaRoleLocalKeyRecordSelector,
-    ) => Promise<EcdsaHssRoleLocalKeyRecord | null>;
+      keyHandle: string,
+    ) => Promise<EcdsaDerivationRoleLocalKeyRecord | null>;
     ensureReady: () => Promise<void>;
     createPoolFillSessionId: () => string;
     maxPresignForwardHops?: number;
-    liveSessionOwner?: RouterAbEcdsaHssPoolFillLiveSessionOwner;
-    routerAbEcdsaHssPoolFill?: {
+    liveSessionOwner?: RouterAbEcdsaDerivationPoolFillLiveSessionOwner;
+    routerAbEcdsaDerivationPoolFill?: {
       signingWorkerBaseUrl: string;
-      auth: RouterAbEcdsaHssPresignaturePoolFillAuth;
+      auth: RouterAbEcdsaDerivationPresignaturePoolFillAuth;
       fetchImpl?: typeof fetch;
     } | null;
   }) {
@@ -583,11 +585,11 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     this.ensureReady = input.ensureReady;
     this.createPoolFillSessionId = input.createPoolFillSessionId;
     this.liveSessionOwner =
-      input.liveSessionOwner || new InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner();
-    const routerAbPoolFill = input.routerAbEcdsaHssPoolFill || null;
+      input.liveSessionOwner || new InMemoryRouterAbEcdsaDerivationPoolFillLiveSessionOwner();
+    const routerAbPoolFill = input.routerAbEcdsaDerivationPoolFill || null;
     if (routerAbPoolFill) {
       const signingWorkerBaseUrl = toOptionalTrimmedString(routerAbPoolFill.signingWorkerBaseUrl);
-      this.routerAbEcdsaHssPoolFillTarget =
+      this.routerAbEcdsaDerivationPoolFillTarget =
         signingWorkerBaseUrl && (routerAbPoolFill.fetchImpl || resolvePoolFillFetchImpl())
           ? {
               kind: 'strict_private_http',
@@ -597,7 +599,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
             }
           : { kind: 'disabled' };
     } else {
-      this.routerAbEcdsaHssPoolFillTarget = { kind: 'disabled' };
+      this.routerAbEcdsaDerivationPoolFillTarget = { kind: 'disabled' };
     }
   }
 
@@ -613,7 +615,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       'signingRootId' | 'signingRootVersion'
     >;
   }): Promise<ParseResult<ThresholdEcdsaSigningKeyMaterial>> {
-    const roleLocalKey = await this.resolveRoleLocalKeyRecord(input.keySelector);
+    const roleLocalKey = await this.resolveRoleLocalKeyRecord(input.keySelector.keyHandle);
     if (!roleLocalKey) {
       return {
         ok: false,
@@ -710,7 +712,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   private emitPresignSecurityEvent(input: {
     event: string;
     presignSessionId: string;
-    record?: RouterAbEcdsaHssPoolFillSessionRecord | null;
+    record?: RouterAbEcdsaDerivationPoolFillSessionRecord | null;
     code?: string;
     message?: string;
     requestOrigin?: string;
@@ -731,10 +733,10 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   }
 
   private async publishCompletedPresignature(input: {
-    record: RouterAbEcdsaHssPoolFillSessionRecord;
-    presignature: RouterAbEcdsaHssPresignatureMaterial;
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord;
+    presignature: RouterAbEcdsaDerivationPresignatureMaterial;
   }): Promise<ParseResult<null>> {
-    const shareRecord: RouterAbEcdsaHssServerPresignatureShareRecord = {
+    const shareRecord: RouterAbEcdsaDerivationServerPresignatureShareRecord = {
       relayerKeyId: input.record.presignPoolKey,
       presignatureId: input.presignature.presignatureId,
       bigRB64u: input.presignature.bigRB64u,
@@ -747,13 +749,13 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       case 'local_threshold_ecdsa_presignature_pool':
         await this.presignaturePool.put(shareRecord);
         return { ok: true, value: null };
-      case 'router_ab_ecdsa_hss_signing_worker_pool': {
-        const target = this.routerAbEcdsaHssPoolFillTarget;
+      case 'router_ab_ecdsa_derivation_signing_worker_pool': {
+        const target = this.routerAbEcdsaDerivationPoolFillTarget;
         if (target.kind !== 'strict_private_http') {
           return {
             ok: false,
             code: 'internal',
-            message: 'Router A/B ECDSA-HSS presignature pool-fill target is not configured',
+            message: 'Router A/B ECDSA derivation presignature pool-fill target is not configured',
           };
         }
         const fetchImpl = target.fetchImpl || resolvePoolFillFetchImpl();
@@ -761,11 +763,12 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           return {
             ok: false,
             code: 'internal',
-            message: 'Router A/B ECDSA-HSS presignature pool-fill target fetch is unavailable',
+            message:
+              'Router A/B ECDSA derivation presignature pool-fill target fetch is unavailable',
           };
         }
-        const request = buildRouterAbEcdsaHssPresignaturePoolPutRequest({
-          scope: input.record.poolFill.routerAbEcdsaHss.scope,
+        const request = buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
+          scope: input.record.poolFill.routerAbEcdsaDerivation.scope,
           presignature: {
             serverKeyId: shareRecord.relayerKeyId,
             presignatureId: shareRecord.presignatureId,
@@ -774,9 +777,9 @@ export class RouterAbEcdsaHssPoolFillHandlers {
             sigmaShareB64u: shareRecord.sigmaShareB64u,
             createdAtMs: shareRecord.createdAtMs,
           },
-          expiresAtMs: input.record.poolFill.routerAbEcdsaHss.expiresAtMs,
+          expiresAtMs: input.record.poolFill.routerAbEcdsaDerivation.expiresAtMs,
         });
-        const result = await putRouterAbEcdsaHssPresignaturePoolFill({
+        const result = await putRouterAbEcdsaDerivationPresignaturePoolFill({
           signingWorkerBaseUrl: target.signingWorkerBaseUrl,
           request,
           auth: target.auth,
@@ -794,7 +797,9 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     }
   }
 
-  private isPresignSessionOwnedLocally(record: RouterAbEcdsaHssPoolFillSessionRecord): boolean {
+  private isPresignSessionOwnedLocally(
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
+  ): boolean {
     const ownerInstanceId = toOptionalTrimmedString(record.ownerInstanceId);
     if (!ownerInstanceId) return true;
     if (!this.coordinatorInstanceId) return false;
@@ -802,7 +807,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   }
 
   private resolvePresignSessionOwnerPeerUrl(
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
   ): string | null {
     const ownerInstanceId = toOptionalTrimmedString(record.ownerInstanceId);
     if (!ownerInstanceId) return null;
@@ -813,26 +818,30 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   private async forwardPoolFillStepToOwner(input: {
     ownerInstanceId: string;
     ownerRelayerUrl: string;
-    request: RouterAbEcdsaHssPoolFillStepRequest;
+    request: RouterAbEcdsaDerivationPoolFillStepRequest;
     authorizationHeader?: string;
     cookieHeader?: string;
     forwardedHop: number;
     presignSessionId: string;
-  }): Promise<RouterAbEcdsaHssPoolFillStepResponse | null> {
+  }): Promise<RouterAbEcdsaDerivationPoolFillStepResponse | null> {
     if (typeof fetch !== 'function') {
-      this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward skipped: fetch unavailable', {
-        presignSessionId: input.presignSessionId,
-        ownerInstanceId: input.ownerInstanceId,
-      });
+      this.logger.warn(
+        '[router-ab-ecdsa-derivation-pool-fill] owner-forward skipped: fetch unavailable',
+        {
+          presignSessionId: input.presignSessionId,
+          ownerInstanceId: input.ownerInstanceId,
+        },
+      );
       return null;
     }
 
     const headers: Record<string, string> = {
       'content-type': 'application/json',
-      [ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARD_HOP_HEADER]: String(input.forwardedHop + 1),
+      [ROUTER_AB_ECDSA_DERIVATION_POOL_FILL_FORWARD_HOP_HEADER]: String(input.forwardedHop + 1),
     };
     if (this.coordinatorInstanceId)
-      headers[ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARDED_BY_HEADER] = this.coordinatorInstanceId;
+      headers[ROUTER_AB_ECDSA_DERIVATION_POOL_FILL_FORWARDED_BY_HEADER] =
+        this.coordinatorInstanceId;
     const authorizationHeader = toOptionalTrimmedString(input.authorizationHeader);
     if (authorizationHeader) headers.authorization = authorizationHeader;
     const cookieHeader = toOptionalTrimmedString(input.cookieHeader);
@@ -841,7 +850,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     let response: Response;
     try {
       response = await fetch(
-        `${input.ownerRelayerUrl}${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH}`,
+        `${input.ownerRelayerUrl}${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH}`,
         {
           method: 'POST',
           headers,
@@ -849,7 +858,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         },
       );
     } catch (error: unknown) {
-      this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward request failed', {
+      this.logger.warn('[router-ab-ecdsa-derivation-pool-fill] owner-forward request failed', {
         presignSessionId: input.presignSessionId,
         ownerInstanceId: input.ownerInstanceId,
         ownerRelayerUrl: input.ownerRelayerUrl,
@@ -862,44 +871,50 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     try {
       body = await response.json();
     } catch {
-      this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward response decode failed', {
-        presignSessionId: input.presignSessionId,
-        ownerInstanceId: input.ownerInstanceId,
-        ownerRelayerUrl: input.ownerRelayerUrl,
-        status: response.status,
-      });
+      this.logger.warn(
+        '[router-ab-ecdsa-derivation-pool-fill] owner-forward response decode failed',
+        {
+          presignSessionId: input.presignSessionId,
+          ownerInstanceId: input.ownerInstanceId,
+          ownerRelayerUrl: input.ownerRelayerUrl,
+          status: response.status,
+        },
+      );
       return null;
     }
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward response shape invalid', {
-        presignSessionId: input.presignSessionId,
-        ownerInstanceId: input.ownerInstanceId,
-        ownerRelayerUrl: input.ownerRelayerUrl,
-        status: response.status,
-      });
+      this.logger.warn(
+        '[router-ab-ecdsa-derivation-pool-fill] owner-forward response shape invalid',
+        {
+          presignSessionId: input.presignSessionId,
+          ownerInstanceId: input.ownerInstanceId,
+          ownerRelayerUrl: input.ownerRelayerUrl,
+          status: response.status,
+        },
+      );
       return null;
     }
 
-    return body as RouterAbEcdsaHssPoolFillStepResponse;
+    return body as RouterAbEcdsaDerivationPoolFillStepResponse;
   }
 
-  async routerAbEcdsaHssPresignaturePoolFillInit(input: {
-    claims: RouterAbEcdsaHssPoolFillInitClaims;
-    request: RouterAbEcdsaHssPoolFillInitRequest;
-  }): Promise<RouterAbEcdsaHssPoolFillInitResponse> {
+  async routerAbEcdsaDerivationPresignaturePoolFillInit(input: {
+    claims: RouterAbEcdsaDerivationPoolFillInitClaims;
+    request: RouterAbEcdsaDerivationPoolFillInitRequest;
+  }): Promise<RouterAbEcdsaDerivationPoolFillInitResponse> {
     if (this.nodeRole !== 'coordinator') {
       return {
         ok: false,
         code: 'not_found',
         message:
-          'Router A/B ECDSA-HSS pool-fill endpoints are not enabled on this server (set THRESHOLD_NODE_ROLE=coordinator)',
+          'Router A/B ECDSA derivation pool-fill endpoints are not enabled on this server (set THRESHOLD_NODE_ROLE=coordinator)',
       };
     }
 
     await this.ensureReady();
-    await ensureEthSignerWasm();
+    await ensureEvmCryptoWasm();
 
-    const parsedRequest = parseRouterAbEcdsaHssPoolFillInitRequest(input.request);
+    const parsedRequest = parseRouterAbEcdsaDerivationPoolFillInitRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
     const { keySelector, poolFill } = parsedRequest.value;
 
@@ -958,7 +973,8 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       return {
         ok: false,
         code: 'unsupported',
-        message: 'Router A/B ECDSA-HSS pool-fill requires participantIds={client=1,relayer=2}',
+        message:
+          'Router A/B ECDSA derivation pool-fill requires participantIds={client=1,relayer=2}',
       };
     }
 
@@ -984,11 +1000,11 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       validatedClientPublicKey33 = await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
     } catch (e: unknown) {
       const runtimeMessage = errorMessage(e);
-      if (isEthSignerWasmRuntimeError(runtimeMessage)) {
+      if (isRouterAbEcdsaSigningWorkerRuntimeError(runtimeMessage)) {
         return {
           ok: false,
           code: 'internal',
-          message: runtimeMessage || 'eth_signer WASM runtime error',
+          message: runtimeMessage || 'Router A/B ECDSA signing worker WASM runtime error',
         };
       }
       return {
@@ -1039,7 +1055,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       return { ok: false, code: 'unauthorized', message: 'Wallet Session expired' };
     }
     const expiresAtMs = nowMs + ttlMs;
-    const sessionPoolFill = validateRouterAbEcdsaHssPresignPoolFill({
+    const sessionPoolFill = validateRouterAbEcdsaDerivationPresignPoolFill({
       poolFill,
       walletId,
       evmFamilySigningKeySlotId: tokenWalletKeyId,
@@ -1059,7 +1075,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const presignSessionId = this.createPoolFillSessionId();
       const createdAtMs = Date.now();
-      const initialRecord: RouterAbEcdsaHssPoolFillSessionRecord = {
+      const initialRecord: RouterAbEcdsaDerivationPoolFillSessionRecord = {
         expiresAtMs,
         walletId,
         evmFamilySigningKeySlotId: tokenWalletKeyId,
@@ -1107,23 +1123,23 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     return { ok: false, code: 'internal', message: 'Failed to allocate presignSessionId; retry' };
   }
 
-  async routerAbEcdsaHssPresignaturePoolFillStep(input: {
-    claims: RouterAbEcdsaHssPoolFillStepClaims;
-    request: RouterAbEcdsaHssPoolFillStepRequest;
-    transport?: RouterAbEcdsaHssPoolFillStepTransport;
-  }): Promise<RouterAbEcdsaHssPoolFillStepResponse> {
+  async routerAbEcdsaDerivationPresignaturePoolFillStep(input: {
+    claims: RouterAbEcdsaDerivationPoolFillStepClaims;
+    request: RouterAbEcdsaDerivationPoolFillStepRequest;
+    transport?: RouterAbEcdsaDerivationPoolFillStepTransport;
+  }): Promise<RouterAbEcdsaDerivationPoolFillStepResponse> {
     if (this.nodeRole !== 'coordinator') {
       return {
         ok: false,
         code: 'not_found',
         message:
-          'Router A/B ECDSA-HSS pool-fill endpoints are not enabled on this server (set THRESHOLD_NODE_ROLE=coordinator)',
+          'Router A/B ECDSA derivation pool-fill endpoints are not enabled on this server (set THRESHOLD_NODE_ROLE=coordinator)',
       };
     }
 
     await this.ensureReady();
 
-    const parsedRequest = parseRouterAbEcdsaHssPoolFillStepRequest(input.request);
+    const parsedRequest = parseRouterAbEcdsaDerivationPoolFillStepRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
     const transport = input.transport || {};
     const authorizationHeader = toOptionalTrimmedString(transport.authorizationHeader);
@@ -1137,7 +1153,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       Number.isFinite(forwardedHopRaw) && forwardedHopRaw >= 0 ? forwardedHopRaw : 0;
     const trustedForwardedHop = forwardedHop > 0 && forwardedByTrustedPeer ? forwardedHop : 0;
     if (forwardedHop > 0 && trustedForwardedHop === 0) {
-      this.logger.warn('[router-ab-ecdsa-hss-pool-fill] ignoring untrusted forwarded hop', {
+      this.logger.warn('[router-ab-ecdsa-derivation-pool-fill] ignoring untrusted forwarded hop', {
         requestedForwardedHop: forwardedHop,
         forwardedByInstanceId: forwardedByInstanceId || null,
         localInstanceId: this.coordinatorInstanceId,
@@ -1276,16 +1292,19 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           perf.presign_stale_session_state = 1;
           perf.ownerForwardReason = 'hop_limit_exceeded';
           perf.resultCode = 'stale_session_state';
-          this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward blocked by hop limit', {
-            presignSessionId,
-            ownerInstanceId,
-            forwardedHop: trustedForwardedHop,
-            maxPresignForwardHops: this.maxPresignForwardHops,
-          });
+          this.logger.warn(
+            '[router-ab-ecdsa-derivation-pool-fill] owner-forward blocked by hop limit',
+            {
+              presignSessionId,
+              ownerInstanceId,
+              forwardedHop: trustedForwardedHop,
+              maxPresignForwardHops: this.maxPresignForwardHops,
+            },
+          );
           return {
             ok: false,
             code: 'stale_session_state',
-            message: `Router A/B ECDSA-HSS pool-fill owner forwarding limit exceeded; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
+            message: `Router A/B ECDSA derivation pool-fill owner forwarding limit exceeded; retry ${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
           };
         }
 
@@ -1294,7 +1313,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           perf.presign_stale_session_state = 1;
           perf.ownerForwardReason = 'owner_peer_unavailable';
           perf.resultCode = 'stale_session_state';
-          this.logger.warn('[router-ab-ecdsa-hss-pool-fill] owner-forward peer missing', {
+          this.logger.warn('[router-ab-ecdsa-derivation-pool-fill] owner-forward peer missing', {
             presignSessionId,
             ownerInstanceId,
             localInstanceId: this.coordinatorInstanceId,
@@ -1302,7 +1321,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           return {
             ok: false,
             code: 'stale_session_state',
-            message: `Router A/B ECDSA-HSS pool-fill owner unavailable on this coordinator; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
+            message: `Router A/B ECDSA derivation pool-fill owner unavailable on this coordinator; retry ${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
           };
         }
         if (!authorizationHeader && !cookieHeader) {
@@ -1310,7 +1329,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           perf.ownerForwardReason = 'missing_session_auth';
           perf.resultCode = 'stale_session_state';
           this.logger.warn(
-            '[router-ab-ecdsa-hss-pool-fill] owner-forward missing session auth headers',
+            '[router-ab-ecdsa-derivation-pool-fill] owner-forward missing session auth headers',
             {
               presignSessionId,
               ownerInstanceId,
@@ -1319,7 +1338,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           return {
             ok: false,
             code: 'stale_session_state',
-            message: `Router A/B ECDSA-HSS pool-fill owner forwarding missing session auth; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
+            message: `Router A/B ECDSA derivation pool-fill owner forwarding missing session auth; retry ${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
           };
         }
 
@@ -1338,7 +1357,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           perf.resultCode = forwardedResponse.ok
             ? 'ok'
             : toOptionalTrimmedString(forwardedResponse.code) || 'forwarded_error';
-          this.logger.info('[router-ab-ecdsa-hss-pool-fill] owner-forward success', {
+          this.logger.info('[router-ab-ecdsa-derivation-pool-fill] owner-forward success', {
             presignSessionId,
             ownerInstanceId,
             ownerRelayerUrl,
@@ -1355,7 +1374,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         return {
           ok: false,
           code: 'stale_session_state',
-          message: `Router A/B ECDSA-HSS pool-fill owner forward failed; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
+          message: `Router A/B ECDSA derivation pool-fill owner forward failed; retry ${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
         };
       }
 
@@ -1444,7 +1463,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       perf.storeCasMs = Math.max(0, Date.now() - storeCasStartedAtMs);
       if (!cas.ok) {
         await this.deleteLivePresignSession(presignSessionId);
-        this.logger.warn('[router-ab-ecdsa-hss-pool-fill] live-session CAS conflict', {
+        this.logger.warn('[router-ab-ecdsa-derivation-pool-fill] live-session CAS conflict', {
           presignSessionId,
           expectedVersion: record.version,
           nextVersion: nextRecord.version,
@@ -1468,7 +1487,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         return {
           ok: false,
           code: 'stale_session_state',
-          message: 'Router A/B ECDSA-HSS pool-fill session updated concurrently; retry step',
+          message: 'Router A/B ECDSA derivation pool-fill session updated concurrently; retry step',
         };
       }
 
@@ -1514,7 +1533,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         outgoingMessagesB64u: polled.outgoingMessagesB64u,
       };
     } finally {
-      this.logger.info('[router-ab-ecdsa-hss-pool-fill] step perf', {
+      this.logger.info('[router-ab-ecdsa-derivation-pool-fill] step perf', {
         presignSessionId,
         requestedStage,
         totalMs: Math.max(0, Date.now() - stepStartedAtMs),

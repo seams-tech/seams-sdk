@@ -3,8 +3,8 @@ import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseEd25519WalletSessionRecord,
-  parseRouterAbEcdsaHssPoolFillSessionRecord,
-  parseRouterAbEcdsaHssServerPresignatureShareRecord,
+  parseRouterAbEcdsaDerivationPoolFillSessionRecord,
+  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
@@ -49,17 +49,17 @@ export type CurrentThresholdEd25519StoreSessionRow =
       expiresAtMs: number;
     };
 
-export type CurrentRouterAbEcdsaHssPoolFillSessionRecord = NonNullable<
-  ReturnType<typeof parseRouterAbEcdsaHssPoolFillSessionRecord>
+export type CurrentRouterAbEcdsaDerivationPoolFillSessionRecord = NonNullable<
+  ReturnType<typeof parseRouterAbEcdsaDerivationPoolFillSessionRecord>
 >;
 
-export type CurrentRouterAbEcdsaHssPoolFillSessionRow = {
-  record: CurrentRouterAbEcdsaHssPoolFillSessionRecord;
+export type CurrentRouterAbEcdsaDerivationPoolFillSessionRow = {
+  record: CurrentRouterAbEcdsaDerivationPoolFillSessionRecord;
   expiresAtMs: number;
 };
 
-export type CurrentRouterAbEcdsaHssServerPresignatureRecord = NonNullable<
-  ReturnType<typeof parseRouterAbEcdsaHssServerPresignatureShareRecord>
+export type CurrentRouterAbEcdsaDerivationServerPresignatureRecord = NonNullable<
+  ReturnType<typeof parseRouterAbEcdsaDerivationServerPresignatureShareRecord>
 >;
 
 export type CurrentSigningRootSecretShareRecord = SealedSigningRootSecretShare & {
@@ -183,12 +183,12 @@ export function parseCurrentThresholdEd25519StoreSessionRow(input: {
   }
 }
 
-export function parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(
+export function parseCurrentRouterAbEcdsaDerivationPoolFillSessionRecord(
   raw: unknown,
-): CurrentRouterAbEcdsaHssPoolFillSessionRecord | null {
+): CurrentRouterAbEcdsaDerivationPoolFillSessionRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(record);
+  const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(record);
   if (!parsed) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
   const createdAtMs = toPositiveSafeInt(record.createdAtMs);
@@ -205,11 +205,11 @@ export function parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(
   };
 }
 
-export function parseCurrentRouterAbEcdsaHssPoolFillSessionRow(input: {
+export function parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow(input: {
   recordJson: unknown;
   expiresAtMs: unknown;
-}): CurrentRouterAbEcdsaHssPoolFillSessionRow | null {
-  const record = parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(input.recordJson);
+}): CurrentRouterAbEcdsaDerivationPoolFillSessionRow | null {
+  const record = parseCurrentRouterAbEcdsaDerivationPoolFillSessionRecord(input.recordJson);
   const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
   if (!record || !expiresAtMs) return null;
   if (record.expiresAtMs !== expiresAtMs) return null;
@@ -219,12 +219,12 @@ export function parseCurrentRouterAbEcdsaHssPoolFillSessionRow(input: {
   };
 }
 
-export function parseCurrentRouterAbEcdsaHssServerPresignatureRecord(
+export function parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord(
   raw: unknown,
-): CurrentRouterAbEcdsaHssServerPresignatureRecord | null {
+): CurrentRouterAbEcdsaDerivationServerPresignatureRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  const parsed = parseRouterAbEcdsaHssServerPresignatureShareRecord(record);
+  const parsed = parseRouterAbEcdsaDerivationServerPresignatureShareRecord(record);
   const createdAtMs = toPositiveSafeInt(record.createdAtMs);
   if (!parsed || !createdAtMs) return null;
   return {

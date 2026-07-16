@@ -10,7 +10,7 @@ import type {
 import type {
   WalletRegistrationFinalizeRequest
 } from '../../core/registrationContracts';
-import { validateSecp256k1PublicKey33 } from '../../core/ThresholdService/ethSignerWasm';
+import { validateSecp256k1PublicKey33 } from '../../core/ThresholdService/evmCryptoWasm';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
 import type { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';

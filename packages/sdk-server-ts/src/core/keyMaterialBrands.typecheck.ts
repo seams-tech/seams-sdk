@@ -1,6 +1,6 @@
 import type {
   EcdsaClientVerifyingShareB64u,
-  EcdsaHssKeyVersion,
+  EcdsaDerivationKeyVersion,
   EcdsaKeyHandle,
   EcdsaRelayerKeyId,
   EcdsaThresholdKeyId,
@@ -11,7 +11,7 @@ import type {
 } from './keyMaterialBrands';
 import {
   formatEcdsaClientVerifyingShareB64uForWire,
-  formatEcdsaHssKeyVersionForWire,
+  formatEcdsaDerivationKeyVersionForWire,
   formatEcdsaKeyHandleForWire,
   formatEcdsaRelayerKeyIdForWire,
   formatEcdsaThresholdKeyIdForWire,
@@ -20,7 +20,7 @@ import {
   formatSigningSessionSealKeyVersionForWire,
   formatSigningSessionSealShamirPrimeB64uForWire,
   parseEcdsaClientVerifyingShareB64u,
-  parseEcdsaHssKeyVersion,
+  parseEcdsaDerivationKeyVersion,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   parseEcdsaThresholdKeyId,
@@ -35,7 +35,7 @@ import {
   type NearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 
-const ecdsa = parseEcdsaHssKeyVersion('ecdsa-hss-material-test-v1');
+const ecdsa = parseEcdsaDerivationKeyVersion('ecdsa-derivation-material-test-v1');
 const seal = parseSigningSessionSealKeyVersion('signing-session-seal-kek-test-r1');
 const ed25519Verifier = parseEd25519ClientVerifyingShareB64u('ed25519-client-verifier');
 const ecdsaVerifier = parseEcdsaClientVerifyingShareB64u('ecdsa-client-verifier');
@@ -49,8 +49,8 @@ if (!webAuthnRpIdResult.ok) throw new Error(webAuthnRpIdResult.error.message);
 const webAuthnRpId = webAuthnRpIdResult.value;
 const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId('ed25519ks_fixture');
 
-function acceptsEcdsa(value: EcdsaHssKeyVersion) {
-  return formatEcdsaHssKeyVersionForWire(value);
+function acceptsEcdsa(value: EcdsaDerivationKeyVersion) {
+  return formatEcdsaDerivationKeyVersionForWire(value);
 }
 
 function acceptsSeal(value: SigningSessionSealKeyVersion) {

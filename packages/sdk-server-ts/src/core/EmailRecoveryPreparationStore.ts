@@ -375,7 +375,7 @@ function parseEcdsaPrepareTarget(raw: unknown): WalletRegistrationEcdsaPrepareTa
     signingGrantId: toOptionalTrimmedString(prepare.signingGrantId),
   };
   if (
-    required.formatVersion !== 'ecdsa-hss-role-local' ||
+    required.formatVersion !== 'ecdsa-derivation-role-local' ||
     required.keyScope !== 'evm-family' ||
     !required.walletId ||
     !required.evmFamilySigningKeySlotId ||
@@ -395,7 +395,7 @@ function parseEcdsaPrepareTarget(raw: unknown): WalletRegistrationEcdsaPrepareTa
   return {
     chainTarget,
     prepare: {
-      formatVersion: 'ecdsa-hss-role-local',
+      formatVersion: 'ecdsa-derivation-role-local',
       walletId: required.walletId,
       evmFamilySigningKeySlotId: required.evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: required.ecdsaThresholdKeyId,

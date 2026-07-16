@@ -24,7 +24,7 @@ const ecdsaAuth = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
-  keyHandle: 'ehss-key-1',
+  keyHandle: 'ederivation-key-1',
 } satisfies VerifiedEcdsaWalletSessionAuth;
 
 const ed25519Auth = {
@@ -67,7 +67,7 @@ const invalidEd25519Request: Ed25519WalletSigningBudgetStatusRequest = {
   signingGrantId: ed25519Auth.signingGrantId,
   ed25519RelayerKeyId: ed25519Auth.ed25519RelayerKeyId,
   // @ts-expect-error Ed25519 request must not carry ECDSA key handles
-  keyHandle: 'ehss-key-1',
+  keyHandle: 'ederivation-key-1',
 };
 void invalidEd25519Request;
 

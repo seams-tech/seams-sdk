@@ -5,10 +5,10 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
-  parseEcdsaHssRoleLocalKeyRecord,
+  parseEcdsaDerivationRoleLocalKeyRecord,
   isObject,
-  parseRouterAbEcdsaHssPoolFillSessionRecord,
-  parseRouterAbEcdsaHssServerPresignatureShareRecord,
+  parseRouterAbEcdsaDerivationPoolFillSessionRecord,
+  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   parseEcdsaWalletSessionRecord,
   parseEd25519WalletSessionRecord,
   parseWalletSigningBudgetSessionRecord,
@@ -54,7 +54,7 @@ import type {
   ThresholdEd25519ReadyKeyRecord,
   ThresholdEd25519KeyStore,
 } from './KeyStore';
-import type { EcdsaHssRoleLocalKeyRecord } from '../../types';
+import type { EcdsaDerivationRoleLocalKeyRecord } from '../../types';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
   ThresholdEcdsaMpcSessionRecord,
@@ -69,20 +69,20 @@ import type {
   ThresholdEd25519SigningSessionRecord,
 } from './SessionStore';
 import type {
-  RouterAbEcdsaHssPoolFillSessionCasResult,
-  RouterAbEcdsaHssPoolFillSessionRecord,
-  RouterAbEcdsaHssPoolFillSessionStore,
-  RouterAbEcdsaHssPresignaturePool,
-  RouterAbEcdsaHssServerPresignatureShareRecord,
+  RouterAbEcdsaDerivationPoolFillSessionCasResult,
+  RouterAbEcdsaDerivationPoolFillSessionRecord,
+  RouterAbEcdsaDerivationPoolFillSessionStore,
+  RouterAbEcdsaDerivationPresignaturePool,
+  RouterAbEcdsaDerivationServerPresignatureShareRecord,
 } from './EcdsaSigningStore';
 import type {
-  RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
-  RouterAbEcdsaHssPoolFillLiveSessionCreateValue,
-  RouterAbEcdsaHssPoolFillLiveSessionOwner,
-  RouterAbEcdsaHssPoolFillLiveSessionStepInput,
-  RouterAbEcdsaHssPoolFillParseResult,
-  RouterAbEcdsaHssPoolFillPreparedStep,
-} from '../routerAb/ecdsaHssPoolFillLiveSession';
+  RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput,
+  RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue,
+  RouterAbEcdsaDerivationPoolFillLiveSessionOwner,
+  RouterAbEcdsaDerivationPoolFillLiveSessionStepInput,
+  RouterAbEcdsaDerivationPoolFillParseResult,
+  RouterAbEcdsaDerivationPoolFillPreparedStep,
+} from '../routerAb/ecdsaDerivationPoolFillLiveSession';
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 
@@ -159,48 +159,48 @@ type DoAuthReserveReplayGuardRequest = {
   key: string;
   expiresAtMs: number;
 };
-type DoRouterAbEcdsaHssPresignaturePutRequest = {
-  op: 'routerAbEcdsaHssPresignaturePut';
+type DoRouterAbEcdsaDerivationPresignaturePutRequest = {
+  op: 'routerAbEcdsaDerivationPresignaturePut';
   listKey: string;
   dedupeKey: string;
   value: unknown;
 };
-type DoRouterAbEcdsaHssPresignatureReserveRequest = {
-  op: 'routerAbEcdsaHssPresignatureReserve';
+type DoRouterAbEcdsaDerivationPresignatureReserveRequest = {
+  op: 'routerAbEcdsaDerivationPresignatureReserve';
   listKey: string;
   reservedKeyPrefix: string;
   ttlMs?: number;
 };
-type DoRouterAbEcdsaHssPresignatureReserveByIdRequest = {
-  op: 'routerAbEcdsaHssPresignatureReserveById';
+type DoRouterAbEcdsaDerivationPresignatureReserveByIdRequest = {
+  op: 'routerAbEcdsaDerivationPresignatureReserveById';
   listKey: string;
   reservedKeyPrefix: string;
   presignatureId: string;
   ttlMs?: number;
 };
-type DoRouterAbEcdsaHssPoolFillSessionCreateRequest = {
-  op: 'routerAbEcdsaHssPoolFillSessionCreate';
+type DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest = {
+  op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
   key: string;
   value: unknown;
   ttlMs?: number;
 };
-type DoRouterAbEcdsaHssPoolFillSessionAdvanceCasRequest = {
-  op: 'routerAbEcdsaHssPoolFillSessionAdvanceCas';
+type DoRouterAbEcdsaDerivationPoolFillSessionAdvanceCasRequest = {
+  op: 'routerAbEcdsaDerivationPoolFillSessionAdvanceCas';
   key: string;
   expectedVersion: number;
   value: unknown;
   ttlMs?: number;
 };
-type DoRouterAbEcdsaHssPoolFillLiveSessionCreateRequest = {
-  op: 'routerAbEcdsaHssPoolFillLiveSessionCreate';
-  input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput;
+type DoRouterAbEcdsaDerivationPoolFillLiveSessionCreateRequest = {
+  op: 'routerAbEcdsaDerivationPoolFillLiveSessionCreate';
+  input: RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput;
 };
-type DoRouterAbEcdsaHssPoolFillLiveSessionStepRequest = {
-  op: 'routerAbEcdsaHssPoolFillLiveSessionStep';
-  input: RouterAbEcdsaHssPoolFillLiveSessionStepInput;
+type DoRouterAbEcdsaDerivationPoolFillLiveSessionStepRequest = {
+  op: 'routerAbEcdsaDerivationPoolFillLiveSessionStep';
+  input: RouterAbEcdsaDerivationPoolFillLiveSessionStepInput;
 };
-type DoRouterAbEcdsaHssPoolFillLiveSessionDeleteRequest = {
-  op: 'routerAbEcdsaHssPoolFillLiveSessionDelete';
+type DoRouterAbEcdsaDerivationPoolFillLiveSessionDeleteRequest = {
+  op: 'routerAbEcdsaDerivationPoolFillLiveSessionDelete';
   presignSessionId: string;
 };
 type DoRequest =
@@ -222,14 +222,14 @@ type DoRequest =
   | DoAuthReleaseReservedBudgetUseCountRequest
   | DoAuthReleaseReservedBudgetUseCountForIdentityRequest
   | DoAuthReserveReplayGuardRequest
-  | DoRouterAbEcdsaHssPresignaturePutRequest
-  | DoRouterAbEcdsaHssPresignatureReserveRequest
-  | DoRouterAbEcdsaHssPresignatureReserveByIdRequest
-  | DoRouterAbEcdsaHssPoolFillSessionCreateRequest
-  | DoRouterAbEcdsaHssPoolFillSessionAdvanceCasRequest
-  | DoRouterAbEcdsaHssPoolFillLiveSessionCreateRequest
-  | DoRouterAbEcdsaHssPoolFillLiveSessionStepRequest
-  | DoRouterAbEcdsaHssPoolFillLiveSessionDeleteRequest
+  | DoRouterAbEcdsaDerivationPresignaturePutRequest
+  | DoRouterAbEcdsaDerivationPresignatureReserveRequest
+  | DoRouterAbEcdsaDerivationPresignatureReserveByIdRequest
+  | DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest
+  | DoRouterAbEcdsaDerivationPoolFillSessionAdvanceCasRequest
+  | DoRouterAbEcdsaDerivationPoolFillLiveSessionCreateRequest
+  | DoRouterAbEcdsaDerivationPoolFillLiveSessionStepRequest
+  | DoRouterAbEcdsaDerivationPoolFillLiveSessionDeleteRequest
 
 type DoAuthEntry<TRecord extends WalletSessionRecord> = {
   record: TRecord;
@@ -243,7 +243,7 @@ type ThresholdEcdsaSharedIdentityGuard = {
   contextKey: string;
   identityValue: string;
 };
-type ThresholdEcdsaStoredKeyRecord = EcdsaHssRoleLocalKeyRecord;
+type ThresholdEcdsaStoredKeyRecord = EcdsaDerivationRoleLocalKeyRecord;
 
 function ecdsaIdentityPart(value: unknown): string {
   return encodeURIComponent(String(value ?? '').trim());
@@ -253,10 +253,10 @@ function ecdsaSigningRootVersion(record: ThresholdEcdsaStoredKeyRecord): string 
   return String(record.signingRootVersion || '').trim() || 'default';
 }
 
-async function withEcdsaHssRoleLocalRecordKeyHandle(
-  record: EcdsaHssRoleLocalKeyRecord,
-): Promise<EcdsaHssRoleLocalKeyRecord & { keyHandle: string }> {
-  const parsed = parseEcdsaHssRoleLocalKeyRecord(record);
+async function withEcdsaDerivationRoleLocalRecordKeyHandle(
+  record: EcdsaDerivationRoleLocalKeyRecord,
+): Promise<EcdsaDerivationRoleLocalKeyRecord & { keyHandle: string }> {
+  const parsed = parseEcdsaDerivationRoleLocalKeyRecord(record);
   if (!parsed) throw new Error('Invalid threshold-ecdsa role-local key record');
   const keyHandle = String(
     await deriveThresholdEcdsaKeyHandle({
@@ -271,11 +271,11 @@ async function withEcdsaHssRoleLocalRecordKeyHandle(
   return { ...parsed, keyHandle };
 }
 
-async function parseStoredEcdsaHssRoleLocalKeyRecord(
+async function parseStoredEcdsaDerivationRoleLocalKeyRecord(
   raw: unknown,
-): Promise<(EcdsaHssRoleLocalKeyRecord & { keyHandle: string }) | null> {
-  const parsed = parseEcdsaHssRoleLocalKeyRecord(raw);
-  return parsed ? await withEcdsaHssRoleLocalRecordKeyHandle(parsed) : null;
+): Promise<(EcdsaDerivationRoleLocalKeyRecord & { keyHandle: string }) | null> {
+  const parsed = parseEcdsaDerivationRoleLocalKeyRecord(raw);
+  return parsed ? await withEcdsaDerivationRoleLocalRecordKeyHandle(parsed) : null;
 }
 
 function thresholdEcdsaSharedIdentityGuard(
@@ -847,7 +847,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
     const directResp = await callDo<unknown | null>(this.stub, {
@@ -855,7 +855,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
       key: this.recordKey(handle),
     });
     if (directResp.ok) {
-      const direct = await parseStoredEcdsaHssRoleLocalKeyRecord(directResp.value);
+      const direct = await parseStoredEcdsaDerivationRoleLocalKeyRecord(directResp.value);
       if (direct) {
         if (direct.keyHandle !== handle) {
           throw new Error(
@@ -874,11 +874,11 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     if (!recordKey) return null;
     const recordResp = await callDo<unknown | null>(this.stub, { op: 'get', key: recordKey });
     if (!recordResp.ok) return null;
-    return await parseStoredEcdsaHssRoleLocalKeyRecord(recordResp.value);
+    return await parseStoredEcdsaDerivationRoleLocalKeyRecord(recordResp.value);
   }
 
-  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
-    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaDerivationRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaDerivationRoleLocalRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
     const recordKey = this.recordKey(parsed.keyHandle);
     const resp = await callDo<void>(this.stub, {
@@ -903,7 +903,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
       key: canonicalRecordKey,
     });
     const canonicalRecord = canonicalRecordResp.ok
-      ? await parseStoredEcdsaHssRoleLocalKeyRecord(canonicalRecordResp.value)
+      ? await parseStoredEcdsaDerivationRoleLocalKeyRecord(canonicalRecordResp.value)
       : null;
     const indexResp = canonicalRecord
       ? null
@@ -922,7 +922,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     if (recordResp && !recordResp.ok) return;
     const record =
       canonicalRecord ||
-      (await parseStoredEcdsaHssRoleLocalKeyRecord(recordResp ? recordResp.value : null));
+      (await parseStoredEcdsaDerivationRoleLocalKeyRecord(recordResp ? recordResp.value : null));
     if (!record) {
       const resp = await callDo<void>(this.stub, { op: 'del', key: keyHandleKey });
       if (!resp.ok) throw new Error(resp.message);
@@ -943,7 +943,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
   }
 }
 
-export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPoolFillSessionStore {
+export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillSessionStore implements RouterAbEcdsaDerivationPoolFillSessionStore {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
 
@@ -962,15 +962,15 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore impleme
 
   async createSession(
     id: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
     ttlMs: number,
   ): Promise<{ ok: true } | { ok: false; code: 'exists' }> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing presignSessionId');
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(record);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     const resp = await callDo<{ status?: unknown }>(this.stub, {
-      op: 'routerAbEcdsaHssPoolFillSessionCreate',
+      op: 'routerAbEcdsaDerivationPoolFillSessionCreate',
       key: this.key(key),
       value: parsed,
       ttlMs: Math.max(0, Number(ttlMs) || 0),
@@ -980,18 +980,18 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore impleme
     if (status === 'ok') return { ok: true };
     if (status === 'exists') return { ok: false, code: 'exists' };
     throw new Error(
-      `[threshold-ecdsa] Durable Object Router A/B ECDSA-HSS pool-fill session create returned unexpected status: ${String(status || 'null')}`,
+      `[threshold-ecdsa] Durable Object Router A/B ECDSA derivation pool-fill session create returned unexpected status: ${String(status || 'null')}`,
     );
   }
 
-  async getSession(id: string): Promise<RouterAbEcdsaHssPoolFillSessionRecord | null> {
+  async getSession(id: string): Promise<RouterAbEcdsaDerivationPoolFillSessionRecord | null> {
     const key = toOptionalTrimmedString(id);
     if (!key) return null;
     const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(key) });
     if (!resp.ok) return null;
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(
       resp.value,
-    ) as RouterAbEcdsaHssPoolFillSessionRecord | null;
+    ) as RouterAbEcdsaDerivationPoolFillSessionRecord | null;
     if (!parsed) return null;
     if (Date.now() > parsed.expiresAtMs) {
       await this.deleteSession(key);
@@ -1003,18 +1003,18 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore impleme
   async advanceSessionCas(input: {
     id: string;
     expectedVersion: number;
-    nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
+    nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord;
     ttlMs: number;
-  }): Promise<RouterAbEcdsaHssPoolFillSessionCasResult> {
+  }): Promise<RouterAbEcdsaDerivationPoolFillSessionCasResult> {
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const expectedVersion = Math.floor(Number(input.expectedVersion));
     if (!Number.isFinite(expectedVersion) || expectedVersion < 1)
       return { ok: false, code: 'version_mismatch' };
-    const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(input.nextRecord);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
+    const parsed = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.nextRecord);
+    if (!parsed) throw new Error('Invalid Router A/B ECDSA derivation pool-fill session record');
     const resp = await callDo<{ status?: unknown; record?: unknown }>(this.stub, {
-      op: 'routerAbEcdsaHssPoolFillSessionAdvanceCas',
+      op: 'routerAbEcdsaDerivationPoolFillSessionAdvanceCas',
       key: this.key(key),
       expectedVersion,
       value: parsed,
@@ -1027,15 +1027,15 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore impleme
     if (status === 'version_mismatch') return { ok: false, code: 'version_mismatch' };
     if (status !== 'ok') {
       throw new Error(
-        `[threshold-ecdsa] Durable Object Router A/B ECDSA-HSS pool-fill session CAS returned unexpected status: ${String(status || 'null')}`,
+        `[threshold-ecdsa] Durable Object Router A/B ECDSA derivation pool-fill session CAS returned unexpected status: ${String(status || 'null')}`,
       );
     }
-    const record = parseRouterAbEcdsaHssPoolFillSessionRecord(
+    const record = parseRouterAbEcdsaDerivationPoolFillSessionRecord(
       resp.value?.record,
-    ) as RouterAbEcdsaHssPoolFillSessionRecord | null;
+    ) as RouterAbEcdsaDerivationPoolFillSessionRecord | null;
     if (!record)
       throw new Error(
-        '[threshold-ecdsa] Durable Object Router A/B ECDSA-HSS pool-fill session CAS returned invalid record',
+        '[threshold-ecdsa] Durable Object Router A/B ECDSA derivation pool-fill session CAS returned invalid record',
       );
     return { ok: true, record };
   }
@@ -1048,8 +1048,8 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore impleme
   }
 }
 
-export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner
-  implements RouterAbEcdsaHssPoolFillLiveSessionOwner
+export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner
+  implements RouterAbEcdsaDerivationPoolFillLiveSessionOwner
 {
   private readonly namespace: CloudflareDurableObjectNamespaceLike;
   private readonly objectNamePrefix: string;
@@ -1072,22 +1072,22 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner
   }
 
   async createSession(
-    input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
+    input: RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput,
   ): Promise<
-    RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillLiveSessionCreateValue>
+    RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue>
   > {
-    const parsedRecord = parseRouterAbEcdsaHssPoolFillSessionRecord(input.record);
+    const parsedRecord = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.record);
     if (!parsedRecord) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'Invalid Router A/B ECDSA-HSS pool-fill session record',
+        message: 'Invalid Router A/B ECDSA derivation pool-fill session record',
       };
     }
     const resp = await callDo<
-      RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillLiveSessionCreateValue>
+      RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue>
     >(this.stubForPresignSession(input.presignSessionId), {
-      op: 'routerAbEcdsaHssPoolFillLiveSessionCreate',
+      op: 'routerAbEcdsaDerivationPoolFillLiveSessionCreate',
       input: {
         ...input,
         record: parsedRecord,
@@ -1098,20 +1098,20 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner
   }
 
   async stepSession(
-    input: RouterAbEcdsaHssPoolFillLiveSessionStepInput,
-  ): Promise<RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep>> {
-    const parsedRecord = parseRouterAbEcdsaHssPoolFillSessionRecord(input.record);
+    input: RouterAbEcdsaDerivationPoolFillLiveSessionStepInput,
+  ): Promise<RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep>> {
+    const parsedRecord = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.record);
     if (!parsedRecord) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'Invalid Router A/B ECDSA-HSS pool-fill session record',
+        message: 'Invalid Router A/B ECDSA derivation pool-fill session record',
       };
     }
     const resp = await callDo<
-      RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep>
+      RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep>
     >(this.stubForPresignSession(input.presignSessionId), {
-      op: 'routerAbEcdsaHssPoolFillLiveSessionStep',
+      op: 'routerAbEcdsaDerivationPoolFillLiveSessionStep',
       input: {
         ...input,
         record: parsedRecord,
@@ -1125,14 +1125,14 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner
     const id = toOptionalTrimmedString(presignSessionId);
     if (!id) return;
     const resp = await callDo<void>(this.stubForPresignSession(id), {
-      op: 'routerAbEcdsaHssPoolFillLiveSessionDelete',
+      op: 'routerAbEcdsaDerivationPoolFillLiveSessionDelete',
       presignSessionId: id,
     });
     if (!resp.ok) throw new Error(resp.message);
   }
 }
 
-export class CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresignaturePool {
+export class CloudflareDurableObjectRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
   private readonly reservationTtlMs: number;
@@ -1164,12 +1164,12 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool implements 
     return `${this.keyPrefix}done:${relayerKeyId}:${presignatureId}`;
   }
 
-  async put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void> {
+  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
     const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
     const presignatureId = toOptionalTrimmedString(record.presignatureId);
     if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
     const resp = await callDo<void>(this.stub, {
-      op: 'routerAbEcdsaHssPresignaturePut',
+      op: 'routerAbEcdsaDerivationPresignaturePut',
       listKey: this.listKey(relayerKeyId),
       dedupeKey: this.dedupeKey(relayerKeyId, presignatureId),
       value: record,
@@ -1179,45 +1179,45 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool implements 
 
   async reserve(
     relayerKeyId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     const resp = await callDo<unknown | null>(this.stub, {
-      op: 'routerAbEcdsaHssPresignatureReserve',
+      op: 'routerAbEcdsaDerivationPresignatureReserve',
       listKey: this.listKey(key),
       reservedKeyPrefix: this.reservedKeyPrefix(key),
       ttlMs: this.reservationTtlMs,
     });
     if (!resp.ok) return null;
-    return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
       resp.value,
-    ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
   }
 
   async reserveById(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const resp = await callDo<unknown | null>(this.stub, {
-      op: 'routerAbEcdsaHssPresignatureReserveById',
+      op: 'routerAbEcdsaDerivationPresignatureReserveById',
       listKey: this.listKey(key),
       reservedKeyPrefix: this.reservedKeyPrefix(key),
       presignatureId: id,
       ttlMs: this.reservationTtlMs,
     });
     if (!resp.ok) return null;
-    return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
       resp.value,
-    ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
   }
 
   async consume(
     relayerKeyId: string,
     presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
+  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
@@ -1226,9 +1226,9 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool implements 
       key: this.reservedKey(key, id),
     });
     if (!resp.ok) return null;
-    return parseRouterAbEcdsaHssServerPresignatureShareRecord(
+    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
       resp.value,
-    ) as RouterAbEcdsaHssServerPresignatureShareRecord | null;
+    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -1338,9 +1338,9 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   keyStore: ThresholdEcdsaIntegratedKeyStore;
   sessionStore: ThresholdEcdsaSessionStore;
   walletSessionStore: EcdsaWalletSessionStore;
-  poolFillSessionStore: RouterAbEcdsaHssPoolFillSessionStore;
-  poolFillLiveSessionOwner: RouterAbEcdsaHssPoolFillLiveSessionOwner;
-  presignaturePool: RouterAbEcdsaHssPresignaturePool;
+  poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
+  poolFillLiveSessionOwner: RouterAbEcdsaDerivationPoolFillLiveSessionOwner;
+  presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
 } | null {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const kind = toOptionalTrimmedString(config.kind);
@@ -1386,16 +1386,16 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
       keyPrefix: walletSessionPrefix,
       parseRecord: parseEcdsaWalletSessionRecord,
     }),
-    poolFillSessionStore: new CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore({
+    poolFillSessionStore: new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillSessionStore({
       namespace,
       objectName,
       keyPrefix: presignPrefix,
     }),
-    poolFillLiveSessionOwner: new CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner({
+    poolFillLiveSessionOwner: new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner({
       namespace,
       objectName,
     }),
-    presignaturePool: new CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool({
+    presignaturePool: new CloudflareDurableObjectRouterAbEcdsaDerivationPresignaturePool({
       namespace,
       objectName,
       keyPrefix: presignPrefix,

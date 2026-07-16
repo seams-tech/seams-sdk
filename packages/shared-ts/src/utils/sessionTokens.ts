@@ -1,20 +1,15 @@
 import { base64UrlDecode } from './base64';
 
 export const APP_SESSION_JWT_KIND = 'app_session_v1' as const;
-export const THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND = 'threshold_ed25519_session_v1' as const;
-export const THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND = 'threshold_ecdsa_session_v2' as const;
 export const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND =
   'router_ab_ed25519_wallet_session_v1' as const;
-export const ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND =
-  'router_ab_ecdsa_hss_wallet_session_v1' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
+  'router_ab_ecdsa_derivation_wallet_session_v1' as const;
 
 export type AppSessionJwtKind = typeof APP_SESSION_JWT_KIND;
-export type LegacyThresholdSessionJwtKind =
-  | typeof THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND
-  | typeof THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND;
 export type WalletSessionJwtKind =
   | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
-  | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
+  | typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
 export type SessionJwtKind = AppSessionJwtKind | WalletSessionJwtKind;
 export type WalletSessionThresholdExpiresAtMs = number & {
   readonly __brand: 'WalletSessionThresholdExpiresAtMs';
@@ -94,7 +89,7 @@ export function isWalletSessionJwt(tokenRaw: string): boolean {
   const kind = getSessionJwtKind(tokenRaw);
   return (
     kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND ||
-    kind === ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
+    kind === ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
   );
 }
 
@@ -130,7 +125,7 @@ export function appOrWalletSessionJwtAuth(jwtRaw: string): AppOrWalletSessionAut
   const kind = getSessionJwtKind(jwt);
   if (
     kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND ||
-    kind === ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
+    kind === ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
   ) {
     return walletSessionJwtAuth(jwt);
   }

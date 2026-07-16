@@ -9,11 +9,11 @@ import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   EcdsaClientRootPublicKey33B64u,
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import type { RouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   WalletId,
@@ -189,7 +189,7 @@ export type ThresholdStoreEnvInput = {
   /**
    * Stable identifier for this coordinator instance.
    *
-   * Used to pin Router A/B ECDSA-HSS pool-fill sessions to the instance that
+   * Used to pin Router A/B ECDSA derivation pool-fill sessions to the instance that
    * created the live in-memory WASM session object.
    */
   THRESHOLD_COORDINATOR_INSTANCE_ID?: string;
@@ -554,7 +554,7 @@ export type ThresholdEd25519VerifiedWalletAuth =
       claims: {
         sub: string;
         walletId: string;
-        kind: 'router_ab_ecdsa_hss_wallet_session_v1';
+        kind: 'router_ab_ecdsa_derivation_wallet_session_v1';
         thresholdSessionId: string;
         signingGrantId: string;
         keyScope: 'evm-family';
@@ -698,7 +698,7 @@ export type WalletKeyFactsInventoryAuth =
       policy: EcdsaKeyFactsInventoryPolicy;
     };
 
-export interface ThresholdEcdsaHssFinalizeResponse {
+export interface ThresholdEcdsaDerivationFinalizeResponse {
   ok: boolean;
   code?: string;
   message?: string;
@@ -730,7 +730,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   canonicalEthereumAddress?: string;
 }
 
-export type EcdsaHssErrorCode =
+export type EcdsaDerivationErrorCode =
   | 'invalid_body'
   | 'unauthorized'
   | 'forbidden'
@@ -749,35 +749,35 @@ export type EcdsaHssErrorCode =
   | 'pool_empty'
   | 'internal';
 
-export type EcdsaHssRouteResult<T> =
+export type EcdsaDerivationRouteResult<T> =
   | { ok: true; value: T }
-  | { ok: false; code: EcdsaHssErrorCode; message: string; retryAfterMs?: number };
+  | { ok: false; code: EcdsaDerivationErrorCode; message: string; retryAfterMs?: number };
 
-export type EcdsaHssRoleLocalFormatVersion = 'ecdsa-hss-role-local';
-export type EcdsaHssRoleLocalExportFormatVersion = 'ecdsa-hss-role-local-export';
-export type EcdsaHssKeyScope = 'evm-family';
+export type EcdsaDerivationRoleLocalFormatVersion = 'ecdsa-derivation-role-local';
+export type EcdsaDerivationRoleLocalExportFormatVersion = 'ecdsa-derivation-role-local-export';
+export type EcdsaDerivationKeyScope = 'evm-family';
 
-export interface EcdsaHssPublicIdentity {
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+export interface EcdsaDerivationPublicIdentity {
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
 }
 
-export interface EcdsaHssCaitSithInput {
+export interface EcdsaDerivationCaitSithInput {
   participantId: 1 | 2;
   mappedPrivateShare32B64u: string;
   verifyingShare33B64u: string;
 }
 
-export interface EcdsaHssClientRootProof {
-  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2';
+export interface EcdsaDerivationClientRootProof {
+  version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2';
   clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 }
 
-export interface EcdsaHssPasskeyBootstrapAuthorization {
+export interface EcdsaDerivationPasskeyBootstrapAuthorization {
   kind: 'passkey_bootstrap';
   rpId: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
@@ -785,17 +785,17 @@ export interface EcdsaHssPasskeyBootstrapAuthorization {
   projectEnvironmentId?: string;
 }
 
-interface EcdsaHssClientBootstrapRequestBase {
-  formatVersion: EcdsaHssRoleLocalFormatVersion;
+interface EcdsaDerivationClientBootstrapRequestBase {
+  formatVersion: EcdsaDerivationRoleLocalFormatVersion;
   walletId: string;
   evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
-  keyScope: EcdsaHssKeyScope;
+  keyScope: EcdsaDerivationKeyScope;
   relayerKeyId: string;
   registrationPreparationId?: RegistrationPreparationId;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -808,29 +808,29 @@ interface EcdsaHssClientBootstrapRequestBase {
   runtimePolicyScope?: RuntimePolicyScope;
 }
 
-export type EcdsaHssClientBootstrapRequest =
-  | (EcdsaHssClientBootstrapRequestBase & {
-      clientRootProof: EcdsaHssClientRootProof;
+export type EcdsaDerivationClientBootstrapRequest =
+  | (EcdsaDerivationClientBootstrapRequestBase & {
+      clientRootProof: EcdsaDerivationClientRootProof;
       passkeyBootstrapAuthorization?: never;
     })
-  | (EcdsaHssClientBootstrapRequestBase & {
+  | (EcdsaDerivationClientBootstrapRequestBase & {
       clientRootProof?: never;
-      passkeyBootstrapAuthorization: EcdsaHssPasskeyBootstrapAuthorization;
+      passkeyBootstrapAuthorization: EcdsaDerivationPasskeyBootstrapAuthorization;
     })
-  | (EcdsaHssClientBootstrapRequestBase & {
+  | (EcdsaDerivationClientBootstrapRequestBase & {
       clientRootProof?: never;
       passkeyBootstrapAuthorization?: never;
     });
 
-export interface EcdsaHssServerBootstrapResponse {
-  formatVersion: EcdsaHssRoleLocalFormatVersion;
+export interface EcdsaDerivationServerBootstrapResponse {
+  formatVersion: EcdsaDerivationRoleLocalFormatVersion;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   applicationBindingDigestB64u: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssPublicIdentity;
+  publicIdentity: EcdsaDerivationPublicIdentity;
   clientShareRetryCounter: number;
   relayerShareRetryCounter: number;
   publicTranscriptDigest32B64u: string;
@@ -849,15 +849,15 @@ export interface EcdsaHssServerBootstrapResponse {
   jwt?: string;
 }
 
-export interface EcdsaHssRoleLocalKeyRecord {
-  version: 'threshold_ecdsa_hss_role_local_v2';
+export interface EcdsaDerivationRoleLocalKeyRecord {
+  version: 'threshold_ecdsa_derivation_role_local_v2';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
   walletId: string;
   evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   signingRootId: string;
   signingRootVersion: string;
-  keyScope: EcdsaHssKeyScope;
+  keyScope: EcdsaDerivationKeyScope;
   relayerKeyId: string;
   contextBinding32B64u: string;
   relayerShare32B64u: string;
@@ -865,20 +865,20 @@ export interface EcdsaHssRoleLocalKeyRecord {
   clientPublicKey33B64u: string;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
-  relayerCaitSithInput: EcdsaHssCaitSithInput & { participantId: 2 };
+  relayerCaitSithInput: EcdsaDerivationCaitSithInput & { participantId: 2 };
   publicTranscriptDigest32B64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 }
 
-export interface EcdsaHssExportShareRequest {
-  formatVersion: EcdsaHssRoleLocalExportFormatVersion;
+export interface EcdsaDerivationExportShareRequest {
+  formatVersion: EcdsaDerivationRoleLocalExportFormatVersion;
   walletId: string;
   evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssPublicIdentity;
+  publicIdentity: EcdsaDerivationPublicIdentity;
   exportRequestNonce32B64u: string;
   confirmationDigest32B64u: string;
   authorizationDigest32B64u: string;
@@ -888,14 +888,14 @@ export interface EcdsaHssExportShareRequest {
   clientSessionId: string;
 }
 
-export interface EcdsaHssExportShareResponse {
-  formatVersion: EcdsaHssRoleLocalExportFormatVersion;
+export interface EcdsaDerivationExportShareResponse {
+  formatVersion: EcdsaDerivationRoleLocalExportFormatVersion;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssPublicIdentity;
+  publicIdentity: EcdsaDerivationPublicIdentity;
   exportAuthorizationDigest32B64u: string;
   serverExportShare32B64u: string;
 }
@@ -934,10 +934,10 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
 };
 
 // =====================================
-// Router A/B ECDSA-HSS pool-fill routes
+// Router A/B ECDSA derivation pool-fill routes
 // =====================================
 
-export type RouterAbEcdsaHssPoolFillInitRequest = {
+export type RouterAbEcdsaDerivationPoolFillInitRequest = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   /**
@@ -951,13 +951,13 @@ export type RouterAbEcdsaHssPoolFillInitRequest = {
    */
   requestTag?: string;
   poolFill: {
-    kind: 'router_ab_ecdsa_hss_signing_worker_pool';
-    scope: RouterAbEcdsaHssNormalSigningScopeV1;
+    kind: 'router_ab_ecdsa_derivation_signing_worker_pool';
+    scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
     expiresAtMs: number;
   };
 };
 
-export type RouterAbEcdsaHssPoolFillInitResponse = {
+export type RouterAbEcdsaDerivationPoolFillInitResponse = {
   ok: boolean;
   code?: string;
   message?: string;
@@ -966,7 +966,7 @@ export type RouterAbEcdsaHssPoolFillInitResponse = {
   outgoingMessagesB64u?: string[];
 };
 
-export type RouterAbEcdsaHssPoolFillStepRequest = {
+export type RouterAbEcdsaDerivationPoolFillStepRequest = {
   presignSessionId: string;
   /**
    * The client-requested stage transition:
@@ -982,7 +982,7 @@ export type RouterAbEcdsaHssPoolFillStepRequest = {
   requestTag?: string;
 };
 
-export type RouterAbEcdsaHssPoolFillStepResponse = {
+export type RouterAbEcdsaDerivationPoolFillStepResponse = {
   ok: boolean;
   code?: string;
   message?: string;

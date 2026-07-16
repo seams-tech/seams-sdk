@@ -21,7 +21,7 @@ const ecdsaAuth = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
-  keyHandle: 'ehss-key-1',
+  keyHandle: 'ederivation-key-1',
 } satisfies VerifiedEcdsaWalletSessionAuth;
 
 const ed25519Auth = {
@@ -56,7 +56,7 @@ const invalidMissingSigningGrant = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
-  keyHandle: 'ehss-key-1',
+  keyHandle: 'ederivation-key-1',
   // @ts-expect-error signingGrantId is required on verified Wallet Session auth.
 } satisfies VerifiedEcdsaWalletSessionAuth;
 void invalidMissingSigningGrant;
@@ -71,7 +71,7 @@ const invalidEcdsaWithEd25519OnlyField = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
-  keyHandle: 'ehss-key-1',
+  keyHandle: 'ederivation-key-1',
   // @ts-expect-error ECDSA auth must not carry Ed25519-only relayer identity.
   ed25519RelayerKeyId: 'ed25519-relayer',
 } satisfies VerifiedEcdsaWalletSessionAuth;
@@ -89,7 +89,7 @@ const invalidEd25519WithEcdsaOnlyField = {
   expiresAtMs: Date.now() + 60_000,
   ed25519RelayerKeyId: 'ed25519-relayer',
   // @ts-expect-error Ed25519 auth must not carry ECDSA key handles.
-  keyHandle: 'ehss-key-1',
+  keyHandle: 'ederivation-key-1',
 } satisfies VerifiedEd25519WalletSessionAuth;
 void invalidEd25519WithEcdsaOnlyField;
 

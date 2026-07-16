@@ -24,7 +24,6 @@ export type {
   RouterApiUsageMeterAction,
   RouterApiUsageMeterAdapter,
   RouterApiUsageMeterEvent,
-  ThresholdSigningAdapter,
 } from './routerApi';
 export {
   ROUTER_AB_PUBLIC_KEYSET_PATH,

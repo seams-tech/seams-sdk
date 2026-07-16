@@ -12,12 +12,17 @@ const requiredArtifacts = [
   'wasm/threshold_prf/pkg/threshold_prf.js',
   'wasm/threshold_prf/pkg/threshold_prf.d.ts',
   'wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
-  'wasm/eth_signer/pkg/eth_signer.js',
-  'wasm/eth_signer/pkg/eth_signer.d.ts',
-  'wasm/eth_signer/pkg/eth_signer_bg.wasm',
+  'wasm/evm_crypto/pkg/evm_crypto.js',
+  'wasm/evm_crypto/pkg/evm_crypto.d.ts',
+  'wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
+  'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js',
+  'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.d.ts',
+  'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm',
 ];
 
-const missingArtifacts = requiredArtifacts.filter((artifact) => !existsSync(join(repoRoot, artifact)));
+const missingArtifacts = requiredArtifacts.filter(
+  (artifact) => !existsSync(join(repoRoot, artifact)),
+);
 const autoBuildMissingArtifacts = process.env.SEAMS_D1_LOCAL_WASM_AUTO_BUILD !== '0';
 
 if (missingArtifacts.length === 0) {

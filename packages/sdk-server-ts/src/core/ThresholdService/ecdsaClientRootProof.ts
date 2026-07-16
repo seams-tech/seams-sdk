@@ -1,14 +1,14 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import type { EcdsaHssClientRootProof } from '../types';
-import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from './ethSignerWasm';
+import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { EcdsaDerivationClientRootProof } from '../types';
+import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from './evmCryptoWasm';
 
 export type EcdsaClientRootProofVerificationResult =
   | { ok: true; clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u }
   | { ok: false; code: 'unauthorized'; message: 'Invalid client root proof' };
 
 export async function verifyEcdsaClientRootProof(
-  proof: EcdsaHssClientRootProof,
+  proof: EcdsaDerivationClientRootProof,
 ): Promise<EcdsaClientRootProofVerificationResult> {
   try {
     const recovered33 = await verifySecp256k1RecoverableSignatureAgainstPublicKey33(

@@ -1,6 +1,6 @@
 import type { NormalizedLogger } from '../../logger';
 import type {
-  EcdsaHssRoleLocalKeyRecord,
+  EcdsaDerivationRoleLocalKeyRecord,
   ThresholdEd25519AuthorityScope,
   ThresholdStoreConfigInput,
 } from '../../types';
@@ -21,7 +21,7 @@ import {
   toThresholdEd25519KeyPrefix,
   toThresholdEd25519PrefixFromBase,
   parseThresholdEd25519KeyRecord,
-  parseEcdsaHssRoleLocalKeyRecord,
+  parseEcdsaDerivationRoleLocalKeyRecord,
 } from '../validation';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
@@ -33,7 +33,7 @@ type ThresholdEcdsaSharedIdentityGuard = {
   contextKey: string;
   identityValue: string;
 };
-type ThresholdEcdsaStoredKeyRecord = EcdsaHssRoleLocalKeyRecord;
+type ThresholdEcdsaStoredKeyRecord = EcdsaDerivationRoleLocalKeyRecord;
 type ThresholdEcdsaStoredKeyRecordWithHandle = ThresholdEcdsaStoredKeyRecord & {
   keyHandle: string;
 };
@@ -93,10 +93,10 @@ async function deriveThresholdEcdsaRecordKeyHandle(
   );
 }
 
-async function withEcdsaHssRoleLocalRecordKeyHandle(
-  record: EcdsaHssRoleLocalKeyRecord,
-): Promise<EcdsaHssRoleLocalKeyRecord & { keyHandle: string }> {
-  const parsed = parseEcdsaHssRoleLocalKeyRecord(record);
+async function withEcdsaDerivationRoleLocalRecordKeyHandle(
+  record: EcdsaDerivationRoleLocalKeyRecord,
+): Promise<EcdsaDerivationRoleLocalKeyRecord & { keyHandle: string }> {
+  const parsed = parseEcdsaDerivationRoleLocalKeyRecord(record);
   if (!parsed) throw new Error('Invalid threshold-ecdsa role-local key record');
   const keyHandle = await deriveThresholdEcdsaRecordKeyHandle(parsed);
   if (parsed.keyHandle !== keyHandle) {
@@ -105,11 +105,11 @@ async function withEcdsaHssRoleLocalRecordKeyHandle(
   return { ...parsed, keyHandle };
 }
 
-async function parseStoredEcdsaHssRoleLocalKeyRecord(
+async function parseStoredEcdsaDerivationRoleLocalKeyRecord(
   raw: unknown,
-): Promise<(EcdsaHssRoleLocalKeyRecord & { keyHandle: string }) | null> {
-  const parsed = parseEcdsaHssRoleLocalKeyRecord(raw);
-  return parsed ? await withEcdsaHssRoleLocalRecordKeyHandle(parsed) : null;
+): Promise<(EcdsaDerivationRoleLocalKeyRecord & { keyHandle: string }) | null> {
+  const parsed = parseEcdsaDerivationRoleLocalKeyRecord(raw);
+  return parsed ? await withEcdsaDerivationRoleLocalRecordKeyHandle(parsed) : null;
 }
 
 function thresholdEcdsaSharedIdentityGuard(
@@ -295,8 +295,8 @@ export interface ThresholdEd25519KeyStore {
 }
 
 export interface ThresholdEcdsaIntegratedKeyStore {
-  getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null>;
-  putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void>;
+  getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaDerivationRoleLocalKeyRecord | null>;
+  putRoleLocalByKeyHandle(record: EcdsaDerivationRoleLocalKeyRecord): Promise<void>;
   deleteByKeyHandle(keyHandle: string): Promise<void>;
 }
 
@@ -406,20 +406,20 @@ class InMemoryThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     return `${this.namespace}:${keyHandle}`;
   }
 
-  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
-    return await parseStoredEcdsaHssRoleLocalKeyRecord(
+    return await parseStoredEcdsaDerivationRoleLocalKeyRecord(
       this.recordsByKeyHandle.get(this.key(handle)),
     );
   }
 
-  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
-    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaDerivationRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaDerivationRoleLocalRecordKeyHandle(record);
     const mapKey = this.key(parsed.keyHandle);
     for (const [storedKey, storedRecord] of this.recordsByKeyHandle.entries()) {
       if (storedKey === mapKey) continue;
-      const existing = await parseStoredEcdsaHssRoleLocalKeyRecord(storedRecord);
+      const existing = await parseStoredEcdsaDerivationRoleLocalKeyRecord(storedRecord);
       if (!existing) continue;
       if (existing.ecdsaThresholdKeyId === parsed.ecdsaThresholdKeyId) continue;
       if (existing.keyHandle === parsed.keyHandle) {
@@ -428,7 +428,7 @@ class InMemoryThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       assertNoThresholdEcdsaSharedIdentityConflict(parsed, existing);
     }
     for (const [storedKey, storedRecord] of this.recordsByKeyHandle.entries()) {
-      const existing = await parseStoredEcdsaHssRoleLocalKeyRecord(storedRecord);
+      const existing = await parseStoredEcdsaDerivationRoleLocalKeyRecord(storedRecord);
       if (existing?.ecdsaThresholdKeyId === parsed.ecdsaThresholdKeyId && storedKey !== mapKey) {
         this.recordsByKeyHandle.delete(storedKey);
       }
@@ -460,10 +460,10 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
-    const direct = await parseStoredEcdsaHssRoleLocalKeyRecord(
+    const direct = await parseStoredEcdsaDerivationRoleLocalKeyRecord(
       await this.client.getJson(this.recordKey(handle)),
     );
     if (direct) {
@@ -474,11 +474,11 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
       await this.client.getRaw(thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle)),
     );
     if (!recordKey) return null;
-    return await parseStoredEcdsaHssRoleLocalKeyRecord(await this.client.getJson(recordKey));
+    return await parseStoredEcdsaDerivationRoleLocalKeyRecord(await this.client.getJson(recordKey));
   }
 
-  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
-    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaDerivationRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaDerivationRoleLocalRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
     const recordKey = this.recordKey(parsed.keyHandle);
     await upstashSetEcdsaRecordWithIdentityGuard({
@@ -497,7 +497,7 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
     if (!handle) return;
     const keyHandleKey = thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle);
     const canonicalRecordKey = this.recordKey(handle);
-    const canonicalRecord = await parseStoredEcdsaHssRoleLocalKeyRecord(
+    const canonicalRecord = await parseStoredEcdsaDerivationRoleLocalKeyRecord(
       await this.client.getJson(canonicalRecordKey),
     );
     const recordKey = canonicalRecord
@@ -509,7 +509,7 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
     }
     const record =
       canonicalRecord ||
-      (await parseStoredEcdsaHssRoleLocalKeyRecord(await this.client.getJson(recordKey)));
+      (await parseStoredEcdsaDerivationRoleLocalKeyRecord(await this.client.getJson(recordKey)));
     if (!record) {
       await this.client.del(keyHandleKey);
       await this.client.del(canonicalRecordKey);
@@ -542,10 +542,10 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
-    const direct = await parseStoredEcdsaHssRoleLocalKeyRecord(
+    const direct = await parseStoredEcdsaDerivationRoleLocalKeyRecord(
       await redisGetJson(this.client, this.recordKey(handle)),
     );
     if (direct) {
@@ -557,11 +557,11 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle),
     );
     if (!recordKey) return null;
-    return await parseStoredEcdsaHssRoleLocalKeyRecord(await redisGetJson(this.client, recordKey));
+    return await parseStoredEcdsaDerivationRoleLocalKeyRecord(await redisGetJson(this.client, recordKey));
   }
 
-  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
-    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaDerivationRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaDerivationRoleLocalRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
     const recordKey = this.recordKey(parsed.keyHandle);
     await redisSetEcdsaRecordWithIdentityGuard({
@@ -580,7 +580,7 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     if (!handle) return;
     const keyHandleKey = thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle);
     const canonicalRecordKey = this.recordKey(handle);
-    const canonicalRecord = await parseStoredEcdsaHssRoleLocalKeyRecord(
+    const canonicalRecord = await parseStoredEcdsaDerivationRoleLocalKeyRecord(
       await redisGetJson(this.client, canonicalRecordKey),
     );
     const recordKey = canonicalRecord
@@ -592,7 +592,7 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     }
     const record =
       canonicalRecord ||
-      (await parseStoredEcdsaHssRoleLocalKeyRecord(await redisGetJson(this.client, recordKey)));
+      (await parseStoredEcdsaDerivationRoleLocalKeyRecord(await redisGetJson(this.client, recordKey)));
     if (!record) {
       await redisDel(this.client, keyHandleKey);
       await redisDel(this.client, canonicalRecordKey);

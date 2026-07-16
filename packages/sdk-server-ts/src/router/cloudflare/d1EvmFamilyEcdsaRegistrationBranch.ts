@@ -1,7 +1,7 @@
 import {
-  computeEcdsaHssRoleLocalRelayerKeyId,
-  computeEcdsaHssRoleLocalThresholdKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+  computeEcdsaDerivationRoleLocalThresholdKeyId,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
@@ -50,13 +50,13 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
   });
-  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
     walletId: input.walletId,
     evmFamilySigningKeySlotId,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
   });
-  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+  const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: input.walletId,
     evmFamilySigningKeySlotId,
   });
@@ -66,7 +66,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     targets.push({
       chainTarget,
       prepare: {
-        formatVersion: 'ecdsa-hss-role-local',
+        formatVersion: 'ecdsa-derivation-role-local',
         walletId: input.walletId,
         evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId,
@@ -78,7 +78,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
           ? { registrationPreparationId: input.registrationPreparationId }
           : {}),
         requestId: `${input.registrationCeremonyId}:ecdsa:${encodeURIComponent(chainTargetKey)}`,
-        thresholdSessionId: `tehss_${secureRandomBase64Url(24)}`,
+        thresholdSessionId: `tederivation_${secureRandomBase64Url(24)}`,
         signingGrantId,
         ttlMs: 10 * 60_000,
         remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,

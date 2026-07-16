@@ -34,8 +34,8 @@ import {
   registrationPreparationIdFromString,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
-  WalletRegistrationHssRespondRequest,
-  WalletRegistrationHssRespondResponse,
+  WalletRegistrationEcdsaDerivationRespondRequest,
+  WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEd25519YaoStart,
   type WalletRegistrationEcdsaWalletKey,
@@ -46,9 +46,8 @@ import {
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
-import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
 import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaBootstrapExportPort } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -73,7 +72,7 @@ import {
   normalizeThresholdEcdsaChainTargets,
   parseD1RegistrationIntent,
   parseD1RuntimePolicyScope,
-  toD1EcdsaHssClientBootstrapRequest,
+  toD1EcdsaDerivationClientBootstrapRequest,
 } from './d1RegistrationCeremonyRecords';
 import {
   walletAuthAuthorityFromRegistrationAuthority,
@@ -119,17 +118,17 @@ import {
 } from './d1Ed25519YaoWalletSigner';
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
-type RespondWalletRegistrationHssInput = WalletRegistrationHssRespondRequest;
+type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
 type EcdsaPreparedTarget = NonNullable<
   Extract<WalletRegistrationStartResponse, { ok: true }>['ecdsa']
 >['targets'][number];
 type EcdsaClientBootstrapTarget = NonNullable<
-  WalletRegistrationHssRespondRequest['ecdsa']
+  WalletRegistrationEcdsaDerivationRespondRequest['ecdsa']
 >['clientBootstraps'][number];
 type EcdsaServerBootstrapTarget = NonNullable<
-  Extract<WalletRegistrationHssRespondResponse, { ok: true }>['ecdsa']
+  Extract<WalletRegistrationEcdsaDerivationRespondResponse, { ok: true }>['ecdsa']
 >['bootstraps'][number];
 
 type D1RegistrationEd25519SigningBudgetPlan =
@@ -246,7 +245,7 @@ function ecdsaTargetCoverageMatches(input: {
   return true;
 }
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
-type RouterAbEcdsaBootstrapExportRuntimeProvider = () => RouterAbEcdsaBootstrapExportRuntime | null;
+type RouterAbEcdsaBootstrapExportRuntimeProvider = () => RouterAbEcdsaBootstrapExportPort | null;
 type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
@@ -930,7 +929,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const minted = await yaoRuntime.mintWalletSession({
-        kind: 'email_otp_recovery_wallet_session_v1',
+        kind: 'shared_email_otp_recovery_wallet_session_v1',
         walletId: walletIdFromString(walletId),
         nearAccountId: signer.nearAccountId,
         nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
@@ -1177,9 +1176,9 @@ export class CloudflareD1WalletRegistrationService {
     }
   }
 
-  async respondWalletRegistrationHss(
-    request: RespondWalletRegistrationHssInput,
-  ): Promise<WalletRegistrationHssRespondResponse> {
+  async respondWalletRegistrationEcdsaDerivation(
+    request: RespondWalletRegistrationDerivationInput,
+  ): Promise<WalletRegistrationEcdsaDerivationRespondResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
@@ -1204,7 +1203,7 @@ export class CloudflareD1WalletRegistrationService {
       const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
       const requestedEvmFamilyEcdsa = signerBranches.evmFamilyEcdsa;
       let nextSignerState = ceremony.signerState;
-      const response: Extract<WalletRegistrationHssRespondResponse, { ok: true }> = {
+      const response: Extract<WalletRegistrationEcdsaDerivationRespondResponse, { ok: true }> = {
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
         ecdsa: { bootstraps: [] },
@@ -1214,7 +1213,7 @@ export class CloudflareD1WalletRegistrationService {
           return {
             ok: false,
             code: 'invalid_body',
-            message: 'registration signer set does not accept ECDSA HSS input',
+            message: 'registration signer set does not accept ECDSA DERIVATION input',
           };
         }
         const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
@@ -1229,7 +1228,7 @@ export class CloudflareD1WalletRegistrationService {
           return {
             ok: false,
             code: 'invalid_state',
-            message: 'ECDSA HSS response already recorded',
+            message: 'ECDSA DERIVATION response already recorded',
           };
         }
         const clientBootstraps = request.ecdsa.clientBootstraps;
@@ -1272,14 +1271,14 @@ export class CloudflareD1WalletRegistrationService {
               message: 'ECDSA bootstrap identity mismatch',
             };
           }
-          const bootstrap = await runtime.ecdsaHssRoleLocalBootstrap(
-            toD1EcdsaHssClientBootstrapRequest(actual.clientBootstrap),
+          const bootstrap = await runtime.ecdsaDerivationRoleLocalBootstrap(
+            toD1EcdsaDerivationClientBootstrapRequest(actual.clientBootstrap),
           );
           if (!bootstrap.ok) {
             return {
               ok: false,
-              code: bootstrap.code || 'hss_respond_failed',
-              message: bootstrap.message || 'ECDSA HSS bootstrap failed',
+              code: bootstrap.code || 'ecdsa_derivation_respond_failed',
+              message: bootstrap.message || 'ECDSA DERIVATION bootstrap failed',
             };
           }
           bootstraps.push({
@@ -1292,7 +1291,7 @@ export class CloudflareD1WalletRegistrationService {
           replacement: {
             kind: 'evm_family_ecdsa_responded',
             branchKey: ecdsaBranch.branchKey,
-            hssKind: ecdsaBranch.hssKind,
+            derivationKind: ecdsaBranch.derivationKind,
             targets: ecdsaBranch.targets,
             responded: {
               bootstraps,
@@ -1301,7 +1300,7 @@ export class CloudflareD1WalletRegistrationService {
         });
         response.ecdsa = { bootstraps };
       } else if (requestedEvmFamilyEcdsa) {
-        return { ok: false, code: 'invalid_body', message: 'missing ECDSA HSS response' };
+        return { ok: false, code: 'invalid_body', message: 'missing ECDSA DERIVATION response' };
       }
       await store.updateCeremony({
         ...ceremony,
@@ -1403,7 +1402,7 @@ export class CloudflareD1WalletRegistrationService {
           return {
             ok: false,
             code: 'invalid_state',
-            message: 'ECDSA HSS response is required before finalize',
+            message: 'ECDSA DERIVATION response is required before finalize',
           };
         }
         const expectedKeyHandles = request.ecdsa?.expectedKeyHandles || [];

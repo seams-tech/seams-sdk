@@ -11,14 +11,14 @@ import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthori
 import type {
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
-  WalletAddSignerHssRespondRequest,
-  WalletAddSignerHssRespondResponse,
+  WalletAddSignerEcdsaDerivationRespondRequest,
+  WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
 } from '../../core/registrationContracts';
 import type { D1WalletStore } from '../../core/d1WalletStore';
 import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaBootstrapExportPort } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type {
   StoredEd25519YaoAddSignerActivation,
   StoredWalletAddSignerCeremony,
@@ -37,7 +37,7 @@ import {
   normalizeThresholdEcdsaChainTargets,
   parseD1RuntimePolicyScope,
   parseWalletIdForIntent,
-  toD1EcdsaHssClientBootstrapRequest,
+  toD1EcdsaDerivationClientBootstrapRequest,
 } from './d1RegistrationCeremonyRecords';
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
@@ -54,16 +54,16 @@ import {
 } from './d1Ed25519YaoWalletSigner';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
-type RespondWalletAddSignerHssInput = WalletAddSignerHssRespondRequest;
+type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespondRequest;
 type FinalizeWalletAddSignerInput = WalletAddSignerFinalizeRequest;
 type AddSignerClientBootstrapEntry = NonNullable<
-  WalletAddSignerHssRespondRequest['ecdsa']
+  WalletAddSignerEcdsaDerivationRespondRequest['ecdsa']
 >['clientBootstraps'][number];
 type AddSignerPreparedTarget = NonNullable<
   Extract<WalletAddSignerStartResponse, { ok: true }>['ecdsa']
 >['targets'][number];
 type AddSignerServerBootstrapEntry = NonNullable<
-  Extract<WalletAddSignerHssRespondResponse, { ok: true }>['ecdsa']
+  Extract<WalletAddSignerEcdsaDerivationRespondResponse, { ok: true }>['ecdsa']
 >['bootstraps'][number];
 
 type AddSignerClientBootstrapResolution =
@@ -78,7 +78,7 @@ type AddSignerClientBootstrapResolution =
     };
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
-type RouterAbEcdsaBootstrapExportRuntimeProvider = () => RouterAbEcdsaBootstrapExportRuntime | null;
+type RouterAbEcdsaBootstrapExportRuntimeProvider = () => RouterAbEcdsaBootstrapExportPort | null;
 type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
@@ -487,7 +487,7 @@ export class CloudflareD1WalletAddSignerService {
         auth: storedAuth.auth,
         signerState: {
           kind: 'ecdsa_add_signer_prepared',
-          hssKind: ecdsa.kind,
+          derivationKind: ecdsa.kind,
           targets: ecdsa.targets,
         },
       });
@@ -507,9 +507,9 @@ export class CloudflareD1WalletAddSignerService {
     }
   }
 
-  async respondWalletAddSignerHss(
-    request: RespondWalletAddSignerHssInput,
-  ): Promise<WalletAddSignerHssRespondResponse> {
+  async respondWalletAddSignerEcdsaDerivation(
+    request: RespondWalletAddSignerDerivationInput,
+  ): Promise<WalletAddSignerEcdsaDerivationRespondResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
@@ -528,14 +528,14 @@ export class CloudflareD1WalletAddSignerService {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'missing ECDSA add-signer HSS response',
+          message: 'missing ECDSA add-signer DERIVATION response',
         };
       }
       if (ceremony.signerState.kind !== 'ecdsa_add_signer_prepared') {
         return {
           ok: false,
           code: 'invalid_state',
-          message: 'ECDSA add-signer HSS response already recorded',
+          message: 'ECDSA add-signer DERIVATION response already recorded',
         };
       }
       const resolvedBootstraps = resolveAddSignerClientBootstraps({
@@ -553,14 +553,14 @@ export class CloudflareD1WalletAddSignerService {
       }
       const bootstraps: AddSignerServerBootstrapEntry[] = [];
       for (const entry of resolvedBootstraps.entries) {
-        const bootstrap = await runtime.ecdsaHssRoleLocalBootstrap(
-          toD1EcdsaHssClientBootstrapRequest(entry.clientBootstrap),
+        const bootstrap = await runtime.ecdsaDerivationRoleLocalBootstrap(
+          toD1EcdsaDerivationClientBootstrapRequest(entry.clientBootstrap),
         );
         if (!bootstrap.ok) {
           return {
             ok: false,
-            code: bootstrap.code || 'hss_respond_failed',
-            message: bootstrap.message || 'ECDSA add-signer HSS bootstrap failed',
+            code: bootstrap.code || 'ecdsa_derivation_respond_failed',
+            message: bootstrap.message || 'ECDSA add-signer DERIVATION bootstrap failed',
           };
         }
         bootstraps.push({
@@ -925,7 +925,7 @@ export class CloudflareD1WalletAddSignerService {
         return {
           ok: false,
           code: 'invalid_state',
-          message: 'ECDSA add-signer HSS response is required before finalize',
+          message: 'ECDSA add-signer DERIVATION response is required before finalize',
         };
       }
       const bootstraps = ceremony.signerState.responded.bootstraps;

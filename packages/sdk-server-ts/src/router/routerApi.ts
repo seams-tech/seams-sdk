@@ -1,6 +1,4 @@
 import type { RouterLogger } from './logger';
-import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/thresholdServiceSchemes.types';
-import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type {
   ThresholdEd25519BootstrapSession,
   ThresholdEd25519AuthorityScope,
@@ -15,6 +13,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from './routerAbEd25519YaoProductRegistration';
+import type { RouterAbEcdsaDerivationRefreshPort } from './routerAbEcdsaDerivationRefreshPort';
 import type { EmailRecoveryService } from '../email-recovery';
 import type {
   RouterApiAuthenticatedPublishableCredential,
@@ -124,10 +123,6 @@ export interface SessionAdapter {
   refresh(
     headers: Record<string, string | string[] | undefined>,
   ): Promise<{ ok: boolean; jwt?: string; code?: string; message?: string }>;
-}
-
-export interface ThresholdSigningAdapter {
-  getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null;
 }
 
 export type RouterApiRuntimePolicyScope = RuntimePolicyScope;
@@ -348,39 +343,6 @@ export interface RouterApiBootstrapGrantBroker {
   ): Promise<RouterApiBootstrapGrantIssueResult>;
 }
 
-export type ThresholdSchemeModuleById<S extends ThresholdSchemeId> = Extract<
-  ThresholdAnySchemeModule,
-  { schemeId: S }
->;
-
-export type ResolveThresholdSchemeResult<S extends ThresholdSchemeId> =
-  | { ok: true; scheme: ThresholdSchemeModuleById<S> }
-  | { ok: false; code: 'threshold_disabled' | 'not_found'; message: string };
-
-export function resolveThresholdScheme<S extends ThresholdSchemeId>(
-  threshold: ThresholdSigningAdapter | null | undefined,
-  schemeId: S,
-  options?: { notFoundMessage?: string },
-): ResolveThresholdSchemeResult<S> {
-  if (!threshold) {
-    return {
-      ok: false,
-      code: 'threshold_disabled',
-      message: 'Threshold signing is not configured on this server',
-    };
-  }
-  const scheme = threshold.getSchemeModule(schemeId);
-  if (!scheme || scheme.schemeId !== schemeId) {
-    return {
-      ok: false,
-      code: 'not_found',
-      message:
-        options?.notFoundMessage || `threshold scheme ${schemeId} is not enabled on this server`,
-    };
-  }
-  return { ok: true, scheme: scheme as ThresholdSchemeModuleById<S> };
-}
-
 export interface RouterApiOptions {
   healthz?: boolean;
   readyz?: boolean;
@@ -400,8 +362,6 @@ export interface RouterApiOptions {
    * Defaults to `seams-jwt`.
    */
   sessionCookieName?: string;
-  // Optional: pluggable threshold signing service
-  threshold?: ThresholdSigningAdapter | null;
   // Optional: runtime snapshot consumer used to bind authorize requests to latest scoped config.
   runtimeSnapshots?: RouterApiRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for Router API session/wallet lifecycle events.
@@ -460,6 +420,8 @@ export interface RouterApiOptions {
    * Router A/B normal-signing requests.
    */
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
+  /** Cryptographic refresh owner for strict Router A/B ECDSA derivation requests. */
+  routerAbEcdsaDerivationRefresh?: RouterAbEcdsaDerivationRefreshPort | null;
   /** Local product runtime used to restore an authenticated Ed25519 Yao capability. */
   routerAbEd25519YaoProduct?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   /**

@@ -1,6 +1,6 @@
 import type { NormalizedLogger } from '../../../core/logger';
 import {
-  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import { createSigningSessionSealAuditLogger } from './observability/audit';
@@ -88,7 +88,7 @@ function parseCurveBoundThresholdLookup(args: {
 }): { curve: 'ecdsa' | 'ed25519'; thresholdSessionId: string } | null {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
-  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
+  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
     return ecdsaClaims.thresholdSessionId === thresholdSessionId
       ? { curve: 'ecdsa', thresholdSessionId }

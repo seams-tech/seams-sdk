@@ -3,24 +3,24 @@ import { base64UrlEncode } from '../utils/encoders';
 import type { WalletId } from '../utils/domainIds';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
-const SDK_ECDSA_HSS_APPLICATION_BINDING_DOMAIN_V1 =
-  'seams-sdk:ecdsa-hss:application-binding:v1';
+const SDK_ECDSA_DERIVATION_APPLICATION_BINDING_DOMAIN_V1 =
+  'seams-sdk:ecdsa-derivation:application-binding:v1';
 
-export const ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION =
-  'ecdsa-hss:role-local:first-bootstrap-root-proof:v2' as const;
-export const ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION =
-  'ecdsa-hss:role-local:passkey-bootstrap-auth:v2' as const;
+export const ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION =
+  'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2' as const;
+export const ECDSA_DERIVATION_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION =
+  'ecdsa-derivation:role-local:passkey-bootstrap-auth:v2' as const;
 
 export type EcdsaClientRootPublicKey33B64u = string & {
   readonly __brand: 'EcdsaClientRootPublicKey33B64u';
 };
 
-export type EcdsaHssClientSharePublicKey33B64u = string & {
-  readonly __brand: 'EcdsaHssClientSharePublicKey33B64u';
+export type DerivationClientSharePublicKey33B64u = string & {
+  readonly __brand: 'DerivationClientSharePublicKey33B64u';
 };
 
-export type EcdsaRelayerHssPublicKey33B64u = string & {
-  readonly __brand: 'EcdsaRelayerHssPublicKey33B64u';
+export type EcdsaDerivationRelayerPublicKey33B64u = string & {
+  readonly __brand: 'EcdsaDerivationRelayerPublicKey33B64u';
 };
 
 export type EcdsaThresholdKeyId = string & {
@@ -35,14 +35,14 @@ export type SigningRootVersion = string & {
   readonly __brand: 'SigningRootVersion';
 };
 
-export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
-  version: typeof ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION;
+export type EcdsaDerivationRoleLocalFirstBootstrapRootProof = {
+  version: typeof ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION;
   clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 };
 
-export type EcdsaHssRoleLocalBootstrapIdentity = {
+export type EcdsaDerivationRoleLocalBootstrapIdentity = {
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
@@ -50,7 +50,7 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -61,14 +61,14 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
   participantIds: number[];
 };
 
-export type EcdsaHssRoleLocalPasskeyBootstrapIdentity = Omit<
-  EcdsaHssRoleLocalBootstrapIdentity,
-  'hssClientSharePublicKey33B64u' | 'clientShareRetryCounter' | 'contextBinding32B64u'
+export type EcdsaDerivationRoleLocalPasskeyBootstrapIdentity = Omit<
+  EcdsaDerivationRoleLocalBootstrapIdentity,
+  'derivationClientSharePublicKey33B64u' | 'clientShareRetryCounter' | 'contextBinding32B64u'
 > & {
   rpId: string;
 };
 
-export type SdkEcdsaHssBindingFacts = {
+export type SdkEcdsaDerivationBindingFacts = {
   walletId: WalletId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
@@ -81,15 +81,15 @@ function requireSdkBindingFactString(value: unknown, field: string): string {
   return normalized;
 }
 
-export function parseSdkEcdsaHssThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
+export function parseSdkEcdsaDerivationThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
   return requireSdkBindingFactString(value, 'ecdsaThresholdKeyId') as EcdsaThresholdKeyId;
 }
 
-export function parseSdkEcdsaHssSigningRootId(value: unknown): SigningRootId {
+export function parseSdkEcdsaDerivationSigningRootId(value: unknown): SigningRootId {
   return requireSdkBindingFactString(value, 'signingRootId') as SigningRootId;
 }
 
-export function parseSdkEcdsaHssSigningRootVersion(value: unknown): SigningRootVersion {
+export function parseSdkEcdsaDerivationSigningRootVersion(value: unknown): SigningRootVersion {
   return requireSdkBindingFactString(value, 'signingRootVersion') as SigningRootVersion;
 }
 
@@ -106,9 +106,9 @@ function pushLengthDelimitedField(out: number[], label: string, value: unknown):
   out.push(...valueBytes);
 }
 
-export function encodeSdkEcdsaHssBindingFactsV1(input: SdkEcdsaHssBindingFacts): Uint8Array {
+export function encodeSdkEcdsaDerivationBindingFactsV1(input: SdkEcdsaDerivationBindingFacts): Uint8Array {
   const out: number[] = [];
-  const domainBytes = new TextEncoder().encode(SDK_ECDSA_HSS_APPLICATION_BINDING_DOMAIN_V1);
+  const domainBytes = new TextEncoder().encode(SDK_ECDSA_DERIVATION_APPLICATION_BINDING_DOMAIN_V1);
   pushU32(out, domainBytes.length);
   out.push(...domainBytes);
   pushLengthDelimitedField(out, 'walletId', input.walletId);
@@ -118,19 +118,19 @@ export function encodeSdkEcdsaHssBindingFactsV1(input: SdkEcdsaHssBindingFacts):
   return new Uint8Array(out);
 }
 
-export async function computeSdkEcdsaHssApplicationBindingDigest32(
-  input: SdkEcdsaHssBindingFacts,
+export async function computeSdkEcdsaDerivationApplicationBindingDigest32(
+  input: SdkEcdsaDerivationBindingFacts,
 ): Promise<Uint8Array> {
-  return await sha256Bytes(encodeSdkEcdsaHssBindingFactsV1(input));
+  return await sha256Bytes(encodeSdkEcdsaDerivationBindingFactsV1(input));
 }
 
-export async function computeSdkEcdsaHssApplicationBindingDigestB64u(
-  input: SdkEcdsaHssBindingFacts,
+export async function computeSdkEcdsaDerivationApplicationBindingDigestB64u(
+  input: SdkEcdsaDerivationBindingFacts,
 ): Promise<string> {
-  return base64UrlEncode(await computeSdkEcdsaHssApplicationBindingDigest32(input));
+  return base64UrlEncode(await computeSdkEcdsaDerivationApplicationBindingDigest32(input));
 }
 
-export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
+export async function computeEcdsaDerivationRoleLocalThresholdKeyId(input: {
   walletId: string;
   evmFamilySigningKeySlotId: string;
   signingRootId: string;
@@ -138,7 +138,7 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
 }): Promise<string> {
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
-      version: 'threshold_ecdsa_hss_key_id_v7',
+      version: 'threshold_ecdsa_derivation_key_id_v7',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
       evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
@@ -146,30 +146,30 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
       signingRootVersion: input.signingRootVersion,
     }),
   );
-  return `ehss-${base64UrlEncode(digest32)}`;
+  return `ederivation-${base64UrlEncode(digest32)}`;
 }
 
-export async function computeEcdsaHssRoleLocalRelayerKeyId(input: {
+export async function computeEcdsaDerivationRoleLocalRelayerKeyId(input: {
   walletId: string;
   evmFamilySigningKeySlotId: string;
 }): Promise<string> {
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
-      version: 'threshold_ecdsa_hss_relayer_key_id_v1',
+      version: 'threshold_ecdsa_derivation_relayer_key_id_v1',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
       evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     }),
   );
-  return `ehss-relayer-${base64UrlEncode(digest32)}`;
+  return `ederivation-relayer-${base64UrlEncode(digest32)}`;
 }
 
-export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
-  input: EcdsaHssRoleLocalBootstrapIdentity,
+export async function computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32(
+  input: EcdsaDerivationRoleLocalBootstrapIdentity,
 ): Promise<Uint8Array> {
   return await sha256BytesUtf8(
     alphabetizeStringify({
-      version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+      version: ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
       walletId: input.walletId,
       evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
@@ -177,7 +177,7 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
       signingRootVersion: input.signingRootVersion,
       keyScope: input.keyScope,
       relayerKeyId: input.relayerKeyId,
-      hssClientSharePublicKey33B64u: input.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: input.derivationClientSharePublicKey33B64u,
       clientShareRetryCounter: input.clientShareRetryCounter,
       contextBinding32B64u: input.contextBinding32B64u,
       requestId: input.requestId,
@@ -190,18 +190,18 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
   );
 }
 
-export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u(
-  input: EcdsaHssRoleLocalBootstrapIdentity,
+export async function computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32B64u(
+  input: EcdsaDerivationRoleLocalBootstrapIdentity,
 ): Promise<string> {
-  return base64UrlEncode(await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(input));
+  return base64UrlEncode(await computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32(input));
 }
 
-export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
-  input: EcdsaHssRoleLocalPasskeyBootstrapIdentity,
+export async function computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32(
+  input: EcdsaDerivationRoleLocalPasskeyBootstrapIdentity,
 ): Promise<Uint8Array> {
   return await sha256BytesUtf8(
     alphabetizeStringify({
-      version: ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION,
+      version: ECDSA_DERIVATION_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION,
       walletId: input.walletId,
       evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       rpId: input.rpId,
@@ -220,10 +220,11 @@ export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
   );
 }
 
-export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u(
-  input: EcdsaHssRoleLocalPasskeyBootstrapIdentity,
+
+export async function computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u(
+  input: EcdsaDerivationRoleLocalPasskeyBootstrapIdentity,
 ): Promise<string> {
   return base64UrlEncode(
-    await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(input),
+    await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32(input),
   );
 }

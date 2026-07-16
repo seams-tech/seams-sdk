@@ -1,4 +1,5 @@
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from './routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from './routerAbEcdsaDerivation';
+import type { EmailOtpProvider } from './walletAuthAuthority';
 
 export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
 export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
@@ -109,7 +110,7 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSe
   thresholdEcdsaPublicKeyB64u?: string;
   participantIds: number[];
   runtimePolicyScope?: unknown;
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
 export type SealedSigningSessionEcdsaRestoreMetadata =
@@ -124,6 +125,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
       source: 'email_otp';
       evmFamilySigningKeySlotId: string;
+      provider: EmailOtpProvider;
       providerSubjectId: string;
       emailHashHex: string;
       authSubjectId?: never;

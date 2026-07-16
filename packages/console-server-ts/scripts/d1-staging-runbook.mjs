@@ -370,7 +370,7 @@ function appendEvidenceTable(lines) {
   lines.push('| Console `/readyz` |  |  |');
   lines.push('| Router API `/readyz` |  |  |');
   lines.push('| Router API `/router-ab/ed25519/healthz` configured |  |  |');
-  lines.push('| Router API `/router-ab/ecdsa-hss/healthz` configured |  |  |');
+  lines.push('| Router API `/router-ab/ecdsa-derivation/healthz` configured |  |  |');
   lines.push('| Dashboard reconciliation |  |  |');
   lines.push('| Sponsored gas settlement and prepaid billing |  |  |');
   lines.push('| Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed |  |  |');

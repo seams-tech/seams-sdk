@@ -1,7 +1,3 @@
-export { ThresholdSigningService } from './ThresholdSigningService';
-export { createThresholdSigningService } from './createThresholdSigningService';
-export * from './schemes/schemeIds';
-export type * from './schemes/thresholdServiceSchemes.types';
 export {
   createThresholdEd25519KeyStore,
   type ThresholdEd25519KeyStore,
@@ -37,10 +33,10 @@ export {
 export {
   createHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
-  deriveEcdsaHssYRelayerFromSigningRootShareResolver,
+  deriveEcdsaDerivationYRelayerFromSigningRootShareResolver,
   type CreateHostedSigningRootShareResolverInput,
   type CreateSelfHostedSigningRootShareResolverInput,
-  type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
+  type DeriveEcdsaDerivationYRelayerFromSigningRootShareResolverInput,
   type FixedSigningRootScope,
   type SealedSigningRootShare,
   type SigningRootShareDecryptAdapter,

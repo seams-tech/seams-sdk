@@ -9,7 +9,7 @@ import type {
 import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
-} from '../ThresholdService/ethSignerWasm';
+} from '../ThresholdService/evmCryptoWasm';
 import { parseBoundaryWalletId } from './webauthnWalletBinding';
 
 export type EmailOtpUnlockEnrollmentReadResult =

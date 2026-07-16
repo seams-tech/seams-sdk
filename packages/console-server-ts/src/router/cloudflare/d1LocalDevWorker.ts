@@ -181,7 +181,7 @@ const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL = 'http://127.0.0.1:9093';
 const LOCAL_ROUTER_AB_ED25519_SEED_PATH = '/router-ab/dev/ed25519/normal-signing/seed';
-const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH = '/router-ab/dev/ecdsa-hss/normal-signing/seed';
+const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH = '/router-ab/dev/ecdsa-derivation/normal-signing/seed';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION = 'local-d1-signing-root-share-v1';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_AUDIT_EVENT_ID = 'local-dev-signing-root-share-seed';
 const LOCAL_SIGNING_ROOT_SHARE_POLICY: ThresholdPrfPolicy = Object.freeze({
@@ -1414,7 +1414,7 @@ async function handleLocalRouterAbEd25519Seed(
   return jsonResponse(seeded, { status: seeded.ok ? 200 : seeded.code === 'internal' ? 500 : 400 });
 }
 
-async function handleLocalRouterAbEcdsaHssSeed(
+async function handleLocalRouterAbEcdsaDerivationSeed(
   request: Request,
   env: LocalD1DevEnv,
 ): Promise<Response> {
@@ -1453,7 +1453,7 @@ async function handleLocalRouterAbEcdsaHssSeed(
       { status: 501 },
     );
   }
-  const seeded = await seedRuntime.seedLocalRouterAbEcdsaHssNormalSigningSession({
+  const seeded = await seedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession({
     walletId: requireOptionalString(body.walletId, ''),
     evmFamilySigningKeySlotId: requireOptionalString(body.evmFamilySigningKeySlotId, ''),
     ecdsaThresholdKeyId: requireOptionalString(body.ecdsaThresholdKeyId, ''),
@@ -1482,8 +1482,8 @@ async function fetch(
   if (url.pathname === LOCAL_ROUTER_AB_ED25519_SEED_PATH) {
     return await handleLocalRouterAbEd25519Seed(request, env);
   }
-  if (url.pathname === LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH) {
-    return await handleLocalRouterAbEcdsaHssSeed(request, env);
+  if (url.pathname === LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH) {
+    return await handleLocalRouterAbEcdsaDerivationSeed(request, env);
   }
   if (isConsolePath(url.pathname)) {
     const handler = await localConsoleHandler(env);

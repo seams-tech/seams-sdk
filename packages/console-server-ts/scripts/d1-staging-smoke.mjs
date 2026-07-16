@@ -143,9 +143,9 @@ function smokeEndpoints(options) {
       },
     },
     {
-      id: 'signer_custody_ecdsa_hss_healthz',
+      id: 'signer_custody_ecdsa_derivation_healthz',
       method: 'GET',
-      url: `${options.routerApiOrigin}/router-ab/ecdsa-hss/healthz`,
+      url: `${options.routerApiOrigin}/router-ab/ecdsa-derivation/healthz`,
       expectedStatus: 200,
       expectedJson: {
         ok: true,

@@ -18,7 +18,7 @@ import {
   secp256k1PublicKey33ToEthereumAddress,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
-} from '@seams/sdk-server/internal/core/ThresholdService/ethSignerWasm';
+} from '@seams/sdk-server/internal/core/ThresholdService/evmCryptoWasm';
 import type { SponsorshipSpendPricingService } from './spendCaps';
 import { createRouterApiPublishableKeyAuthAdapter } from '../router/routerApiKeyAuth';
 import { coerceRouterLogger, type RouterLogger } from '@seams/sdk-server/internal/router/logger';

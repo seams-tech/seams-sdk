@@ -159,45 +159,45 @@ const requiredSmokeCheckIds = Object.freeze([
   'router_api_readyz',
   'router_api_healthz',
   'signer_custody_ed25519_healthz',
-  'signer_custody_ecdsa_hss_healthz',
+  'signer_custody_ecdsa_derivation_healthz',
 ]);
 const smokeExpectedPathsById = Object.freeze({
   console_readyz: '/console/readyz',
   router_api_readyz: '/readyz',
   router_api_healthz: '/healthz',
   signer_custody_ed25519_healthz: '/router-ab/ed25519/healthz',
-  signer_custody_ecdsa_hss_healthz: '/router-ab/ecdsa-hss/healthz',
+  signer_custody_ecdsa_derivation_healthz: '/router-ab/ecdsa-derivation/healthz',
 });
 const smokeExpectedStatusesById = Object.freeze({
   console_readyz: 200,
   router_api_readyz: 200,
   router_api_healthz: 200,
   signer_custody_ed25519_healthz: 200,
-  signer_custody_ecdsa_hss_healthz: 200,
+  signer_custody_ecdsa_derivation_healthz: 200,
 });
 const routerApiSmokeCheckIds = Object.freeze([
   'router_api_readyz',
   'router_api_healthz',
   'signer_custody_ed25519_healthz',
-  'signer_custody_ecdsa_hss_healthz',
+  'signer_custody_ecdsa_derivation_healthz',
 ]);
 const signerCustodyMissingKekResultId = 'ecdsa_export_share_missing_kek_fail_closed';
 const signerCustodyMissingKekCode = 'missing_signing_root_kek';
 const requiredSignerCustodyResultIds = Object.freeze([
   'signer_custody_ed25519_healthz',
-  'signer_custody_ecdsa_hss_healthz',
+  'signer_custody_ecdsa_derivation_healthz',
   'ecdsa_export_share_success',
   signerCustodyMissingKekResultId,
 ]);
 const signerCustodyExpectedPathsById = Object.freeze({
   signer_custody_ed25519_healthz: '/router-ab/ed25519/healthz',
-  signer_custody_ecdsa_hss_healthz: '/router-ab/ecdsa-hss/healthz',
-  ecdsa_export_share_success: '/router-ab/ecdsa-hss/export/share',
-  [signerCustodyMissingKekResultId]: '/router-ab/ecdsa-hss/export/share',
+  signer_custody_ecdsa_derivation_healthz: '/router-ab/ecdsa-derivation/healthz',
+  ecdsa_export_share_success: '/router-ab/ecdsa-derivation/export/share',
+  [signerCustodyMissingKekResultId]: '/router-ab/ecdsa-derivation/export/share',
 });
 const signerCustodyExpectedStatusesById = Object.freeze({
   signer_custody_ed25519_healthz: 200,
-  signer_custody_ecdsa_hss_healthz: 200,
+  signer_custody_ecdsa_derivation_healthz: 200,
   ecdsa_export_share_success: 200,
 });
 const signerCustodySensitiveBodyFieldNames = new Set([

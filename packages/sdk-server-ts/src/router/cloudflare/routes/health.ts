@@ -8,7 +8,9 @@ export async function handleHealth(ctx: CloudflareRouterApiContext): Promise<Res
   // Surface simple CORS info for diagnostics (normalized)
   const allowed = buildCorsOrigins(...(ctx.opts.corsOrigins || []));
   const corsAllowed = allowed === '*' ? '*' : allowed;
-  const thresholdConfigured = Boolean(ctx.opts.threshold);
+  const thresholdConfigured = Boolean(
+    ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
+  );
 
   return json(
     {
@@ -27,7 +29,9 @@ export async function handleReady(ctx: CloudflareRouterApiContext): Promise<Resp
   const allowed = buildCorsOrigins(...(ctx.opts.corsOrigins || []));
   const corsAllowed = allowed === '*' ? '*' : allowed;
 
-  const thresholdConfigured = Boolean(ctx.opts.threshold);
+  const thresholdConfigured = Boolean(
+    ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
+  );
 
   try {
     if (ctx.opts.readyCheck) {

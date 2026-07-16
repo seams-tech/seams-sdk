@@ -13,7 +13,7 @@ import type {
 import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
-} from '../../core/ThresholdService/ethSignerWasm';
+} from '../../core/ThresholdService/evmCryptoWasm';
 import type {
   RouterApiEmailOtpRouteService,
   RouterApiWalletUnlockService,

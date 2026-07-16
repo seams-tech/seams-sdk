@@ -7,9 +7,7 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { resolveThresholdScheme } from '../../routerApi';
 import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
-import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
   handleRouterAbEd25519NormalSigningRouteCore,
@@ -44,15 +42,13 @@ export async function handleThresholdEd25519(
   ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
-    const resolved = resolveThresholdScheme(
-      ctx.opts.threshold,
-      THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-      {
-        notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-      },
-    );
-    if (!resolved.ok) {
-      const body = { ...resolved, configured: false };
+    if (!ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime()) {
+      const body = {
+        ok: false,
+        code: 'not_configured',
+        message: 'Router A/B Ed25519 signing runtime is not configured on this server',
+        configured: false,
+      };
       return json(body, { status: thresholdEd25519StatusCode(body) });
     }
     return json({ ok: true, configured: true }, { status: 200 });

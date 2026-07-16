@@ -6,7 +6,7 @@ import {
   signSecp256k1Recoverable,
   type ServerEip1559UnsignedTx,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
-} from '@seams/sdk-server/internal/core/ThresholdService/ethSignerWasm';
+} from '@seams/sdk-server/internal/core/ThresholdService/evmCryptoWasm';
 
 export type WorkerEip1559UnsignedTx = ServerEip1559UnsignedTx;
 
@@ -56,7 +56,7 @@ export async function workerSecp256k1PublicKey33ToEthereumAddress(
 
 function parseWorkerEvmAddress(value: string): `0x${string}` {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error('[sponsored-evm] eth_signer returned an invalid sponsor address');
+    throw new Error('[sponsored-evm] evm_crypto returned an invalid sponsor address');
   }
   return value as `0x${string}`;
 }

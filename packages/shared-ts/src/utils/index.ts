@@ -20,6 +20,6 @@ export * from './walletAuthAuthority';
 export * from './ecdsaKeyFactsInventory';
 export * from './secureRandomId';
 export * from './routerAbPublicKeyset';
-export * from './routerAbEcdsaHss';
+export * from './routerAbEcdsaDerivation';
 export * from './routerAbEd25519Yao';
 export * from './authenticatorOptions';

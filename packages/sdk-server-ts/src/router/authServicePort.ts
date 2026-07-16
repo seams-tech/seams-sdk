@@ -14,16 +14,16 @@ import type {
   RecoveryExecutionStatus,
 } from '../core/RecoveryExecutionStore';
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
-import type { ThresholdSigningService } from '../core/ThresholdService/ThresholdSigningService';
 import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
-import type { RouterAbEcdsaHssWalletSessionClaims } from '../core/ThresholdService/validation';
+import type { RouterAbEcdsaBootstrapExportPort } from '../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaPresignRuntime } from '../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
+import type { RouterAbEcdsaDerivationWalletSessionClaims } from '../core/ThresholdService/validation';
 import type {
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssExportShareRequest,
-  EcdsaHssExportShareResponse,
-  EcdsaHssRouteResult,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationExportShareRequest,
+  EcdsaDerivationExportShareResponse,
+  EcdsaDerivationRouteResult,
+  EcdsaDerivationServerBootstrapResponse,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
   ThresholdEcdsaChainTarget,
@@ -46,14 +46,14 @@ import type {
   WalletAddAuthMethodStartResponse,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
-  WalletAddSignerHssRespondRequest,
-  WalletAddSignerHssRespondResponse,
+  WalletAddSignerEcdsaDerivationRespondRequest,
+  WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
-  WalletRegistrationHssRespondRequest,
-  WalletRegistrationHssRespondResponse,
+  WalletRegistrationEcdsaDerivationRespondRequest,
+  WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
   WalletRevokeAuthMethodRequest,
@@ -285,7 +285,7 @@ type ThresholdEcdsaKeyInventoryDiagnostics = {
   readonly userId: string;
   readonly inputCount: number;
   readonly returnedCount: number;
-  readonly thresholdServicePresent: boolean;
+  readonly ecdsaBootstrapExportRuntimePresent: boolean;
   readonly rejected: Record<string, number>;
 };
 
@@ -532,17 +532,17 @@ export type RouterApiMethodTypes = {
     readonly input: never;
     readonly result: string;
   };
-  ecdsaHssRoleLocalBootstrap: {
-    readonly input: EcdsaHssClientBootstrapRequest;
-    readonly result: EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>;
+  ecdsaDerivationRoleLocalBootstrap: {
+    readonly input: EcdsaDerivationClientBootstrapRequest;
+    readonly result: EcdsaDerivationRouteResult<EcdsaDerivationServerBootstrapResponse>;
   };
-  ecdsaHssRoleLocalExportShare: {
+  ecdsaDerivationRoleLocalExportShare: {
     readonly input: {
-      readonly request: EcdsaHssExportShareRequest;
+      readonly request: EcdsaDerivationExportShareRequest;
       readonly keyHandle: string;
-      readonly claims: RouterAbEcdsaHssWalletSessionClaims;
+      readonly claims: RouterAbEcdsaDerivationWalletSessionClaims;
     };
-    readonly result: EcdsaHssRouteResult<EcdsaHssExportShareResponse>;
+    readonly result: EcdsaDerivationRouteResult<EcdsaDerivationExportShareResponse>;
   };
   getEmailOtpRecoveryCodeStatus: {
     readonly input: {
@@ -593,10 +593,6 @@ export type RouterApiMethodTypes = {
           readonly code: 'invalid_args' | 'internal';
           readonly message: string;
         };
-  };
-  getThresholdSigningService: {
-    readonly input: never;
-    readonly result: ThresholdSigningService | null;
   };
   getRouterAbNormalSigningRuntime: {
     readonly input: never;
@@ -758,13 +754,13 @@ export type RouterApiMethodTypes = {
         };
   };
   removeEmailOtpServerSeal: RouterApiMethodTypes['applyEmailOtpServerSeal'];
-  respondWalletAddSignerHss: {
-    readonly input: WalletAddSignerHssRespondRequest;
-    readonly result: WalletAddSignerHssRespondResponse;
+  respondWalletAddSignerEcdsaDerivation: {
+    readonly input: WalletAddSignerEcdsaDerivationRespondRequest;
+    readonly result: WalletAddSignerEcdsaDerivationRespondResponse;
   };
-  respondWalletRegistrationHss: {
-    readonly input: WalletRegistrationHssRespondRequest;
-    readonly result: WalletRegistrationHssRespondResponse;
+  respondWalletRegistrationEcdsaDerivation: {
+    readonly input: WalletRegistrationEcdsaDerivationRespondRequest;
+    readonly result: WalletRegistrationEcdsaDerivationRespondResponse;
   };
   resolveGoogleEmailOtpSession: {
     readonly input: {
@@ -906,11 +902,11 @@ export type RouterApiMethodTypes = {
           readonly message: string;
         };
   };
-  verifyEcdsaHssRoleLocalClientRootProofForExistingKey: {
-    readonly input: EcdsaHssClientBootstrapRequest & {
-      readonly clientRootProof: NonNullable<EcdsaHssClientBootstrapRequest['clientRootProof']>;
+  verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey: {
+    readonly input: EcdsaDerivationClientBootstrapRequest & {
+      readonly clientRootProof: NonNullable<EcdsaDerivationClientBootstrapRequest['clientRootProof']>;
     };
-    readonly result: EcdsaHssRouteResult<{ readonly keyHandle: string }>;
+    readonly result: EcdsaDerivationRouteResult<{ readonly keyHandle: string }>;
   };
   verifyGoogleLogin: {
     readonly input: { readonly idToken?: unknown; readonly id_token?: unknown };
@@ -1027,10 +1023,13 @@ export type GoogleEmailOtpRegistrationCandidateWalletValidationResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export interface ThresholdRouterApiAuthService {
-  getThresholdSigningService(): ThresholdSigningService | null;
+export interface RouterAbWalletSigningRuntimeService {
   getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null;
-  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportRuntime | null;
+  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportPort | null;
+}
+
+export interface RouterAbSigningRuntimeService extends RouterAbWalletSigningRuntimeService {
+  getRouterAbEcdsaPresignRuntime(): RouterAbEcdsaPresignRuntime | null;
 }
 
 export interface RouterApiEmailOtpChallengeService {
@@ -1070,9 +1069,9 @@ export interface RouterApiWalletRegistrationService {
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
   ): Promise<WalletRegistrationStartResponse>;
-  respondWalletRegistrationHss(
-    input: WalletRegistrationHssRespondRequest,
-  ): Promise<WalletRegistrationHssRespondResponse>;
+  respondWalletRegistrationEcdsaDerivation(
+    input: WalletRegistrationEcdsaDerivationRespondRequest,
+  ): Promise<WalletRegistrationEcdsaDerivationRespondResponse>;
   finalizeWalletRegistration(
     input: WalletRegistrationFinalizeRequest,
   ): Promise<WalletRegistrationFinalizeResponse>;
@@ -1116,9 +1115,9 @@ export interface RouterApiWalletAuthMethodService {
   finalizeWalletAddSigner(
     input: WalletAddSignerFinalizeRequest,
   ): Promise<WalletAddSignerFinalizeResponse>;
-  respondWalletAddSignerHss(
-    input: WalletAddSignerHssRespondRequest,
-  ): Promise<WalletAddSignerHssRespondResponse>;
+  respondWalletAddSignerEcdsaDerivation(
+    input: WalletAddSignerEcdsaDerivationRespondRequest,
+  ): Promise<WalletAddSignerEcdsaDerivationRespondResponse>;
   revokeWalletAuthMethod(
     input: WalletRevokeAuthMethodRequest,
   ): Promise<WalletRevokeAuthMethodResponse>;
@@ -1130,10 +1129,13 @@ export interface RouterApiWalletAuthMethodService {
 
 export interface RouterApiWalletRegistrationRouteService
   extends
-    ThresholdRouterApiAuthService,
+    RouterAbWalletSigningRuntimeService,
     RouterApiWalletRegistrationService,
     RouterApiWalletAuthMethodService,
     RouterApiWalletAuthVerificationService {
+  getOrCreateAppSessionVersion(
+    input: RouterApiMethodTypes['getOrCreateAppSessionVersion']['input'],
+  ): Promise<RouterApiMethodTypes['getOrCreateAppSessionVersion']['result']>;
   fundImplicitNearAccount(
     input: FundImplicitNearAccountRequest,
   ): Promise<FundImplicitNearAccountResult>;
@@ -1278,23 +1280,23 @@ export interface RouterApiWebAuthnService {
   ): Promise<RouterApiMethodTypes['verifyWebAuthnSyncAccount']['result']>;
 }
 
-export interface RouterApiThresholdRuntimeService extends ThresholdRouterApiAuthService {
-  ecdsaHssRoleLocalBootstrap(
-    input: RouterApiMethodTypes['ecdsaHssRoleLocalBootstrap']['input'],
-  ): Promise<RouterApiMethodTypes['ecdsaHssRoleLocalBootstrap']['result']>;
-  ecdsaHssRoleLocalExportShare(
-    input: RouterApiMethodTypes['ecdsaHssRoleLocalExportShare']['input'],
-  ): Promise<RouterApiMethodTypes['ecdsaHssRoleLocalExportShare']['result']>;
+export interface RouterApiThresholdRuntimeService extends RouterAbSigningRuntimeService {
+  ecdsaDerivationRoleLocalBootstrap(
+    input: RouterApiMethodTypes['ecdsaDerivationRoleLocalBootstrap']['input'],
+  ): Promise<RouterApiMethodTypes['ecdsaDerivationRoleLocalBootstrap']['result']>;
+  ecdsaDerivationRoleLocalExportShare(
+    input: RouterApiMethodTypes['ecdsaDerivationRoleLocalExportShare']['input'],
+  ): Promise<RouterApiMethodTypes['ecdsaDerivationRoleLocalExportShare']['result']>;
   listThresholdEcdsaKeyIdentityTargetsForUser(
     input: RouterApiMethodTypes['listThresholdEcdsaKeyIdentityTargetsForUser']['input'],
   ): Promise<RouterApiMethodTypes['listThresholdEcdsaKeyIdentityTargetsForUser']['result']>;
   listWalletEcdsaKeyFactsInventory(
     input: RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['input'],
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;
-  verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
-    input: RouterApiMethodTypes['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']['input'],
+  verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
+    input: RouterApiMethodTypes['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']['input'],
   ): Promise<
-    RouterApiMethodTypes['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']['result']
+    RouterApiMethodTypes['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']['result']
   >;
 }
 
@@ -1344,7 +1346,7 @@ export function routerApiWalletRegistrationRouteService(
   return {
     ...service.walletRegistration,
     ...service.walletAuthMethods,
-    getThresholdSigningService: service.thresholdRuntime.getThresholdSigningService,
+    getOrCreateAppSessionVersion: service.sessionVersions.getOrCreateAppSessionVersion,
     getRouterAbNormalSigningRuntime: service.thresholdRuntime.getRouterAbNormalSigningRuntime,
     getRouterAbEcdsaBootstrapExportRuntime:
       service.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime,

@@ -172,7 +172,7 @@ pnpm run d1:staging:smoke -- \
 The smoke script checks the actual staging readiness endpoints:
 `/console/readyz` on the console Worker, `/readyz` and `/healthz` on the Router API
 Worker, and the configured signer custody health routes
-`/router-ab/ed25519/healthz` and `/router-ab/ecdsa-hss/healthz`. It writes a
+`/router-ab/ed25519/healthz` and `/router-ab/ecdsa-derivation/healthz`. It writes a
 JSON evidence manifest under `.wrangler/d1-staging-smoke`.
 
 Run read-only D1 reconciliation after staging smoke passes:
@@ -217,7 +217,7 @@ pnpm run d1:staging:signer-custody -- \
 ```
 
 The signer custody script calls the configured threshold route health endpoints
-and the production `/router-ab/ecdsa-hss/export/share` route with the success
+and the production `/router-ab/ecdsa-derivation/export/share` route with the success
 fixture and the missing-KEK fixture. It writes redacted evidence under
 `.wrangler/d1-staging-signer-custody` and never stores the wallet-session JWT or
 server export share in the manifest. The final evidence verifier requires the

@@ -1,8 +1,8 @@
 import {
-  parseSdkEcdsaHssSigningRootId,
-  parseSdkEcdsaHssSigningRootVersion,
-  parseSdkEcdsaHssThresholdKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+  parseSdkEcdsaDerivationThresholdKeyId,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { parseWalletId, parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
@@ -45,7 +45,7 @@ export type LocalRouterAbEd25519NormalSigningSeedResult =
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export type LocalRouterAbEcdsaHssNormalSigningSeedInput = {
+export type LocalRouterAbEcdsaDerivationNormalSigningSeedInput = {
   readonly walletId: string;
   readonly evmFamilySigningKeySlotId: string;
   readonly ecdsaThresholdKeyId: string;
@@ -61,7 +61,7 @@ export type LocalRouterAbEcdsaHssNormalSigningSeedInput = {
   readonly remainingUses: number;
 };
 
-export type LocalRouterAbEcdsaHssNormalSigningSeedResult =
+export type LocalRouterAbEcdsaDerivationNormalSigningSeedResult =
   | {
       readonly ok: true;
       readonly relayerKeyId: string;
@@ -199,9 +199,9 @@ export class RouterAbLocalSigningSeedRuntime {
     }
   }
 
-  async seedLocalRouterAbEcdsaHssNormalSigningSession(
-    input: LocalRouterAbEcdsaHssNormalSigningSeedInput,
-  ): Promise<LocalRouterAbEcdsaHssNormalSigningSeedResult> {
+  async seedLocalRouterAbEcdsaDerivationNormalSigningSession(
+    input: LocalRouterAbEcdsaDerivationNormalSigningSeedInput,
+  ): Promise<LocalRouterAbEcdsaDerivationNormalSigningSeedResult> {
     const walletId = parseWalletId(input.walletId);
     const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotId(
       input.evmFamilySigningKeySlotId,
@@ -210,14 +210,14 @@ export class RouterAbLocalSigningSeedRuntime {
     let signingRootId = '';
     let signingRootVersion = '';
     try {
-      ecdsaThresholdKeyId = parseSdkEcdsaHssThresholdKeyId(input.ecdsaThresholdKeyId);
-      signingRootId = parseSdkEcdsaHssSigningRootId(input.signingRootId);
-      signingRootVersion = parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion);
+      ecdsaThresholdKeyId = parseSdkEcdsaDerivationThresholdKeyId(input.ecdsaThresholdKeyId);
+      signingRootId = parseSdkEcdsaDerivationSigningRootId(input.signingRootId);
+      signingRootVersion = parseSdkEcdsaDerivationSigningRootVersion(input.signingRootVersion);
     } catch {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'local Router A/B ECDSA-HSS seed is invalid',
+        message: 'local Router A/B ECDSA derivation seed is invalid',
       };
     }
     const walletKeyVersion = toOptionalTrimmedString(input.walletKeyVersion);
@@ -250,7 +250,7 @@ export class RouterAbLocalSigningSeedRuntime {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'local Router A/B ECDSA-HSS seed is invalid',
+        message: 'local Router A/B ECDSA derivation seed is invalid',
       };
     }
 
@@ -288,7 +288,7 @@ export class RouterAbLocalSigningSeedRuntime {
       return {
         ok: false,
         code: 'internal',
-        message: errorMessage(error) || 'local Router A/B ECDSA-HSS seed failed',
+        message: errorMessage(error) || 'local Router A/B ECDSA derivation seed failed',
       };
     }
   }

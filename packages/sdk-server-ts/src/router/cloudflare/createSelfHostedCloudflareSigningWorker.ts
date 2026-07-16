@@ -2,7 +2,6 @@ import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
 import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiOptions } from '../routerApi';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
-import { resolveThresholdOption } from '../routerOptions';
 import { validateRouterApiRorOptions } from '../ror/provider';
 import { coerceRouterLogger } from '../logger';
 import type { NormalizedRouterLogger } from '../logger';
@@ -178,7 +177,9 @@ function selfHostedHealthResponse(ctx: SelfHostedCloudflareRouterApiContext): Re
     {
       ok: true,
       selfHosted: true,
-      threshold: { configured: Boolean(ctx.opts.threshold) },
+      threshold: {
+        configured: Boolean(ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime()),
+      },
     },
     { status: 200 },
   );
@@ -355,10 +356,9 @@ export function createSelfHostedCloudflareSigningRouter(
   opts: RouterApiOptions = {},
   selfHostedOpts: SelfHostedCloudflareSigningRouterOptions = {},
 ): FetchHandler {
-  const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-  const effectiveOpts: RouterApiOptions = { ...opts, threshold, sessionCookieName };
+  const effectiveOpts: RouterApiOptions = { ...opts, sessionCookieName };
   if (effectiveOpts.ror) {
     validateRouterApiRorOptions(effectiveOpts.ror);
   }

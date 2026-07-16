@@ -7,7 +7,7 @@ import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import { postRouterAbInternalServiceJson } from '../core/ThresholdService/routerAb/internalServiceHttp';
 import { thresholdEcdsaStatusCode } from '../threshold/statusCodes';
 import type {
-  RouterAbEcdsaHssWalletSessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
@@ -16,25 +16,25 @@ import type {
   VerifiedEd25519WalletSessionAuth,
 } from './verifiedWalletSessionAuth';
 import {
-  validateRouterAbEcdsaHssWalletSessionInputs,
+  validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
 import { parseSessionKind, type SessionAdapter } from './routerApi';
 import {
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
-  parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningRequestV1,
-  routerAbEcdsaHssActiveStateSessionId,
-  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
-  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
-  routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
-  routerAbEcdsaHssNormalSigningScopeCanonicalBytesV1,
-  sameRouterAbEcdsaHssNormalSigningScopeV1,
-  type RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  routerAbEcdsaDerivationActiveStateSessionId,
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
+  routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
+  routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1,
+  sameRouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbPublicDigest32V1Wire,
-} from '@shared/utils/routerAbEcdsaHss';
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
@@ -42,8 +42,8 @@ const ED25519_SIGNING_PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-si
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
 const PRIVATE_ED25519_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/sign';
-const PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/ecdsa-hss/sign/prepare';
-const PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/ecdsa-hss/sign';
+const PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/ecdsa-derivation/sign/prepare';
+const PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/ecdsa-derivation/sign';
 
 export type RouterAbEd25519PrivateSigningPath =
   | typeof PRIVATE_ED25519_SIGNING_PREPARE_PATH
@@ -54,13 +54,13 @@ export const ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS = {
   finalize: PRIVATE_ED25519_SIGNING_FINALIZE_PATH,
 } as const;
 
-export type RouterAbEcdsaHssPrivateSigningPath =
-  | typeof PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH
-  | typeof PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH;
+export type RouterAbEcdsaDerivationPrivateSigningPath =
+  | typeof PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH
+  | typeof PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH;
 
-export const ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS = {
-  prepare: PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH,
-  finalize: PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH,
+export const ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS = {
+  prepare: PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
+  finalize: PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH,
 } as const;
 
 export type RouterAbSigningWorkerJsonResult =
@@ -183,7 +183,7 @@ export type RouterAbNormalSigningAdmissionEvaluationInput =
       adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
       curve: 'ecdsa';
       phase: 'prepare' | 'finalize';
-      claims: RouterAbEcdsaHssWalletSessionClaims;
+      claims: RouterAbEcdsaDerivationWalletSessionClaims;
       walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
       admission: AcceptedRouteAdmission;
     };
@@ -222,7 +222,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
       ok: false,
       status: 403,
       code: 'project_policy_rejected',
-      message: 'Router A/B ECDSA-HSS normal-signing runtime policy scope is required',
+      message: 'Router A/B ECDSA derivation normal-signing runtime policy scope is required',
     };
   }
 
@@ -235,7 +235,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
-    signingWorkerId: input.claims.routerAbEcdsaHssNormalSigning.scope.signing_worker.server_id,
+    signingWorkerId: input.claims.routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id,
     keyHandle: input.walletSessionAuth.keyHandle,
     runtimePolicyScope: input.claims.runtimePolicyScope,
   });
@@ -246,7 +246,7 @@ export type RouterAbEd25519PrivateSigningWorkerBody = {
   request: Record<string, unknown>;
 };
 
-type RouterAbEcdsaHssTrustedAdmissionV1 = {
+type RouterAbEcdsaDerivationTrustedAdmissionV1 = {
   account_id: string;
   session_id: string;
   request_digest: RouterAbPublicDigest32V1Wire;
@@ -255,19 +255,19 @@ type RouterAbEcdsaHssTrustedAdmissionV1 = {
   expires_at_ms: number;
 };
 
-type RouterAbEcdsaHssPrivatePrepareSigningWorkerBody = {
-  request: RouterAbEcdsaHssEvmDigestSigningRequestV1Wire;
-  trusted_admission: RouterAbEcdsaHssTrustedAdmissionV1;
+type RouterAbEcdsaDerivationPrivatePrepareSigningWorkerBody = {
+  request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
+  trusted_admission: RouterAbEcdsaDerivationTrustedAdmissionV1;
 };
 
-type RouterAbEcdsaHssPrivateFinalizeSigningWorkerBody = {
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
-  trusted_admission: RouterAbEcdsaHssTrustedAdmissionV1;
+type RouterAbEcdsaDerivationPrivateFinalizeSigningWorkerBody = {
+  request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
+  trusted_admission: RouterAbEcdsaDerivationTrustedAdmissionV1;
 };
 
-export type RouterAbEcdsaHssPrivateSigningWorkerBody =
-  | RouterAbEcdsaHssPrivatePrepareSigningWorkerBody
-  | RouterAbEcdsaHssPrivateFinalizeSigningWorkerBody;
+export type RouterAbEcdsaDerivationPrivateSigningWorkerBody =
+  | RouterAbEcdsaDerivationPrivatePrepareSigningWorkerBody
+  | RouterAbEcdsaDerivationPrivateFinalizeSigningWorkerBody;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -310,8 +310,8 @@ function signingPayloadDigestFromWire(value: unknown): string {
 }
 
 const ED25519_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ed25519_budget_request_digest_v1';
-const ECDSA_HSS_BUDGET_OPERATION_ID_VERSION_V1 = 'router_ab_ecdsa_hss_budget_operation_id_v1';
-const ECDSA_HSS_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ecdsa_hss_budget_request_digest_v1';
+const ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1 = 'router_ab_ecdsa_derivation_budget_operation_id_v1';
+const ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ecdsa_derivation_budget_request_digest_v1';
 
 async function ed25519SigningPayloadDigestB64u(value: unknown): Promise<string> {
   const payload = isPlainObject(value) ? value : null;
@@ -437,10 +437,10 @@ function ed25519FinalizeOperationId(body: Record<string, unknown>): string {
   return nonEmptyString(body.budget_operation_id);
 }
 
-export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
+export async function deriveRouterAbEcdsaDerivationBudgetOperationId(input: {
   body:
-    | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
+    | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
+    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
@@ -466,16 +466,16 @@ export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
     ['signing_digest_b64u', input.body.signing_digest_b64u],
   ] as const;
   return hashBudgetFields({
-    version: ECDSA_HSS_BUDGET_OPERATION_ID_VERSION_V1,
+    version: ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1,
     fields,
-    prefix: 'router-ab-ecdsa-hss',
+    prefix: 'router-ab-ecdsa-derivation',
   });
 }
 
-export async function deriveRouterAbEcdsaHssBudgetRequestDigest(input: {
+export async function deriveRouterAbEcdsaDerivationBudgetRequestDigest(input: {
   body:
-    | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
+    | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
+    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
@@ -492,8 +492,8 @@ export async function deriveRouterAbEcdsaHssBudgetRequestDigest(input: {
     ['signing_digest_b64u', input.body.signing_digest_b64u],
   ] as const;
   return hashBudgetFields({
-    version: ECDSA_HSS_BUDGET_REQUEST_DIGEST_VERSION_V1,
-    bytesFields: [['scope', routerAbEcdsaHssNormalSigningScopeCanonicalBytesV1(input.body.scope)]],
+    version: ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1,
+    bytesFields: [['scope', routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1(input.body.scope)]],
     fields,
   });
 }
@@ -502,8 +502,8 @@ function ed25519BudgetSigningWorkerId(claims: RouterAbEd25519WalletSessionClaims
   return nonEmptyString(claims.routerAbNormalSigning.signingWorkerId);
 }
 
-function ecdsaHssBudgetSigningWorkerId(claims: RouterAbEcdsaHssWalletSessionClaims): string {
-  return nonEmptyString(claims.routerAbEcdsaHssNormalSigning.scope.signing_worker.server_id);
+function ecdsaDerivationBudgetSigningWorkerId(claims: RouterAbEcdsaDerivationWalletSessionClaims): string {
+  return nonEmptyString(claims.routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id);
 }
 
 function budgetReservationId(body: Record<string, unknown>): string {
@@ -517,7 +517,7 @@ function budgetOperationId(body: Record<string, unknown>): string {
 async function forwardThenCommitBudgetedSigning(input: {
   runtime: RouterAbNormalSigningRouteRuntime;
   signingWorker: RouterAbConfiguredSigningWorkerPrivateTransport;
-  path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaHssPrivateSigningPath;
+  path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaDerivationPrivateSigningPath;
   body: unknown;
   budget: RouterAbNormalSigningBudgetFinalizeInput;
 }): Promise<RouterAbJsonRouteResult> {
@@ -603,7 +603,7 @@ function rejectRouterAbCookieSessionKind(
 
 function privateSigningWorkerUrl(
   config: RouterAbConfiguredSigningWorkerPrivateTransport,
-  path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaHssPrivateSigningPath,
+  path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaDerivationPrivateSigningPath,
 ): string {
   const base = config.signingWorkerBaseUrl.trim().replace(/\/+$/, '');
   if (!base) throw new Error('Router A/B SigningWorker base URL is required');
@@ -627,16 +627,16 @@ function digest32FromB64u(value: string): RouterAbPublicDigest32V1Wire {
   return { bytes: Array.from(bytes) };
 }
 
-function ecdsaHssTrustedAdmission(input: {
-  scope: RouterAbEcdsaHssNormalSigningScopeV1;
+function ecdsaDerivationTrustedAdmission(input: {
+  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   requestDigest: RouterAbPublicDigest32V1Wire;
   signingDigestB64u: string;
   expiresAtMs: number;
-}): RouterAbEcdsaHssTrustedAdmissionV1 {
+}): RouterAbEcdsaDerivationTrustedAdmissionV1 {
   return {
     account_id: input.scope.wallet_id,
-    session_id: routerAbEcdsaHssActiveStateSessionId({
-      kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+    session_id: routerAbEcdsaDerivationActiveStateSessionId({
+      kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
       scope: input.scope,
     }),
     request_digest: input.requestDigest,
@@ -646,16 +646,16 @@ function ecdsaHssTrustedAdmission(input: {
   };
 }
 
-export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody(input: {
+export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input: {
   phase: 'prepare' | 'finalize';
   body: Record<string, unknown>;
-}): Promise<RouterAbEcdsaHssPrivateSigningWorkerBody> {
+}): Promise<RouterAbEcdsaDerivationPrivateSigningWorkerBody> {
   if (input.phase === 'prepare') {
-    const request = parseRouterAbEcdsaHssEvmDigestSigningRequestV1(input.body);
-    const requestDigest = await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request);
+    const request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
+    const requestDigest = await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request);
     return {
       request,
-      trusted_admission: ecdsaHssTrustedAdmission({
+      trusted_admission: ecdsaDerivationTrustedAdmission({
         scope: request.scope,
         requestDigest,
         signingDigestB64u: request.signing_digest_b64u,
@@ -663,12 +663,12 @@ export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody(input: {
       }),
     };
   }
-  const publicRequest = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
-  const request = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(publicRequest);
-  const requestDigest = await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(request);
+  const publicRequest = parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
+  const request = routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(publicRequest);
+  const requestDigest = await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(request);
   return {
     request,
-    trusted_admission: ecdsaHssTrustedAdmission({
+    trusted_admission: ecdsaDerivationTrustedAdmission({
       scope: request.scope,
       requestDigest,
       signingDigestB64u: request.signing_digest_b64u,
@@ -1002,38 +1002,38 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   };
 }
 
-export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
-  claims: RouterAbEcdsaHssWalletSessionClaims;
+export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input: {
+  claims: RouterAbEcdsaDerivationWalletSessionClaims;
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
-  const normalSigning = input.claims.routerAbEcdsaHssNormalSigning;
+  const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
   if (!normalSigning) {
     return {
       ok: false,
       error: routerAbSigningError(
         403,
         'forbidden',
-        'Router A/B ECDSA-HSS normal-signing state is required',
+        'Router A/B ECDSA derivation normal-signing state is required',
       ),
     };
   }
-  let request: ReturnType<typeof parseRouterAbEcdsaHssEvmDigestSigningRequestV1>;
+  let request: ReturnType<typeof parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1>;
   try {
-    request = parseRouterAbEcdsaHssEvmDigestSigningRequestV1(input.body);
+    request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
   } catch (error) {
     return {
       ok: false,
       error: routerAbSigningError(400, 'invalid_body', errorMessage(error)),
     };
   }
-  if (!sameRouterAbEcdsaHssNormalSigningScopeV1(request.scope, normalSigning.scope)) {
+  if (!sameRouterAbEcdsaDerivationNormalSigningScopeV1(request.scope, normalSigning.scope)) {
     return {
       ok: false,
       error: routerAbSigningError(
         403,
         'forbidden',
-        'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+        'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
       ),
     };
   }
@@ -1043,7 +1043,7 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
       error: routerAbSigningError(
         408,
         'expired_request',
-        'Router A/B ECDSA-HSS normal-signing request is expired',
+        'Router A/B ECDSA derivation normal-signing request is expired',
       ),
     };
   }
@@ -1053,7 +1053,7 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
       error: routerAbSigningError(
         403,
         'forbidden',
-        'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
+        'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
       ),
     };
   }
@@ -1065,38 +1065,38 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
   };
 }
 
-export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
-  claims: RouterAbEcdsaHssWalletSessionClaims;
+export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(input: {
+  claims: RouterAbEcdsaDerivationWalletSessionClaims;
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
-  const normalSigning = input.claims.routerAbEcdsaHssNormalSigning;
+  const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
   if (!normalSigning) {
     return {
       ok: false,
       error: routerAbSigningError(
         403,
         'forbidden',
-        'Router A/B ECDSA-HSS normal-signing state is required',
+        'Router A/B ECDSA derivation normal-signing state is required',
       ),
     };
   }
-  let request: ReturnType<typeof parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1>;
+  let request: ReturnType<typeof parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1>;
   try {
-    request = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
+    request = parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
   } catch (error) {
     return {
       ok: false,
       error: routerAbSigningError(400, 'invalid_body', errorMessage(error)),
     };
   }
-  if (!sameRouterAbEcdsaHssNormalSigningScopeV1(request.scope, normalSigning.scope)) {
+  if (!sameRouterAbEcdsaDerivationNormalSigningScopeV1(request.scope, normalSigning.scope)) {
     return {
       ok: false,
       error: routerAbSigningError(
         403,
         'forbidden',
-        'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+        'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
       ),
     };
   }
@@ -1106,7 +1106,7 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
       error: routerAbSigningError(
         408,
         'expired_request',
-        'Router A/B ECDSA-HSS normal-signing request is expired',
+        'Router A/B ECDSA derivation normal-signing request is expired',
       ),
     };
   }
@@ -1116,7 +1116,7 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
       error: routerAbSigningError(
         403,
         'forbidden',
-        'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
+        'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
       ),
     };
   }
@@ -1128,23 +1128,23 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
   };
 }
 
-export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
+export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input: {
   body: Record<string, unknown>;
   rawBody: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
   runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
-  privatePath: RouterAbEcdsaHssPrivateSigningPath;
+  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   phase: 'prepare' | 'finalize';
 }): Promise<RouterAbJsonRouteResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
     input.rawBody,
-    'Router A/B ECDSA-HSS normal-signing requires sessionKind=jwt',
+    'Router A/B ECDSA derivation normal-signing requires sessionKind=jwt',
   );
   if (invalidSessionKind) return invalidSessionKind;
 
-  const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
+  const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
     body: input.rawBody,
     headers: input.headers,
     session: input.session,
@@ -1155,12 +1155,12 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
 
   const admission =
     input.phase === 'prepare'
-      ? validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+      ? validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
           claims: validated.claims,
           walletSessionAuth: validated.walletSessionAuth,
           body: input.body,
         })
-      : validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
+      : validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest({
           claims: validated.claims,
           walletSessionAuth: validated.walletSessionAuth,
           body: input.body,
@@ -1212,7 +1212,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     };
   }
 
-  const privateBody = await buildRouterAbEcdsaHssPrivateSigningWorkerBody({
+  const privateBody = await buildRouterAbEcdsaDerivationPrivateSigningWorkerBody({
     phase: input.phase,
     body: input.body,
   });
@@ -1224,8 +1224,8 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     availableUses: number;
   } | null = null;
   if (input.phase === 'prepare') {
-    const signingWorkerId = ecdsaHssBudgetSigningWorkerId(validated.claims);
-    const operationId = await deriveRouterAbEcdsaHssBudgetOperationId({
+    const signingWorkerId = ecdsaDerivationBudgetSigningWorkerId(validated.claims);
+    const operationId = await deriveRouterAbEcdsaDerivationBudgetOperationId({
       body: privateBody.request,
       signingWorkerId,
       thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
@@ -1236,11 +1236,11 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: {
           ok: false,
           code: 'invalid_budget_request',
-          message: 'Router A/B ECDSA-HSS prepare requires a canonical budget operation identity',
+          message: 'Router A/B ECDSA derivation prepare requires a canonical budget operation identity',
         },
       };
     }
-    const requestDigest = await deriveRouterAbEcdsaHssBudgetRequestDigest({
+    const requestDigest = await deriveRouterAbEcdsaDerivationBudgetRequestDigest({
       body: privateBody.request,
       signingWorkerId,
       thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
@@ -1251,7 +1251,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: {
           ok: false,
           code: 'invalid_budget_request',
-          message: 'Router A/B ECDSA-HSS prepare requires a canonical budget request digest',
+          message: 'Router A/B ECDSA derivation prepare requires a canonical budget request digest',
         },
       };
     }
@@ -1292,9 +1292,9 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     };
   } else {
     const reservationId = budgetReservationId(input.body);
-    const signingWorkerId = ecdsaHssBudgetSigningWorkerId(validated.claims);
+    const signingWorkerId = ecdsaDerivationBudgetSigningWorkerId(validated.claims);
     const requestOperationId = budgetOperationId(input.body);
-    const expectedOperationId = await deriveRouterAbEcdsaHssBudgetOperationId({
+    const expectedOperationId = await deriveRouterAbEcdsaDerivationBudgetOperationId({
       body: privateBody.request,
       signingWorkerId,
       thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
@@ -1305,7 +1305,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: {
           ok: false,
           code: 'invalid_budget_request',
-          message: 'Router A/B ECDSA-HSS finalize requires budget reservation metadata',
+          message: 'Router A/B ECDSA derivation finalize requires budget reservation metadata',
         },
       };
     }
@@ -1315,11 +1315,11 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: {
           ok: false,
           code: 'wallet_budget_reservation_mismatch',
-          message: 'Router A/B ECDSA-HSS budget operation identity mismatch',
+          message: 'Router A/B ECDSA derivation budget operation identity mismatch',
         },
       };
     }
-    const requestDigest = await deriveRouterAbEcdsaHssBudgetRequestDigest({
+    const requestDigest = await deriveRouterAbEcdsaDerivationBudgetRequestDigest({
       body: privateBody.request,
       signingWorkerId,
       thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
@@ -1330,7 +1330,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: {
           ok: false,
           code: 'invalid_budget_request',
-          message: 'Router A/B ECDSA-HSS finalize requires a canonical budget request digest',
+          message: 'Router A/B ECDSA derivation finalize requires a canonical budget request digest',
         },
       };
     }
@@ -1402,7 +1402,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
 
 export async function postRouterAbSigningWorkerJson(input: {
   config: RouterAbConfiguredSigningWorkerPrivateTransport;
-  path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaHssPrivateSigningPath;
+  path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaDerivationPrivateSigningPath;
   body: unknown;
   fetchImpl?: typeof fetch;
 }): Promise<RouterAbSigningWorkerJsonResult> {

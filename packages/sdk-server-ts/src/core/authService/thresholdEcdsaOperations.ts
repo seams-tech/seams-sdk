@@ -1,53 +1,53 @@
-import type { RouterAbEcdsaHssWalletSessionClaims } from '../ThresholdService/validation';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaDerivationWalletSessionClaims } from '../ThresholdService/validation';
+import type { RouterAbEcdsaBootstrapExportPort } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type {
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssExportShareRequest,
-  EcdsaHssExportShareResponse,
-  EcdsaHssRouteResult,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationExportShareRequest,
+  EcdsaDerivationExportShareResponse,
+  EcdsaDerivationRouteResult,
+  EcdsaDerivationServerBootstrapResponse,
 } from '../types';
 
 type ThresholdEcdsaOperationsInput = {
-  readonly runtime: RouterAbEcdsaBootstrapExportRuntime | null;
+  readonly runtime: RouterAbEcdsaBootstrapExportPort | null;
 };
 
-function missingThresholdServiceResult<T>(): EcdsaHssRouteResult<T> {
+function missingRouterAbEcdsaRuntimeResult<T>(): EcdsaDerivationRouteResult<T> {
   return {
     ok: false,
     code: 'internal',
-    message: 'Threshold signing service is not configured',
+    message: 'Router A/B ECDSA runtime is not configured',
   };
 }
 
-export async function ecdsaHssRoleLocalBootstrapWithRuntime(input: {
+export async function ecdsaDerivationRoleLocalBootstrapWithRuntime(input: {
   readonly deps: ThresholdEcdsaOperationsInput;
-  readonly request: EcdsaHssClientBootstrapRequest;
-}): Promise<EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>> {
-  if (!input.deps.runtime) return missingThresholdServiceResult();
-  return await input.deps.runtime.ecdsaHssRoleLocalBootstrap(input.request);
+  readonly request: EcdsaDerivationClientBootstrapRequest;
+}): Promise<EcdsaDerivationRouteResult<EcdsaDerivationServerBootstrapResponse>> {
+  if (!input.deps.runtime) return missingRouterAbEcdsaRuntimeResult();
+  return await input.deps.runtime.ecdsaDerivationRoleLocalBootstrap(input.request);
 }
 
-export async function verifyEcdsaHssRoleLocalClientRootProofForExistingKeyWithRuntime(input: {
+export async function verifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyWithRuntime(input: {
   readonly deps: ThresholdEcdsaOperationsInput;
-  readonly request: EcdsaHssClientBootstrapRequest & {
-    readonly clientRootProof: NonNullable<EcdsaHssClientBootstrapRequest['clientRootProof']>;
+  readonly request: EcdsaDerivationClientBootstrapRequest & {
+    readonly clientRootProof: NonNullable<EcdsaDerivationClientBootstrapRequest['clientRootProof']>;
   };
-}): Promise<EcdsaHssRouteResult<{ keyHandle: string }>> {
-  if (!input.deps.runtime) return missingThresholdServiceResult();
-  return await input.deps.runtime.verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
+}): Promise<EcdsaDerivationRouteResult<{ keyHandle: string }>> {
+  if (!input.deps.runtime) return missingRouterAbEcdsaRuntimeResult();
+  return await input.deps.runtime.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
     input.request,
   );
 }
 
-export async function ecdsaHssRoleLocalExportShareWithRuntime(input: {
+export async function ecdsaDerivationRoleLocalExportShareWithRuntime(input: {
   readonly deps: ThresholdEcdsaOperationsInput;
-  readonly request: EcdsaHssExportShareRequest;
+  readonly request: EcdsaDerivationExportShareRequest;
   readonly keyHandle: string;
-  readonly claims: RouterAbEcdsaHssWalletSessionClaims;
-}): Promise<EcdsaHssRouteResult<EcdsaHssExportShareResponse>> {
-  if (!input.deps.runtime) return missingThresholdServiceResult();
-  return await input.deps.runtime.ecdsaHssRoleLocalExportShare({
+  readonly claims: RouterAbEcdsaDerivationWalletSessionClaims;
+}): Promise<EcdsaDerivationRouteResult<EcdsaDerivationExportShareResponse>> {
+  if (!input.deps.runtime) return missingRouterAbEcdsaRuntimeResult();
+  return await input.deps.runtime.ecdsaDerivationRoleLocalExportShare({
     request: input.request,
     keyHandle: input.keyHandle,
     claims: input.claims,

@@ -1,31 +1,33 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { ensureEthSignerWasm, sha256BytesSync } from '../ethSignerWasm';
-import type { RouterAbEcdsaHssPoolFillSessionRecord } from '../stores/EcdsaSigningStore';
-import { ThresholdEcdsaPresignSession } from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
+import { safeErrorMessage } from '@shared/utils/errors';
+import { sha256BytesSync } from '../evmCryptoWasm';
+import { ensureRouterAbEcdsaSigningWorkerWasm } from '../routerAbEcdsaSigningWorkerWasm';
+import type { RouterAbEcdsaDerivationPoolFillSessionRecord } from '../stores/EcdsaSigningStore';
+import { ThresholdEcdsaPresignSession } from '../../../../../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
 
-export type RouterAbEcdsaHssPoolFillParseOk<T> = { ok: true; value: T };
-export type RouterAbEcdsaHssPoolFillParseErr = { ok: false; code: string; message: string };
-export type RouterAbEcdsaHssPoolFillParseResult<T> =
-  | RouterAbEcdsaHssPoolFillParseOk<T>
-  | RouterAbEcdsaHssPoolFillParseErr;
+export type RouterAbEcdsaDerivationPoolFillParseOk<T> = { ok: true; value: T };
+export type RouterAbEcdsaDerivationPoolFillParseErr = { ok: false; code: string; message: string };
+export type RouterAbEcdsaDerivationPoolFillParseResult<T> =
+  | RouterAbEcdsaDerivationPoolFillParseOk<T>
+  | RouterAbEcdsaDerivationPoolFillParseErr;
 
-export type RouterAbEcdsaHssPoolFillWasmPoll = {
+export type RouterAbEcdsaDerivationPoolFillWasmPoll = {
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
   event: 'none' | 'triples_done' | 'presign_done';
   outgoingMessagesB64u: string[];
 };
 
-export type RouterAbEcdsaHssPresignatureMaterial = {
+export type RouterAbEcdsaDerivationPresignatureMaterial = {
   presignatureId: string;
   bigRB64u: string;
   kShareB64u: string;
   sigmaShareB64u: string;
 };
 
-export type RouterAbEcdsaHssPoolFillPreparedStep =
+export type RouterAbEcdsaDerivationPoolFillPreparedStep =
   | {
       mode: 'terminal';
-      presignDone: RouterAbEcdsaHssPresignatureMaterial;
+      presignDone: RouterAbEcdsaDerivationPresignatureMaterial;
     }
   | {
       mode: 'immediate';
@@ -38,49 +40,51 @@ export type RouterAbEcdsaHssPoolFillPreparedStep =
     }
   | {
       mode: 'advance';
-      polled: RouterAbEcdsaHssPoolFillWasmPoll;
-      nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
-      presignDone: RouterAbEcdsaHssPresignatureMaterial | null;
+      polled: RouterAbEcdsaDerivationPoolFillWasmPoll;
+      nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord;
+      presignDone: RouterAbEcdsaDerivationPresignatureMaterial | null;
     };
 
-export type RouterAbEcdsaHssPoolFillLiveSessionCreateInput = {
+export type RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput = {
   presignSessionId: string;
-  record: RouterAbEcdsaHssPoolFillSessionRecord;
+  record: RouterAbEcdsaDerivationPoolFillSessionRecord;
   participantIds: number[];
   relayerParticipantId: number;
   relayerThresholdShare32B64u: string;
   groupPublicKey33B64u: string;
 };
 
-export type RouterAbEcdsaHssPoolFillLiveSessionCreateValue = {
-  record: RouterAbEcdsaHssPoolFillSessionRecord;
-  stage: RouterAbEcdsaHssPoolFillWasmPoll['stage'];
+export type RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue = {
+  record: RouterAbEcdsaDerivationPoolFillSessionRecord;
+  stage: RouterAbEcdsaDerivationPoolFillWasmPoll['stage'];
   outgoingMessagesB64u: string[];
 };
 
-export type RouterAbEcdsaHssPoolFillLiveSessionStepInput = {
+export type RouterAbEcdsaDerivationPoolFillLiveSessionStepInput = {
   presignSessionId: string;
-  record: RouterAbEcdsaHssPoolFillSessionRecord;
+  record: RouterAbEcdsaDerivationPoolFillSessionRecord;
   requestedStage: 'triples' | 'presign';
   outgoingMessagesB64u: string[];
   thresholdExpiresAtMs: number;
 };
 
-export interface RouterAbEcdsaHssPoolFillLiveSessionOwner {
+export interface RouterAbEcdsaDerivationPoolFillLiveSessionOwner {
   createSession(
-    input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
+    input: RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput,
   ): Promise<
-    RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillLiveSessionCreateValue>
+    RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue>
   >;
   stepSession(
-    input: RouterAbEcdsaHssPoolFillLiveSessionStepInput,
-  ): Promise<RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep>>;
+    input: RouterAbEcdsaDerivationPoolFillLiveSessionStepInput,
+  ): Promise<
+    RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep>
+  >;
   deleteSession(presignSessionId: string): Promise<void>;
 }
 
 type LiveSessionEntry = {
   session: ThresholdEcdsaPresignSession;
-  record: RouterAbEcdsaHssPoolFillSessionRecord;
+  record: RouterAbEcdsaDerivationPoolFillSessionRecord;
 };
 
 export function normalizeWasmPresignStage(
@@ -94,7 +98,7 @@ export function normalizeWasmPresignStage(
 
 export function pollWasmPresignSession(
   session: ThresholdEcdsaPresignSession,
-): RouterAbEcdsaHssPoolFillWasmPoll {
+): RouterAbEcdsaDerivationPoolFillWasmPoll {
   const polled = session.poll() as { stage?: string; outgoing?: Uint8Array[]; event?: string };
   const outgoingMessages = Array.isArray(polled?.outgoing) ? polled.outgoing : [];
   return {
@@ -115,7 +119,7 @@ export function freePresignSession(session: ThresholdEcdsaPresignSession): void 
 
 export function takePresignatureFromSession(
   session: ThresholdEcdsaPresignSession,
-): RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPresignatureMaterial> {
+): RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPresignatureMaterial> {
   const presig97 = session.take_presignature_97();
   if (presig97.length !== 97) {
     return {
@@ -138,18 +142,16 @@ export function takePresignatureFromSession(
   };
 }
 
-export class InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner
-  implements RouterAbEcdsaHssPoolFillLiveSessionOwner
-{
+export class InMemoryRouterAbEcdsaDerivationPoolFillLiveSessionOwner implements RouterAbEcdsaDerivationPoolFillLiveSessionOwner {
   private readonly livePresignSessionById = new Map<string, LiveSessionEntry>();
   private readonly presignSessionStepInFlight = new Set<string>();
 
   async createSession(
-    input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
+    input: RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput,
   ): Promise<
-    RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillLiveSessionCreateValue>
+    RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue>
   > {
-    await ensureEthSignerWasm();
+    await ensureRouterAbEcdsaSigningWorkerWasm();
     const created = createLiveSessionEntry(input);
     if (!created.ok) return created;
     this.deleteEntry(input.presignSessionId);
@@ -168,8 +170,10 @@ export class InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner
   }
 
   async stepSession(
-    input: RouterAbEcdsaHssPoolFillLiveSessionStepInput,
-  ): Promise<RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep>> {
+    input: RouterAbEcdsaDerivationPoolFillLiveSessionStepInput,
+  ): Promise<
+    RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep>
+  > {
     if (this.presignSessionStepInFlight.has(input.presignSessionId)) {
       return {
         ok: false,
@@ -210,8 +214,8 @@ export class InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner
 
   private resolveLiveEntry(
     presignSessionId: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
-  ): RouterAbEcdsaHssPoolFillParseResult<LiveSessionEntry> {
+    record: RouterAbEcdsaDerivationPoolFillSessionRecord,
+  ): RouterAbEcdsaDerivationPoolFillParseResult<LiveSessionEntry> {
     const existing = this.livePresignSessionById.get(presignSessionId);
     if (!existing) {
       return staleLiveSession('cache_miss');
@@ -230,12 +234,14 @@ export class InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner
   }
 }
 
-export function createLiveSessionEntry(input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput):
+export function createLiveSessionEntry(
+  input: RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput,
+):
   | {
       ok: true;
-      value: LiveSessionEntry & RouterAbEcdsaHssPoolFillLiveSessionCreateValue;
+      value: LiveSessionEntry & RouterAbEcdsaDerivationPoolFillLiveSessionCreateValue;
     }
-  | RouterAbEcdsaHssPoolFillParseErr {
+  | RouterAbEcdsaDerivationPoolFillParseErr {
   const relayerThresholdShare32 = decodeFixedB64u(input.relayerThresholdShare32B64u, 32);
   if (!relayerThresholdShare32.ok) return relayerThresholdShare32;
   const groupPublicKey33 = decodeFixedB64u(input.groupPublicKey33B64u, 33);
@@ -265,11 +271,11 @@ export function createLiveSessionEntry(input: RouterAbEcdsaHssPoolFillLiveSessio
 
 export function preparePoolFillLiveStep(input: {
   session: ThresholdEcdsaPresignSession;
-  record: RouterAbEcdsaHssPoolFillSessionRecord;
+  record: RouterAbEcdsaDerivationPoolFillSessionRecord;
   requestedStage: 'triples' | 'presign';
   outgoingMessagesB64u: string[];
   thresholdExpiresAtMs: number;
-}): RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep> {
+}): RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep> {
   const currentStage = normalizeWasmPresignStage(input.session.stage());
   if (currentStage !== input.record.stage) {
     return {
@@ -334,14 +340,23 @@ export function preparePoolFillLiveStep(input: {
       return {
         ok: false,
         code: 'invalid_body',
-        message: `Protocol rejected message: ${String(e || 'error')}`,
+        message: `Protocol rejected message: ${safeErrorMessage(e) || 'error'}`,
       };
     }
   }
 
-  const polled = pollWasmPresignSession(input.session);
+  let polled: RouterAbEcdsaDerivationPoolFillWasmPoll;
+  try {
+    polled = pollWasmPresignSession(input.session);
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `Protocol failed: ${safeErrorMessage(error) || 'error'}`,
+    };
+  }
   const nextExpiresAtMs = Math.min(input.record.expiresAtMs, input.thresholdExpiresAtMs);
-  const nextRecord: RouterAbEcdsaHssPoolFillSessionRecord = {
+  const nextRecord: RouterAbEcdsaDerivationPoolFillSessionRecord = {
     ...input.record,
     stage: polled.stage,
     version: input.record.version + 1,
@@ -349,7 +364,7 @@ export function preparePoolFillLiveStep(input: {
     updatedAtMs: Date.now(),
   };
 
-  let presignDone: RouterAbEcdsaHssPresignatureMaterial | null = null;
+  let presignDone: RouterAbEcdsaDerivationPresignatureMaterial | null = null;
   if (polled.event === 'presign_done') {
     const done = takePresignatureFromSession(input.session);
     if (!done.ok) return done;
@@ -375,7 +390,7 @@ function computePresignatureIdFromBigRBytes(bigR33: Uint8Array): string {
 function decodeFixedB64u(
   value: string,
   expectedLength: number,
-): RouterAbEcdsaHssPoolFillParseResult<Uint8Array> {
+): RouterAbEcdsaDerivationPoolFillParseResult<Uint8Array> {
   let decoded: Uint8Array;
   try {
     decoded = base64UrlDecode(value);
@@ -398,7 +413,7 @@ function decodeFixedB64u(
 
 function decodePresignIncomingMessages(
   outgoingMessagesB64u: string[],
-): RouterAbEcdsaHssPoolFillParseResult<Uint8Array[]> {
+): RouterAbEcdsaDerivationPoolFillParseResult<Uint8Array[]> {
   const decoded: Uint8Array[] = [];
   for (const msgB64u of outgoingMessagesB64u) {
     try {
@@ -414,10 +429,10 @@ function decodePresignIncomingMessages(
   return { ok: true, value: decoded };
 }
 
-function staleLiveSession(reason: string): RouterAbEcdsaHssPoolFillParseErr {
+function staleLiveSession(reason: string): RouterAbEcdsaDerivationPoolFillParseErr {
   return {
     ok: false,
     code: 'stale_session_state',
-    message: `Router A/B ECDSA-HSS pool-fill live session unavailable (${reason})`,
+    message: `Router A/B ECDSA derivation pool-fill live session unavailable (${reason})`,
   };
 }

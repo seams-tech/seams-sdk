@@ -1,7 +1,7 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
-  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import type {
@@ -224,7 +224,7 @@ function hasSigningGrantBudgetClaim(auth: { claims: Record<string, unknown> }): 
 function parseCurveBoundWalletBudgetLookup(
   claims: Record<string, unknown>,
 ): { signingGrantId: string } | null {
-  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(claims);
+  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(claims);
   if (ecdsaClaims) {
     return {
       signingGrantId: ecdsaClaims.signingGrantId,
@@ -245,7 +245,7 @@ function parseCurveBoundThresholdLookup(args: {
 }): { curve: SigningSessionSealCurve; thresholdSessionId: string } | null {
   const requestedThresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!requestedThresholdSessionId) return null;
-  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
+  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
     return ecdsaClaims.thresholdSessionId === requestedThresholdSessionId
       ? {

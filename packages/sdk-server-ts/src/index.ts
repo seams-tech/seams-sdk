@@ -14,8 +14,6 @@ export { AuthService } from './core/AuthService';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';
 export {
-  ThresholdSigningService,
-  createThresholdSigningService,
   createThresholdEd25519KeyStore,
   createThresholdEd25519SessionStore,
   createEd25519WalletSessionStore,
@@ -28,15 +26,20 @@ export {
   createHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
   ensureSigningRootSecretShareD1Schema,
-  deriveEcdsaHssYRelayerFromSigningRootShareResolver,
+  deriveEcdsaDerivationYRelayerFromSigningRootShareResolver,
   computeSigningRootMigrationBundleChecksumB64u,
   createSigningRootMigrationExportArtifact,
   createSigningRootMigrationWalletInventory,
 } from './core/ThresholdService';
+export {
+  createRouterAbSigningRuntimes,
+  type RouterAbSigningRuntimeBundle,
+} from './core/routerAbSigning/createRouterAbSigningRuntimes';
+export { RouterAbEcdsaPresignRuntime } from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 export type {
   CreateHostedSigningRootShareResolverInput,
   CreateSelfHostedSigningRootShareResolverInput,
-  DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
+  DeriveEcdsaDerivationYRelayerFromSigningRootShareResolverInput,
   D1SigningRootSecretStoreOptions,
   D1SigningRootSecretStoreSchemaOptions,
   FixedSigningRootScope,
@@ -57,14 +60,14 @@ export type {
   ThresholdPrfPolicy,
 } from './core/ThresholdService';
 export {
-  ensureEthSignerWasm,
+  ensureEvmCryptoWasm,
   computeEip1559TxHash,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
   secp256k1PrivateKey32ToPublicKey33,
   secp256k1PublicKey33ToEthereumAddress,
-} from './core/ThresholdService/ethSignerWasm';
-export type { ServerEip1559UnsignedTx } from './core/ThresholdService/ethSignerWasm';
+} from './core/ThresholdService/evmCryptoWasm';
+export type { ServerEip1559UnsignedTx } from './core/ThresholdService/evmCryptoWasm';
 export type {
   ThresholdEd25519KeyStore,
   ThresholdEd25519KeyRecord,
