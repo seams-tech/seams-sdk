@@ -45,9 +45,10 @@ may require a separately reviewed update before execution.
 npm run deployment:execute
 ```
 
-Before writing a temporary config or deploying either role, the wrapper runs
-read-only `wrangler whoami --profile ... --account ... --json` checks for both
-named profiles. It parses the returned account set, requires the expected
+Before writing a temporary config or deploying either role, the wrapper binds
+each named profile to an isolated temporary directory, runs read-only
+`wrangler whoami --account ... --json` there, removes the binding, and deletes
+the directory. It parses the returned account set, requires the expected
 account, and rejects a two-account profile that can access the peer benchmark
 account. The wrapper then generates mode-0600 temporary configs with account
 IDs, custom domains, absolute build/entrypoint paths, and the fixed B endpoint;

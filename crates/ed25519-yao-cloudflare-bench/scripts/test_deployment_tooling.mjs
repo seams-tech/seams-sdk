@@ -1175,8 +1175,8 @@ function testDeploymentPlan() {
   assert.equal(prebuiltA.no_bundle, true);
   assert.equal(prebuiltA.build, undefined);
   assert.deepEqual(plan.operations.map(selectAction), [
-    'wrangler whoami --json',
-    'wrangler whoami --json',
+    'wrangler auth activate + whoami --account --json',
+    'wrangler auth activate + whoami --account --json',
     'wrangler deploy --strict',
     'wrangler deploy --strict',
   ]);
