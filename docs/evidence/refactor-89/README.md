@@ -1,6 +1,6 @@
-# Refactor 89 Phase 0/1 evidence
+# Refactor 89 evidence
 
-The canonical machine-readable record is
+The Phase 0/1 canonical machine-readable record is
 `phase0-phase1-wasm-baseline-v1.json`. It freezes the historical mixed Wasm
 baseline from repository commit
 `7e080b30f14a579d38b58c65fb058e1abac19c56` without restoring deleted packages
@@ -58,6 +58,18 @@ The active build has zero references to the deleted `eth_signer` and
 `ecdsa_client_signer` packages. Phase 1 therefore retains historical strip
 evidence and reusable guards without adding either package back to a shipping
 path.
+
+## Phase 2 utility-leaf experiment
+
+`phase2-leaf-artifact-map-v1.json` freezes the exact experimental leaf
+exports, forbidden dependency capabilities, release digests, and compressed
+sizes. The EIP-1559 leaf is 71,942 raw, 33,921 gzip-9, and 29,505 Brotli-11
+bytes. The WebAuthn P-256/COSE leaf is 93,803 raw, 42,410 gzip-9, and 36,643
+Brotli-11 bytes.
+
+This evidence does not select the final ownership layout. Local Phase C
+compares clean total distribution size and operation waterfalls, then either
+finishes the extraction or deletes it.
 
 The stripped artifacts also pass cold and warm requests in local Miniflare,
 which runs them under `workerd` as compiled Wasm modules. This establishes

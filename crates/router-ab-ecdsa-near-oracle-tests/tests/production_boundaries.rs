@@ -37,9 +37,10 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn production_manifests(root: &Path) -> [(PathBuf, bool); 4] {
+fn production_manifests(root: &Path) -> [(PathBuf, bool); 5] {
     [
         (root.join("crates/router-ab-ecdsa-wire/Cargo.toml"), false),
+        (root.join("crates/router-ab-ecdsa-pool/Cargo.toml"), false),
         (
             root.join("crates/router-ab-ecdsa-presign/Cargo.toml"),
             false,
@@ -52,9 +53,10 @@ fn production_manifests(root: &Path) -> [(PathBuf, bool); 4] {
     ]
 }
 
-fn production_source_roots(root: &Path) -> [PathBuf; 4] {
+fn production_source_roots(root: &Path) -> [PathBuf; 5] {
     [
         root.join("crates/router-ab-ecdsa-wire/src"),
+        root.join("crates/router-ab-ecdsa-pool/src"),
         root.join("crates/router-ab-ecdsa-presign/src"),
         root.join("crates/router-ab-ecdsa-online/src"),
         root.join("wasm/router_ab_ecdsa_online_client/src"),
@@ -147,4 +149,73 @@ fn purpose_built_sources_exclude_generic_runtime_imports() {
             );
         }
     }
+}
+
+fn assert_leaf_graph_excludes(root: &Path, relative_manifest: &str, forbidden: &[&str]) {
+    let manifest = root.join(relative_manifest);
+    for package in resolved_normal_packages(&manifest, true) {
+        assert!(
+            !forbidden.iter().any(|name| package == *name),
+            "{} resolves forbidden leaf package {package}",
+            manifest.display()
+        );
+    }
+}
+
+fn assert_exact_wasm_exports(root: &Path, relative_source: &str, expected: &[&str]) {
+    let source_path = root.join(relative_source);
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", source_path.display()));
+    assert_eq!(
+        source.matches("#[wasm_bindgen]").count(),
+        expected.len(),
+        "{} has an unexpected Wasm export count",
+        source_path.display()
+    );
+    for export in expected {
+        assert!(
+            source.contains(&format!("pub fn {export}")),
+            "{} is missing Wasm export {export}",
+            source_path.display()
+        );
+    }
+}
+
+#[test]
+fn experimental_public_codec_leaves_have_exact_disjoint_surfaces() {
+    let root = repository_root();
+    assert_leaf_graph_excludes(
+        &root,
+        "wasm/evm_transaction_codec/Cargo.toml",
+        &[
+            "threshold-signatures",
+            "k256",
+            "p256",
+            "ciborium",
+            "futures",
+            "hkdf",
+            "rand_core",
+        ],
+    );
+    assert_leaf_graph_excludes(
+        &root,
+        "wasm/webauthn_p256/Cargo.toml",
+        &["threshold-signatures", "k256", "sha3", "futures", "hkdf"],
+    );
+    assert_exact_wasm_exports(
+        &root,
+        "wasm/evm_transaction_codec/src/lib.rs",
+        &[
+            "compute_eip1559_tx_hash",
+            "encode_eip1559_signed_tx_from_signature65",
+        ],
+    );
+    assert_exact_wasm_exports(
+        &root,
+        "wasm/webauthn_p256/src/lib.rs",
+        &[
+            "build_webauthn_p256_signature",
+            "decode_cose_p256_public_key",
+        ],
+    );
 }

@@ -1,7 +1,8 @@
 # Fixed 2-of-2 ECDSA Online Lifecycle v1
 
-Status: checkpoint 9 implementation map. Production promotion remains blocked
-on the integration requirements identified below.
+Status: checkpoint 10 implementation map. The persistent lifecycle contract is
+complete; production promotion remains blocked on its concrete adapters and
+the other integration requirements identified below.
 
 ## Scope and roles
 
@@ -32,10 +33,12 @@ binds it to the online request's expected presignature point `R`. The share and
 finalization entrypoints consume committed-use material. A failed transition
 also consumes its input, so the same Rust value cannot re-enter the protocol.
 
-The kernel deliberately has no reusable completed-session value. Persistent
-pool ownership must atomically record terminal consumption before releasing an
-online output. That owner must retain a tombstone after timeouts, ambiguous
-delivery, crashes, and peer aborts.
+The kernel deliberately has no reusable completed-session value.
+`router-ab-ecdsa-pool` now defines the exact persistent record key, revisions,
+forward-only transitions, terminal reasons, and compare-and-swap mutations.
+The browser and SigningWorker adapters must atomically apply that contract
+before releasing an online output. They must retain a tombstone after timeouts,
+ambiguous delivery, crashes, and peer aborts.
 
 ## Requirement-to-code map
 
@@ -49,19 +52,21 @@ delivery, crashes, and peer aborts.
 | OL-SHARE-01 | The fixed Client and SigningWorker equations reproduce the pinned NEAR semantic outputs. | `src/lib.rs:223-257`; `../router-ab-ecdsa-near-oracle-tests/tests/online_parity.rs` | Full for the pinned valid trace | 1.00 |
 | OL-LOW-S-01 | Finalization selects low-`s` without a secret-dependent branch. | `src/lib.rs:256-257` | Full in-kernel | 1.00 |
 | OL-FINAL-01 | SigningWorker verifies the final prehash signature and derives a recovery ID for the registered group public key before output. | `src/lib.rs:259-290` | Full in-kernel | 1.00 |
-| OL-PERSIST-01 | Reserve, commit, consumption, and destruction survive crashes and ambiguous delivery. | No persistent owner exists in this isolated kernel. | Missing integration; production blocker | 1.00 |
+| OL-PERSIST-01 | Reserve, commit, consumption, and destruction survive crashes and ambiguous delivery. | `../router-ab-ecdsa-pool/src/lib.rs:183-202`, `../router-ab-ecdsa-pool/src/lib.rs:213-698`; concrete browser and SigningWorker adapters remain absent. | Partial; adapter integration blocker | 1.00 |
 | OL-REGISTRY-01 | The group public key and role shares are bound to the authenticated root-share commitment registry. | The kernel accepts the already-resolved group public key. Registry verification remains upstream. | Missing integration; production blocker | 1.00 |
-| OL-CONTEXT-01 | Wallet, account, scope, pair, and request identities bind the pool record and online receipt. | The online kernel binds `R`, digest, group key, entropy, and fixed participant IDs. Persistent identity binding remains upstream. | Partial; integration blocker | 1.00 |
+| OL-CONTEXT-01 | Wallet, account, scope, pair, and request identities bind the pool record and online receipt. | The online kernel binds `R`, digest, group key, entropy, and fixed participant IDs. `../router-ab-ecdsa-pool/src/lib.rs:11-181` and `:331-346` bind persistent wallet, account, scope, pair, role, epochs, protocol, request, and reservation identities. Boundary codecs and adapters remain absent. | Partial; adapter integration blocker | 1.00 |
 | OL-CORPUS-01 | Valid and invalid behavior matches the complete NEAR oracle corpus. | One exact valid trace and three high-value negative cases are implemented. | Partial | 1.00 |
 
-Line references describe checkpoint 9 and must be refreshed when the source
+Line references describe checkpoint 10 and must be refreshed when the source
 layout changes.
 
 ## Security boundary
 
 The Rust type system establishes one-use behavior for a value inside one
-process execution. It cannot establish atomicity for a database record or
-Durable Object across retries and crashes. The storage integration must own:
+process execution. The persistent lifecycle crate establishes the valid record
+states and mutations. Database transactions and Durable Object execution must
+establish atomicity across retries and crashes. The storage integration must
+own:
 
 1. authenticated lookup of the exact wallet, account, scope, role, and pair;
 2. atomic transition from available to reserved before either party starts;
@@ -72,13 +77,25 @@ Durable Object across retries and crashes. The storage integration must own:
 5. rejection of cross-wallet, cross-account, cross-scope, cross-pair, and
    cross-request substitution.
 
-These are production requirements. The isolated kernel is ready for this
-integration only after the persistent record schema and atomic transition API
-are reviewed together.
+These are production requirements. The record schema and atomic transition API
+are isolated for review in
+`../router-ab-ecdsa-pool/specs/persistent-pool-lifecycle-v1.md`. Concrete
+adapter evidence is still required.
 
 ## Verification evidence
 
-Checkpoint 9 records:
+Checkpoint 10 records all checkpoint 9 evidence plus:
+
+- a dependency-free persistent pool lifecycle crate with exact bindings,
+  monotonic revisions, forward-only consuming transitions, and absorbing
+  tombstones;
+- eight unit tests covering the valid lifecycle, stale compare-and-swap,
+  timeout, substitution, crash, ambiguous delivery, peer abort, expiry, and
+  epoch retirement;
+- a compile-fail test proving terminal tombstones expose no revival path; and
+- expanded production dependency/source guards covering the pool crate.
+
+Checkpoint 9 also records:
 
 - online unit test: exact frozen Client share and final signature, plus altered
   share, mismatched `R`, and wrong-public-key rejection;
