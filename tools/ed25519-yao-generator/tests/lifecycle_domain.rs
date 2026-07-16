@@ -468,7 +468,7 @@ fn external_api_cannot_cross_blocked_lifecycle_boundaries() {
                    }\n\
                    fn main() {}",
             code: "E0624",
-            needles: &["CeremonyActivationAuthorizationV1::new"],
+            needles: &["::new", "private associated function"],
         },
         CompileFailure {
             name: "activation request construction is internal",
