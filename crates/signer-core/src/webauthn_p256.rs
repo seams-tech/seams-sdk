@@ -1,6 +1,9 @@
 use crate::error::{CoreResult, SignerCoreError};
+use ciborium::Value as CborValue;
+use p256::PublicKey;
 
 pub const WEBAUTHN_TYPE_ID: u8 = 0x02;
+const MAX_COSE_P256_PUBLIC_KEY_BYTES: usize = 256;
 const BASE64URL_TABLE: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -198,6 +201,96 @@ fn parse_der_ecdsa_signature_p256(der: &[u8]) -> CoreResult<([u8; 32], [u8; 32])
     Ok((pad32(r, "DER INTEGER(r)")?, pad32(s, "DER INTEGER(s)")?))
 }
 
+fn cbor_int(value: &CborValue) -> CoreResult<i128> {
+    match value {
+        CborValue::Integer(value) => Ok((*value).into()),
+        _ => Err(SignerCoreError::decode_error(
+            "COSE key field must be an integer",
+        )),
+    }
+}
+
+fn unique_field<'a>(
+    map: &'a [(CborValue, CborValue)],
+    label: i128,
+    field: &str,
+) -> CoreResult<&'a CborValue> {
+    let mut found = None;
+    for (key, value) in map {
+        if cbor_int(key)? != label {
+            continue;
+        }
+        if found.replace(value).is_some() {
+            return Err(SignerCoreError::decode_error(format!(
+                "COSE key has duplicate {field}",
+            )));
+        }
+    }
+    found.ok_or_else(|| SignerCoreError::decode_error(format!("COSE key missing {field}")))
+}
+
+fn required_int(map: &[(CborValue, CborValue)], label: i128, field: &str) -> CoreResult<i128> {
+    cbor_int(unique_field(map, label, field)?)
+}
+
+fn required_bytes<'a>(
+    map: &'a [(CborValue, CborValue)],
+    label: i128,
+    field: &str,
+) -> CoreResult<&'a [u8]> {
+    match unique_field(map, label, field)? {
+        CborValue::Bytes(bytes) => Ok(bytes),
+        _ => Err(SignerCoreError::decode_error(format!(
+            "COSE key {field} must be bytes",
+        ))),
+    }
+}
+
+pub fn decode_cose_p256_public_key(cose_public_key: &[u8]) -> CoreResult<[u8; 64]> {
+    if cose_public_key.is_empty() || cose_public_key.len() > MAX_COSE_P256_PUBLIC_KEY_BYTES {
+        return Err(SignerCoreError::invalid_length(
+            "COSE P-256 public key must contain 1 to 256 bytes",
+        ));
+    }
+
+    let cbor_value: CborValue = ciborium::from_reader(cose_public_key)
+        .map_err(|error| SignerCoreError::decode_error(format!("invalid COSE CBOR: {error}")))?;
+    let map = match cbor_value {
+        CborValue::Map(map) => map,
+        _ => return Err(SignerCoreError::decode_error("COSE key must be a map")),
+    };
+
+    if required_int(&map, 1, "kty")? != 2 {
+        return Err(SignerCoreError::invalid_input("COSE key kty must be EC2"));
+    }
+    if required_int(&map, 3, "alg")? != -7 {
+        return Err(SignerCoreError::invalid_input("COSE key alg must be ES256"));
+    }
+    if required_int(&map, -1, "crv")? != 1 {
+        return Err(SignerCoreError::invalid_input("COSE key crv must be P-256"));
+    }
+
+    let x = required_bytes(&map, -2, "x")?;
+    let y = required_bytes(&map, -3, "y")?;
+    if x.len() != 32 || y.len() != 32 {
+        return Err(SignerCoreError::invalid_length(
+            "COSE key x/y must be 32 bytes",
+        ));
+    }
+
+    let mut sec1 = [0u8; 65];
+    sec1[0] = 0x04;
+    sec1[1..33].copy_from_slice(x);
+    sec1[33..].copy_from_slice(y);
+    PublicKey::from_sec1_bytes(&sec1)
+        .map_err(|_| SignerCoreError::invalid_input("COSE key point is not on P-256"))?;
+
+    let mut output = [0u8; 64];
+    output[..32].copy_from_slice(x);
+    output[32..].copy_from_slice(y);
+    Ok(output)
+}
+
 pub fn build_webauthn_p256_signature(
     challenge32: Vec<u8>,
     authenticator_data: Vec<u8>,
@@ -285,6 +378,22 @@ mod tests {
         .into_bytes()
     }
 
+    fn cose_key(x: Vec<u8>, y: Vec<u8>, alg: i64, crv: i64) -> Vec<u8> {
+        let map = CborValue::Map(vec![
+            (CborValue::Integer(1.into()), CborValue::Integer(2.into())),
+            (CborValue::Integer(3.into()), CborValue::Integer(alg.into())),
+            (
+                CborValue::Integer((-1).into()),
+                CborValue::Integer(crv.into()),
+            ),
+            (CborValue::Integer((-2).into()), CborValue::Bytes(x)),
+            (CborValue::Integer((-3).into()), CborValue::Bytes(y)),
+        ]);
+        let mut output = Vec::new();
+        ciborium::into_writer(&map, &mut output).expect("encode COSE fixture");
+        output
+    }
+
     #[test]
     fn builds_packed_signature_for_valid_minimal_der() {
         let challenge32 = vec![7u8; 32];
@@ -319,5 +428,38 @@ mod tests {
             out.len(),
             1 + authenticator_data.len() + client_data_json.len() + 128
         );
+    }
+
+    #[test]
+    fn decodes_valid_cose_p256_key() {
+        let x =
+            hex_literal::hex!("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                .to_vec();
+        let y =
+            hex_literal::hex!("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5")
+                .to_vec();
+        let decoded = decode_cose_p256_public_key(&cose_key(x.clone(), y.clone(), -7, 1))
+            .expect("valid COSE key");
+        assert_eq!(&decoded[..32], x.as_slice());
+        assert_eq!(&decoded[32..], y.as_slice());
+    }
+
+    #[test]
+    fn rejects_duplicate_cose_coordinate() {
+        let fixture = cose_key(vec![1u8; 32], vec![2u8; 32], -7, 1);
+        let mut map = match ciborium::from_reader::<CborValue, _>(fixture.as_slice())
+            .expect("decode fixture")
+        {
+            CborValue::Map(map) => map,
+            _ => unreachable!("fixture is a map"),
+        };
+        map.push((
+            CborValue::Integer((-2).into()),
+            CborValue::Bytes(vec![3u8; 32]),
+        ));
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&CborValue::Map(map), &mut encoded).expect("encode fixture");
+        let error = decode_cose_p256_public_key(&encoded).expect_err("duplicate must fail");
+        assert!(error.message.contains("duplicate x"));
     }
 }

@@ -1,0 +1,8 @@
+[package]
+name = "router-ab-ecdsa-pool"
+version = "0.1.0"
+edition = "2021"
+description = "Persistent one-use pool lifecycle for Router A/B ECDSA presignatures"
+license = "Apache-2.0"
+
+[dependencies]

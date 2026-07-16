@@ -31,6 +31,7 @@ pub mod secp256k1;
 pub mod tempo_tx;
 #[cfg(feature = "threshold-ecdsa")]
 pub mod threshold_ecdsa;
+#[cfg(feature = "webauthn-p256")]
 pub mod webauthn_p256;
 
 #[cfg(all(test, feature = "secp256k1", feature = "near-crypto"))]
